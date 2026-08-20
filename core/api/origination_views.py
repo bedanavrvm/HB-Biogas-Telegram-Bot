@@ -6,6 +6,7 @@ import json
 import logging
 from pathlib import Path
 
+from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
@@ -15,6 +16,7 @@ from core.models import (
     LoanOriginationApplication,
     OriginationProductDefinition,
     OriginationRequirementEvidence,
+    OriginationSigningPackage,
     OperationalLocation,
 )
 from core.services.origination_access import (
@@ -36,6 +38,7 @@ from core.services.loan_origination import (
     save_signing_requirements,
     serialize_application,
     submit_for_review,
+    take_over_correction_review,
 )
 from core.services.origination_documents import (
     mark_document_previewed,
@@ -44,6 +47,7 @@ from core.services.origination_documents import (
     save_document_fields,
     select_documents,
 )
+from core.services.origination_signing import render_test_package, simulate_slot
 
 
 logger = logging.getLogger(__name__)
@@ -99,7 +103,7 @@ def _request_id(request, body: dict) -> str:
 
 def _application(application_id: str):
     return LoanOriginationApplication.objects.select_related(
-        'product_definition', 'product_version__product', 'officer',
+        'product_definition', 'product_version__product', 'officer', 'recheck_assigned_to',
     ).prefetch_related(
         'requirement_evidence_files', 'correction_requests__items',
     ).filter(pk=application_id).first()
@@ -261,7 +265,9 @@ def portal_origination_applications(request):
     if request.method == 'GET':
         access = getattr(request, 'portal_access', None)
         queryset = scope_application_queryset(
-            LoanOriginationApplication.objects.select_related('product_definition', 'officer'),
+            LoanOriginationApplication.objects.select_related(
+                'product_definition', 'officer', 'recheck_assigned_to',
+            ),
             user=user, access=access,
         )
         capabilities = queue_capabilities(user=user, access=access)
@@ -305,7 +311,24 @@ def portal_origination_applications(request):
             queryset = queryset.filter(officer_id=officer_id)
         query = str(request.GET.get('q') or '').strip()
         if query:
-            queryset = queryset.filter(reference_number__icontains=query[:80])
+            term = query[:80]
+            queryset = queryset.filter(
+                Q(reference_number__icontains=term)
+                | Q(identity_snapshot__name__icontains=term)
+                | Q(identity_snapshot__national_id__icontains=term)
+                | Q(identity_snapshot__phone__icontains=term)
+                # Historical applications may predate the identity snapshot.
+                # Keep their approved legacy keys searchable during cutover.
+                | Q(form_payload__applicant_full_name__icontains=term)
+                | Q(form_payload__borrower_full_name__icontains=term)
+                | Q(form_payload__customer_name__icontains=term)
+                | Q(form_payload__applicant_id_number__icontains=term)
+                | Q(form_payload__applicant_national_id__icontains=term)
+                | Q(form_payload__national_id__icontains=term)
+                | Q(form_payload__applicant_phone__icontains=term)
+                | Q(form_payload__applicant_primary_phone__icontains=term)
+                | Q(form_payload__primary_phone__icontains=term)
+            )
         try:
             page = max(1, int(request.GET.get('page') or 1))
             page_size = min(100, max(1, int(request.GET.get('page_size') or 25)))
@@ -486,6 +509,30 @@ def portal_origination_review(request, application_id: str):
 
 @csrf_exempt
 @require_http_methods(['POST'])
+def portal_origination_correction_takeover(request, application_id: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if (error := _capability_error(request, 'portal.origination.review', application)):
+        return error
+    if (access_error := _application_access_error(request, application)):
+        return access_error
+    try:
+        body = _body(request)
+        application = take_over_correction_review(
+            application_id=application.pk, actor=request.portal_user,
+            expected_revision=int(body.get('revision')),
+            request_id=_request_id(request, body), reason=body.get('reason', ''),
+        )
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    return JsonResponse({'ok': True, 'application': serialize_application(application)})
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
 def portal_origination_prepare_signing(request, application_id: str):
     application = _application(application_id)
     if not application:
@@ -585,6 +632,78 @@ def portal_origination_evidence_upload(request, application_id: str, requirement
         'evidence': serialize_evidence(item),
         'application': serialize_application(refreshed),
     }, status=200 if replayed else 201)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_origination_test_signing_action(request, application_id: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if (error := _capability_error(request, 'portal.origination.signing.start', application)):
+        return error
+    if (access_error := _application_access_error(request, application)):
+        return access_error
+    try:
+        body = _body(request)
+        package, replayed = simulate_slot(
+            package_id=body.get('package_id'), actor=request.portal_user,
+            document_key=str(body.get('document_key') or ''),
+            slot_key=str(body.get('slot_key') or ''),
+            signer_role=str(body.get('signer_role') or ''),
+            stamp_asset_id=str(body.get('stamp_asset_id') or ''),
+            expected_revision=int(body.get('revision')),
+            request_id=_request_id(request, body),
+        )
+    except OriginationSigningPackage.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Signing package not found.'}, status=404)
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    application = _application(application.pk)
+    return JsonResponse({
+        'ok': True, 'replayed': replayed,
+        'application': serialize_application(application),
+    }, status=200 if replayed else 201)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_origination_test_signing_preview(request, application_id: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if (error := _capability_error(request, 'portal.origination.signing.start', application)):
+        return error
+    if (access_error := _application_access_error(request, application)):
+        return access_error
+    try:
+        body = _body(request)
+        if int(body.get('revision')) != application.revision:
+            raise OriginationConflict('This application changed. Refresh before previewing test signing.')
+        package = application.signing_packages.get(pk=body.get('package_id'))
+        content = render_test_package(package)
+        preview_format = str(body.get('preview_format') or 'pdf').strip().lower()
+        if preview_format == 'image':
+            from core.services.partnership_laf_preview import render_pdf_page
+            page_number = int(body.get('page') or 1)
+            content, total_pages = render_pdf_page(content, page_number=page_number)
+    except OriginationSigningPackage.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Signing package not found.'}, status=404)
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, RuntimeError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    if preview_format == 'image':
+        response = HttpResponse(content, content_type='image/jpeg')
+        response['X-Preview-Page-Count'] = str(total_pages)
+    else:
+        response = HttpResponse(content, content_type='application/pdf')
+    response['Content-Disposition'] = f'inline; filename="{application.reference_number}-TEST-signing.{"jpg" if preview_format == "image" else "pdf"}"'
+    response['Cache-Control'] = 'no-store, private'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 
 @csrf_exempt
@@ -769,12 +888,22 @@ def portal_origination_packet_preview(request, application_id: str):
         if int(body.get('revision')) != application.revision:
             raise OriginationConflict('This application changed. Refresh before previewing the packet.')
         content, manifest = render_packet(application)
+        preview_format = str(body.get('preview_format') or 'pdf').strip().lower()
+        if preview_format == 'image':
+            from core.services.partnership_laf_preview import render_pdf_page
+            page_number = int(body.get('page') or 1)
+            content, total_pages = render_pdf_page(content, page_number=page_number)
     except OriginationConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
-    except (OriginationError, TypeError, ValueError) as exc:
+    except (OriginationError, RuntimeError, TypeError, ValueError) as exc:
         return JsonResponse(_safe_error(exc), status=400)
-    response = HttpResponse(content, content_type='application/pdf')
-    response['Content-Disposition'] = f'inline; filename="{application.reference_number}-packet.pdf"'
+    if preview_format == 'image':
+        response = HttpResponse(content, content_type='image/jpeg')
+        response['Content-Disposition'] = f'inline; filename="{application.reference_number}-packet-page-{page_number}.jpg"'
+        response['X-Preview-Page-Count'] = str(total_pages)
+    else:
+        response = HttpResponse(content, content_type='application/pdf')
+        response['Content-Disposition'] = f'inline; filename="{application.reference_number}-packet.pdf"'
     response['X-Document-Count'] = str(len(manifest))
     response['Cache-Control'] = 'no-store, private'
     response['X-Content-Type-Options'] = 'nosniff'

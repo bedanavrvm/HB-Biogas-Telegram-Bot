@@ -116,6 +116,8 @@ from .models import (
     OriginationApplicationDocument,
     OriginationProductDocumentAssignment,
     OriginationSigningPackage,
+    OriginationSigningAction,
+    OriginationStampAsset,
     PaymentDocument,
     PaymentDocumentTemplate,
     RawMessage,
@@ -6886,7 +6888,9 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             'ok': True,
             'revision': published.revision,
             'product_key': product.product_key if product else '',
+            'product_name': product.name if product else '',
             'product_version': product.version if product else None,
+            'template_name': obj.name,
             'assignment_name': assignment.name if assignment else '',
         })
 
@@ -7064,6 +7068,102 @@ class OriginationSigningPackageAdmin(_AppendOnlyOriginationAdmin):
     list_display = ('external_reference', 'application', 'application_revision', 'status', 'updated_at')
     list_filter = ('status', 'document_type')
     search_fields = ('external_reference', 'application__reference_number')
+
+
+class OriginationStampAssetAdminForm(forms.ModelForm):
+    image_upload = forms.FileField(
+        label='Transparent PNG stamp', required=False,
+        help_text='PNG only, at most 2 MB. Create a new version to replace an active stamp.',
+    )
+
+    class Meta:
+        model = OriginationStampAsset
+        fields = ('name', 'branch', 'environment', 'active')
+
+    def clean_image_upload(self):
+        upload = self.cleaned_data.get('image_upload')
+        if not upload:
+            if not self.instance.pk:
+                raise ValidationError('Choose the approved PNG stamp image.')
+            return None
+        if self.instance.pk:
+            raise ValidationError('Stamp image bytes are immutable. Add a new stamp version instead.')
+        if int(getattr(upload, 'size', 0) or 0) > 2 * 1024 * 1024:
+            raise ValidationError('The stamp PNG must not exceed 2 MB.')
+        data = upload.read()
+        upload.seek(0)
+        try:
+            from io import BytesIO
+            from PIL import Image
+            image = Image.open(BytesIO(data))
+            image.verify()
+            if image.format != 'PNG':
+                raise ValueError('not png')
+            if image.width > 2000 or image.height > 2000:
+                raise ValidationError('The stamp image must be no larger than 2000 × 2000 pixels.')
+        except ValidationError:
+            raise
+        except Exception as exc:
+            raise ValidationError('Choose a genuine, readable PNG stamp image.') from exc
+        upload._validated_stamp_bytes = data
+        return upload
+
+
+@admin.register(OriginationStampAsset)
+class OriginationStampAssetAdmin(OriginationGodModeAdminMixin, ModelAdmin):
+    form = OriginationStampAssetAdminForm
+    list_display = ('name', 'branch', 'environment', 'version', 'active', 'activated_at')
+    list_filter = ('environment', 'active', 'branch')
+    search_fields = ('name', 'content_sha256', 'branch__name')
+    readonly_fields = (
+        'version', 'content_sha256', 'byte_size', 'created_by',
+        'activated_by', 'activated_at', 'created_at',
+    )
+
+    def has_add_permission(self, request):
+        return bool(request.user.is_active and request.user.is_superuser)
+
+    def has_change_permission(self, request, obj=None):
+        return bool(request.user.is_active and request.user.is_superuser)
+
+    def save_model(self, request, obj, form, change):
+        upload = form.cleaned_data.get('image_upload')
+        if not change:
+            import hashlib
+            data = bytes(upload._validated_stamp_bytes)
+            obj.image_png = data
+            obj.content_sha256 = hashlib.sha256(data).hexdigest()
+            obj.byte_size = len(data)
+            obj.created_by = request.user
+            obj.version = (
+                OriginationStampAsset.objects.filter(
+                    name__iexact=obj.name, branch=obj.branch,
+                    environment=obj.environment,
+                ).aggregate(models.Max('version'))['version__max'] or 0
+            ) + 1
+        if obj.active:
+            OriginationStampAsset.objects.filter(
+                name__iexact=obj.name, branch=obj.branch,
+                environment=obj.environment, active=True,
+            ).exclude(pk=obj.pk).update(active=False)
+            obj.activated_by = request.user
+            obj.activated_at = timezone.now()
+        super().save_model(request, obj, form, change)
+        self.message_user(
+            request,
+            f'{obj} saved. Test stamps remain unusable for production signing.',
+            level=messages.SUCCESS,
+        )
+
+
+@admin.register(OriginationSigningAction)
+class OriginationSigningActionAdmin(_AppendOnlyOriginationAdmin):
+    list_display = (
+        'package', 'document_key', 'slot_key', 'signer_role',
+        'action_type', 'mode', 'actor', 'created_at',
+    )
+    list_filter = ('mode', 'action_type', 'signer_role')
+    search_fields = ('package__external_reference', 'document_key', 'slot_key', 'request_id')
 
 
 @admin.register(OriginationReportingValue)

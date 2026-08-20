@@ -248,6 +248,7 @@ This is a template of variables this class of system typically needs. Treat it a
 | `ORIGINATION_FULL_RESET_ENABLED` | Testing-only gate for the active-Superuser Django Admin action that empties Origination database models while leaving Drive files and other workflows untouched; defaults to disabled | No |
 | `INVOICE_NAME_CHANGE_TEMPLATE_MAX_FILE_SIZE_MB` | DOCX size limit for governed invoice-name-change letter templates uploaded in Django Admin | No |
 | `ORIGINATION_EVIDENCE_MAX_FILE_SIZE_MB` / `ORIGINATION_EVIDENCE_MAX_FILES_PER_REQUIREMENT` / `ORIGINATION_EVIDENCE_MAX_TOTAL_UPLOAD_MB` | File, requirement, and application limits for validated Origination requirement evidence stored under the restricted Drive media root | No |
+| `ORIGINATION_TEST_SIGNING_ENABLED` | Enables the visibly watermarked no-OTP Origination simulator outside production only; defaults to disabled | No |
 | `COMPLAINT_CASES_WEBAPP_REQUIRE_TELEGRAM_AUTH` | Requires verified Telegram Mini App identity for complaint case APIs | No |
 | `TELEGRAM_AUTH_MAX_AGE_SECONDS` | Maximum age accepted by the shared Telegram-to-Django authentication backend | No |
 | `COMPLAINT_CASE_MAX_FILES_PER_UPDATE` / `COMPLAINT_CASE_MAX_FILE_SIZE_MB` / `COMPLAINT_CASE_MAX_TOTAL_UPLOAD_MB` | Per-update count, per-file size, and total-size limits for complaint evidence uploads | No |

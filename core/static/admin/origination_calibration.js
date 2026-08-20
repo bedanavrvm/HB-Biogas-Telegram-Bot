@@ -1108,7 +1108,9 @@
       status(
         data.assignment_name
           ? `${data.assignment_name} was published and added to this product's document packet.`
-          : `Published ${data.product_key || 'template'} version ${data.product_version || ''}`.trim(),
+          : data.product_name
+            ? `${data.product_name} version ${data.product_version} is published and available for new production applications.`
+            : `${data.template_name || 'Document template'} is published and available for product document packets.`,
         false, true,
       );
     } catch (error) {

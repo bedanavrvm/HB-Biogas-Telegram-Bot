@@ -55,6 +55,7 @@
   }
 
   function normalize() {
+    if (!supportingDocument) schema.identity_contract = 'applicant_v1';
     if (!schema.sections.length) {
       const seen = new Set();
       schema.fields.forEach(field => {
@@ -64,6 +65,14 @@
       });
       if (!schema.sections.length) schema.sections.push({ key: 'application', label: 'Application', help_text: 'Product application details' });
     }
+    const normalizedSectionKeys = [];
+    schema.sections.forEach((section, index) => {
+      const previousKey = section.key;
+      const nextKey = uniqueKey(section.label || `section_${index + 1}`, normalizedSectionKeys);
+      section.key = nextKey;
+      normalizedSectionKeys.push(nextKey);
+      schema.fields.filter(field => field.section_key === previousKey).forEach(field => { field.section_key = nextKey; });
+    });
     const firstSection = schema.sections[0]?.key || 'application';
     schema.fields.forEach(field => {
       field.section_key ||= firstSection;
@@ -128,7 +137,7 @@
       const fields = schema.fields.map((field, index) => ({ field, index })).filter(item => item.field.section_key === section.key);
       return `<article class="opb-section" data-section-index="${sectionIndex}">
         <div class="opb-row">
-          <label>Section key<input data-section-prop="key" value="${escapeHtml(section.key)}" pattern="[a-z0-9_]+" required></label>
+          <label>Section key<input data-section-prop="key" value="${escapeHtml(section.key)}" readonly aria-readonly="true"><small>Generated automatically from the section title.</small></label>
           <label>Section title<input data-section-prop="label" value="${escapeHtml(section.label || '')}" placeholder="Applicant" required><small>Use Applicant for the person applying; Borrower is reserved for legal signing.</small></label>
           <label class="opb-wide">Guidance<input data-section-prop="help_text" value="${escapeHtml(section.help_text || '')}"></label>
           <div class="opb-tools"><button type="button" data-action="section-up">Move up</button><button type="button" data-action="section-down">Move down</button><button type="button" data-action="add-field">Add field</button><button type="button" data-action="remove-section">Remove section</button></div>
@@ -164,6 +173,13 @@
   function render() { renderSections(); renderSigners(); sync(); }
   function move(list, index, delta) { const target = index + delta; if (target < 0 || target >= list.length) return; [list[index], list[target]] = [list[target], list[index]]; }
   function uniqueKey(base, values) { let key = slug(base), index = 2; while (values.includes(key)) key = `${slug(base)}_${index++}`; return key; }
+
+  function sectionKeyForTitle(title, sectionIndex) {
+    const used = schema.sections
+      .filter((_, index) => index !== sectionIndex)
+      .map(item => item.key);
+    return uniqueKey(title || `section_${sectionIndex + 1}`, used);
+  }
 
   let fieldPickerSectionIndex = 0;
   const advancedCatalogueUrl = document.querySelector('.opb-actions a[href*="originationdatafield"]')?.href || '#';
@@ -354,11 +370,17 @@
         })
         : event.target.type === 'checkbox' ? event.target.checked : event.target.value;
     } else if (sectionNode && event.target.dataset.sectionProp) {
-      const section = schema.sections[Number(sectionNode.dataset.sectionIndex)];
+      const sectionIndex = Number(sectionNode.dataset.sectionIndex);
+      const section = schema.sections[sectionIndex];
       const prop = event.target.dataset.sectionProp;
       const oldKey = section.key;
-      section[prop] = event.target.value;
-      if (prop === 'key') schema.fields.filter(field => field.section_key === oldKey).forEach(field => { field.section_key = event.target.value; });
+      if (prop === 'label') {
+        section.label = event.target.value;
+        section.key = sectionKeyForTitle(section.label, sectionIndex);
+        schema.fields.filter(field => field.section_key === oldKey).forEach(field => { field.section_key = section.key; });
+        const keyInput = sectionNode.querySelector('[data-section-prop="key"]');
+        if (keyInput) keyInput.value = section.key;
+      } else if (prop !== 'key') section[prop] = event.target.value;
     } else if (signerNode && event.target.dataset.signerProp) {
       signers[Number(signerNode.dataset.signerIndex)][event.target.dataset.signerProp] = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
     }
@@ -394,8 +416,9 @@
     const signerIndex = Number(button.closest('[data-signer-index]')?.dataset.signerIndex);
     const slotIndex = Number(button.closest('[data-slot-index]')?.dataset.slotIndex);
     if (action === 'add-section') {
-      const key = uniqueKey('section', schema.sections.map(item => item.key));
-      schema.sections.push({ key, label: `Section ${schema.sections.length + 1}`, help_text: '' });
+      const label = `Section ${schema.sections.length + 1}`;
+      const key = uniqueKey(label, schema.sections.map(item => item.key));
+      schema.sections.push({ key, label, help_text: '' });
     } else if (action === 'remove-section') {
       if (schema.fields.some(field => field.section_key === schema.sections[sectionIndex].key)) return window.alert('Move or remove this section\'s fields first.');
       if (schema.sections.length === 1) return window.alert(`A ${supportingDocument ? 'document' : 'product'} requires at least one section.`);

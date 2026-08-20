@@ -116,6 +116,13 @@ async function auditSharedPages(browser, viewport) {
       assert(await page.locator('#origination-product-builder').count(), `${viewport.name}: product builder missing`);
       const builderOverflow = await page.locator('#origination-product-builder').evaluate(node => node.scrollWidth - node.clientWidth);
       assert(builderOverflow <= 1, `${viewport.name}: product builder overflow ${builderOverflow}px`);
+      const firstSectionKey = page.locator('[data-section-prop="key"]').first();
+      assert(await firstSectionKey.isDisabled() || await firstSectionKey.getAttribute('readonly') !== null, `${viewport.name}: section key remains free-form`);
+      await page.locator('[data-section-prop="label"]').first().fill('Applicant identity');
+      assert(await page.locator('[data-section-prop="key"]').first().inputValue() === 'applicant_identity', `${viewport.name}: section key did not follow its title`);
+      const schemaAfterRename = JSON.parse(await page.locator('#id_form_schema').inputValue());
+      assert(schemaAfterRename.sections[0].key === 'applicant_identity', `${viewport.name}: generated section key was not persisted to the schema`);
+      assert(schemaAfterRename.fields[0].section_key === 'applicant_identity', `${viewport.name}: fields did not follow the generated section key`);
       await page.locator('[data-action="add-field"]').first().click();
       const picker = page.locator('.opb-field-picker');
       await picker.waitFor({ state: 'visible' });

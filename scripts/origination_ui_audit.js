@@ -14,10 +14,10 @@ const viewports = [
 ];
 
 const fields = [
-  { key: 'applicant_name', label: 'Applicant name', type: 'text', section_key: 'applicant' },
+  { key: 'applicant_full_name', label: 'Applicant full name', type: 'text', section_key: 'applicant' },
   { key: 'applicant_phone', label: 'Phone number', type: 'phone', section_key: 'applicant' },
-  { key: 'national_id', label: 'National ID', type: 'national_id', section_key: 'applicant' },
-  { key: 'date_of_birth', label: 'Date of birth', type: 'date', section_key: 'applicant' },
+  { key: 'applicant_national_id', label: 'National ID', type: 'national_id', section_key: 'applicant' },
+  { key: 'applicant_dob', label: 'Date of birth', type: 'date', section_key: 'applicant' },
   { key: 'county', label: 'County', type: 'county', section_key: 'applicant' },
   { key: 'applicant_notes', label: 'Applicant notes', type: 'textarea', width: 'full', section_key: 'applicant' },
   { key: 'business_name', label: 'Business name', type: 'text', section_key: 'business' },
@@ -33,6 +33,7 @@ const sections = [
 const application = id => ({
   id, reference_number: `JBL-2026-${String(id).padStart(4, '0')}`, product_name: id % 2 ? 'Jawabu Express' : 'Biogas Asset Finance',
   branch: 'Embu', officer_name: 'Synthetic Officer', status: 'draft', revision: 1,
+  applicant_summary: { name: `Synthetic Applicant ${id}`, national_id: '••••5678', phone: '••••••5678' },
   form_schema: { sections, fields }, form_payload: {}, product_terms: {}, product_requirements: {},
   product_custom_values: {}, product_selected_fee_keys: [], requirement_evidence: [],
   document_packet: {
@@ -66,12 +67,12 @@ async function installApiMocks(page, delayMs = 0) {
     const json = body => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
     if (apiPath === '/products/' && request.method() === 'GET') return json({
       products: [{ product_key: 'express', name: 'Jawabu Express' }, { product_key: 'biogas', name: 'Biogas Asset Finance' }],
-      branches: ['Embu', 'Nakuru'], capabilities: { can_create: true, can_review: true, can_start_signing: true },
+      branches: ['Embu', 'Nakuru'], capabilities: { user_id: 1, can_create: true, can_review: true, can_start_signing: true },
       location_catalog: { branches: [], counties: [], branch_service_areas: {} },
     });
     if (apiPath === '/applications/' && request.method() === 'GET') return json({
       applications, counts: { draft: 16, correction_required: 2, ready_for_review: 3, reviewed: 1 },
-      capabilities: { can_create: true, can_review: true, can_start_signing: true },
+      capabilities: { user_id: 1, can_create: true, can_review: true, can_start_signing: true },
       pagination: { page: 1, pages: 1, total: applications.length },
     });
     if (apiPath === '/applications/' && request.method() === 'POST') {
@@ -137,6 +138,7 @@ async function auditViewport(browser, viewport) {
   assert(metrics.overflow <= 1, `${viewport.name}: horizontal overflow ${metrics.overflow}px`);
   assert(metrics.firstTop <= 320, `${viewport.name}: first card begins at ${metrics.firstTop}px`);
   assert(metrics.visibleCards >= 3, `${viewport.name}: only ${metrics.visibleCards} complete cards visible`);
+  assert((await page.locator('.application-card').first().textContent()).includes('Synthetic Applicant 1'), `${viewport.name}: queue card does not lead with Applicant identity`);
   await page.screenshot({ path: path.join(outputDir, `${viewport.name}-list.png`), fullPage: true });
 
   const start = page.locator('#origination-start');
@@ -168,12 +170,13 @@ async function auditViewport(browser, viewport) {
   await page.locator('.wizard-progress-compact').waitFor();
   assert(await page.evaluate(() => scrollY <= 1), `${viewport.name}: editor did not reset scroll`);
   assert(await page.locator('input[type="date"]').count() === 0, `${viewport.name}: browser-native date input remains in the editor`);
-  const dateTrigger = page.locator('[data-field="date_of_birth"] + .origination-date-trigger');
+  const dateTrigger = page.locator('[data-field="applicant_dob"] + .origination-date-trigger');
   await dateTrigger.waitFor();
   await dateTrigger.click();
+  assert(await page.locator('#origination-date-year option').count() >= 100, `${viewport.name}: date picker does not support direct traversal across years`);
   await page.screenshot({ path: path.join(outputDir, `${viewport.name}-date-picker.png`) });
   await page.locator('#origination-date-days .origination-calendar-day:not([disabled])').first().click();
-  assert(/^\d{4}-\d{2}-\d{2}$/.test(await page.locator('[data-field="date_of_birth"]').inputValue()), `${viewport.name}: custom calendar did not store an ISO date`);
+  assert(/^\d{4}-\d{2}-\d{2}$/.test(await page.locator('[data-field="applicant_dob"]').inputValue()), `${viewport.name}: custom calendar did not store an ISO date`);
   await page.screenshot({ path: path.join(outputDir, `${viewport.name}-editor.png`), fullPage: true });
   await page.locator('#origination-section-picker').click();
   await page.locator('[data-section-index="1"]').click();

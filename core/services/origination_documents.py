@@ -246,6 +246,10 @@ def select_documents(*, application_id, actor, selected_keys: Any, expected_revi
         raise OriginationError('Only the assigned officer may select supporting documents.')
     if int(expected_revision) != application.revision:
         raise OriginationConflict('This application changed. Refresh before selecting documents.')
+    if application.status == LoanOriginationApplication.STATUS_CORRECTION_REQUIRED:
+        raise OriginationError('Supporting-document selection is locked during a targeted correction.')
+    if application.status != LoanOriginationApplication.STATUS_DRAFT:
+        raise OriginationError('Supporting documents cannot be selected in this application state.')
     if application.primary_previewed_revision != application.revision and not application.events.filter(
         action='document_previewed', revision=application.revision,
     ).exists():
@@ -286,7 +290,8 @@ def select_documents(*, application_id, actor, selected_keys: Any, expected_revi
 def save_document_fields(*, application_id, document_key: str, actor, payload: Any, expected_revision: int, request_id: str):
     from core.services.loan_origination import (
         OriginationConflict, OriginationError, _record_event, _require_request_id,
-        normalize_form_payload, synchronize_legacy_security_values, validate_form_payload,
+        _changed_keys, correction_targets, normalize_form_payload,
+        synchronize_legacy_security_values, validate_form_payload,
     )
     request_id = _require_request_id(request_id)
     application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
@@ -296,14 +301,38 @@ def save_document_fields(*, application_id, document_key: str, actor, payload: A
         raise OriginationError('Only the assigned officer may edit supporting documents.')
     if int(expected_revision) != application.revision:
         raise OriginationConflict('This application changed. Refresh before saving this document.')
+    if application.status not in {
+        LoanOriginationApplication.STATUS_DRAFT,
+        LoanOriginationApplication.STATUS_CORRECTION_REQUIRED,
+    }:
+        raise OriginationError('This supporting document is no longer editable.')
     document = application.packet_documents.select_for_update().filter(document_key=document_key).first()
     if not document or document.document_role == OriginationDocumentTemplate.ROLE_PRIMARY or not document.selected:
         raise OriginationError('This supporting document is not selected for the application.')
     schema = document.schema_snapshot or {'fields': []}
+    if application.status == LoanOriginationApplication.STATUS_CORRECTION_REQUIRED and isinstance(payload, dict):
+        # Correction UIs submit only unlocked controls. Merge them over the
+        # frozen document values before validation/comparison so locked fields
+        # cannot be erased by omission.
+        payload = {**(document.field_payload or {}), **payload}
     payload = normalize_form_payload(schema, payload)
     result = validate_form_payload(schema, payload, require_complete=False)
     if not result.valid:
         raise OriginationError('Correct the supporting-document fields before saving.', errors=result.errors)
+    if application.status == LoanOriginationApplication.STATUS_CORRECTION_REQUIRED:
+        targets = correction_targets(application)['document_field']
+        changed = _changed_keys(document.field_payload, payload)
+        permitted = {
+            key for key in changed
+            if f'{document.document_key}.{key}' in targets
+            or any(target.startswith(f'{document.document_key}.{key}.') for target in targets)
+        }
+        disallowed = changed - permitted
+        if disallowed:
+            raise OriginationError(
+                'Only supporting-document fields requested by the checker may be changed.',
+                errors={key: 'This document field is locked.' for key in disallowed},
+            )
     allowed = {str(item.get('key')) for item in _document_fields(document)}
     primary_keys = {
         str(item.get('key')) for item in (application.schema_snapshot or {}).get('fields', [])

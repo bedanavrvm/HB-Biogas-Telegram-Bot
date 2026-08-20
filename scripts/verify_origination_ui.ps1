@@ -29,6 +29,14 @@ $stdout = Join-Path $auditRoot 'django-ui-audit.log'
 $stderr = Join-Path $auditRoot 'django-ui-audit.err.log'
 $server = $null
 
+# Some Windows agent shells expose both `Path` and `PATH`. Start-Process builds
+# a case-insensitive environment dictionary and otherwise fails before Django
+# starts. Preserve both values under the canonical Windows key.
+$processEnvironment = [System.Environment]::GetEnvironmentVariables()
+$combinedPath = (@($processEnvironment['Path'], $processEnvironment['PATH']) | Where-Object { $_ }) -join ';'
+[System.Environment]::SetEnvironmentVariable('PATH', $null, 'Process')
+[System.Environment]::SetEnvironmentVariable('Path', $combinedPath, 'Process')
+
 try {
     & "$repository\.venv\Scripts\python.exe" manage.py migrate --noinput | Out-Null
     $server = Start-Process -FilePath "$repository\.venv\Scripts\python.exe" -ArgumentList @('manage.py', 'runserver', "127.0.0.1:$Port", '--noreload') -WorkingDirectory $repository -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru

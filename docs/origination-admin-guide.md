@@ -260,13 +260,16 @@ Before publication, confirm:
 - there is exactly one mapped primary LAF;
 - every supporting document resolves to a published compatible template;
 - all required fields and signer slots are placed;
+- Applicant name, National ID, and primary telephone are attached and marked required;
 - filled samples render correctly on every page;
 - there are no unresolved field-review issues; and
 - an officer/reviewer access test has been prepared.
 
 Use **Publish product** in the main LAF builder. The server validates and
 activates the document/product contract and publishes the linked Global Product
-terms version if it is still a draft. Publication is audit-logged.
+terms version if it is still a draft. Publication is audit-logged. A successful
+publish leaves a persistent message naming the product and version that is now
+available for new production applications.
 
 ### 9. Grant Mini App access
 
@@ -280,6 +283,29 @@ Use workflow `Jawabu Portal` and the narrowest required branch/product scope:
 | `JBL_OFFICER` | View, create, and edit their own applications. |
 | `OPERATIONS_ADMIN` | View/review applications and prepare signing packages. |
 | `BUSINESS_ADMIN` (Head of Rural) | View and review applications. |
+
+### Signing and stamps during testing
+
+`Prepare signing package` freezes and hashes the reviewed packet. It is not an
+OTP or e-sign dispatch. When `ORIGINATION_TEST_SIGNING_ENABLED=True` and
+`SENTRY_ENVIRONMENT` is explicitly `development`, `dev`, `local`, `test`,
+`testing`, or `staging`, the Signing queue exposes a simulator that places
+watermarked `TEST SIGNATURE` values into configured signature slots.
+
+Create test stamps from **Configuration → Origination stamp assets**. Upload a
+genuine PNG, choose `Test only`, optionally restrict it to a branch, and make
+the version active. Only active test stamps appear in the simulator. Test
+outputs remain visibly watermarked and never make an application fully signed.
+Production stamp assets cannot be applied until a verified production signing
+integration supplies signature evidence.
+
+### Correction re-checks
+
+The checker must select at least one exact field, requirement, or supporting
+document field. During correction all other controls are locked in the Mini App
+and at the API. Resubmission returns to that original checker. Another scoped
+checker must use **Take over re-check** and give an audited reason before they
+can decide it.
 
 The role-capability policy is authoritative and may be customized through the
 governed access-control workflow. Product and branch scopes further restrict the

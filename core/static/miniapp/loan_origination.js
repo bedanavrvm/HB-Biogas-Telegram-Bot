@@ -478,7 +478,19 @@
     if (!activeDateInput || !dateDisplayMonth) return;
     const year = dateDisplayMonth.getFullYear();
     const month = dateDisplayMonth.getMonth();
-    document.getElementById('origination-date-month').textContent = new Intl.DateTimeFormat('en-KE', { month: 'long', year: 'numeric' }).format(dateDisplayMonth);
+    const monthSelect = document.getElementById('origination-date-month');
+    const yearSelect = document.getElementById('origination-date-year');
+    const monthNames = Array.from({ length: 12 }, (_, index) => new Intl.DateTimeFormat('en-KE', { month: 'long' }).format(new Date(2020, index, 1)));
+    monthSelect.innerHTML = monthNames.map((label, index) => `<option value="${index}"${index === month ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
+    const minDate = parseIsoDate(activeDateInput.getAttribute('min'));
+    const maxDate = parseIsoDate(activeDateInput.getAttribute('max'));
+    const todayYear = new Date().getFullYear();
+    const firstYear = minDate?.getFullYear() ?? (todayYear - 120);
+    const lastYear = maxDate?.getFullYear() ?? (todayYear + 10);
+    yearSelect.innerHTML = Array.from(
+      { length: Math.max(1, lastYear - firstYear + 1) },
+      (_, index) => firstYear + index,
+    ).reverse().map(value => `<option value="${value}"${value === year ? ' selected' : ''}>${value}</option>`).join('');
     const days = document.getElementById('origination-date-days');
     days.replaceChildren();
     const mondayOffset = (new Date(year, month, 1).getDay() + 6) % 7;
@@ -851,6 +863,7 @@
     syncConflict = false;
     conflictDraft = null;
     await recoverDraft(application);
+    if (application.status === 'signing_pending') requestedStep = wizardSections().length - 1;
     renderEditor(current, requestedStep);
   }
 
@@ -896,6 +909,14 @@
 
   function fieldsFor(sectionKey) {
     return (current?.form_schema?.fields || []).filter(field => (field.section_key || sectionFor(field.key)) === sectionKey);
+  }
+
+  function correctionAllows(targetType, targetKey) {
+    if (current?.status !== 'correction_required') return true;
+    return (current?.active_correction?.items || []).some(item => (
+      item.target_type === targetType
+      && (item.target_key === targetKey || item.target_key.startsWith(`${targetKey}.`))
+    ));
   }
 
   function collectPayload() {
@@ -957,19 +978,21 @@
       const correction = current.status === 'ready_for_review' ? correctionToggle('requirement', item.key, item.label) : '';
       if (item.type === 'document') {
         const evidence = (current?.requirement_evidence || []).filter(file => file.requirement_key === item.key && file.status !== 'removed');
-        const upload = evidenceEditable ? `<label class="evidence-upload"><input type="file" accept="application/pdf,image/jpeg,image/png" data-evidence-upload="${escapeHtml(item.key)}"><span>Choose PDF, JPG or PNG</span></label>` : '';
-        const fileRows = evidence.map(file => `<span class="evidence-row status-${escapeHtml(file.status)}"><span><strong>${escapeHtml(file.filename)}</strong><small>${escapeHtml(file.status === 'failed' ? file.error || 'Upload failed' : `${Math.max(1, Math.round(file.byte_size / 1024))} KB · ${file.status}`)}</small></span><span class="evidence-actions">${file.download_url ? `<button type="button" data-evidence-open="${escapeHtml(file.id)}">Open</button>` : ''}${evidenceEditable && file.status === 'uploaded' ? `<button type="button" data-evidence-remove="${escapeHtml(file.id)}">Remove</button>` : ''}</span></span>`).join('');
+        const itemEditable = evidenceEditable && correctionAllows('requirement', item.key);
+        const upload = itemEditable ? `<label class="evidence-upload"><input type="file" accept="application/pdf,image/jpeg,image/png" data-evidence-upload="${escapeHtml(item.key)}"><span>Choose PDF, JPG or PNG</span></label>` : '';
+        const fileRows = evidence.map(file => `<span class="evidence-row status-${escapeHtml(file.status)}"><span><strong>${escapeHtml(file.filename)}</strong><small>${escapeHtml(file.status === 'failed' ? file.error || 'Upload failed' : `${Math.max(1, Math.round(file.byte_size / 1024))} KB · ${file.status}`)}</small></span><span class="evidence-actions">${file.download_url ? `<button type="button" data-evidence-open="${escapeHtml(file.id)}">Open</button>` : ''}${itemEditable && file.status === 'uploaded' ? `<button type="button" data-evidence-remove="${escapeHtml(file.id)}">Remove</button>` : ''}</span></span>`).join('');
         return `<div class="laf-field laf-field-wide evidence-field" data-product-wrap="requirement:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}${required}</span>${item.description ? `<small class="field-help">${escapeHtml(item.description)}</small>` : ''}${stage}${correction}${fileRows || '<small class="field-help">No evidence uploaded.</small>'}${upload}<small class="field-error" aria-live="polite"></small></div>`;
       }
       const signingEditable = current?.status === 'reviewed'
         && capabilities.can_start_signing && item.enforcement_stage === 'signing';
-      return `<label class="laf-field" data-product-wrap="requirement:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}${required}</span>${item.description ? `<small class="field-help">${escapeHtml(item.description)}</small>` : ''}${stage}${correction}${configurationControl(item, current?.product_requirements?.[item.key], 'data-product-requirement', !(editable || signingEditable))}<small class="field-error" aria-live="polite"></small></label>`;
+      const itemEditable = (editable && correctionAllows('requirement', item.key)) || signingEditable;
+      return `<label class="laf-field" data-product-wrap="requirement:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}${required}</span>${item.description ? `<small class="field-help">${escapeHtml(item.description)}</small>` : ''}${stage}${correction}${configurationControl(item, current?.product_requirements?.[item.key], 'data-product-requirement', !itemEditable)}<small class="field-error" aria-live="polite"></small></label>`;
     }).join('');
     const attributeRows = attributes.map(item => {
       const required = item.required ? '<span class="required-mark" aria-label="required">*</span>' : '';
-      return `<label class="laf-field" data-product-wrap="custom:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}${required}</span>${item.help_text ? `<small class="field-help">${escapeHtml(item.help_text)}</small>` : ''}${configurationControl(item, current?.product_custom_values?.[item.key] ?? item.default, 'data-product-custom', !editable)}<small class="field-error" aria-live="polite"></small></label>`;
+      return `<label class="laf-field" data-product-wrap="custom:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}${required}</span>${item.help_text ? `<small class="field-help">${escapeHtml(item.help_text)}</small>` : ''}${configurationControl(item, current?.product_custom_values?.[item.key] ?? item.default, 'data-product-custom', !editable || current?.status === 'correction_required')}<small class="field-error" aria-live="polite"></small></label>`;
     }).join('');
-    const feeRows = optionalFees.map(item => `<label class="laf-field configuration-fee" data-product-wrap="fee:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}</span><small class="field-help">Optional ${escapeHtml(item.collection_mode)} fee</small><label class="configuration-check"><input type="checkbox" data-product-fee="${escapeHtml(item.key)}"${selected.has(item.key) ? ' checked' : ''}${editable ? '' : ' disabled'}><span>Include in quote</span></label><small class="field-error" aria-live="polite"></small></label>`).join('');
+    const feeRows = optionalFees.map(item => `<label class="laf-field configuration-fee" data-product-wrap="fee:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}</span><small class="field-help">Optional ${escapeHtml(item.collection_mode)} fee</small><label class="configuration-check"><input type="checkbox" data-product-fee="${escapeHtml(item.key)}"${selected.has(item.key) ? ' checked' : ''}${editable && current?.status !== 'correction_required' ? '' : ' disabled'}><span>Include in quote</span></label><small class="field-error" aria-live="polite"></small></label>`).join('');
     const quote = current?.product_quote || {};
     const quoteMarkup = quote.installment_amount ? `<aside class="notice"><strong>Current quote</strong><span>${escapeHtml(quote.currency)} ${escapeHtml(quote.installment_amount)} × ${escapeHtml(quote.installment_count)}; total repayment ${escapeHtml(quote.currency)} ${escapeHtml(quote.total_repayment)}${quote.upfront_fees !== '0.00' ? `; upfront fees ${escapeHtml(quote.currency)} ${escapeHtml(quote.upfront_fees)}` : ''}</span></aside>` : '';
     return `${quoteMarkup}<div class="laf-grid">${requirementRows}${attributeRows}${feeRows}</div>`;
@@ -1049,7 +1072,9 @@
       const validation = field.validation || {};
       const numeric = field.type === 'money' ? ` inputmode="decimal" data-numeric-input data-min="${escapeHtml(validation.min ?? 0)}" data-max="${escapeHtml(validation.max ?? '')}"` : field.type === 'number' ? ` inputmode="decimal" data-numeric-input data-min="${escapeHtml(validation.min ?? '')}" data-max="${escapeHtml(validation.max ?? '')}"` : '';
       const textRules = ['text', 'textarea', 'phone', 'national_id'].includes(field.type) ? `${validation.min_length != null ? ` minlength="${escapeHtml(validation.min_length)}"` : ''}${validation.max_length != null ? ` maxlength="${escapeHtml(validation.max_length)}"` : ''}${validation.pattern ? ` pattern="${escapeHtml(validation.pattern)}"` : ''}` : '';
-      const dateRules = field.type === 'date' ? `${validation.min_date ? ` min="${escapeHtml(validation.min_date)}"` : ''}${validation.max_date ? ` max="${escapeHtml(validation.max_date)}"` : ''}` : '';
+      const dobMin = field.key === 'applicant_dob' ? isoDate(new Date(new Date().getFullYear() - 120, 0, 1)) : '';
+      const dobMax = field.key === 'applicant_dob' ? isoDate(new Date()) : '';
+      const dateRules = field.type === 'date' ? `${validation.min_date || dobMin ? ` min="${escapeHtml(validation.min_date || dobMin)}"` : ''}${validation.max_date || dobMax ? ` max="${escapeHtml(validation.max_date || dobMax)}"` : ''}` : '';
       control = `<div class="input-wrap${prefix ? ' has-prefix' : ''}">${prefix}<input data-field="${key}" type="${type}" value="${escapeHtml(value ?? '')}"${field.type === 'date' ? ` data-date-input inputmode="none" readonly${field.required ? ' required' : ''}` : ''}${numeric}${textRules}${dateRules}${field.type === 'national_id' ? ' inputmode="numeric"' : ''}${disabled ? ' disabled' : ''}></div>`;
     }
     const help = field.help_text ? `<small class="field-help">${escapeHtml(field.help_text)}</small>` : '';
@@ -1294,12 +1319,36 @@
         const fields = fieldsFor(section.key);
         const completed = fields.filter(field => values[field.key] !== '' && values[field.key] != null).length;
         return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(section.label)}</strong><small>${completed} of ${fields.length} fields completed</small></span><span>Edit ${iconSvg('arrowRight')}</span></button>`;
-      }).join('')}</div>`;
+      }).join('')}</div>${signingTestMarkup()}`;
+  }
+
+  function signingTestMarkup() {
+    const packageData = current?.signing_package;
+    if (!packageData || current?.status !== 'signing_pending') return '';
+    const test = packageData.test_signing || {};
+    if (!test.enabled || !test.test_mode) {
+      return '<aside class="notice"><strong>Signing package prepared</strong><span>Production OTP/e-sign dispatch is not connected yet. This package is frozen and awaiting the verified signing integration.</span></aside>';
+    }
+    const stamps = packageData.test_stamps || [];
+    const rows = (test.slots || []).map(slot => {
+      const label = slot.label || `${slot.role} ${slot.key}`.replaceAll('_', ' ');
+      if (slot.completed) return `<div class="signing-test-slot is-complete"><span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(slot.type)} · completed by ${escapeHtml(slot.actor_name || 'authorized tester')}</small></span><span class="status-chip">TEST complete</span></div>`;
+      const stampSelect = slot.type === 'stamp'
+        ? `<select data-test-stamp-select><option value="">Choose test stamp</option>${stamps.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)} v${escapeHtml(item.version)} · ${escapeHtml(item.scope)}</option>`).join('')}</select>`
+        : '';
+      return `<div class="signing-test-slot"><span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(slot.role.replaceAll('_', ' '))} · ${escapeHtml(slot.document_key)}</small></span>${stampSelect}<button type="button" class="btn btn-secondary" data-test-sign-slot data-package-id="${escapeHtml(packageData.id)}" data-document-key="${escapeHtml(slot.document_key)}" data-slot-key="${escapeHtml(slot.key)}" data-signer-role="${escapeHtml(slot.role)}" data-slot-type="${escapeHtml(slot.type)}">${slot.type === 'stamp' ? 'Apply TEST stamp' : 'Simulate signature'}</button></div>`;
+    }).join('');
+    return `<section class="signing-test-panel"><p class="eyebrow">Non-production simulator</p><h3>Test signer and stamp placement</h3><p>These actions do not use OTP and cannot create a legally signed application. Every page remains watermarked.</p>${rows || '<div class="empty-state">No signing slots were configured.</div>'}<button type="button" class="btn btn-primary" id="origination-test-signing-preview">Preview TEST signed packet</button></section>`;
   }
 
   function actionMarkup(editable) {
     if (!editable) {
-      if (current.status === 'ready_for_review' && capabilities.can_review) return '<button class="btn btn-secondary" data-review="request_correction">Request correction</button><button class="btn btn-danger" data-review="decline">Decline</button><button class="btn btn-primary" data-review="approve">Approve</button>';
+      if (current.status === 'ready_for_review' && capabilities.can_review) {
+        const assignedElsewhere = current.recheck_assigned_to_id
+          && String(current.recheck_assigned_to_id) !== String(capabilities.user_id);
+        if (assignedElsewhere) return '<button class="btn btn-secondary" id="origination-takeover-review">Take over re-check</button>';
+        return '<button class="btn btn-secondary" data-review="request_correction">Request correction</button><button class="btn btn-danger" data-review="decline">Decline</button><button class="btn btn-primary" data-review="approve">Approve</button>';
+      }
       if (current.status === 'reviewed' && capabilities.can_start_signing) return '<button class="btn btn-primary" id="origination-prepare-signing" data-primary-action="Prepare signing package">Prepare signing package</button>';
       return '';
     }
@@ -1310,7 +1359,19 @@
     const correction = current?.active_correction;
     if (!correction) return '';
     const items = (correction.items || []).map(item => `<button type="button" class="correction-item" data-correction-jump="${escapeHtml(`${item.target_type}:${item.target_key}`)}"><span><strong>${escapeHtml(item.target_label)}</strong>${item.instruction ? `<small>${escapeHtml(item.instruction)}</small>` : ''}</span><span>Open ${iconSvg('arrowRight')}</span></button>`).join('');
-    return `<aside class="correction-checklist"><p class="eyebrow">Correction required</p><strong>${escapeHtml(correction.summary)}</strong>${items ? `<div>${items}</div>` : '<small>Review the application and address the reviewer note.</small>'}</aside>`;
+    const checker = current?.recheck_assigned_to_name
+      ? `<small class="correction-checker">Re-check assigned to ${escapeHtml(current.recheck_assigned_to_name)}</small>`
+      : '';
+    return `<aside class="correction-checklist"><p class="eyebrow">Correction required</p><strong>${escapeHtml(correction.summary)}</strong>${checker}${items ? `<div>${items}</div>` : '<small>Review the application and address the reviewer note.</small>'}</aside>`;
+  }
+
+  function recheckAssignmentMarkup() {
+    if (current?.status !== 'ready_for_review' || !current?.recheck_assigned_to_name) return '';
+    const assignedHere = String(current.recheck_assigned_to_id) === String(capabilities.user_id);
+    const detail = assignedHere
+      ? 'You are the original checker responsible for this re-check.'
+      : 'Another authorized checker must record a takeover reason before reviewing it.';
+    return `<aside class="notice"><strong>Correction re-check</strong><span>Assigned to ${escapeHtml(current.recheck_assigned_to_name)}. ${detail}</span></aside>`;
   }
 
   function recoveryConflictMarkup() {
@@ -1328,16 +1389,16 @@
     const section = sections[step];
     let content;
     if (section.key === 'review') content = reviewMarkup(values);
-    else if (section.key === 'document_selection') content = documentSelectionMarkup(editable);
+    else if (section.key === 'document_selection') content = documentSelectionMarkup(editable && application.status !== 'correction_required');
     else if (section.key.startsWith('document:')) content = supportingDocumentMarkup(section.document, editable);
     else {
       const fields = section.key === 'product_requirements'
         ? productConfigurationMarkup(editable)
-        : `<div class="laf-grid">${fieldsFor(section.key).map(field => fieldInput(field, values[field.key], !editable || field.editable === false)).join('')}</div>`;
+        : `<div class="laf-grid">${fieldsFor(section.key).map(field => fieldInput(field, values[field.key], !editable || field.editable === false || !correctionAllows('field', field.key))).join('')}</div>`;
       content = `<div class="section-title"><div><h3>${escapeHtml(section.label)}</h3><p>${escapeHtml(section.hint || '')}</p></div><button type="button" class="preview-link" id="origination-preview-early">Preview PDF</button></div>${fields}`;
     }
     const recoveryState = syncConflict ? ['Conflict', 'offline'] : dirty ? ['Recovered securely', 'offline'] : ['Saved', 'saved'];
-    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small></div><span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(application.status.replaceAll('_', ' '))}</span></div>${recoveryConflictMarkup()}${correctionChecklistMarkup()}${progressMarkup()}<section class="wizard-card">${content}</section><footer class="wizard-actions"><span id="origination-save-status" data-state="${recoveryState[1]}">${recoveryState[0]}</span><div>${actionMarkup(editable)}</div></footer>`;
+    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small></div><span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(application.status.replaceAll('_', ' '))}</span></div>${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${progressMarkup()}<section class="wizard-card">${content}</section><footer class="wizard-actions"><span id="origination-save-status" data-state="${recoveryState[1]}">${recoveryState[0]}</span><div>${actionMarkup(editable)}</div></footer>`;
     bindEditor(editable);
     syncTelegramControls();
     window.requestAnimationFrame(() => window.scrollTo(0, 0));
@@ -1388,7 +1449,8 @@
     const locked = field.source_type === 'system' || (
       mainFormOwnsField && shared !== undefined && shared !== null && shared !== ''
     );
-    const disabled = !editable || locked;
+    const correctionKey = `${document.key}.${field.key}`;
+    const disabled = !editable || locked || !correctionAllows('document_field', correctionKey);
     const required = field.required ? '<span class="required-mark" aria-label="required">*</span>' : '';
     let control;
     if (field.type === 'repeating_group') {
@@ -1444,9 +1506,11 @@
     const hint = document.getElementById('review-dialog-hint');
     const targets = document.getElementById('review-dialog-targets');
     const summary = document.getElementById('review-dialog-summary');
-    title.textContent = mode === 'decline' ? 'Decline application' : 'Request corrections';
+    title.textContent = mode === 'decline' ? 'Decline application' : mode === 'takeover' ? 'Take over correction re-check' : 'Request corrections';
     hint.textContent = mode === 'decline'
       ? 'Record the reason. The decision is retained in the application audit history.'
+      : mode === 'takeover'
+        ? 'Explain why the original checker is unavailable. The reassignment is audited.'
       : 'Give the officer an overall instruction for the flagged items.';
     targets.innerHTML = mode === 'request_correction'
       ? [...reviewTargets.entries()].map(([identity, item]) => `<label><span>${escapeHtml(item.target_label)}</span><input data-review-instruction="${escapeHtml(identity)}" maxlength="1000" value="${escapeHtml(item.instruction || '')}" placeholder="Optional item-specific instruction"></label>`).join('')
@@ -1475,6 +1539,19 @@
     const reason = document.getElementById('review-dialog-summary').value.trim();
     if (!reason) return showToast('Enter the review reason.', true);
     const decision = reviewDialogMode;
+    if (decision === 'takeover') {
+      const button = document.getElementById('review-dialog-submit');
+      button.disabled = true;
+      const result = await postJson(`/applications/${current.id}/correction/takeover/`, {
+        revision: current.revision, reason,
+      });
+      button.disabled = false;
+      if (!result.ok) return showToast(result.data?.error || 'Could not take over this review.', true);
+      closeReviewDialog();
+      current = result.data.application;
+      renderEditor(current, step);
+      return showToast('Correction re-check assigned to you.');
+    }
     if (decision === 'request_correction') {
       document.querySelectorAll('[data-review-instruction]').forEach(input => {
         const item = reviewTargets.get(input.dataset.reviewInstruction);
@@ -1596,7 +1673,8 @@
   }
 
   async function saveSupportingDocument(documentKey) {
-    const payload = {};
+    const document = (current?.document_packet?.documents || []).find(item => item.key === documentKey);
+    const payload = { ...(document?.field_payload || {}) };
     root().querySelectorAll('[data-repeatable-field]').forEach(container => {
       payload[container.dataset.repeatableField] = [...container.querySelectorAll('[data-repeat-row]')].map(row => {
         const item = { row_id: row.dataset.rowId || newRowId() };
@@ -1628,15 +1706,7 @@
   }
 
   async function openPacketPreview() {
-    const key = requestKey('packet-preview');
-    const result = await apiFetch(`/applications/${current.id}/packet/preview/`, {
-      method: 'POST', headers: { 'Idempotency-Key': key, 'X-Request-ID': key },
-      body: JSON.stringify({ revision: current.revision, request_id: key }),
-    });
-    if (!result.ok || !result.blob) return showToast(result.data?.error || 'Could not generate the document packet.', true);
-    const url = URL.createObjectURL(result.blob);
-    window.open(url, '_blank', 'noopener');
-    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    await openPreview('__packet__');
   }
 
   function bindEditor(editable) {
@@ -1748,6 +1818,7 @@
         await load();
       });
     });
+    document.getElementById('origination-takeover-review')?.addEventListener('click', () => openReviewDialog('takeover'));
     document.getElementById('origination-prepare-signing')?.addEventListener('click', () => runPrimaryAction('Preparing...', async () => {
       if (!(await saveSigningRequirements())) return;
       const result = await postJson(`/applications/${current.id}/prepare-signing/`, { revision: current.revision });
@@ -1757,6 +1828,23 @@
       }
       await load();
     }));
+    root().querySelectorAll('[data-test-sign-slot]').forEach(button => button.addEventListener('click', async () => {
+      const stampAssetId = button.dataset.slotType === 'stamp'
+        ? button.parentElement.querySelector('[data-test-stamp-select]')?.value || '' : '';
+      if (button.dataset.slotType === 'stamp' && !stampAssetId) return showToast('Choose an approved test stamp.', true);
+      await runPrimaryAction('Recording TEST action...', async () => {
+        const result = await postJson(`/applications/${current.id}/test-signing/action/`, {
+          revision: current.revision, package_id: button.dataset.packageId,
+          document_key: button.dataset.documentKey, slot_key: button.dataset.slotKey,
+          signer_role: button.dataset.signerRole, stamp_asset_id: stampAssetId,
+        });
+        if (!result.ok) return showToast(result.data?.error || 'Could not simulate this signing slot.', true);
+        current = result.data.application;
+        renderEditor(current, wizardSections().length - 1);
+        showToast('TEST signing action recorded.');
+      });
+    }));
+    document.getElementById('origination-test-signing-preview')?.addEventListener('click', () => openPreview('__test_signing__'));
   }
 
   async function openPreview(documentKey = '') {
@@ -1791,12 +1879,19 @@
     const key = previewRequestId || requestKey('preview');
     const applicationId = current.id;
     const revision = current.revision;
-    const previewPath = previewDocumentKey
+    const previewPath = previewDocumentKey === '__test_signing__'
+      ? `/applications/${applicationId}/test-signing/preview/`
+      : previewDocumentKey === '__packet__'
+      ? `/applications/${applicationId}/packet/preview/`
+      : previewDocumentKey
       ? `/applications/${applicationId}/documents/${encodeURIComponent(previewDocumentKey)}/preview/`
       : `/applications/${applicationId}/preview/`;
     const pending = apiFetch(previewPath, {
       method: 'POST', headers: { 'Idempotency-Key': key, 'X-Request-ID': key },
-      body: JSON.stringify({ revision, request_id: key, preview_format: 'image', page: pageNumber }),
+      body: JSON.stringify({
+        revision, request_id: key, preview_format: 'image', page: pageNumber,
+        package_id: previewDocumentKey === '__test_signing__' ? current?.signing_package?.id : undefined,
+      }),
     }).then(result => {
       if (!result.ok || !result.blob) return { error: result.data?.error || 'Could not generate the filled document.' };
       if (key !== previewRequestId || current?.id !== applicationId) return { stale: true };
@@ -1806,7 +1901,7 @@
         previewedRevision = current.revision;
         previewSucceeded = true;
       }
-      if (previewDocumentKey && pageNumber === 1) {
+      if (previewDocumentKey && !['__packet__', '__test_signing__'].includes(previewDocumentKey) && pageNumber === 1) {
         const document = current?.document_packet?.documents?.find(item => item.key === previewDocumentKey);
         if (document) document.previewed = true;
       }
@@ -1988,7 +2083,12 @@
       if (key === 'signing') return (listCounts.reviewed || 0) + (listCounts.signing_pending || 0) + (listCounts.partially_signed || 0);
       return '';
     };
-    const cards = applications.map(item => `<button type="button" class="application-card" data-application-id="${item.id}"><span><strong>${escapeHtml(item.reference_number)}</strong><small>${escapeHtml(item.product_name)} · ${escapeHtml(item.branch || 'No branch')}${capabilities.can_review ? ` · ${escapeHtml(item.officer_name || 'Unassigned')}` : ''}</small></span><span class="application-card-state"><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(item.status.replaceAll('_', ' '))}</span>${iconSvg('arrowRight')}</span></button>`).join('');
+    const cards = applications.map(item => {
+      const identity = item.applicant_summary || {};
+      const applicantName = identity.name || 'Applicant details pending';
+      const identifiers = [identity.national_id ? `ID ${identity.national_id}` : '', identity.phone || ''].filter(Boolean).join(' · ');
+      return `<button type="button" class="application-card" data-application-id="${item.id}"><span><strong>${escapeHtml(applicantName)}</strong><small>${escapeHtml(identifiers || 'ID and telephone pending')}</small><small>${escapeHtml(item.product_name)} · ${escapeHtml(item.branch || 'No branch')} · ${escapeHtml(item.reference_number)}${capabilities.can_review ? ` · ${escapeHtml(item.officer_name || 'Unassigned')}` : ''}</small></span><span class="application-card-state"><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(item.status.replaceAll('_', ' '))}</span>${iconSvg('arrowRight')}</span></button>`;
+    }).join('');
     const queueTabs = [
       ...(capabilities.can_create ? [['mine', 'My applications'], ['corrections', 'Corrections']] : []),
       ...(capabilities.can_review ? [['review', 'Review']] : []),
@@ -2003,7 +2103,7 @@
     ].map(item => `<button type="button" class="filter-chip" data-remove-filter="${item.key}"><span>${escapeHtml(item.label)}</span>${iconSvg('close')}</button>`).join('');
     const pagination = listState.pages > 1 ? `<div class="pagination-actions"><button type="button" class="btn btn-secondary" id="origination-page-previous"${listState.page <= 1 ? ' disabled' : ''}>Previous</button><span>Page ${listState.page} of ${listState.pages}</span><button type="button" class="btn btn-secondary" id="origination-page-next"${listState.page >= listState.pages ? ' disabled' : ''}>Next</button></div>` : '';
     const startAction = capabilities.can_create ? `<button type="button" class="btn btn-primary compact-start" id="origination-start">${iconSvg('plus')} Start application</button>` : '';
-    root().innerHTML = `<section class="list-toolbar"><div><p class="eyebrow">Paperless lending</p><h2>Applications</h2></div><div>${startAction}<button type="button" class="icon-button" id="origination-list-refresh" aria-label="Refresh applications">${iconSvg('refresh')}</button></div></section><nav class="queue-tabs" aria-label="Origination queues">${queueTabs}</nav><form class="list-search" id="origination-search"><input name="q" value="${escapeHtml(listState.query)}" placeholder="Search reference number" aria-label="Search reference number"><button type="button" class="filter-button${activeChips ? ' active' : ''}" id="origination-open-filters">${iconSvg('filter')}<span>Filters</span>${activeChips ? '<b></b>' : ''}</button></form>${activeChips ? `<div class="active-filters" aria-label="Active filters">${activeChips}</div>` : ''}<div class="list-heading"><h3>${escapeHtml(listState.queue ? listState.queue.replaceAll('_', ' ') : 'Applications')}</h3><span>${listTotal} ${listTotal === 1 ? 'application' : 'applications'}</span></div><div class="application-list">${cards || '<div class="empty-state"><strong>No applications in this queue</strong><span>Change the filters or refresh.</span></div>'}</div>${pagination}`;
+    root().innerHTML = `<section class="list-toolbar"><div><p class="eyebrow">Paperless lending</p><h2>Applications</h2></div><div>${startAction}<button type="button" class="icon-button" id="origination-list-refresh" aria-label="Refresh applications">${iconSvg('refresh')}</button></div></section><nav class="queue-tabs" aria-label="Origination queues">${queueTabs}</nav><form class="list-search" id="origination-search"><input name="q" value="${escapeHtml(listState.query)}" placeholder="Search applicant, ID, telephone or reference" aria-label="Search applications"><button type="button" class="filter-button${activeChips ? ' active' : ''}" id="origination-open-filters">${iconSvg('filter')}<span>Filters</span>${activeChips ? '<b></b>' : ''}</button></form>${activeChips ? `<div class="active-filters" aria-label="Active filters">${activeChips}</div>` : ''}<div class="list-heading"><h3>${escapeHtml(listState.queue ? listState.queue.replaceAll('_', ' ') : 'Applications')}</h3><span>${listTotal} ${listTotal === 1 ? 'application' : 'applications'}</span></div><div class="application-list">${cards || '<div class="empty-state"><strong>No applications in this queue</strong><span>Change the filters or refresh.</span></div>'}</div>${pagination}`;
     root().querySelectorAll('[data-application-id]').forEach(button => button.onclick = async () => {
       listScrollY = window.scrollY;
       button.disabled = true;
@@ -2108,6 +2208,16 @@
   document.getElementById('origination-date-next').onclick = () => {
     if (!dateDisplayMonth) return;
     dateDisplayMonth = new Date(dateDisplayMonth.getFullYear(), dateDisplayMonth.getMonth() + 1, 1);
+    renderCalendar();
+  };
+  document.getElementById('origination-date-month').onchange = event => {
+    if (!dateDisplayMonth) return;
+    dateDisplayMonth = new Date(dateDisplayMonth.getFullYear(), Number(event.target.value), 1);
+    renderCalendar();
+  };
+  document.getElementById('origination-date-year').onchange = event => {
+    if (!dateDisplayMonth) return;
+    dateDisplayMonth = new Date(Number(event.target.value), dateDisplayMonth.getMonth(), 1);
     renderCalendar();
   };
   document.getElementById('origination-date-clear').onclick = () => chooseDate('');

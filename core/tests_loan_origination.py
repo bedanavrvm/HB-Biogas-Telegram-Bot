@@ -5,7 +5,7 @@ from pypdf import PdfReader, PdfWriter
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from core.admin import OriginationProductDefinitionForm
@@ -15,6 +15,8 @@ from core.models import (
     OriginationDocumentTemplate,
     OriginationProductDocumentAssignment,
     OriginationProductDefinition,
+    OriginationSigningAction,
+    OriginationSigningPackage,
     OriginationTemplateConfigurationRevision,
 )
 from core.services.loan_origination import (
@@ -25,7 +27,9 @@ from core.services.loan_origination import (
     review_application,
     render_application_preview,
     save_application_fields,
+    serialize_application,
     submit_for_review,
+    take_over_correction_review,
     normalize_form_payload,
     validate_form_payload,
 )
@@ -38,6 +42,7 @@ from core.services.origination_documents import (
     validate_applicability_rule,
 )
 from core.services.origination_templates import attach_shared_supporting_template
+from core.services.origination_signing import simulate_slot, test_signing_enabled
 
 
 class LoanOriginationServiceTests(TestCase):
@@ -219,6 +224,208 @@ class LoanOriginationServiceTests(TestCase):
                 decision='request_correction',
             )
 
+    def test_blank_application_cannot_be_submitted(self):
+        application, _ = create_application(
+            product_key=self.product.product_key,
+            officer=self.officer,
+            branch='Synthetic Branch',
+            client_request_id='create-blank',
+        )
+
+        with self.assertRaisesRegex(OriginationError, 'Applicant details'):
+            submit_for_review(
+                application_id=application.pk,
+                actor=self.officer,
+                expected_revision=application.revision,
+                request_id='submit-blank',
+            )
+
+    def test_queue_identity_summary_uses_canonical_applicant_values_and_masks_identifiers(self):
+        self.product.form_schema = {
+            'identity_contract': 'applicant_v1',
+            'fields': [
+                {'key': 'applicant_full_name', 'type': 'text', 'required': True},
+                {'key': 'applicant_national_id', 'type': 'text', 'required': True},
+                {'key': 'applicant_phone', 'type': 'text', 'required': True},
+            ],
+        }
+        self.product.save(update_fields=['form_schema'])
+        application, _ = create_application(
+            product_key=self.product.product_key,
+            officer=self.officer,
+            branch='Synthetic Branch',
+            client_request_id='create-identity',
+        )
+        application = save_application_fields(
+            application_id=application.pk,
+            actor=self.officer,
+            payload={
+                'applicant_full_name': 'Synthetic Applicant',
+                'applicant_national_id': '12345678',
+                'applicant_phone': '0712345678',
+            },
+            expected_revision=application.revision,
+            request_id='save-identity',
+        )
+
+        summary = serialize_application(application, include_payload=False)['applicant_summary']
+
+        self.assertEqual(summary['name'], 'Synthetic Applicant')
+        self.assertEqual(summary['national_id'], '••••5678')
+        self.assertEqual(summary['phone'], '••••••5678')
+
+    def test_correction_only_unlocks_selected_targets_and_returns_to_original_checker(self):
+        alternate_reviewer = get_user_model().objects.create_user(username='alternate-reviewer')
+        application, _ = create_application(
+            product_key=self.product.product_key,
+            officer=self.officer,
+            branch='Synthetic Branch',
+            client_request_id='create-scoped-correction',
+        )
+        application.form_payload = {'customer_name': 'Original Name', 'consent': True}
+        application.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
+        application.save(update_fields=['form_payload', 'status'])
+        application = review_application(
+            application_id=application.pk,
+            actor=self.reviewer,
+            expected_revision=application.revision,
+            request_id='request-scoped-correction',
+            decision='request_correction',
+            reason='Correct only the Applicant name.',
+            correction_items=[{
+                'target_type': 'field',
+                'target_key': 'customer_name',
+                'instruction': 'Use the National ID spelling.',
+            }],
+        )
+        self.assertEqual(application.recheck_assigned_to, self.reviewer)
+
+        with self.assertRaisesRegex(OriginationError, 'Only fields requested'):
+            save_application_fields(
+                application_id=application.pk,
+                actor=self.officer,
+                payload={'customer_name': 'Original Name', 'consent': False},
+                expected_revision=application.revision,
+                request_id='change-locked-correction-field',
+            )
+
+        application = save_application_fields(
+            application_id=application.pk,
+            actor=self.officer,
+            payload={'customer_name': 'Corrected Name', 'consent': True},
+            expected_revision=application.revision,
+            request_id='change-requested-correction-field',
+        )
+        OriginationApplicationEvent.objects.create(
+            application=application,
+            action='document_previewed',
+            revision=application.revision,
+            actor=self.officer,
+            request_id='preview-corrected-application',
+        )
+        application = submit_for_review(
+            application_id=application.pk,
+            actor=self.officer,
+            expected_revision=application.revision,
+            request_id='resubmit-corrected-application',
+        )
+        self.assertEqual(application.recheck_assigned_to, self.reviewer)
+
+        with self.assertRaisesRegex(OriginationError, 'original checker'):
+            review_application(
+                application_id=application.pk,
+                actor=alternate_reviewer,
+                expected_revision=application.revision,
+                request_id='unauthorized-correction-recheck',
+                decision='approve',
+            )
+
+        application = take_over_correction_review(
+            application_id=application.pk,
+            actor=alternate_reviewer,
+            expected_revision=application.revision,
+            request_id='take-over-correction-recheck',
+            reason='The original checker is unavailable.',
+        )
+        self.assertEqual(application.recheck_assigned_to, alternate_reviewer)
+        self.assertTrue(application.events.filter(action='correction_review_taken_over').exists())
+
+    @override_settings(ORIGINATION_TEST_SIGNING_ENABLED=True, SENTRY_ENVIRONMENT='production')
+    def test_test_signing_is_never_enabled_in_production(self):
+        self.assertFalse(test_signing_enabled())
+
+    @override_settings(ORIGINATION_TEST_SIGNING_ENABLED=True, SENTRY_ENVIRONMENT='')
+    def test_test_signing_fails_closed_without_an_explicit_environment(self):
+        self.assertFalse(test_signing_enabled())
+
+    @override_settings(ORIGINATION_TEST_SIGNING_ENABLED=True, SENTRY_ENVIRONMENT='staging')
+    def test_test_signing_is_idempotent_and_does_not_mark_application_fully_signed(self):
+        application, _ = create_application(
+            product_key=self.product.product_key,
+            officer=self.officer,
+            branch='Synthetic Branch',
+            client_request_id='create-test-signing',
+        )
+        application.status = LoanOriginationApplication.STATUS_SIGNING_PENDING
+        application.save(update_fields=['status'])
+        package = OriginationSigningPackage.objects.create(
+            application=application,
+            application_revision=application.revision,
+            external_reference='ESIGN-TEST-SYNTHETIC',
+            document_type='synthetic_loan_agreement',
+            participants_snapshot=[{
+                'role': 'applicant',
+                'required': True,
+                'slots': [{
+                    'key': 'applicant_signature',
+                    'document_key': 'primary',
+                    'type': 'signature',
+                    'required': True,
+                }],
+            }],
+            test_mode=True,
+        )
+
+        package, replayed = simulate_slot(
+            package_id=package.pk,
+            actor=self.reviewer,
+            document_key='primary',
+            slot_key='applicant_signature',
+            signer_role='applicant',
+            expected_revision=application.revision,
+            request_id='simulate-applicant-signature',
+        )
+        repeated, replayed_again = simulate_slot(
+            package_id=package.pk,
+            actor=self.reviewer,
+            document_key='primary',
+            slot_key='applicant_signature',
+            signer_role='applicant',
+            expected_revision=application.revision,
+            request_id='simulate-applicant-signature',
+        )
+        another_retry, replayed_with_new_key = simulate_slot(
+            package_id=package.pk,
+            actor=self.reviewer,
+            document_key='primary',
+            slot_key='applicant_signature',
+            signer_role='applicant',
+            expected_revision=application.revision,
+            request_id='simulate-applicant-signature-retry',
+        )
+
+        application.refresh_from_db()
+        package.refresh_from_db()
+        self.assertFalse(replayed)
+        self.assertTrue(replayed_again)
+        self.assertTrue(replayed_with_new_key)
+        self.assertEqual(repeated.pk, package.pk)
+        self.assertEqual(another_retry.pk, package.pk)
+        self.assertIsNotNone(package.test_completed_at)
+        self.assertEqual(package.status, OriginationSigningPackage.STATUS_IN_PROGRESS)
+        self.assertEqual(application.status, LoanOriginationApplication.STATUS_SIGNING_PENDING)
+        self.assertEqual(OriginationSigningAction.objects.filter(package=package).count(), 1)
+
     def test_superuser_may_review_own_submission_as_break_glass_override(self):
         self.officer.is_superuser = True
         self.officer.is_staff = True
@@ -233,6 +440,10 @@ class LoanOriginationServiceTests(TestCase):
             application_id=application.pk, actor=self.officer,
             expected_revision=application.revision, request_id='superuser-correction-review',
             decision='request_correction', reason='Correct the preview alignment.',
+            correction_items=[{
+                'target_type': 'field', 'target_key': 'customer_name',
+                'instruction': 'Confirm the Applicant name.',
+            }],
         )
         self.assertEqual(corrected.status, LoanOriginationApplication.STATUS_CORRECTION_REQUIRED)
 
@@ -302,6 +513,7 @@ class LoanOriginationServiceTests(TestCase):
             form_schema={'fields': [
                 {'key': 'customer_name', 'type': 'text', 'required': True},
                 {'key': 'guarantor_name', 'type': 'text', 'required': True},
+                {'key': 'guarantor_phone', 'type': 'phone', 'required': True},
             ]},
             signer_rules=[{'role': 'guarantor'}], display_order=10,
             document_type='pilot-product-guarantor-consent', name='Guarantor consent', version=1,
@@ -334,11 +546,15 @@ class LoanOriginationServiceTests(TestCase):
             actor=self.officer, payload={
                 'customer_name': 'Attempted overwrite',
                 'guarantor_name': 'Synthetic Guarantor',
+                'guarantor_phone': '0712345678',
             }, expected_revision=application.revision, request_id='packet-support-save',
         )
         support_document.refresh_from_db()
         self.assertEqual(application.form_payload['customer_name'], 'Synthetic Customer')
-        self.assertEqual(support_document.field_payload, {'guarantor_name': 'Synthetic Guarantor'})
+        self.assertEqual(support_document.field_payload, {
+            'guarantor_name': 'Synthetic Guarantor',
+            'guarantor_phone': '0712345678',
+        })
         mark_document_previewed(application, 'guarantor_consent')
         packet = serialize_packet(application)
         self.assertTrue(packet['ready'])
@@ -359,6 +575,44 @@ class LoanOriginationServiceTests(TestCase):
         self.assertEqual(len(PdfReader(BytesIO(combined)).pages), 2)
         self.assertEqual([item['key'] for item in manifest], ['primary', 'guarantor_consent'])
         self.assertTrue(all(len(item['rendered_sha256']) == 64 for item in manifest))
+
+        application.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
+        application.save(update_fields=['status'])
+        application = review_application(
+            application_id=application.pk,
+            actor=self.reviewer,
+            expected_revision=application.revision,
+            request_id='request-supporting-field-correction',
+            decision='request_correction',
+            reason='Correct only the guarantor name.',
+            correction_items=[{
+                'target_type': 'document_field',
+                'target_key': 'guarantor_consent.guarantor_name',
+                'instruction': 'Use the National ID spelling.',
+            }],
+        )
+        with self.assertRaisesRegex(OriginationError, 'Only supporting-document fields requested'):
+            save_document_fields(
+                application_id=application.pk,
+                document_key='guarantor_consent',
+                actor=self.officer,
+                payload={'guarantor_phone': '0799999999'},
+                expected_revision=application.revision,
+                request_id='change-locked-supporting-field',
+            )
+        application = save_document_fields(
+            application_id=application.pk,
+            document_key='guarantor_consent',
+            actor=self.officer,
+            payload={'guarantor_name': 'Corrected Guarantor'},
+            expected_revision=application.revision,
+            request_id='save-supporting-field-correction',
+        )
+        support_document.refresh_from_db()
+        self.assertEqual(support_document.field_payload, {
+            'guarantor_name': 'Corrected Guarantor',
+            'guarantor_phone': '0712345678',
+        })
 
     def test_supporting_document_selection_requires_current_primary_preview(self):
         OriginationDocumentTemplate.objects.create(

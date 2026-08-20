@@ -21,7 +21,9 @@ from core.models import (
     OriginationProductDocumentAssignment,
     OriginationReportingValue,
     OriginationRequirementEvidence,
+    OriginationSigningAction,
     OriginationSigningPackage,
+    OriginationStampAsset,
     OriginationTemplateConfigurationRevision,
     OperationalLocation,
     Product,
@@ -139,10 +141,22 @@ class OriginationGodModeTests(TestCase):
             drive_url='https://drive.example.test/drive-evidence-must-remain',
             request_id='god-mode-evidence', uploaded_by=self.superuser,
         )
-        OriginationSigningPackage.objects.create(
+        self.signing_package = OriginationSigningPackage.objects.create(
             application=self.application, application_revision=1,
             external_reference='GOD-MODE-SIGNING-PACKAGE',
             document_type='god_mode_test',
+        )
+        self.stamp_asset = OriginationStampAsset.objects.create(
+            name='Synthetic test stamp', environment=OriginationStampAsset.ENV_TEST,
+            version=1, image_png=b'synthetic-png-bytes', content_sha256='e' * 64,
+            byte_size=19, active=True, created_by=self.superuser,
+            activated_by=self.superuser,
+        )
+        OriginationSigningAction.objects.create(
+            package=self.signing_package, document_key='primary', slot_key='stamp',
+            signer_role='loan_officer', action_type=OriginationSigningAction.TYPE_STAMP,
+            mode=OriginationSigningAction.MODE_TEST, stamp_asset=self.stamp_asset,
+            actor=self.superuser, request_id='god-mode-test-stamp',
         )
         OriginationFieldReviewIssue.objects.create(
             product_definition=self.product, legacy_key='legacy_customer_name',
@@ -238,7 +252,7 @@ class OriginationGodModeTests(TestCase):
             or model is LoanOriginationApplication
         }
         self.assertEqual(set(ORIGINATION_RESET_MODELS), discovered)
-        self.assertEqual(len(ORIGINATION_RESET_MODELS), 17)
+        self.assertEqual(len(ORIGINATION_RESET_MODELS), 19)
 
     def test_full_reset_service_rejects_non_superuser(self):
         before = preview_full_origination_reset()['counts']

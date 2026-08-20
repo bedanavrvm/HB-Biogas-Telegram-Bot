@@ -181,6 +181,10 @@ def _reserve_upload(
         allowed_statuses.add(application.STATUS_REVIEWED)
     if application.status not in allowed_statuses:
         raise OriginationError('Evidence can only be changed while the application is editable.')
+    if application.status == application.STATUS_CORRECTION_REQUIRED:
+        from core.services.loan_origination import correction_targets
+        if requirement_key not in correction_targets(application)['requirement']:
+            raise OriginationError('This evidence requirement is locked for the current correction.')
     requirement = _document_requirement(application, requirement_key)
     duplicate = application.requirement_evidence_files.filter(
         requirement_key=requirement_key, content_sha256=sha256,
@@ -292,6 +296,10 @@ def remove_requirement_evidence(
         allowed_statuses.add(application.STATUS_REVIEWED)
     if application.status not in allowed_statuses:
         raise OriginationError('Evidence can only be changed while the application is editable.')
+    if application.status == application.STATUS_CORRECTION_REQUIRED:
+        from core.services.loan_origination import correction_targets
+        if item.requirement_key not in correction_targets(application)['requirement']:
+            raise OriginationError('This evidence requirement is locked for the current correction.')
     if int(expected_revision) != application.revision:
         raise OriginationConflict('This application changed. Refresh before removing evidence.')
     if item.status == item.STATUS_REMOVED:

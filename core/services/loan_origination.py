@@ -38,6 +38,13 @@ SUPPORTED_FIELD_TYPES = {
     'repeating_group',
 }
 
+APPLICANT_NAME_KEYS = (
+    'applicant_full_name', 'borrower_full_name', 'customer_name',
+)
+APPLICANT_ID_KEYS = ('applicant_id_number', 'applicant_national_id', 'national_id')
+APPLICANT_PHONE_KEYS = ('applicant_phone', 'applicant_primary_phone', 'primary_phone')
+APPLICANT_IDENTITY_CONTRACT = 'applicant_v1'
+
 SIGNER_ROLE_CATALOG = (
     ('borrower', 'Borrower'),
     ('customer', 'Borrower (legacy compatibility role)'),
@@ -95,6 +102,20 @@ def validate_product_form_contract(
         section_keys = [str(item.get('key') or '').strip() for item in sections]
         if any(not key for key in section_keys) or len(section_keys) != len(set(section_keys)):
             raise OriginationError('Every origination section requires a unique key.')
+        expected_keys = []
+        for index, item in enumerate(sections):
+            label = str(item.get('label') or '').strip()
+            if not label:
+                raise OriginationError('Every origination section requires a title.')
+            base = re.sub(r'[^a-z0-9]+', '_', label.casefold()).strip('_') or f'section_{index + 1}'
+            expected = base
+            suffix = 2
+            while expected in expected_keys:
+                expected = f'{base}_{suffix}'
+                suffix += 1
+            expected_keys.append(expected)
+        if section_keys != expected_keys:
+            raise OriginationError('Section keys must be generated from their section titles.')
         unknown_sections = sorted({
             str(field.get('section_key') or '').strip()
             for field in fields
@@ -209,6 +230,86 @@ def validate_product_definition(definition: OriginationProductDefinition) -> Non
     digest = definition.document_template_sha256.strip().lower()
     if len(digest) != 64 or any(character not in '0123456789abcdef' for character in digest):
         raise OriginationError('The approved document template requires a valid SHA-256 digest.')
+
+
+def validate_applicant_identity_contract(schema: dict[str, Any]) -> None:
+    """Require the stable Applicant identity used by queues and review."""
+    fields = {str(item.get('key') or ''): item for item in _schema_fields(schema)}
+    full_name = next((fields[key] for key in APPLICANT_NAME_KEYS if key in fields), None)
+    split_name = fields.get('applicant_first_name') and fields.get('applicant_surname')
+    national_id = next((fields[key] for key in APPLICANT_ID_KEYS if key in fields), None)
+    phone = next((fields[key] for key in APPLICANT_PHONE_KEYS if key in fields), None)
+    missing = []
+    if not full_name and not split_name:
+        missing.append('Applicant name')
+    if not national_id:
+        missing.append('Applicant National ID')
+    if not phone:
+        missing.append('Applicant telephone')
+    if missing:
+        raise OriginationError(
+            'Add the required canonical identity fields before publishing: '
+            + ', '.join(missing) + '.',
+        )
+    required_fields = [national_id, phone]
+    if full_name:
+        required_fields.append(full_name)
+    else:
+        required_fields.extend([fields['applicant_first_name'], fields['applicant_surname']])
+    optional = [
+        str(item.get('label') or item.get('key') or '')
+        for item in required_fields if not item.get('required')
+    ]
+    if optional:
+        raise OriginationError(
+            'Mark the Applicant identity fields as required before publishing: '
+            + ', '.join(optional) + '.',
+        )
+
+
+def applicant_identity_snapshot(payload: dict[str, Any] | None) -> dict[str, str]:
+    values = payload if isinstance(payload, dict) else {}
+    full_name = next((
+        str(values.get(key) or '').strip()
+        for key in APPLICANT_NAME_KEYS if str(values.get(key) or '').strip()
+    ), '')
+    if not full_name:
+        full_name = ' '.join(
+            str(values.get(key) or '').strip()
+            for key in ('applicant_first_name', 'applicant_middle_name', 'applicant_surname')
+            if str(values.get(key) or '').strip()
+        )
+    national_id = next((
+        str(values.get(key) or '').strip()
+        for key in APPLICANT_ID_KEYS if str(values.get(key) or '').strip()
+    ), '')
+    phone = next((
+        str(values.get(key) or '').strip()
+        for key in APPLICANT_PHONE_KEYS if str(values.get(key) or '').strip()
+    ), '')
+    return {'name': full_name, 'national_id': national_id, 'phone': phone}
+
+
+def _payload_has_value(payload: Any) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    return any(value not in (None, '', [], {}) for value in payload.values())
+
+
+def correction_targets(application: LoanOriginationApplication) -> dict[str, set[str]]:
+    correction = application.correction_requests.filter(status='open').prefetch_related('items').first()
+    targets = {'field': set(), 'requirement': set(), 'document_field': set()}
+    if correction:
+        for item in correction.items.all():
+            if item.target_type in targets:
+                targets[item.target_type].add(item.target_key)
+    return targets
+
+
+def _changed_keys(before: dict[str, Any] | None, after: dict[str, Any] | None) -> set[str]:
+    left = before if isinstance(before, dict) else {}
+    right = after if isinstance(after, dict) else {}
+    return {key for key in set(left) | set(right) if left.get(key) != right.get(key)}
 
 
 def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_complete: bool) -> ValidationResult:
@@ -339,7 +440,7 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
             if value not in allowed:
                 errors[key] = 'Choose an available option.'
         elif field_type == 'date':
-            from datetime import date
+            from datetime import date, timedelta
             try:
                 parsed_date = date.fromisoformat(value)
             except ValueError:
@@ -354,6 +455,12 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
                         errors[key] = f'Choose a date on or before {latest}.'
                 except ValueError:
                     errors[key] = 'This field has invalid configured date limits.'
+                if key == 'applicant_dob' and key not in errors:
+                    today = timezone.localdate()
+                    if parsed_date > today:
+                        errors[key] = 'Applicant date of birth cannot be in the future.'
+                    elif parsed_date < today - timedelta(days=366 * 120):
+                        errors[key] = 'Applicant date of birth is outside the supported range.'
     return ValidationResult(not errors, errors)
 
 
@@ -653,6 +760,10 @@ def save_application_fields(
         raise OriginationError('This application is no longer editable.')
     if int(expected_revision) != application.revision:
         raise OriginationConflict('This application changed on another device. Refresh before saving again.')
+    correcting = application.status == LoanOriginationApplication.STATUS_CORRECTION_REQUIRED
+    targets = correction_targets(application) if correcting else None
+    if correcting and not any(targets.values()):
+        raise OriginationError('This correction request has no editable targets. Ask the checker to replace it.')
     payload = normalize_form_payload(application.schema_snapshot, payload)
     schema_keys = {str(item.get('key') or '') for item in _schema_fields(application.schema_snapshot)}
     if isinstance(payload, dict) and (
@@ -664,6 +775,30 @@ def save_application_fields(
     result = validate_form_payload(application.schema_snapshot, payload, require_complete=False)
     if not result.valid:
         raise OriginationError(next(iter(result.errors.values())), errors=result.errors)
+    if correcting:
+        disallowed_fields = _changed_keys(application.form_payload, payload) - targets['field']
+        if disallowed_fields:
+            raise OriginationError(
+                'Only fields requested by the checker may be changed.',
+                errors={key: 'This field is locked for this correction.' for key in disallowed_fields},
+            )
+        incoming_requirements = (
+            requirement_evidence if requirement_evidence is not None
+            else application.product_requirement_evidence
+        )
+        disallowed_requirements = (
+            _changed_keys(application.product_requirement_evidence, incoming_requirements)
+            - targets['requirement']
+        )
+        if disallowed_requirements:
+            raise OriginationError(
+                'Only requirements requested by the checker may be changed.',
+                errors={f'requirement:{key}': 'This requirement is locked.' for key in disallowed_requirements},
+            )
+        if custom_values is not None and custom_values != application.product_custom_values:
+            raise OriginationError('Product-specific values are locked during this correction.')
+        if selected_fee_keys is not None and selected_fee_keys != application.product_selected_fee_keys:
+            raise OriginationError('Fee selections are locked during this correction.')
     if requirement_evidence is not None and not isinstance(requirement_evidence, dict):
         raise OriginationError('Product requirement evidence must be an object.')
     if custom_values is not None and not isinstance(custom_values, dict):
@@ -742,6 +877,7 @@ def save_application_fields(
     if sub_county_key and sub_county_record:
         payload[sub_county_key] = sub_county_record.name
     application.form_payload = payload
+    application.identity_snapshot = applicant_identity_snapshot(payload)
     application.branch_ref = branch_record
     application.county_ref = county_record
     application.sub_county_ref = sub_county_record
@@ -755,9 +891,12 @@ def save_application_fields(
         application.product_custom_values = custom_values
     application.product_selected_fee_keys = selected_fee_keys
     application.revision += 1
-    application.status = LoanOriginationApplication.STATUS_DRAFT
+    application.status = (
+        LoanOriginationApplication.STATUS_CORRECTION_REQUIRED
+        if correcting else LoanOriginationApplication.STATUS_DRAFT
+    )
     application.save(update_fields=[
-        'form_payload', 'product_quote_snapshot', 'product_requirement_evidence', 'product_custom_values',
+        'form_payload', 'identity_snapshot', 'product_quote_snapshot', 'product_requirement_evidence', 'product_custom_values',
         'product_selected_fee_keys',
         'branch_ref', 'county_ref', 'sub_county_ref', 'location_snapshot',
         'revision', 'status', 'updated_at',
@@ -836,11 +975,24 @@ def submit_for_review(*, application_id, actor, expected_revision: int, request_
         raise OriginationConflict('This application changed on another device. Refresh before submitting.')
     if application.status not in {LoanOriginationApplication.STATUS_DRAFT, LoanOriginationApplication.STATUS_CORRECTION_REQUIRED}:
         raise OriginationError('This application cannot be submitted from its current state.')
+    if not _payload_has_value(application.form_payload):
+        raise OriginationError('Enter the Applicant details before submitting this application.')
     result = validate_form_payload(application.schema_snapshot, application.form_payload, require_complete=True)
     if not result.valid:
         raise OriginationError(
             'Complete all required application fields before review.', errors=result.errors,
         )
+    if application.schema_snapshot.get('identity_contract') == APPLICANT_IDENTITY_CONTRACT:
+        identity = applicant_identity_snapshot(application.form_payload)
+        identity_errors = {
+            key: 'This Applicant identity value is required.'
+            for key, value in identity.items() if not value
+        }
+        if identity_errors:
+            raise OriginationError(
+                'Complete the Applicant name, National ID, and telephone before review.',
+                errors=identity_errors,
+            )
     if application.primary_previewed_revision != application.revision and not application.events.filter(
         action='document_previewed', revision=application.revision,
     ).exists():
@@ -882,6 +1034,10 @@ def review_application(
         raise OriginationConflict('This application changed on another device. Refresh before reviewing.')
     if application.status != LoanOriginationApplication.STATUS_READY_FOR_REVIEW:
         raise OriginationError('This application is not ready for review.')
+    if application.recheck_assigned_to_id and application.recheck_assigned_to_id != actor.pk:
+        raise OriginationError(
+            'This corrected application is assigned to its original checker. Take it over explicitly before reviewing.',
+        )
     normalized = str(decision or '').strip().casefold()
     if normalized not in {'approve', 'request_correction', 'decline'}:
         raise OriginationError('Choose approve, request_correction, or decline.')
@@ -891,7 +1047,7 @@ def review_application(
     if normalized != 'approve' and not reason:
         raise OriginationError('A reason is required for corrections or decline.')
     normalized_items: list[dict[str, str]] = []
-    if normalized == 'request_correction' and correction_items is not None:
+    if normalized == 'request_correction':
         if not isinstance(correction_items, list) or not correction_items:
             raise OriginationError('Select at least one field or requirement to correct.')
         field_labels = {
@@ -913,11 +1069,6 @@ def review_application(
                 base_key = f'{document.document_key}.{field_key}'
                 label = f'{document.name}: {item.get("label") or field_key}'
                 document_field_labels[base_key] = label
-                if str(item.get('type') or '') == 'repeating_group':
-                    rows = application.form_payload.get(field_key) or document.field_payload.get(field_key) or []
-                    for index, row in enumerate(rows):
-                        if isinstance(row, dict) and row.get('row_id'):
-                            document_field_labels[f'{base_key}.{row["row_id"]}'] = f'{label} row {index + 1}'
         seen = set()
         for raw in correction_items:
             if not isinstance(raw, dict):
@@ -959,14 +1110,51 @@ def review_application(
             OriginationCorrectionItem(correction_request=correction, **item)
             for item in normalized_items
         ])
+        application.recheck_assigned_to = actor
+    elif normalized in {'approve', 'decline'}:
+        application.recheck_assigned_to = None
     application.status = status_by_decision[normalized]
     application.revision += 1
     application.reviewed_by = actor
     application.reviewed_at = timezone.now()
-    application.save(update_fields=['status', 'revision', 'reviewed_by', 'reviewed_at', 'updated_at'])
+    application.save(update_fields=[
+        'status', 'revision', 'reviewed_by', 'reviewed_at',
+        'recheck_assigned_to', 'updated_at',
+    ])
     _record_event(
         application, f'review_{normalized}', actor=actor, request_id=request_id,
         before=before, after={'reason': reason} if reason else {},
+    )
+    return application
+
+
+@transaction.atomic
+def take_over_correction_review(
+    *, application_id, actor, expected_revision: int, request_id: str, reason: str,
+) -> LoanOriginationApplication:
+    request_id = _require_request_id(request_id)
+    application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
+    if application.events.filter(request_id=request_id).exists():
+        return application
+    if int(expected_revision) != application.revision:
+        raise OriginationConflict('This application changed. Refresh before taking over its review.')
+    if application.status != LoanOriginationApplication.STATUS_READY_FOR_REVIEW or not application.recheck_assigned_to_id:
+        raise OriginationError('This application is not waiting for an assigned correction re-check.')
+    if application.officer_id == actor.pk and not getattr(actor, 'is_superuser', False):
+        raise OriginationError('The submitting officer cannot take over their own application review.')
+    reason = str(reason or '').strip()
+    if not reason:
+        raise OriginationError('Give a reason for taking over this correction review.')
+    previous_id = application.recheck_assigned_to_id
+    if previous_id == actor.pk:
+        return application
+    application.recheck_assigned_to = actor
+    application.revision += 1
+    application.save(update_fields=['recheck_assigned_to', 'revision', 'updated_at'])
+    _record_event(
+        application, 'correction_review_taken_over', actor=actor, request_id=request_id,
+        before={'reviewer_id': previous_id},
+        after={'reviewer_id': actor.pk, 'reason': reason[:1000]},
     )
     return application
 
@@ -1008,6 +1196,7 @@ def prepare_signing_package(
         render_packet(application) if application.packet_documents.exists() else (b'', [])
     )
     packet_hash = hashlib.sha256(packet_pdf).hexdigest() if packet_pdf else ''
+    from core.services.origination_signing import test_signing_enabled
     package = OriginationSigningPackage.objects.create(
         id=package_id,
         application=application,
@@ -1023,6 +1212,7 @@ def prepare_signing_package(
         document_manifest_snapshot=document_manifest,
         combined_document_hash=packet_hash,
         unsigned_document_hash=packet_hash,
+        test_mode=test_signing_enabled(),
     )
     from core.services.origination_fields import project_reporting_values
     project_reporting_values(application)
@@ -1074,6 +1264,15 @@ def _serialize_correction(application: LoanOriginationApplication) -> dict[str, 
     }
 
 
+def _mask_queue_identifier(value: Any, *, visible_end: int = 4) -> str:
+    text = str(value or '').strip()
+    if not text:
+        return ''
+    if len(text) <= visible_end:
+        return '•' * len(text)
+    return f'{"•" * (len(text) - visible_end)}{text[-visible_end:]}'
+
+
 def serialize_application(
     application: LoanOriginationApplication, *, include_payload: bool = True,
     presentation: str = 'full',
@@ -1089,6 +1288,18 @@ def serialize_application(
         'revision': application.revision, 'updated_at': application.updated_at.isoformat(),
         'officer_id': application.officer_id,
         'officer_name': application.officer.get_full_name() or application.officer.get_username(),
+        'recheck_assigned_to_id': application.recheck_assigned_to_id,
+        'recheck_assigned_to_name': (
+            application.recheck_assigned_to.get_full_name()
+            or application.recheck_assigned_to.get_username()
+            if application.recheck_assigned_to_id else ''
+        ),
+    }
+    identity = application.identity_snapshot or applicant_identity_snapshot(application.form_payload)
+    payload['applicant_summary'] = {
+        'name': str(identity.get('name') or '').strip(),
+        'national_id': _mask_queue_identifier(identity.get('national_id')),
+        'phone': _mask_queue_identifier(identity.get('phone')),
     }
     if include_payload:
         from core.services.origination_evidence import serialize_evidence
@@ -1117,4 +1328,15 @@ def serialize_application(
         })
         from core.services.origination_documents import serialize_packet
         payload['document_packet'] = serialize_packet(application)
+        package = application.signing_packages.order_by('-created_at').first()
+        if package:
+            from core.services.origination_signing import active_test_stamps, serialize_test_signing
+            payload['signing_package'] = {
+                'id': str(package.pk), 'reference': package.external_reference,
+                'status': package.status,
+                'test_signing': serialize_test_signing(package),
+                'test_stamps': active_test_stamps(application) if package.test_mode else [],
+            }
+        else:
+            payload['signing_package'] = None
     return payload

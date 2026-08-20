@@ -4155,6 +4155,11 @@ class LoanOriginationApplication(models.Model):
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
         related_name='reviewed_loan_origination_applications',
     )
+    recheck_assigned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='assigned_origination_rechecks',
+        help_text='Checker responsible for verifying the current correction cycle.',
+    )
     reviewed_at = models.DateTimeField(null=True, blank=True)
     submitted_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
@@ -4554,6 +4559,8 @@ class OriginationSigningPackage(models.Model):
     signed_document_hash = models.CharField(max_length=64, blank=True, default='')
     final_document_reference = models.TextField(blank=True, default='')
     remote_error = models.TextField(blank=True, default='')
+    test_mode = models.BooleanField(default=False)
+    test_completed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -4571,6 +4578,109 @@ class OriginationSigningPackage(models.Model):
 
     def __str__(self):
         return self.external_reference
+
+
+class OriginationStampAsset(models.Model):
+    """Versioned, controlled PNG used only in calibrated stamp slots."""
+
+    ENV_TEST = 'test'
+    ENV_PRODUCTION = 'production'
+    ENV_CHOICES = [(ENV_TEST, 'Test only'), (ENV_PRODUCTION, 'Production')]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=160)
+    branch = models.ForeignKey(
+        'OperationalLocation', null=True, blank=True, on_delete=models.PROTECT,
+        limit_choices_to={'location_type': 'branch'}, related_name='origination_stamp_assets',
+    )
+    environment = models.CharField(max_length=16, choices=ENV_CHOICES, default=ENV_TEST)
+    version = models.PositiveIntegerField(default=1)
+    image_png = models.BinaryField(editable=False)
+    content_sha256 = models.CharField(max_length=64, db_index=True)
+    byte_size = models.PositiveIntegerField()
+    active = models.BooleanField(default=False, db_index=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='created_origination_stamp_assets',
+    )
+    activated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='activated_origination_stamp_assets',
+    )
+    activated_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name', 'branch', '-version']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['name', 'environment', 'version'],
+                condition=models.Q(branch__isnull=True),
+                name='unique_global_origination_stamp_version',
+            ),
+            models.UniqueConstraint(
+                fields=['name', 'branch', 'environment', 'version'],
+                condition=models.Q(branch__isnull=False),
+                name='unique_branch_origination_stamp_version',
+            ),
+        ]
+
+    def __str__(self):
+        scope = self.branch.name if self.branch_id else 'Organization'
+        return f'{self.name} v{self.version} ({scope}, {self.environment})'
+
+
+class OriginationSigningAction(models.Model):
+    """Append-only evidence for one simulated or provider-verified slot action."""
+
+    TYPE_SIGNATURE = 'signature'
+    TYPE_STAMP = 'stamp'
+    TYPE_CHOICES = [(TYPE_SIGNATURE, 'Signature'), (TYPE_STAMP, 'Stamp')]
+    MODE_TEST = 'test'
+    MODE_VERIFIED = 'verified'
+    MODE_CHOICES = [(MODE_TEST, 'Test simulation'), (MODE_VERIFIED, 'Verified production')]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    package = models.ForeignKey(
+        OriginationSigningPackage, on_delete=models.PROTECT, related_name='actions',
+    )
+    document_key = models.SlugField(max_length=80)
+    slot_key = models.SlugField(max_length=80)
+    signer_role = models.CharField(max_length=80)
+    action_type = models.CharField(max_length=16, choices=TYPE_CHOICES)
+    mode = models.CharField(max_length=16, choices=MODE_CHOICES)
+    stamp_asset = models.ForeignKey(
+        OriginationStampAsset, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='signing_actions',
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='origination_signing_actions',
+    )
+    request_id = models.CharField(max_length=128, db_index=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['created_at', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['package', 'document_key', 'slot_key'],
+                name='unique_origination_signing_slot_action',
+            ),
+            models.UniqueConstraint(
+                fields=['package', 'request_id'],
+                name='unique_origination_signing_action_request',
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError('Origination signing actions are append-only.')
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Origination signing actions cannot be deleted.')
 
 
 class PortalVoiceTranscriptionAttempt(models.Model):

@@ -122,9 +122,10 @@ def scope_application_queryset(queryset: QuerySet, *, user, access: dict | None)
     return queryset.filter(combined).distinct()
 
 
-def queue_capabilities(*, user, access: dict | None) -> dict[str, bool]:
+def queue_capabilities(*, user, access: dict | None) -> dict:
     capabilities = _capabilities(user, access)
     return {
+        'user_id': getattr(user, 'pk', None),
         'can_create': 'portal.origination.create' in capabilities,
         'can_review': 'portal.origination.review' in capabilities,
         'can_start_signing': 'portal.origination.signing.start' in capabilities,

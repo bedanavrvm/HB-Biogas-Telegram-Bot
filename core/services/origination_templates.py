@@ -1294,6 +1294,16 @@ def publish_product_template(
     )
     if len(keys) != len(set(keys)):
         raise OriginationTemplateError('Document keys must be unique within a product version.')
+    from core.services.loan_origination import (
+        APPLICANT_IDENTITY_CONTRACT,
+        OriginationError,
+        validate_applicant_identity_contract,
+    )
+    if (product.form_schema or {}).get('identity_contract') == APPLICANT_IDENTITY_CONTRACT:
+        try:
+            validate_applicant_identity_contract(product.form_schema)
+        except OriginationError as exc:
+            raise OriginationTemplateError(str(exc)) from exc
     from core.services.origination_documents import validate_applicability_rule
     allowed_fields = {
         str(item.get('key')) for item in (product.form_schema or {}).get('fields', [])
@@ -1363,7 +1373,7 @@ def publish_product_template(
     product.published_by = actor
     product.published_at = product.published_at or timezone.now()
     product.save(update_fields=[
-        'document_template_name', 'document_template_version', 'document_template_sha256',
+        'form_schema', 'document_template_name', 'document_template_version', 'document_template_sha256',
         'is_active', 'lifecycle_status', 'published_by', 'published_at', 'updated_at',
     ])
     if not was_published:

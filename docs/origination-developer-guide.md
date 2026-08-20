@@ -266,8 +266,11 @@ The browser uses the canonical `/api/origination/api` prefix:
 | `POST /applications/<id>/packet/preview/` | Validate and render the selected packet. |
 | `POST /applications/<id>/submit/` | Submit a complete, previewed revision. |
 | `POST /applications/<id>/review/` | Approve or return corrections. |
+| `POST /applications/<id>/correction/takeover/` | Reassign a correction re-check with an audited reason. |
 | `POST /applications/<id>/signing-requirements/` | Save signing requirements for the current revision. |
 | `POST /applications/<id>/prepare-signing/` | Freeze a reviewed signing package. |
+| `POST /applications/<id>/test-signing/action/` | Record one watermarked non-production slot action. |
+| `POST /applications/<id>/test-signing/preview/` | Render the current watermarked test packet. |
 | evidence upload/remove/download routes | Govern requirement evidence within scope and configured limits. |
 
 Keep response errors stable and staff-safe. Log exceptions with correlation and
@@ -287,6 +290,15 @@ local snapshot of the reviewed revision. A future e-sign adapter must be a
 separate idempotent external operation and may not mark local signing complete
 before the provider confirms it.
 
+The optional no-OTP simulator is intentionally separate from production
+signing. It accepts only test-classified controlled stamps, records append-only
+slot actions, watermarks every page, and never transitions the application to
+`fully_signed`. It is denied unless `SENTRY_ENVIRONMENT` is explicitly one of
+`development`, `dev`, `local`, `test`, `testing`, or `staging`; missing and
+unknown values fail closed. Correction writes similarly enforce the open correction's
+target keys server-side; disabled controls are only presentation, not the
+security boundary.
+
 ## Environment variables
 
 | Setting | Purpose/default posture |
@@ -301,6 +313,7 @@ before the provider confirms it.
 | `ORIGINATION_EVIDENCE_MAX_FILE_SIZE_MB` | Evidence per-file limit; default 10 MB. |
 | `ORIGINATION_EVIDENCE_MAX_FILES_PER_REQUIREMENT` | Default 5. |
 | `ORIGINATION_EVIDENCE_MAX_TOTAL_UPLOAD_MB` | Default 30 MB per application. |
+| `ORIGINATION_TEST_SIGNING_ENABLED` | Watermarked simulator outside production only; default `False`. |
 | `REQUIRE_MINIAPP_IDEMPOTENCY_KEY` | Strict retry-key enforcement rollout flag; enable only after cached clients are verified. |
 | `ORIGINATION_FULL_RESET_ENABLED` | Testing-only Admin reset; default and normal production value is `False`. |
 

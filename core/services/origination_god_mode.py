@@ -29,6 +29,8 @@ from core.models import (
     OriginationReportingValue,
     OriginationRequirementEvidence,
     OriginationSigningPackage,
+    OriginationSigningAction,
+    OriginationStampAsset,
     OriginationTemplateConfigurationRevision,
 )
 
@@ -46,6 +48,7 @@ ORIGINATION_RESET_MODEL_GROUPS = (
         OriginationCorrectionItem,
         OriginationRequirementEvidence,
         OriginationSigningPackage,
+        OriginationSigningAction,
         OriginationReportingValue,
     )),
     ('Products and PDF configuration', (
@@ -56,6 +59,7 @@ ORIGINATION_RESET_MODEL_GROUPS = (
         OriginationDocumentTemplateEvent,
         OriginationTemplateConfigurationRevision,
         OriginationFieldReviewIssue,
+        OriginationStampAsset,
     )),
     ('Canonical field catalogue', (
         OriginationDataField,
@@ -163,6 +167,10 @@ def _purge_application(application_id, counts: Counter[str]) -> None:
     _delete(OriginationCorrectionRequest.objects.filter(application_id=application_id), counts)
     _delete(OriginationRequirementEvidence.objects.filter(application_id=application_id), counts)
     _delete(OriginationApplicationDocument.objects.filter(application_id=application_id), counts)
+    package_ids = OriginationSigningPackage.objects.filter(
+        application_id=application_id,
+    ).values_list('pk', flat=True)
+    _delete(OriginationSigningAction.objects.filter(package_id__in=package_ids), counts)
     _delete(OriginationSigningPackage.objects.filter(application_id=application_id), counts)
     _delete(OriginationApplicationEvent.objects.filter(application_id=application_id), counts)
     _delete(OriginationReportingValue.objects.filter(application_id=application_id), counts)
@@ -243,6 +251,7 @@ def reset_all_origination_data(*, actor, reason: str) -> dict[str, Any]:
     _delete(OriginationCorrectionRequest.objects.all(), deleted)
     _delete(OriginationRequirementEvidence.objects.all(), deleted)
     _delete(OriginationApplicationDocument.objects.all(), deleted)
+    _delete(OriginationSigningAction.objects.all(), deleted)
     _delete(OriginationSigningPackage.objects.all(), deleted)
     _delete(OriginationApplicationEvent.objects.all(), deleted)
     _delete(OriginationReportingValue.objects.all(), deleted)
@@ -258,6 +267,7 @@ def reset_all_origination_data(*, actor, reason: str) -> dict[str, Any]:
     _delete(OriginationProductDefinitionEvent.objects.all(), deleted)
     OriginationProductDefinition.objects.update(supersedes=None)
     _delete(OriginationProductDefinition.objects.all(), deleted)
+    _delete(OriginationStampAsset.objects.all(), deleted)
 
     # Canonical fields are last because reporting values and review issues
     # protect them. Their embedded JSON references disappear with the setup.
@@ -314,7 +324,13 @@ def purge_origination_record(*, record: Any, actor, reason: str) -> dict[str, in
     elif isinstance(record, OriginationApplicationDocument):
         _delete(OriginationApplicationDocument.objects.filter(pk=record.pk), counts)
     elif isinstance(record, OriginationSigningPackage):
+        _delete(OriginationSigningAction.objects.filter(package=record), counts)
         _delete(OriginationSigningPackage.objects.filter(pk=record.pk), counts)
+    elif isinstance(record, OriginationSigningAction):
+        _delete(OriginationSigningAction.objects.filter(pk=record.pk), counts)
+    elif isinstance(record, OriginationStampAsset):
+        _delete(OriginationSigningAction.objects.filter(stamp_asset=record), counts)
+        _delete(OriginationStampAsset.objects.filter(pk=record.pk), counts)
     elif isinstance(record, OriginationReportingValue):
         _delete(OriginationReportingValue.objects.filter(pk=record.pk), counts)
     elif isinstance(record, OriginationTemplateConfigurationRevision):
