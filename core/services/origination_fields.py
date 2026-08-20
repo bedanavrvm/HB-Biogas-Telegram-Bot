@@ -677,9 +677,12 @@ def resolve_review_issue(
 ) -> OriginationFieldReviewIssue:
     if not getattr(actor, 'is_superuser', False):
         raise OriginationFieldError('Only a Django Superuser may resolve legacy fields.')
-    issue = OriginationFieldReviewIssue.objects.select_for_update().select_related(
-        'product_definition', 'resolution_field',
-    ).get(pk=issue.pk)
+    # resolution_field is nullable. Joining it into a FOR UPDATE query makes
+    # PostgreSQL reject the lock as targeting the nullable side of an outer
+    # join. Lock only the issue row and join the required product relation.
+    issue = OriginationFieldReviewIssue.objects.select_for_update(
+        of=('self',),
+    ).select_related('product_definition').get(pk=issue.pk)
     if status not in {issue.STATUS_RESOLVED, issue.STATUS_ACCEPTED}:
         raise OriginationFieldError('Choose resolved or accepted as legacy.')
     if status == issue.STATUS_RESOLVED:

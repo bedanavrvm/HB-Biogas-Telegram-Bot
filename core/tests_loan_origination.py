@@ -5,7 +5,9 @@ from pypdf import PdfReader, PdfWriter
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from core.admin import OriginationProductDefinitionForm
@@ -386,15 +388,22 @@ class LoanOriginationServiceTests(TestCase):
             test_mode=True,
         )
 
-        package, replayed = simulate_slot(
-            package_id=package.pk,
-            actor=self.reviewer,
-            document_key='primary',
-            slot_key='applicant_signature',
-            signer_role='applicant',
-            expected_revision=application.revision,
-            request_id='simulate-applicant-signature',
-        )
+        with CaptureQueriesContext(connection) as queries:
+            package, replayed = simulate_slot(
+                package_id=package.pk,
+                actor=self.reviewer,
+                document_key='primary',
+                slot_key='applicant_signature',
+                signer_role='applicant',
+                expected_revision=application.revision,
+                request_id='simulate-applicant-signature',
+            )
+        package_queries = [
+            item['sql'].lower() for item in queries.captured_queries
+            if 'originationsigningpackage' in item['sql'].lower()
+        ]
+        self.assertTrue(package_queries)
+        self.assertFalse(any('operationallocation' in sql for sql in package_queries))
         repeated, replayed_again = simulate_slot(
             package_id=package.pk,
             actor=self.reviewer,

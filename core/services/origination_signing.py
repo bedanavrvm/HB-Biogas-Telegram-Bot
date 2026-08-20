@@ -87,9 +87,13 @@ def simulate_slot(
     request_id = _require_request_id(request_id)
     if not test_signing_enabled():
         raise OriginationError('Test signing is disabled or forbidden in the production environment.')
-    package = OriginationSigningPackage.objects.select_for_update().select_related(
-        'application__branch_ref',
-    ).get(pk=package_id)
+    # Do not join the nullable application.branch_ref while acquiring this
+    # lock. PostgreSQL rejects FOR UPDATE on the nullable side of an outer
+    # join. Lock the package and its required application relation explicitly;
+    # the branch comparison below needs only application.branch_ref_id.
+    package = OriginationSigningPackage.objects.select_for_update(
+        of=('self', 'application'),
+    ).select_related('application').get(pk=package_id)
     replay = package.actions.filter(request_id=request_id).first()
     if replay:
         if (
