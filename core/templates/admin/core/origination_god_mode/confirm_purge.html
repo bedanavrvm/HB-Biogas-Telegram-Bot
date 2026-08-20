@@ -1,0 +1,43 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=7">
+{% endblock %}
+
+{% block content %}
+  <section class="opb-shell opb-god-mode">
+    <header>
+      <p class="opb-danger-kicker">ORIGINATION GOD MODE</p>
+      <h1>Permanently purge {{ opts.verbose_name }}</h1>
+      <p><b>{{ original }}</b></p>
+    </header>
+
+    <div class="opb-god-warning">
+      <b>This cannot be undone.</b>
+      <p>Only Origination database records will be deleted. Google Drive files, including PDFs, evidence, and generated packages, will remain untouched. No records belonging to Portal, Case Management, TAT, or another Mini App are included.</p>
+    </div>
+
+    <h2>Expected database impact</h2>
+    <div class="opb-packet-readiness">
+      {% for item in impact %}<span class="is-blocked"><b>{{ item.count }}</b><small>{{ item.label }}</small></span>{% endfor %}
+    </div>
+
+    {% if error %}<div class="opb-errors" role="alert">{{ error }}</div>{% endif %}
+    <form method="post" class="opb-god-form">
+      {% csrf_token %}
+      <label>Reason for permanent purge
+        <textarea name="reason" required maxlength="500" placeholder="Example: Removing synthetic test configuration before production">{{ request.POST.reason }}</textarea>
+      </label>
+      <label>Type this exact record ID to confirm
+        <code>{{ object_id }}</code>
+        <input name="confirmation" required autocomplete="off" spellcheck="false" value="{{ request.POST.confirmation }}">
+      </label>
+      <div class="opb-actions">
+        <a class="button" href="{{ back_url }}">Cancel</a>
+        <button type="submit" class="button opb-danger-button">Permanently purge from Origination</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

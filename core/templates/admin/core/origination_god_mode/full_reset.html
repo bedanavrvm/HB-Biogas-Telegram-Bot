@@ -1,0 +1,72 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=8">
+{% endblock %}
+
+{% block content %}
+  <section class="opb-shell opb-god-mode opb-full-reset">
+    <header>
+      <p class="opb-danger-kicker">ORIGINATION TESTING DANGER ZONE</p>
+      <h1>Reset all Origination data</h1>
+      <p>Completely empty the Loan Origination database models and return the Mini App to an unconfigured state.</p>
+    </header>
+
+    <div class="opb-god-warning">
+      <b>This cannot be undone.</b>
+      <p>All applications, packet records, product/LAF setup, mappings, canonical fields, and Origination audit history will be deleted.</p>
+      <p>Google Drive files will remain, but their deleted database links cannot be recovered through the Mini App. Global products, locations, users, permissions, and every other Mini App remain untouched.</p>
+    </div>
+
+    <div class="opb-reset-total">
+      <b>{{ preview.total }}</b>
+      <span>Origination database record{{ preview.total|pluralize }} currently scheduled for deletion</span>
+    </div>
+
+    <div class="opb-reset-groups">
+      {% for group in preview.groups %}
+        <details {% if group.count %}open{% endif %}>
+          <summary><span>{{ group.label }}</span><b>{{ group.count }}</b></summary>
+          <table>
+            <tbody>
+              {% for item in group.models %}
+                <tr><td>{{ item.label }}</td><td>{{ item.count }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </details>
+      {% endfor %}
+    </div>
+
+    {% if error %}<div class="opb-errors" role="alert">{{ error }}</div>{% endif %}
+    <form method="post" class="opb-god-form" data-single-submit>
+      {% csrf_token %}
+      <input type="hidden" name="request_id" value="{{ request_id }}">
+      <label>Reason for permanent reset
+        <textarea name="reason" required maxlength="500" placeholder="Example: Clearing synthetic testing data before a clean setup">{{ reason }}</textarea>
+      </label>
+      <label>Type this exact phrase to confirm
+        <code>{{ confirmation_phrase }}</code>
+        <input name="confirmation" required autocomplete="off" spellcheck="false" value="{{ confirmation }}">
+      </label>
+      <div class="opb-actions">
+        <a class="button" href="{{ back_url }}">Cancel</a>
+        <button type="submit" class="button opb-danger-button">Reset all Origination data</button>
+      </div>
+    </form>
+  </section>
+  <script>
+    (() => {
+      const form = document.querySelector('[data-single-submit]');
+      if (!form) return;
+      form.addEventListener('submit', () => {
+        const button = form.querySelector('button[type="submit"]');
+        if (!button || button.disabled) return;
+        button.disabled = true;
+        button.textContent = 'Resetting Origination...';
+      });
+    })();
+  </script>
+{% endblock %}

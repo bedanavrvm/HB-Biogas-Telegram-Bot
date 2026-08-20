@@ -78,4 +78,7 @@
       <li><a href="{{ origination_next_family_version_url }}">Upload next family version</a></li>
     {% endif %}
   {% endif %}
+  {% if original and origination_god_mode_purge_url and request.user.is_superuser %}
+    <li><a href="{{ origination_god_mode_purge_url }}" style="color:#b91c1c;font-weight:700">God mode purge</a></li>
+  {% endif %}
 {% endblock %}

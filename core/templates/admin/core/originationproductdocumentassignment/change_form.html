@@ -6,6 +6,13 @@
   <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=6">
 {% endblock %}
 
+{% block object-tools-items %}
+  {{ block.super }}
+  {% if original and origination_god_mode_purge_url and request.user.is_superuser %}
+    <li><a href="{{ origination_god_mode_purge_url }}" style="color:#b91c1c;font-weight:700">God mode purge</a></li>
+  {% endif %}
+{% endblock %}
+
 {% block after_related_objects %}
   {{ block.super }}
   {{ origination_condition_fields_by_product|json_script:"origination-condition-fields-data" }}

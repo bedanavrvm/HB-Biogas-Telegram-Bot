@@ -108,6 +108,7 @@ from .models import (
     OriginationDocumentTemplateEvent,
     OriginationTemplateConfigurationRevision,
     LoanOriginationApplication,
+    OriginationReportingValue,
     OriginationApplicationEvent,
     OriginationCorrectionItem,
     OriginationCorrectionRequest,
@@ -722,6 +723,106 @@ class CompactModelAdmin(ModelAdmin):
     compressed_fields = True
     list_filter_submit = True
     list_fullwidth = True
+
+
+class OriginationGodModeAdminMixin:
+    """Expose an explicit Superuser purge for Origination records only."""
+
+    change_form_template = 'admin/core/origination_god_mode/change_form.html'
+
+    def get_urls(self):
+        return [
+            path(
+                '<path:object_id>/god-mode-purge/',
+                self.admin_site.admin_view(self.origination_god_mode_purge_view),
+                name=(
+                    f'{self.model._meta.app_label}_{self.model._meta.model_name}'
+                    '_god_mode_purge'
+                ),
+            ),
+        ] + super().get_urls()
+
+    def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
+        context = {**(extra_context or {})}
+        if object_id and request.user.is_active and request.user.is_superuser:
+            context['origination_god_mode_purge_url'] = reverse(
+                'admin:'
+                f'{self.model._meta.app_label}_{self.model._meta.model_name}'
+                '_god_mode_purge',
+                args=[object_id],
+            )
+        return super().changeform_view(request, object_id, form_url, context)
+
+    def origination_god_mode_purge_view(self, request, object_id):
+        if not request.user.is_active or not request.user.is_superuser:
+            raise PermissionDenied
+        obj = self.get_object(request, object_id)
+        if not obj:
+            return HttpResponse(status=404)
+        expected_confirmation = str(obj.pk)
+        error = ''
+        if request.method == 'POST':
+            confirmation = str(request.POST.get('confirmation') or '').strip()
+            reason = str(request.POST.get('reason') or '').strip()
+            if confirmation != expected_confirmation:
+                error = f'Type the exact record ID: {expected_confirmation}'
+            elif not reason:
+                error = 'Provide a reason for this permanent purge.'
+            else:
+                from core.services.origination_god_mode import (
+                    OriginationGodModeError, purge_origination_record,
+                )
+                try:
+                    counts = purge_origination_record(
+                        record=obj, actor=request.user, reason=reason,
+                    )
+                except OriginationGodModeError as exc:
+                    error = str(exc)
+                except Exception:
+                    logger.exception(
+                        'Origination God mode purge failed: model=%s object_id=%s actor_id=%s',
+                        self.model._meta.label, object_id, request.user.pk,
+                    )
+                    error = 'The Origination purge failed. No database changes were committed.'
+                else:
+                    logger.warning(
+                        'Origination God mode purge completed: model=%s object_id=%s '
+                        'actor_id=%s reason=%r counts=%s drive_files_untouched=true',
+                        self.model._meta.label, object_id, request.user.pk, reason[:500], counts,
+                    )
+                    summary = ', '.join(
+                        f'{count} {label}' for label, count in counts.items()
+                    ) or 'the selected record'
+                    self.message_user(
+                        request,
+                        f'God mode purge completed: {summary}. Drive files were left untouched.',
+                        level=messages.WARNING,
+                    )
+                    return HttpResponseRedirect(reverse(
+                        f'admin:{self.model._meta.app_label}_{self.model._meta.model_name}_changelist',
+                    ))
+        elif request.method != 'GET':
+            response = HttpResponse(status=405)
+            response['Allow'] = 'GET, POST'
+            return response
+        from core.services.origination_god_mode import preview_origination_purge
+        return TemplateResponse(
+            request,
+            'admin/core/origination_god_mode/confirm_purge.html',
+            {
+                **self.admin_site.each_context(request),
+                'opts': self.model._meta,
+                'title': f'God mode purge: {self.model._meta.verbose_name}',
+                'original': obj,
+                'object_id': expected_confirmation,
+                'error': error,
+                'impact': preview_origination_purge(obj),
+                'back_url': reverse(
+                    f'admin:{self.model._meta.app_label}_{self.model._meta.model_name}_change',
+                    args=[obj.pk],
+                ),
+            },
+        )
 
 
 @admin.register(SheetRegisterContract)
@@ -5326,7 +5427,7 @@ class UnfoldGroupAdmin(ModelAdmin, DjangoGroupAdmin):
 
 
 @admin.register(OriginationDataField)
-class OriginationDataFieldAdmin(CompactModelAdmin):
+class OriginationDataFieldAdmin(OriginationGodModeAdminMixin, CompactModelAdmin):
     list_display = (
         'key', 'label', 'data_type', 'category', 'source_type', 'sensitivity',
         'reporting_use', 'active', 'updated_at',
@@ -5392,7 +5493,7 @@ class OriginationDataFieldAdmin(CompactModelAdmin):
 
 
 @admin.register(OriginationFieldReviewIssue)
-class OriginationFieldReviewIssueAdmin(CompactModelAdmin):
+class OriginationFieldReviewIssueAdmin(OriginationGodModeAdminMixin, CompactModelAdmin):
     list_display = (
         'legacy_key', 'legacy_type', 'product_definition', 'reason', 'status',
         'assigned_to', 'updated_at',
@@ -5443,7 +5544,7 @@ class OriginationFieldReviewIssueAdmin(CompactModelAdmin):
 
 
 @admin.register(OriginationProductDocumentAssignment)
-class OriginationProductDocumentAssignmentAdmin(CompactModelAdmin):
+class OriginationProductDocumentAssignmentAdmin(OriginationGodModeAdminMixin, CompactModelAdmin):
     form = OriginationProductDocumentAssignmentForm
     change_form_template = 'admin/core/originationproductdocumentassignment/change_form.html'
     list_display = (
@@ -5530,7 +5631,8 @@ class OriginationProductDocumentAssignmentAdmin(CompactModelAdmin):
 
 
 @admin.register(OriginationProductDefinition)
-class OriginationProductDefinitionAdmin(CompactModelAdmin):
+class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactModelAdmin):
+    full_reset_confirmation = 'RESET ALL ORIGINATION DATA'
     form = OriginationProductDefinitionForm
     change_form_template = 'admin/core/originationproductdefinition/change_form.html'
     change_list_template = 'admin/core/originationproductdefinition/change_list.html'
@@ -5551,6 +5653,11 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
     def get_urls(self):
         urls = super().get_urls()
         custom = [
+            path(
+                'full-reset/',
+                self.admin_site.admin_view(self.full_reset_view),
+                name='core_origination_full_reset',
+            ),
             path(
                 '<path:object_id>/document-packet/add-shared/',
                 self.admin_site.admin_view(self.add_shared_document_to_packet_view),
@@ -5578,6 +5685,92 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
             ),
         ]
         return custom + urls
+
+    def full_reset_view(self, request):
+        if (
+            not getattr(settings, 'ORIGINATION_FULL_RESET_ENABLED', False)
+            or not request.user.is_active
+            or not request.user.is_superuser
+        ):
+            raise PermissionDenied
+
+        from core.services.origination_god_mode import (
+            OriginationGodModeError,
+            preview_full_origination_reset,
+            reset_all_origination_data,
+        )
+
+        error = ''
+        reason = str(request.POST.get('reason') or '').strip()
+        confirmation = str(request.POST.get('confirmation') or '').strip()
+        request_id = re.sub(
+            r'[^A-Za-z0-9._-]', '',
+            str(request.POST.get('request_id') or uuid.uuid4()),
+        )[:128] or str(uuid.uuid4())
+        if request.method == 'POST':
+            if confirmation != self.full_reset_confirmation:
+                error = f'Type the exact confirmation phrase: {self.full_reset_confirmation}'
+            elif not reason:
+                error = 'Provide a reason for this permanent reset.'
+            elif len(reason) > 500:
+                error = 'The reset reason must be 500 characters or fewer.'
+            else:
+                try:
+                    result = reset_all_origination_data(
+                        actor=request.user,
+                        reason=reason,
+                    )
+                except OriginationGodModeError as exc:
+                    error = str(exc)
+                except Exception:
+                    logger.exception(
+                        'Origination full reset failed: actor_id=%s request_id=%s',
+                        request.user.pk,
+                        request_id,
+                    )
+                    error = 'The Origination reset failed. No database changes were committed.'
+                else:
+                    deleted_total = result['before']['total']
+                    logger.warning(
+                        'Origination full reset completed: actor_id=%s request_id=%s '
+                        'reason=%r before_counts=%s deleted=%s after_counts=%s '
+                        'drive_files_untouched=true',
+                        request.user.pk,
+                        request_id,
+                        reason,
+                        result['before']['counts'],
+                        result['deleted'],
+                        result['after']['counts'],
+                    )
+                    self.message_user(
+                        request,
+                        f'Origination reset complete. Deleted {deleted_total} database '
+                        'record(s); Google Drive files and other workflows were untouched.',
+                        level=messages.WARNING,
+                    )
+                    return HttpResponseRedirect(reverse('admin:core_origination_full_reset'))
+        elif request.method != 'GET':
+            response = HttpResponse(status=405)
+            response['Allow'] = 'GET, POST'
+            return response
+
+        preview = preview_full_origination_reset()
+        return TemplateResponse(
+            request,
+            'admin/core/origination_god_mode/full_reset.html',
+            {
+                **self.admin_site.each_context(request),
+                'opts': self.model._meta,
+                'title': 'Reset all Origination data',
+                'preview': preview,
+                'confirmation_phrase': self.full_reset_confirmation,
+                'confirmation': confirmation,
+                'reason': reason,
+                'request_id': request_id,
+                'error': error,
+                'back_url': reverse('admin:core_originationproductdefinition_changelist'),
+            },
+        )
 
     def get_queryset(self, request):
         queryset = super().get_queryset(request).select_related(
@@ -6136,7 +6329,7 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
 
 
 @admin.register(OriginationDocumentTemplate)
-class OriginationDocumentTemplateAdmin(CompactModelAdmin):
+class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactModelAdmin):
     form = OriginationDocumentTemplateForm
     change_form_template = 'admin/core/originationdocumenttemplate/change_form.html'
     change_list_template = 'admin/core/originationdocumenttemplate/change_list.html'
@@ -6641,7 +6834,7 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
 
 
 @admin.register(LoanOriginationApplication)
-class LoanOriginationApplicationAdmin(ModelAdmin):
+class LoanOriginationApplicationAdmin(OriginationGodModeAdminMixin, ModelAdmin):
     list_display = ('reference_number', 'product_definition', 'officer', 'branch', 'status', 'revision', 'updated_at')
     list_filter = ('status', 'branch', 'product_definition')
     search_fields = ('reference_number', 'officer__username')
@@ -6654,7 +6847,7 @@ class LoanOriginationApplicationAdmin(ModelAdmin):
         return False
 
 
-class _AppendOnlyOriginationAdmin(ModelAdmin):
+class _AppendOnlyOriginationAdmin(OriginationGodModeAdminMixin, ModelAdmin):
     def get_readonly_fields(self, request, obj=None):
         return tuple(field.name for field in self.model._meta.fields)
 
@@ -6748,6 +6941,13 @@ class OriginationSigningPackageAdmin(_AppendOnlyOriginationAdmin):
     list_display = ('external_reference', 'application', 'application_revision', 'status', 'updated_at')
     list_filter = ('status', 'document_type')
     search_fields = ('external_reference', 'application__reference_number')
+
+
+@admin.register(OriginationReportingValue)
+class OriginationReportingValueAdmin(_AppendOnlyOriginationAdmin):
+    list_display = ('application', 'field_key', 'value_type', 'sensitivity', 'projected_at')
+    list_filter = ('value_type', 'sensitivity', 'reporting_use', 'export_allowed')
+    search_fields = ('application__reference_number', 'field_key', 'data_field__key')
 
 
 try:

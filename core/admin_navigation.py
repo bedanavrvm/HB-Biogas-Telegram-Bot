@@ -13,6 +13,7 @@ from collections.abc import Callable
 from urllib.parse import urlencode
 
 from django.apps import apps
+from django.conf import settings
 from django.contrib import admin
 from django.urls import NoReverseMatch, reverse
 
@@ -208,6 +209,17 @@ def _superuser(request) -> bool:
     return bool(getattr(request, "user", None) and request.user.is_superuser)
 
 
+def _origination_full_reset_allowed(request) -> bool:
+    user = getattr(request, "user", None)
+    return bool(
+        getattr(settings, 'ORIGINATION_FULL_RESET_ENABLED', False)
+        and user
+        and user.is_authenticated
+        and user.is_active
+        and user.is_superuser
+    )
+
+
 def get_admin_navigation(request) -> list[dict]:
     """Return the small, workflow-oriented sidebar shown in Django Admin."""
 
@@ -247,6 +259,12 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("core.OriginationProductDocumentAssignment", "Product document assignments", "assignment"),
         _model_item("core.OriginationDataField", "Origination data fields", "data_object"),
         _model_item("core.OriginationFieldReviewIssue", "Legacy fields needing review", "rule"),
+        _custom_item(
+            "Reset all Origination data",
+            "admin:core_origination_full_reset",
+            "delete_forever",
+            _origination_full_reset_allowed,
+        ),
         _model_item("core.ProductMappingIssue", "Unmapped product values", "rule"),
         _model_item("core.ComplaintCategory", "Complaint categories", "category"),
         _model_item("core.ComplaintCategoryAlias", "Complaint category aliases", "alt_route"),
