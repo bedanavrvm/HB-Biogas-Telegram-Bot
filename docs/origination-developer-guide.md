@@ -327,7 +327,9 @@ successful challenge creates append-only verified actions for all signature
 slots belonging to that role in one transaction. The code and raw token are
 never stored; normal serializers expose only masked/status evidence.
 
-The public ceremony is rooted at `/origination/sign/#<opaque-token>`. The URL
+The public ceremony is rooted at the compact `/s/#<opaque-token>` route. The
+legacy `/origination/sign/#<opaque-token>` route remains available for existing
+links. The URL
 fragment is removed from the address bar on load and sent only as an
 `Authorization: Bearer` header, so it does not enter normal HTTP access logs.
 Public writes require the bearer token, are rate limited, and do not use staff cookie
@@ -364,6 +366,7 @@ that approval is retained when Operations reissues the same signer session.
 | `AFRICASTALKING_USERNAME`, `AFRICASTALKING_API_KEY` | Server-only provider credentials. Sandbox requires username `sandbox`. |
 | `AFRICASTALKING_SENDER_ID` | Optional approved production Sender ID. |
 | `ORIGINATION_SIGNING_LINK_TTL_HOURS` | Opaque signing-link lifetime, bounded to 1-168 hours; default 48. |
+| `ORIGINATION_SIGNING_BASE_URL` | Optional HTTPS origin for compact signer links; blank falls back to `APP_BASE_URL`. |
 | `REQUIRE_MINIAPP_IDEMPOTENCY_KEY` | Strict retry-key enforcement rollout flag; enable only after cached clients are verified. |
 | `ORIGINATION_FULL_RESET_ENABLED` | Testing-only Admin reset; default and normal production value is `False`. |
 

@@ -99,6 +99,7 @@ AFRICASTALKING_USERNAME=sandbox
 AFRICASTALKING_API_KEY=<sandbox-api-key>
 AFRICASTALKING_SENDER_ID=
 ORIGINATION_SIGNING_LINK_TTL_HOURS=48
+ORIGINATION_SIGNING_BASE_URL=
 SENTRY_ENVIRONMENT=staging
 APP_BASE_URL=https://<public-staging-host>
 ```
@@ -107,6 +108,9 @@ Important rules:
 
 - `APP_BASE_URL` must be the public HTTPS origin without a trailing path, for
   example `https://example.onrender.com`.
+- `ORIGINATION_SIGNING_BASE_URL` is optional. When set, it must be an approved
+  HTTPS origin routing to this Django service and its host must be included in
+  `ALLOWED_HOSTS`. Leave it blank to use `APP_BASE_URL`.
 - Sandbox works only when `SENTRY_ENVIRONMENT` is one of `development`, `dev`,
   `local`, `test`, `testing`, or `staging`.
 - Sandbox requires `AFRICASTALKING_USERNAME=sandbox`.
@@ -114,6 +118,12 @@ Important rules:
   non-sandbox username/API key, and `SENTRY_ENVIRONMENT=production`.
 - Any mismatch fails closed and the Mini App reports that verified signing is
   disabled or not configured.
+- New invitations use compact `/s/#<token>` URLs. The secret remains in the
+  browser fragment so it is not sent to Django, Render access logs, or referrer
+  headers. Existing `/origination/sign/#<token>` links remain valid. The
+  Africa's Talking Sandbox report may display the URL as plain text; validate
+  actual hyperlink behavior on controlled Android and iOS SMS clients before
+  production launch.
 - `ORIGINATION_TEST_SIGNING_ENABLED` controls the separate watermarked no-OTP
   simulator. When verified signing is correctly enabled, a newly prepared
   package is a verified package rather than a test package.
@@ -357,7 +367,8 @@ Do not reuse a production application.
 10. Select **Prepare signing package**.
 11. Confirm the panel says **Verified packet signing**, not **Non-production
     simulator**.
-12. For the borrower or other external signer, choose **Send signing link**.
+12. For the borrower or other external signer, choose **Send to signer's
+    phone**. This remote self-service flow works from any location.
 13. In the Africa's Talking simulator inbox, confirm the invitation contains the
     correct JBL packet reference and signing link.
 14. Open the link. Confirm the address bar removes the secret fragment after

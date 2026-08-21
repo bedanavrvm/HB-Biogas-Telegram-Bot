@@ -1,7 +1,10 @@
+from datetime import timedelta
+import hashlib
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from core.models import (
     LoanOriginationApplication,
@@ -13,11 +16,16 @@ from core.models import (
 )
 from core.services.loan_origination import OriginationError, serialize_application
 from core.services.origination_esign import (
+    _legacy_session_token,
+    _session_token,
     create_signer_session,
     esign_enabled,
     issue_otp,
+    resolve_session,
     reset_signer_session,
     record_consent_and_signature,
+    send_signing_invitation,
+    signing_url,
     verify_otp,
 )
 from core.services.origination_signing import serialize_test_signing
@@ -191,6 +199,59 @@ class OriginationVerifiedSigningTests(TestCase):
         self.assertFalse(first.is_active)
         self.assertTrue(replacement.is_active)
 
+    def test_compact_token_url_and_optional_signing_origin(self):
+        token = _session_token(self.package.pk, 'borrower', 'compact-link')
+        self.assertEqual(len(token), 32)
+        self.assertEqual(token, _session_token(self.package.pk, 'borrower', 'compact-link'))
+        self.assertNotIn('=', token)
+        self.assertEqual(
+            signing_url(token), f'https://example.test/s/#{token}',
+        )
+        with override_settings(ORIGINATION_SIGNING_BASE_URL='https://sign.example.test/'):
+            self.assertEqual(
+                signing_url(token), f'https://sign.example.test/s/#{token}',
+            )
+
+    def test_pre_cutover_token_replay_and_public_link_remain_valid(self):
+        request_id = 'legacy-session-request'
+        token = _legacy_session_token(self.package.pk, 'borrower', request_id)
+        session = OriginationSignerSession.objects.create(
+            package=self.package, signer_role='borrower',
+            identity_snapshot={'name': 'Synthetic Borrower', 'phone': '254712345678'},
+            phone_normalized='254712345678', phone_hash='a' * 64, phone_last4='5678',
+            token_hash=hashlib.sha256(token.encode()).hexdigest(),
+            token_expires_at=timezone.now() + timedelta(hours=1),
+            request_id=request_id, created_by=self.actor,
+        )
+
+        replayed_session, replayed_token, replayed = create_signer_session(
+            package_id=self.package.pk, signer_role='borrower', actor=self.actor,
+            request_id=request_id,
+        )
+
+        self.assertTrue(replayed)
+        self.assertEqual(replayed_session.pk, session.pk)
+        self.assertEqual(replayed_token, token)
+        response = self.client.get(
+            '/origination/sign/api/session/', HTTP_AUTHORIZATION=f'Bearer {token}',
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_invitation_sms_is_short_and_places_complete_url_on_own_line(self):
+        session, token, _replayed = self._session('sms-format')
+        with patch('core.services.origination_esign._send_sms', return_value={
+            'id': 'synthetic-message', 'status': 'Accepted',
+        }) as send:
+            send_signing_invitation(session, token, request_id='sms-format-send')
+
+        message, phone = send.call_args.args
+        lines = message.splitlines()
+        self.assertEqual(lines[1], signing_url(token))
+        self.assertTrue(lines[1].startswith('https://'))
+        self.assertNotIn(' ', lines[1])
+        self.assertEqual(phone, session.phone_normalized)
+        self.assertLessEqual(len(message), 160)
+
     def test_session_recovers_phone_from_frozen_product_mapping(self):
         self.application.signer_rules_snapshot = [{
             'role': 'borrower',
@@ -219,6 +280,11 @@ class OriginationVerifiedSigningTests(TestCase):
         self.assertEqual(shell.status_code, 200)
         self.assertEqual(shell['Referrer-Policy'], 'no-referrer')
         self.assertNotContains(shell, token)
+        compact_shell = self.client.get('/s/')
+        self.assertEqual(compact_shell.status_code, 200)
+        self.assertEqual(compact_shell['Referrer-Policy'], 'no-referrer')
+        self.assertContains(compact_shell, 'data-session-url="/origination/sign/api/session/"')
+        self.assertNotContains(compact_shell, token)
 
     def test_delivery_receipt_is_informational_only(self):
         session, token, _ = self._session('delivery-session')
@@ -264,3 +330,33 @@ class OriginationVerifiedSigningTests(TestCase):
         self.assertTrue(replacement.is_active)
         self.assertNotEqual(replacement.token_hash, old.token_hash)
         self.assertTrue(replacement_token)
+
+    def test_reset_can_switch_from_assisted_to_remote_and_audits_both_modes(self):
+        old, old_token, _ = create_signer_session(
+            package_id=self.package.pk, signer_role='borrower', actor=self.actor,
+            request_id='assisted-before-switch', access_mode='assisted',
+        )
+
+        replacement, replacement_token = reset_signer_session(
+            session_id=old.pk, actor=self.actor, reason='Signer will complete remotely.',
+            request_id='remote-after-switch', access_mode='self_service',
+        )
+
+        old.refresh_from_db()
+        self.assertFalse(old.is_active)
+        self.assertEqual(replacement.access_mode, 'self_service')
+        self.assertNotEqual(replacement_token, old_token)
+        with self.assertRaisesRegex(OriginationError, 'invalid or has been replaced'):
+            resolve_session(old_token)
+        event = self.application.events.get(action='signer_session_reset')
+        self.assertEqual(event.before_values['access_mode'], 'assisted')
+        self.assertEqual(event.after_values['access_mode'], 'self_service')
+        replayed, replayed_token = reset_signer_session(
+            session_id=old.pk, actor=self.actor, reason='Signer will complete remotely.',
+            request_id='remote-after-switch', access_mode='self_service',
+        )
+        self.assertEqual(replayed.pk, replacement.pk)
+        self.assertEqual(replayed_token, replacement_token)
+        self.assertEqual(
+            self.application.events.filter(action='signer_session_reset').count(), 1,
+        )

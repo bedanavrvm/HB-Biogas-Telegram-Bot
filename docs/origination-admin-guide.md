@@ -352,6 +352,7 @@ AFRICASTALKING_USERNAME=sandbox
 AFRICASTALKING_API_KEY=<sandbox-key>
 AFRICASTALKING_SENDER_ID=
 ORIGINATION_SIGNING_LINK_TTL_HOURS=48
+ORIGINATION_SIGNING_BASE_URL=
 SENTRY_ENVIRONMENT=staging
 APP_BASE_URL=https://<staging-host>
 ```
@@ -371,7 +372,9 @@ values and all selected documents.
 The Operations signing flow is:
 
 1. Review and approve the application, then choose **Prepare signing package**.
-2. For an external signer choose **Send signing link** or **Assisted signing**.
+2. For an external signer choose **Send to signer's phone**. Use **In-person
+   assisted signing** only when the signer is physically using the officer's
+   device.
    Self-service sends the opaque packet link to the mapped phone. Assisted mode
    opens the same ceremony on the officer's device and is separately audited.
 3. The signer must open every packet page, draw or type their signature, accept

@@ -198,6 +198,7 @@ from .origination_views import (
 
 urlpatterns = [
     path('origination/', origination_app, name='loan_origination_app'),
+    path('s/', origination_signing_app, name='loan_origination_signing_short_app'),
     path('origination/sign/', origination_signing_app, name='loan_origination_signing_app'),
     path('origination/sign/api/session/', origination_signer_session, name='loan_origination_signer_session'),
     path('origination/sign/api/packet/', origination_signer_packet_preview, name='loan_origination_signer_packet'),

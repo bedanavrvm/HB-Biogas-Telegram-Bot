@@ -4,6 +4,20 @@ from django.test import SimpleTestCase
 
 
 class LoanOriginationFrontendTests(SimpleTestCase):
+    def test_remote_signing_is_primary_and_assisted_signing_is_explicit(self):
+        app_source = Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
+        signer_source = Path('core/static/miniapp/origination_signing.js').read_text(encoding='utf-8')
+        signer_template = Path('core/templates/loan_origination/sign.html').read_text(encoding='utf-8')
+
+        self.assertIn("Send to signer's phone", app_source)
+        self.assertIn('In-person assisted signing', app_source)
+        self.assertIn('Send remotely instead', app_source)
+        self.assertIn('data-target-access-mode', app_source)
+        self.assertIn("session.access_mode === 'assisted'", signer_source)
+        self.assertIn('wherever you are', signer_source)
+        self.assertIn('signing-mode-banner', signer_template)
+        self.assertIn("data-session-url=\"{% url 'loan_origination_signer_session' %}\"", signer_template)
+
     def test_miniapp_shell_is_not_cached_by_telegram_webview(self):
         response = self.client.get('/origination/')
 
@@ -29,9 +43,9 @@ class LoanOriginationFrontendTests(SimpleTestCase):
         self.assertIn('font-size: 16px !important', css)
         self.assertIn('position: sticky', css)
         self.assertIn('class="header-icon"', template)
-        self.assertIn('data-ui-version="20260820-3"', template)
-        self.assertIn("loan_origination.css' %}?v=20260820-3", template)
-        self.assertIn("loan_origination.js' %}?v=20260821-1", template)
+        self.assertIn('data-ui-version="20260821-2"', template)
+        self.assertIn("loan_origination.css' %}?v=20260821-4", template)
+        self.assertIn("loan_origination.js' %}?v=20260821-2", template)
         self.assertIn('maximumLiveViewportHeight', source)
         self.assertIn('setKeyboardViewportOpen', source)
         self.assertIn('.origination-keyboard-open .wizard-actions { display: none !important; }', css)

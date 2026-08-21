@@ -2,7 +2,9 @@
   'use strict';
   const token = decodeURIComponent(location.hash.slice(1));
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
-  const base = `${location.pathname}api`;
+  const shell = document.querySelector('.sign-shell');
+  const sessionUrl = String(shell?.dataset.sessionUrl || '/origination/sign/api/session/');
+  const base = sessionUrl.replace(/session\/?$/, '').replace(/\/$/, '');
   const status = document.getElementById('sign-status');
   const content = document.getElementById('sign-content');
   const pad = document.getElementById('signature-pad');
@@ -22,7 +24,14 @@
     document.getElementById('sign-role').textContent = session.signer_role.replaceAll('_',' ');
     document.getElementById('sign-phone').textContent = session.phone_masked;
     document.getElementById('shared-phone-warning').hidden = !session.shared_phone_override;
-    document.getElementById('assisted-confirmation').hidden = session.access_mode !== 'assisted';
+    const assisted = session.access_mode === 'assisted';
+    document.getElementById('assisted-confirmation').hidden = !assisted;
+    const modeBanner = document.getElementById('signing-mode-banner');
+    modeBanner.classList.toggle('assisted', assisted);
+    document.getElementById('signing-mode-label').textContent = assisted ? 'Assisted signing' : 'Remote signing';
+    document.getElementById('signing-mode-detail').textContent = assisted
+      ? 'You are signing in person on a JBL officer’s device. Keep control of the device while entering your OTP.'
+      : 'You can review and sign this packet securely from your own phone, wherever you are.';
     document.getElementById('document-list').innerHTML = session.documents.map(item => `<span>${escapeHtml(item.name || item.key)} · ${item.page_count || 0} page(s)</span>`).join('');
     const allReviewed = pages > 0 && reviewedPages.size >= pages;
     document.getElementById('packet-consent').disabled = !allReviewed && !session.consented;

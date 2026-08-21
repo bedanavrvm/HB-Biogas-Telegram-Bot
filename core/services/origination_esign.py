@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from datetime import timedelta
 import hashlib
 import hmac
@@ -65,9 +66,31 @@ def _digest(value: str) -> str:
     ).hexdigest()
 
 
-def _session_token(package_id, signer_role: str, request_id: str) -> str:
+def _legacy_session_token(package_id, signer_role: str, request_id: str) -> str:
     material = f'origination-signing:{package_id}:{signer_role}:{request_id}'
     return hmac.new(str(settings.SECRET_KEY).encode(), material.encode(), hashlib.sha256).hexdigest()
+
+
+def _session_token(package_id, signer_role: str, request_id: str) -> str:
+    """Return a deterministic 192-bit bearer token encoded in 32 URL-safe characters."""
+    material = f'origination-signing:{package_id}:{signer_role}:{request_id}'
+    digest = hmac.new(
+        str(settings.SECRET_KEY).encode(), material.encode(), hashlib.sha256,
+    ).digest()[:24]
+    return base64.urlsafe_b64encode(digest).rstrip(b'=').decode('ascii')
+
+
+def _replayed_session_token(session: OriginationSignerSession, request_id: str) -> str:
+    """Reconstruct compact tokens while preserving pre-cutover idempotent replays."""
+    candidates = (
+        _session_token(session.package_id, session.signer_role, request_id),
+        _legacy_session_token(session.package_id, session.signer_role, request_id),
+    )
+    for candidate in candidates:
+        candidate_hash = hashlib.sha256(candidate.encode()).hexdigest()
+        if hmac.compare_digest(session.token_hash, candidate_hash):
+            return candidate
+    raise OriginationError('This signing session cannot be replayed safely. Reset and reissue it.')
 
 
 def _masked_phone(phone: str) -> str:
@@ -180,7 +203,11 @@ def create_signer_session(
     package = OriginationSigningPackage.objects.select_for_update().select_related('application').get(pk=package_id)
     replay = package.signer_sessions.filter(request_id=request_id).first()
     if replay:
-        return replay, _session_token(package.pk, replay.signer_role, request_id), True
+        if replay.signer_role != signer_role or replay.access_mode != access_mode:
+            raise OriginationError(
+                'This request key was already used for a different signer session.'
+            )
+        return replay, _replayed_session_token(replay, request_id), True
     if package.test_mode:
         raise OriginationError('Create a verified package; test packages cannot dispatch signing sessions.')
     if package.status not in {package.STATUS_PENDING, package.STATUS_IN_PROGRESS}:
@@ -224,12 +251,17 @@ def create_signer_session(
 
 
 def signing_url(raw_token: str) -> str:
-    base = str(getattr(settings, 'APP_BASE_URL', '') or '').rstrip('/')
+    base = str(
+        getattr(settings, 'ORIGINATION_SIGNING_BASE_URL', '')
+        or getattr(settings, 'APP_BASE_URL', '') or ''
+    ).rstrip('/')
     if not base:
-        raise OriginationError('APP_BASE_URL is required before signing links can be sent.')
+        raise OriginationError(
+            'ORIGINATION_SIGNING_BASE_URL or APP_BASE_URL is required before signing links can be sent.'
+        )
     # Keep the bearer secret in the URL fragment. Browsers do not send the
     # fragment to Django, reverse proxies, access logs, or Referrer headers.
-    return f'{base}/origination/sign/#{quote(raw_token)}'
+    return f'{base}/s/#{quote(raw_token)}'
 
 
 def _send_sms(message: str, phone: str) -> dict[str, str]:
@@ -258,7 +290,7 @@ def send_signing_invitation(session: OriginationSignerSession, raw_token: str, *
         operation_payload=(str(session.pk), session.phone_hash), max_attempts=1,
     )
     result = execute_operation(operation, lambda: _send_sms(
-        f'JBL signing request {session.package.external_reference}. Review the complete loan packet: {url}',
+        f'JBL signing {session.package.external_reference}\n{url}\nDo not share this link.',
         session.phone_normalized,
     ), attempt_budget=1)
     return dict(result or {})
@@ -570,24 +602,50 @@ def verify_otp(*, raw_token: str, code: str, request_id: str, ip_hash: str) -> O
 
 
 @transaction.atomic
-def reset_signer_session(*, session_id, actor, reason: str, request_id: str) -> tuple[OriginationSignerSession, str]:
+def reset_signer_session(
+    *, session_id, actor, reason: str, request_id: str, access_mode: str = '',
+) -> tuple[OriginationSignerSession, str]:
     request_id = _require_request_id(request_id)
     reason = str(reason or '').strip()
     if not reason:
         raise OriginationError('Give the audited reason for resetting this signer session.')
     old = OriginationSignerSession.objects.select_for_update().select_related('package').get(pk=session_id)
+    target_mode = str(access_mode or old.access_mode).strip()
+    replay = old.package.signer_sessions.filter(request_id=request_id).first()
+    if replay:
+        if replay.signer_role != old.signer_role or replay.access_mode != target_mode:
+            raise OriginationError(
+                'This request key was already used for a different signer-session reset.'
+            )
+        return replay, _replayed_session_token(replay, request_id)
     if old.status == old.STATUS_VERIFIED:
         raise OriginationError('A verified signer session cannot be reset. The signed action is immutable.')
+    if target_mode not in dict(OriginationSignerSession.MODE_CHOICES):
+        raise OriginationError('Choose self-service or assisted signing.')
+    previous_mode = old.access_mode
     old.is_active = False
     old.status = old.STATUS_CANCELLED
     old.invalidated_at = timezone.now()
     old.save(update_fields=['is_active', 'status', 'invalidated_at', 'updated_at'])
-    return create_signer_session(
+    replacement, raw_token, _replayed = create_signer_session(
         package_id=old.package_id, signer_role=old.signer_role, actor=actor,
-        request_id=request_id, access_mode=old.access_mode,
+        request_id=request_id, access_mode=target_mode,
         shared_phone_override_reason=old.shared_phone_override_reason,
         approved_shared_phone_by=old.shared_phone_approved_by,
-    )[:2]
+    )
+    _record_event(
+        old.package.application, 'signer_session_reset', actor=actor,
+        request_id=f'reset:{hashlib.sha256(request_id.encode("utf-8")).hexdigest()}',
+        before={
+            'session_id': str(old.pk), 'signer_role': old.signer_role,
+            'access_mode': previous_mode,
+        },
+        after={
+            'session_id': str(replacement.pk), 'signer_role': replacement.signer_role,
+            'access_mode': replacement.access_mode,
+        },
+    )
+    return replacement, raw_token
 
 
 def serialize_public_session(session: OriginationSignerSession) -> dict[str, Any]:

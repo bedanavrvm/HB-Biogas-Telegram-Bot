@@ -113,6 +113,26 @@ function signingApplication(id, completedSlot = '') {
   return item;
 }
 
+function verifiedSigningApplication(id, accessMode = '') {
+  const item = application(id);
+  item.status = 'signing_pending';
+  item.signing_package = {
+    id: '00000000-0000-4000-8000-000000000888',
+    test_signing: { enabled: false, test_mode: false, slots: [] },
+    verified_signing: {
+      enabled: true, test_mode: false, archive_status: 'pending', production_stamps: [],
+      participants: [{
+        role: 'borrower', label: 'Borrower', staff: false, phone_mapped: true,
+        access_mode: accessMode || 'self_service',
+        session_id: accessMode ? '00000000-0000-4000-8000-000000000999' : '',
+        session_status: accessMode ? 'dispatched' : '',
+        slots: [{ key: 'borrower_signature', label: 'Borrower signature', document_key: 'primary', type: 'signature', required: true, completed: false }],
+      }],
+    },
+  };
+  return item;
+}
+
 async function waitForList(page) {
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   await page.locator('.application-card').first().waitFor();
@@ -363,6 +383,66 @@ async function auditTestSignatureCapture(browser) {
   await page.close();
 }
 
+async function auditVerifiedSigningControls(browser, width, accessMode = '') {
+  const page = await browser.newPage({ viewport: { width, height: width === 320 ? 568 : 844 } });
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message || String(error)));
+  await installApiMocks(page, 0, { detailFactory: id => verifiedSigningApplication(id, accessMode) });
+  await waitForList(page);
+  await page.locator('.application-card').first().click();
+  await page.locator('#origination-section-picker').click();
+  await page.locator('[data-section-index]').last().click();
+  await page.locator('.signing-verified-panel').waitFor();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  assert(overflow <= 1, `Verified signing controls cause ${overflow}px horizontal overflow at ${width}px`);
+  if (!accessMode) {
+    await page.locator('[data-create-signer-session][data-access-mode="self_service"]').waitFor();
+    assert(await page.getByText("Send to signer's phone", { exact: true }).isVisible(), 'Remote signing is not the primary staff action');
+    assert(await page.getByText('In-person assisted signing', { exact: true }).isVisible(), 'Assisted fallback is not available');
+  } else {
+    assert(await page.getByText('Assisted signing', { exact: true }).isVisible(), 'Assisted signing badge is missing');
+    assert(await page.getByText('Send remotely instead', { exact: true }).isVisible(), 'Remote mode switch is missing');
+  }
+  await page.screenshot({ path: path.join(outputDir, `phone-${width}-verified-signing-${accessMode || 'remote-default'}.png`), fullPage: true });
+  assert(!pageErrors.length, `Verified signing controls raised a browser error: ${pageErrors.join(' | ')}`);
+  await page.close();
+}
+
+async function auditPublicSigningPage(browser, width, accessMode) {
+  const page = await browser.newPage({ viewport: { width, height: width === 320 ? 568 : 844 } });
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message || String(error)));
+  await page.route('**/origination/sign/api/**', route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/session/')) return route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, session: {
+        reference: 'ESIGN-SYNTHETIC', signer_role: 'borrower', phone_masked: '******5678',
+        shared_phone_override: false, access_mode: accessMode, status: 'pending', consented: false,
+        reviewed_pages: [], otp: {}, documents: [{ key: 'main', name: 'Main LAF', page_count: 1 }],
+      } }),
+    });
+    if (url.pathname.endsWith('/packet/')) return route.fulfill({
+      status: 200, contentType: 'image/svg+xml', headers: { 'X-Preview-Page-Count': '1' },
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="850"><rect width="100%" height="100%" fill="white"/><text x="40" y="80" font-size="24">Synthetic loan packet</text></svg>',
+    });
+    return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'Unmocked public signing endpoint' }) });
+  });
+  const publicUrl = new URL('/s/#synthetic-public-signing-token', baseUrl).href;
+  await page.goto(publicUrl, { waitUntil: 'domcontentloaded' });
+  await page.locator('#sign-content:not([hidden])').waitFor();
+  await page.locator('#packet-page:not([hidden])').waitFor();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  assert(overflow <= 1, `Public signing page causes ${overflow}px horizontal overflow at ${width}px`);
+  const label = accessMode === 'assisted' ? 'Assisted signing' : 'Remote signing';
+  assert(await page.getByText(label, { exact: true }).isVisible(), `${label} badge is missing on the public page`);
+  const assistedConfirmation = page.locator('#assisted-confirmation');
+  assert(accessMode === 'assisted' ? await assistedConfirmation.isVisible() : await assistedConfirmation.isHidden(), `Assisted confirmation visibility is wrong for ${accessMode}`);
+  assert(!page.url().includes('synthetic-public-signing-token'), 'Signing bearer token remained visible after public page bootstrap');
+  await page.screenshot({ path: path.join(outputDir, `phone-${width}-public-${accessMode}.png`), fullPage: true });
+  assert(!pageErrors.length, `Public ${accessMode} signing page raised a browser error: ${pageErrors.join(' | ')}`);
+  await page.close();
+}
+
 async function auditRestrictedStorageStart(browser) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
@@ -412,6 +492,10 @@ async function auditRestrictedStorageStart(browser) {
       for (const viewport of viewports) results.push({ viewport: viewport.name, ...(await auditViewport(browser, viewport)) });
       await auditTelegramAndSlowNetwork(browser);
       await auditTestSignatureCapture(browser);
+      await auditVerifiedSigningControls(browser, 320);
+      await auditVerifiedSigningControls(browser, 390, 'assisted');
+      await auditPublicSigningPage(browser, 320, 'self_service');
+      await auditPublicSigningPage(browser, 390, 'assisted');
     }
     await auditRestrictedStorageStart(browser);
     console.log(JSON.stringify({ ok: true, outputDir, results }, null, 2));

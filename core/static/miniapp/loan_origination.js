@@ -46,6 +46,7 @@
   const reviewTargets = new Map();
   let reviewDialogMode = '';
   let reviewReturnFocus = null;
+  let pendingAuditedReasonAction = null;
   let sheetMode = '';
   let sheetReturnFocus = null;
   let testSignatureStrokes = [];
@@ -322,10 +323,10 @@
   }
 
   async function runPrimaryAction(label, action) {
-    if (primaryBusy) return;
+    if (primaryBusy) return false;
     setPrimaryBusy(true, label);
     try {
-      await action();
+      return await action();
     } finally {
       setPrimaryBusy(false);
     }
@@ -1485,18 +1486,21 @@
         const signatures = (participant.slots || []).filter(slot => slot.type === 'signature');
         const stamps = (participant.slots || []).filter(slot => slot.type === 'stamp');
         const signaturesComplete = signatures.length && signatures.every(slot => slot.completed);
+        const accessMode = participant.access_mode || 'self_service';
+        const modeLabel = accessMode === 'assisted' ? 'Assisted signing' : 'Remote signing';
+        const assistedFallback = `<details class="assisted-signing-fallback"><summary>In-person assisted signing</summary><p>Use only when the signer is physically present and personally controls the officer device and OTP.</p><button type="button" class="btn btn-secondary" data-create-signer-session data-access-mode="assisted" data-package-id="${escapeHtml(packageData.id)}" data-signer-role="${escapeHtml(participant.role)}">Sign on this officer device</button></details>`;
         const externalAction = participant.staff
           ? `<button type="button" class="btn btn-secondary" data-staff-sign data-package-id="${escapeHtml(packageData.id)}" data-signer-role="${escapeHtml(participant.role)}">Capture staff signature</button>`
           : participant.session_status
-            ? `<div class="signing-session-actions"><span class="status-chip">${escapeHtml(participant.session_status.replaceAll('_', ' '))}</span>${participant.session_status === 'verified' ? '' : `<button type="button" class="btn btn-secondary" data-reset-signer-session data-session-id="${escapeHtml(participant.session_id)}" data-access-mode="${escapeHtml(participant.access_mode)}">Reset / reissue</button>`}</div>`
-            : `<div class="signing-session-actions"><button type="button" class="btn btn-secondary" data-create-signer-session data-access-mode="self_service" data-package-id="${escapeHtml(packageData.id)}" data-signer-role="${escapeHtml(participant.role)}">Send signing link</button><button type="button" class="btn btn-secondary" data-create-signer-session data-access-mode="assisted" data-package-id="${escapeHtml(packageData.id)}" data-signer-role="${escapeHtml(participant.role)}">Assisted signing</button></div>`;
+            ? `<div class="signing-session-actions"><span class="signing-mode-chip ${escapeHtml(accessMode)}">${escapeHtml(modeLabel)}</span><span class="status-chip">${escapeHtml(participant.session_status.replaceAll('_', ' '))}</span>${participant.session_status === 'verified' ? '' : `<button type="button" class="btn btn-secondary" data-reset-signer-session data-session-id="${escapeHtml(participant.session_id)}" data-access-mode="${escapeHtml(accessMode)}" data-target-access-mode="${escapeHtml(accessMode)}">Reset / reissue</button>${accessMode === 'assisted' ? `<button type="button" class="btn btn-primary" data-reset-signer-session data-switch-mode="true" data-session-id="${escapeHtml(participant.session_id)}" data-access-mode="assisted" data-target-access-mode="self_service">Send remotely instead</button>` : `<details class="assisted-signing-fallback"><summary>Need in-person assistance?</summary><button type="button" class="btn btn-secondary" data-reset-signer-session data-switch-mode="true" data-session-id="${escapeHtml(participant.session_id)}" data-access-mode="self_service" data-target-access-mode="assisted">Switch to officer device</button></details>`}`}</div>`
+            : `<div class="signing-primary-actions"><button type="button" class="btn btn-primary" data-create-signer-session data-access-mode="self_service" data-package-id="${escapeHtml(packageData.id)}" data-signer-role="${escapeHtml(participant.role)}">Send to signer's phone</button><small>The signer can review, sign and enter their OTP from any location.</small>${assistedFallback}</div>`;
         const signatureRow = signatures.length ? `<div class="signing-test-slot ${signaturesComplete ? 'is-complete' : ''}"><span><strong>${escapeHtml(participant.label)}</strong><small>${signatures.length} signature box(es) across the packet${participant.phone_mapped || participant.staff ? '' : ' · phone mapping missing'}</small></span>${signaturesComplete ? '<span class="status-chip">Complete</span>' : externalAction}</div>` : '';
         const stampRows = stamps.map(slot => `<div class="signing-test-slot ${slot.completed ? 'is-complete' : ''}"><span><strong>${escapeHtml(slot.label || slot.key)}</strong><small>${escapeHtml(participant.label)} · ${escapeHtml(slot.document_key)}</small></span>${slot.completed ? '<span class="status-chip">Stamped</span>' : `<select data-production-stamp-select><option value="">Choose production stamp</option>${stampOptions}</select><button type="button" class="btn btn-secondary" data-production-stamp data-package-id="${escapeHtml(packageData.id)}" data-document-key="${escapeHtml(slot.document_key)}" data-slot-key="${escapeHtml(slot.key)}" data-signer-role="${escapeHtml(participant.role)}">Apply stamp</button>`}</div>`).join('');
         return signatureRow + stampRows;
       }).join('');
       const archive = current.status === 'fully_signed' && verified.archive_status !== 'uploaded'
         ? `<aside class="notice"><strong>Signed packet archive: ${escapeHtml(verified.archive_status || 'pending')}</strong><span>${escapeHtml(verified.archive_error || 'Upload the immutable signed PDF to restricted Drive.')}</span><button type="button" class="btn btn-primary" id="origination-archive-signed" data-package-id="${escapeHtml(packageData.id)}">${verified.archive_status === 'failed' ? 'Retry archival' : 'Archive signed packet'}</button></aside>` : '';
-      return `<section class="signing-test-panel"><p class="eyebrow">Verified packet signing</p><h3>Complete every required signer and stamp</h3><p>External signers verify one OTP for the complete immutable packet. Staff actions use authenticated Telegram access.</p>${participants || '<div class="empty-state">No signing participants were configured.</div>'}${archive}</section>`;
+      return `<section class="signing-verified-panel"><p class="eyebrow">Verified packet signing</p><h3>Send each signer their secure link</h3><p>Remote signing works from any location. Each external signer reviews the immutable packet and verifies their own OTP.</p>${participants || '<div class="empty-state">No signing participants were configured.</div>'}${archive}</section>`;
     }
     const stamps = packageData.test_stamps || [];
     const rows = (test.slots || []).map(slot => {
@@ -1570,7 +1574,11 @@
       content = `<div class="section-title"><div><h3>${escapeHtml(section.label)}</h3><p>${escapeHtml(section.hint || '')}</p></div><button type="button" class="preview-link" id="origination-preview-early">Preview PDF</button></div>${fields}`;
     }
     const recoveryState = syncConflict ? ['Conflict', 'offline'] : dirty ? ['Recovered securely', 'offline'] : ['Saved', 'saved'];
-    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small></div><span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(application.status.replaceAll('_', ' '))}</span></div>${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${progressMarkup()}<section class="wizard-card">${content}</section><footer class="wizard-actions"><span id="origination-save-status" data-state="${recoveryState[1]}">${recoveryState[0]}</span><div>${actionMarkup(editable)}</div></footer>`;
+    const actions = actionMarkup(editable);
+    const actionFooter = editable || actions
+      ? `<footer class="wizard-actions">${editable ? `<span id="origination-save-status" data-state="${recoveryState[1]}">${recoveryState[0]}</span>` : '<span></span>'}<div>${actions}</div></footer>`
+      : '';
+    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small></div><span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(application.status.replaceAll('_', ' '))}</span></div>${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${progressMarkup()}<section class="wizard-card">${content}</section>${actionFooter}`;
     bindEditor(editable);
     syncTelegramControls();
     window.requestAnimationFrame(() => window.scrollTo(0, 0));
@@ -1695,11 +1703,30 @@
     summary.focus();
   }
 
+  function openAuditedReasonDialog({ title, hint, submitLabel, onSubmit, returnFocus }) {
+    reviewDialogMode = 'audited_reason';
+    reviewReturnFocus = returnFocus || document.activeElement;
+    pendingAuditedReasonAction = onSubmit;
+    const overlay = document.getElementById('origination-review-overlay');
+    document.getElementById('review-dialog-title').textContent = title;
+    document.getElementById('review-dialog-hint').textContent = hint;
+    document.getElementById('review-dialog-targets').innerHTML = '';
+    document.getElementById('review-dialog-summary').value = '';
+    document.getElementById('review-dialog-submit').textContent = submitLabel;
+    overlay.hidden = false;
+    overlay.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('origination-modal-open');
+    syncTelegramControls();
+    document.getElementById('review-dialog-summary').focus();
+  }
+
   function closeReviewDialog() {
     const overlay = document.getElementById('origination-review-overlay');
     overlay.hidden = true;
     overlay.setAttribute('aria-hidden', 'true');
     reviewDialogMode = '';
+    pendingAuditedReasonAction = null;
+    document.getElementById('review-dialog-submit').textContent = 'Record decision';
     document.body.classList.remove('origination-modal-open');
     syncTelegramControls();
     const returnFocus = reviewReturnFocus;
@@ -1711,6 +1738,16 @@
     const reason = document.getElementById('review-dialog-summary').value.trim();
     if (!reason) return showToast('Enter the review reason.', true);
     const decision = reviewDialogMode;
+    if (decision === 'audited_reason') {
+      const button = document.getElementById('review-dialog-submit');
+      const action = pendingAuditedReasonAction;
+      if (!action) return closeReviewDialog();
+      button.disabled = true;
+      const completed = await action(reason);
+      button.disabled = false;
+      if (completed !== false) closeReviewDialog();
+      return;
+    }
     if (decision === 'takeover') {
       const button = document.getElementById('review-dialog-submit');
       button.disabled = true;
@@ -2018,19 +2055,35 @@
       });
     }));
     root().querySelectorAll('[data-create-signer-session]').forEach(button => button.addEventListener('click', async () => {
-      let overrideReason = '';
       await runPrimaryAction('Creating signer session...', async () => {
-        let result = await postJson(`/applications/${current.id}/signer-sessions/`, {
+        const result = await postJson(`/applications/${current.id}/signer-sessions/`, {
           package_id: button.dataset.packageId, signer_role: button.dataset.signerRole,
           access_mode: button.dataset.accessMode,
         });
         if (!result.ok && /Superuser override/i.test(result.data?.error || '') && capabilities.is_superuser) {
-          overrideReason = window.prompt('This phone is shared by external signers. Enter the audited Superuser override reason:') || '';
-          if (!overrideReason.trim()) return showToast('A reason is required for the shared-phone override.', true);
-          result = await postJson(`/applications/${current.id}/signer-sessions/`, {
-            package_id: button.dataset.packageId, signer_role: button.dataset.signerRole,
-            access_mode: button.dataset.accessMode, shared_phone_override_reason: overrideReason,
+          openAuditedReasonDialog({
+            title: 'Approve shared signer phone',
+            hint: 'Explain why this shared phone is safe to use. The Superuser override is retained in the audit trail.',
+            submitLabel: 'Approve and send',
+            returnFocus: button,
+            onSubmit: async overrideReason => runPrimaryAction('Creating signer session...', async () => {
+              const overrideResult = await postJson(`/applications/${current.id}/signer-sessions/`, {
+                package_id: button.dataset.packageId, signer_role: button.dataset.signerRole,
+                access_mode: button.dataset.accessMode, shared_phone_override_reason: overrideReason,
+              });
+              if (!overrideResult.ok) {
+                showToast(overrideResult.data?.error || 'Could not create the signer session.', true);
+                return false;
+              }
+              if (button.dataset.accessMode === 'assisted' && overrideResult.data.signer_session?.url) {
+                window.open(overrideResult.data.signer_session.url, '_blank', 'noopener');
+              }
+              await load();
+              showToast(button.dataset.accessMode === 'assisted' ? 'Assisted signing session opened.' : 'Signing invitation sent.');
+              return true;
+            }),
           });
+          return;
         }
         if (!result.ok) return showToast(result.data?.error || 'Could not create the signer session.', true);
         if (button.dataset.accessMode === 'assisted' && result.data.signer_session?.url) window.open(result.data.signer_session.url, '_blank', 'noopener');
@@ -2039,18 +2092,31 @@
       });
     }));
     root().querySelectorAll('[data-reset-signer-session]').forEach(button => button.addEventListener('click', async () => {
-      const reason = window.prompt('Why is this signer session being reset or reissued? This reason is audited.') || '';
-      if (!reason.trim()) return showToast('A reset reason is required.', true);
-      await runPrimaryAction('Resetting signer session...', async () => {
-        const result = await postJson(`/applications/${current.id}/signer-sessions/reset/`, {
-          session_id: button.dataset.sessionId, reason,
-        });
-        if (!result.ok) return showToast(result.data?.error || 'Could not reset the signer session.', true);
-        if (button.dataset.accessMode === 'assisted' && result.data.signer_session?.url) {
-          window.open(result.data.signer_session.url, '_blank', 'noopener');
-        }
-        await load();
-        showToast(button.dataset.accessMode === 'assisted' ? 'Assisted session reset and opened.' : 'Signing session reset and invitation reissued.');
+      const targetMode = button.dataset.targetAccessMode || button.dataset.accessMode || 'self_service';
+      const switching = button.dataset.switchMode === 'true' && targetMode !== button.dataset.accessMode;
+      openAuditedReasonDialog({
+        title: switching ? `Switch to ${targetMode === 'assisted' ? 'assisted' : 'remote'} signing` : 'Reset signing link',
+        hint: switching
+          ? 'The previous link will be revoked and the mode change will be retained in the audit trail.'
+          : 'The previous link will be revoked. Record why this signer needs a new link.',
+        submitLabel: switching ? 'Revoke and switch' : 'Revoke and reissue',
+        returnFocus: button,
+        onSubmit: async reason => runPrimaryAction('Resetting signer session...', async () => {
+          const result = await postJson(`/applications/${current.id}/signer-sessions/reset/`, {
+            session_id: button.dataset.sessionId, reason, access_mode: targetMode,
+          });
+          if (!result.ok) {
+            showToast(result.data?.error || 'Could not reset the signer session.', true);
+            return false;
+          }
+          const resultMode = result.data.signer_session?.access_mode || targetMode;
+          if (resultMode === 'assisted' && result.data.signer_session?.url) {
+            window.open(result.data.signer_session.url, '_blank', 'noopener');
+          }
+          await load();
+          showToast(resultMode === 'assisted' ? 'Assisted signing opened on this device.' : 'Remote signing invitation sent.');
+          return true;
+        }),
       });
     }));
     root().querySelectorAll('[data-staff-sign]').forEach(button => button.addEventListener('click', () => openSignatureSheet(button, true)));

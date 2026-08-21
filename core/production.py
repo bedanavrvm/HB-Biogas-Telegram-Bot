@@ -58,6 +58,24 @@ def production_readiness_issues(settings) -> list[ReadinessIssue]:
     elif parsed_base_url.hostname not in hosts:
         error('app-base-url-host', 'APP_BASE_URL host must also appear in ALLOWED_HOSTS.')
 
+    signing_base_url = str(getattr(settings, 'ORIGINATION_SIGNING_BASE_URL', '') or '').strip()
+    if signing_base_url:
+        parsed_signing_url = urlparse(signing_base_url)
+        if (
+            parsed_signing_url.scheme != 'https' or not parsed_signing_url.hostname
+            or parsed_signing_url.path not in {'', '/'}
+            or parsed_signing_url.query or parsed_signing_url.fragment
+        ):
+            error(
+                'origination-signing-base-url',
+                'ORIGINATION_SIGNING_BASE_URL must be an absolute HTTPS origin without a path, query, or fragment.',
+            )
+        elif parsed_signing_url.hostname not in hosts:
+            error(
+                'origination-signing-base-url-host',
+                'ORIGINATION_SIGNING_BASE_URL host must also appear in ALLOWED_HOSTS.',
+            )
+
     for setting_name, message in (
         ('SECURE_SSL_REDIRECT', 'SECURE_SSL_REDIRECT must be enabled.'),
         ('SESSION_COOKIE_SECURE', 'SESSION_COOKIE_SECURE must be enabled.'),

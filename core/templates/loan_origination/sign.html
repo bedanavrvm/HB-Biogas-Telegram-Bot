@@ -7,14 +7,15 @@
   <meta name="referrer" content="no-referrer">
   <meta name="description" content="Review and sign a JBL loan document packet">
   <title>JBL Loan Signing</title>
-  <link rel="stylesheet" href="{% static 'miniapp/origination_signing.css' %}?v=20260821-1">
+  <link rel="stylesheet" href="{% static 'miniapp/origination_signing.css' %}?v=20260821-2">
 </head>
 <body>
-  <main class="sign-shell">
+  <main class="sign-shell" data-session-url="{% url 'loan_origination_signer_session' %}">
     <header class="sign-brand"><img src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu"><div><small>SECURE LOAN DOCUMENTS</small><h1>Review and sign</h1></div></header>
     <div id="sign-status" class="notice" role="status" aria-live="polite">Loading your signing request…</div>
     <section id="sign-content" hidden>
       <div class="summary-card"><div><span>Packet</span><strong id="sign-reference"></strong></div><div><span>Signing as</span><strong id="sign-role"></strong></div><div><span>OTP phone</span><strong id="sign-phone"></strong></div></div>
+      <div id="signing-mode-banner" class="mode-banner" role="status"><strong id="signing-mode-label"></strong><span id="signing-mode-detail"></span></div>
       <div id="shared-phone-warning" class="warning" hidden>This packet has an approved shared-phone exception. Confirm that you are personally signing only for the role shown above.</div>
       <section class="card">
         <header><div><small>STEP 1</small><h2>Review the complete packet</h2></div><div class="page-controls"><button id="page-prev" type="button" aria-label="Previous page">‹</button><span id="page-label"></span><button id="page-next" type="button" aria-label="Next page">›</button></div></header>
@@ -38,6 +39,6 @@
       </section>
     </section>
   </main>
-  <script src="{% static 'miniapp/origination_signing.js' %}?v=20260821-1"></script>
+  <script src="{% static 'miniapp/origination_signing.js' %}?v=20260821-2"></script>
 </body>
 </html>

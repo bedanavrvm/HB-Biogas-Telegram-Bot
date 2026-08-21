@@ -871,7 +871,10 @@ def portal_origination_signer_session(request, application_id: str):
         return JsonResponse(_safe_error(exc), status=400)
     return JsonResponse({
         'ok': True, 'replayed': replayed,
-        'signer_session': {'id': str(session.pk), 'role': session.signer_role, 'status': session.status, 'url': url},
+        'signer_session': {
+            'id': str(session.pk), 'role': session.signer_role,
+            'status': session.status, 'access_mode': session.access_mode, 'url': url,
+        },
         'invitation': invitation,
     }, status=200 if replayed else 201)
 
@@ -898,6 +901,7 @@ def portal_origination_reset_signer_session(request, application_id: str):
         session, raw_token = reset_signer_session(
             session_id=old_session.pk, actor=request.portal_user,
             reason=str(body.get('reason') or ''), request_id=_request_id(request, body),
+            access_mode=str(body.get('access_mode') or ''),
         )
         invitation = {}
         if session.access_mode == OriginationSignerSession.MODE_SELF_SERVICE:
@@ -916,7 +920,7 @@ def portal_origination_reset_signer_session(request, application_id: str):
         'ok': True,
         'signer_session': {
             'id': str(session.pk), 'role': session.signer_role,
-            'status': session.status, 'url': url,
+            'status': session.status, 'access_mode': session.access_mode, 'url': url,
         },
         'invitation': invitation,
     }, status=201)

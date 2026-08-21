@@ -255,6 +255,7 @@ This is a template of variables this class of system typically needs. Treat it a
 | `AFRICASTALKING_USERNAME` / `AFRICASTALKING_API_KEY` | Server-only Africa's Talking credentials for signing invitations and OTP delivery | Yes |
 | `AFRICASTALKING_SENDER_ID` | Optional approved Africa's Talking production Sender ID | Treat as sensitive operational configuration |
 | `ORIGINATION_SIGNING_LINK_TTL_HOURS` | Lifetime of an opaque signer link, bounded by the signing service | No |
+| `ORIGINATION_SIGNING_BASE_URL` | Optional HTTPS origin for compact `/s/` signer links; blank falls back to `APP_BASE_URL` | No |
 | `COMPLAINT_CASES_WEBAPP_REQUIRE_TELEGRAM_AUTH` | Requires verified Telegram Mini App identity for complaint case APIs | No |
 | `TELEGRAM_AUTH_MAX_AGE_SECONDS` | Maximum age accepted by the shared Telegram-to-Django authentication backend | No |
 | `COMPLAINT_CASE_MAX_FILES_PER_UPDATE` / `COMPLAINT_CASE_MAX_FILE_SIZE_MB` / `COMPLAINT_CASE_MAX_TOTAL_UPLOAD_MB` | Per-update count, per-file size, and total-size limits for complaint evidence uploads | No |

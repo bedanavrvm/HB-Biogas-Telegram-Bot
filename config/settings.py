@@ -505,6 +505,11 @@ AFRICASTALKING_SENDER_ID = config('AFRICASTALKING_SENDER_ID', default='').strip(
 ORIGINATION_SIGNING_LINK_TTL_HOURS = config(
     'ORIGINATION_SIGNING_LINK_TTL_HOURS', default=48, cast=int,
 )
+# Optional public origin dedicated to compact signer links. It must route to
+# this Django service; blank deliberately falls back to APP_BASE_URL.
+ORIGINATION_SIGNING_BASE_URL = config(
+    'ORIGINATION_SIGNING_BASE_URL', default='',
+).strip().rstrip('/')
 
 # API Configuration & Security
 API_REQUEST_SIZE_LIMIT = 1_000_000  # 1MB - Prevent DoS from large payloads

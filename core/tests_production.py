@@ -20,6 +20,7 @@ class ProductionReadinessTests(SimpleTestCase):
             'DATABASES': {'default': {'ENGINE': 'django.db.backends.postgresql', 'CONN_MAX_AGE': 600}},
             'ALLOWED_HOSTS': ['app.example.test'],
             'APP_BASE_URL': 'https://app.example.test',
+            'ORIGINATION_SIGNING_BASE_URL': '',
             'SECURE_SSL_REDIRECT': True,
             'SESSION_COOKIE_SECURE': True,
             'CSRF_COOKIE_SECURE': True,
@@ -70,6 +71,25 @@ class ProductionReadinessTests(SimpleTestCase):
         self.assertTrue(any(issue.code == 'debug-enabled' for issue in issues))
         self.assertTrue(any(issue.code == 'database-engine' for issue in issues))
         self.assertTrue(any(issue.severity == 'error' for issue in issues))
+
+    def test_optional_origination_signing_origin_requires_https_and_allowed_host(self):
+        insecure = production_readiness_issues(self._settings(
+            '/missing/service-account.json',
+            ORIGINATION_SIGNING_BASE_URL='http://sign.example.test',
+        ))
+        wrong_host = production_readiness_issues(self._settings(
+            '/missing/service-account.json',
+            ORIGINATION_SIGNING_BASE_URL='https://sign.example.test',
+        ))
+        allowed = production_readiness_issues(self._settings(
+            '/missing/service-account.json',
+            ALLOWED_HOSTS=['app.example.test', 'sign.example.test'],
+            ORIGINATION_SIGNING_BASE_URL='https://sign.example.test',
+        ))
+
+        self.assertTrue(any(item.code == 'origination-signing-base-url' for item in insecure))
+        self.assertTrue(any(item.code == 'origination-signing-base-url-host' for item in wrong_host))
+        self.assertFalse(any(item.code.startswith('origination-signing-base-url') for item in allowed))
 
     @override_settings(
         DEBUG=True,
