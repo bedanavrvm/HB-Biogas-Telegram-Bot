@@ -11,7 +11,7 @@ from core.models import (
     OriginationSigningAction,
     OriginationSigningPackage,
 )
-from core.services.loan_origination import OriginationError
+from core.services.loan_origination import OriginationError, serialize_application
 from core.services.origination_esign import (
     create_signer_session,
     esign_enabled,
@@ -20,6 +20,7 @@ from core.services.origination_esign import (
     record_consent_and_signature,
     verify_otp,
 )
+from core.services.origination_signing import serialize_test_signing
 
 
 ESIGN_SETTINGS = {
@@ -122,6 +123,24 @@ class OriginationVerifiedSigningTests(TestCase):
         self.assertEqual(self.application.status, 'fully_signed')
         self.assertEqual(self.package.archive_status, 'pending')
         self.assertNotEqual(self.package.signed_document_hash, '')
+        serialized = serialize_application(self.application)
+        self.assertFalse(serialized['signing_package']['test_signing']['test_mode'])
+        self.assertEqual(serialized['signing_package']['test_signing']['slots'], [])
+        self.assertTrue(serialized['signing_package']['verified_signing']['enabled'])
+
+    def test_legacy_test_action_without_actor_uses_safe_system_label(self):
+        self.package.test_mode = True
+        self.package.save(update_fields=['test_mode'])
+        OriginationSigningAction.objects.create(
+            package=self.package, document_key='main', slot_key='borrower_signature_main',
+            signer_role='borrower', action_type=OriginationSigningAction.TYPE_SIGNATURE,
+            mode=OriginationSigningAction.MODE_TEST, actor=None,
+            request_id='legacy-test-action-without-actor', metadata={},
+        )
+
+        serialized = serialize_test_signing(self.package)
+
+        self.assertEqual(serialized['slots'][0]['actor_name'], 'System')
 
     def test_consent_change_invalidates_existing_otp(self):
         session, token, _ = self._session()

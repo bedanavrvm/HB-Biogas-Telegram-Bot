@@ -92,6 +92,17 @@ def _validated_signature_capture(value: Any) -> dict[str, Any]:
 
 
 def serialize_test_signing(package: OriginationSigningPackage) -> dict[str, Any]:
+    if not package.test_mode:
+        # Verified external signatures deliberately have no Django actor; they
+        # belong to a signer session and are serialized by the verified-signing
+        # service. Keep the compatibility object without inspecting them.
+        return {
+            'enabled': test_signing_enabled(),
+            'test_mode': False,
+            'completed': False,
+            'completed_at': '',
+            'slots': [],
+        }
     actions = {
         (item.document_key, item.slot_key): item
         for item in package.actions.select_related('stamp_asset', 'actor').all()
@@ -104,8 +115,10 @@ def serialize_test_signing(package: OriginationSigningPackage) -> dict[str, Any]
             'completed': bool(action),
             'completed_at': action.created_at.isoformat() if action else '',
             'actor_name': (
-                action.actor.get_full_name() or action.actor.get_username()
-                if action else ''
+                (action.actor.get_full_name() or action.actor.get_username())
+                if action and action.actor_id
+                else 'External signer' if action and action.signer_session_id
+                else 'System' if action else ''
             ),
             'stamp_asset': str(action.stamp_asset_id or '') if action else '',
             'capture_method': str((action.metadata or {}).get('signature_capture', {}).get('method') or '') if action else '',
