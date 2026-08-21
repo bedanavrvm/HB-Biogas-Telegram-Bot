@@ -174,9 +174,22 @@ Also set:
 - aliases and help text; and
 - canonical choice codes/labels where applicable.
 
-The key and data type are immutable. Repeatable-group structure is immutable,
-and existing canonical choice codes cannot be removed. Deactivate obsolete
-fields/options rather than reinterpreting historical data. Conflicts appear in
+The key is locked after creation. A Superuser may correct a wrongly selected
+data type while the field is used only by draft loan forms and unpublished
+templates; saving the correction updates those editable schemas together. Once
+the field is present in a published/retired contract or an application snapshot,
+its type is frozen and a correctly typed replacement field must be created (or,
+during testing only, Origination test data must be reset first). Legacy numeric
+ID fields remain visible in signer National ID selectors so an existing draft is
+not blocked while the catalogue is being corrected.
+
+Governance and input-contract settings are not globally locked. A Superuser may
+change source, sensitivity, masking, reporting/export policy, help text, active
+state, and additive choice labels/options. Those changes govern future
+application snapshots; existing application snapshots keep their historical
+contract. Repeatable-group structure remains immutable, and existing canonical
+choice codes cannot be removed. Deactivate obsolete fields/options rather than
+reinterpreting historical data. Conflicts appear in
 **Configuration → Legacy fields needing review** and can block publication.
 
 The catalogue also checks new keys, labels, and aliases for terminology
@@ -314,6 +327,10 @@ Production stamp assets cannot be applied until a verified production signing
 integration supplies signature evidence.
 
 ### Configure verified OTP signing
+
+For the complete deployment, phone-mapping, LAF-configuration, Sandbox-test,
+negative-test, and production-activation procedure, use
+[Origination OTP Integration: Setup and Testing Guide](origination-otp-integration-setup.md).
 
 Verified signing is separate from the no-OTP simulator. Start in the Africa's
 Talking Sandbox; it exercises the provider request/response path without

@@ -5431,8 +5431,74 @@ class UnfoldGroupAdmin(ModelAdmin, DjangoGroupAdmin):
     list_fullwidth = True
 
 
+class OriginationDataFieldAdminForm(forms.ModelForm):
+    """Admin validation for controlled draft-only type corrections."""
+
+    class Meta:
+        model = OriginationDataField
+        fields = '__all__'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if 'data_type' in self.fields:
+            self.fields['data_type'].help_text = (
+                'Correctable while this field exists only in draft loan forms or ready '
+                'templates. Once published or captured in an application, create a replacement '
+                'field instead.'
+            )
+        if 'source_type' in self.fields:
+            self.fields['source_type'].help_text = (
+                'Governance changes apply to future application snapshots; existing applications '
+                'keep their frozen contract.'
+            )
+        if 'help_text' in self.fields:
+            self.fields['help_text'].help_text = (
+                'Default guidance for future attachments. A product or document may keep its own '
+                'presentation-specific guidance.'
+            )
+
+    def clean_data_type(self):
+        data_type = self.cleaned_data['data_type']
+        if not self.instance.pk:
+            return data_type
+        original = OriginationDataField.objects.filter(pk=self.instance.pk).first()
+        if not original or original.data_type == data_type:
+            return data_type
+        from core.services.origination_fields import data_field_type_change_blockers
+        blockers = data_field_type_change_blockers(original)
+        if blockers:
+            raise forms.ValidationError(
+                'This type is frozen because the field is used by '
+                f"{', '.join(blockers)}. Create a correctly typed replacement field, or use the "
+                'Origination testing reset before correcting this catalogue entry.'
+            )
+        return data_type
+
+    def clean_choice_options(self):
+        options = self.cleaned_data.get('choice_options') or []
+        if not self.instance.pk:
+            return options
+        original = OriginationDataField.objects.filter(pk=self.instance.pk).values_list(
+            'choice_options', flat=True,
+        ).first() or []
+        previous_codes = {
+            str(item.get('code') or '') for item in original if isinstance(item, dict)
+        }
+        current_codes = {
+            str(item.get('code') or '') for item in options if isinstance(item, dict)
+        }
+        removed = sorted(previous_codes - current_codes)
+        if removed and self.cleaned_data.get('data_type') == OriginationDataField.TYPE_CHOICE:
+            raise forms.ValidationError(
+                'Canonical choice codes cannot be removed. Mark obsolete options inactive so '
+                'historical values remain interpretable. Missing: ' + ', '.join(removed)
+            )
+        return options
+
+
 @admin.register(OriginationDataField)
 class OriginationDataFieldAdmin(OriginationGodModeAdminMixin, CompactModelAdmin):
+    form = OriginationDataFieldAdminForm
     change_list_template = 'admin/core/originationdatafield/change_list.html'
     list_select_related = ('preferred_field',)
     list_display = (
@@ -5449,13 +5515,29 @@ class OriginationDataFieldAdmin(OriginationGodModeAdminMixin, CompactModelAdmin)
         'created_by', 'created_at', 'updated_at',
     )
     fieldsets = (
-        ('Canonical identity', {'fields': (('key', 'label'), 'aliases', ('category', 'data_type'))}),
+        ('Canonical identity', {
+            'fields': (('key', 'label'), 'aliases', ('category', 'data_type')),
+            'description': (
+                'The stable key is locked after creation. A Superuser may correct the data type '
+                'only while every use is still an editable draft; attached draft schemas are '
+                'updated together.'
+            ),
+        }),
         ('Governance', {'fields': (
             ('source_type', 'sensitivity'), ('masking_policy', 'reporting_use'),
             ('export_allowed', 'active'),
             ('preferred_field', 'terminology_reviewed_distinct'),
+        ), 'description': (
+            'Editable governance for future applications. Every application already created keeps '
+            'the governance values frozen in its schema snapshot.'
         )}),
-        ('Input contract', {'fields': ('help_text', 'choice_options')}),
+        ('Input contract', {
+            'fields': ('help_text', 'choice_options'),
+            'description': (
+                'Edit default guidance and choice labels for future configuration. Existing '
+                'product-specific labels, rules, and application snapshots are preserved.'
+            ),
+        }),
         ('Audit', {'fields': (('created_by', 'created_at'), 'updated_at'), 'classes': ('collapse',)}),
     )
 
@@ -5528,15 +5610,25 @@ class OriginationDataFieldAdmin(OriginationGodModeAdminMixin, CompactModelAdmin)
         before = None
         if change:
             before = OriginationDataField.objects.filter(pk=obj.pk).values(
-                'label', 'aliases', 'category', 'sensitivity', 'masking_policy',
+                'label', 'aliases', 'category', 'data_type', 'source_type',
+                'sensitivity', 'masking_policy',
                 'reporting_use', 'export_allowed', 'help_text', 'choice_options', 'active',
                 'preferred_field_id', 'terminology_reviewed_distinct',
             ).first()
         if not obj.created_by_id:
             obj.created_by = request.user
+        correction = None
+        if before and before['data_type'] != obj.data_type:
+            from core.services.origination_fields import correct_draft_data_field_type
+            correction = correct_draft_data_field_type(
+                data_field=obj, new_type=obj.data_type,
+                choice_options=obj.choice_options, structure_schema=obj.structure_schema,
+                actor=request.user,
+            )
         super().save_model(request, obj, form, change)
         after = {
             'label': obj.label, 'aliases': obj.aliases, 'category': obj.category,
+            'data_type': obj.data_type, 'source_type': obj.source_type,
             'sensitivity': obj.sensitivity, 'masking_policy': obj.masking_policy,
             'reporting_use': obj.reporting_use, 'export_allowed': obj.export_allowed,
             'help_text': obj.help_text, 'choice_options': obj.choice_options,
@@ -5549,6 +5641,7 @@ class OriginationDataFieldAdmin(OriginationGodModeAdminMixin, CompactModelAdmin)
             data_field=obj, action=action, actor=request.user,
             metadata={
                 'key': obj.key, 'type': obj.data_type,
+                'draft_contracts_updated': correction or {},
                 'changed_fields': sorted(
                     key for key, value in after.items() if not before or before.get(key) != value
                 ),
@@ -5566,6 +5659,12 @@ class OriginationDataFieldAdmin(OriginationGodModeAdminMixin, CompactModelAdmin)
 
     def has_change_permission(self, request, obj=None):
         return request.user.is_superuser
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = list(super().get_readonly_fields(request, obj))
+        if obj and 'key' not in fields:
+            fields.append('key')
+        return tuple(fields)
 
     def has_delete_permission(self, request, obj=None):
         return False

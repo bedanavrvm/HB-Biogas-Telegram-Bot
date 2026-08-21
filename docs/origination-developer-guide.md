@@ -60,7 +60,7 @@ rendered.
 |---|---|---|
 | `Product` | Stable global identity, aliases, and optional availability restrictions. | Code is immutable; deactivate instead of repurposing. |
 | `ProductVersion` | Effective-dated amount, tenor, interest, repayment, fees, requirements, attributes, and TAT configuration. | Draft editable; published/scheduled/retired versions immutable. |
-| `OriginationDataField` | Global typed semantic variable used across forms and PDFs. | Key/type and repeating structure immutable; choice codes cannot be removed. |
+| `OriginationDataField` | Global typed semantic variable used across forms and PDFs. | Key is immutable. Type correction is limited to draft-only usage and rewrites editable schemas atomically; frozen contracts block it. Repeating structure and existing choice codes remain immutable. |
 | `OriginationProductDefinition` | Versioned Origination form, signer contract, and document packet owner. | Draft editable; published version immutable. |
 | `OriginationDocumentTemplate` | Drive-backed PDF plus versioned placement configuration and document schema. | Draft calibration revisions; activated publication becomes governed. |
 | `OriginationProductDocumentAssignment` | Attaches a reusable supporting family to one draft product and controls applicability/order. | Editable only while the product definition is draft. |

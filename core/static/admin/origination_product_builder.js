@@ -161,9 +161,16 @@
   function renderSigners() {
     const container = document.getElementById('opb-signers');
     const roleOptions = roles.map(item => [item.key, item.label]);
+    const looksLikeNationalId = item => {
+      if (item.type === 'national_id') return true;
+      if (!['number', 'text'].includes(item.type)) return false;
+      const words = [item.key, item.label, ...(item.aliases || [])]
+        .join(' ').toLowerCase().replaceAll('_', ' ');
+      return /\b(national|applicant|borrower|guarantor|spouse)?\s*(id|identification)(\s*(number|no))?\b/.test(words);
+    };
     const identityOptions = (kind, selected) => {
       const allowed = kind === 'phone' ? ['phone'] : kind === 'national_id' ? ['national_id', 'text'] : ['text', 'textarea'];
-      return '<option value="">Choose canonical field</option>' + inputCatalogue.filter(item => allowed.includes(item.type)).map(item => `<option value="${escapeHtml(item.key)}"${item.key === selected ? ' selected' : ''}>${escapeHtml(item.label)} · ${escapeHtml(item.key)}</option>`).join('');
+      return '<option value="">Choose canonical field</option>' + inputCatalogue.filter(item => item.key === selected || (kind === 'national_id' ? looksLikeNationalId(item) : allowed.includes(item.type))).map(item => `<option value="${escapeHtml(item.key)}"${item.key === selected ? ' selected' : ''}>${escapeHtml(item.label)} · ${escapeHtml(item.key)}</option>`).join('');
     };
     container.innerHTML = signers.map((signer, signerIndex) => `<article class="opb-signer" data-signer-index="${signerIndex}">
       <div class="opb-row">

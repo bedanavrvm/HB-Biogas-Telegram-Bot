@@ -22,9 +22,11 @@ from core.services.loan_origination import (
 )
 from core.services.origination_fields import (
     OriginationFieldConflict,
+    OriginationFieldError,
     attach_data_field,
     bind_compatible_schema_fields,
     catalogue_for_product,
+    correct_draft_data_field_type,
     create_data_field,
     masked_reporting_value,
     project_reporting_values,
@@ -58,7 +60,7 @@ class OriginationDataFieldCatalogueTests(TestCase):
             created_by=self.superuser,
         )
 
-    def test_create_is_idempotent_and_key_and_type_are_immutable(self):
+    def test_create_is_idempotent_and_key_is_immutable(self):
         field, replayed = create_data_field(
             payload={
                 'label': 'Customer National ID', 'key': 'customer_national_id_test',
@@ -91,6 +93,192 @@ class OriginationDataFieldCatalogueTests(TestCase):
                 },
                 actor=self.superuser,
             )
+
+    def test_superuser_can_correct_type_across_draft_contracts(self):
+        field, _ = create_data_field(
+            payload={
+                'label': 'Applicant ID', 'key': 'applicant_id_type_correction_test',
+                'type': 'number', 'sensitivity': 'pii',
+            },
+            actor=self.superuser,
+        )
+        product, _ = attach_data_field(
+            product=self.product, data_field=field,
+            presentation={
+                'section_key': 'applicant',
+                'validation': {'min': 1, 'max': 99999999},
+            },
+            actor=self.superuser, expected_schema_revision=0,
+        )
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=product, document_type=product.document_type,
+            document_key='supporting_id', document_role='supporting',
+            name='Supporting ID', version=1, source_filename='support.pdf',
+            source_sha256='c' * 64, source_byte_size=100, page_count=1,
+            form_schema={
+                'fields': [{
+                    'data_field_id': str(field.pk), 'key': field.key,
+                    'type': 'number', 'validation': {'min': 1},
+                }],
+            },
+            placement_config={}, created_by=self.superuser,
+        )
+
+        summary = correct_draft_data_field_type(
+            data_field=field, new_type=OriginationDataField.TYPE_NATIONAL_ID,
+            choice_options=[], structure_schema={}, actor=self.superuser,
+        )
+
+        field.refresh_from_db()
+        product.refresh_from_db()
+        template.refresh_from_db()
+        self.assertEqual(field.data_type, OriginationDataField.TYPE_NATIONAL_ID)
+        self.assertEqual(product.form_schema['fields'][0]['type'], 'national_id')
+        self.assertEqual(product.form_schema['fields'][0]['validation'], {})
+        self.assertEqual(template.form_schema['fields'][0]['type'], 'national_id')
+        self.assertEqual(summary, {'product_schemas': 1, 'template_schemas': 1})
+
+    def test_type_correction_is_blocked_after_application_snapshot(self):
+        field, _ = create_data_field(
+            payload={
+                'label': 'Frozen Applicant ID', 'key': 'frozen_applicant_id_test',
+                'type': 'number', 'sensitivity': 'pii',
+            },
+            actor=self.superuser,
+        )
+        product, _ = attach_data_field(
+            product=self.product, data_field=field,
+            presentation={'section_key': 'applicant'}, actor=self.superuser,
+            expected_schema_revision=0,
+        )
+        LoanOriginationApplication.objects.create(
+            reference_number='ORG-FROZEN-TYPE', product_definition=product,
+            officer=self.officer, branch='Nairobi',
+            schema_snapshot=snapshot_form_schema(product.form_schema),
+        )
+
+        with self.assertRaisesMessage(OriginationFieldError, 'application schema snapshots'):
+            correct_draft_data_field_type(
+                data_field=field, new_type=OriginationDataField.TYPE_NATIONAL_ID,
+                choice_options=[], structure_schema={}, actor=self.superuser,
+            )
+        field.refresh_from_db()
+        self.assertEqual(field.data_type, OriginationDataField.TYPE_NUMBER)
+
+    def test_admin_shows_frozen_type_error_without_server_error(self):
+        field, _ = create_data_field(
+            payload={
+                'label': 'Admin Frozen ID', 'key': 'admin_frozen_id_test',
+                'type': 'number', 'sensitivity': 'pii',
+            },
+            actor=self.superuser,
+        )
+        product, _ = attach_data_field(
+            product=self.product, data_field=field,
+            presentation={'section_key': 'applicant'}, actor=self.superuser,
+            expected_schema_revision=0,
+        )
+        LoanOriginationApplication.objects.create(
+            reference_number='ORG-ADMIN-FROZEN-TYPE', product_definition=product,
+            officer=self.officer, branch='Nairobi',
+            schema_snapshot=snapshot_form_schema(product.form_schema),
+        )
+        self.client.force_login(self.superuser)
+
+        response = self.client.post(
+            reverse('admin:core_originationdatafield_change', args=[field.pk]),
+            {
+                'label': field.label, 'aliases': '[]', 'category': field.category,
+                'data_type': OriginationDataField.TYPE_NATIONAL_ID,
+                'source_type': field.source_type, 'sensitivity': field.sensitivity,
+                'masking_policy': field.masking_policy,
+                'reporting_use': field.reporting_use, 'help_text': '',
+                'choice_options': '[]', 'active': 'on', '_save': 'Save',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'This type is frozen')
+        field.refresh_from_db()
+        self.assertEqual(field.data_type, OriginationDataField.TYPE_NUMBER)
+
+    def test_admin_corrects_draft_only_type_and_records_audit(self):
+        field, _ = create_data_field(
+            payload={
+                'label': 'Draft Applicant ID', 'key': 'draft_applicant_id_admin_test',
+                'type': 'number', 'sensitivity': 'pii',
+            },
+            actor=self.superuser,
+        )
+        product, _ = attach_data_field(
+            product=self.product, data_field=field,
+            presentation={'section_key': 'applicant'}, actor=self.superuser,
+            expected_schema_revision=0,
+        )
+        self.client.force_login(self.superuser)
+
+        response = self.client.post(
+            reverse('admin:core_originationdatafield_change', args=[field.pk]),
+            {
+                'label': field.label, 'aliases': '[]', 'category': field.category,
+                'data_type': OriginationDataField.TYPE_NATIONAL_ID,
+                'source_type': field.source_type, 'sensitivity': field.sensitivity,
+                'masking_policy': field.masking_policy,
+                'reporting_use': field.reporting_use, 'help_text': '',
+                'choice_options': '[]', 'active': 'on', '_save': 'Save',
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        field.refresh_from_db()
+        product.refresh_from_db()
+        self.assertEqual(field.data_type, OriginationDataField.TYPE_NATIONAL_ID)
+        self.assertEqual(product.form_schema['fields'][0]['type'], 'national_id')
+        event = field.events.filter(action='updated').latest('occurred_at')
+        self.assertIn('data_type', event.metadata['changed_fields'])
+        self.assertEqual(event.metadata['draft_contracts_updated']['product_schemas'], 1)
+
+    def test_admin_can_change_future_governance_without_rewriting_snapshot(self):
+        field, _ = create_data_field(
+            payload={
+                'label': 'Applicant note', 'key': 'applicant_note_governance_test',
+                'type': 'text', 'sensitivity': 'pii', 'help_text': 'Original guidance',
+            },
+            actor=self.superuser,
+        )
+        product, _ = attach_data_field(
+            product=self.product, data_field=field,
+            presentation={'section_key': 'applicant'}, actor=self.superuser,
+            expected_schema_revision=0,
+        )
+        application = LoanOriginationApplication.objects.create(
+            reference_number='ORG-GOVERNANCE-SNAPSHOT', product_definition=product,
+            officer=self.officer, branch='Nairobi',
+            schema_snapshot=snapshot_form_schema(product.form_schema),
+        )
+        self.client.force_login(self.superuser)
+
+        response = self.client.post(
+            reverse('admin:core_originationdatafield_change', args=[field.pk]),
+            {
+                'label': field.label, 'aliases': '[]', 'category': field.category,
+                'data_type': field.data_type, 'source_type': field.source_type,
+                'sensitivity': OriginationDataField.SENSITIVITY_INTERNAL,
+                'masking_policy': OriginationDataField.MASK_NONE,
+                'reporting_use': field.reporting_use,
+                'help_text': 'Guidance for future forms',
+                'choice_options': '[]', 'active': 'on', '_save': 'Save',
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        field.refresh_from_db()
+        application.refresh_from_db()
+        self.assertEqual(field.sensitivity, OriginationDataField.SENSITIVITY_INTERNAL)
+        self.assertEqual(field.help_text, 'Guidance for future forms')
+        frozen = application.schema_snapshot['fields'][0]
+        self.assertEqual(frozen['sensitivity'], OriginationDataField.SENSITIVITY_PII)
+        self.assertEqual(frozen['help_text'], 'Original guidance')
 
     def test_catalogue_exposes_seeded_fields_not_only_four_system_placeholders(self):
         catalogue = catalogue_for_product(self.product)

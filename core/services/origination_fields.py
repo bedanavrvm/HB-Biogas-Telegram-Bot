@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from core.models import (
     LoanOriginationApplication,
+    OriginationApplicationDocument,
     OriginationDataField,
     OriginationDataFieldEvent,
     OriginationFieldReviewIssue,
@@ -35,6 +36,193 @@ class OriginationFieldError(ValueError):
 
 class OriginationFieldConflict(OriginationFieldError):
     """A stale schema revision or incompatible canonical field was supplied."""
+
+
+def _schema_references_data_field(schema: Any, data_field: OriginationDataField) -> bool:
+    if not isinstance(schema, dict):
+        return False
+    field_id = str(data_field.pk)
+    for item in [*(schema.get('fields') or []), *(schema.get('system_fields') or [])]:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get('data_field_id') or item.get('id') or '') == field_id:
+            return True
+        if str(item.get('key') or item.get('canonical_key') or '') == data_field.key:
+            return True
+    return False
+
+
+def data_field_type_change_blockers(data_field: OriginationDataField) -> list[str]:
+    """Describe frozen contracts that prevent retyping a canonical field.
+
+    Draft form and ready-template schemas are deliberately not blockers: the
+    controlled correction path rewrites those editable contracts together.
+    """
+
+    blockers: list[str] = []
+    if data_field.reporting_values.exists():
+        blockers.append('application reporting values')
+    if any(
+        _schema_references_data_field(schema, data_field)
+        for schema in LoanOriginationApplication.objects.values_list(
+            'schema_snapshot', flat=True,
+        ).iterator(chunk_size=500)
+    ):
+        blockers.append('application schema snapshots')
+    if any(
+        _schema_references_data_field(schema, data_field)
+        for schema in OriginationApplicationDocument.objects.values_list(
+            'schema_snapshot', flat=True,
+        ).iterator(chunk_size=500)
+    ):
+        blockers.append('application document snapshots')
+    published_products = OriginationProductDefinition.objects.exclude(
+        lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
+    ).values_list('form_schema', flat=True)
+    if any(
+        _schema_references_data_field(schema, data_field)
+        for schema in published_products.iterator(chunk_size=200)
+    ):
+        blockers.append('published or retired loan-form versions')
+    published_templates = OriginationDocumentTemplate.objects.exclude(
+        status__in=[
+            OriginationDocumentTemplate.STATUS_READY,
+            OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
+        ],
+    ).values_list('form_schema', flat=True)
+    if any(
+        _schema_references_data_field(schema, data_field)
+        for schema in published_templates.iterator(chunk_size=200)
+    ):
+        blockers.append('published or retired document templates')
+    return blockers
+
+
+def _validation_for_corrected_type(validation: Any, data_type: str) -> dict[str, Any]:
+    validation = validation if isinstance(validation, dict) else {}
+    allowed = {
+        OriginationDataField.TYPE_NUMBER: {'min', 'max'},
+        OriginationDataField.TYPE_MONEY: {'min', 'max'},
+        OriginationDataField.TYPE_DATE: {'min_date', 'max_date'},
+        OriginationDataField.TYPE_TEXT: {'min_length', 'max_length', 'pattern'},
+        OriginationDataField.TYPE_TEXTAREA: {'min_length', 'max_length', 'pattern'},
+        OriginationDataField.TYPE_PHONE: {'min_length', 'max_length', 'pattern'},
+        OriginationDataField.TYPE_NATIONAL_ID: {'min_length', 'max_length', 'pattern'},
+    }.get(data_type, set())
+    return {
+        key: value for key, value in validation.items()
+        if key in allowed and value not in (None, '')
+    }
+
+
+def _rewrite_draft_schema_type(
+    schema: Any, *, data_field: OriginationDataField, new_type: str,
+    choice_options: list[dict[str, Any]], structure_schema: dict[str, Any],
+) -> tuple[dict[str, Any], bool]:
+    rewritten = json.loads(json.dumps(schema or {}))
+    changed = False
+    field_id = str(data_field.pk)
+    for item in [*(rewritten.get('fields') or []), *(rewritten.get('system_fields') or [])]:
+        if not isinstance(item, dict):
+            continue
+        matches = (
+            str(item.get('data_field_id') or item.get('id') or '') == field_id
+            or str(item.get('key') or item.get('canonical_key') or '') == data_field.key
+        )
+        if not matches:
+            continue
+        item['type'] = new_type
+        item['validation'] = _validation_for_corrected_type(item.get('validation'), new_type)
+        item.pop('canonical_choice_options', None)
+        if new_type == OriginationDataField.TYPE_CHOICE:
+            active_options = [
+                {'code': str(option.get('code') or ''), 'label': str(option.get('label') or '')}
+                for option in choice_options
+                if isinstance(option, dict) and option.get('active', True)
+            ]
+            item['options'] = active_options
+        else:
+            item.pop('options', None)
+        if new_type == OriginationDataField.TYPE_REPEATING_GROUP:
+            item['structure'] = json.loads(json.dumps(structure_schema or {}))
+        else:
+            item.pop('structure', None)
+        changed = True
+    return rewritten, changed
+
+
+@transaction.atomic
+def correct_draft_data_field_type(
+    *, data_field: OriginationDataField, new_type: str,
+    choice_options: list[dict[str, Any]] | None, structure_schema: dict[str, Any] | None,
+    actor,
+) -> dict[str, int]:
+    """Correct a catalogue type and every editable schema that embeds it."""
+
+    if not getattr(actor, 'is_superuser', False):
+        raise OriginationFieldError('Only a Django Superuser may correct a canonical data type.')
+    if new_type not in dict(OriginationDataField.TYPE_CHOICES):
+        raise OriginationFieldError('Choose a supported canonical data type.')
+    locked = OriginationDataField.objects.select_for_update().get(pk=data_field.pk)
+    if locked.data_type == new_type:
+        return {'product_schemas': 0, 'template_schemas': 0}
+    blockers = data_field_type_change_blockers(locked)
+    if blockers:
+        raise OriginationFieldError(
+            'This data type is frozen because the field is used by '
+            f"{', '.join(blockers)}. Create a correctly typed replacement field, or clear "
+            'Origination test data before correcting this catalogue entry.'
+        )
+
+    choices = list(choice_options or [])
+    structure = dict(structure_schema or {})
+    product_count = 0
+    for product in OriginationProductDefinition.objects.select_for_update().filter(
+        lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
+    ):
+        schema, changed = _rewrite_draft_schema_type(
+            product.form_schema, data_field=locked, new_type=new_type,
+            choice_options=choices, structure_schema=structure,
+        )
+        if not changed:
+            continue
+        product.form_schema = schema
+        product.save(update_fields=['form_schema', 'updated_at'])
+        OriginationProductDefinitionEvent.objects.create(
+            product_definition=product, action='canonical_field_type_corrected', actor=actor,
+            metadata={'field_id': str(locked.pk), 'field_key': locked.key},
+        )
+        product_count += 1
+
+    template_count = 0
+    for template in OriginationDocumentTemplate.objects.select_for_update().filter(
+        status__in=[
+            OriginationDocumentTemplate.STATUS_READY,
+            OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
+        ],
+    ):
+        schema, changed = _rewrite_draft_schema_type(
+            template.form_schema, data_field=locked, new_type=new_type,
+            choice_options=choices, structure_schema=structure,
+        )
+        if not changed:
+            continue
+        template.form_schema = schema
+        template.save(update_fields=['form_schema', 'updated_at'])
+        OriginationDocumentTemplateEvent.objects.create(
+            template=template, action='canonical_field_type_corrected', actor=actor,
+            metadata={'field_id': str(locked.pk), 'field_key': locked.key},
+        )
+        template_count += 1
+
+    # OriginationDataField.save() keeps direct/non-admin writes immutable. The
+    # controlled Admin path updates the stored type here, after the frozen-use
+    # check and in the same transaction as every draft schema rewrite.
+    OriginationDataField.objects.filter(pk=locked.pk).update(
+        data_type=new_type, updated_at=timezone.now(),
+    )
+    data_field.data_type = new_type
+    return {'product_schemas': product_count, 'template_schemas': template_count}
 
 
 def normalize_field_key(value: Any) -> str:
