@@ -3,7 +3,7 @@ import hashlib
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
+from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 
 from core.models import (
@@ -25,10 +25,12 @@ from core.services.origination_esign import (
     reset_signer_session,
     record_consent_and_signature,
     send_signing_invitation,
+    signed_package_content,
     signing_url,
     verify_otp,
 )
 from core.services.origination_signing import serialize_test_signing
+from core.api.origination_views import portal_origination_signed_packet
 
 
 ESIGN_SETTINGS = {
@@ -251,6 +253,68 @@ class OriginationVerifiedSigningTests(TestCase):
         self.assertNotIn(' ', lines[1])
         self.assertEqual(phone, session.phone_normalized)
         self.assertLessEqual(len(message), 160)
+
+    def test_signed_packet_content_reads_archived_drive_file_and_verifies_hash(self):
+        signed = b'%PDF-synthetic-final-signed-packet'
+        self.package.status = self.package.STATUS_FULLY_SIGNED
+        self.package.signed_document_hash = hashlib.sha256(signed).hexdigest()
+        self.package.archive_status = 'uploaded'
+        self.package.final_drive_file_id = 'synthetic-drive-file'
+        self.package.save(update_fields=[
+            'status', 'signed_document_hash', 'archive_status', 'final_drive_file_id',
+        ])
+
+        with patch('core.services.order_approval.GoogleDriveMediaStorage') as storage:
+            storage.return_value.download.return_value = signed
+            package, content = signed_package_content(package_id=self.package.pk)
+
+        self.assertEqual(package.pk, self.package.pk)
+        self.assertEqual(content, signed)
+        storage.return_value.download.assert_called_once_with('synthetic-drive-file')
+
+    def test_archived_signed_packet_endpoint_supports_authorized_download(self):
+        signed = b'%PDF-synthetic-archived-download'
+        self.package.status = self.package.STATUS_FULLY_SIGNED
+        self.package.signed_document_hash = hashlib.sha256(signed).hexdigest()
+        self.package.archive_status = 'uploaded'
+        self.package.final_drive_file_id = 'synthetic-drive-file'
+        self.package.archived_at = timezone.now()
+        self.package.save(update_fields=[
+            'status', 'signed_document_hash', 'archive_status', 'final_drive_file_id',
+            'archived_at',
+        ])
+        request = RequestFactory().get(
+            f'/api/origination/api/applications/{self.application.pk}/signed-packet/',
+            {'package_id': str(self.package.pk), 'download': '1'},
+            HTTP_X_REQUEST_ID='signed-download-test',
+        )
+        request.portal_user = self.actor
+
+        with patch('core.services.order_approval.GoogleDriveMediaStorage') as storage:
+            storage.return_value.download.return_value = signed
+            response = portal_origination_signed_packet(request, str(self.application.pk))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, signed)
+        self.assertTrue(response['Content-Disposition'].startswith('attachment;'))
+        self.assertIn('no-store', response['Cache-Control'])
+        event = self.application.events.get(action='signed_packet_accessed')
+        self.assertEqual(event.after_values['access_type'], 'download')
+        self.assertEqual(event.after_values['signed_document_hash'], self.package.signed_document_hash)
+
+    def test_signed_packet_integrity_mismatch_is_rejected(self):
+        self.package.status = self.package.STATUS_FULLY_SIGNED
+        self.package.signed_document_hash = hashlib.sha256(b'expected').hexdigest()
+        self.package.archive_status = 'uploaded'
+        self.package.final_drive_file_id = 'synthetic-drive-file'
+        self.package.save(update_fields=[
+            'status', 'signed_document_hash', 'archive_status', 'final_drive_file_id',
+        ])
+
+        with patch('core.services.order_approval.GoogleDriveMediaStorage') as storage:
+            storage.return_value.download.return_value = b'tampered'
+            with self.assertRaisesRegex(OriginationError, 'integrity check'):
+                signed_package_content(package_id=self.package.pk)
 
     def test_session_recovers_phone_from_frozen_product_mapping(self):
         self.application.signer_rules_snapshot = [{

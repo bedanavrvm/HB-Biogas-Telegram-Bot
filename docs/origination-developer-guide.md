@@ -329,11 +329,17 @@ never stored; normal serializers expose only masked/status evidence.
 
 The public ceremony is rooted at the compact `/s/#<opaque-token>` route. The
 legacy `/origination/sign/#<opaque-token>` route remains available for existing
-links. The URL
-fragment is removed from the address bar on load and sent only as an
-`Authorization: Bearer` header, so it does not enter normal HTTP access logs.
-Public writes require the bearer token, are rate limited, and do not use staff cookie
-authorization. Staff session creation/reset, staff signing, stamping, and
+links. The URL fragment is removed from the address bar on load and sent only
+as an `Authorization: Bearer` header, so it does not enter normal HTTP access
+logs. Public writes require the bearer token, are rate limited, and do not use
+staff cookie authorization.
+
+Authorized Mini App users retrieve completed documents through
+`GET /api/origination/api/applications/<application-id>/signed-packet/`.
+`preview_format=image&page=N` returns a page for the in-app viewer, while
+`download=1` returns the PDF as an attachment. Archived bytes are downloaded
+from restricted Drive and checked against `signed_document_hash` before they
+are returned. Staff session creation/reset, staff signing, stamping, and
 archival remain behind Telegram authentication, capabilities, and application
 scope. `/origination/webhooks/africastalking/delivery/` accepts idempotent
 provider receipts, but updates only OTP delivery fields. It cannot set

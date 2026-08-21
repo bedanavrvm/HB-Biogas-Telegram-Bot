@@ -721,6 +721,10 @@ def serialize_verified_signing(package: OriginationSigningPackage) -> dict[str, 
         } for item in stamps.select_related('branch').distinct().order_by('name', '-version')],
         'archive_status': package.archive_status,
         'archive_error': package.archive_error,
+        'signed_packet_available': bool(
+            package.status == package.STATUS_FULLY_SIGNED and package.signed_document_hash
+        ),
+        'archived_at': package.archived_at.isoformat() if package.archived_at else '',
     }
 
 
@@ -857,6 +861,34 @@ def archive_signed_package(*, package_id, actor, request_id: str) -> Origination
             'package_id': str(locked.pk), 'signed_document_hash': locked.signed_document_hash,
         })
         return locked
+
+
+def signed_package_content(*, package_id) -> tuple[OriginationSigningPackage, bytes]:
+    """Return immutable signed bytes from Drive or the pending frozen archive."""
+    package = OriginationSigningPackage.objects.select_related('application').get(pk=package_id)
+    if package.status != package.STATUS_FULLY_SIGNED or not package.signed_document_hash:
+        raise OriginationError('The final signed packet is not available yet.')
+    if package.archive_status == 'uploaded':
+        if not package.final_drive_file_id:
+            raise OriginationError('The archived signed packet has no stored file reference.')
+        try:
+            from core.services.order_approval import GoogleDriveMediaStorage
+            content = GoogleDriveMediaStorage().download(package.final_drive_file_id)
+        except Exception as exc:
+            logger.exception('Origination signed packet retrieval failed for package %s.', package.pk)
+            raise OriginationError(
+                'The archived signed packet could not be retrieved. Try again.'
+            ) from exc
+    else:
+        content = bytes(package.pending_signed_document or b'')
+        if not content:
+            content = render_verified_package(package)
+    if hashlib.sha256(content).hexdigest() != package.signed_document_hash:
+        logger.error('Origination signed packet hash mismatch for package %s.', package.pk)
+        raise OriginationError(
+            'The signed packet failed its integrity check and cannot be opened.'
+        )
+    return package, content
 
 
 def client_ip_hash(request) -> str:

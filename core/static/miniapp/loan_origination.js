@@ -1500,7 +1500,10 @@
       }).join('');
       const archive = current.status === 'fully_signed' && verified.archive_status !== 'uploaded'
         ? `<aside class="notice"><strong>Signed packet archive: ${escapeHtml(verified.archive_status || 'pending')}</strong><span>${escapeHtml(verified.archive_error || 'Upload the immutable signed PDF to restricted Drive.')}</span><button type="button" class="btn btn-primary" id="origination-archive-signed" data-package-id="${escapeHtml(packageData.id)}">${verified.archive_status === 'failed' ? 'Retry archival' : 'Archive signed packet'}</button></aside>` : '';
-      return `<section class="signing-verified-panel"><p class="eyebrow">Verified packet signing</p><h3>Send each signer their secure link</h3><p>Remote signing works from any location. Each external signer reviews the immutable packet and verifies their own OTP.</p>${participants || '<div class="empty-state">No signing participants were configured.</div>'}${archive}</section>`;
+      const signedPacket = verified.signed_packet_available
+        ? `<aside class="signed-packet-access"><div><strong>${verified.archive_status === 'uploaded' ? 'Archived signed packet' : 'Final signed packet'}</strong><span>${verified.archive_status === 'uploaded' ? 'Stored in restricted Drive and verified against its immutable hash.' : 'Ready to view now; archive it to restricted Drive for permanent retention.'}</span></div><div><button type="button" class="btn btn-secondary" id="origination-view-signed" data-package-id="${escapeHtml(packageData.id)}">View signed LAF</button><button type="button" class="btn btn-primary" id="origination-download-signed" data-package-id="${escapeHtml(packageData.id)}">Download PDF</button></div></aside>`
+        : '';
+      return `<section class="signing-verified-panel"><p class="eyebrow">Verified packet signing</p><h3>Send each signer their secure link</h3><p>Remote signing works from any location. Each external signer reviews the immutable packet and verifies their own OTP.</p>${participants || '<div class="empty-state">No signing participants were configured.</div>'}${signedPacket}${archive}</section>`;
     }
     const stamps = packageData.test_stamps || [];
     const rows = (test.slots || []).map(slot => {
@@ -2136,7 +2139,26 @@
       if (!result.ok) return showToast(result.data?.error || 'Could not archive the signed packet.', true);
       await load(); showToast('Signed packet archived in restricted Drive.');
     }));
+    document.getElementById('origination-view-signed')?.addEventListener('click', () => openPreview('__signed_packet__'));
+    document.getElementById('origination-download-signed')?.addEventListener('click', event => downloadSignedPacket(event.currentTarget.dataset.packageId));
     document.getElementById('origination-test-signing-preview')?.addEventListener('click', () => openPreview('__test_signing__'));
+  }
+
+  async function downloadSignedPacket(packageId) {
+    const key = requestKey('signed-packet-download');
+    const result = await apiFetch(`/applications/${current.id}/signed-packet/?package_id=${encodeURIComponent(packageId)}&download=1`, {
+      headers: { 'X-Request-ID': key },
+    });
+    if (!result.ok || !result.blob) return showToast(result.data?.error || 'Could not download the signed packet.', true);
+    const url = URL.createObjectURL(result.blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${current.reference_number}-SIGNED.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    showToast('Signed packet downloaded.');
   }
 
   async function openPreview(documentKey = '') {
@@ -2151,6 +2173,12 @@
     previewPage = 1; previewZoom = 100; previewPageCount = 1;
     previewRequestId = requestKey('preview');
     const overlay = document.getElementById('document-preview-overlay');
+    const title = document.getElementById('preview-title');
+    if (title) title.textContent = documentKey === '__signed_packet__'
+      ? 'Archived signed packet'
+      : documentKey === '__packet__' ? 'Filled document packet'
+      : documentKey === '__test_signing__' ? 'TEST signed packet'
+      : 'Filled loan document';
     previewReturnFocus = document.activeElement;
     overlay.hidden = false;
     overlay.setAttribute('aria-hidden', 'false');
@@ -2171,16 +2199,20 @@
     const key = previewRequestId || requestKey('preview');
     const applicationId = current.id;
     const revision = current.revision;
-    const previewPath = previewDocumentKey === '__test_signing__'
+    const signedPacketPreview = previewDocumentKey === '__signed_packet__';
+    const previewPath = signedPacketPreview
+      ? `/applications/${applicationId}/signed-packet/?package_id=${encodeURIComponent(current?.signing_package?.id || '')}&preview_format=image&page=${pageNumber}`
+      : previewDocumentKey === '__test_signing__'
       ? `/applications/${applicationId}/test-signing/preview/`
       : previewDocumentKey === '__packet__'
       ? `/applications/${applicationId}/packet/preview/`
       : previewDocumentKey
       ? `/applications/${applicationId}/documents/${encodeURIComponent(previewDocumentKey)}/preview/`
       : `/applications/${applicationId}/preview/`;
-    const pending = apiFetch(previewPath, {
-      method: 'POST', headers: { 'Idempotency-Key': key, 'X-Request-ID': key },
-      body: JSON.stringify({
+    const pending = apiFetch(previewPath, signedPacketPreview ? {
+      headers: { 'X-Request-ID': key },
+    } : {
+      method: 'POST', headers: { 'Idempotency-Key': key, 'X-Request-ID': key }, body: JSON.stringify({
         revision, request_id: key, preview_format: 'image', page: pageNumber,
         package_id: previewDocumentKey === '__test_signing__' ? current?.signing_package?.id : undefined,
       }),
@@ -2193,7 +2225,7 @@
         previewedRevision = current.revision;
         previewSucceeded = true;
       }
-      if (previewDocumentKey && !['__packet__', '__test_signing__'].includes(previewDocumentKey) && pageNumber === 1) {
+      if (previewDocumentKey && !['__packet__', '__test_signing__', '__signed_packet__'].includes(previewDocumentKey) && pageNumber === 1) {
         const document = current?.document_packet?.documents?.find(item => item.key === previewDocumentKey);
         if (document) document.previewed = true;
       }

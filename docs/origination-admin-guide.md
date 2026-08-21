@@ -375,6 +375,10 @@ The Operations signing flow is:
 2. For an external signer choose **Send to signer's phone**. Use **In-person
    assisted signing** only when the signer is physically using the officer's
    device.
+3. After all required signatures and stamps are complete, archive the packet.
+   The completed application continues to show **View signed LAF** and
+   **Download PDF**. Both actions retrieve the immutable, hash-verified signed
+   packet from restricted Drive; users do not need direct Drive access.
    Self-service sends the opaque packet link to the mapped phone. Assisted mode
    opens the same ceremony on the officer's device and is separately audited.
 3. The signer must open every packet page, draw or type their signature, accept

@@ -1005,6 +1005,66 @@ def portal_origination_archive_signed(request, application_id: str):
     return JsonResponse({'ok': True, 'archive_status': package.archive_status})
 
 
+@require_http_methods(['GET'])
+def portal_origination_signed_packet(request, application_id: str):
+    """Serve the hash-verified final packet to an authorized application viewer."""
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if (error := _capability_error(request, 'portal.origination.view', application)):
+        return error
+    if (access_error := _application_access_error(request, application)):
+        return access_error
+    package_id = str(request.GET.get('package_id') or '').strip()
+    packages = application.signing_packages.filter(
+        status=OriginationSigningPackage.STATUS_FULLY_SIGNED,
+    )
+    package = (
+        packages.filter(pk=package_id).first() if package_id
+        else packages.order_by('-finalized_at', '-created_at').first()
+    )
+    if not package:
+        return JsonResponse({'ok': False, 'error': 'Signed packet not found.'}, status=404)
+    try:
+        from core.services.loan_origination import _record_event
+        from core.services.origination_esign import signed_package_content
+        package, content = signed_package_content(package_id=package.pk)
+        preview_format = str(request.GET.get('preview_format') or 'pdf').strip().lower()
+        page_number = int(request.GET.get('page') or 1)
+        if preview_format == 'image':
+            from core.services.partnership_laf_preview import render_pdf_page
+            content, total_pages = render_pdf_page(content, page_number=page_number)
+        request_id = str(request.headers.get('X-Request-ID') or '').strip()[:128]
+        if not request_id or not application.events.filter(request_id=request_id).exists():
+            _record_event(
+                application, 'signed_packet_accessed', actor=request.portal_user,
+                request_id=request_id,
+                after={
+                    'package_id': str(package.pk),
+                    'access_type': (
+                        'preview' if preview_format == 'image'
+                        else 'download' if request.GET.get('download') == '1'
+                        else 'view'
+                    ),
+                    'signed_document_hash': package.signed_document_hash,
+                },
+            )
+    except (OriginationError, RuntimeError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    filename = f'{application.reference_number}-SIGNED'
+    if preview_format == 'image':
+        response = HttpResponse(content, content_type='image/jpeg')
+        response['Content-Disposition'] = f'inline; filename="{filename}-page-{page_number}.jpg"'
+        response['X-Preview-Page-Count'] = str(total_pages)
+    else:
+        response = HttpResponse(content, content_type='application/pdf')
+        disposition = 'attachment' if request.GET.get('download') == '1' else 'inline'
+        response['Content-Disposition'] = f'{disposition}; filename="{filename}.pdf"'
+    response['Cache-Control'] = 'no-store, private'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
 @require_http_methods(['GET', 'HEAD'])
 def origination_signing_app(request):
     """Public signer shell; the opaque URL token is the sole session credential."""

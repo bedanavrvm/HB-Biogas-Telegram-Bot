@@ -79,6 +79,22 @@ async function installApiMocks(page, delayMs = 0, options = {}) {
       createCalls += 1;
       return json({ ok: true, application: application(99) });
     }
+    const signedPacket = apiPath.match(/^\/applications\/(\d+)\/signed-packet\/$/);
+    if (signedPacket && request.method() === 'GET') {
+      options.signedPacketRequests?.push({
+        preview: url.searchParams.get('preview_format') === 'image',
+        download: url.searchParams.get('download') === '1',
+      });
+      if (url.searchParams.get('preview_format') === 'image') return route.fulfill({
+        status: 200, contentType: 'image/svg+xml', headers: { 'X-Preview-Page-Count': '1' },
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="850"><rect width="100%" height="100%" fill="white"/><text x="40" y="80" font-size="24">Archived signed LAF</text></svg>',
+      });
+      return route.fulfill({
+        status: 200, contentType: 'application/pdf',
+        headers: { 'Content-Disposition': 'attachment; filename="JBL-2026-0001-SIGNED.pdf"' },
+        body: '%PDF-synthetic-archived-packet',
+      });
+    }
     const testSigningAction = apiPath.match(/^\/applications\/(\d+)\/test-signing\/action\/$/);
     if (testSigningAction && request.method() === 'POST') {
       const body = JSON.parse(request.postData() || '{}');
@@ -130,6 +146,18 @@ function verifiedSigningApplication(id, accessMode = '') {
       }],
     },
   };
+  return item;
+}
+
+function archivedSigningApplication(id) {
+  const item = verifiedSigningApplication(id, 'self_service');
+  item.status = 'fully_signed';
+  item.signing_package.verified_signing.archive_status = 'uploaded';
+  item.signing_package.verified_signing.signed_packet_available = true;
+  item.signing_package.verified_signing.archived_at = '2026-08-21T18:00:00+03:00';
+  const participant = item.signing_package.verified_signing.participants[0];
+  participant.session_status = 'verified';
+  participant.slots[0].completed = true;
   return item;
 }
 
@@ -443,6 +471,55 @@ async function auditPublicSigningPage(browser, width, accessMode) {
   await page.close();
 }
 
+async function auditArchivedSignedPacketAccess(browser) {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, acceptDownloads: true });
+  const pageErrors = [];
+  const signedPacketRequests = [];
+  page.on('pageerror', error => pageErrors.push(error.message || String(error)));
+  await installApiMocks(page, 0, {
+    detailFactory: id => archivedSigningApplication(id), signedPacketRequests,
+  });
+  await waitForList(page);
+  await page.locator('.application-card').first().click();
+  await page.locator('#origination-section-picker').click();
+  await page.locator('[data-section-index]').last().click();
+  await page.getByText('Archived signed packet', { exact: true }).waitFor();
+  assert(await page.getByText('View signed LAF', { exact: true }).isVisible(), 'Archived signed LAF view action is missing');
+  assert(await page.getByText('Download PDF', { exact: true }).isVisible(), 'Archived signed LAF download action is missing');
+  assert(await page.locator('.wizard-actions').count() === 0, 'Read-only archived packet is obscured by a sticky action footer');
+  await page.screenshot({ path: path.join(outputDir, 'phone-390-archived-signed-packet-actions.png'), fullPage: true });
+
+  await page.getByText('View signed LAF', { exact: true }).click();
+  await page.locator('#document-preview-image[src]').waitFor();
+  assert(await page.locator('#preview-title').textContent() === 'Archived signed packet', 'Archived preview title is not explicit');
+  const viewerLayout = await page.evaluate(() => {
+    const header = document.querySelector('.preview-header');
+    const close = document.querySelector('#preview-close');
+    const toolbar = document.querySelector('.preview-toolbar');
+    const first = toolbar?.querySelector('button');
+    return {
+      headerTop: header?.getBoundingClientRect().top,
+      closeTop: close?.getBoundingClientRect().top,
+      closeWidth: close?.getBoundingClientRect().width,
+      toolbarLeft: toolbar?.getBoundingClientRect().left,
+      firstLeft: first?.getBoundingClientRect().left,
+    };
+  });
+  assert(Math.abs(viewerLayout.headerTop - viewerLayout.closeTop) <= 12, 'Archived viewer close control wraps below its header');
+  assert(viewerLayout.closeWidth <= 48, `Archived viewer close control wastes ${viewerLayout.closeWidth}px of header width`);
+  assert(viewerLayout.firstLeft >= viewerLayout.toolbarLeft, 'Archived viewer clips its first toolbar action');
+  await page.screenshot({ path: path.join(outputDir, 'phone-390-archived-signed-packet-preview.png') });
+  await page.locator('#preview-close').click();
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByText('Download PDF', { exact: true }).click();
+  const download = await downloadPromise;
+  assert(download.suggestedFilename() === 'JBL-2026-0001-SIGNED.pdf', `Unexpected signed packet filename: ${download.suggestedFilename()}`);
+  assert(signedPacketRequests.some(item => item.preview), 'Archived packet preview did not use the signed-packet endpoint');
+  assert(signedPacketRequests.some(item => item.download), 'Archived packet download did not use the signed-packet endpoint');
+  assert(!pageErrors.length, `Archived packet access raised a browser error: ${pageErrors.join(' | ')}`);
+  await page.close();
+}
+
 async function auditRestrictedStorageStart(browser) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
@@ -496,6 +573,7 @@ async function auditRestrictedStorageStart(browser) {
       await auditVerifiedSigningControls(browser, 390, 'assisted');
       await auditPublicSigningPage(browser, 320, 'self_service');
       await auditPublicSigningPage(browser, 390, 'assisted');
+      await auditArchivedSignedPacketAccess(browser);
     }
     await auditRestrictedStorageStart(browser);
     console.log(JSON.stringify({ ok: true, outputDir, results }, null, 2));
