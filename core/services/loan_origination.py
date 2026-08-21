@@ -203,6 +203,7 @@ def validate_product_form_contract(
         raise OriginationError('Every signer requires a role from the approved catalogue.')
     if len(roles) != len(set(roles)):
         raise OriginationError('Signer roles cannot be duplicated.')
+    fields_by_key = {str(field.get('key') or ''): field for field in fields}
     for rule in signer_rules:
         slots = rule.get('slots', [])
         if not isinstance(slots, list):
@@ -219,6 +220,29 @@ def validate_product_form_contract(
                 raise OriginationError(f'Signer {rule.get("role")} has an unsupported slot type.')
         if len(slot_keys) != len(set(slot_keys)):
             raise OriginationError(f'Signer {rule.get("role")} has duplicate slot keys.')
+        identity_fields = rule.get('identity_fields') if isinstance(rule.get('identity_fields'), dict) else {}
+        identity_types = {
+            'name': {'text', 'textarea'},
+            'phone': {'phone', 'text'},
+            # Numeric is accepted only as legacy compatibility. National IDs
+            # are identifiers and should normally use the national_id type.
+            'national_id': {'national_id', 'text', 'number'},
+        }
+        for identity_kind, field_key in identity_fields.items():
+            field_key = str(field_key or '').strip()
+            if identity_kind not in identity_types or not field_key:
+                continue
+            identity_field = fields_by_key.get(field_key)
+            if not identity_field:
+                raise OriginationError(
+                    f'Signer {rule.get("role")} {identity_kind.replace("_", " ")} mapping '
+                    'must reference a field in this form.',
+                )
+            if str(identity_field.get('type') or 'text') not in identity_types[identity_kind]:
+                raise OriginationError(
+                    f'Signer {rule.get("role")} {identity_kind.replace("_", " ")} mapping '
+                    f'uses an incompatible field type.',
+                )
         has_signature = any(
             str(({'key': item} if isinstance(item, str) else item).get('type') or rule.get('slot_type') or 'signature') == 'signature'
             for item in slots
@@ -228,7 +252,6 @@ def validate_product_form_contract(
             and rule.get('required', False) and has_signature
             and str(rule.get('role') or '') not in {'bro_1', 'bro_2', 'loan_officer', 'officer', 'branch_manager'}
         ):
-            identity_fields = rule.get('identity_fields') if isinstance(rule.get('identity_fields'), dict) else {}
             if not str(identity_fields.get('name') or '').strip() or not str(identity_fields.get('phone') or '').strip():
                 raise OriginationError(
                     f'Signer {rule.get("role")} requires canonical name and OTP phone mappings before verified signing publication.',
@@ -247,30 +270,79 @@ def validate_product_definition(definition: OriginationProductDefinition) -> Non
         raise OriginationError('The approved document template requires a valid SHA-256 digest.')
 
 
-def validate_applicant_identity_contract(schema: dict[str, Any]) -> None:
+def _applicant_identity_field_keys(
+    schema: dict[str, Any], signer_rules: Any = None,
+) -> dict[str, list[str]]:
+    """Resolve Applicant identity from explicit Borrower mappings, then legacy keys."""
+
+    fields = {str(item.get('key') or ''): item for item in _schema_fields(schema)}
+    borrower_rule = next((
+        item for preferred_role in ('borrower', 'customer')
+        for item in (signer_rules or [])
+        if isinstance(item, dict) and str(item.get('role') or '') == preferred_role
+    ), None)
+    mappings = (
+        borrower_rule.get('identity_fields')
+        if borrower_rule and isinstance(borrower_rule.get('identity_fields'), dict)
+        else {}
+    )
+
+    def explicit_or_fallback(kind: str, fallbacks: tuple[str, ...]) -> list[str]:
+        explicit = str(mappings.get(kind) or '').strip()
+        if explicit:
+            return [explicit] if explicit in fields else []
+        fallback = next((key for key in fallbacks if key in fields), '')
+        return [fallback] if fallback else []
+
+    name_keys = explicit_or_fallback('name', APPLICANT_NAME_KEYS)
+    if not name_keys and not str(mappings.get('name') or '').strip():
+        if fields.get('applicant_first_name') and fields.get('applicant_surname'):
+            name_keys = ['applicant_first_name', 'applicant_surname']
+    return {
+        'name': name_keys,
+        'national_id': explicit_or_fallback('national_id', APPLICANT_ID_KEYS),
+        'phone': explicit_or_fallback('phone', APPLICANT_PHONE_KEYS),
+    }
+
+
+def require_applicant_identity_fields(
+    schema: dict[str, Any], signer_rules: Any = None,
+) -> dict[str, Any]:
+    """Return the form contract with resolved Applicant identity fields required."""
+
+    normalized = {
+        **(schema or {}),
+        'fields': [dict(item) for item in _schema_fields(schema)],
+    }
+    resolved = _applicant_identity_field_keys(normalized, signer_rules)
+    required_keys = {key for keys in resolved.values() for key in keys}
+    for field in normalized['fields']:
+        if str(field.get('key') or '') in required_keys:
+            field['required'] = True
+    return normalized
+
+
+def validate_applicant_identity_contract(
+    schema: dict[str, Any], signer_rules: Any = None,
+) -> None:
     """Require the stable Applicant identity used by queues and review."""
     fields = {str(item.get('key') or ''): item for item in _schema_fields(schema)}
-    full_name = next((fields[key] for key in APPLICANT_NAME_KEYS if key in fields), None)
-    split_name = fields.get('applicant_first_name') and fields.get('applicant_surname')
-    national_id = next((fields[key] for key in APPLICANT_ID_KEYS if key in fields), None)
-    phone = next((fields[key] for key in APPLICANT_PHONE_KEYS if key in fields), None)
+    resolved = _applicant_identity_field_keys(schema, signer_rules)
     missing = []
-    if not full_name and not split_name:
+    if not resolved['name']:
         missing.append('Applicant name')
-    if not national_id:
+    if not resolved['national_id']:
         missing.append('Applicant National ID')
-    if not phone:
+    if not resolved['phone']:
         missing.append('Applicant telephone')
     if missing:
         raise OriginationError(
             'Add the required canonical identity fields before publishing: '
             + ', '.join(missing) + '.',
         )
-    required_fields = [national_id, phone]
-    if full_name:
-        required_fields.append(full_name)
-    else:
-        required_fields.extend([fields['applicant_first_name'], fields['applicant_surname']])
+    required_fields = [
+        fields[key] for keys in resolved.values() for key in keys
+    ]
     optional = [
         str(item.get('label') or item.get('key') or '')
         for item in required_fields if not item.get('required')
@@ -282,26 +354,44 @@ def validate_applicant_identity_contract(schema: dict[str, Any]) -> None:
         )
 
 
-def applicant_identity_snapshot(payload: dict[str, Any] | None) -> dict[str, str]:
+def applicant_identity_snapshot(
+    payload: dict[str, Any] | None, *, schema: dict[str, Any] | None = None,
+    signer_rules: Any = None,
+) -> dict[str, str]:
     values = payload if isinstance(payload, dict) else {}
-    full_name = next((
-        str(values.get(key) or '').strip()
-        for key in APPLICANT_NAME_KEYS if str(values.get(key) or '').strip()
-    ), '')
-    if not full_name:
+    if schema:
+        resolved = _applicant_identity_field_keys(schema, signer_rules)
         full_name = ' '.join(
             str(values.get(key) or '').strip()
-            for key in ('applicant_first_name', 'applicant_middle_name', 'applicant_surname')
-            if str(values.get(key) or '').strip()
+            for key in resolved['name'] if str(values.get(key) or '').strip()
         )
-    national_id = next((
-        str(values.get(key) or '').strip()
-        for key in APPLICANT_ID_KEYS if str(values.get(key) or '').strip()
-    ), '')
-    phone = next((
-        str(values.get(key) or '').strip()
-        for key in APPLICANT_PHONE_KEYS if str(values.get(key) or '').strip()
-    ), '')
+        national_id = next((
+            str(values.get(key) or '').strip()
+            for key in resolved['national_id'] if str(values.get(key) or '').strip()
+        ), '')
+        phone = next((
+            str(values.get(key) or '').strip()
+            for key in resolved['phone'] if str(values.get(key) or '').strip()
+        ), '')
+    else:
+        full_name = next((
+            str(values.get(key) or '').strip()
+            for key in APPLICANT_NAME_KEYS if str(values.get(key) or '').strip()
+        ), '')
+        if not full_name:
+            full_name = ' '.join(
+                str(values.get(key) or '').strip()
+                for key in ('applicant_first_name', 'applicant_middle_name', 'applicant_surname')
+                if str(values.get(key) or '').strip()
+            )
+        national_id = next((
+            str(values.get(key) or '').strip()
+            for key in APPLICANT_ID_KEYS if str(values.get(key) or '').strip()
+        ), '')
+        phone = next((
+            str(values.get(key) or '').strip()
+            for key in APPLICANT_PHONE_KEYS if str(values.get(key) or '').strip()
+        ), '')
     return {'name': full_name, 'national_id': national_id, 'phone': phone}
 
 
@@ -892,7 +982,10 @@ def save_application_fields(
     if sub_county_key and sub_county_record:
         payload[sub_county_key] = sub_county_record.name
     application.form_payload = payload
-    application.identity_snapshot = applicant_identity_snapshot(payload)
+    application.identity_snapshot = applicant_identity_snapshot(
+        payload, schema=application.schema_snapshot,
+        signer_rules=application.signer_rules_snapshot,
+    )
     application.branch_ref = branch_record
     application.county_ref = county_record
     application.sub_county_ref = sub_county_record
@@ -998,7 +1091,10 @@ def submit_for_review(*, application_id, actor, expected_revision: int, request_
             'Complete all required application fields before review.', errors=result.errors,
         )
     if application.schema_snapshot.get('identity_contract') == APPLICANT_IDENTITY_CONTRACT:
-        identity = applicant_identity_snapshot(application.form_payload)
+        identity = applicant_identity_snapshot(
+            application.form_payload, schema=application.schema_snapshot,
+            signer_rules=application.signer_rules_snapshot,
+        )
         identity_errors = {
             key: 'This Applicant identity value is required.'
             for key, value in identity.items() if not value
@@ -1314,7 +1410,10 @@ def serialize_application(
             if application.recheck_assigned_to_id else ''
         ),
     }
-    identity = application.identity_snapshot or applicant_identity_snapshot(application.form_payload)
+    identity = application.identity_snapshot or applicant_identity_snapshot(
+        application.form_payload, schema=application.schema_snapshot,
+        signer_rules=application.signer_rules_snapshot,
+    )
     payload['applicant_summary'] = {
         'name': str(identity.get('name') or '').strip(),
         'national_id': _mask_queue_identifier(identity.get('national_id')),

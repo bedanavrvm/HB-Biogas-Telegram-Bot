@@ -26,15 +26,18 @@ from core.models import (
 from core.services.loan_origination import (
     OriginationConflict,
     OriginationError,
+    applicant_identity_snapshot,
     create_application,
     prepare_signing_package,
     review_application,
     render_application_preview,
+    require_applicant_identity_fields,
     save_application_fields,
     serialize_application,
     submit_for_review,
     take_over_correction_review,
     normalize_form_payload,
+    validate_applicant_identity_contract,
     validate_form_payload,
 )
 from core.services.origination_documents import (
@@ -283,6 +286,44 @@ class LoanOriginationServiceTests(TestCase):
         self.assertEqual(summary['name'], 'Synthetic Applicant')
         self.assertEqual(summary['national_id'], '••••5678')
         self.assertEqual(summary['phone'], '••••••5678')
+
+    def test_applicant_identity_contract_uses_explicit_borrower_mappings(self):
+        schema = {
+            'identity_contract': 'applicant_v1',
+            'fields': [
+                {'key': 'applicant_first_name', 'label': 'Applicant First Name', 'type': 'text'},
+                {'key': 'applicant_id', 'label': 'Applicant ID', 'type': 'national_id'},
+                {'key': 'applicant_phone_no', 'label': 'Applicant Phone No', 'type': 'phone'},
+            ],
+        }
+        signer_rules = [{
+            'role': 'borrower', 'required': True,
+            'identity_fields': {
+                'name': 'applicant_first_name',
+                'national_id': 'applicant_id',
+                'phone': 'applicant_phone_no',
+            },
+            'slots': [{'key': 'signature', 'type': 'signature', 'required': True}],
+        }]
+
+        normalized = require_applicant_identity_fields(schema, signer_rules)
+        validate_applicant_identity_contract(normalized, signer_rules)
+
+        self.assertTrue(all(item['required'] for item in normalized['fields']))
+        self.assertEqual(
+            applicant_identity_snapshot(
+                {
+                    'applicant_first_name': 'Synthetic',
+                    'applicant_id': '12345678',
+                    'applicant_phone_no': '0712345678',
+                },
+                schema=normalized, signer_rules=signer_rules,
+            ),
+            {
+                'name': 'Synthetic', 'national_id': '12345678',
+                'phone': '0712345678',
+            },
+        )
 
     def test_correction_only_unlocks_selected_targets_and_returns_to_original_checker(self):
         alternate_reviewer = get_user_model().objects.create_user(username='alternate-reviewer')

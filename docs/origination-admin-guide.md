@@ -163,6 +163,14 @@ canonical key for labels such as “Applicant ID”, “National ID”, or “ID
 when they mean the same value. Product forms may relabel that field without
 creating another data identity.
 
+The Applicant identity contract does not require one hard-coded variable name.
+In the loan-form builder, map the Borrower's **Signer name field**, **OTP phone
+field**, and **National ID field** to the canonical fields used by that product.
+Publication treats those explicit mappings as authoritative and uses the legacy
+standard keys only as a fallback. The mapped fields are made required in the
+published form contract so queues, review, and signing all resolve the same
+Applicant identity.
+
 Available types are short text, long text, number, money, date, phone, national
 ID, choice, yes/no, governed branch/county/sub-county, and repeatable group.
 Also set:

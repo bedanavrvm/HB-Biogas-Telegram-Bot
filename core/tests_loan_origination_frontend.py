@@ -158,7 +158,7 @@ class LoanOriginationFrontendTests(SimpleTestCase):
         self.assertIn('Choose or create a canonical field', source)
         self.assertIn('data-picker-create', source)
         self.assertIn('data-create-field-url', template)
-        self.assertIn("origination_product_builder.js' %}?v=7", template)
+        self.assertIn("origination_product_builder.js' %}?v=8", template)
         self.assertNotIn('Every active canonical input field is already attached.', source)
         self.assertIn('Use Applicant for the person applying', source)
         self.assertIn("schema.identity_contract = 'applicant_v1'", source)
@@ -168,3 +168,4 @@ class LoanOriginationFrontendTests(SimpleTestCase):
         self.assertIn('data-validation-prop="pattern"', source)
         self.assertIn('looksLikeNationalId', source)
         self.assertIn("['number', 'text'].includes(item.type)", source)
+        self.assertIn('identityField.required = true', source)

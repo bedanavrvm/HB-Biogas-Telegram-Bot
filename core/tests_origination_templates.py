@@ -1196,6 +1196,85 @@ class MultiProductOriginationTemplateTests(TestCase):
             'The locked template query must not outer-join its nullable product relation.',
         )
 
+    @patch('core.services.compliance_audit.record_event')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_publish_uses_configured_borrower_identity_field_mappings(self, storage_class, audit):
+        storage = storage_class.return_value
+        storage.upload.return_value = ('drive-mapped-identity', 'https://drive.test/mapped-identity')
+        storage.download.return_value = self.pdf
+        self.product.form_schema = {
+            'identity_contract': 'applicant_v1',
+            'sections': [{'key': 'application', 'label': 'Application'}],
+            'fields': [
+                {
+                    'key': 'applicant_first_name', 'label': 'Applicant First Name',
+                    'type': 'text', 'section_key': 'application', 'required': False,
+                },
+                {
+                    'key': 'applicant_id', 'label': 'Applicant ID',
+                    'type': 'national_id', 'section_key': 'application', 'required': False,
+                },
+                {
+                    'key': 'applicant_phone_no', 'label': 'Applicant Phone No',
+                    'type': 'phone', 'section_key': 'application', 'required': True,
+                },
+            ],
+        }
+        self.product.signer_rules = [{
+            'role': 'borrower', 'required': True,
+            'identity_fields': {
+                'name': 'applicant_first_name',
+                'national_id': 'applicant_id',
+                'phone': 'applicant_phone_no',
+            },
+            'slots': [{
+                'key': 'signature', 'label': 'Borrower signature',
+                'type': 'signature', 'required': True,
+            }],
+        }]
+        self.product.save(update_fields=['form_schema', 'signer_rules'])
+        pdf_file = BytesIO(self.pdf)
+        pdf_file.name = 'mapped-identity.pdf'
+        template = create_template(
+            pdf_file=pdf_file, product_definition=self.product,
+            name='Mapped Identity LAF', actor=self.user,
+        )
+        configuration = initial_template_configuration(self.product)
+        configuration['field_overlay_manifest']['fields'] = {
+            key: {
+                'context_key': key, 'page_number': 1, 'units': 'pt',
+                'box': {'x': 20, 'y': 700 - index * 30, 'width': 180, 'height': 16},
+            }
+            for index, key in enumerate(
+                ('applicant_first_name', 'applicant_id', 'applicant_phone_no')
+            )
+        }
+        configuration['signature_overlay_manifest']['slots'] = {
+            'borrower.signature': {
+                'role': 'borrower', 'slot_key': 'signature', 'slot_type': 'signature',
+                'label': 'Borrower signature', 'page_number': 1, 'units': 'pt',
+                'box': {'x': 20, 'y': 80, 'width': 180, 'height': 35},
+            },
+        }
+        draft = save_calibration_draft(
+            template=template, configuration=configuration,
+            actor=self.user, expected_revision=1,
+        )
+
+        product, published_template, _published = publish_product_template(
+            template=template, revision=draft.revision, actor=self.user,
+        )
+
+        self.assertEqual(product.lifecycle_status, product.STATUS_PUBLISHED)
+        self.assertTrue(all(item['required'] for item in product.form_schema['fields']))
+        self.assertTrue(all(item['required'] for item in published_template.form_schema['fields']))
+        self.assertTrue(
+            published_template.events.filter(
+                action='applicant_identity_contract_normalized',
+            ).exists(),
+        )
+        audit.assert_called_once()
+
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_draft_save_allows_incomplete_mapping_but_publish_validation_does_not(self, storage_class):
         storage_class.return_value.upload.return_value = ('drive-dairy-draft', 'https://drive.test/draft')

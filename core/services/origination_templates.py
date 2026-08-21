@@ -1353,11 +1353,29 @@ def publish_product_template(
     from core.services.loan_origination import (
         APPLICANT_IDENTITY_CONTRACT,
         OriginationError,
+        require_applicant_identity_fields,
         validate_applicant_identity_contract,
     )
     if (product.form_schema or {}).get('identity_contract') == APPLICANT_IDENTITY_CONTRACT:
         try:
-            validate_applicant_identity_contract(product.form_schema)
+            product.form_schema = require_applicant_identity_fields(
+                product.form_schema, product.signer_rules,
+            )
+            validate_applicant_identity_contract(product.form_schema, product.signer_rules)
+            if template.form_schema != product.form_schema:
+                template.form_schema = json.loads(json.dumps(product.form_schema))
+                template.save(update_fields=['form_schema', 'updated_at'])
+                OriginationDocumentTemplateEvent.objects.create(
+                    template=template, action='applicant_identity_contract_normalized',
+                    actor=actor,
+                    metadata={
+                        'required_field_keys': sorted(
+                            str(item.get('key') or '')
+                            for item in product.form_schema.get('fields', [])
+                            if isinstance(item, dict) and item.get('required')
+                        ),
+                    },
+                )
         except OriginationError as exc:
             raise OriginationTemplateError(str(exc)) from exc
     from core.services.origination_documents import validate_applicability_rule

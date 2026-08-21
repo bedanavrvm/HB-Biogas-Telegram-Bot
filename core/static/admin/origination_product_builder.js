@@ -95,6 +95,13 @@
       }),
     }));
     if (requiresSigners && !signers.length) signers.push({ role: 'borrower', required: true, identity_fields: {}, slots: [{ key: 'signature', label: 'Borrower signature', type: 'signature', required: true }] });
+    if (!supportingDocument) {
+      const applicantSigner = signers.find(item => ['borrower', 'customer'].includes(item.role));
+      Object.values(applicantSigner?.identity_fields || {}).forEach(fieldKey => {
+        const field = schema.fields.find(item => item.key === fieldKey);
+        if (field) field.required = true;
+      });
+    }
     sync();
   }
 
@@ -401,7 +408,16 @@
     } else if (signerNode && event.target.dataset.signerIdentity) {
       const signer = signers[Number(signerNode.dataset.signerIndex)];
       signer.identity_fields ||= {};
-      if (event.target.value) signer.identity_fields[event.target.dataset.signerIdentity] = event.target.value;
+      if (event.target.value) {
+        signer.identity_fields[event.target.dataset.signerIdentity] = event.target.value;
+        if (!supportingDocument && ['borrower', 'customer'].includes(signer.role)) {
+          const identityField = schema.fields.find(item => item.key === event.target.value);
+          if (identityField) {
+            identityField.required = true;
+            renderSections();
+          }
+        }
+      }
       else delete signer.identity_fields[event.target.dataset.signerIdentity];
     }
     sync();
