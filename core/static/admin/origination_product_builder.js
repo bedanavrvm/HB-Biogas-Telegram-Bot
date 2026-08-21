@@ -85,6 +85,7 @@
     signers = signers.filter(item => item && typeof item === 'object').map(item => ({
       role: item.role || 'borrower',
       required: item.required !== false,
+      identity_fields: item.identity_fields && typeof item.identity_fields === 'object' ? { ...item.identity_fields } : {},
       slots: (Array.isArray(item.slots) ? item.slots : []).map(slotItem => {
         const slot = typeof slotItem === 'string' ? { key: slotItem } : { ...(slotItem || {}) };
         return {
@@ -93,7 +94,7 @@
         };
       }),
     }));
-    if (requiresSigners && !signers.length) signers.push({ role: 'borrower', required: true, slots: [{ key: 'signature', label: 'Borrower signature', type: 'signature', required: true }] });
+    if (requiresSigners && !signers.length) signers.push({ role: 'borrower', required: true, identity_fields: {}, slots: [{ key: 'signature', label: 'Borrower signature', type: 'signature', required: true }] });
     sync();
   }
 
@@ -160,10 +161,17 @@
   function renderSigners() {
     const container = document.getElementById('opb-signers');
     const roleOptions = roles.map(item => [item.key, item.label]);
+    const identityOptions = (kind, selected) => {
+      const allowed = kind === 'phone' ? ['phone'] : kind === 'national_id' ? ['national_id', 'text'] : ['text', 'textarea'];
+      return '<option value="">Choose canonical field</option>' + inputCatalogue.filter(item => allowed.includes(item.type)).map(item => `<option value="${escapeHtml(item.key)}"${item.key === selected ? ' selected' : ''}>${escapeHtml(item.label)} · ${escapeHtml(item.key)}</option>`).join('');
+    };
     container.innerHTML = signers.map((signer, signerIndex) => `<article class="opb-signer" data-signer-index="${signerIndex}">
       <div class="opb-row">
         <label class="opb-wide">Role<select data-signer-prop="role">${optionMarkup(roleOptions, signer.role)}</select></label>
         <label class="opb-check"><input data-signer-prop="required" type="checkbox"${signer.required ? ' checked' : ''}> Required signer</label>
+        <label>Signer name field<select data-signer-identity="name">${identityOptions('name', signer.identity_fields?.name || '')}</select></label>
+        <label>OTP phone field<select data-signer-identity="phone">${identityOptions('phone', signer.identity_fields?.phone || '')}</select></label>
+        <label>National ID field<select data-signer-identity="national_id">${identityOptions('national_id', signer.identity_fields?.national_id || '')}</select></label>
         <div class="opb-tools"><button type="button" data-action="signer-up">Move up</button><button type="button" data-action="signer-down">Move down</button><button type="button" data-action="add-slot">Add slot</button><button type="button" data-action="remove-signer">Remove</button></div>
       </div>
       <div>${signer.slots.length ? signer.slots.map((slot, slotIndex) => slotMarkup(slot, signerIndex, slotIndex)).join('') : '<div class="opb-empty">No signature or stamp slots.</div>'}</div>
@@ -383,6 +391,11 @@
       } else if (prop !== 'key') section[prop] = event.target.value;
     } else if (signerNode && event.target.dataset.signerProp) {
       signers[Number(signerNode.dataset.signerIndex)][event.target.dataset.signerProp] = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+    } else if (signerNode && event.target.dataset.signerIdentity) {
+      const signer = signers[Number(signerNode.dataset.signerIndex)];
+      signer.identity_fields ||= {};
+      if (event.target.value) signer.identity_fields[event.target.dataset.signerIdentity] = event.target.value;
+      else delete signer.identity_fields[event.target.dataset.signerIdentity];
     }
     sync();
   });
@@ -435,7 +448,7 @@
       if (target != null) [schema.fields[fieldIndex], schema.fields[target]] = [schema.fields[target], schema.fields[fieldIndex]];
     } else if (action === 'add-signer') {
       const role = roles.find(item => !signers.some(signer => signer.role === item.key))?.key || roles[0]?.key || 'borrower';
-      signers.push({ role, required: true, slots: [] });
+      signers.push({ role, required: true, identity_fields: {}, slots: [] });
     } else if (action === 'remove-signer') {
       if (requiresSigners && signers.length === 1) return window.alert(`A ${supportingDocument ? 'document' : 'product'} requires at least one signer.`);
       signers.splice(signerIndex, 1);

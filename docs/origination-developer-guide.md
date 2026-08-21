@@ -269,6 +269,11 @@ The browser uses the canonical `/api/origination/api` prefix:
 | `POST /applications/<id>/correction/takeover/` | Reassign a correction re-check with an audited reason. |
 | `POST /applications/<id>/signing-requirements/` | Save signing requirements for the current revision. |
 | `POST /applications/<id>/prepare-signing/` | Freeze a reviewed signing package. |
+| `POST /applications/<id>/signer-sessions/` | Idempotently create a self-service or assisted external-signer session. |
+| `POST /applications/<id>/signer-sessions/reset/` | Revoke and replace a signer session with an audited reason. |
+| `POST /applications/<id>/staff-signature/` | Apply one authenticated staff capture to all assigned staff signature slots. |
+| `POST /applications/<id>/production-stamp/` | Apply one governed production stamp to a calibrated stamp slot. |
+| `POST /applications/<id>/archive-signed/` | Idempotently archive the frozen fully signed PDF. |
 | `POST /applications/<id>/test-signing/action/` | Record one watermarked non-production slot action. |
 | `POST /applications/<id>/test-signing/preview/` | Render the current watermarked test packet. |
 | evidence upload/remove/download routes | Govern requirement evidence within scope and configured limits. |
@@ -284,11 +289,11 @@ extension/content type, requirement applicability, actor scope, and revision.
 Storage filenames must be generated safely. A user removal is a governed logical
 state transition; it must not silently erase the audit trail.
 
-Drive failure must remain distinguishable from local transaction success and
-must retain retry/error metadata. `OriginationSigningPackage` is an immutable
-local snapshot of the reviewed revision. A future e-sign adapter must be a
-separate idempotent external operation and may not mark local signing complete
-before the provider confirms it.
+Drive failure remains distinguishable from local signing success and retains
+retry/error metadata. `OriginationSigningPackage` is the immutable local
+snapshot of the reviewed revision. A fully signed package stores the exact
+rendered bytes and SHA-256 before archival. Drive retry uploads those retained
+bytes; it never rerenders from current application or product state.
 
 Signature and stamp appearance is part of each published template configuration
 snapshot, not a mutable signing-time preference. The visual calibration builder
@@ -313,6 +318,32 @@ unknown values fail closed. Correction writes similarly enforce the open correct
 target keys server-side; disabled controls are only presentation, not the
 security boundary.
 
+Verified external signing uses `OriginationSignerSession` as a revocable opaque
+bearer link, `OriginationOtpChallenge` for a salted OTP hash and immutable packet
+binding, and `OriginationSigningRequestEvent` for database-backed token/IP
+throttling. Consent binds the packet hash, signer role, frozen identity,
+consent version, signature-capture hash, and complete reviewed-page list. One
+successful challenge creates append-only verified actions for all signature
+slots belonging to that role in one transaction. The code and raw token are
+never stored; normal serializers expose only masked/status evidence.
+
+The public ceremony is rooted at `/origination/sign/#<opaque-token>`. The URL
+fragment is removed from the address bar on load and sent only as an
+`Authorization: Bearer` header, so it does not enter normal HTTP access logs.
+Public writes require the bearer token, are rate limited, and do not use staff cookie
+authorization. Staff session creation/reset, staff signing, stamping, and
+archival remain behind Telegram authentication, capabilities, and application
+scope. `/origination/webhooks/africastalking/delivery/` accepts idempotent
+provider receipts, but updates only OTP delivery fields. It cannot set
+`verified_at`, create a signing action, or advance a package/application.
+
+OTP limits are 60 seconds between sends, three sends per session in 30 minutes,
+five sends per phone per hour, ten per phone per day, and five verification
+attempts per challenge. Attempt exhaustion locks the signer session for 30
+minutes. Operations reset/reissue requires a request ID and a nonblank audited
+reason. Shared external phone numbers require a reasoned Superuser approval;
+that approval is retained when Operations reissues the same signer session.
+
 ## Environment variables
 
 | Setting | Purpose/default posture |
@@ -328,6 +359,11 @@ security boundary.
 | `ORIGINATION_EVIDENCE_MAX_FILES_PER_REQUIREMENT` | Default 5. |
 | `ORIGINATION_EVIDENCE_MAX_TOTAL_UPLOAD_MB` | Default 30 MB per application. |
 | `ORIGINATION_TEST_SIGNING_ENABLED` | Watermarked simulator outside production only; default `False`. |
+| `ORIGINATION_ESIGN_ENABLED` | Explicit master gate for verified signing; default `False`. |
+| `AFRICASTALKING_SMS_ENVIRONMENT` | `sandbox` or `production`; must agree with the application environment. |
+| `AFRICASTALKING_USERNAME`, `AFRICASTALKING_API_KEY` | Server-only provider credentials. Sandbox requires username `sandbox`. |
+| `AFRICASTALKING_SENDER_ID` | Optional approved production Sender ID. |
+| `ORIGINATION_SIGNING_LINK_TTL_HOURS` | Opaque signing-link lifetime, bounded to 1-168 hours; default 48. |
 | `REQUIRE_MINIAPP_IDEMPOTENCY_KEY` | Strict retry-key enforcement rollout flag; enable only after cached clients are verified. |
 | `ORIGINATION_FULL_RESET_ENABLED` | Testing-only Admin reset; default and normal production value is `False`. |
 

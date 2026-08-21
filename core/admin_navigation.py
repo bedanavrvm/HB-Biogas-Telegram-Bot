@@ -260,6 +260,8 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("core.OriginationDataField", "Origination data fields", "data_object"),
         _model_item("core.OriginationStampAsset", "Origination stamp assets", "verified"),
         _model_item("core.OriginationSigningPackage", "Origination signing packages", "draw"),
+        _model_item("core.OriginationSignerSession", "Origination signer sessions", "sms"),
+        _model_item("core.OriginationOtpChallenge", "Origination OTP delivery", "password"),
         _model_item("core.OriginationFieldReviewIssue", "Legacy fields needing review", "rule"),
         _custom_item(
             "Reset all Origination data",

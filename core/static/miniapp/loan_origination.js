@@ -801,19 +801,19 @@
     else document.querySelector('[data-test-signature-name]')?.focus();
   }
 
-  function openTestSignatureSheet(button) {
+  function openSignatureSheet(button, verified = false) {
     testSignatureStrokes = [];
     testSignatureActiveStroke = null;
-    const requestId = requestKey('test-signature');
+    const requestId = requestKey(verified ? 'staff-signature' : 'test-signature');
     openSheet({
-      mode: 'test-signature', eyebrow: 'Non-production simulator', title: 'Capture TEST signature',
-      hint: 'Use a synthetic mark only. Do not enter or draw a real signature.', trigger: button,
-      body: `<aside class="test-signature-warning" role="note"><strong>TEST ONLY</strong><span>No OTP or identity verification is performed. The output remains watermarked and is not legally signed.</span></aside>
+      mode: 'test-signature', eyebrow: verified ? 'Authenticated staff signing' : 'Non-production simulator', title: verified ? 'Capture staff signature' : 'Capture TEST signature',
+      hint: verified ? 'Review the complete packet. This signature will be applied to all slots assigned to your staff role.' : 'Use a synthetic mark only. Do not enter or draw a real signature.', trigger: button,
+      body: `${verified ? '<aside class="notice" role="note"><strong>Verified staff action</strong><span>Your Telegram identity, role and application scope will be recorded with this signature.</span></aside>' : '<aside class="test-signature-warning" role="note"><strong>TEST ONLY</strong><span>No OTP or identity verification is performed. The output remains watermarked and is not legally signed.</span></aside>'}
         <div class="test-signature-tabs" role="tablist" aria-label="Signature entry method"><button type="button" role="tab" aria-selected="true" data-test-signature-mode="drawn">Draw</button><button type="button" role="tab" aria-selected="false" data-test-signature-mode="typed">Type</button></div>
         <section class="test-signature-panel" role="tabpanel" data-test-signature-draw><canvas data-test-signature-canvas aria-label="Draw a synthetic test signature" tabindex="0"></canvas><div class="test-signature-tools"><small>Draw inside the box using a finger, mouse or stylus.</small><button type="button" class="btn btn-secondary" data-test-signature-clear>Clear</button></div></section>
         <section class="test-signature-panel" role="tabpanel" data-test-signature-type hidden><label class="test-signature-name"><span>Typed TEST signer name</span><input type="text" maxlength="120" autocomplete="off" data-test-signature-name placeholder="Synthetic Test Signer"></label><output class="test-signature-typed-preview" data-test-signature-typed-preview>Synthetic Test Signer</output></section>
         <p class="test-signature-status" data-test-signature-status aria-live="polite"></p>`,
-      footer: '<button type="button" class="btn btn-secondary" data-sheet-cancel>Cancel</button><button type="button" class="btn btn-primary" data-primary-action="Place TEST signature" data-test-signature-confirm>Place TEST signature</button>',
+      footer: `<button type="button" class="btn btn-secondary" data-sheet-cancel>Cancel</button><button type="button" class="btn btn-primary" data-primary-action="${verified ? 'Sign packet' : 'Place TEST signature'}" data-test-signature-confirm>${verified ? 'Sign complete packet' : 'Place TEST signature'}</button>`,
     });
     const canvas = document.querySelector('[data-test-signature-canvas]');
     const status = document.querySelector('[data-test-signature-status]');
@@ -863,14 +863,14 @@
     const typedPreview = document.querySelector('[data-test-signature-typed-preview]');
     typedInput.addEventListener('input', () => { typedPreview.textContent = typedInput.value.trim() || 'Synthetic Test Signer'; });
     document.querySelector('[data-sheet-cancel]').onclick = () => closeSheet();
-    document.querySelector('[data-test-signature-confirm]').onclick = () => runPrimaryAction('Placing TEST signature...', async () => {
+    document.querySelector('[data-test-signature-confirm]').onclick = () => runPrimaryAction(verified ? 'Signing packet...' : 'Placing TEST signature...', async () => {
       const drawn = document.querySelector('[data-test-signature-mode="drawn"]').getAttribute('aria-selected') === 'true';
       const capture = drawn
         ? { method: 'drawn', strokes: testSignatureStrokes }
         : { method: 'typed', name: typedInput.value.trim() };
       if (drawn && !testSignatureStrokes.length) return setStatus('Draw the TEST signature before confirming.');
       if (!drawn && (capture.name.length < 2 || capture.name.length > 120)) return setStatus('Enter a test signer name using 2 to 120 characters.');
-      const result = await postJson(`/applications/${current.id}/test-signing/action/`, {
+      const result = await postJson(verified ? `/applications/${current.id}/staff-signature/` : `/applications/${current.id}/test-signing/action/`, {
         revision: current.revision, package_id: button.dataset.packageId,
         document_key: button.dataset.documentKey, slot_key: button.dataset.slotKey,
         signer_role: button.dataset.signerRole, signature_capture: capture,
@@ -880,7 +880,7 @@
       current = result.data.application;
       closeSheet({ restoreFocus: false });
       renderEditor(current, wizardSections().length - 1);
-      showToast('TEST signature placed in its configured slot.');
+      showToast(verified ? 'Verified staff signature applied to every configured slot.' : 'TEST signature placed in its configured slot.');
     });
     testSignatureResizeObserver = window.ResizeObserver ? new ResizeObserver(redrawTestSignature) : null;
     testSignatureResizeObserver?.observe(canvas);
@@ -1475,10 +1475,28 @@
 
   function signingTestMarkup() {
     const packageData = current?.signing_package;
-    if (!packageData || current?.status !== 'signing_pending') return '';
+    if (!packageData || !['signing_pending', 'partially_signed', 'fully_signed'].includes(current?.status)) return '';
     const test = packageData.test_signing || {};
     if (!test.enabled || !test.test_mode) {
-      return '<aside class="notice"><strong>Signing package prepared</strong><span>Production OTP/e-sign dispatch is not connected yet. This package is frozen and awaiting the verified signing integration.</span></aside>';
+      const verified = packageData.verified_signing || {};
+      if (!verified.enabled || verified.test_mode) return '<aside class="notice"><strong>Signing package prepared</strong><span>Verified signing is disabled or not configured for this environment.</span></aside>';
+      const stampOptions = (verified.production_stamps || []).map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)} v${escapeHtml(item.version)} · ${escapeHtml(item.scope)}</option>`).join('');
+      const participants = (verified.participants || []).map(participant => {
+        const signatures = (participant.slots || []).filter(slot => slot.type === 'signature');
+        const stamps = (participant.slots || []).filter(slot => slot.type === 'stamp');
+        const signaturesComplete = signatures.length && signatures.every(slot => slot.completed);
+        const externalAction = participant.staff
+          ? `<button type="button" class="btn btn-secondary" data-staff-sign data-package-id="${escapeHtml(packageData.id)}" data-signer-role="${escapeHtml(participant.role)}">Capture staff signature</button>`
+          : participant.session_status
+            ? `<div class="signing-session-actions"><span class="status-chip">${escapeHtml(participant.session_status.replaceAll('_', ' '))}</span>${participant.session_status === 'verified' ? '' : `<button type="button" class="btn btn-secondary" data-reset-signer-session data-session-id="${escapeHtml(participant.session_id)}" data-access-mode="${escapeHtml(participant.access_mode)}">Reset / reissue</button>`}</div>`
+            : `<div class="signing-session-actions"><button type="button" class="btn btn-secondary" data-create-signer-session data-access-mode="self_service" data-package-id="${escapeHtml(packageData.id)}" data-signer-role="${escapeHtml(participant.role)}">Send signing link</button><button type="button" class="btn btn-secondary" data-create-signer-session data-access-mode="assisted" data-package-id="${escapeHtml(packageData.id)}" data-signer-role="${escapeHtml(participant.role)}">Assisted signing</button></div>`;
+        const signatureRow = signatures.length ? `<div class="signing-test-slot ${signaturesComplete ? 'is-complete' : ''}"><span><strong>${escapeHtml(participant.label)}</strong><small>${signatures.length} signature box(es) across the packet${participant.phone_mapped || participant.staff ? '' : ' · phone mapping missing'}</small></span>${signaturesComplete ? '<span class="status-chip">Complete</span>' : externalAction}</div>` : '';
+        const stampRows = stamps.map(slot => `<div class="signing-test-slot ${slot.completed ? 'is-complete' : ''}"><span><strong>${escapeHtml(slot.label || slot.key)}</strong><small>${escapeHtml(participant.label)} · ${escapeHtml(slot.document_key)}</small></span>${slot.completed ? '<span class="status-chip">Stamped</span>' : `<select data-production-stamp-select><option value="">Choose production stamp</option>${stampOptions}</select><button type="button" class="btn btn-secondary" data-production-stamp data-package-id="${escapeHtml(packageData.id)}" data-document-key="${escapeHtml(slot.document_key)}" data-slot-key="${escapeHtml(slot.key)}" data-signer-role="${escapeHtml(participant.role)}">Apply stamp</button>`}</div>`).join('');
+        return signatureRow + stampRows;
+      }).join('');
+      const archive = current.status === 'fully_signed' && verified.archive_status !== 'uploaded'
+        ? `<aside class="notice"><strong>Signed packet archive: ${escapeHtml(verified.archive_status || 'pending')}</strong><span>${escapeHtml(verified.archive_error || 'Upload the immutable signed PDF to restricted Drive.')}</span><button type="button" class="btn btn-primary" id="origination-archive-signed" data-package-id="${escapeHtml(packageData.id)}">${verified.archive_status === 'failed' ? 'Retry archival' : 'Archive signed packet'}</button></aside>` : '';
+      return `<section class="signing-test-panel"><p class="eyebrow">Verified packet signing</p><h3>Complete every required signer and stamp</h3><p>External signers verify one OTP for the complete immutable packet. Staff actions use authenticated Telegram access.</p>${participants || '<div class="empty-state">No signing participants were configured.</div>'}${archive}</section>`;
     }
     const stamps = packageData.test_stamps || [];
     const rows = (test.slots || []).map(slot => {
@@ -1983,7 +2001,7 @@
       await load();
     }));
     root().querySelectorAll('[data-test-sign-slot]').forEach(button => button.addEventListener('click', async () => {
-      if (button.dataset.slotType === 'signature') return openTestSignatureSheet(button);
+      if (button.dataset.slotType === 'signature') return openSignatureSheet(button);
       const stampAssetId = button.dataset.slotType === 'stamp'
         ? button.parentElement.querySelector('[data-test-stamp-select]')?.value || '' : '';
       if (button.dataset.slotType === 'stamp' && !stampAssetId) return showToast('Choose an approved test stamp.', true);
@@ -1998,6 +2016,59 @@
         renderEditor(current, wizardSections().length - 1);
         showToast('TEST signing action recorded.');
       });
+    }));
+    root().querySelectorAll('[data-create-signer-session]').forEach(button => button.addEventListener('click', async () => {
+      let overrideReason = '';
+      await runPrimaryAction('Creating signer session...', async () => {
+        let result = await postJson(`/applications/${current.id}/signer-sessions/`, {
+          package_id: button.dataset.packageId, signer_role: button.dataset.signerRole,
+          access_mode: button.dataset.accessMode,
+        });
+        if (!result.ok && /Superuser override/i.test(result.data?.error || '') && capabilities.is_superuser) {
+          overrideReason = window.prompt('This phone is shared by external signers. Enter the audited Superuser override reason:') || '';
+          if (!overrideReason.trim()) return showToast('A reason is required for the shared-phone override.', true);
+          result = await postJson(`/applications/${current.id}/signer-sessions/`, {
+            package_id: button.dataset.packageId, signer_role: button.dataset.signerRole,
+            access_mode: button.dataset.accessMode, shared_phone_override_reason: overrideReason,
+          });
+        }
+        if (!result.ok) return showToast(result.data?.error || 'Could not create the signer session.', true);
+        if (button.dataset.accessMode === 'assisted' && result.data.signer_session?.url) window.open(result.data.signer_session.url, '_blank', 'noopener');
+        await load();
+        showToast(button.dataset.accessMode === 'assisted' ? 'Assisted signing session opened.' : 'Signing invitation sent.');
+      });
+    }));
+    root().querySelectorAll('[data-reset-signer-session]').forEach(button => button.addEventListener('click', async () => {
+      const reason = window.prompt('Why is this signer session being reset or reissued? This reason is audited.') || '';
+      if (!reason.trim()) return showToast('A reset reason is required.', true);
+      await runPrimaryAction('Resetting signer session...', async () => {
+        const result = await postJson(`/applications/${current.id}/signer-sessions/reset/`, {
+          session_id: button.dataset.sessionId, reason,
+        });
+        if (!result.ok) return showToast(result.data?.error || 'Could not reset the signer session.', true);
+        if (button.dataset.accessMode === 'assisted' && result.data.signer_session?.url) {
+          window.open(result.data.signer_session.url, '_blank', 'noopener');
+        }
+        await load();
+        showToast(button.dataset.accessMode === 'assisted' ? 'Assisted session reset and opened.' : 'Signing session reset and invitation reissued.');
+      });
+    }));
+    root().querySelectorAll('[data-staff-sign]').forEach(button => button.addEventListener('click', () => openSignatureSheet(button, true)));
+    root().querySelectorAll('[data-production-stamp]').forEach(button => button.addEventListener('click', () => runPrimaryAction('Applying production stamp...', async () => {
+      const stampAssetId = button.parentElement.querySelector('[data-production-stamp-select]')?.value || '';
+      if (!stampAssetId) return showToast('Choose an active production stamp.', true);
+      const result = await postJson(`/applications/${current.id}/production-stamp/`, {
+        revision: current.revision, package_id: button.dataset.packageId,
+        document_key: button.dataset.documentKey, slot_key: button.dataset.slotKey,
+        signer_role: button.dataset.signerRole, stamp_asset_id: stampAssetId,
+      });
+      if (!result.ok) return showToast(result.data?.error || 'Could not apply the production stamp.', true);
+      await load(); showToast('Production stamp applied.');
+    })));
+    document.getElementById('origination-archive-signed')?.addEventListener('click', event => runPrimaryAction('Archiving signed packet...', async () => {
+      const result = await postJson(`/applications/${current.id}/archive-signed/`, {package_id:event.currentTarget.dataset.packageId});
+      if (!result.ok) return showToast(result.data?.error || 'Could not archive the signed packet.', true);
+      await load(); showToast('Signed packet archived in restricted Drive.');
     }));
     document.getElementById('origination-test-signing-preview')?.addEventListener('click', () => openPreview('__test_signing__'));
   }

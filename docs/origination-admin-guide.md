@@ -313,6 +313,64 @@ outputs remain visibly watermarked and never make an application fully signed.
 Production stamp assets cannot be applied until a verified production signing
 integration supplies signature evidence.
 
+### Configure verified OTP signing
+
+Verified signing is separate from the no-OTP simulator. Start in the Africa's
+Talking Sandbox; it exercises the provider request/response path without
+sending a real SMS. Configure these secrets in the deployment environment, not
+in Django Admin or Git:
+
+```text
+ORIGINATION_ESIGN_ENABLED=True
+AFRICASTALKING_SMS_ENVIRONMENT=sandbox
+AFRICASTALKING_USERNAME=sandbox
+AFRICASTALKING_API_KEY=<sandbox-key>
+AFRICASTALKING_SENDER_ID=
+ORIGINATION_SIGNING_LINK_TTL_HOURS=48
+SENTRY_ENVIRONMENT=staging
+APP_BASE_URL=https://<staging-host>
+```
+
+The service fails closed unless the settings agree. Sandbox is accepted only
+in an explicitly non-production environment with username `sandbox`.
+Production requires `AFRICASTALKING_SMS_ENVIRONMENT=production`, a non-sandbox
+username, credentials, `SENTRY_ENVIRONMENT=production`, and the explicit
+enable flag.
+
+Before publishing a product, configure every required external signer in the
+main LAF builder. For each signer choose canonical fields for **Signer name**,
+**OTP phone**, and, where applicable, **National ID**. These are catalogue
+selections, not free-form variable names. The signing package freezes those
+values and all selected documents.
+
+The Operations signing flow is:
+
+1. Review and approve the application, then choose **Prepare signing package**.
+2. For an external signer choose **Send signing link** or **Assisted signing**.
+   Self-service sends the opaque packet link to the mapped phone. Assisted mode
+   opens the same ceremony on the officer's device and is separately audited.
+3. The signer must open every packet page, draw or type their signature, accept
+   the atomic packet consent, and enter the six-digit OTP. One valid OTP applies
+   that capture to every signature slot assigned to that signer in the frozen
+   packet.
+4. Authenticated staff sign their own configured staff slots from the Mini App.
+   Apply only an active `Production` stamp to a calibrated stamp slot.
+5. When all required slots are complete, archive the exact frozen signed PDF to
+   restricted Drive. A failed archive retains the signed bytes and hash for an
+   idempotent retry; it never rerenders from mutable product data.
+
+If a signer exhausts five verification attempts, the session locks for 30
+minutes. Three OTP sends in 30 minutes also block further sends. Operations may
+choose **Reset / reissue**, but must enter an audit reason. A previously approved
+shared-phone exception retains its Superuser approval; a new shared-phone
+exception still requires a Superuser and a reason. Africa's Talking delivery
+reports are informational only and can never verify an OTP or change signing
+status.
+
+Before production launch, perform a separately approved small real-SMS smoke
+test on controlled Safaricom and Airtel numbers. The Sandbox cannot prove real
+carrier delivery, Sender ID acceptance, MNO throttling, or DND behavior.
+
 ### Correction re-checks
 
 The checker must select at least one exact field, requirement, or supporting
@@ -429,6 +487,9 @@ files cannot be recovered automatically.
 | Officer sees no products/branches | Check the published active definition, effective product terms, product availability, active location catalogue, AccessGrant role, and branch/product scope. |
 | Telegram shows an older UI | Relaunch the Mini App after deployment and confirm the deployed static asset version. The HTML shell is sent with no-store headers, but an old deployment still serves old assets. |
 | Server reports a PostgreSQL `FOR UPDATE` outer-join error | Confirm the current Origination template service code is deployed. Lock base rows before loading nullable related objects; do not add `select_related()` nullable joins to a locking queryset. |
+| Verified signing is disabled | Check all e-sign environment settings together. Sandbox and production gates intentionally fail closed when the environment, username, credentials, or enable flag disagree. |
+| Signer is locked or the link expired | In the application's Verified packet signing panel choose **Reset / reissue** and enter the operational reason. Do not create an unaudited replacement. |
+| OTP SMS says accepted but did not arrive | Provider acceptance is not delivery or verification. Inspect **Origination OTP challenges**, the delivery receipt/status, cooldowns, and carrier behavior; reset only when operationally justified. |
 | Reset link is missing | It is intentionally visible only when `ORIGINATION_FULL_RESET_ENABLED=True` and the current user is an active Superuser. |
 
 ## Production acceptance checklist

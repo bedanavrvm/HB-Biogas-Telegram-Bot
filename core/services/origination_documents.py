@@ -458,11 +458,14 @@ def packet_signers(application: LoanOriginationApplication) -> list[dict[str, An
             })
             if role == 'witness' and not identity:
                 identity = {'name': context.get('witness_name', '')}
+            if role in {'borrower', 'customer'}:
+                identity.setdefault('name', context.get('applicant_full_name') or context.get('borrower_full_name') or context.get('customer_name') or '')
+                identity.setdefault('phone', context.get('applicant_phone') or context.get('applicant_primary_phone') or context.get('primary_phone') or '')
+                identity.setdefault('national_id', context.get('applicant_national_id') or context.get('applicant_id_number') or context.get('national_id') or '')
             resolved['identity'] = identity
-            resolved['dispatch_ready'] = bool(
-                resolved['identity'].get('phone') or resolved['identity'].get('email')
-            ) if role == 'witness' else True
-            if role == 'witness' and not resolved['dispatch_ready']:
-                resolved['dispatch_block_reason'] = 'Witness contact policy is pending review.'
+            staff_roles = {'bro_1', 'bro_2', 'loan_officer', 'officer', 'branch_manager'}
+            resolved['dispatch_ready'] = True if role in staff_roles else bool(resolved['identity'].get('phone'))
+            if not resolved['dispatch_ready']:
+                resolved['dispatch_block_reason'] = 'Map a canonical signer phone field before OTP dispatch.'
             roles[role] = resolved
     return list(roles.values())

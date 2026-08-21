@@ -237,16 +237,20 @@ def active_test_stamps(application) -> list[dict[str, Any]]:
     ]
 
 
-def _test_overlay(width: float, height: float, items: list[tuple[dict, OriginationSigningAction]]) -> bytes:
+def _slot_overlay(
+    width: float, height: float, items: list[tuple[dict, OriginationSigningAction]],
+    *, test_mode: bool,
+) -> bytes:
     output = BytesIO()
     pdf = canvas.Canvas(output, pagesize=(width, height), pageCompression=1)
-    pdf.saveState()
-    pdf.setFillColorRGB(.78, .08, .08, alpha=.18)
-    pdf.setFont('Helvetica-Bold', 34)
-    pdf.translate(width / 2, height / 2)
-    pdf.rotate(35)
-    pdf.drawCentredString(0, 0, 'TEST ONLY - NOT LEGALLY SIGNED')
-    pdf.restoreState()
+    if test_mode:
+        pdf.saveState()
+        pdf.setFillColorRGB(.78, .08, .08, alpha=.18)
+        pdf.setFont('Helvetica-Bold', 34)
+        pdf.translate(width / 2, height / 2)
+        pdf.rotate(35)
+        pdf.drawCentredString(0, 0, 'TEST ONLY - NOT LEGALLY SIGNED')
+        pdf.restoreState()
     for spec, action in items:
         box = spec.get('allowed_area') or spec.get('box') or {}
         scale = 72 / 25.4 if spec.get('units', 'pt') == 'mm' else 1
@@ -286,8 +290,9 @@ def _test_overlay(width: float, height: float, items: list[tuple[dict, Originati
                 preserveAspectRatio=False, mask='auto',
             )
         else:
-            pdf.setStrokeColorRGB(.48, .23, .93)
-            pdf.rect(-box_width / 2, -box_height / 2, box_width, box_height, stroke=1, fill=0)
+            if test_mode:
+                pdf.setStrokeColorRGB(.48, .23, .93)
+                pdf.rect(-box_width / 2, -box_height / 2, box_width, box_height, stroke=1, fill=0)
             ink = {
                 'black': (0.09, 0.14, 0.12),
                 'blue': (0.04, 0.24, 0.58),
@@ -313,7 +318,7 @@ def _test_overlay(width: float, height: float, items: list[tuple[dict, Originati
                         path.lineTo(content_x + point[0] * content_width, content_y + (1 - point[1]) * content_height)
                     pdf.drawPath(path, stroke=1, fill=0)
             else:
-                name = str(capture.get('name') or 'TEST SIGNATURE')
+                name = str(capture.get('name') or ('TEST SIGNATURE' if test_mode else ''))
                 font_name = str(spec.get('typed_font') or 'Helvetica-BoldOblique')
                 try:
                     font_size = float(spec.get('font_size') or 15)
@@ -347,12 +352,17 @@ def _test_overlay(width: float, height: float, items: list[tuple[dict, Originati
                     pdf.drawCentredString(0, 0, name)
                 pdf.restoreState()
         pdf.restoreState()
-        if action.action_type != OriginationSigningAction.TYPE_STAMP:
+        if test_mode and action.action_type != OriginationSigningAction.TYPE_STAMP:
             pdf.setFillColorRGB(.78, .08, .08)
             pdf.setFont('Helvetica-Bold', min(6, max(4, box_height * .16)))
             pdf.drawRightString(x + box_width - 2, y + 2, 'TEST')
     pdf.save()
     return output.getvalue()
+
+
+def _test_overlay(width: float, height: float, items: list[tuple[dict, OriginationSigningAction]]) -> bytes:
+    """Backward-compatible test-only overlay entry point."""
+    return _slot_overlay(width, height, items, test_mode=True)
 
 
 def render_test_package(package: OriginationSigningPackage) -> bytes:
@@ -378,7 +388,48 @@ def render_test_package(package: OriginationSigningPackage) -> bytes:
     writer = PdfWriter()
     for page_number, page in enumerate(reader.pages, start=1):
         width, height = float(page.mediabox.width), float(page.mediabox.height)
-        overlay = _test_overlay(width, height, page_specs.get(page_number, []))
+        overlay = _slot_overlay(width, height, page_specs.get(page_number, []), test_mode=True)
+        page.merge_page(PdfReader(BytesIO(overlay)).pages[0], over=True)
+        writer.add_page(page)
+    output = BytesIO()
+    writer.write(output)
+    return output.getvalue()
+
+
+def render_verified_package(package: OriginationSigningPackage) -> bytes:
+    """Render verified actions over the exact frozen packet configuration."""
+    if package.test_mode:
+        raise OriginationError('A test package cannot produce a verified signed document.')
+    from core.services.origination_documents import render_packet
+    content, manifest = render_packet(package.application)
+    digest = hashlib.sha256(content).hexdigest()
+    if digest != package.unsigned_document_hash or digest != package.combined_document_hash:
+        raise OriginationError('The unsigned signing packet no longer matches its frozen hash.')
+    if manifest != (package.document_manifest_snapshot or []):
+        raise OriginationError('The signing packet manifest no longer matches its frozen snapshot.')
+    actions = list(package.actions.filter(
+        mode=OriginationSigningAction.MODE_VERIFIED,
+    ).select_related('stamp_asset'))
+    actions_by_document: dict[str, list[OriginationSigningAction]] = {}
+    for action in actions:
+        actions_by_document.setdefault(action.document_key, []).append(action)
+    page_specs: dict[int, list[tuple[dict, OriginationSigningAction]]] = {}
+    offset = 0
+    for document in manifest:
+        config = ((document.get('template') or {}).get('configuration') or {})
+        slots = ((config.get('signature_overlay_manifest') or {}).get('slots') or {})
+        for action in actions_by_document.get(str(document.get('key') or ''), []):
+            spec = slots.get(f'{action.signer_role}.{action.slot_key}')
+            if isinstance(spec, dict):
+                page_specs.setdefault(offset + int(spec.get('page_number') or 1), []).append((spec, action))
+        offset += int(document.get('page_count') or 0)
+    reader = PdfReader(BytesIO(content))
+    writer = PdfWriter()
+    for page_number, page in enumerate(reader.pages, start=1):
+        overlay = _slot_overlay(
+            float(page.mediabox.width), float(page.mediabox.height),
+            page_specs.get(page_number, []), test_mode=False,
+        )
         page.merge_page(PdfReader(BytesIO(overlay)).pages[0], over=True)
         writer.add_page(page)
     output = BytesIO()

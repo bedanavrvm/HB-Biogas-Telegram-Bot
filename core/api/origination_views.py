@@ -16,6 +16,7 @@ from core.models import (
     LoanOriginationApplication,
     OriginationProductDefinition,
     OriginationRequirementEvidence,
+    OriginationSignerSession,
     OriginationSigningPackage,
     OperationalLocation,
 )
@@ -51,6 +52,14 @@ from core.services.origination_signing import render_test_package, simulate_slot
 
 
 logger = logging.getLogger(__name__)
+
+
+def _public_signing_token(request) -> str:
+    authorization = str(request.headers.get('Authorization') or '')
+    scheme, separator, value = authorization.partition(' ')
+    if not separator or scheme.casefold() != 'bearer' or not value.strip():
+        raise OriginationError('This signing link is invalid or incomplete.')
+    return value.strip()[:256]
 
 
 @require_http_methods(['GET', 'HEAD'])
@@ -704,6 +713,302 @@ def portal_origination_test_signing_preview(request, application_id: str):
     response['Content-Disposition'] = f'inline; filename="{application.reference_number}-TEST-signing.{"jpg" if preview_format == "image" else "pdf"}"'
     response['Cache-Control'] = 'no-store, private'
     response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
+@csrf_exempt  # Opaque signer token is the non-cookie credential; no session cookie authorizes this route.
+@require_http_methods(['GET'])
+def origination_signer_session(request):
+    from core.services.origination_esign import resolve_session, serialize_public_session
+    try:
+        session = resolve_session(_public_signing_token(request))
+    except OriginationError as exc:
+        return JsonResponse(_safe_error(exc), status=404)
+    return JsonResponse({'ok': True, 'session': serialize_public_session(session)})
+
+
+@csrf_exempt  # Opaque signer token is the non-cookie credential.
+@require_http_methods(['GET'])
+def origination_signer_packet_preview(request):
+    from core.services.origination_esign import resolve_session
+    try:
+        session = resolve_session(_public_signing_token(request))
+        content, _manifest = render_packet(session.package.application)
+        import hashlib
+        if hashlib.sha256(content).hexdigest() != session.package.unsigned_document_hash:
+            raise OriginationError('The document packet no longer matches its frozen signing hash.')
+        from core.services.partnership_laf_preview import render_pdf_page
+        image, page_count = render_pdf_page(content, page_number=int(request.GET.get('page') or 1))
+    except OriginationError as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    except (RuntimeError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    response = HttpResponse(image, content_type='image/jpeg')
+    response['X-Preview-Page-Count'] = str(page_count)
+    response['Cache-Control'] = 'no-store, private'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
+def _public_signing_error(exc: Exception):
+    from core.services.origination_esign import OriginationSigningRateLimited
+    if isinstance(exc, OriginationSigningRateLimited):
+        response = JsonResponse(_safe_error(exc), status=429)
+        response['Retry-After'] = str(exc.retry_after)
+        return response
+    return JsonResponse(_safe_error(exc), status=400)
+
+
+@csrf_exempt  # Opaque signer token is the non-cookie credential.
+@require_http_methods(['POST'])
+def origination_signer_consent(request):
+    from core.services.origination_esign import (
+        client_ip_hash, record_consent_and_signature, serialize_public_session,
+    )
+    try:
+        body = _body(request)
+        session = record_consent_and_signature(
+            raw_token=_public_signing_token(request), signature_capture=body.get('signature_capture'),
+            consent=body.get('consent') is True,
+            access_mode=str(body.get('access_mode') or ''), ip_hash=client_ip_hash(request),
+            reviewed_pages=body.get('reviewed_pages'),
+            request_id=_request_id(request, body),
+        )
+    except (OriginationError, TypeError, ValueError) as exc:
+        return _public_signing_error(exc)
+    return JsonResponse({'ok': True, 'session': serialize_public_session(session)})
+
+
+@csrf_exempt  # Opaque signer token is the non-cookie credential.
+@require_http_methods(['POST'])
+def origination_signer_otp(request):
+    from core.services.external_resilience import ExternalOperationError
+    from core.services.origination_esign import client_ip_hash, dispatch_otp, issue_otp, serialize_public_session
+    try:
+        body = _body(request)
+        challenge, code, replayed = issue_otp(
+            raw_token=_public_signing_token(request), request_id=_request_id(request, body), ip_hash=client_ip_hash(request),
+        )
+        if not replayed:
+            challenge = dispatch_otp(challenge, code)
+        session = challenge.session
+    except ExternalOperationError:
+        return JsonResponse({'ok': False, 'error': 'The SMS provider did not confirm this code. Wait 60 seconds before requesting another.'}, status=502)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return _public_signing_error(exc)
+    return JsonResponse({
+        'ok': True, 'replayed': replayed,
+        'session': serialize_public_session(session),
+    }, status=200 if replayed else 201)
+
+
+@csrf_exempt  # Opaque signer token is the non-cookie credential.
+@require_http_methods(['POST'])
+def origination_signer_verify(request):
+    from core.services.origination_esign import client_ip_hash, serialize_public_session, verify_otp
+    try:
+        body = _body(request)
+        session = verify_otp(
+            raw_token=_public_signing_token(request), code=str(body.get('code') or ''),
+            request_id=_request_id(request, body), ip_hash=client_ip_hash(request),
+        )
+    except (OriginationError, TypeError, ValueError) as exc:
+        return _public_signing_error(exc)
+    return JsonResponse({'ok': True, 'session': serialize_public_session(session)})
+
+
+@csrf_exempt  # Provider receipt is informational only and cannot advance signing state.
+@require_http_methods(['POST'])
+def origination_africastalking_delivery_report(request):
+    """Accept an idempotent Africa's Talking delivery receipt."""
+    from core.services.origination_esign import record_delivery_report
+    try:
+        if request.content_type == 'application/json':
+            payload = _body(request)
+        else:
+            payload = request.POST
+        message_id = payload.get('id') or payload.get('messageId') or payload.get('message_id')
+        status = payload.get('status') or payload.get('deliveryStatus') or ''
+        matched = record_delivery_report(
+            provider_message_id=message_id, provider_status=status,
+        )
+    except (OriginationError, TypeError, ValueError):
+        # Keep the provider retry contract stable without exposing internals.
+        return JsonResponse({'ok': False, 'error': 'Invalid delivery report.'}, status=400)
+    return JsonResponse({'ok': True, 'matched': matched})
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_origination_signer_session(request, application_id: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if (error := _capability_error(request, 'portal.origination.signing.start', application)):
+        return error
+    if (error := _application_access_error(request, application)):
+        return error
+    try:
+        from core.services.external_resilience import ExternalOperationError
+        from core.services.origination_esign import create_signer_session, send_signing_invitation, signing_url
+        body = _body(request)
+        package = application.signing_packages.get(pk=body.get('package_id'))
+        session, raw_token, replayed = create_signer_session(
+            package_id=package.pk, signer_role=str(body.get('signer_role') or ''),
+            actor=request.portal_user, request_id=_request_id(request, body),
+            access_mode=str(body.get('access_mode') or 'self_service'),
+            shared_phone_override_reason=str(body.get('shared_phone_override_reason') or ''),
+        )
+        invitation = {}
+        if not replayed and session.access_mode == OriginationSignerSession.MODE_SELF_SERVICE:
+            invitation = send_signing_invitation(session, raw_token, request_id=_request_id(request, body))
+        url = signing_url(raw_token)
+    except OriginationSigningPackage.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Signing package not found.'}, status=404)
+    except ExternalOperationError:
+        return JsonResponse({'ok': False, 'error': 'The signer session was created, but the invitation SMS was not confirmed. Reissue it after checking the provider.'}, status=502)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    return JsonResponse({
+        'ok': True, 'replayed': replayed,
+        'signer_session': {'id': str(session.pk), 'role': session.signer_role, 'status': session.status, 'url': url},
+        'invitation': invitation,
+    }, status=200 if replayed else 201)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_origination_reset_signer_session(request, application_id: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if (error := _capability_error(request, 'portal.origination.signing.start', application)):
+        return error
+    if (error := _application_access_error(request, application)):
+        return error
+    try:
+        from core.services.external_resilience import ExternalOperationError
+        from core.services.origination_esign import reset_signer_session, send_signing_invitation, signing_url
+        body = _body(request)
+        old_session = OriginationSignerSession.objects.filter(
+            pk=body.get('session_id'), package__application=application,
+        ).first()
+        if not old_session:
+            return JsonResponse({'ok': False, 'error': 'Signer session not found.'}, status=404)
+        session, raw_token = reset_signer_session(
+            session_id=old_session.pk, actor=request.portal_user,
+            reason=str(body.get('reason') or ''), request_id=_request_id(request, body),
+        )
+        invitation = {}
+        if session.access_mode == OriginationSignerSession.MODE_SELF_SERVICE:
+            invitation = send_signing_invitation(
+                session, raw_token, request_id=_request_id(request, body),
+            )
+        url = signing_url(raw_token)
+    except ExternalOperationError:
+        return JsonResponse({
+            'ok': False,
+            'error': 'The signer session was reset, but the invitation SMS was not confirmed. Reissue it after checking the provider.',
+        }, status=502)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    return JsonResponse({
+        'ok': True,
+        'signer_session': {
+            'id': str(session.pk), 'role': session.signer_role,
+            'status': session.status, 'url': url,
+        },
+        'invitation': invitation,
+    }, status=201)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_origination_staff_signature(request, application_id: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if (error := _capability_error(request, 'portal.origination.signing.start', application)):
+        return error
+    if (error := _application_access_error(request, application)):
+        return error
+    try:
+        from core.services.origination_esign import complete_staff_signatures
+        body = _body(request)
+        if not application.signing_packages.filter(pk=body.get('package_id')).exists():
+            return JsonResponse({'ok': False, 'error': 'Signing package not found.'}, status=404)
+        package = complete_staff_signatures(
+            package_id=body.get('package_id'), signer_role=str(body.get('signer_role') or ''),
+            actor=request.portal_user, signature_capture=body.get('signature_capture'),
+            expected_revision=int(body.get('revision')), request_id=_request_id(request, body),
+        )
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    return JsonResponse({'ok': True, 'application': serialize_application(package.application)})
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_origination_production_stamp(request, application_id: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if (error := _capability_error(request, 'portal.origination.signing.start', application)):
+        return error
+    if (error := _application_access_error(request, application)):
+        return error
+    try:
+        from core.services.origination_esign import apply_production_stamp
+        body = _body(request)
+        if not application.signing_packages.filter(pk=body.get('package_id')).exists():
+            return JsonResponse({'ok': False, 'error': 'Signing package not found.'}, status=404)
+        package = apply_production_stamp(
+            package_id=body.get('package_id'), document_key=str(body.get('document_key') or ''),
+            slot_key=str(body.get('slot_key') or ''), signer_role=str(body.get('signer_role') or ''),
+            stamp_asset_id=body.get('stamp_asset_id'), actor=request.portal_user,
+            expected_revision=int(body.get('revision')), request_id=_request_id(request, body),
+        )
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    return JsonResponse({'ok': True, 'application': serialize_application(package.application)})
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_origination_archive_signed(request, application_id: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if (error := _capability_error(request, 'portal.origination.signing.start', application)):
+        return error
+    if (error := _application_access_error(request, application)):
+        return error
+    try:
+        from core.services.origination_esign import archive_signed_package
+        body = _body(request)
+        if not application.signing_packages.filter(pk=body.get('package_id')).exists():
+            return JsonResponse({'ok': False, 'error': 'Signing package not found.'}, status=404)
+        package = archive_signed_package(
+            package_id=body.get('package_id'), actor=request.portal_user,
+            request_id=_request_id(request, body),
+        )
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    return JsonResponse({'ok': True, 'archive_status': package.archive_status})
+
+
+@require_http_methods(['GET', 'HEAD'])
+def origination_signing_app(request):
+    """Public signer shell; the opaque URL token is the sole session credential."""
+    response = render(request, 'loan_origination/sign.html')
+    response['Cache-Control'] = 'no-store, no-cache, must-revalidate, private'
+    response['Pragma'] = 'no-cache'
+    response['X-Robots-Tag'] = 'noindex, nofollow'
+    response['Referrer-Policy'] = 'no-referrer'
     return response
 
 

@@ -4558,6 +4558,22 @@ class OriginationSigningPackage(models.Model):
     unsigned_document_hash = models.CharField(max_length=64, blank=True, default='')
     signed_document_hash = models.CharField(max_length=64, blank=True, default='')
     final_document_reference = models.TextField(blank=True, default='')
+    final_drive_file_id = models.CharField(max_length=255, blank=True, default='')
+    archive_status = models.CharField(
+        max_length=24,
+        choices=[
+            ('not_ready', 'Not ready'),
+            ('pending', 'Pending'),
+            ('uploaded', 'Uploaded'),
+            ('failed', 'Failed'),
+        ],
+        default='not_ready',
+        db_index=True,
+    )
+    archive_error = models.TextField(blank=True, default='')
+    pending_signed_document = models.BinaryField(blank=True, default=bytes, editable=False)
+    finalized_at = models.DateTimeField(null=True, blank=True)
+    archived_at = models.DateTimeField(null=True, blank=True)
     remote_error = models.TextField(blank=True, default='')
     test_mode = models.BooleanField(default=False)
     test_completed_at = models.DateTimeField(null=True, blank=True)
@@ -4630,6 +4646,175 @@ class OriginationStampAsset(models.Model):
         return f'{self.name} v{self.version} ({scope}, {self.environment})'
 
 
+class OriginationSignerSession(models.Model):
+    """Revocable bearer session for one signer of one immutable packet."""
+
+    STATUS_PENDING = 'pending'
+    STATUS_OTP_SENT = 'otp_sent'
+    STATUS_VERIFIED = 'verified'
+    STATUS_LOCKED = 'locked'
+    STATUS_EXPIRED = 'expired'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_OTP_SENT, 'OTP sent'),
+        (STATUS_VERIFIED, 'Verified'),
+        (STATUS_LOCKED, 'Locked'),
+        (STATUS_EXPIRED, 'Expired'),
+        (STATUS_CANCELLED, 'Cancelled'),
+    ]
+    MODE_SELF_SERVICE = 'self_service'
+    MODE_ASSISTED = 'assisted'
+    MODE_CHOICES = [
+        (MODE_SELF_SERVICE, 'Self service'),
+        (MODE_ASSISTED, 'Assisted by staff'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    package = models.ForeignKey(
+        OriginationSigningPackage, on_delete=models.PROTECT, related_name='signer_sessions',
+    )
+    signer_role = models.CharField(max_length=80)
+    identity_snapshot = models.JSONField(default=dict, blank=True)
+    phone_normalized = models.CharField(max_length=16, blank=True, default='')
+    phone_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    phone_last4 = models.CharField(max_length=4, blank=True, default='')
+    token_hash = models.CharField(max_length=64, unique=True, db_index=True)
+    token_expires_at = models.DateTimeField(db_index=True)
+    status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    access_mode = models.CharField(max_length=24, choices=MODE_CHOICES, default=MODE_SELF_SERVICE)
+    is_active = models.BooleanField(default=True, db_index=True)
+    consent_version = models.CharField(max_length=32, blank=True, default='')
+    consented_at = models.DateTimeField(null=True, blank=True)
+    reviewed_pages = models.JSONField(default=list, blank=True)
+    signature_capture = models.JSONField(default=dict, blank=True)
+    signature_capture_sha256 = models.CharField(max_length=64, blank=True, default='')
+    verified_at = models.DateTimeField(null=True, blank=True)
+    locked_until = models.DateTimeField(null=True, blank=True)
+    invalidated_at = models.DateTimeField(null=True, blank=True)
+    shared_phone_override_reason = models.TextField(blank=True, default='')
+    shared_phone_approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='approved_origination_shared_phone_sessions',
+    )
+    shared_phone_approved_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='created_origination_signer_sessions',
+    )
+    assisted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='assisted_origination_signer_sessions',
+    )
+    request_id = models.CharField(max_length=128, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['package', 'signer_role', '-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['package', 'signer_role'], condition=models.Q(is_active=True),
+                name='one_active_origination_signer_session',
+            ),
+            models.UniqueConstraint(
+                fields=['package', 'request_id'], condition=~models.Q(request_id=''),
+                name='unique_origination_signer_session_request',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.package.external_reference}: {self.signer_role}'
+
+
+class OriginationOtpChallenge(models.Model):
+    """Hashed, bounded OTP challenge; provider delivery never proves signing."""
+
+    DELIVERY_PENDING = 'pending'
+    DELIVERY_ACCEPTED = 'accepted'
+    DELIVERY_DELIVERED = 'delivered'
+    DELIVERY_FAILED = 'failed'
+    DELIVERY_UNKNOWN = 'unknown'
+    DELIVERY_CHOICES = [
+        (DELIVERY_PENDING, 'Pending'),
+        (DELIVERY_ACCEPTED, 'Accepted'),
+        (DELIVERY_DELIVERED, 'Delivered'),
+        (DELIVERY_FAILED, 'Failed'),
+        (DELIVERY_UNKNOWN, 'Unknown'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(
+        OriginationSignerSession, on_delete=models.PROTECT, related_name='otp_challenges',
+    )
+    code_hash = models.CharField(max_length=255)
+    binding_sha256 = models.CharField(max_length=64)
+    provider_message_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    delivery_status = models.CharField(
+        max_length=24, choices=DELIVERY_CHOICES, default=DELIVERY_PENDING, db_index=True,
+    )
+    provider_status = models.CharField(max_length=80, blank=True, default='')
+    send_sequence = models.PositiveSmallIntegerField()
+    attempts_remaining = models.PositiveSmallIntegerField(default=5)
+    request_id = models.CharField(max_length=128)
+    source_ip_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    expires_at = models.DateTimeField(db_index=True)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    invalidated_at = models.DateTimeField(null=True, blank=True)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['session', '-send_sequence']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['session', 'send_sequence'], name='unique_origination_otp_sequence',
+            ),
+            models.UniqueConstraint(
+                fields=['session', 'request_id'], name='unique_origination_otp_request',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.session} OTP {self.send_sequence}'
+
+
+class OriginationSigningRequestEvent(models.Model):
+    """Minimal append-only database throttle evidence for public signing writes."""
+
+    ACTION_MUTATE = 'mutate'
+    ACTION_SEND = 'send'
+    ACTION_VERIFY = 'verify'
+    ACTION_CHOICES = [
+        (ACTION_MUTATE, 'Signer write'),
+        (ACTION_SEND, 'OTP send'),
+        (ACTION_VERIFY, 'OTP verification'),
+    ]
+
+    id = models.BigAutoField(primary_key=True)
+    session = models.ForeignKey(
+        OriginationSignerSession, null=True, blank=True, on_delete=models.CASCADE,
+        related_name='request_events',
+    )
+    action = models.CharField(max_length=16, choices=ACTION_CHOICES, db_index=True)
+    request_id = models.CharField(max_length=128, blank=True, default='')
+    payload_digest = models.CharField(max_length=64, blank=True, default='')
+    token_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    source_ip_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['action', 'token_hash', 'created_at'], name='core_osre_token_created_idx'),
+            models.Index(fields=['action', 'source_ip_hash', 'created_at'], name='core_osre_ip_created_idx'),
+        ]
+        constraints = [models.UniqueConstraint(
+            fields=['session', 'action', 'request_id'], condition=~models.Q(request_id=''),
+            name='unique_origination_signing_request_event',
+        )]
+
+
 class OriginationSigningAction(models.Model):
     """Append-only evidence for one simulated or provider-verified slot action."""
 
@@ -4654,8 +4839,12 @@ class OriginationSigningAction(models.Model):
         related_name='signing_actions',
     )
     actor = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
         related_name='origination_signing_actions',
+    )
+    signer_session = models.ForeignKey(
+        OriginationSignerSession, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='actions',
     )
     request_id = models.CharField(max_length=128, db_index=True)
     metadata = models.JSONField(default=dict, blank=True)
@@ -6600,10 +6789,12 @@ class IntegrationOperation(models.Model):
     INTEGRATION_GOOGLE_SHEETS = 'google_sheets'
     INTEGRATION_GOOGLE_DRIVE = 'google_drive'
     INTEGRATION_TELEGRAM = 'telegram'
+    INTEGRATION_AFRICAS_TALKING = 'africas_talking'
     INTEGRATION_CHOICES = [
         (INTEGRATION_GOOGLE_SHEETS, 'Google Sheets'),
         (INTEGRATION_GOOGLE_DRIVE, 'Google Drive'),
         (INTEGRATION_TELEGRAM, 'Telegram'),
+        (INTEGRATION_AFRICAS_TALKING, "Africa's Talking"),
     ]
     STATUS_PENDING = 'pending'
     STATUS_RUNNING = 'running'

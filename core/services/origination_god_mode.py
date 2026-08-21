@@ -30,6 +30,9 @@ from core.models import (
     OriginationRequirementEvidence,
     OriginationSigningPackage,
     OriginationSigningAction,
+    OriginationSignerSession,
+    OriginationOtpChallenge,
+    OriginationSigningRequestEvent,
     OriginationStampAsset,
     OriginationTemplateConfigurationRevision,
 )
@@ -49,6 +52,9 @@ ORIGINATION_RESET_MODEL_GROUPS = (
         OriginationRequirementEvidence,
         OriginationSigningPackage,
         OriginationSigningAction,
+        OriginationSignerSession,
+        OriginationOtpChallenge,
+        OriginationSigningRequestEvent,
         OriginationReportingValue,
     )),
     ('Products and PDF configuration', (
@@ -171,6 +177,10 @@ def _purge_application(application_id, counts: Counter[str]) -> None:
         application_id=application_id,
     ).values_list('pk', flat=True)
     _delete(OriginationSigningAction.objects.filter(package_id__in=package_ids), counts)
+    session_ids = OriginationSignerSession.objects.filter(package_id__in=package_ids).values_list('pk', flat=True)
+    _delete(OriginationSigningRequestEvent.objects.filter(session_id__in=session_ids), counts)
+    _delete(OriginationOtpChallenge.objects.filter(session_id__in=session_ids), counts)
+    _delete(OriginationSignerSession.objects.filter(package_id__in=package_ids), counts)
     _delete(OriginationSigningPackage.objects.filter(application_id=application_id), counts)
     _delete(OriginationApplicationEvent.objects.filter(application_id=application_id), counts)
     _delete(OriginationReportingValue.objects.filter(application_id=application_id), counts)
@@ -252,6 +262,9 @@ def reset_all_origination_data(*, actor, reason: str) -> dict[str, Any]:
     _delete(OriginationRequirementEvidence.objects.all(), deleted)
     _delete(OriginationApplicationDocument.objects.all(), deleted)
     _delete(OriginationSigningAction.objects.all(), deleted)
+    _delete(OriginationSigningRequestEvent.objects.all(), deleted)
+    _delete(OriginationOtpChallenge.objects.all(), deleted)
+    _delete(OriginationSignerSession.objects.all(), deleted)
     _delete(OriginationSigningPackage.objects.all(), deleted)
     _delete(OriginationApplicationEvent.objects.all(), deleted)
     _delete(OriginationReportingValue.objects.all(), deleted)
@@ -325,6 +338,10 @@ def purge_origination_record(*, record: Any, actor, reason: str) -> dict[str, in
         _delete(OriginationApplicationDocument.objects.filter(pk=record.pk), counts)
     elif isinstance(record, OriginationSigningPackage):
         _delete(OriginationSigningAction.objects.filter(package=record), counts)
+        session_ids = OriginationSignerSession.objects.filter(package=record).values_list('pk', flat=True)
+        _delete(OriginationSigningRequestEvent.objects.filter(session_id__in=session_ids), counts)
+        _delete(OriginationOtpChallenge.objects.filter(session_id__in=session_ids), counts)
+        _delete(OriginationSignerSession.objects.filter(package=record), counts)
         _delete(OriginationSigningPackage.objects.filter(pk=record.pk), counts)
     elif isinstance(record, OriginationSigningAction):
         _delete(OriginationSigningAction.objects.filter(pk=record.pk), counts)

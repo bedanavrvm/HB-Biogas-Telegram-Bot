@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -218,6 +219,20 @@ def validate_product_form_contract(
                 raise OriginationError(f'Signer {rule.get("role")} has an unsupported slot type.')
         if len(slot_keys) != len(set(slot_keys)):
             raise OriginationError(f'Signer {rule.get("role")} has duplicate slot keys.')
+        has_signature = any(
+            str(({'key': item} if isinstance(item, str) else item).get('type') or rule.get('slot_type') or 'signature') == 'signature'
+            for item in slots
+        )
+        if (
+            getattr(settings, 'ORIGINATION_ESIGN_ENABLED', False)
+            and rule.get('required', False) and has_signature
+            and str(rule.get('role') or '') not in {'bro_1', 'bro_2', 'loan_officer', 'officer', 'branch_manager'}
+        ):
+            identity_fields = rule.get('identity_fields') if isinstance(rule.get('identity_fields'), dict) else {}
+            if not str(identity_fields.get('name') or '').strip() or not str(identity_fields.get('phone') or '').strip():
+                raise OriginationError(
+                    f'Signer {rule.get("role")} requires canonical name and OTP phone mappings before verified signing publication.',
+                )
 
 
 def validate_product_definition(definition: OriginationProductDefinition) -> None:
@@ -1197,6 +1212,7 @@ def prepare_signing_package(
     )
     packet_hash = hashlib.sha256(packet_pdf).hexdigest() if packet_pdf else ''
     from core.services.origination_signing import test_signing_enabled
+    from core.services.origination_esign import esign_enabled
     package = OriginationSigningPackage.objects.create(
         id=package_id,
         application=application,
@@ -1212,7 +1228,10 @@ def prepare_signing_package(
         document_manifest_snapshot=document_manifest,
         combined_document_hash=packet_hash,
         unsigned_document_hash=packet_hash,
-        test_mode=test_signing_enabled(),
+        # A verified provider-enabled environment always creates a production
+        # package. The isolated watermark simulator remains the fallback only
+        # when verified signing is disabled.
+        test_mode=bool(test_signing_enabled() and not esign_enabled()),
     )
     from core.services.origination_fields import project_reporting_values
     project_reporting_values(application)
@@ -1331,11 +1350,13 @@ def serialize_application(
         package = application.signing_packages.order_by('-created_at').first()
         if package:
             from core.services.origination_signing import active_test_stamps, serialize_test_signing
+            from core.services.origination_esign import serialize_verified_signing
             payload['signing_package'] = {
                 'id': str(package.pk), 'reference': package.external_reference,
                 'status': package.status,
                 'test_signing': serialize_test_signing(package),
                 'test_stamps': active_test_stamps(application) if package.test_mode else [],
+                'verified_signing': serialize_verified_signing(package) if not package.test_mode else {},
             }
         else:
             payload['signing_package'] = None

@@ -492,6 +492,19 @@ ORIGINATION_EVIDENCE_MAX_TOTAL_UPLOAD_MB = config(
 ORIGINATION_TEST_SIGNING_ENABLED = config(
     'ORIGINATION_TEST_SIGNING_ENABLED', default=False, cast=bool,
 )
+# Production-capable Origination signing remains disabled until a controlled
+# provider readiness check is complete. Sandbox is intentionally configured
+# separately from the watermarked no-OTP simulator above.
+ORIGINATION_ESIGN_ENABLED = config('ORIGINATION_ESIGN_ENABLED', default=False, cast=bool)
+AFRICASTALKING_SMS_ENVIRONMENT = config(
+    'AFRICASTALKING_SMS_ENVIRONMENT', default='sandbox',
+).strip().casefold()
+AFRICASTALKING_USERNAME = config('AFRICASTALKING_USERNAME', default='').strip()
+AFRICASTALKING_API_KEY = config('AFRICASTALKING_API_KEY', default='')
+AFRICASTALKING_SENDER_ID = config('AFRICASTALKING_SENDER_ID', default='').strip()
+ORIGINATION_SIGNING_LINK_TTL_HOURS = config(
+    'ORIGINATION_SIGNING_LINK_TTL_HOURS', default=48, cast=int,
+)
 
 # API Configuration & Security
 API_REQUEST_SIZE_LIMIT = 1_000_000  # 1MB - Prevent DoS from large payloads

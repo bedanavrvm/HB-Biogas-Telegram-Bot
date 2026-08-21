@@ -27,6 +27,7 @@ INTEGRATION_MAX_ATTEMPTS = {
     IntegrationOperation.INTEGRATION_GOOGLE_SHEETS: 4,
     IntegrationOperation.INTEGRATION_GOOGLE_DRIVE: 3,
     IntegrationOperation.INTEGRATION_TELEGRAM: 3,
+    IntegrationOperation.INTEGRATION_AFRICAS_TALKING: 1,
 }
 FAILURE_WINDOW = timedelta(minutes=5)
 CIRCUIT_OPEN_FOR = timedelta(minutes=10)

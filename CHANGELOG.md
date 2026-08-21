@@ -1,5 +1,25 @@
 # Changelog
 
+## Origination verified packet signing and Africa's Talking OTP - 21-August-2026
+
+- Added revocable self-service and staff-assisted signer sessions for immutable
+  Origination document packets. A signer reviews every page, draws or types one
+  signature, accepts versioned atomic-packet consent, and verifies one OTP for
+  all signature slots assigned to their role.
+- Added fail-closed Africa's Talking Sandbox/production configuration, hashed
+  OTPs, token/IP/phone throttles, attempt lockouts, informational-only delivery
+  receipts, audited session reset/reissue, and Superuser-governed shared-phone
+  exceptions. Raw OTPs and signing-link tokens are not stored.
+- Added authenticated staff signature capture, governed production stamps, and
+  retryable restricted-Drive archival of the exact retained signed PDF bytes and
+  hash. The existing watermarked no-OTP simulator remains separate.
+
+  Migration note: `core.0123_origination_verified_signing` adds Origination-only
+  signing-session/challenge/throttle records and signed-package archival state.
+  It does not dispatch SMS, upload to Drive, alter existing applications, or
+  touch another Mini App. Keep `ORIGINATION_ESIGN_ENABLED=False` until Sandbox
+  configuration and a controlled deployment test are complete.
+
 ## Workflow reliability test-contract repair - 04-August-2026
 
 - Corrected Portal approval delegation so the documented active Django

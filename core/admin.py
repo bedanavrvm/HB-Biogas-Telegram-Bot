@@ -117,6 +117,9 @@ from .models import (
     OriginationProductDocumentAssignment,
     OriginationSigningPackage,
     OriginationSigningAction,
+    OriginationSignerSession,
+    OriginationOtpChallenge,
+    OriginationSigningRequestEvent,
     OriginationStampAsset,
     PaymentDocument,
     PaymentDocumentTemplate,
@@ -6976,7 +6979,8 @@ class LoanOriginationApplicationAdmin(OriginationGodModeAdminMixin, ModelAdmin):
 
 class _AppendOnlyOriginationAdmin(OriginationGodModeAdminMixin, ModelAdmin):
     def get_readonly_fields(self, request, obj=None):
-        return tuple(field.name for field in self.model._meta.fields)
+        excluded = set(self.exclude or ())
+        return tuple(field.name for field in self.model._meta.fields if field.name not in excluded)
 
     def has_add_permission(self, request):
         return False
@@ -7065,9 +7069,44 @@ class OriginationRequirementEvidenceAdmin(_AppendOnlyOriginationAdmin):
 
 @admin.register(OriginationSigningPackage)
 class OriginationSigningPackageAdmin(_AppendOnlyOriginationAdmin):
-    list_display = ('external_reference', 'application', 'application_revision', 'status', 'updated_at')
-    list_filter = ('status', 'document_type')
+    list_display = ('external_reference', 'application', 'application_revision', 'status', 'archive_status', 'updated_at')
+    list_filter = ('status', 'archive_status', 'document_type')
     search_fields = ('external_reference', 'application__reference_number')
+    exclude = ('pending_signed_document',)
+
+
+@admin.register(OriginationSignerSession)
+class OriginationSignerSessionAdmin(_AppendOnlyOriginationAdmin):
+    list_display = (
+        'package', 'signer_role', 'status', 'access_mode', 'masked_phone',
+        'shared_phone_approved_by', 'verified_at', 'created_at',
+    )
+    list_filter = ('status', 'access_mode', 'signer_role', 'is_active')
+    search_fields = ('package__external_reference', 'package__application__reference_number', 'phone_last4')
+    exclude = ('token_hash', 'phone_normalized', 'phone_hash', 'signature_capture')
+
+    @admin.display(description='Phone')
+    def masked_phone(self, obj):
+        return f'+254•••••{obj.phone_last4}' if obj.phone_last4 else '—'
+
+
+@admin.register(OriginationOtpChallenge)
+class OriginationOtpChallengeAdmin(_AppendOnlyOriginationAdmin):
+    list_display = (
+        'session', 'send_sequence', 'delivery_status', 'attempts_remaining',
+        'expires_at', 'verified_at', 'created_at',
+    )
+    list_filter = ('delivery_status', 'verified_at', 'created_at')
+    search_fields = ('session__package__external_reference', 'provider_message_id')
+    exclude = ('code_hash', 'source_ip_hash', 'binding_sha256')
+
+
+@admin.register(OriginationSigningRequestEvent)
+class OriginationSigningRequestEventAdmin(_AppendOnlyOriginationAdmin):
+    list_display = ('session', 'action', 'request_id', 'created_at')
+    list_filter = ('action', 'created_at')
+    search_fields = ('session__package__external_reference',)
+    exclude = ('token_hash', 'source_ip_hash', 'payload_digest')
 
 
 class OriginationStampAssetAdminForm(forms.ModelForm):
@@ -7160,10 +7199,11 @@ class OriginationStampAssetAdmin(OriginationGodModeAdminMixin, ModelAdmin):
 class OriginationSigningActionAdmin(_AppendOnlyOriginationAdmin):
     list_display = (
         'package', 'document_key', 'slot_key', 'signer_role',
-        'action_type', 'mode', 'actor', 'created_at',
+        'action_type', 'mode', 'actor', 'signer_session', 'created_at',
     )
     list_filter = ('mode', 'action_type', 'signer_role')
     search_fields = ('package__external_reference', 'document_key', 'slot_key', 'request_id')
+    exclude = ('metadata',)
 
 
 @admin.register(OriginationReportingValue)

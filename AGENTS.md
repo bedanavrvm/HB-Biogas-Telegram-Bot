@@ -152,6 +152,7 @@ Key modules:
 - `portal_maintenance.py` — IT-controlled Portal read-only maintenance state and audit evidence
 - `portal_reporting.py` — IT-only, catalogue-constrained live Portal reports, chart aggregates, XLSX exports, and reporting audit events
 - `loan_origination.py` — product-neutral origination schemas, revision-aware drafts, maker-checker review, append-only events, and local signing-package preparation
+- `origination_esign.py` — verified packet signing sessions, immutable consent/signature binding, Africa's Talking OTP delivery, throttling, and signed-PDF archival
 - `reporting_relationships.py` — read-only model-relationship inventory used to govern future report-source expansion; it never creates cross-workflow customer joins
 - `workflow_capabilities.py` — centrally defined Mini App capabilities and role policy resolution
 - `miniapp_requests.py` — shared Mini App retry-key compatibility and strict-mode policy
@@ -249,6 +250,11 @@ This is a template of variables this class of system typically needs. Treat it a
 | `INVOICE_NAME_CHANGE_TEMPLATE_MAX_FILE_SIZE_MB` | DOCX size limit for governed invoice-name-change letter templates uploaded in Django Admin | No |
 | `ORIGINATION_EVIDENCE_MAX_FILE_SIZE_MB` / `ORIGINATION_EVIDENCE_MAX_FILES_PER_REQUIREMENT` / `ORIGINATION_EVIDENCE_MAX_TOTAL_UPLOAD_MB` | File, requirement, and application limits for validated Origination requirement evidence stored under the restricted Drive media root | No |
 | `ORIGINATION_TEST_SIGNING_ENABLED` | Enables the visibly watermarked drawn/typed-signature and controlled-stamp simulator outside production only; defaults to disabled | No |
+| `ORIGINATION_ESIGN_ENABLED` | Explicit master gate for verified Origination e-signing; defaults to disabled | No |
+| `AFRICASTALKING_SMS_ENVIRONMENT` | Africa's Talking mode (`sandbox` or `production`); must agree with the application environment | No |
+| `AFRICASTALKING_USERNAME` / `AFRICASTALKING_API_KEY` | Server-only Africa's Talking credentials for signing invitations and OTP delivery | Yes |
+| `AFRICASTALKING_SENDER_ID` | Optional approved Africa's Talking production Sender ID | Treat as sensitive operational configuration |
+| `ORIGINATION_SIGNING_LINK_TTL_HOURS` | Lifetime of an opaque signer link, bounded by the signing service | No |
 | `COMPLAINT_CASES_WEBAPP_REQUIRE_TELEGRAM_AUTH` | Requires verified Telegram Mini App identity for complaint case APIs | No |
 | `TELEGRAM_AUTH_MAX_AGE_SECONDS` | Maximum age accepted by the shared Telegram-to-Django authentication backend | No |
 | `COMPLAINT_CASE_MAX_FILES_PER_UPDATE` / `COMPLAINT_CASE_MAX_FILE_SIZE_MB` / `COMPLAINT_CASE_MAX_TOTAL_UPLOAD_MB` | Per-update count, per-file size, and total-size limits for complaint evidence uploads | No |
