@@ -1449,9 +1449,25 @@
     return `<div class="wizard-progress-compact"><button type="button" id="origination-section-picker" class="wizard-progress-trigger" aria-label="Choose application section"><span><small>Step ${step + 1} of ${sections.length}</small><strong>${escapeHtml(section.label)}</strong></span>${iconSvg('chevronDown')}</button><div class="wizard-progress-track" role="progressbar" aria-label="Application progress" aria-valuemin="1" aria-valuemax="${sections.length}" aria-valuenow="${step + 1}"><span style="width:${percent}%"></span></div></div>`;
   }
 
+  function hasFinalSignedPacket() {
+    const packageData = current?.signing_package;
+    return current?.status === 'fully_signed'
+      && Boolean(packageData?.id)
+      && Boolean(packageData?.verified_signing?.signed_packet_available);
+  }
+
+  function latestPreviewLabel(fallback) {
+    return hasFinalSignedPacket() ? 'Preview signed packet' : fallback;
+  }
+
+  function resolveLatestPreviewKey(documentKey) {
+    return hasFinalSignedPacket() ? '__signed_packet__' : documentKey;
+  }
+
   function reviewMarkup(values) {
     const hasPacket = (current?.document_packet?.documents || []).filter(item => item.selected).length > 1;
-    return `<div class="review-intro"><div><p class="eyebrow">Final check</p><h3>Review the application</h3><p>Open each section to correct details, then inspect every selected document.</p></div><div class="review-preview-actions"><button type="button" class="btn btn-secondary" id="origination-preview">Preview main LAF</button>${hasPacket ? '<button type="button" class="btn btn-primary" id="origination-packet-preview">Preview full packet</button>' : ''}</div></div>
+    const finalSignedPacket = hasFinalSignedPacket();
+    return `<div class="review-intro"><div><p class="eyebrow">Final check</p><h3>Review the application</h3><p>Open each section to correct details, then inspect every selected document.</p></div><div class="review-preview-actions"><button type="button" class="btn btn-secondary" id="origination-preview">${latestPreviewLabel('Preview main LAF')}</button>${hasPacket && !finalSignedPacket ? '<button type="button" class="btn btn-primary" id="origination-packet-preview">Preview full packet</button>' : ''}</div></div>
       <div class="review-sections">${wizardSections().slice(0, -1).map((section, index) => {
         if (section.key === 'document_selection') {
           const selected = (current?.document_packet?.documents || []).filter(item => item.role === 'supporting' && item.selected);
@@ -1574,7 +1590,7 @@
       const fields = section.key === 'product_requirements'
         ? productConfigurationMarkup(editable)
         : `<div class="laf-grid">${fieldsFor(section.key).map(field => fieldInput(field, values[field.key], !editable || field.editable === false || !correctionAllows('field', field.key))).join('')}</div>`;
-      content = `<div class="section-title"><div><h3>${escapeHtml(section.label)}</h3><p>${escapeHtml(section.hint || '')}</p></div><button type="button" class="preview-link" id="origination-preview-early">Preview PDF</button></div>${fields}`;
+      content = `<div class="section-title"><div><h3>${escapeHtml(section.label)}</h3><p>${escapeHtml(section.hint || '')}</p></div><button type="button" class="preview-link" id="origination-preview-early">${latestPreviewLabel('Preview PDF')}</button></div>${fields}`;
     }
     const recoveryState = syncConflict ? ['Conflict', 'offline'] : dirty ? ['Recovered securely', 'offline'] : ['Saved', 'saved'];
     const actions = actionMarkup(editable);
@@ -1592,7 +1608,7 @@
     const documents = (packet.documents || []).filter(item => item.role === 'supporting' && item.applicable);
     if (!packet.primary_ready && previewedRevision !== current.revision) {
       const lockedRows = documents.map(item => `<label class="packet-document-option"><input type="checkbox"${item.selected ? ' checked' : ''} disabled><span><strong>${escapeHtml(item.name)}</strong><small>${item.selected ? 'Included automatically; unlocks after main LAF preview.' : 'Available after main LAF preview.'}</small></span><span class="status-chip">Locked</span></label>`).join('');
-      return `<div class="section-title"><div><h3>Finish the main LAF first</h3><p>These supporting documents are part of this application. Save and preview the filled LAF to unlock their forms and previews.</p></div><button type="button" class="btn btn-primary" id="origination-preview-early">Preview main LAF</button></div><div class="packet-document-list">${lockedRows || '<div class="empty-state">No supporting documents apply to this application.</div>'}</div>`;
+      return `<div class="section-title"><div><h3>Finish the main LAF first</h3><p>These supporting documents are part of this application. Save and preview the filled LAF to unlock their forms and previews.</p></div><button type="button" class="btn btn-primary" id="origination-preview-early">${latestPreviewLabel('Preview main LAF')}</button></div><div class="packet-document-list">${lockedRows || '<div class="empty-state">No supporting documents apply to this application.</div>'}</div>`;
     }
     const rows = documents.map(item => {
       const locked = item.inclusion_mode !== 'optional';
@@ -1664,7 +1680,7 @@
 
   function supportingDocumentMarkup(document, editable) {
     const fields = (document?.schema?.fields || []).map(field => supportingDocumentField(field, document, editable)).join('');
-    return `<div class="section-title"><div><h3>${escapeHtml(document.name)}</h3><p>Shared LAF values are locked. Complete the remaining fields, save, then preview this document.</p></div><button type="button" class="preview-link" data-support-preview="${escapeHtml(document.key)}">Preview document</button></div><div class="laf-grid">${fields || '<div class="empty-state">This document uses only values already collected in the main LAF.</div>'}</div>`;
+    return `<div class="section-title"><div><h3>${escapeHtml(document.name)}</h3><p>Shared LAF values are locked. Complete the remaining fields, save, then preview this document.</p></div><button type="button" class="preview-link" data-support-preview="${escapeHtml(document.key)}">${latestPreviewLabel('Preview document')}</button></div><div class="laf-grid">${fields || '<div class="empty-state">This document uses only values already collected in the main LAF.</div>'}</div>`;
   }
 
   function correctionTargetStep(identity) {
@@ -1957,6 +1973,7 @@
     root().querySelectorAll('[data-evidence-remove]').forEach(button => button.onclick = () => removeEvidence(button.dataset.evidenceRemove));
     root().querySelectorAll('[data-evidence-open]').forEach(button => button.onclick = () => openEvidence(button.dataset.evidenceOpen));
     root().querySelectorAll('[data-support-preview]').forEach(button => button.onclick = async () => {
+      if (hasFinalSignedPacket()) return openPreview('__signed_packet__');
       const sectionKey = wizardSections()[step]?.key || '';
       const errors = sectionErrors(sectionKey); showErrors(errors);
       if (Object.keys(errors).length) return showToast('Complete the required document fields before previewing.', true);
@@ -2166,6 +2183,7 @@
     // fallback too, so a future direct binding cannot turn a PointerEvent into
     // a document-key URL segment.
     if (typeof documentKey !== 'string') documentKey = '';
+    documentKey = resolveLatestPreviewKey(documentKey);
     if (!documentKey && ['draft', 'correction_required'].includes(current.status) && !(await saveDraft(true))) return;
     previewDocumentKey = documentKey;
     previewSucceeded = false;
@@ -2175,7 +2193,7 @@
     const overlay = document.getElementById('document-preview-overlay');
     const title = document.getElementById('preview-title');
     if (title) title.textContent = documentKey === '__signed_packet__'
-      ? 'Archived signed packet'
+      ? (current?.signing_package?.verified_signing?.archive_status === 'uploaded' ? 'Archived signed packet' : 'Final signed packet')
       : documentKey === '__packet__' ? 'Filled document packet'
       : documentKey === '__test_signing__' ? 'TEST signed packet'
       : 'Filled loan document';

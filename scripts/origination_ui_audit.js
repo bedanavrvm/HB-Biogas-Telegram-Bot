@@ -437,7 +437,10 @@ async function auditVerifiedSigningControls(browser, width, accessMode = '') {
 }
 
 async function auditPublicSigningPage(browser, width, accessMode) {
-  const page = await browser.newPage({ viewport: { width, height: width === 320 ? 568 : 844 } });
+  const page = await browser.newPage({
+    viewport: { width, height: width === 320 ? 568 : 844 },
+    colorScheme: 'dark',
+  });
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message || String(error)));
   await page.route('**/origination/sign/api/**', route => {
@@ -461,6 +464,14 @@ async function auditPublicSigningPage(browser, width, accessMode) {
   await page.locator('#packet-page:not([hidden])').waitFor();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert(overflow <= 1, `Public signing page causes ${overflow}px horizontal overflow at ${width}px`);
+  const theme = await page.evaluate(() => ({
+    colorScheme: getComputedStyle(document.documentElement).colorScheme,
+    background: getComputedStyle(document.body).backgroundColor,
+    text: getComputedStyle(document.body).color,
+  }));
+  assert(theme.colorScheme === 'light', `Public signer inherited device color scheme: ${theme.colorScheme}`);
+  assert(theme.background === 'rgb(242, 244, 243)', `Public signer background changed in dark-device mode: ${theme.background}`);
+  assert(theme.text === 'rgb(24, 33, 30)', `Public signer text changed in dark-device mode: ${theme.text}`);
   const label = accessMode === 'assisted' ? 'Assisted signing' : 'Remote signing';
   assert(await page.getByText(label, { exact: true }).isVisible(), `${label} badge is missing on the public page`);
   const assistedConfirmation = page.locator('#assisted-confirmation');
@@ -483,7 +494,29 @@ async function auditArchivedSignedPacketAccess(browser) {
   await page.locator('.application-card').first().click();
   await page.locator('#origination-section-picker').click();
   await page.locator('[data-section-index]').last().click();
-  await page.getByText('Archived signed packet', { exact: true }).waitFor();
+  const latestPreview = page.getByText('Preview signed packet', { exact: true });
+  await latestPreview.waitFor();
+  assert(await page.locator('#origination-packet-preview').count() === 0, 'Signed review still offers a stale filled-packet preview');
+  await latestPreview.click();
+  await page.locator('#document-preview-image[src]').waitFor();
+  assert(await page.locator('#preview-title').textContent() === 'Archived signed packet', 'Latest preview did not resolve to the archived signed packet');
+  await page.locator('#preview-close').click();
+
+  await page.locator('#origination-section-picker').click();
+  await page.locator('[data-section-index="0"]').click();
+  await page.getByText('Preview signed packet', { exact: true }).click();
+  await page.locator('#document-preview-image[src]').waitFor();
+  await page.locator('#preview-close').click();
+
+  await page.locator('#origination-section-picker').click();
+  await page.locator('[data-section-index="4"]').click();
+  await page.getByText('Preview signed packet', { exact: true }).click();
+  await page.locator('#document-preview-image[src]').waitFor();
+  await page.locator('#preview-close').click();
+
+  await page.locator('#origination-section-picker').click();
+  await page.locator('[data-section-index]').last().click();
+  await page.locator('#origination-root').getByText('Archived signed packet', { exact: true }).waitFor();
   assert(await page.getByText('View signed LAF', { exact: true }).isVisible(), 'Archived signed LAF view action is missing');
   assert(await page.getByText('Download PDF', { exact: true }).isVisible(), 'Archived signed LAF download action is missing');
   assert(await page.locator('.wizard-actions').count() === 0, 'Read-only archived packet is obscured by a sticky action footer');
@@ -514,7 +547,7 @@ async function auditArchivedSignedPacketAccess(browser) {
   await page.getByText('Download PDF', { exact: true }).click();
   const download = await downloadPromise;
   assert(download.suggestedFilename() === 'JBL-2026-0001-SIGNED.pdf', `Unexpected signed packet filename: ${download.suggestedFilename()}`);
-  assert(signedPacketRequests.some(item => item.preview), 'Archived packet preview did not use the signed-packet endpoint');
+  assert(signedPacketRequests.filter(item => item.preview).length >= 4, 'One or more preview entry points did not use the signed-packet endpoint');
   assert(signedPacketRequests.some(item => item.download), 'Archived packet download did not use the signed-packet endpoint');
   assert(!pageErrors.length, `Archived packet access raised a browser error: ${pageErrors.join(' | ')}`);
   await page.close();
