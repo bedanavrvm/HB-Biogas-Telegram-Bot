@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import hashlib
 from io import BytesIO
 from typing import Any
@@ -93,6 +94,50 @@ def _template_snapshot(template: OriginationDocumentTemplate) -> dict[str, Any]:
     }
 
 
+def _primary_signer_rules(
+    template_rules: Any, application_rules: Any,
+) -> list[dict[str, Any]]:
+    """Combine PDF slot placement with the product's signer identity contract.
+
+    A calibrated primary template owns its document-specific slots, while the
+    product form owns which canonical fields identify each signer.  Replacing
+    one snapshot with the other drops OTP phone mappings whenever both exist.
+    """
+    document_rules = [
+        deepcopy(item) for item in (template_rules or []) if isinstance(item, dict)
+    ]
+    product_rules = [
+        deepcopy(item) for item in (application_rules or []) if isinstance(item, dict)
+    ]
+    product_by_role = {
+        str(item.get('role') or '').strip(): item
+        for item in product_rules if str(item.get('role') or '').strip()
+    }
+    merged: list[dict[str, Any]] = []
+    seen_roles: set[str] = set()
+    for document_rule in document_rules:
+        role = str(document_rule.get('role') or '').strip()
+        product_rule = product_by_role.get(role, {})
+        combined = {**product_rule, **document_rule}
+        identity_fields = {
+            **(
+                product_rule.get('identity_fields')
+                if isinstance(product_rule.get('identity_fields'), dict) else {}
+            ),
+            **(
+                document_rule.get('identity_fields')
+                if isinstance(document_rule.get('identity_fields'), dict) else {}
+            ),
+        }
+        if identity_fields:
+            combined['identity_fields'] = identity_fields
+        merged.append(combined)
+        if role:
+            seen_roles.add(role)
+    merged.extend(item for item in product_rules if str(item.get('role') or '').strip() not in seen_roles)
+    return merged
+
+
 def initialize_document_packet(application: LoanOriginationApplication) -> None:
     from core.services.loan_origination import OriginationError
     from core.services.origination_templates import resolve_assignment_template
@@ -154,9 +199,9 @@ def initialize_document_packet(application: LoanOriginationApplication) -> None:
             },
             schema_snapshot=template.form_schema or {},
             signer_rules_snapshot=(
-                template.signer_rules
-                if template.signer_rules
-                else application.signer_rules_snapshot if template.document_role == template.ROLE_PRIMARY else []
+                _primary_signer_rules(template.signer_rules, application.signer_rules_snapshot)
+                if template.document_role == template.ROLE_PRIMARY
+                else deepcopy(template.signer_rules or [])
             ),
         )
 

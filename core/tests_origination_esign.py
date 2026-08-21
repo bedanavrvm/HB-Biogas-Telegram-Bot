@@ -172,6 +172,21 @@ class OriginationVerifiedSigningTests(TestCase):
         self.assertFalse(first.is_active)
         self.assertTrue(replacement.is_active)
 
+    def test_session_recovers_phone_from_frozen_product_mapping(self):
+        self.application.signer_rules_snapshot = [{
+            'role': 'borrower',
+            'identity_fields': {'phone': 'applicant_mobile'},
+        }]
+        self.application.save(update_fields=['signer_rules_snapshot'])
+        self.package.context_snapshot = {'applicant_mobile': '254787998883'}
+        self.package.participants_snapshot[0]['identity'].pop('phone')
+        self.package.save(update_fields=['context_snapshot', 'participants_snapshot'])
+
+        session, _token, _replayed = self._session('mapped-phone-recovery')
+
+        self.assertEqual(session.phone_normalized, '254787998883')
+        self.assertEqual(session.identity_snapshot['phone'], '254787998883')
+
     def test_public_session_uses_authorization_header_not_token_path(self):
         _session, token, _ = self._session('public-header-session')
         missing = self.client.get('/origination/sign/api/session/')

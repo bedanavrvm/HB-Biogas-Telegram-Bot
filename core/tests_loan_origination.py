@@ -645,6 +645,40 @@ class LoanOriginationServiceTests(TestCase):
         self.assertEqual(renderer.call_args.kwargs['document_type'], 'synthetic_loan_agreement')
         self.assertEqual(renderer.call_args.kwargs['version'], 1)
 
+    def test_primary_template_slots_preserve_product_signer_identity_mappings(self):
+        self.product.form_schema = {'fields': [
+            {'key': 'customer_name', 'type': 'text', 'required': True},
+            {'key': 'applicant_mobile', 'type': 'phone', 'required': True},
+        ]}
+        self.product.signer_rules = [{
+            'role': 'borrower', 'required': True,
+            'identity_fields': {'name': 'customer_name', 'phone': 'applicant_mobile'},
+            'slots': [{'key': 'product_signature', 'type': 'signature', 'required': True}],
+        }]
+        self.product.save(update_fields=['form_schema', 'signer_rules', 'updated_at'])
+        OriginationDocumentTemplate.objects.create(
+            product_definition=self.product,
+            document_key='primary', document_role='primary', inclusion_mode='required',
+            document_type=self.product.document_type, name='Primary LAF', version=1,
+            status='active', source_filename='primary.pdf', source_sha256='1' * 64,
+            source_byte_size=100, page_count=1, placement_config={}, created_by=self.officer,
+            signer_rules=[{
+                'role': 'borrower', 'required': True,
+                'slots': [{'key': 'pdf_signature', 'type': 'signature', 'required': True}],
+            }],
+        )
+
+        application, _replayed = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='primary-signer-merge',
+        )
+
+        rule = application.packet_documents.get(document_key='primary').signer_rules_snapshot[0]
+        self.assertEqual(rule['identity_fields'], {
+            'name': 'customer_name', 'phone': 'applicant_mobile',
+        })
+        self.assertEqual([item['key'] for item in rule['slots']], ['pdf_signature'])
+
     def test_optional_supporting_document_is_separate_prefilled_and_revision_checked(self):
         primary = OriginationDocumentTemplate.objects.create(
             product_definition=self.product,

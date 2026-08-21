@@ -108,11 +108,47 @@ def _participant(package: OriginationSigningPackage, signer_role: str) -> dict[s
     return participant
 
 
-def _identity_for(participant: dict[str, Any]) -> tuple[dict[str, Any], str]:
+def _resolved_identity(
+    package: OriginationSigningPackage, participant: dict[str, Any],
+) -> dict[str, Any]:
     identity = dict(participant.get('identity') or {})
+    role = str(participant.get('role') or '').strip()
+    application_rule = next((
+        item for item in (package.application.signer_rules_snapshot or [])
+        if isinstance(item, dict) and str(item.get('role') or '').strip() == role
+    ), {})
+    bindings = {
+        **(
+            application_rule.get('identity_fields')
+            if isinstance(application_rule.get('identity_fields'), dict) else {}
+        ),
+        **(
+            participant.get('identity_fields')
+            if isinstance(participant.get('identity_fields'), dict) else {}
+        ),
+    }
+    context = package.context_snapshot if isinstance(package.context_snapshot, dict) else {}
+    for identity_kind, field_key in bindings.items():
+        field_key = str(field_key or '').strip()
+        if identity_kind in {'name', 'phone', 'national_id'} and field_key and not identity.get(identity_kind):
+            value = context.get(field_key)
+            if value not in (None, ''):
+                identity[identity_kind] = str(value).strip()
+    return identity
+
+
+def _identity_for(
+    package: OriginationSigningPackage, participant: dict[str, Any],
+) -> tuple[dict[str, Any], str]:
+    identity = _resolved_identity(package, participant)
+    role = str(participant.get('role') or '').strip()
     phone = normalize_kenyan_phone(identity.get('phone'))
     if not phone:
-        raise OriginationError('This signer requires a mapped Kenyan mobile phone before dispatch.')
+        label = role.replace('_', ' ').title() or 'This signer'
+        raise OriginationError(
+            f'{label} requires a mapped Kenyan mobile phone before dispatch. '
+            'Check the signer OTP phone mapping and its saved application value.'
+        )
     identity['phone'] = phone
     return identity, phone
 
@@ -125,7 +161,7 @@ def _duplicate_external_phones(package: OriginationSigningPackage) -> dict[str, 
         role = str(participant.get('role') or '')
         if role in STAFF_SIGNER_ROLES:
             continue
-        phone = normalize_kenyan_phone((participant.get('identity') or {}).get('phone'))
+        phone = normalize_kenyan_phone(_resolved_identity(package, participant).get('phone'))
         if phone:
             roles_by_phone.setdefault(phone, []).append(role)
     return {phone: roles for phone, roles in roles_by_phone.items() if len(set(roles)) > 1}
@@ -152,7 +188,7 @@ def create_signer_session(
     if signer_role in STAFF_SIGNER_ROLES:
         raise OriginationError('Staff signer roles use authenticated staff signing, not an OTP session.')
     participant = _participant(package, signer_role)
-    identity, phone = _identity_for(participant)
+    identity, phone = _identity_for(package, participant)
     duplicates = _duplicate_external_phones(package)
     override_reason = str(shared_phone_override_reason or '').strip()
     shared_phone_approver = approved_shared_phone_by or (
@@ -602,7 +638,10 @@ def serialize_verified_signing(package: OriginationSigningPackage) -> dict[str, 
             'role': role,
             'label': role.replace('_', ' ').title(),
             'staff': role in STAFF_SIGNER_ROLES,
-            'phone_mapped': bool(normalize_kenyan_phone((raw.get('identity') or {}).get('phone'))),
+            'phone_mapped': (
+                True if role in STAFF_SIGNER_ROLES
+                else bool(normalize_kenyan_phone(_resolved_identity(package, raw).get('phone')))
+            ),
             'session_id': str(session.pk) if session else '',
             'session_status': session.status if session else '',
             'access_mode': session.access_mode if session else '',
