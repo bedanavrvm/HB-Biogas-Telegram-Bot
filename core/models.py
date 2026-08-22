@@ -1103,9 +1103,20 @@ class TatResponsibilityAssignment(models.Model):
             raise ValidationError({'branch': 'Choose the branch this responsibility covers.'})
         if not self.role:
             raise ValidationError({'role': 'Choose the responsible TAT role.'})
+        if self.stage_key and self.group_configuration_id:
+            from core.services.tat_responsibilities import canonical_stage_role
+
+            # Stage policy, not this routing row, owns the responsible role.
+            # Derive it before validating the selected users so a stale or
+            # manipulated Admin payload cannot create a contradictory route.
+            self.role = canonical_stage_role(
+                stage_key=self.stage_key,
+                product_key=self.product_key,
+                workflow=self.group_configuration.workflow,
+            )
         if self.effective_until and self.effective_until <= self.effective_from:
             raise ValidationError({'effective_until': 'The end time must be after the start time.'})
-        if self.primary_user_id and not self.primary_user.is_superuser:
+        if self.primary_user_id:
             grants = self.primary_user.access_grants.filter(
                 workflow='tat_tracker', role__iexact=self.role, active=True,
             ).filter(
@@ -1164,7 +1175,7 @@ class TatResponsibilityBackup(models.Model):
         super().clean()
         if self.assignment_id and self.user_id == self.assignment.primary_user_id:
             raise ValidationError({'user': 'The primary actor cannot also be a backup.'})
-        if self.assignment_id and self.user_id and not self.user.is_superuser:
+        if self.assignment_id and self.user_id:
             assignment = self.assignment
             grants = self.user.access_grants.filter(
                 workflow='tat_tracker', role__iexact=assignment.role, active=True,
@@ -1191,21 +1202,61 @@ class TatResponsibilityBackup(models.Model):
                 })
             earlier = type(self).objects.filter(
                 assignment=self.assignment, active=True, rank__lt=self.rank,
-                threshold_percent__gt=self.threshold_percent,
+                threshold_percent__gte=self.threshold_percent,
             )
             later = type(self).objects.filter(
                 assignment=self.assignment, active=True, rank__gt=self.rank,
-                threshold_percent__lt=self.threshold_percent,
+                threshold_percent__lte=self.threshold_percent,
             )
             if self.pk:
                 earlier = earlier.exclude(pk=self.pk)
                 later = later.exclude(pk=self.pk)
             if earlier.exists() or later.exists():
-                raise ValidationError({'threshold_percent': 'Backup thresholds must increase with backup rank.'})
+                raise ValidationError({'threshold_percent': 'Each later backup must use a strictly later SLA threshold.'})
 
     def save(self, *args, **kwargs):
         self.full_clean()
         return super().save(*args, **kwargs)
+
+
+class TatResponsibilityEvent(models.Model):
+    """Append-only evidence for changes to TAT operational ownership."""
+
+    ACTION_CREATED = 'created'
+    ACTION_UPDATED = 'updated'
+    ACTION_DELETED = 'deleted'
+    ACTION_MIGRATION_REVIEW = 'migration_review'
+    ACTION_CHOICES = [
+        (ACTION_CREATED, 'Created'),
+        (ACTION_UPDATED, 'Updated'),
+        (ACTION_DELETED, 'Deleted'),
+        (ACTION_MIGRATION_REVIEW, 'Disabled for migration review'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    assignment = models.ForeignKey(
+        TatResponsibilityAssignment, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='events',
+    )
+    assignment_id_snapshot = models.UUIDField(db_index=True)
+    action = models.CharField(max_length=32, choices=ACTION_CHOICES, db_index=True)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='tat_responsibility_events',
+    )
+    reason = models.TextField(blank=True, default='')
+    before_snapshot = models.JSONField(default=dict, blank=True)
+    after_snapshot = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(
+            fields=['assignment_id_snapshot', 'created_at'],
+            name='tat_resp_evt_assign_idx',
+        )]
+        verbose_name = 'TAT responsibility event'
+        verbose_name_plural = 'TAT responsibility events'
 
 
 class TatPrivateAlertConnection(models.Model):

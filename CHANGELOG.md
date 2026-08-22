@@ -1,5 +1,25 @@
 # Changelog
 
+## Centralized TAT access and responsibility routing - 22-August-2026
+
+- Added one Superuser workspace showing canonical TAT stage ownership, scoped
+  user AccessGrants, role rosters, stage overrides, private-alert health, and
+  configuration warnings without merging authorization and task assignment.
+- Stage overrides now derive and lock their responsible role from the active
+  TAT product configuration. Multi-role users are routed under the exact role
+  required by the current stage; routine task delivery always requires a
+  matching explicit TAT AccessGrant.
+- Hardened routing with deterministic specificity, fail-closed ambiguity,
+  recipient deduplication, strictly increasing ranked-backup SLA thresholds,
+  safe shared-role/unassigned fallback, and append-only responsibility events.
+
+  Migration note: `core.0127_tat_responsibility_canonical_routing` adds the
+  responsibility-event audit table and deactivates only conflicting or unknown
+  legacy stage-specific routes for Admin review. It does not modify access
+  grants, cases, Sheets, Drive, or Telegram. Before operational use, review the
+  new workspace. To reverse a non-production application:
+  `python manage.py migrate core 0126_tatprivatealertconnection_and_more`.
+
 ## SPIN and TAT Pilot data isolation - 22-August-2026
 
 - Added independent, Superuser-controlled Pilot/Production modes for SPIN and

@@ -142,6 +142,7 @@ Key modules:
 - `storage.py` — media/file storage abstraction
 - `tat_tracker.py` — TAT workflow configuration and transitions
 - `tat_notifications.py` — TAT responsibility routing, durable private task inboxes, Telegram deep links, delivery retries, backup escalation, and cumulative privacy-safe group exceptions
+- `tat_responsibilities.py` — canonical TAT stage/role ownership, roster validation, configuration health, and responsibility audit snapshots; it routes work but never grants access
 - `workflow_data_mode.py` — independent SPIN/TAT Pilot/Production switches, immutable creation snapshots, centralized operational visibility, cycle rotation, and stale-client write protection
 - `workflow_pilot_purge.py` — Superuser-only manifest-based cleanup of closed SPIN/TAT Pilot cycles with Sheet fingerprint readiness, verified row deletion, resumable locks, and no Drive deletion
 - `telegram_command_menu.py` — Telegram command registration

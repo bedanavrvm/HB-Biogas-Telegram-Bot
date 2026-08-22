@@ -39,6 +39,12 @@ from core.services.tat_tracker import (
     resync_tat_tracker_cases,
     soft_delete_tat_case,
 )
+from core.services.tat_responsibilities import (
+    assignment_snapshot,
+    canonical_stage_role,
+    configuration_issues,
+    stage_catalog,
+)
 from core.services.telegram_launchers import MINI_APP_LAUNCHER_CHOICES, default_launcher_keys
 
 from .models import (
@@ -137,6 +143,7 @@ from .models import (
     TatTrackerEvent,
     TatResponsibilityAssignment,
     TatResponsibilityBackup,
+    TatResponsibilityEvent,
     TatPrivateAlertConnection,
     TatActionTask,
     TatActionTaskRecipient,
@@ -1678,6 +1685,11 @@ class TatResponsibilityAssignmentForm(forms.ModelForm):
     role = forms.ChoiceField(choices=(), required=True)
     product_key = forms.ChoiceField(choices=(), required=False, label='Product')
     stage_key = forms.ChoiceField(choices=(), required=False, label='Stage')
+    change_reason = forms.CharField(
+        required=True, label='Reason for change',
+        widget=forms.Textarea(attrs={'rows': 2}),
+        help_text='Required. The responsibility change is recorded in append-only audit history.',
+    )
 
     class Meta:
         model = TatResponsibilityAssignment
@@ -1685,6 +1697,13 @@ class TatResponsibilityAssignmentForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        def selected_value(name):
+            if self.is_bound:
+                return str(self.data.get(self.add_prefix(name), '') or '').strip()
+            if name in self.initial:
+                return str(self.initial.get(name) or '').strip()
+            return str(getattr(self.instance, name, '') or '').strip()
+
         branches = set(global_branch_choices())
         workflows = list(GroupSheetConfiguration.objects.filter(
             workflow__type='tat_tracker', enabled=True,
@@ -1697,11 +1716,12 @@ class TatResponsibilityAssignmentForm(forms.ModelForm):
         if self.instance and self.instance.pk and self.instance.branch:
             branches.add(self.instance.branch)
         self.fields['branch'].choices = [(value, value) for value in sorted(branches)]
-        roles = {stage.role for product in product_configs.values() for stage in product.stages}
+        roles = {str(stage.role or '').strip().upper() for product in product_configs.values() for stage in product.stages}
         if self.instance and self.instance.pk and self.instance.role:
             roles.add(self.instance.role)
         roles = sorted(roles)
         self.fields['role'].choices = [(value, value.replace('_', ' ').title()) for value in roles]
+        self.fields['role'].help_text = 'Used for a role roster. A selected stage derives and locks its canonical role.'
         product_choices = [('', 'All products')] + [
             (product.key, product.label) for product in product_configs.values()
         ]
@@ -1710,17 +1730,79 @@ class TatResponsibilityAssignmentForm(forms.ModelForm):
             product_choices.append((self.instance.product_key, self.instance.product_key))
         self.fields['product_key'].choices = product_choices
         stage_labels = {}
-        for product in product_configs.values():
+        stage_roles = {}
+        selected_product = selected_value('product_key').lower()
+        visible_products = [
+            product for product in product_configs.values()
+            if not selected_product or product.key.casefold() == selected_product.casefold()
+        ]
+        for product in visible_products:
             for stage in product.stages:
+                role = str(stage.role or '').strip().upper()
                 stage_labels.setdefault(stage.key, stage.label)
+                stage_roles.setdefault(stage.key, set()).add(role)
         if self.instance and self.instance.pk and self.instance.stage_key:
             stage_labels.setdefault(self.instance.stage_key, self.instance.stage_key)
-        self.fields['stage_key'].choices = [('', 'All stages')] + sorted(stage_labels.items(), key=lambda row: row[1])
+        self.fields['stage_key'].choices = [('', 'All stages for this role')] + sorted([
+            (key, f"{label} — {', '.join(sorted(stage_roles.get(key) or []))}")
+            for key, label in stage_labels.items()
+        ], key=lambda row: row[1])
+        self.fields['stage_key'].widget.attrs['data-stage-role-map'] = json.dumps({
+            key: next(iter(values)) for key, values in stage_roles.items() if len(values) == 1
+        })
+        selected_group_id = selected_value('group_configuration')
+        selected_branch = selected_value('branch')
+        selected_role = selected_value('role').upper()
+        selected_stage = selected_value('stage_key')
+        if selected_stage and selected_group_id:
+            try:
+                group = GroupSheetConfiguration.objects.get(pk=selected_group_id)
+                selected_role = canonical_stage_role(
+                    stage_key=selected_stage,
+                    product_key=selected_product,
+                    workflow=group.workflow,
+                )
+            except (GroupSheetConfiguration.DoesNotExist, ValidationError):
+                pass
+            else:
+                self.fields['role'].choices = [(selected_role, selected_role.replace('_', ' ').title())]
+                self.fields['role'].initial = selected_role
+                self.fields['role'].disabled = True
+                self.fields['role'].help_text = 'Derived automatically from the selected canonical TAT stage.'
+
+        grants = AccessGrant.objects.filter(workflow='tat_tracker', active=True)
+        if selected_role:
+            grants = grants.filter(role__iexact=selected_role)
+        if selected_group_id:
+            grants = grants.filter(
+                models.Q(group_configuration__isnull=True)
+                | models.Q(group_configuration_id=selected_group_id)
+            )
+        if selected_branch:
+            grants = grants.filter(models.Q(branch='') | models.Q(branch__iexact=selected_branch))
+        if selected_product:
+            grants = grants.filter(models.Q(product='') | models.Q(product__iexact=selected_product))
+        else:
+            grants = grants.filter(product='')
         self.fields['primary_user'].queryset = get_user_model().objects.filter(
-            models.Q(is_superuser=True)
-            | models.Q(access_grants__workflow='tat_tracker', access_grants__active=True),
-            is_active=True,
+            access_grants__in=grants, is_active=True,
         ).distinct().order_by('first_name', 'last_name', 'username')
+
+    def clean(self):
+        cleaned = super().clean()
+        stage_key = cleaned.get('stage_key')
+        group = cleaned.get('group_configuration')
+        if stage_key and group:
+            cleaned['role'] = canonical_stage_role(
+                stage_key=stage_key,
+                product_key=cleaned.get('product_key') or '',
+                workflow=group.workflow,
+            )
+            self.instance.role = cleaned['role']
+        return cleaned
+
+    class Media:
+        js = ('admin/js/tat_responsibility.js',)
 
 
 class TatResponsibilityBackupForm(forms.ModelForm):
@@ -1738,10 +1820,21 @@ class TatResponsibilityBackupForm(forms.ModelForm):
         self.fields['threshold_percent'].choices = [
             (value, f'{value}%') for value in thresholds
         ]
+        grants = AccessGrant.objects.filter(workflow='tat_tracker', active=True)
+        assignment = getattr(self.instance, 'assignment', None)
+        if assignment and assignment.pk:
+            grants = grants.filter(role__iexact=assignment.role).filter(
+                models.Q(group_configuration__isnull=True)
+                | models.Q(group_configuration=assignment.group_configuration)
+            ).filter(
+                models.Q(branch='') | models.Q(branch__iexact=assignment.branch)
+            )
+            if assignment.product_key:
+                grants = grants.filter(models.Q(product='') | models.Q(product__iexact=assignment.product_key))
+            else:
+                grants = grants.filter(product='')
         self.fields['user'].queryset = get_user_model().objects.filter(
-            models.Q(is_superuser=True)
-            | models.Q(access_grants__workflow='tat_tracker', access_grants__active=True),
-            is_active=True,
+            access_grants__in=grants, is_active=True,
         ).distinct().order_by('first_name', 'last_name', 'username')
 
 
@@ -1757,6 +1850,7 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
     """Superuser-managed routing; matching AccessGrants remain authoritative."""
 
     form = TatResponsibilityAssignmentForm
+    change_list_template = 'admin/core/tatresponsibilityassignment/change_list.html'
     list_display = (
         'group_configuration', 'branch', 'role', 'product_key', 'stage_key',
         'primary_user', 'active', 'effective_from', 'effective_until',
@@ -1773,6 +1867,7 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
             'fields': (
                 'group_configuration', ('branch', 'role'),
                 ('product_key', 'stage_key'), 'primary_user',
+                'change_reason',
             ),
             'description': 'Assignment routes alerts only. Every actor still needs a matching TAT AccessGrant.',
         }),
@@ -1785,7 +1880,165 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
             raise PermissionDenied
         if not obj.created_by_id:
             obj.created_by = request.user
+        obj._responsibility_before = (
+            assignment_snapshot(type(obj).objects.get(pk=obj.pk)) if change else {}
+        )
+        obj._responsibility_reason = form.cleaned_data['change_reason']
         super().save_model(request, obj, form, change)
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        obj = form.instance
+        TatResponsibilityEvent.objects.create(
+            assignment=obj,
+            assignment_id_snapshot=obj.pk,
+            action=(TatResponsibilityEvent.ACTION_UPDATED if change else TatResponsibilityEvent.ACTION_CREATED),
+            actor=request.user,
+            reason=getattr(obj, '_responsibility_reason', ''),
+            before_snapshot=getattr(obj, '_responsibility_before', {}),
+            after_snapshot=assignment_snapshot(obj),
+        )
+
+    def delete_model(self, request, obj):
+        snapshot = assignment_snapshot(obj)
+        event = TatResponsibilityEvent.objects.create(
+            assignment=obj, assignment_id_snapshot=obj.pk,
+            action=TatResponsibilityEvent.ACTION_DELETED,
+            actor=request.user,
+            reason='Deleted through Django Admin by a technical Superuser.',
+            before_snapshot=snapshot,
+        )
+        super().delete_model(request, obj)
+        event.refresh_from_db()
+
+    def delete_queryset(self, request, queryset):
+        for obj in queryset.prefetch_related('backups'):
+            self.delete_model(request, obj)
+
+    def get_changeform_initial_data(self, request):
+        initial = super().get_changeform_initial_data(request)
+        for key in ('group_configuration', 'branch', 'product_key', 'stage_key', 'role'):
+            if request.GET.get(key) is not None:
+                initial[key] = request.GET[key]
+        return initial
+
+    def changelist_view(self, request, extra_context=None):
+        groups = list(GroupSheetConfiguration.objects.filter(
+            workflow__type='tat_tracker', enabled=True,
+        ).order_by('display_name', 'group_id'))
+        selected_group_id = (
+            request.GET.get('workspace_group')
+            or request.GET.get('group_configuration_id__exact')
+            or (str(groups[0].pk) if groups else '')
+        )
+        selected_group = next((item for item in groups if str(item.pk) == selected_group_id), None)
+        products = configured_products(selected_group.workflow if selected_group else {})
+        product_key = str(request.GET.get('workspace_product') or '').strip().lower()
+        branches = sorted(set(
+            configured_workflow_branches(selected_group.workflow or {}, default=[])
+            if selected_group else global_branch_choices()
+        ))
+        branch = str(request.GET.get('workspace_branch') or (branches[0] if branches else '')).strip()
+        catalogue = stage_catalog(selected_group.workflow if selected_group else {})
+        if product_key:
+            catalogue = [row for row in catalogue if row['product_key'] == product_key]
+        assignments = TatResponsibilityAssignment.objects.none()
+        if selected_group:
+            assignments = TatResponsibilityAssignment.objects.filter(
+                group_configuration=selected_group,
+            ).select_related('group_configuration', 'primary_user').prefetch_related('backups__user')
+        scoped_assignments = [row for row in assignments if not branch or row.branch.casefold() == branch.casefold()]
+        workspace_now = timezone.now()
+        current_assignments = [
+            row for row in scoped_assignments
+            if row.active
+            and row.effective_from <= workspace_now
+            and (row.effective_until is None or row.effective_until > workspace_now)
+        ]
+        role_rosters = {
+            (row.role, row.product_key): row for row in current_assignments
+            if not row.stage_key
+        }
+        stage_overrides = {
+            (row.stage_key, row.product_key): row for row in current_assignments
+            if row.stage_key
+        }
+        role_rows = []
+        for role in sorted({row['role'] for row in catalogue}):
+            roster = role_rosters.get((role, product_key)) or role_rosters.get((role, ''))
+            params = {
+                'group_configuration': selected_group_id,
+                'branch': branch,
+                'product_key': product_key,
+                'role': role,
+            }
+            role_rows.append({
+                'role': role,
+                'roster': roster,
+                'add_url': f"{reverse('admin:core_tatresponsibilityassignment_add')}?{urlencode(params)}",
+            })
+        for row in catalogue:
+            override = stage_overrides.get((row['stage_key'], product_key)) or stage_overrides.get((row['stage_key'], ''))
+            params = {
+                'group_configuration': selected_group_id,
+                'branch': branch,
+                'product_key': product_key,
+                'stage_key': row['stage_key'],
+                'role': row['role'],
+            }
+            row['override'] = override
+            row['add_url'] = f"{reverse('admin:core_tatresponsibilityassignment_add')}?{urlencode(params)}"
+
+        scoped_grants = AccessGrant.objects.filter(workflow='tat_tracker', active=True, user__is_active=True)
+        if selected_group:
+            scoped_grants = scoped_grants.filter(
+                models.Q(group_configuration__isnull=True)
+                | models.Q(group_configuration=selected_group)
+            )
+        if branch:
+            scoped_grants = scoped_grants.filter(models.Q(branch='') | models.Q(branch__iexact=branch))
+        if product_key:
+            scoped_grants = scoped_grants.filter(models.Q(product='') | models.Q(product__iexact=product_key))
+        else:
+            scoped_grants = scoped_grants.filter(product='')
+        scoped_grants = scoped_grants.select_related('user', 'group_configuration').order_by(
+            'role', 'user__first_name', 'user__last_name', 'user__username',
+        )
+        connections = {
+            row.user_id: row.status for row in TatPrivateAlertConnection.objects.filter(
+                user_id__in=[grant.user_id for grant in scoped_grants]
+            )
+        }
+        grant_rows = [{
+            'grant': grant,
+            'connection_status': connections.get(grant.user_id, TatPrivateAlertConnection.STATUS_UNKNOWN),
+        } for grant in scoped_grants]
+        issues = configuration_issues(assignments)
+        context = {
+            **(extra_context or {}),
+            'workspace_groups': groups,
+            'workspace_group': selected_group,
+            'workspace_group_id': selected_group_id,
+            'workspace_branches': branches,
+            'workspace_branch': branch,
+            'workspace_products': products,
+            'workspace_product': product_key,
+            'responsibility_role_rows': role_rows,
+            'responsibility_stage_rows': catalogue,
+            'responsibility_grant_rows': grant_rows,
+            'responsibility_assignments': scoped_assignments,
+            'responsibility_issues': issues,
+            'responsibility_issue_count': sum(len(rows) for rows in issues.values()),
+            'capability_matrix_url': reverse('admin:core_workflowrolecapability_matrix'),
+            'users_url': reverse('admin:auth_user_changelist'),
+        }
+        # Workspace selectors are presentation controls, not ORM field
+        # lookups. Remove them before Django's ChangeList parses query params.
+        changelist_query = request.GET.copy()
+        for key in ('workspace_group', 'workspace_branch', 'workspace_product'):
+            changelist_query.pop(key, None)
+        request.GET = changelist_query
+        return super().changelist_view(request, extra_context=context)
 
     def has_module_permission(self, request):
         return bool(request.user and request.user.is_active and request.user.is_superuser)
@@ -1798,6 +2051,20 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return self.has_module_permission(request)
+
+
+@admin.register(TatResponsibilityEvent)
+class TatResponsibilityEventAdmin(GovernedConfigurationAuditAdmin):
+    list_display = ('assignment_id_snapshot', 'action', 'actor', 'reason', 'created_at')
+    list_filter = ('action', 'created_at')
+    search_fields = ('assignment_id_snapshot', 'actor__username', 'reason')
+    readonly_fields = [field.name for field in TatResponsibilityEvent._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 class TatActionTaskRecipientInline(TabularInline):

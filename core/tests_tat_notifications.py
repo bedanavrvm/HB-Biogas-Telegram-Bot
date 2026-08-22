@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -21,6 +22,7 @@ from core.models import (
     TatPrivateAlertConnection,
     TatResponsibilityAssignment,
     TatResponsibilityBackup,
+    TatResponsibilityEvent,
     TatTrackerCase,
     UserProfile,
 )
@@ -31,6 +33,7 @@ from core.services.tat_notifications import (
     issue_locator,
     refresh_group_exception,
     resolve_locator,
+    resolve_assignment,
     synchronize_case_task,
 )
 from core.services.group_config import GroupRegistry
@@ -115,6 +118,145 @@ class TatPrivateTaskTests(TestCase):
         ])
         self.assertLessEqual(recipients[0].deliver_after, timezone.now())
         self.assertGreater(recipients[1].deliver_after, timezone.now())
+
+    def test_stage_override_derives_role_for_user_with_multiple_roles(self):
+        multi_role = self._user('multi-role', '103')
+        self._grant(multi_role, 'SECRETARY')
+        self._grant(multi_role, 'FINANCE')
+
+        assignment = TatResponsibilityAssignment.objects.create(
+            group_configuration=self.group,
+            branch='Nakuru',
+            role='SECRETARY',  # A stale/manipulated form value must not win.
+            product_key='business',
+            stage_key='disbursement',
+            primary_user=multi_role,
+        )
+
+        self.assertEqual(assignment.role, 'FINANCE')
+
+    def test_superuser_is_not_silently_enrolled_without_tat_access_grant(self):
+        superuser = get_user_model().objects.create_superuser(
+            username='technical-root', password='test-password', email='root@example.test',
+        )
+        assignment = TatResponsibilityAssignment(
+            group_configuration=self.group, branch='Nakuru', role='BRO',
+            primary_user=superuser,
+        )
+
+        with self.assertRaises(ValidationError) as raised:
+            assignment.full_clean()
+
+        self.assertIn('primary_user', raised.exception.message_dict)
+
+    def test_backup_rank_requires_strictly_later_escalation_threshold(self):
+        later_backup = self._user('later-backup', '104')
+        self._grant(later_backup, 'BRO')
+        TatEscalationRule.objects.create(
+            group_configuration=self.group, branch='Nakuru', threshold_percent=150,
+            routing_role=TatEscalationRule.ROUTE_RESPONSIBLE,
+        )
+        duplicate_threshold = TatResponsibilityBackup(
+            assignment=self.assignment, user=later_backup, rank=2, threshold_percent=100,
+        )
+        with self.assertRaises(ValidationError):
+            duplicate_threshold.full_clean()
+
+        later = TatResponsibilityBackup.objects.create(
+            assignment=self.assignment, user=later_backup, rank=2, threshold_percent=150,
+        )
+        self.assertEqual(later.threshold_percent, 150)
+
+    def test_product_stage_override_precedes_general_role_roster(self):
+        specialist = self._user('specialist', '105')
+        self._grant(specialist, 'BRO', product='business')
+        override = TatResponsibilityAssignment.objects.create(
+            group_configuration=self.group, branch='Nakuru', role='BRO',
+            product_key='business', stage_key='mpesa_to_admin', primary_user=specialist,
+        )
+
+        resolved = resolve_assignment(
+            group=self.group, case=self.case, role='BRO', stage_key='mpesa_to_admin',
+        )
+
+        self.assertEqual(resolved, override)
+
+    def test_runtime_same_tier_ambiguity_fails_closed(self):
+        specialist = self._user('ambiguous-specialist', '106')
+        self._grant(specialist, 'BRO', product='business')
+        first = TatResponsibilityAssignment.objects.create(
+            group_configuration=self.group, branch='Nakuru', role='BRO',
+            product_key='business', stage_key='mpesa_to_admin', primary_user=specialist,
+        )
+        # Simulate a legacy/corrupt case-insensitive duplicate that bypassed
+        # model validation; routing must not choose one arbitrarily.
+        second = TatResponsibilityAssignment.objects.create(
+            group_configuration=self.group, branch='Elsewhere', role='BRO',
+            product_key='business', stage_key='mpesa_to_admin', primary_user=specialist,
+        )
+        TatResponsibilityAssignment.objects.filter(pk=second.pk).update(branch='nakuru')
+        first.refresh_from_db()
+
+        self.assertIsNone(resolve_assignment(
+            group=self.group, case=self.case, role='BRO', stage_key='mpesa_to_admin',
+        ))
+
+    def test_centralized_admin_workspace_shows_roles_stages_and_grants(self):
+        superuser = get_user_model().objects.create_superuser(
+            username='workspace-admin', password='test-password', email='workspace@example.test',
+        )
+        self.client.force_login(superuser)
+
+        response = self.client.get(reverse('admin:core_tatresponsibilityassignment_changelist'), {
+            'workspace_group': str(self.group.pk),
+            'workspace_branch': 'Nakuru',
+            'workspace_product': 'business',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'TAT access &amp; responsibilities')
+        self.assertContains(response, 'Canonical stage ownership')
+        self.assertContains(response, 'mpesa_to_admin')
+        self.assertContains(response, 'primary')
+
+    def test_admin_stage_override_derives_role_and_writes_audit_event(self):
+        superuser = get_user_model().objects.create_superuser(
+            username='routing-admin', password='test-password', email='routing@example.test',
+        )
+        self.client.force_login(superuser)
+        response = self.client.post(reverse('admin:core_tatresponsibilityassignment_add'), {
+            'group_configuration': str(self.group.pk),
+            'branch': 'Nakuru',
+            'role': 'FINANCE',
+            'product_key': 'business',
+            'stage_key': 'mpesa_to_admin',
+            'primary_user': str(self.primary.pk),
+            'active': 'on',
+            'effective_from_0': timezone.localdate().isoformat(),
+            'effective_from_1': timezone.localtime().strftime('%H:%M:%S'),
+            'effective_until_0': '',
+            'effective_until_1': '',
+            'change_reason': 'Assign the synthetic BRO for routing verification.',
+            'backups-TOTAL_FORMS': '0',
+            'backups-INITIAL_FORMS': '0',
+            'backups-MIN_NUM_FORMS': '0',
+            'backups-MAX_NUM_FORMS': '1000',
+            '_save': 'Save',
+        })
+
+        self.assertEqual(
+            response.status_code, 302,
+            getattr(response.context.get('adminform'), 'form', None).errors
+            if response.context else response.content[:1000],
+        )
+        assignment = TatResponsibilityAssignment.objects.get(
+            group_configuration=self.group, product_key='business', stage_key='mpesa_to_admin',
+        )
+        self.assertEqual(assignment.role, 'BRO')
+        event = TatResponsibilityEvent.objects.get(assignment=assignment)
+        self.assertEqual(event.action, TatResponsibilityEvent.ACTION_CREATED)
+        self.assertEqual(event.actor, superuser)
+        self.assertEqual(event.after_snapshot['role'], 'BRO')
 
     @patch('core.services.tat_notifications._telegram_request', return_value={'message_id': 77})
     def test_known_unconnected_primary_immediately_soft_escalates_to_backup(self, telegram):

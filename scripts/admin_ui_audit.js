@@ -26,6 +26,7 @@ const routes = [
   ['user-inlines', '/admin/auth/user/1/change/'],
   ['pilot-mode-switchboard', '/admin/core/workflowdatamodestate/1/change/'],
   ['pilot-cleanup', '/admin/core/workflowdatamodestate/1/pilot-purge/?scope=spin'],
+  ['tat-responsibility', '/admin/core/tatresponsibilityassignment/'],
   ['origination-list', '/admin/core/originationproductdefinition/'],
   ['field-list', '/admin/core/originationdatafield/'],
   ['terminology-audit', '/admin/core/originationdatafield/terminology-audit/'],
@@ -122,6 +123,13 @@ async function auditSharedPages(browser, viewport) {
       assert(await page.getByText('Permanent cleanup').count(), `${viewport.name}: pilot cleanup confirmation missing`);
       assert(await page.getByText('Drive files and media metadata are never deleted').count(), `${viewport.name}: deletion boundary is not visible`);
     }
+    if (name === 'tat-responsibility') {
+      assert(await page.getByText('TAT access & responsibilities').count(), `${viewport.name}: centralized TAT responsibility workspace missing`);
+      assert(await page.getByText('Canonical stage ownership').count(), `${viewport.name}: canonical TAT stage matrix missing`);
+      assert(await page.getByText('Eligible staff and private alerts').count(), `${viewport.name}: scoped grant and alert health panel missing`);
+      const stageScroller = page.locator('table').filter({ hasText: 'Responsible role' }).locator('..');
+      assert(await stageScroller.count(), `${viewport.name}: contained stage table missing`);
+    }
     if (name === 'origination-builder') {
       assert(await page.locator('#origination-product-builder').count(), `${viewport.name}: product builder missing`);
       const builderOverflow = await page.locator('#origination-product-builder').evaluate(node => node.scrollWidth - node.clientWidth);
@@ -151,7 +159,7 @@ async function auditSharedPages(browser, viewport) {
       await page.screenshot({ path: path.join(output, `${viewport.name}-origination-field-picker.png`) });
       await picker.locator('.opb-picker-close').click();
     }
-    if (['dashboard', 'pilot-mode-switchboard', 'pilot-cleanup', 'origination-builder', 'version-history'].includes(name)) {
+    if (['dashboard', 'pilot-mode-switchboard', 'pilot-cleanup', 'tat-responsibility', 'origination-builder', 'version-history'].includes(name)) {
       await page.screenshot({ path: path.join(output, `${viewport.name}-${name}.png`), fullPage: true });
     }
   }

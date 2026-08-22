@@ -6,6 +6,37 @@
  * Keep the admin useful for operational scanning instead of oversized forms.
  */
 
+/* TAT access/responsibility is a full-width operational workspace. Intrinsic
+   table width must stay inside its own scroller, especially in Unfold's
+   narrow change-list grid. */
+.tat-responsibility-workspace,
+.tat-responsibility-workspace > *,
+.tat-responsibility-overview,
+.tat-responsibility-overview > *,
+.tat-responsibility-records {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
+}
+
+.tat-responsibility-scroll {
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+}
+
+.tat-responsibility-scroll table {
+    min-width: 44rem;
+}
+
+.tat-responsibility-records #changelist,
+.tat-responsibility-records #changelist-form {
+    max-width: 100%;
+    min-width: 0;
+}
+
 @media (min-width: 1024px) {
     body.change-form #content,
     body.change-list #content,

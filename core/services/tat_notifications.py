@@ -132,16 +132,26 @@ def _grant_matches(grant: AccessGrant, *, group, branch: str, product_key: str, 
 
 
 def user_can_receive_task(user, *, group, case: TatTrackerCase, role: str) -> bool:
+    return user_can_receive_scope(
+        user, group=group, branch=case.branch,
+        product_key=case.product_key, role=role,
+    )
+
+
+def user_can_receive_scope(user, *, group, branch: str, product_key: str, role: str) -> bool:
+    """Require an explicit matching grant for routine notification routing.
+
+    Django Superusers retain break-glass action authority elsewhere, but are
+    not silently enrolled in operational task delivery.
+    """
     if not user or not user.is_active:
         return False
-    if user.is_superuser:
-        return True
     grants = AccessGrant.objects.filter(
         user=user, workflow='tat_tracker', active=True,
     ).select_related('user', 'group_configuration')
     return any(_grant_matches(
-        grant, group=group, branch=case.branch,
-        product_key=case.product_key, role=role,
+        grant, group=group, branch=branch,
+        product_key=product_key, role=role,
     ) for grant in grants)
 
 
@@ -177,8 +187,23 @@ def resolve_assignment(*, group, case: TatTrackerCase, role: str, stage_key: str
             continue
         specificity = int(bool(assignment.product_key)) + (2 * int(bool(assignment.stage_key)))
         candidates.append((specificity, assignment))
-    candidates.sort(key=lambda item: item[0], reverse=True)
-    return candidates[0][1] if candidates else None
+    if not candidates:
+        return None
+    highest_specificity = max(item[0] for item in candidates)
+    winners = [assignment for specificity, assignment in candidates if specificity == highest_specificity]
+    if len(winners) != 1:
+        logger.error(
+            'Ambiguous TAT responsibility assignment; routing through safe role fallback.',
+            extra={
+                'group_configuration_id': getattr(group, 'pk', None),
+                'case_id': case.case_id,
+                'role': role,
+                'stage_key': stage_key,
+                'assignment_ids': [str(item.pk) for item in winners],
+            },
+        )
+        return None
+    return winners[0]
 
 
 def _stage_started_at(case: TatTrackerCase, stage_key: str):
@@ -261,18 +286,24 @@ def synchronize_case_task(group_config, case: TatTrackerCase, *, actor_user=None
 
     assignment = resolve_assignment(group=group, case=case, role=stage.role, stage_key=stage.key)
     recipients = []
+    recipient_user_ids = set()
     invalid_assignment = False
     if assignment:
         if user_can_receive_task(assignment.primary_user, group=group, case=case, role=stage.role):
             recipients.append((assignment.primary_user, TatActionTaskRecipient.KIND_PRIMARY, 0, None))
+            recipient_user_ids.add(assignment.primary_user_id)
         else:
             invalid_assignment = True
         for backup in assignment.backups.filter(active=True).select_related('user').order_by('rank'):
-            if user_can_receive_task(backup.user, group=group, case=case, role=stage.role):
+            if (
+                backup.user_id not in recipient_user_ids
+                and user_can_receive_task(backup.user, group=group, case=case, role=stage.role)
+            ):
                 recipients.append((
                     backup.user, TatActionTaskRecipient.KIND_BACKUP,
                     backup.rank, backup.threshold_percent,
                 ))
+                recipient_user_ids.add(backup.user_id)
             else:
                 invalid_assignment = True
     if not recipients:

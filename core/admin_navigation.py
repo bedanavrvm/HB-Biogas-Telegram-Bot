@@ -151,7 +151,7 @@ def _group_workflow_items(config: GroupSheetConfiguration) -> list[dict]:
             _filtered_model_item("core.TatTrackerCase", "Cases", "schedule", group_id=group_id),
             _filtered_model_item("core.TatTrackerEvent", "Event history", "timeline", group_id=group_id),
             _filtered_model_item(
-                "core.TatResponsibilityAssignment", "Responsibility routing", "account_tree",
+                "core.TatResponsibilityAssignment", "Access & responsibilities", "account_tree",
                 group_configuration_id=config.pk,
             ),
             _filtered_model_item(
@@ -256,7 +256,7 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("auth.User", "Users", "group"),
         _model_item("auth.Group", "Groups", "groups"),
         _model_item("core.WorkflowDataModeState", "SPIN/TAT pilot modes", "science"),
-        _model_item("core.TatResponsibilityAssignment", "TAT responsibility routing", "account_tree"),
+        _model_item("core.TatResponsibilityAssignment", "TAT access & responsibilities", "account_tree"),
         _model_item("core.OperationalLocation", "Global locations", "map"),
         _model_item("core.BranchServiceArea", "Branch service areas", "conversion_path"),
         _model_item("core.OperationalLocationAlias", "Location aliases", "alt_route"),
@@ -309,6 +309,7 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("core.TatActionTask", "TAT private tasks", "inbox"),
         _model_item("core.TatPrivateAlertConnection", "TAT private alert connections", "notifications"),
         _model_item("core.TatGroupExceptionStatus", "TAT delivery exceptions", "notification_important"),
+        _model_item("core.TatResponsibilityEvent", "TAT responsibility audit", "history"),
         _model_item("core.OriginationDataFieldEvent", "Origination field audit", "history"),
         _model_item("core.LocationConfigurationEvent", "Location configuration audit", "history"),
     ]
