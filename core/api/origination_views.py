@@ -9,12 +9,14 @@ from pathlib import Path
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from core.models import (
     LoanOriginationApplication,
     OriginationProductDefinition,
+    OriginationReviewerNotice,
     OriginationRequirementEvidence,
     OriginationSignerSession,
     OriginationSigningPackage,
@@ -31,8 +33,12 @@ from core.services.origination_access import (
 from core.services.loan_origination import (
     OriginationConflict,
     OriginationError,
+    OriginationRecallConfirmationRequired,
     create_application,
+    prepare_review_package,
     prepare_signing_package,
+    recall_application,
+    render_review_package,
     render_application_preview,
     review_application,
     save_application_fields,
@@ -43,6 +49,7 @@ from core.services.loan_origination import (
 )
 from core.services.origination_documents import (
     mark_document_previewed,
+    mark_packet_previewed,
     render_document,
     render_packet,
     save_document_fields,
@@ -285,6 +292,16 @@ def portal_origination_applications(request):
             key: scoped.filter(status=key).count()
             for key, _label in LoanOriginationApplication.STATUS_CHOICES
         }
+        prepared_review_filter = Q(
+            signing_packages__status=OriginationSigningPackage.STATUS_PENDING,
+            signing_packages__review_scope_sha256__gt='',
+        )
+        status_counts['packet_preparation'] = scoped.filter(
+            status=LoanOriginationApplication.STATUS_READY_FOR_REVIEW,
+        ).exclude(prepared_review_filter).distinct().count()
+        status_counts['final_review'] = scoped.filter(
+            status=LoanOriginationApplication.STATUS_READY_FOR_REVIEW,
+        ).filter(prepared_review_filter).distinct().count()
         queue_name = str(request.GET.get('queue') or '').strip()
         if queue_name == 'mine':
             queryset = queryset.filter(officer=user)
@@ -296,7 +313,16 @@ def portal_origination_applications(request):
             if not capabilities['can_review']:
                 queryset = queryset.none()
             else:
-                queryset = queryset.filter(status=LoanOriginationApplication.STATUS_READY_FOR_REVIEW)
+                queryset = queryset.filter(
+                    status=LoanOriginationApplication.STATUS_READY_FOR_REVIEW,
+                ).filter(prepared_review_filter).distinct()
+        elif queue_name == 'prepare':
+            if not capabilities['can_start_signing']:
+                queryset = queryset.none()
+            else:
+                queryset = queryset.filter(
+                    status=LoanOriginationApplication.STATUS_READY_FOR_REVIEW,
+                ).exclude(prepared_review_filter).distinct()
         elif queue_name == 'signing':
             if not capabilities['can_start_signing']:
                 queryset = queryset.none()
@@ -347,11 +373,23 @@ def portal_origination_applications(request):
         pages = max(1, (total + page_size - 1) // page_size)
         start = (page - 1) * page_size
         items = queryset.order_by('-updated_at', '-created_at')[start:start + page_size]
+        reviewer_alerts = []
+        if capabilities['can_review']:
+            reviewer_alerts = [{
+                'id': str(item.pk),
+                'application_id': str(item.application_id),
+                'reference_number': item.application.reference_number,
+                'message': item.message,
+                'created_at': item.created_at.isoformat(),
+            } for item in OriginationReviewerNotice.objects.select_related('application').filter(
+                recipient=user, seen_at__isnull=True, application__in=scoped,
+            ).order_by('-created_at')[:10]]
         return JsonResponse({
             'ok': True,
             'applications': [serialize_application(item, include_payload=False) for item in items],
             'counts': status_counts,
             'capabilities': capabilities,
+            'reviewer_alerts': reviewer_alerts,
             'queue': queue_name,
             'pagination': {
                 'page': page, 'page_size': page_size, 'total': total, 'pages': pages,
@@ -443,6 +481,39 @@ def portal_origination_submit(request, application_id: str):
 
 @csrf_exempt
 @require_http_methods(['POST'])
+def portal_origination_recall(request, application_id: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if (error := _capability_error(request, 'portal.origination.create', application)):
+        return error
+    if (access_error := _application_access_error(request, application)):
+        return access_error
+    try:
+        body = _body(request)
+        recalled = recall_application(
+            application_id=application.pk, actor=request.portal_user,
+            expected_revision=int(body.get('revision')),
+            request_id=_request_id(request, body),
+            confirmed_package_id=str(body.get('confirmed_package_id') or ''),
+            confirmed_package_hash=str(body.get('confirmed_package_hash') or ''),
+        )
+    except OriginationRecallConfirmationRequired as exc:
+        return JsonResponse({
+            'ok': False, 'error': str(exc), 'conflict': True,
+            'confirmation_required': True,
+            'package_id': exc.package_id, 'package_hash': exc.package_hash,
+            'approval_invalidated': exc.approval_invalidated,
+        }, status=409)
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    return JsonResponse({'ok': True, 'application': serialize_application(recalled)})
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
 def portal_origination_preview(request, application_id: str):
     application = _application(application_id)
     if not application:
@@ -508,6 +579,9 @@ def portal_origination_review(request, application_id: str):
             expected_revision=int(body.get('revision')), request_id=_request_id(request, body),
             decision=body.get('decision'), reason=body.get('reason', ''),
             correction_items=body.get('correction_items'),
+            package_id=body.get('package_id'),
+            expected_unsigned_hash=str(body.get('unsigned_document_hash') or ''),
+            expected_review_scope_hash=str(body.get('review_scope_sha256') or ''),
         )
     except OriginationConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
@@ -542,6 +616,91 @@ def portal_origination_correction_takeover(request, application_id: str):
 
 @csrf_exempt
 @require_http_methods(['POST'])
+def portal_origination_prepare_review_packet(request, application_id: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if (error := _capability_error(request, 'portal.origination.signing.start', application)):
+        return error
+    if (access_error := _application_access_error(request, application)):
+        return access_error
+    try:
+        body = _body(request)
+        package, replayed = prepare_review_package(
+            application_id=application.pk, actor=request.portal_user,
+            expected_revision=int(body.get('revision')),
+            request_id=_request_id(request, body),
+        )
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    package.application.refresh_from_db()
+    return JsonResponse({
+        'ok': True, 'replayed': replayed,
+        'application': serialize_application(package.application),
+    }, status=200 if replayed else 201)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_origination_review_packet_preview(request, application_id: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if (error := _capability_error(request, 'portal.origination.view', application)):
+        return error
+    if (access_error := _application_access_error(request, application)):
+        return access_error
+    try:
+        body = _body(request)
+        if int(body.get('revision')) != application.revision:
+            raise OriginationConflict('This application changed. Refresh before previewing final review.')
+        package = application.signing_packages.filter(
+            pk=body.get('package_id'), status=OriginationSigningPackage.STATUS_PENDING,
+        ).first()
+        if not package:
+            raise OriginationConflict('The frozen review packet changed. Refresh before previewing it.')
+        if (
+            str(body.get('unsigned_document_hash') or '') != package.unsigned_document_hash
+            or str(body.get('review_scope_sha256') or '') != package.review_scope_sha256
+        ):
+            raise OriginationConflict('The frozen review packet hash changed. Refresh before previewing it.')
+        content = render_review_package(package)
+        preview_format = str(body.get('preview_format') or 'pdf').strip().lower()
+        if preview_format == 'image':
+            from core.services.partnership_laf_preview import render_pdf_page
+            page_number = int(body.get('page') or 1)
+            content, total_pages = render_pdf_page(content, page_number=page_number)
+        request_id = _request_id(request, body)
+        if request_id and not application.events.filter(request_id=request_id).exists():
+            from core.services.loan_origination import _record_event
+            _record_event(
+                application, 'review_packet_previewed', actor=request.portal_user,
+                request_id=request_id, after={
+                    'package_id': str(package.pk),
+                    'unsigned_document_hash': package.unsigned_document_hash,
+                    'review_scope_sha256': package.review_scope_sha256,
+                },
+            )
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, RuntimeError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    if preview_format == 'image':
+        response = HttpResponse(content, content_type='image/jpeg')
+        response['Content-Disposition'] = f'inline; filename="{application.reference_number}-review-page-{page_number}.jpg"'
+        response['X-Preview-Page-Count'] = str(total_pages)
+    else:
+        response = HttpResponse(content, content_type='application/pdf')
+        response['Content-Disposition'] = f'inline; filename="{application.reference_number}-FINAL-REVIEW.pdf"'
+    response['Cache-Control'] = 'no-store, private'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
 def portal_origination_prepare_signing(request, application_id: str):
     application = _application(application_id)
     if not application:
@@ -565,7 +724,24 @@ def portal_origination_prepare_signing(request, application_id: str):
     return JsonResponse({
         'ok': True, 'replayed': replayed,
         'signing_package': {'id': str(package.pk), 'reference': package.external_reference, 'status': package.status},
+        'application': serialize_application(package.application),
     }, status=200 if replayed else 201)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_origination_reviewer_notice_seen(request, notice_id: str):
+    if (error := _capability_error(request, 'portal.origination.review')):
+        return error
+    notice = OriginationReviewerNotice.objects.filter(
+        pk=notice_id, recipient=request.portal_user,
+    ).first()
+    if not notice:
+        return JsonResponse({'ok': False, 'error': 'Reviewer alert not found.'}, status=404)
+    if notice.seen_at is None:
+        notice.seen_at = timezone.now()
+        notice.save(update_fields=['seen_at'])
+    return JsonResponse({'ok': True, 'seen_at': notice.seen_at.isoformat()})
 
 
 @csrf_exempt
@@ -1263,6 +1439,15 @@ def portal_origination_packet_preview(request, application_id: str):
             from core.services.partnership_laf_preview import render_pdf_page
             page_number = int(body.get('page') or 1)
             content, total_pages = render_pdf_page(content, page_number=page_number)
+        mark_packet_previewed(application)
+        request_id = _request_id(request, body)
+        if request_id and not application.events.filter(request_id=request_id).exists():
+            from core.services.loan_origination import _record_event
+            _record_event(
+                application, 'document_packet_previewed', actor=request.portal_user,
+                request_id=request_id,
+                after={'document_keys': [item.get('key') for item in manifest]},
+            )
     except OriginationConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
     except (OriginationError, RuntimeError, TypeError, ValueError) as exc:

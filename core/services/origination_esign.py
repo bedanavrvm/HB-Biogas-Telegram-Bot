@@ -46,6 +46,21 @@ class OriginationSigningRateLimited(OriginationError):
         self.retry_after = max(1, int(retry_after))
 
 
+def _require_approved_package(package: OriginationSigningPackage) -> None:
+    if package.application.status not in {
+        LoanOriginationApplication.STATUS_SIGNING_PENDING,
+        LoanOriginationApplication.STATUS_PARTIALLY_SIGNED,
+        LoanOriginationApplication.STATUS_FULLY_SIGNED,
+    }:
+        raise OriginationError('Operations must start the approved signing package first.')
+    if (
+        not package.reviewed_at
+        or package.approved_unsigned_document_hash != package.unsigned_document_hash
+        or package.approved_review_scope_sha256 != package.review_scope_sha256
+    ):
+        raise OriginationError('This signing package has not passed final packet review.')
+
+
 def esign_enabled() -> bool:
     if not bool(getattr(settings, 'ORIGINATION_ESIGN_ENABLED', False)):
         return False
@@ -201,6 +216,7 @@ def create_signer_session(
     if not esign_enabled():
         raise OriginationError('Verified Origination e-signing is not configured for this environment.')
     package = OriginationSigningPackage.objects.select_for_update().select_related('application').get(pk=package_id)
+    _require_approved_package(package)
     replay = package.signer_sessions.filter(request_id=request_id).first()
     if replay:
         if replay.signer_role != signer_role or replay.access_mode != access_mode:
@@ -737,6 +753,7 @@ def complete_staff_signatures(
     if signer_role not in STAFF_SIGNER_ROLES:
         raise OriginationError('This role must sign through its external signer session.')
     package = OriginationSigningPackage.objects.select_for_update().select_related('application').get(pk=package_id)
+    _require_approved_package(package)
     if package.test_mode:
         raise OriginationError('Staff verified signing is unavailable on a test package.')
     if package.application.revision != int(expected_revision):
@@ -778,6 +795,7 @@ def apply_production_stamp(
 ) -> OriginationSigningPackage:
     request_id = _require_request_id(request_id)
     package = OriginationSigningPackage.objects.select_for_update().select_related('application').get(pk=package_id)
+    _require_approved_package(package)
     if package.test_mode:
         raise OriginationError('Production stamps cannot be applied to a test package.')
     if package.application.revision != int(expected_revision):

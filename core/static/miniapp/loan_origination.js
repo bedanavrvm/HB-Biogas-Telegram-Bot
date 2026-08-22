@@ -19,6 +19,7 @@
   let locationCatalog = {};
   let applications = [];
   let listCounts = {};
+  let reviewerAlerts = [];
   let listTotal = 0;
   let listScrollY = 0;
   let capabilities = { can_create: false, can_review: false, can_start_signing: false };
@@ -44,6 +45,9 @@
   let recoveryAvailable = Boolean(window.crypto?.subtle && window.indexedDB);
   const recoveredApplications = new Set();
   const reviewTargets = new Map();
+  const completedDraftSections = new Set();
+  const unlockedDraftSections = new Set();
+  let draftSectionApplicationId = '';
   let reviewDialogMode = '';
   let reviewReturnFocus = null;
   let pendingAuditedReasonAction = null;
@@ -1011,11 +1015,18 @@
 
   async function openEditor(application, requestedStep) {
     current = application;
+    if (draftSectionApplicationId !== String(application.id)) {
+      completedDraftSections.clear();
+      unlockedDraftSections.clear();
+      draftSectionApplicationId = String(application.id);
+    }
     reviewTargets.clear();
     syncConflict = false;
     conflictDraft = null;
     await recoverDraft(application);
-    if (application.status === 'signing_pending') requestedStep = wizardSections().length - 1;
+    if (['ready_for_review', 'reviewed', 'signing_pending', 'partially_signed', 'fully_signed'].includes(application.status)) {
+      requestedStep = wizardSections().length - 1;
+    }
     renderEditor(current, requestedStep);
   }
 
@@ -1153,7 +1164,8 @@
   function correctionToggle(targetType, targetKey, targetLabel) {
     if (!capabilities.can_review) return '';
     const identity = `${targetType}:${targetKey}`;
-    return `<span class="correction-toggle"><input type="checkbox" data-correction-target="${escapeHtml(identity)}" data-target-type="${escapeHtml(targetType)}" data-target-key="${escapeHtml(targetKey)}" data-target-label="${escapeHtml(targetLabel)}"${reviewTargets.has(identity) ? ' checked' : ''}><span>Flag for correction</span></span>`;
+    const selected = reviewTargets.get(identity);
+    return `<span class="correction-control"><span class="correction-toggle"><input type="checkbox" data-correction-target="${escapeHtml(identity)}" data-target-type="${escapeHtml(targetType)}" data-target-key="${escapeHtml(targetKey)}" data-target-label="${escapeHtml(targetLabel)}"${selected ? ' checked' : ''}><span>Flag for correction</span></span><input class="correction-inline-note" data-correction-instruction="${escapeHtml(identity)}" maxlength="1000" value="${escapeHtml(selected?.instruction || '')}" placeholder="Tell the officer exactly what to correct"${selected ? '' : ' hidden disabled'}></span>`;
   }
 
   function locationMatch(items, value) {
@@ -1457,17 +1469,36 @@
   }
 
   function latestPreviewLabel(fallback) {
-    return hasFinalSignedPacket() ? 'Preview signed packet' : fallback;
+    if (hasFinalSignedPacket()) return 'Preview signed packet';
+    if (current?.review_packet_ready && ['ready_for_review', 'reviewed'].includes(current?.status)) {
+      return current.status === 'reviewed' ? 'Preview approved packet' : 'Preview frozen packet';
+    }
+    return fallback;
   }
 
   function resolveLatestPreviewKey(documentKey) {
-    return hasFinalSignedPacket() ? '__signed_packet__' : documentKey;
+    if (hasFinalSignedPacket()) return '__signed_packet__';
+    if (current?.review_packet_ready && ['ready_for_review', 'reviewed'].includes(current?.status)) {
+      return '__review_packet__';
+    }
+    return documentKey;
+  }
+
+  function reviewWorkflowMarkup() {
+    if (!['ready_for_review', 'reviewed'].includes(current?.status)) return '';
+    const packageData = current?.signing_package || {};
+    if (current.status === 'ready_for_review' && !current.review_packet_ready) {
+      return '<aside class="workflow-readiness is-waiting"><div><p class="eyebrow">Operations preparation</p><strong>Awaiting a frozen review packet</strong><span>Operations must freeze the application data, evidence, participants and complete document packet before a checker can review it.</span></div></aside>';
+    }
+    if (current.status === 'ready_for_review') {
+      return `<aside class="workflow-readiness is-ready"><div><p class="eyebrow">Checker final review</p><strong>Review the exact frozen packet</strong><span>This immutable PDF and review-scope hash are the only version that can be approved and sent for signing.</span></div><button type="button" class="btn btn-primary" id="origination-review-packet-preview">Preview frozen packet</button></aside>`;
+    }
+    return `<aside class="workflow-readiness is-approved"><div><p class="eyebrow">Approved frozen packet</p><strong>Approved by ${escapeHtml(packageData.reviewed_by_name || 'an authorized checker')}</strong><span>Operations may now start signing. Any officer recall cancels this packet and invalidates the approval.</span></div><button type="button" class="btn btn-secondary" id="origination-review-packet-preview">Preview approved packet</button></aside>`;
   }
 
   function reviewMarkup(values) {
     const hasPacket = (current?.document_packet?.documents || []).filter(item => item.selected).length > 1;
-    const finalSignedPacket = hasFinalSignedPacket();
-    return `<div class="review-intro"><div><p class="eyebrow">Final check</p><h3>Review the application</h3><p>Open each section to correct details, then inspect every selected document.</p></div><div class="review-preview-actions"><button type="button" class="btn btn-secondary" id="origination-preview">${latestPreviewLabel('Preview main LAF')}</button>${hasPacket && !finalSignedPacket ? '<button type="button" class="btn btn-primary" id="origination-packet-preview">Preview full packet</button>' : ''}</div></div>
+    return `${reviewWorkflowMarkup()}<div class="review-intro"><div><p class="eyebrow">Final check</p><h3>Review the application</h3><p>${current?.review_packet_ready ? 'Inspect the frozen packet and open sections to verify the captured data.' : 'Open each section to correct details, then inspect the complete document packet.'}</p></div><div class="review-preview-actions"><button type="button" class="btn btn-primary" id="origination-preview">${latestPreviewLabel(hasPacket ? 'Preview full packet' : 'Preview main LAF')}</button></div></div>
       <div class="review-sections">${wizardSections().slice(0, -1).map((section, index) => {
         if (section.key === 'document_selection') {
           const selected = (current?.document_packet?.documents || []).filter(item => item.role === 'supporting' && item.selected);
@@ -1538,14 +1569,23 @@
 
   function actionMarkup(editable) {
     if (!editable) {
-      if (current.status === 'ready_for_review' && capabilities.can_review) {
+      const officerOwnsApplication = capabilities.can_create
+        && String(current.officer_id) === String(capabilities.user_id);
+      const recall = current.can_recall && officerOwnsApplication
+        ? '<button class="btn btn-secondary" id="origination-recall">Edit application</button>' : '';
+      if (current.status === 'ready_for_review' && !current.review_packet_ready) {
+        const prepare = capabilities.can_start_signing
+          ? '<button class="btn btn-primary" id="origination-prepare-review" data-primary-action="Prepare review packet">Prepare review packet</button>' : '';
+        return `${recall}${prepare}`;
+      }
+      if (current.status === 'ready_for_review' && current.review_packet_ready && capabilities.can_review) {
         const assignedElsewhere = current.recheck_assigned_to_id
           && String(current.recheck_assigned_to_id) !== String(capabilities.user_id);
-        if (assignedElsewhere) return '<button class="btn btn-secondary" id="origination-takeover-review">Take over re-check</button>';
-        return '<button class="btn btn-secondary" data-review="request_correction">Request correction</button><button class="btn btn-danger" data-review="decline">Decline</button><button class="btn btn-primary" data-review="approve">Approve</button>';
+        if (assignedElsewhere) return `${recall}<button class="btn btn-secondary" id="origination-takeover-review">Take over re-check</button>`;
+        return `${recall}<button class="btn btn-secondary" data-review="request_correction">Request correction</button><button class="btn btn-danger" data-review="decline">Decline</button><button class="btn btn-primary" data-review="approve">Approve frozen packet</button>`;
       }
-      if (current.status === 'reviewed' && capabilities.can_start_signing) return '<button class="btn btn-primary" id="origination-prepare-signing" data-primary-action="Prepare signing package">Prepare signing package</button>';
-      return '';
+      if (current.status === 'reviewed' && capabilities.can_start_signing) return `${recall}<button class="btn btn-primary" id="origination-start-signing" data-primary-action="Start signing">Start signing</button>`;
+      return recall;
     }
     return `${step > 0 ? `<button class="btn btn-secondary" id="wizard-previous">${iconSvg('arrowLeft')} Previous</button>` : '<span></span>'}${step < wizardSections().length - 1 ? '<button class="btn btn-primary" id="wizard-next" data-primary-action="Save & continue">Save & continue</button>' : '<button class="btn btn-primary" id="origination-submit" data-primary-action="Submit for review">Submit for review</button>'}`;
   }
@@ -1582,23 +1622,31 @@
     const sections = wizardSections();
     if (step >= sections.length) step = sections.length - 1;
     const section = sections[step];
+    const sectionLocked = application.status === 'draft'
+      && section.key !== 'review'
+      && completedDraftSections.has(section.key)
+      && !unlockedDraftSections.has(section.key);
+    const sectionEditable = editable && !sectionLocked;
     let content;
     if (section.key === 'review') content = reviewMarkup(values);
-    else if (section.key === 'document_selection') content = documentSelectionMarkup(editable && application.status !== 'correction_required');
-    else if (section.key.startsWith('document:')) content = supportingDocumentMarkup(section.document, editable);
+    else if (section.key === 'document_selection') content = documentSelectionMarkup(sectionEditable && application.status !== 'correction_required');
+    else if (section.key.startsWith('document:')) content = supportingDocumentMarkup(section.document, sectionEditable);
     else {
       const fields = section.key === 'product_requirements'
-        ? productConfigurationMarkup(editable)
-        : `<div class="laf-grid">${fieldsFor(section.key).map(field => fieldInput(field, values[field.key], !editable || field.editable === false || !correctionAllows('field', field.key))).join('')}</div>`;
+        ? productConfigurationMarkup(sectionEditable)
+        : `<div class="laf-grid">${fieldsFor(section.key).map(field => fieldInput(field, values[field.key], !sectionEditable || field.editable === false || !correctionAllows('field', field.key))).join('')}</div>`;
       content = `<div class="section-title"><div><h3>${escapeHtml(section.label)}</h3><p>${escapeHtml(section.hint || '')}</p></div><button type="button" class="preview-link" id="origination-preview-early">${latestPreviewLabel('Preview PDF')}</button></div>${fields}`;
+    }
+    if (sectionLocked) {
+      content = `<aside class="completed-section-lock"><span><strong>Section saved</strong><small>Values are locked while you continue. Unlock only when you need to change this section.</small></span><button type="button" class="btn btn-secondary" id="origination-edit-section">Edit section</button></aside>${content}`;
     }
     const recoveryState = syncConflict ? ['Conflict', 'offline'] : dirty ? ['Recovered securely', 'offline'] : ['Saved', 'saved'];
     const actions = actionMarkup(editable);
     const actionFooter = editable || actions
       ? `<footer class="wizard-actions">${editable ? `<span id="origination-save-status" data-state="${recoveryState[1]}">${recoveryState[0]}</span>` : '<span></span>'}<div>${actions}</div></footer>`
       : '';
-    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small></div><span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(application.status.replaceAll('_', ' '))}</span></div>${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${progressMarkup()}<section class="wizard-card">${content}</section>${actionFooter}`;
-    bindEditor(editable);
+    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small><small class="editor-status-text">${escapeHtml(application.status_text || application.status.replaceAll('_', ' '))}</small></div><span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(application.status.replaceAll('_', ' '))}</span></div>${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${progressMarkup()}<section class="wizard-card">${content}</section>${actionFooter}`;
+    bindEditor(sectionEditable);
     syncTelegramControls();
     window.requestAnimationFrame(() => window.scrollTo(0, 0));
   }
@@ -1606,15 +1654,11 @@
   function documentSelectionMarkup(editable) {
     const packet = current?.document_packet || {};
     const documents = (packet.documents || []).filter(item => item.role === 'supporting' && item.applicable);
-    if (!packet.primary_ready && previewedRevision !== current.revision) {
-      const lockedRows = documents.map(item => `<label class="packet-document-option"><input type="checkbox"${item.selected ? ' checked' : ''} disabled><span><strong>${escapeHtml(item.name)}</strong><small>${item.selected ? 'Included automatically; unlocks after main LAF preview.' : 'Available after main LAF preview.'}</small></span><span class="status-chip">Locked</span></label>`).join('');
-      return `<div class="section-title"><div><h3>Finish the main LAF first</h3><p>These supporting documents are part of this application. Save and preview the filled LAF to unlock their forms and previews.</p></div><button type="button" class="btn btn-primary" id="origination-preview-early">${latestPreviewLabel('Preview main LAF')}</button></div><div class="packet-document-list">${lockedRows || '<div class="empty-state">No supporting documents apply to this application.</div>'}</div>`;
-    }
     const rows = documents.map(item => {
       const locked = item.inclusion_mode !== 'optional';
       return `<label class="packet-document-option${item.selected ? ' selected' : ''}"><input type="checkbox" data-document-select="${escapeHtml(item.key)}"${item.selected ? ' checked' : ''}${locked || !editable ? ' disabled' : ''}><span><strong>${escapeHtml(item.name)}</strong><small>${locked ? 'Required for this application' : 'Optional supporting document'}</small></span><span class="status-chip">${item.selected ? 'Included' : 'Not included'}</span></label>`;
     }).join('');
-    return `<div class="section-title"><div><h3>Supporting documents</h3><p>Required documents are selected automatically. Add any optional documents that apply.</p></div></div><div class="packet-document-list">${rows || '<div class="empty-state">No supporting documents apply.</div>'}</div>`;
+    return `<div class="section-title"><div><h3>Supporting documents</h3><p>Required documents are selected automatically. Add optional documents now; one full-packet preview at the final check verifies everything together.</p></div></div><div class="packet-document-list">${rows || '<div class="empty-state">No supporting documents apply.</div>'}</div>`;
   }
 
   function repeatableRowMarkup(columns, row, index, disabled) {
@@ -1790,7 +1834,7 @@
     const button = document.getElementById('review-dialog-submit');
     button.disabled = true;
     const result = await postJson(`/applications/${current.id}/review/`, {
-      revision: current.revision,
+      ...reviewPacketPayload(),
       decision,
       reason,
       ...(correctionItems ? { correction_items: correctionItems } : {}),
@@ -1799,6 +1843,72 @@
     if (!result.ok) return showToast(result.data?.error || 'Could not record the review.', true);
     closeReviewDialog();
     await load();
+  }
+
+  function reviewPacketPayload() {
+    const packageData = current?.signing_package || {};
+    return {
+      revision: current?.revision,
+      package_id: packageData.id,
+      unsigned_document_hash: packageData.unsigned_document_hash,
+      review_scope_sha256: packageData.review_scope_sha256,
+    };
+  }
+
+  async function submitInlineCorrections() {
+    if (!reviewTargets.size) return showToast('Flag at least one field or requirement.', true);
+    const items = [...reviewTargets.values()];
+    if (items.some(item => !String(item.instruction || '').trim())) {
+      return showToast('Add a clear instruction beside every flagged item.', true);
+    }
+    await runPrimaryAction('Returning...', async () => {
+      const result = await postJson(`/applications/${current.id}/review/`, {
+        ...reviewPacketPayload(), decision: 'request_correction', reason: '', correction_items: items,
+      });
+      if (!result.ok) return showToast(result.data?.error || 'Could not request the corrections.', true);
+      reviewTargets.clear();
+      showToast('Application returned with targeted correction instructions.');
+      await load();
+    });
+  }
+
+  async function recallApplication(confirmation = {}) {
+    const result = await postJson(`/applications/${current.id}/recall/`, {
+      revision: current.revision,
+      ...confirmation,
+    });
+    if (result.status === 409 && result.data?.confirmation_required) {
+      const details = result.data;
+      openSheet({
+        mode: 'recall-confirmation',
+        eyebrow: details.approval_invalidated ? 'Approval will be invalidated' : 'Frozen packet will be cancelled',
+        title: 'Return this application to Draft?',
+        hint: details.approval_invalidated
+          ? 'Editing will cancel the checker-approved packet. The application must be prepared and fully reviewed again before signing.'
+          : 'Editing will cancel the prepared review packet. Operations must prepare a new frozen packet before review.',
+        body: '<aside class="notice warning"><strong>This action is audited</strong><span>Existing frozen hashes remain in history, but they can no longer be approved or signed.</span></aside>',
+        footer: '<button type="button" class="btn btn-secondary" id="origination-recall-cancel">Keep current packet</button><button type="button" class="btn btn-danger" id="origination-recall-confirm">Cancel packet and edit</button>',
+        trigger: document.getElementById('origination-recall'),
+      });
+      document.getElementById('origination-recall-cancel').onclick = () => closeSheet();
+      document.getElementById('origination-recall-confirm').onclick = () => runPrimaryAction('Recalling...', async () => {
+        const confirmed = await recallApplication({
+          confirmed_package_id: details.package_id,
+          confirmed_package_hash: details.package_hash,
+        });
+        if (confirmed) closeSheet({ restoreFocus: false });
+      });
+      return false;
+    }
+    if (!result.ok) {
+      showToast(result.data?.error || 'Could not return the application to Draft.', true);
+      return false;
+    }
+    closeSheet({ restoreFocus: false });
+    current = result.data.application;
+    showToast('Application returned to Draft. Previous packet and approval are no longer valid.');
+    renderEditor(current, 0);
+    return true;
   }
 
   async function uploadEvidence(input) {
@@ -1955,19 +2065,39 @@
     });
     document.getElementById('origination-back').onclick = exitEditor;
     document.getElementById('origination-section-picker')?.addEventListener('click', event => openSectionSheet(event.currentTarget));
-    root().querySelectorAll('[data-edit-step]').forEach(button => button.onclick = () => renderEditor(current, Number(button.dataset.editStep)));
+    root().querySelectorAll('[data-edit-step]').forEach(button => button.onclick = () => {
+      const targetStep = Number(button.dataset.editStep);
+      const targetSection = wizardSections()[targetStep];
+      if (current.status === 'draft' && targetSection) unlockedDraftSections.add(targetSection.key);
+      renderEditor(current, targetStep);
+    });
+    document.getElementById('origination-edit-section')?.addEventListener('click', () => {
+      const section = wizardSections()[step];
+      if (section) unlockedDraftSections.add(section.key);
+      renderEditor(current, step);
+    });
     root().querySelectorAll('[data-correction-jump]').forEach(button => button.onclick = () => {
       const targetStep = correctionTargetStep(button.dataset.correctionJump);
       if (targetStep >= 0) renderEditor(current, targetStep);
     });
     root().querySelectorAll('[data-correction-target]').forEach(input => input.onchange = () => {
+      const instruction = root().querySelector(`[data-correction-instruction="${CSS.escape(input.dataset.correctionTarget)}"]`);
       if (input.checked) reviewTargets.set(input.dataset.correctionTarget, {
         target_type: input.dataset.targetType,
         target_key: input.dataset.targetKey,
         target_label: input.dataset.targetLabel,
-        instruction: '',
+        instruction: instruction?.value?.trim() || '',
       });
       else reviewTargets.delete(input.dataset.correctionTarget);
+      if (instruction) {
+        instruction.hidden = !input.checked;
+        instruction.disabled = !input.checked;
+        if (input.checked) instruction.focus();
+      }
+    });
+    root().querySelectorAll('[data-correction-instruction]').forEach(input => input.oninput = () => {
+      const item = reviewTargets.get(input.dataset.correctionInstruction);
+      if (item) item.instruction = input.value;
     });
     root().querySelectorAll('[data-evidence-upload]').forEach(input => input.onchange = () => uploadEvidence(input));
     root().querySelectorAll('[data-evidence-remove]').forEach(button => button.onclick = () => removeEvidence(button.dataset.evidenceRemove));
@@ -2015,18 +2145,35 @@
       });
     }
     root().querySelector('[data-location-type="county"]')?.addEventListener('change', syncOriginationSubCountySelect);
-    document.getElementById('wizard-previous')?.addEventListener('click', async () => { if (await saveDraft(true)) renderEditor(current, step - 1); });
+    document.getElementById('wizard-previous')?.addEventListener('click', async () => {
+      if (current.status === 'draft' && !editable) return renderEditor(current, step - 1);
+      if (await saveDraft(true)) renderEditor(current, step - 1);
+    });
     document.getElementById('wizard-next')?.addEventListener('click', () => runPrimaryAction('Saving...', async () => {
       const section = wizardSections()[step];
       const errors = sectionErrors(section.key); showErrors(errors);
       if (Object.keys(errors).length) return showToast('Complete the required fields in this section.', true);
+      const continueToNext = () => {
+        if (current.status === 'draft') {
+          completedDraftSections.add(section.key);
+          unlockedDraftSections.delete(section.key);
+        }
+        renderEditor(current, step + 1);
+      };
+      if (current.status === 'draft' && !editable) return continueToNext();
       if (section.key === 'document_selection') {
-        if (await saveDocumentSelection()) renderEditor(current, step + 1);
+        if (await saveDocumentSelection()) continueToNext();
       } else if (section.key.startsWith('document:')) {
-        if (await saveSupportingDocument(section.key.slice('document:'.length))) renderEditor(current, step + 1);
-      } else if (await saveDraft(true)) renderEditor(current, step + 1);
+        if (await saveSupportingDocument(section.key.slice('document:'.length))) continueToNext();
+      } else if (await saveDraft(true)) continueToNext();
     }));
-    document.getElementById('origination-preview')?.addEventListener('click', () => openPreview());
+    document.getElementById('origination-preview')?.addEventListener('click', () => {
+      const selectedDocuments = (current?.document_packet?.documents || []).filter(item => item.selected);
+      if (wizardSections()[step]?.key === 'review' && selectedDocuments.length > 1 && !current?.review_packet_ready && !hasFinalSignedPacket()) {
+        return openPacketPreview();
+      }
+      return openPreview();
+    });
     document.getElementById('origination-preview-early')?.addEventListener('click', () => openPreview());
     document.getElementById('origination-submit')?.addEventListener('click', () => runPrimaryAction('Submitting...', async () => {
       if (!(await saveDraft(true))) return;
@@ -2040,23 +2187,40 @@
     }));
     root().querySelectorAll('[data-review]').forEach(button => button.onclick = async () => {
       const decision = button.dataset.review;
+      if (decision === 'request_correction') return submitInlineCorrections();
       if (decision !== 'approve') return openReviewDialog(decision);
       await runPrimaryAction('Recording...', async () => {
-        const result = await postJson(`/applications/${current.id}/review/`, { revision: current.revision, decision, reason: '' });
+        const result = await postJson(`/applications/${current.id}/review/`, {
+          ...reviewPacketPayload(), decision, reason: '',
+        });
         if (!result.ok) return showToast(result.data?.error || 'Could not record the review.', true);
+        showToast('Frozen packet approved. Operations can now start signing.');
         await load();
       });
     });
     document.getElementById('origination-takeover-review')?.addEventListener('click', () => openReviewDialog('takeover'));
-    document.getElementById('origination-prepare-signing')?.addEventListener('click', () => runPrimaryAction('Preparing...', async () => {
+    document.getElementById('origination-prepare-review')?.addEventListener('click', () => runPrimaryAction('Freezing packet...', async () => {
       if (!(await saveSigningRequirements())) return;
-      const result = await postJson(`/applications/${current.id}/prepare-signing/`, { revision: current.revision });
+      const result = await postJson(`/applications/${current.id}/prepare-review-packet/`, { revision: current.revision });
       if (!result.ok) {
         if (result.data?.errors) showServerErrors(result.data.errors);
-        return showToast(result.data?.error || 'Could not prepare signing.', true);
+        return showToast(result.data?.error || 'Could not prepare the frozen review packet.', true);
       }
-      await load();
+      current = result.data.application;
+      showToast('Frozen review packet prepared for the checker.');
+      renderEditor(current, wizardSections().length - 1);
     }));
+    document.getElementById('origination-start-signing')?.addEventListener('click', () => runPrimaryAction('Starting signing...', async () => {
+      const result = await postJson(`/applications/${current.id}/prepare-signing/`, {
+        ...reviewPacketPayload(), revision: current.revision,
+      });
+      if (!result.ok) return showToast(result.data?.error || 'Could not start signing.', true);
+      current = result.data.application;
+      showToast('Approved packet is ready for signer dispatch.');
+      renderEditor(current, wizardSections().length - 1);
+    }));
+    document.getElementById('origination-review-packet-preview')?.addEventListener('click', () => openPreview('__review_packet__'));
+    document.getElementById('origination-recall')?.addEventListener('click', () => runPrimaryAction('Checking...', () => recallApplication()));
     root().querySelectorAll('[data-test-sign-slot]').forEach(button => button.addEventListener('click', async () => {
       if (button.dataset.slotType === 'signature') return openSignatureSheet(button);
       const stampAssetId = button.dataset.slotType === 'stamp'
@@ -2194,6 +2358,7 @@
     const title = document.getElementById('preview-title');
     if (title) title.textContent = documentKey === '__signed_packet__'
       ? (current?.signing_package?.verified_signing?.archive_status === 'uploaded' ? 'Archived signed packet' : 'Final signed packet')
+      : documentKey === '__review_packet__' ? (current?.status === 'reviewed' ? 'Checker-approved frozen packet' : 'Frozen packet for final review')
       : documentKey === '__packet__' ? 'Filled document packet'
       : documentKey === '__test_signing__' ? 'TEST signed packet'
       : 'Filled loan document';
@@ -2220,6 +2385,8 @@
     const signedPacketPreview = previewDocumentKey === '__signed_packet__';
     const previewPath = signedPacketPreview
       ? `/applications/${applicationId}/signed-packet/?package_id=${encodeURIComponent(current?.signing_package?.id || '')}&preview_format=image&page=${pageNumber}`
+      : previewDocumentKey === '__review_packet__'
+      ? `/applications/${applicationId}/review-packet/preview/`
       : previewDocumentKey === '__test_signing__'
       ? `/applications/${applicationId}/test-signing/preview/`
       : previewDocumentKey === '__packet__'
@@ -2232,7 +2399,9 @@
     } : {
       method: 'POST', headers: { 'Idempotency-Key': key, 'X-Request-ID': key }, body: JSON.stringify({
         revision, request_id: key, preview_format: 'image', page: pageNumber,
-        package_id: previewDocumentKey === '__test_signing__' ? current?.signing_package?.id : undefined,
+        package_id: ['__test_signing__', '__review_packet__'].includes(previewDocumentKey) ? current?.signing_package?.id : undefined,
+        unsigned_document_hash: previewDocumentKey === '__review_packet__' ? current?.signing_package?.unsigned_document_hash : undefined,
+        review_scope_sha256: previewDocumentKey === '__review_packet__' ? current?.signing_package?.review_scope_sha256 : undefined,
       }),
     }).then(result => {
       if (!result.ok || !result.blob) return { error: result.data?.error || 'Could not generate the filled document.' };
@@ -2243,7 +2412,15 @@
         previewedRevision = current.revision;
         previewSucceeded = true;
       }
-      if (previewDocumentKey && !['__packet__', '__test_signing__', '__signed_packet__'].includes(previewDocumentKey) && pageNumber === 1) {
+      if (previewDocumentKey === '__packet__' && pageNumber === 1) {
+        previewedRevision = current.revision;
+        previewSucceeded = true;
+        (current?.document_packet?.documents || []).filter(item => item.selected).forEach(item => {
+          item.previewed = true;
+        });
+        if (current?.document_packet) current.document_packet.primary_ready = true;
+      }
+      if (previewDocumentKey && !['__packet__', '__review_packet__', '__test_signing__', '__signed_packet__'].includes(previewDocumentKey) && pageNumber === 1) {
         const document = current?.document_packet?.documents?.find(item => item.key === previewDocumentKey);
         if (document) document.previewed = true;
       }
@@ -2421,7 +2598,8 @@
     const queueCount = key => {
       if (key === 'mine') return listState.queue === 'mine' ? listTotal : '';
       if (key === 'corrections') return listCounts.correction_required || 0;
-      if (key === 'review') return listCounts.ready_for_review || 0;
+      if (key === 'prepare') return listCounts.packet_preparation || 0;
+      if (key === 'review') return listCounts.final_review || 0;
       if (key === 'signing') return (listCounts.reviewed || 0) + (listCounts.signing_pending || 0) + (listCounts.partially_signed || 0);
       return '';
     };
@@ -2429,12 +2607,13 @@
       const identity = item.applicant_summary || {};
       const applicantName = identity.name || 'Applicant details pending';
       const identifiers = [identity.national_id ? `ID ${identity.national_id}` : '', identity.phone || ''].filter(Boolean).join(' · ');
-      return `<button type="button" class="application-card" data-application-id="${item.id}"><span><strong>${escapeHtml(applicantName)}</strong><small>${escapeHtml(identifiers || 'ID and telephone pending')}</small><small>${escapeHtml(item.product_name)} · ${escapeHtml(item.branch || 'No branch')} · ${escapeHtml(item.reference_number)}${capabilities.can_review ? ` · ${escapeHtml(item.officer_name || 'Unassigned')}` : ''}</small></span><span class="application-card-state"><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(item.status.replaceAll('_', ' '))}</span>${iconSvg('arrowRight')}</span></button>`;
+      return `<button type="button" class="application-card" data-application-id="${item.id}"><span><strong>${escapeHtml(applicantName)}</strong><small>${escapeHtml(identifiers || 'ID and telephone pending')}</small><small>${escapeHtml(item.product_name)} · ${escapeHtml(item.branch || 'No branch')} · ${escapeHtml(item.reference_number)}${capabilities.can_review ? ` · ${escapeHtml(item.officer_name || 'Unassigned')}` : ''}</small><small class="application-status-text">${escapeHtml(item.status_text || item.status.replaceAll('_', ' '))}</small></span><span class="application-card-state"><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(item.status.replaceAll('_', ' '))}</span>${iconSvg('arrowRight')}</span></button>`;
     }).join('');
+    const alerts = reviewerAlerts.map(item => `<button type="button" class="reviewer-alert" data-reviewer-alert="${escapeHtml(item.id)}" data-application-id="${escapeHtml(item.application_id)}"><span><strong>Approval invalidated</strong><small>${escapeHtml(item.message)}</small></span>${iconSvg('arrowRight')}</button>`).join('');
     const queueTabs = [
       ...(capabilities.can_create ? [['mine', 'My applications'], ['corrections', 'Corrections']] : []),
       ...(capabilities.can_review ? [['review', 'Review']] : []),
-      ...(capabilities.can_start_signing ? [['signing', 'Signing']] : []),
+      ...(capabilities.can_start_signing ? [['prepare', 'Prepare'], ['signing', 'Signing']] : []),
     ].map(([key, label]) => {
       const count = queueCount(key);
       return `<button type="button" data-queue="${key}" class="queue-tab${listState.queue === key ? ' active' : ''}"><span>${label}</span>${count !== '' ? `<strong>${count}</strong>` : ''}</button>`;
@@ -2445,13 +2624,17 @@
     ].map(item => `<button type="button" class="filter-chip" data-remove-filter="${item.key}"><span>${escapeHtml(item.label)}</span>${iconSvg('close')}</button>`).join('');
     const pagination = listState.pages > 1 ? `<div class="pagination-actions"><button type="button" class="btn btn-secondary" id="origination-page-previous"${listState.page <= 1 ? ' disabled' : ''}>Previous</button><span>Page ${listState.page} of ${listState.pages}</span><button type="button" class="btn btn-secondary" id="origination-page-next"${listState.page >= listState.pages ? ' disabled' : ''}>Next</button></div>` : '';
     const startAction = capabilities.can_create ? `<button type="button" class="btn btn-primary compact-start" id="origination-start">${iconSvg('plus')} Start application</button>` : '';
-    root().innerHTML = `<section class="list-toolbar"><div><p class="eyebrow">Paperless lending</p><h2>Applications</h2></div><div>${startAction}<button type="button" class="icon-button" id="origination-list-refresh" aria-label="Refresh applications">${iconSvg('refresh')}</button></div></section><nav class="queue-tabs" aria-label="Origination queues">${queueTabs}</nav><form class="list-search" id="origination-search"><input name="q" value="${escapeHtml(listState.query)}" placeholder="Search applicant, ID, telephone or reference" aria-label="Search applications"><button type="button" class="filter-button${activeChips ? ' active' : ''}" id="origination-open-filters">${iconSvg('filter')}<span>Filters</span>${activeChips ? '<b></b>' : ''}</button></form>${activeChips ? `<div class="active-filters" aria-label="Active filters">${activeChips}</div>` : ''}<div class="list-heading"><h3>${escapeHtml(listState.queue ? listState.queue.replaceAll('_', ' ') : 'Applications')}</h3><span>${listTotal} ${listTotal === 1 ? 'application' : 'applications'}</span></div><div class="application-list">${cards || '<div class="empty-state"><strong>No applications in this queue</strong><span>Change the filters or refresh.</span></div>'}</div>${pagination}`;
+    root().innerHTML = `<section class="list-toolbar"><div><p class="eyebrow">Paperless lending</p><h2>Applications</h2></div><div>${startAction}<button type="button" class="icon-button" id="origination-list-refresh" aria-label="Refresh applications">${iconSvg('refresh')}</button></div></section>${alerts ? `<section class="reviewer-alerts" aria-label="Reviewer alerts"><p class="eyebrow">Attention</p>${alerts}</section>` : ''}<nav class="queue-tabs" aria-label="Origination queues">${queueTabs}</nav><form class="list-search" id="origination-search"><input name="q" value="${escapeHtml(listState.query)}" placeholder="Search applicant, ID, telephone or reference" aria-label="Search applications"><button type="button" class="filter-button${activeChips ? ' active' : ''}" id="origination-open-filters">${iconSvg('filter')}<span>Filters</span>${activeChips ? '<b></b>' : ''}</button></form>${activeChips ? `<div class="active-filters" aria-label="Active filters">${activeChips}</div>` : ''}<div class="list-heading"><h3>${escapeHtml(listState.queue ? listState.queue.replaceAll('_', ' ') : 'Applications')}</h3><span>${listTotal} ${listTotal === 1 ? 'application' : 'applications'}</span></div><div class="application-list">${cards || '<div class="empty-state"><strong>No applications in this queue</strong><span>Change the filters or refresh.</span></div>'}</div>${pagination}`;
     root().querySelectorAll('[data-application-id]').forEach(button => button.onclick = async () => {
       listScrollY = window.scrollY;
       button.disabled = true;
       const result = await apiFetch(`/applications/${button.dataset.applicationId}/`, {});
       button.disabled = false;
       if (!result.ok) return showToast(result.data?.error || 'Could not open this application.', true);
+      if (button.dataset.reviewerAlert) {
+        const seen = await postJson(`/reviewer-notices/${button.dataset.reviewerAlert}/seen/`, {});
+        if (seen.ok) reviewerAlerts = reviewerAlerts.filter(item => item.id !== button.dataset.reviewerAlert);
+      }
       await openEditor(result.data.application, 0);
     });
     root().querySelectorAll('[data-queue]').forEach(button => button.onclick = () => applyListFilters({ queue: button.dataset.queue }));
@@ -2490,6 +2673,7 @@
     if (!result.ok) return showToast(result.data?.error || 'Could not load applications.', true);
     applications = result.data.applications || [];
     listCounts = result.data.counts || {};
+    reviewerAlerts = result.data.reviewer_alerts || [];
     capabilities = result.data.capabilities || capabilities;
     listState.page = result.data.pagination?.page || 1;
     listState.pages = result.data.pagination?.pages || 1;
@@ -2506,7 +2690,7 @@
     branches = productResult.data.branches || [];
     locationCatalog = productResult.data.location_catalog || {};
     capabilities = productResult.data.capabilities || capabilities;
-    if (!listState.queue) listState.queue = capabilities.can_create ? 'mine' : capabilities.can_review ? 'review' : capabilities.can_start_signing ? 'signing' : '';
+    if (!listState.queue) listState.queue = capabilities.can_create ? 'mine' : capabilities.can_start_signing ? 'prepare' : capabilities.can_review ? 'review' : '';
     await loadApplications();
     root().setAttribute('aria-busy', 'false');
   }

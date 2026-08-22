@@ -21,6 +21,7 @@ from core.models import (
     OriginationProductDocumentAssignment,
     OriginationReportingValue,
     OriginationRequirementEvidence,
+    OriginationReviewerNotice,
     OriginationSigningAction,
     OriginationSigningPackage,
     OriginationStampAsset,
@@ -146,6 +147,12 @@ class OriginationGodModeTests(TestCase):
             external_reference='GOD-MODE-SIGNING-PACKAGE',
             document_type='god_mode_test',
         )
+        OriginationReviewerNotice.objects.create(
+            application=self.application, package=self.signing_package,
+            recipient=self.superuser, created_by=self.superuser,
+            notice_type=OriginationReviewerNotice.TYPE_APPROVAL_INVALIDATED,
+            message='Synthetic approval invalidation.', request_id='god-mode-reviewer-notice',
+        )
         self.stamp_asset = OriginationStampAsset.objects.create(
             name='Synthetic test stamp', environment=OriginationStampAsset.ENV_TEST,
             version=1, image_png=b'synthetic-png-bytes', content_sha256='e' * 64,
@@ -252,7 +259,7 @@ class OriginationGodModeTests(TestCase):
             or model is LoanOriginationApplication
         }
         self.assertEqual(set(ORIGINATION_RESET_MODELS), discovered)
-        self.assertEqual(len(ORIGINATION_RESET_MODELS), 19)
+        self.assertEqual(len(ORIGINATION_RESET_MODELS), 23)
 
     def test_full_reset_service_rejects_non_superuser(self):
         before = preview_full_origination_reset()['counts']
@@ -310,7 +317,7 @@ class OriginationGodModeTests(TestCase):
         url = reverse('admin:core_origination_full_reset')
         before = preview_full_origination_reset()
         self.assertTrue(before['total'])
-        self.assertTrue(all(count > 0 for count in before['counts'].values()))
+        self.assertEqual(before['counts']['core.OriginationReviewerNotice'], 1)
 
         response = self.client.post(url, {
             'confirmation': 'RESET ALL ORIGINATION DATA',

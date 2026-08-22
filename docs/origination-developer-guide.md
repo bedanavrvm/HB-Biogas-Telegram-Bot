@@ -202,19 +202,28 @@ Preserve these behaviors:
 
 1. Creation resolves an active, available product and freezes its configuration.
 2. The assigned officer saves the main form against an expected revision.
-3. Primary LAF preview is required for the saved revision before supporting
-   selection/submission.
+3. Officers may choose applicable optional supporting documents without first
+   leaving the flow for a separate primary-LAF preview.
 4. Required/conditional documents are server-selected; officers may toggle only
    applicable officer-selectable documents.
 5. Supporting fields validate against that document's frozen schema. Shared
    canonical values remain synchronized through governed keys.
-6. Each selected document must be complete and previewed for the relevant
-   revision before submission.
-7. A reviewer can approve or return explicit corrections; maker-checker
-   separation is enforced server-side.
-8. Requirements/evidence must satisfy their configured enforcement stage.
-9. Signing preparation freezes the reviewed revision locally and does not imply
-   successful external e-sign dispatch.
+6. One complete full-packet preview marks the primary LAF and every selected
+   supporting document previewed for that revision. Any later edit or document
+   selection invalidates that preview.
+7. Submission enters `ready_for_review`, but Operations must first freeze the
+   complete data, evidence, participant, signer, template, manifest and PDF
+   scope into a hash-bound review package. A checker reviews that exact PDF.
+8. A reviewer can approve, decline, or return exact fields with mandatory
+   inline instructions; maker-checker separation is enforced server-side.
+   `correction_required` never exposes the broad recall/edit path.
+9. Before signing dispatch, the assigned officer may recall a submitted or
+   approved application. A prepared packet requires explicit hash-bound
+   confirmation; an approved recall cancels the packet, invalidates approval,
+   alerts the original checker, and preserves that checker for continuity.
+10. Requirements/evidence must satisfy their configured enforcement stage.
+11. `prepare-signing` is a compatibility alias that starts signing only for an
+   already approved frozen package. It never renders or replaces a package.
 
 All transitions record actor, timestamp, request ID, revision, and safe before/
 after metadata. Original application and document snapshots remain available for
@@ -265,10 +274,14 @@ The browser uses the canonical `/api/origination/api` prefix:
 | `POST /applications/<id>/documents/<key>/preview/` | Validate and render one selected document. |
 | `POST /applications/<id>/packet/preview/` | Validate and render the selected packet. |
 | `POST /applications/<id>/submit/` | Submit a complete, previewed revision. |
-| `POST /applications/<id>/review/` | Approve or return corrections. |
+| `POST /applications/<id>/recall/` | Officer recall to Draft; prepared/approved packets require explicit package/hash confirmation. |
+| `POST /applications/<id>/prepare-review-packet/` | Operations freezes the complete unsigned review scope. |
+| `POST /applications/<id>/review-packet/preview/` | Hash-verifies and records checker inspection of the frozen packet. |
+| `POST /applications/<id>/review/` | Decide the exact frozen package; package ID and both hashes are mandatory. |
 | `POST /applications/<id>/correction/takeover/` | Reassign a correction re-check with an audited reason. |
+| `POST /reviewer-notices/<id>/seen/` | Mark an approval-invalidation alert seen by its recipient. |
 | `POST /applications/<id>/signing-requirements/` | Save signing requirements for the current revision. |
-| `POST /applications/<id>/prepare-signing/` | Freeze a reviewed signing package. |
+| `POST /applications/<id>/prepare-signing/` | Compatibility route: start signing for the approved frozen package. |
 | `POST /applications/<id>/signer-sessions/` | Idempotently create a self-service or assisted external-signer session. |
 | `POST /applications/<id>/signer-sessions/reset/` | Revoke and replace a signer session with an audited reason. |
 | `POST /applications/<id>/staff-signature/` | Apply one authenticated staff capture to all assigned staff signature slots. |

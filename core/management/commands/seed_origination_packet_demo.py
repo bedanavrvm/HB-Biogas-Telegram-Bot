@@ -217,7 +217,7 @@ class Command(BaseCommand):
                     '_revision': 0,
                     'sections': [
                         {'key': 'applicant', 'label': 'Applicant', 'help_text': 'Synthetic test values only.'},
-                        {'key': 'loan', 'label': 'Loan request', 'help_text': 'Synthetic test values only.'},
+                        {'key': 'loan_request', 'label': 'Loan request', 'help_text': 'Synthetic test values only.'},
                     ],
                     'fields': [],
                 },
@@ -231,7 +231,7 @@ class Command(BaseCommand):
                 created_by=actor,
             )
             for key, section_key in (
-                ('demo_applicant_name', 'applicant'), ('demo_requested_amount', 'loan'),
+                ('demo_applicant_name', 'applicant'), ('demo_requested_amount', 'loan_request'),
             ):
                 product, _ = attach_data_field(
                     product=product, data_field=canonical[key],
@@ -253,8 +253,8 @@ class Command(BaseCommand):
                 form_schema={
                     '_revision': 0,
                     'sections': [
-                        {'key': 'application', 'label': 'Application details', 'help_text': ''},
-                        {'key': 'guarantor', 'label': 'Guarantor details', 'help_text': ''},
+                        {'key': 'application_details', 'label': 'Application details', 'help_text': ''},
+                        {'key': 'guarantor_details', 'label': 'Guarantor details', 'help_text': ''},
                     ],
                     'fields': [],
                 },
@@ -265,7 +265,7 @@ class Command(BaseCommand):
                 supporting, _ = attach_data_field_to_template(
                     template=supporting, data_field=canonical[key],
                     presentation={
-                        'section_key': 'guarantor' if key.startswith('demo_guarantor_') else 'application',
+                        'section_key': 'guarantor_details' if key.startswith('demo_guarantor_') else 'application_details',
                         'required': True, 'width': 'full',
                     },
                     actor=actor,

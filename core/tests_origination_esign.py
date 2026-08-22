@@ -14,7 +14,9 @@ from core.models import (
     OriginationSigningAction,
     OriginationSigningPackage,
 )
-from core.services.loan_origination import OriginationError, serialize_application
+from core.services.loan_origination import (
+    OriginationError, _package_review_scope_hash, serialize_application,
+)
 from core.services.origination_esign import (
     _legacy_session_token,
     _session_token,
@@ -75,6 +77,18 @@ class OriginationVerifiedSigningTests(TestCase):
                 ],
             }],
         )
+        self.package.review_scope_sha256 = _package_review_scope_hash(self.package)
+        self.package.approved_unsigned_document_hash = self.package.unsigned_document_hash
+        self.package.approved_review_scope_sha256 = self.package.review_scope_sha256
+        self.package.prepared_by = self.actor
+        self.package.prepared_at = timezone.now()
+        self.package.reviewed_by = self.actor
+        self.package.reviewed_at = timezone.now()
+        self.package.save(update_fields=[
+            'review_scope_sha256', 'approved_unsigned_document_hash',
+            'approved_review_scope_sha256', 'prepared_by', 'prepared_at',
+            'reviewed_by', 'reviewed_at', 'updated_at',
+        ])
         self.audit = patch('core.services.compliance_audit.record_event')
         self.audit.start()
         self.addCleanup(self.audit.stop)

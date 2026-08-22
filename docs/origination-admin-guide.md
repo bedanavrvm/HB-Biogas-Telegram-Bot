@@ -308,13 +308,16 @@ Use workflow `Jawabu Portal` and the narrowest required branch/product scope:
 | Role | Default Origination access |
 |---|---|
 | `JBL_OFFICER` | View, create, and edit their own applications. |
-| `OPERATIONS_ADMIN` | View/review applications and prepare signing packages. |
+| `OPERATIONS_ADMIN` | Prepare frozen review packets, review when separately permitted, and start approved signing packages. |
 | `BUSINESS_ADMIN` (Head of Rural) | View and review applications. |
 
 ### Signing and stamps during testing
 
-`Prepare signing package` freezes and hashes the reviewed packet. It is not an
-OTP or e-sign dispatch. When `ORIGINATION_TEST_SIGNING_ENABLED=True` and
+**Prepare review packet** freezes and hashes the complete unsigned application
+before checker review. After checker approval, **Start signing** unlocks signer
+dispatch without rerendering the approved packet. Neither action sends an OTP
+until Operations explicitly creates a signer session. When
+`ORIGINATION_TEST_SIGNING_ENABLED=True` and
 `SENTRY_ENVIRONMENT` is explicitly `development`, `dev`, `local`, `test`,
 `testing`, or `staging`, the Signing queue exposes a simulator that places
 either a drawn synthetic mark or a typed test signer name into each configured
@@ -369,25 +372,31 @@ main LAF builder. For each signer choose canonical fields for **Signer name**,
 selections, not free-form variable names. The signing package freezes those
 values and all selected documents.
 
-The Operations signing flow is:
+The Operations and checker flow is:
 
-1. Review and approve the application, then choose **Prepare signing package**.
-2. For an external signer choose **Send to signer's phone**. Use **In-person
+1. The officer submits a complete revision after one full-packet preview.
+2. Operations opens **Prepare** and chooses **Prepare review packet**. This
+   freezes form values, product/quote data, evidence, selected documents,
+   participants, signer identities, template configuration, manifest and PDF.
+3. The checker opens **Review**, chooses **Preview frozen packet**, and then
+   approves, declines, or flags exact fields with an inline instruction.
+4. After approval, Operations opens **Signing** and chooses **Start signing**.
+5. For an external signer choose **Send to signer's phone**. Use **In-person
    assisted signing** only when the signer is physically using the officer's
    device.
-3. After all required signatures and stamps are complete, archive the packet.
+6. After all required signatures and stamps are complete, archive the packet.
    The completed application continues to show **View signed LAF** and
    **Download PDF**. Both actions retrieve the immutable, hash-verified signed
    packet from restricted Drive; users do not need direct Drive access.
    Self-service sends the opaque packet link to the mapped phone. Assisted mode
    opens the same ceremony on the officer's device and is separately audited.
-3. The signer must open every packet page, draw or type their signature, accept
+7. The signer must open every packet page, draw or type their signature, accept
    the atomic packet consent, and enter the six-digit OTP. One valid OTP applies
    that capture to every signature slot assigned to that signer in the frozen
    packet.
-4. Authenticated staff sign their own configured staff slots from the Mini App.
+8. Authenticated staff sign their own configured staff slots from the Mini App.
    Apply only an active `Production` stamp to a calibrated stamp slot.
-5. When all required slots are complete, archive the exact frozen signed PDF to
+9. When all required slots are complete, archive the exact frozen signed PDF to
    restricted Drive. A failed archive retains the signed bytes and hash for an
    idempotent retry; it never rerenders from mutable product data.
 
@@ -406,10 +415,18 @@ carrier delivery, Sender ID acceptance, MNO throttling, or DND behavior.
 ### Correction re-checks
 
 The checker must select at least one exact field, requirement, or supporting
-document field. During correction all other controls are locked in the Mini App
-and at the API. Resubmission returns to that original checker. Another scoped
-checker must use **Take over re-check** and give an audited reason before they
-can decide it.
+document field and enter an instruction beside every selected item. During
+`correction_required`, all other controls are locked in the Mini App and API;
+the general **Edit application** action is unavailable. Resubmission returns to
+the original checker. Another scoped checker must use **Take over re-check**
+and give an audited reason before deciding it.
+
+Before signing dispatch, the assigned officer can choose **Edit application**.
+If Operations has already prepared a frozen packet, the officer must confirm
+that it will be cancelled. If a checker already approved it, the same action
+also invalidates approval, creates an in-app alert for that checker, returns the
+application to Draft, and requires a new frozen packet and full review. No edit
+action is available once signing has started.
 
 The role-capability policy is authoritative and may be customized through the
 governed access-control workflow. Product and branch scopes further restrict the

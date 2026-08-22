@@ -244,12 +244,15 @@ def serialize_document(document: OriginationApplicationDocument) -> dict[str, An
         str(item.get('key')) for item in fields
         if item.get('required') and document_context(application, document).get(str(item.get('key'))) in (None, '', [])
     ]
+    packet_previewed = application.events.filter(
+        action='document_packet_previewed', revision=application.revision,
+    ).exists()
     if document.document_role == OriginationDocumentTemplate.ROLE_PRIMARY:
         previewed = application.primary_previewed_revision == application.revision or application.events.filter(
             action='document_previewed', revision=application.revision,
-        ).exists()
+        ).exists() or packet_previewed
     else:
-        previewed = document.previewed_application_revision == application.revision
+        previewed = document.previewed_application_revision == application.revision or packet_previewed
     return {
         'key': document.document_key,
         'name': document.name,
@@ -295,10 +298,6 @@ def select_documents(*, application_id, actor, selected_keys: Any, expected_revi
         raise OriginationError('Supporting-document selection is locked during a targeted correction.')
     if application.status != LoanOriginationApplication.STATUS_DRAFT:
         raise OriginationError('Supporting documents cannot be selected in this application state.')
-    if application.primary_previewed_revision != application.revision and not application.events.filter(
-        action='document_previewed', revision=application.revision,
-    ).exists():
-        raise OriginationError('Save and preview the primary LAF before selecting supporting documents.')
     requested = {str(key) for key in (selected_keys or [])}
     allowed = set()
     required = set()
@@ -325,8 +324,11 @@ def select_documents(*, application_id, actor, selected_keys: Any, expected_revi
         _record_event(application, 'document_selection_unchanged', actor=actor, request_id=request_id)
         return application
     application.revision += 1
-    application.primary_previewed_revision = application.revision
+    application.primary_previewed_revision = None
     application.save(update_fields=['revision', 'primary_previewed_revision', 'updated_at'])
+    application.packet_documents.filter(selected=True).update(
+        previewed_application_revision=None, updated_at=timezone.now(),
+    )
     _record_event(application, 'document_selection_updated', actor=actor, request_id=request_id, after={'selected_keys': sorted(requested)})
     return application
 
@@ -405,8 +407,11 @@ def save_document_fields(*, application_id, document_key: str, actor, payload: A
     document.save(update_fields=['field_payload', 'previewed_application_revision', 'completed_at', 'updated_at'])
     application.form_payload = {**application.form_payload, **values}
     application.revision += 1
-    application.primary_previewed_revision = application.revision
+    application.primary_previewed_revision = None
     application.save(update_fields=['form_payload', 'revision', 'primary_previewed_revision', 'updated_at'])
+    application.packet_documents.filter(selected=True).update(
+        previewed_application_revision=None, updated_at=timezone.now(),
+    )
     refresh_document_applicability(application)
     _record_event(application, 'supporting_document_saved', actor=actor, request_id=request_id, after={'document_key': document_key})
     return application
@@ -445,6 +450,39 @@ def mark_document_previewed(application: LoanOriginationApplication, document_ke
         document.previewed_application_revision = application.revision
         document.completed_at = document.completed_at or timezone.now()
         document.save(update_fields=['previewed_application_revision', 'completed_at', 'updated_at'])
+
+
+def mark_packet_previewed(application: LoanOriginationApplication) -> None:
+    """Mark one complete combined-packet preview for the current revision."""
+    from core.services.loan_origination import OriginationError, validate_form_payload
+    selected = list(application.packet_documents.filter(selected=True))
+    if not selected:
+        raise OriginationError('This application has no selected document packet.')
+    errors = {}
+    for document in selected:
+        if document.document_role == OriginationDocumentTemplate.ROLE_PRIMARY:
+            continue
+        fields = _document_fields(document)
+        context = document_context(application, document)
+        result = validate_form_payload(
+            document.schema_snapshot or {'fields': []},
+            {str(item.get('key')): context.get(str(item.get('key'))) for item in fields},
+            require_complete=True,
+        )
+        errors.update({f'{document.document_key}.{key}': value for key, value in result.errors.items()})
+    if errors:
+        raise OriginationError(
+            'Complete every required supporting-document field before previewing the packet.',
+            errors=errors,
+        )
+    application.primary_previewed_revision = application.revision
+    application.save(update_fields=['primary_previewed_revision', 'updated_at'])
+    application.packet_documents.filter(selected=True).exclude(
+        document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
+    ).update(
+        previewed_application_revision=application.revision,
+        completed_at=timezone.now(), updated_at=timezone.now(),
+    )
 
 
 def render_packet(application: LoanOriginationApplication) -> tuple[bytes, list[dict[str, Any]]]:

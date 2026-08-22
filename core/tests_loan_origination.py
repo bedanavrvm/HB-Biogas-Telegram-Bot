@@ -11,11 +11,13 @@ from django.db import connection
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 
 from core.admin import OriginationProductDefinitionForm
 from core.models import (
     LoanOriginationApplication,
     OriginationApplicationEvent,
+    OriginationReviewerNotice,
     OriginationDocumentTemplate,
     OriginationProductDocumentAssignment,
     OriginationProductDefinition,
@@ -26,9 +28,13 @@ from core.models import (
 from core.services.loan_origination import (
     OriginationConflict,
     OriginationError,
+    OriginationRecallConfirmationRequired,
+    _package_review_scope_hash,
     applicant_identity_snapshot,
     create_application,
+    prepare_review_package,
     prepare_signing_package,
+    recall_application,
     review_application,
     render_application_preview,
     require_applicant_identity_fields,
@@ -42,6 +48,7 @@ from core.services.loan_origination import (
 )
 from core.services.origination_documents import (
     mark_document_previewed,
+    mark_packet_previewed,
     save_document_fields,
     select_documents,
     serialize_packet,
@@ -81,6 +88,49 @@ class LoanOriginationServiceTests(TestCase):
         self.audit_patch = patch('core.services.compliance_audit.record_event')
         self.audit_patch.start()
         self.addCleanup(self.audit_patch.stop)
+
+    def _freeze_for_review(self, application, *, reviewer=None, request_id='preview-frozen-packet'):
+        package = OriginationSigningPackage.objects.create(
+            application=application,
+            application_revision=application.revision,
+            external_reference=f'REVIEW-{str(application.pk)[:12]}-{application.revision}',
+            document_type=application.product_definition.document_type,
+            template_version=application.product_definition.document_template_version,
+            template_sha256=application.product_definition.document_template_sha256,
+            context_snapshot={'revision': application.revision},
+            participants_snapshot=[],
+            requirement_evidence_snapshot=[],
+            document_manifest_snapshot=[],
+            template_configuration_snapshot={},
+            combined_document_hash='b' * 64,
+            unsigned_document_hash='b' * 64,
+            prepared_by=self.officer,
+            prepared_at=timezone.now(),
+        )
+        package.review_scope_sha256 = _package_review_scope_hash(package)
+        package.save(update_fields=['review_scope_sha256', 'updated_at'])
+        if reviewer:
+            OriginationApplicationEvent.objects.create(
+                application=application,
+                action='review_packet_previewed',
+                revision=application.revision,
+                actor=reviewer,
+                request_id=request_id,
+                after_values={
+                    'package_id': str(package.pk),
+                    'unsigned_document_hash': package.unsigned_document_hash,
+                    'review_scope_sha256': package.review_scope_sha256,
+                },
+            )
+        return package
+
+    @staticmethod
+    def _review_packet_kwargs(package):
+        return {
+            'package_id': package.pk,
+            'expected_unsigned_hash': package.unsigned_document_hash,
+            'expected_review_scope_hash': package.review_scope_sha256,
+        }
 
     def test_active_product_requires_complete_contract(self):
         definition = OriginationProductDefinition(
@@ -184,6 +234,7 @@ class LoanOriginationServiceTests(TestCase):
             expected_revision=application.revision,
             request_id='submit-flow',
         )
+        review_package = self._freeze_for_review(application, reviewer=self.reviewer)
         with self.assertRaises(OriginationError):
             review_application(
                 application_id=application.pk,
@@ -191,6 +242,7 @@ class LoanOriginationServiceTests(TestCase):
                 expected_revision=application.revision,
                 request_id='self-review',
                 decision='approve',
+                **self._review_packet_kwargs(review_package),
             )
         application = review_application(
             application_id=application.pk,
@@ -198,6 +250,7 @@ class LoanOriginationServiceTests(TestCase):
             expected_revision=application.revision,
             request_id='review-flow',
             decision='approve',
+            **self._review_packet_kwargs(review_package),
         )
         package, replayed = prepare_signing_package(
             application_id=application.pk,
@@ -216,7 +269,7 @@ class LoanOriginationServiceTests(TestCase):
         self.assertTrue(replayed_again)
         self.assertEqual(repeated.pk, package.pk)
         self.assertEqual(application.status, LoanOriginationApplication.STATUS_SIGNING_PENDING)
-        self.assertEqual(OriginationApplicationEvent.objects.filter(application=application).count(), 6)
+        self.assertEqual(OriginationApplicationEvent.objects.filter(application=application).count(), 7)
 
     def test_non_approval_review_requires_reason(self):
         application, _ = create_application(
@@ -236,6 +289,86 @@ class LoanOriginationServiceTests(TestCase):
                 request_id='correction-review',
                 decision='request_correction',
             )
+
+    @patch('core.services.origination_documents.render_packet')
+    def test_operations_freezes_packet_before_checker_review(self, render_packet_mock):
+        render_packet_mock.return_value = (b'%PDF-frozen-review', [{
+            'key': 'primary', 'rendered_sha256': 'c' * 64,
+        }])
+        OriginationDocumentTemplate.objects.create(
+            product_definition=self.product,
+            document_key='primary', document_role='primary', inclusion_mode='required',
+            document_type=self.product.document_type, name='Primary LAF', version=1,
+            status='active', source_filename='primary.pdf', source_sha256='c' * 64,
+            source_byte_size=100, page_count=1, placement_config={}, created_by=self.officer,
+        )
+        application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='freeze-review-packet',
+        )
+        application.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
+        application.save(update_fields=['status'])
+
+        package, replayed = prepare_review_package(
+            application_id=application.pk, actor=self.reviewer,
+            expected_revision=application.revision, request_id='prepare-review-packet',
+        )
+
+        application.refresh_from_db()
+        self.assertFalse(replayed)
+        self.assertEqual(application.status, LoanOriginationApplication.STATUS_READY_FOR_REVIEW)
+        self.assertEqual(package.prepared_by, self.reviewer)
+        self.assertEqual(len(package.unsigned_document_hash), 64)
+        self.assertEqual(len(package.review_scope_sha256), 64)
+        self.assertTrue(application.events.filter(action='review_packet_prepared').exists())
+
+    def test_checker_must_preview_frozen_packet_and_approved_recall_is_explicit(self):
+        application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='approved-recall',
+        )
+        application.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
+        application.save(update_fields=['status'])
+        package = self._freeze_for_review(application)
+        review_kwargs = self._review_packet_kwargs(package)
+        with self.assertRaisesRegex(OriginationError, 'Open the frozen review packet'):
+            review_application(
+                application_id=application.pk, actor=self.reviewer,
+                expected_revision=application.revision, request_id='approve-before-preview',
+                decision='approve', **review_kwargs,
+            )
+        OriginationApplicationEvent.objects.create(
+            application=application, action='review_packet_previewed',
+            revision=application.revision, actor=self.reviewer, request_id='checker-preview',
+            after_values={
+                'package_id': str(package.pk),
+                'unsigned_document_hash': package.unsigned_document_hash,
+                'review_scope_sha256': package.review_scope_sha256,
+            },
+        )
+        application = review_application(
+            application_id=application.pk, actor=self.reviewer,
+            expected_revision=application.revision, request_id='approve-after-preview',
+            decision='approve', **review_kwargs,
+        )
+        with self.assertRaises(OriginationRecallConfirmationRequired):
+            recall_application(
+                application_id=application.pk, actor=self.officer,
+                expected_revision=application.revision, request_id='recall-unconfirmed',
+            )
+        recalled = recall_application(
+            application_id=application.pk, actor=self.officer,
+            expected_revision=application.revision, request_id='recall-confirmed',
+            confirmed_package_id=str(package.pk),
+            confirmed_package_hash=package.unsigned_document_hash,
+        )
+        package.refresh_from_db()
+        self.assertEqual(recalled.status, LoanOriginationApplication.STATUS_DRAFT)
+        self.assertEqual(recalled.recheck_assigned_to, self.reviewer)
+        self.assertEqual(package.status, OriginationSigningPackage.STATUS_CANCELLED)
+        self.assertTrue(OriginationReviewerNotice.objects.filter(
+            application=recalled, recipient=self.reviewer,
+        ).exists())
 
     def test_blank_application_cannot_be_submitted(self):
         application, _ = create_application(
@@ -336,6 +469,7 @@ class LoanOriginationServiceTests(TestCase):
         application.form_payload = {'customer_name': 'Original Name', 'consent': True}
         application.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
         application.save(update_fields=['form_payload', 'status'])
+        review_package = self._freeze_for_review(application, reviewer=self.reviewer)
         application = review_application(
             application_id=application.pk,
             actor=self.reviewer,
@@ -348,6 +482,7 @@ class LoanOriginationServiceTests(TestCase):
                 'target_key': 'customer_name',
                 'instruction': 'Use the National ID spelling.',
             }],
+            **self._review_packet_kwargs(review_package),
         )
         self.assertEqual(application.recheck_assigned_to, self.reviewer)
 
@@ -381,6 +516,9 @@ class LoanOriginationServiceTests(TestCase):
             request_id='resubmit-corrected-application',
         )
         self.assertEqual(application.recheck_assigned_to, self.reviewer)
+        review_package = self._freeze_for_review(
+            application, reviewer=alternate_reviewer, request_id='alternate-review-preview',
+        )
 
         with self.assertRaisesRegex(OriginationError, 'original checker'):
             review_application(
@@ -389,6 +527,7 @@ class LoanOriginationServiceTests(TestCase):
                 expected_revision=application.revision,
                 request_id='unauthorized-correction-recheck',
                 decision='approve',
+                **self._review_packet_kwargs(review_package),
             )
 
         application = take_over_correction_review(
@@ -584,6 +723,7 @@ class LoanOriginationServiceTests(TestCase):
         )
         application.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
         application.save(update_fields=['status'])
+        review_package = self._freeze_for_review(application, reviewer=self.officer)
         corrected = review_application(
             application_id=application.pk, actor=self.officer,
             expected_revision=application.revision, request_id='superuser-correction-review',
@@ -592,15 +732,20 @@ class LoanOriginationServiceTests(TestCase):
                 'target_type': 'field', 'target_key': 'customer_name',
                 'instruction': 'Confirm the Applicant name.',
             }],
+            **self._review_packet_kwargs(review_package),
         )
         self.assertEqual(corrected.status, LoanOriginationApplication.STATUS_CORRECTION_REQUIRED)
 
         corrected.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
         corrected.save(update_fields=['status'])
+        review_package = self._freeze_for_review(
+            corrected, reviewer=self.officer, request_id='superuser-approved-preview',
+        )
         approved = review_application(
             application_id=corrected.pk, actor=self.officer,
             expected_revision=corrected.revision, request_id='superuser-approve-review',
             decision='approve',
+            **self._review_packet_kwargs(review_package),
         )
         self.assertEqual(approved.status, LoanOriginationApplication.STATUS_REVIEWED)
 
@@ -737,7 +882,7 @@ class LoanOriginationServiceTests(TestCase):
             'guarantor_name': 'Synthetic Guarantor',
             'guarantor_phone': '0712345678',
         })
-        mark_document_previewed(application, 'guarantor_consent')
+        mark_packet_previewed(application)
         packet = serialize_packet(application)
         self.assertTrue(packet['ready'])
         self.assertTrue(packet['primary_ready'])
@@ -760,6 +905,7 @@ class LoanOriginationServiceTests(TestCase):
 
         application.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
         application.save(update_fields=['status'])
+        review_package = self._freeze_for_review(application, reviewer=self.reviewer)
         application = review_application(
             application_id=application.pk,
             actor=self.reviewer,
@@ -772,6 +918,7 @@ class LoanOriginationServiceTests(TestCase):
                 'target_key': 'guarantor_consent.guarantor_name',
                 'instruction': 'Use the National ID spelling.',
             }],
+            **self._review_packet_kwargs(review_package),
         )
         with self.assertRaisesRegex(OriginationError, 'Only supporting-document fields requested'):
             save_document_fields(
@@ -796,7 +943,7 @@ class LoanOriginationServiceTests(TestCase):
             'guarantor_phone': '0712345678',
         })
 
-    def test_supporting_document_selection_requires_current_primary_preview(self):
+    def test_supporting_document_selection_does_not_require_a_separate_primary_preview(self):
         OriginationDocumentTemplate.objects.create(
             product_definition=self.product,
             document_key='optional_notice', document_role='supporting',
@@ -810,12 +957,13 @@ class LoanOriginationServiceTests(TestCase):
             product_key=self.product.product_key, officer=self.officer,
             branch='Synthetic Branch', client_request_id='packet-gate-create',
         )
-        with self.assertRaisesRegex(OriginationError, 'preview the primary LAF'):
-            select_documents(
-                application_id=application.pk, actor=self.officer,
-                selected_keys=['optional_notice'], expected_revision=application.revision,
-                request_id='packet-gate-select',
-            )
+        selected = select_documents(
+            application_id=application.pk, actor=self.officer,
+            selected_keys=['optional_notice'], expected_revision=application.revision,
+            request_id='packet-gate-select',
+        )
+        self.assertTrue(selected.packet_documents.get(document_key='optional_notice').selected)
+        self.assertIsNone(selected.primary_previewed_revision)
 
     def test_required_supporting_document_key_is_ignored_by_selection_endpoint(self):
         """Cached clients may include a disabled, required checkbox in their payload."""

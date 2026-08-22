@@ -14,6 +14,7 @@ from django.utils import timezone
 from core.models import (
     LoanOriginationApplication,
     OriginationRequirementEvidence,
+    OriginationSigningPackage,
 )
 from core.services.loan_origination import OriginationConflict, OriginationError
 
@@ -181,6 +182,8 @@ def _reserve_upload(
         allowed_statuses.add(application.STATUS_REVIEWED)
     if application.status not in allowed_statuses:
         raise OriginationError('Evidence can only be changed while the application is editable.')
+    if application.signing_packages.filter(status=OriginationSigningPackage.STATUS_PENDING).exists():
+        raise OriginationError('Recall the prepared packet before changing application evidence.')
     if application.status == application.STATUS_CORRECTION_REQUIRED:
         from core.services.loan_origination import correction_targets
         if requirement_key not in correction_targets(application)['requirement']:
@@ -296,6 +299,8 @@ def remove_requirement_evidence(
         allowed_statuses.add(application.STATUS_REVIEWED)
     if application.status not in allowed_statuses:
         raise OriginationError('Evidence can only be changed while the application is editable.')
+    if application.signing_packages.filter(status=OriginationSigningPackage.STATUS_PENDING).exists():
+        raise OriginationError('Recall the prepared packet before changing application evidence.')
     if application.status == application.STATUS_CORRECTION_REQUIRED:
         from core.services.loan_origination import correction_targets
         if item.requirement_key not in correction_targets(application)['requirement']:

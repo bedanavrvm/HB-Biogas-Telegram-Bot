@@ -4310,6 +4310,48 @@ class OriginationApplicationEvent(models.Model):
         raise ValidationError('Origination application events cannot be deleted.')
 
 
+class OriginationReviewerNotice(models.Model):
+    """Persistent in-app attention item for an Origination checker."""
+
+    TYPE_APPROVAL_INVALIDATED = 'approval_invalidated'
+    TYPE_CHOICES = [
+        (TYPE_APPROVAL_INVALIDATED, 'Approval invalidated by officer recall'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    application = models.ForeignKey(
+        LoanOriginationApplication, on_delete=models.PROTECT,
+        related_name='reviewer_notices',
+    )
+    package = models.ForeignKey(
+        'OriginationSigningPackage', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='reviewer_notices',
+    )
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='origination_reviewer_notices',
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='created_origination_reviewer_notices',
+    )
+    notice_type = models.CharField(max_length=32, choices=TYPE_CHOICES, db_index=True)
+    message = models.CharField(max_length=500)
+    request_id = models.CharField(max_length=128)
+    seen_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [models.UniqueConstraint(
+            fields=['application', 'recipient', 'request_id'],
+            name='unique_orig_reviewer_notice_request',
+        )]
+
+    def __str__(self):
+        return f'{self.application.reference_number}: {self.get_notice_type_display()}'
+
+
 class OriginationCorrectionRequest(models.Model):
     """Append-preserving reviewer instructions for one submitted revision."""
 
@@ -4556,6 +4598,19 @@ class OriginationSigningPackage(models.Model):
     combined_document_hash = models.CharField(max_length=64, blank=True, default='')
     status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
     unsigned_document_hash = models.CharField(max_length=64, blank=True, default='')
+    review_scope_sha256 = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    approved_unsigned_document_hash = models.CharField(max_length=64, blank=True, default='')
+    approved_review_scope_sha256 = models.CharField(max_length=64, blank=True, default='')
+    prepared_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='prepared_origination_review_packages',
+    )
+    prepared_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='reviewed_origination_signing_packages',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
     signed_document_hash = models.CharField(max_length=64, blank=True, default='')
     final_document_reference = models.TextField(blank=True, default='')
     final_drive_file_id = models.CharField(max_length=255, blank=True, default='')

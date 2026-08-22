@@ -198,6 +198,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 .application-card strong, .application-card small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .application-card strong { font-size: .78rem; }
 .application-card small { color: var(--laf-muted); font-size: .68rem; }
+.application-card .application-status-text { margin-top: 2px; color: var(--laf-green); font-weight: 700; white-space: normal; }
 .application-card:active { background: var(--laf-green-soft) !important; }
 .application-card-state { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; }
 .application-card-state > svg { width: 14px; height: 14px; color: var(--laf-muted); }
@@ -222,6 +223,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 .editor-context strong, .editor-context small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .editor-context strong { font-size: .75rem; }
 .editor-context small { color: var(--laf-muted); font-size: .64rem; }
+.editor-context .editor-status-text { margin-top: 2px; color: var(--laf-green); font-weight: 700; white-space: normal; }
 .icon-button { display: grid; place-items: center; width: 38px; height: 38px; min-height: 38px !important; padding: 0 !important; border: 1px solid var(--laf-line) !important; border-radius: 9px !important; background: var(--laf-surface) !important; color: inherit !important; font-size: 1.05rem !important; }
 .editor-context .icon-button { flex: 0 0 38px; width: 38px !important; }
 
@@ -234,6 +236,11 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 .wizard-progress-track > span { display: block; height: 100%; border-radius: inherit; background: var(--laf-green); transition: width .18s ease; }
 
 .wizard-card { padding: 12px; border: 1px solid var(--laf-line); border-radius: var(--laf-radius); background: var(--laf-surface); }
+.completed-section-lock { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-bottom: 10px; padding: 8px 9px; border: 1px solid #9fc5b7; border-radius: 9px; background: var(--laf-green-soft); }
+.completed-section-lock > span { display: grid; min-width: 0; }
+.completed-section-lock strong { color: var(--laf-green); font-size: .69rem; }
+.completed-section-lock small { color: var(--laf-muted); font-size: .61rem; line-height: 1.35; }
+.completed-section-lock .btn { flex: 0 0 auto; min-height: 36px; }
 .section-title { align-items: flex-start; margin-bottom: 11px; }
 .section-title > div { min-width: 0; }
 .section-title h3, .section-title p { margin: 0; }
@@ -262,6 +269,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 .evidence-upload input { position: absolute; width: 1px; height: 1px; min-height: 1px; opacity: 0; }
 .correction-toggle { display: flex; align-items: center; gap: 6px; width: max-content; max-width: 100%; padding: 4px 7px; border-radius: 7px; background: #fff2cc; color: #705100; font-size: .6rem; font-weight: 700; }
 .correction-toggle input { width: 15px; height: 15px; min-height: 15px; margin: 0; }
+.correction-control { display: grid; gap: 5px; }
+.correction-inline-note { min-height: 38px !important; border-color: #e4c66f !important; background: #fffaf0 !important; font-size: .66rem !important; font-weight: 550 !important; }
+.correction-inline-note[hidden] { display: none !important; }
 .correction-checklist { display: grid; gap: 7px; margin: 9px 0; padding: 11px; border: 1px solid #edb6ad; border-radius: 10px; background: #fff5f3; }
 .correction-checklist > strong { color: #7a271a; font-size: .74rem; }
 .correction-checklist > div { display: grid; gap: 5px; }
@@ -296,6 +306,19 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 .packet-document-option > span:nth-child(2) { display: grid; min-width: 0; gap: 2px; }
 .packet-document-option small { color: var(--laf-muted); }
 .review-preview-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.workflow-readiness { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 11px; padding: 10px; border: 1px solid var(--laf-line); border-radius: 10px; background: color-mix(in srgb, var(--laf-surface) 82%, var(--laf-bg)); }
+.workflow-readiness > div { display: grid; gap: 2px; min-width: 0; }
+.workflow-readiness strong { font-size: .76rem; }
+.workflow-readiness span { color: var(--laf-muted); font-size: .64rem; line-height: 1.4; }
+.workflow-readiness.is-waiting { border-color: #e4c66f; background: #fffaf0; }
+.workflow-readiness.is-ready { border-color: #8bbdae; background: var(--laf-green-soft); }
+.workflow-readiness.is-approved { border-color: #8bbdae; background: #eef9f4; }
+.reviewer-alerts { display: grid; gap: 5px; margin: 7px 0; padding: 9px; border: 1px solid #e4c66f; border-radius: 10px; background: #fffaf0; }
+.reviewer-alert { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 42px; padding: 7px 8px !important; border: 1px solid #ead796 !important; border-radius: 8px !important; background: var(--laf-surface) !important; color: inherit !important; text-align: left; }
+.reviewer-alert > span { display: grid; min-width: 0; }
+.reviewer-alert strong { color: #705100; font-size: .68rem; }
+.reviewer-alert small { color: var(--laf-muted); font-size: .61rem; }
+.reviewer-alert svg { flex: 0 0 auto; width: 15px; height: 15px; }
 .review-sections { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; margin-top: 10px; }
 .review-card { display: flex; align-items: center; justify-content: space-between; gap: 7px; min-height: 54px; padding: 9px !important; border: 1px solid var(--laf-line) !important; border-radius: 9px !important; background: color-mix(in srgb, var(--laf-surface) 82%, var(--laf-bg)) !important; color: inherit !important; text-align: left; }
 .review-card > span:first-child { display: grid; min-width: 0; }
@@ -446,6 +469,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 }
 
 @media (max-width: 520px) {
+  .completed-section-lock { align-items: flex-start; }
+  .workflow-readiness { display: grid; }
+  .workflow-readiness .btn { width: 100%; }
   .review-intro { display: grid; }
   .review-intro .btn { width: 100%; }
   .review-sections { grid-template-columns: 1fr; }

@@ -28,6 +28,7 @@ from core.models import (
     OriginationProductDocumentAssignment,
     OriginationReportingValue,
     OriginationRequirementEvidence,
+    OriginationReviewerNotice,
     OriginationSigningPackage,
     OriginationSigningAction,
     OriginationSignerSession,
@@ -50,6 +51,7 @@ ORIGINATION_RESET_MODEL_GROUPS = (
         OriginationCorrectionRequest,
         OriginationCorrectionItem,
         OriginationRequirementEvidence,
+        OriginationReviewerNotice,
         OriginationSigningPackage,
         OriginationSigningAction,
         OriginationSignerSession,
@@ -176,6 +178,7 @@ def _purge_application(application_id, counts: Counter[str]) -> None:
     package_ids = OriginationSigningPackage.objects.filter(
         application_id=application_id,
     ).values_list('pk', flat=True)
+    _delete(OriginationReviewerNotice.objects.filter(application_id=application_id), counts)
     _delete(OriginationSigningAction.objects.filter(package_id__in=package_ids), counts)
     session_ids = OriginationSignerSession.objects.filter(package_id__in=package_ids).values_list('pk', flat=True)
     _delete(OriginationSigningRequestEvent.objects.filter(session_id__in=session_ids), counts)
@@ -261,6 +264,7 @@ def reset_all_origination_data(*, actor, reason: str) -> dict[str, Any]:
     _delete(OriginationCorrectionRequest.objects.all(), deleted)
     _delete(OriginationRequirementEvidence.objects.all(), deleted)
     _delete(OriginationApplicationDocument.objects.all(), deleted)
+    _delete(OriginationReviewerNotice.objects.all(), deleted)
     _delete(OriginationSigningAction.objects.all(), deleted)
     _delete(OriginationSigningRequestEvent.objects.all(), deleted)
     _delete(OriginationOtpChallenge.objects.all(), deleted)
@@ -337,6 +341,7 @@ def purge_origination_record(*, record: Any, actor, reason: str) -> dict[str, in
     elif isinstance(record, OriginationApplicationDocument):
         _delete(OriginationApplicationDocument.objects.filter(pk=record.pk), counts)
     elif isinstance(record, OriginationSigningPackage):
+        _delete(OriginationReviewerNotice.objects.filter(package=record), counts)
         _delete(OriginationSigningAction.objects.filter(package=record), counts)
         session_ids = OriginationSignerSession.objects.filter(package=record).values_list('pk', flat=True)
         _delete(OriginationSigningRequestEvent.objects.filter(session_id__in=session_ids), counts)

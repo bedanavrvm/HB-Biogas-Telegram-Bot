@@ -5,18 +5,22 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, TestCase, override_settings
+from django.utils import timezone
 
 from core.models import (
     LoanOriginationApplication,
+    OriginationApplicationDocument,
     OriginationApplicationEvent,
     OriginationCorrectionRequest,
     OriginationProductDefinition,
     OriginationRequirementEvidence,
+    OriginationSigningPackage,
 )
 from core.services.loan_origination import (
     OriginationError,
+    _package_review_scope_hash,
     _missing_application_requirements,
-    prepare_signing_package,
+    prepare_review_package,
     review_application,
     save_application_fields,
     save_signing_requirements,
@@ -108,6 +112,41 @@ class OriginationSafeWorkflowTests(TestCase):
         self.audit_patch = patch('core.services.compliance_audit.record_event')
         self.audit_patch.start()
         self.addCleanup(self.audit_patch.stop)
+
+    def _freeze_for_review(self, application, *, reviewer=None, request_id='safe-review-preview'):
+        package = OriginationSigningPackage.objects.create(
+            application=application, application_revision=application.revision,
+            external_reference=f'SAFE-REVIEW-{application.revision}-{str(application.pk)[:8]}',
+            document_type=application.product_definition.document_type,
+            template_version=application.product_definition.document_template_version,
+            template_sha256=application.product_definition.document_template_sha256,
+            context_snapshot={'revision': application.revision}, participants_snapshot=[],
+            requirement_evidence_snapshot=[], document_manifest_snapshot=[],
+            template_configuration_snapshot={}, combined_document_hash='d' * 64,
+            unsigned_document_hash='d' * 64, prepared_by=self.reviewer,
+            prepared_at=timezone.now(),
+        )
+        package.review_scope_sha256 = _package_review_scope_hash(package)
+        package.save(update_fields=['review_scope_sha256', 'updated_at'])
+        if reviewer:
+            OriginationApplicationEvent.objects.create(
+                application=application, action='review_packet_previewed',
+                revision=application.revision, actor=reviewer, request_id=request_id,
+                after_values={
+                    'package_id': str(package.pk),
+                    'unsigned_document_hash': package.unsigned_document_hash,
+                    'review_scope_sha256': package.review_scope_sha256,
+                },
+            )
+        return package
+
+    @staticmethod
+    def _review_kwargs(package):
+        return {
+            'package_id': package.pk,
+            'expected_unsigned_hash': package.unsigned_document_hash,
+            'expected_review_scope_hash': package.review_scope_sha256,
+        }
 
     @patch('core.services.origination_access.effective_capability_keys')
     def test_officer_sees_only_owned_applications_and_reviewer_gets_branch_queue(self, capabilities):
@@ -229,6 +268,7 @@ class OriginationSafeWorkflowTests(TestCase):
         self.application.form_payload = {'applicant_name': 'Applicant', 'loan_amount': '2000'}
         self.application.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
         self.application.save(update_fields=['form_payload', 'status'])
+        review_package = self._freeze_for_review(self.application, reviewer=self.reviewer)
 
         corrected = review_application(
             application_id=self.application.pk,
@@ -239,8 +279,9 @@ class OriginationSafeWorkflowTests(TestCase):
             reason='Correct the applicant name and replace the ID copy.',
             correction_items=[
                 {'target_type': 'field', 'target_key': 'applicant_name', 'instruction': 'Use the legal name.'},
-                {'target_type': 'requirement', 'target_key': 'national_id_copy'},
+                {'target_type': 'requirement', 'target_key': 'national_id_copy', 'instruction': 'Replace the unreadable ID copy.'},
             ],
+            **self._review_kwargs(review_package),
         )
 
         correction = OriginationCorrectionRequest.objects.get(application=self.application)
@@ -271,13 +312,18 @@ class OriginationSafeWorkflowTests(TestCase):
     def test_unknown_correction_target_is_rejected(self):
         self.application.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
         self.application.save(update_fields=['status'])
+        review_package = self._freeze_for_review(self.application, reviewer=self.reviewer)
         with self.assertRaisesMessage(OriginationError, 'not part of this application'):
             review_application(
                 application_id=self.application.pk, actor=self.reviewer,
                 expected_revision=self.application.revision,
                 request_id='unknown-correction-target', decision='request_correction',
                 reason='Fix an unknown field.',
-                correction_items=[{'target_type': 'field', 'target_key': 'not_real'}],
+                correction_items=[{
+                    'target_type': 'field', 'target_key': 'not_real',
+                    'instruction': 'Correct this value.',
+                }],
+                **self._review_kwargs(review_package),
             )
 
     def test_signing_staff_can_save_only_snapshotted_signing_requirements(self):
@@ -377,16 +423,41 @@ class OriginationSafeWorkflowTests(TestCase):
             request_id='safe-evidence-for-signing', file_obj=self._pdf_upload(),
         )
         self.application.refresh_from_db()
-        self.application.status = LoanOriginationApplication.STATUS_REVIEWED
+        self.application.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
         self.application.save(update_fields=['status'])
-
-        package, replayed = prepare_signing_package(
-            application_id=self.application.pk, actor=self.reviewer,
-            expected_revision=self.application.revision,
-            request_id='safe-prepare-signing',
+        OriginationApplicationDocument.objects.create(
+            application=self.application, document_key='primary', name='Primary LAF',
+            document_role='primary', inclusion_mode='required', selection_source='required',
+            applicable=True, selected=True, template_snapshot={}, schema_snapshot={'fields': []},
         )
+
+        with patch(
+            'core.services.origination_documents.render_packet',
+            return_value=(b'%PDF-safe-review', [{'key': 'primary', 'rendered_sha256': 'e' * 64}]),
+        ):
+            package, replayed = prepare_review_package(
+                application_id=self.application.pk, actor=self.reviewer,
+                expected_revision=self.application.revision,
+                request_id='safe-prepare-review',
+            )
 
         self.assertFalse(replayed)
         self.assertEqual(package.requirement_evidence_snapshot[0]['evidence_id'], str(item.pk))
         self.assertEqual(package.requirement_evidence_snapshot[0]['sha256'], item.content_sha256)
         self.assertNotIn('drive_file_id', package.requirement_evidence_snapshot[0])
+
+        self.application.status = LoanOriginationApplication.STATUS_REVIEWED
+        self.application.save(update_fields=['status'])
+        with self.assertRaisesMessage(OriginationError, 'Recall the prepared packet'):
+            upload_requirement_evidence(
+                application_id=self.application.pk, actor=self.reviewer,
+                requirement_key='national_id_copy', expected_revision=self.application.revision,
+                request_id='safe-evidence-after-freeze', file_obj=self._pdf_upload(),
+                allow_signing_actor=True,
+            )
+        with self.assertRaisesMessage(OriginationError, 'Recall the prepared packet'):
+            remove_requirement_evidence(
+                evidence_id=item.pk, actor=self.reviewer,
+                expected_revision=self.application.revision,
+                request_id='safe-evidence-remove-after-freeze', allow_signing_actor=True,
+            )

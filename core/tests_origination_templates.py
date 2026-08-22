@@ -425,7 +425,7 @@ class OriginationTemplateLifecycleTests(TestCase):
 
     @patch('core.services.partnership_laf_preview.render_partnership_laf', return_value=b'%PDF-updated')
     @patch('core.services.loan_origination._published_template_configuration')
-    def test_pre_signing_review_preview_refreshes_published_configuration(self, published, renderer):
+    def test_submitted_review_preview_preserves_the_submitted_configuration(self, published, renderer):
         product = OriginationProductDefinition.objects.create(
             product_key='review-calibration-refresh', name='Review calibration refresh', version=1,
             form_schema={'fields': [{'key': 'applicant_first_name', 'label': 'Name'}]},
@@ -446,8 +446,9 @@ class OriginationTemplateLifecycleTests(TestCase):
         render_application_preview(application)
 
         application.refresh_from_db()
-        self.assertEqual(application.template_configuration_snapshot, {'new': True})
-        self.assertEqual(renderer.call_args.kwargs['configuration'], {'new': True})
+        self.assertEqual(application.template_configuration_snapshot, {'old': True})
+        self.assertEqual(renderer.call_args.kwargs['configuration'], {'old': True})
+        published.assert_not_called()
 
 
 @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='shared-drive-root')

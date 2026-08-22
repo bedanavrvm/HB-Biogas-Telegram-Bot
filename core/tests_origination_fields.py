@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from core.models import (
     LoanOriginationApplication,
@@ -14,8 +15,10 @@ from core.models import (
     OriginationFieldReviewIssue,
     OriginationProductDefinition,
     OriginationReportingValue,
+    OriginationSigningPackage,
 )
 from core.services.loan_origination import (
+    _package_review_scope_hash,
     prepare_signing_package,
     preview_context,
     validate_form_payload,
@@ -423,6 +426,24 @@ class OriginationDataFieldCatalogueTests(TestCase):
             schema_snapshot=snapshot_form_schema(product.form_schema),
             signer_rules_snapshot=product.signer_rules,
         )
+        approved_package = OriginationSigningPackage.objects.create(
+            application=application, application_revision=2,
+            external_reference='REPORTING-PROJECTION-PACKAGE',
+            document_type=product.document_type,
+            unsigned_document_hash='f' * 64, combined_document_hash='f' * 64,
+            context_snapshot={}, participants_snapshot=[],
+            requirement_evidence_snapshot=[], document_manifest_snapshot=[],
+            template_configuration_snapshot={}, prepared_by=self.superuser,
+            prepared_at=timezone.now(), reviewed_by=self.superuser,
+            reviewed_at=timezone.now(),
+        )
+        approved_package.review_scope_sha256 = _package_review_scope_hash(approved_package)
+        approved_package.approved_unsigned_document_hash = approved_package.unsigned_document_hash
+        approved_package.approved_review_scope_sha256 = approved_package.review_scope_sha256
+        approved_package.save(update_fields=[
+            'review_scope_sha256', 'approved_unsigned_document_hash',
+            'approved_review_scope_sha256', 'updated_at',
+        ])
 
         with patch('core.services.compliance_audit.record_event'):
             package, replayed = prepare_signing_package(

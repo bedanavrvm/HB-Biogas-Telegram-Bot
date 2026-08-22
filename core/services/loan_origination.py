@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import uuid
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ from core.models import (
     LoanOriginationApplication,
     OriginationApplicationEvent,
     OriginationProductDefinition,
+    OriginationReviewerNotice,
     OriginationSigningPackage,
 )
 
@@ -31,6 +33,16 @@ class OriginationError(ValueError):
 
 class OriginationConflict(OriginationError):
     """The caller attempted to change a stale application revision."""
+
+
+class OriginationRecallConfirmationRequired(OriginationConflict):
+    """A recall discovered a prepared packet the officer has not confirmed."""
+
+    def __init__(self, message: str, *, package: OriginationSigningPackage):
+        super().__init__(message)
+        self.package_id = str(package.pk)
+        self.package_hash = package.unsigned_document_hash
+        self.approval_invalidated = bool(package.reviewed_at)
 
 
 SUPPORTED_FIELD_TYPES = {
@@ -734,8 +746,6 @@ def render_application_preview(application: LoanOriginationApplication) -> bytes
     if application.status in {
         LoanOriginationApplication.STATUS_DRAFT,
         LoanOriginationApplication.STATUS_CORRECTION_REQUIRED,
-        LoanOriginationApplication.STATUS_READY_FOR_REVIEW,
-        LoanOriginationApplication.STATUS_REVIEWED,
     }:
         latest_configuration = _published_template_configuration(definition)
         if latest_configuration and latest_configuration != application.template_configuration_snapshot:
@@ -1025,8 +1035,13 @@ def save_signing_requirements(
     application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
     if application.events.filter(action='signing_requirements_saved', request_id=request_id).exists():
         return application
-    if application.status != LoanOriginationApplication.STATUS_REVIEWED:
-        raise OriginationError('Signing requirements can only be changed on a reviewed application.')
+    if application.status not in {
+        LoanOriginationApplication.STATUS_READY_FOR_REVIEW,
+        LoanOriginationApplication.STATUS_REVIEWED,
+    }:
+        raise OriginationError('Signing requirements can only be changed before signing dispatch.')
+    if application.signing_packages.filter(status=OriginationSigningPackage.STATUS_PENDING).exists():
+        raise OriginationError('Recall the prepared packet before changing signing requirements.')
     if int(expected_revision) != application.revision:
         raise OriginationConflict('This application changed. Refresh before saving signing requirements.')
     if not isinstance(requirement_evidence, dict):
@@ -1105,15 +1120,15 @@ def submit_for_review(*, application_id, actor, expected_revision: int, request_
                 errors=identity_errors,
             )
     if application.primary_previewed_revision != application.revision and not application.events.filter(
-        action='document_previewed', revision=application.revision,
+        action__in=['document_previewed', 'document_packet_previewed'], revision=application.revision,
     ).exists():
-        raise OriginationError('Preview the filled document for this saved revision before submitting.')
+        raise OriginationError('Preview the complete document packet for this saved revision before submitting.')
     if application.packet_documents.exists():
         from core.services.origination_documents import serialize_packet
         packet = serialize_packet(application)
         if not packet['ready']:
             raise OriginationError(
-                'Complete and preview every selected supporting document before submitting.',
+                'Complete the selected documents and preview the latest full packet before submitting.',
             )
     missing = _missing_application_requirements(application, stage='review')
     if missing:
@@ -1136,6 +1151,7 @@ def submit_for_review(*, application_id, actor, expected_revision: int, request_
 def review_application(
     *, application_id, actor, expected_revision: int, request_id: str,
     decision: str, reason: str = '', correction_items: Any = None,
+    package_id=None, expected_unsigned_hash: str = '', expected_review_scope_hash: str = '',
 ) -> LoanOriginationApplication:
     request_id = _require_request_id(request_id)
     application = LoanOriginationApplication.objects.select_for_update().select_related('product_definition').get(pk=application_id)
@@ -1145,6 +1161,26 @@ def review_application(
         raise OriginationConflict('This application changed on another device. Refresh before reviewing.')
     if application.status != LoanOriginationApplication.STATUS_READY_FOR_REVIEW:
         raise OriginationError('This application is not ready for review.')
+    package = application.signing_packages.select_for_update().filter(
+        status=OriginationSigningPackage.STATUS_PENDING,
+    ).order_by('-created_at').first()
+    if not package:
+        raise OriginationError('Operations must prepare the frozen review packet before a decision can be recorded.')
+    if not package_id or str(package.pk) != str(package_id):
+        raise OriginationConflict('The review packet changed. Refresh before reviewing it.')
+    if (
+        not expected_unsigned_hash
+        or not expected_review_scope_hash
+        or expected_unsigned_hash != package.unsigned_document_hash
+        or expected_review_scope_hash != package.review_scope_sha256
+    ):
+        raise OriginationConflict('The review packet hash changed. Refresh before reviewing it.')
+    if not application.events.filter(
+        action='review_packet_previewed', actor=actor,
+        after_values__package_id=str(package.pk),
+        after_values__review_scope_sha256=package.review_scope_sha256,
+    ).exists():
+        raise OriginationError('Open the frozen review packet before recording a decision.')
     if application.recheck_assigned_to_id and application.recheck_assigned_to_id != actor.pk:
         raise OriginationError(
             'This corrected application is assigned to its original checker. Take it over explicitly before reviewing.',
@@ -1155,8 +1191,8 @@ def review_application(
     if application.officer_id == actor.pk and not getattr(actor, 'is_superuser', False):
         raise OriginationError('The submitting officer cannot review their own application.')
     reason = str(reason or '').strip()
-    if normalized != 'approve' and not reason:
-        raise OriginationError('A reason is required for corrections or decline.')
+    if normalized == 'decline' and not reason:
+        raise OriginationError('A reason is required to decline this application.')
     normalized_items: list[dict[str, str]] = []
     if normalized == 'request_correction':
         if not isinstance(correction_items, list) or not correction_items:
@@ -1197,12 +1233,16 @@ def review_application(
             if identity in seen:
                 raise OriginationError('Correction targets cannot be duplicated.')
             seen.add(identity)
+            instruction = str(raw.get('instruction') or '').strip()[:1000]
+            if not instruction:
+                raise OriginationError('Give an inline instruction for every flagged correction item.')
             normalized_items.append({
                 'target_type': target_type,
                 'target_key': target_key[:240],
                 'target_label': labels[target_key][:160],
-                'instruction': str(raw.get('instruction') or '').strip()[:1000],
+                'instruction': instruction,
             })
+        reason = reason or f'Correct {len(normalized_items)} flagged item(s).'
     status_by_decision = {
         'approve': LoanOriginationApplication.STATUS_REVIEWED,
         'request_correction': LoanOriginationApplication.STATUS_CORRECTION_REQUIRED,
@@ -1222,7 +1262,21 @@ def review_application(
             for item in normalized_items
         ])
         application.recheck_assigned_to = actor
-    elif normalized in {'approve', 'decline'}:
+        package.status = package.STATUS_CANCELLED
+        package.save(update_fields=['status', 'updated_at'])
+    elif normalized == 'approve':
+        package.reviewed_by = actor
+        package.reviewed_at = timezone.now()
+        package.approved_unsigned_document_hash = package.unsigned_document_hash
+        package.approved_review_scope_sha256 = package.review_scope_sha256
+        package.save(update_fields=[
+            'reviewed_by', 'reviewed_at', 'approved_unsigned_document_hash',
+            'approved_review_scope_sha256', 'updated_at',
+        ])
+        application.recheck_assigned_to = None
+    elif normalized == 'decline':
+        package.status = package.STATUS_DECLINED
+        package.save(update_fields=['status', 'updated_at'])
         application.recheck_assigned_to = None
     application.status = status_by_decision[normalized]
     application.revision += 1
@@ -1234,7 +1288,11 @@ def review_application(
     ])
     _record_event(
         application, f'review_{normalized}', actor=actor, request_id=request_id,
-        before=before, after={'reason': reason} if reason else {},
+        before=before, after={
+            'reason': reason, 'package_id': str(package.pk),
+            'unsigned_document_hash': package.unsigned_document_hash,
+            'review_scope_sha256': package.review_scope_sha256,
+        },
     )
     return application
 
@@ -1270,35 +1328,56 @@ def take_over_correction_review(
     return application
 
 
+def _package_review_scope_payload(package: OriginationSigningPackage) -> dict[str, Any]:
+    return {
+        'unsigned_document_hash': package.unsigned_document_hash,
+        'context_snapshot': package.context_snapshot,
+        'participants_snapshot': package.participants_snapshot,
+        'requirement_evidence_snapshot': package.requirement_evidence_snapshot,
+        'document_manifest_snapshot': package.document_manifest_snapshot,
+        'template_configuration_snapshot': package.template_configuration_snapshot,
+    }
+
+
+def _package_review_scope_hash(package: OriginationSigningPackage) -> str:
+    encoded = json.dumps(
+        _package_review_scope_payload(package), sort_keys=True,
+        separators=(',', ':'), ensure_ascii=False, default=str,
+    ).encode('utf-8')
+    return hashlib.sha256(encoded).hexdigest()
+
+
 @transaction.atomic
-def prepare_signing_package(
+def prepare_review_package(
     *, application_id, actor, expected_revision: int, request_id: str,
 ) -> tuple[OriginationSigningPackage, bool]:
-    """Freeze a reviewed revision locally; this deliberately performs no remote dispatch."""
+    """Freeze the complete packet scope for the final pre-signing review."""
     request_id = _require_request_id(request_id)
-    application = LoanOriginationApplication.objects.select_for_update().select_related('product_definition').get(pk=application_id)
-    if application.status == LoanOriginationApplication.STATUS_SIGNING_PENDING:
-        existing = application.signing_packages.order_by('-created_at').first()
-        if existing:
-            from core.services.origination_fields import project_reporting_values
-            project_reporting_values(application)
-            return existing, True
-    existing = OriginationSigningPackage.objects.filter(
-        application=application, application_revision=application.revision,
+    application = LoanOriginationApplication.objects.select_for_update().select_related(
+        'product_definition', 'officer',
+    ).get(pk=application_id)
+    replay = application.events.filter(action='review_packet_prepared', request_id=request_id).first()
+    if replay:
+        package_id = (replay.after_values or {}).get('package_id')
+        package = application.signing_packages.filter(pk=package_id).first()
+        if package:
+            return package, True
+    if int(expected_revision) != application.revision:
+        raise OriginationConflict('This application changed. Refresh before preparing its review packet.')
+    if application.status != LoanOriginationApplication.STATUS_READY_FOR_REVIEW:
+        raise OriginationError('Only a submitted application can be prepared for final review.')
+    existing = application.signing_packages.filter(
+        application_revision=application.revision,
+        status=OriginationSigningPackage.STATUS_PENDING,
     ).first()
     if existing:
-        from core.services.origination_fields import project_reporting_values
-        project_reporting_values(application)
         return existing, True
-    if int(expected_revision) != application.revision:
-        raise OriginationConflict('This application changed on another device. Refresh before preparing signing.')
-    if application.status != LoanOriginationApplication.STATUS_REVIEWED:
-        raise OriginationError('Only a reviewed application can be prepared for signing.')
     missing = _missing_application_requirements(application, stage='signing')
     if missing:
         raise OriginationError(
-            'Complete required product evidence before signing: ' + ', '.join(item['label'] for item in missing),
-            errors={f"requirement:{item['key']}": 'Required before signing' for item in missing},
+            'Complete required product evidence before packet preparation: '
+            + ', '.join(item['label'] for item in missing),
+            errors={f"requirement:{item['key']}": 'Required before packet preparation' for item in missing},
         )
     package_id = uuid.uuid4()
     from core.services.origination_evidence import evidence_manifest
@@ -1306,10 +1385,21 @@ def prepare_signing_package(
     packet_pdf, document_manifest = (
         render_packet(application) if application.packet_documents.exists() else (b'', [])
     )
-    packet_hash = hashlib.sha256(packet_pdf).hexdigest() if packet_pdf else ''
+    if not packet_pdf:
+        raise OriginationError('The final review packet could not be rendered.')
+    packet_hash = hashlib.sha256(packet_pdf).hexdigest()
     from core.services.origination_signing import test_signing_enabled
     from core.services.origination_esign import esign_enabled
-    package = OriginationSigningPackage.objects.create(
+    frozen_context = preview_context(application)
+    frozen_context['_review_contract'] = {
+        'schema_snapshot': application.schema_snapshot,
+        'product_terms_snapshot': application.product_terms_snapshot,
+        'product_quote_snapshot': application.product_quote_snapshot,
+        'product_requirement_evidence': application.product_requirement_evidence,
+        'product_custom_values': application.product_custom_values,
+        'product_selected_fee_keys': application.product_selected_fee_keys,
+    }
+    package = OriginationSigningPackage(
         id=package_id,
         application=application,
         application_revision=application.revision,
@@ -1318,27 +1408,176 @@ def prepare_signing_package(
         template_version=application.product_definition.document_template_version,
         template_sha256=application.product_definition.document_template_sha256,
         template_configuration_snapshot=application.template_configuration_snapshot,
-        context_snapshot=preview_context(application),
+        context_snapshot=frozen_context,
         participants_snapshot=packet_signers(application),
         requirement_evidence_snapshot=evidence_manifest(application),
         document_manifest_snapshot=document_manifest,
         combined_document_hash=packet_hash,
         unsigned_document_hash=packet_hash,
-        # A verified provider-enabled environment always creates a production
-        # package. The isolated watermark simulator remains the fallback only
-        # when verified signing is disabled.
+        prepared_by=actor,
+        prepared_at=timezone.now(),
         test_mode=bool(test_signing_enabled() and not esign_enabled()),
     )
+    package.review_scope_sha256 = _package_review_scope_hash(package)
+    package.save()
+    _record_event(
+        application, 'review_packet_prepared', actor=actor, request_id=request_id,
+        after={
+            'package_id': str(package.pk),
+            'unsigned_document_hash': package.unsigned_document_hash,
+            'review_scope_sha256': package.review_scope_sha256,
+        },
+    )
+    return package, False
+
+
+def render_review_package(package: OriginationSigningPackage) -> bytes:
+    """Re-render and verify the exact unsigned packet awaiting checker review."""
+    from core.services.origination_documents import render_packet
+    content, manifest = render_packet(package.application)
+    if hashlib.sha256(content).hexdigest() != package.unsigned_document_hash:
+        raise OriginationConflict('The application no longer matches its frozen review packet.')
+    if manifest != (package.document_manifest_snapshot or []):
+        raise OriginationConflict('The document manifest no longer matches its frozen review packet.')
+    if _package_review_scope_hash(package) != package.review_scope_sha256:
+        raise OriginationConflict('The frozen review scope failed its integrity check.')
+    return content
+
+
+@transaction.atomic
+def start_signing_package(
+    *, application_id, actor, expected_revision: int, request_id: str,
+) -> tuple[OriginationSigningPackage, bool]:
+    """Unlock dispatch for an already frozen and checker-approved package."""
+    request_id = _require_request_id(request_id)
+    application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
+    replay = application.events.filter(action='signing_started', request_id=request_id).first()
+    if replay:
+        package = application.signing_packages.filter(
+            pk=(replay.after_values or {}).get('package_id'),
+        ).first()
+        if package:
+            return package, True
+    if int(expected_revision) != application.revision:
+        raise OriginationConflict('This application changed. Refresh before starting signing.')
+    if application.status != LoanOriginationApplication.STATUS_REVIEWED:
+        raise OriginationError('Only a final-reviewed application can start signing.')
+    package = application.signing_packages.select_for_update().filter(
+        status=OriginationSigningPackage.STATUS_PENDING,
+        reviewed_at__isnull=False,
+    ).order_by('-created_at').first()
+    if not package:
+        raise OriginationError('Prepare and approve the frozen review packet before starting signing.')
+    if (
+        package.approved_unsigned_document_hash != package.unsigned_document_hash
+        or package.approved_review_scope_sha256 != package.review_scope_sha256
+        or _package_review_scope_hash(package) != package.review_scope_sha256
+    ):
+        raise OriginationConflict('The approved packet hash no longer matches. Prepare it for final review again.')
     from core.services.origination_fields import project_reporting_values
     project_reporting_values(application)
     application.status = LoanOriginationApplication.STATUS_SIGNING_PENDING
     application.revision += 1
     application.save(update_fields=['status', 'revision', 'updated_at'])
     _record_event(
-        application, 'signing_prepared', actor=actor, request_id=request_id,
-        after={'signing_package_id': str(package.pk)},
+        application, 'signing_started', actor=actor, request_id=request_id,
+        after={
+            'package_id': str(package.pk),
+            'unsigned_document_hash': package.unsigned_document_hash,
+            'review_scope_sha256': package.review_scope_sha256,
+        },
     )
     return package, False
+
+
+def prepare_signing_package(
+    *, application_id, actor, expected_revision: int, request_id: str,
+) -> tuple[OriginationSigningPackage, bool]:
+    """Compatibility entry point: start an already approved frozen package."""
+    return start_signing_package(
+        application_id=application_id, actor=actor,
+        expected_revision=expected_revision, request_id=request_id,
+    )
+
+
+@transaction.atomic
+def recall_application(
+    *, application_id, actor, expected_revision: int, request_id: str,
+    confirmed_package_id: str = '', confirmed_package_hash: str = '',
+) -> LoanOriginationApplication:
+    """Return an officer-owned pre-dispatch application to Draft safely."""
+    request_id = _require_request_id(request_id)
+    application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
+    if application.events.filter(action='application_recalled', request_id=request_id).exists():
+        return application
+    if application.officer_id != actor.pk:
+        raise OriginationError('Only the assigned officer may recall this application.')
+    if int(expected_revision) != application.revision:
+        raise OriginationConflict('This application changed. Refresh before editing it.')
+    if application.status == LoanOriginationApplication.STATUS_CORRECTION_REQUIRED:
+        raise OriginationError('Use the checker-flagged correction fields; broad editing is disabled.')
+    if application.status not in {
+        LoanOriginationApplication.STATUS_READY_FOR_REVIEW,
+        LoanOriginationApplication.STATUS_REVIEWED,
+    }:
+        raise OriginationError('This application can no longer be recalled for editing.')
+    package = application.signing_packages.select_for_update().filter(
+        status=OriginationSigningPackage.STATUS_PENDING,
+    ).order_by('-created_at').first()
+    if package and (
+        str(confirmed_package_id or '') != str(package.pk)
+        or str(confirmed_package_hash or '') != package.unsigned_document_hash
+    ):
+        raise OriginationRecallConfirmationRequired(
+            'Editing will cancel the prepared packet and require a full final review.',
+            package=package,
+        )
+    previous_reviewer = (
+        package.reviewed_by if package and package.reviewed_by_id
+        else application.reviewed_by or application.recheck_assigned_to
+    )
+    before = {
+        'status': application.status,
+        'revision': application.revision,
+        'package_id': str(package.pk) if package else '',
+    }
+    if package:
+        package.status = package.STATUS_CANCELLED
+        package.signer_sessions.filter(is_active=True).update(
+            is_active=False, status='cancelled', invalidated_at=timezone.now(), updated_at=timezone.now(),
+        )
+        package.save(update_fields=['status', 'updated_at'])
+    if previous_reviewer:
+        application.recheck_assigned_to = previous_reviewer
+    application.status = LoanOriginationApplication.STATUS_DRAFT
+    application.reviewed_by = None
+    application.reviewed_at = None
+    application.primary_previewed_revision = None
+    application.revision += 1
+    application.save(update_fields=[
+        'status', 'reviewed_by', 'reviewed_at', 'recheck_assigned_to',
+        'primary_previewed_revision', 'revision', 'updated_at',
+    ])
+    application.packet_documents.filter(selected=True).update(
+        previewed_application_revision=None, updated_at=timezone.now(),
+    )
+    _record_event(
+        application, 'application_recalled', actor=actor, request_id=request_id,
+        before=before, after={
+            'status': application.status,
+            'cancelled_package_id': str(package.pk) if package else '',
+            'approval_invalidated': bool(previous_reviewer and package and package.reviewed_at),
+        },
+    )
+    if previous_reviewer and package and package.reviewed_at:
+        OriginationReviewerNotice.objects.create(
+            application=application, package=package, recipient=previous_reviewer,
+            created_by=actor,
+            notice_type=OriginationReviewerNotice.TYPE_APPROVAL_INVALIDATED,
+            message='Previously approved; recalled by the officer for editing.',
+            request_id=request_id,
+        )
+    return application
 
 
 def _masked_form_payload(application: LoanOriginationApplication) -> dict[str, Any]:
@@ -1392,6 +1631,31 @@ def serialize_application(
     application: LoanOriginationApplication, *, include_payload: bool = True,
     presentation: str = 'full',
 ) -> dict[str, Any]:
+    latest_package = application.signing_packages.order_by('-created_at').first()
+    active_review_package = (
+        latest_package
+        if latest_package and latest_package.status == OriginationSigningPackage.STATUS_PENDING
+        else None
+    )
+    review_packet_ready = bool(active_review_package and active_review_package.review_scope_sha256)
+    status_text = {
+        LoanOriginationApplication.STATUS_DRAFT: 'Draft — continue application capture',
+        LoanOriginationApplication.STATUS_CORRECTION_REQUIRED: (
+            f'Returned by {application.recheck_assigned_to.get_full_name() or application.recheck_assigned_to.get_username()} for correction'
+            if application.recheck_assigned_to_id else 'Returned for targeted correction'
+        ),
+        LoanOriginationApplication.STATUS_REVIEWED: 'Approved — awaiting signing dispatch',
+        LoanOriginationApplication.STATUS_SIGNING_PENDING: 'Signing invitations can be dispatched',
+        LoanOriginationApplication.STATUS_PARTIALLY_SIGNED: 'Some required signing actions remain',
+        LoanOriginationApplication.STATUS_FULLY_SIGNED: 'Final signed packet complete',
+    }.get(application.status, application.get_status_display())
+    if application.status == LoanOriginationApplication.STATUS_READY_FOR_REVIEW:
+        status_text = (
+            f'Awaiting final review by {application.recheck_assigned_to.get_full_name() or application.recheck_assigned_to.get_username()}'
+            if review_packet_ready and application.recheck_assigned_to_id
+            else 'Awaiting final checker review'
+            if review_packet_ready else 'Awaiting Operations to prepare packet'
+        )
     payload = {
         'id': str(application.pk), 'reference_number': application.reference_number,
         'product_key': application.product_definition.product_key,
@@ -1409,6 +1673,18 @@ def serialize_application(
             or application.recheck_assigned_to.get_username()
             if application.recheck_assigned_to_id else ''
         ),
+        'status_text': status_text,
+        'workflow_owner': (
+            'officer' if application.status in {
+                application.STATUS_DRAFT, application.STATUS_CORRECTION_REQUIRED,
+            } else 'checker' if application.status == application.STATUS_READY_FOR_REVIEW and review_packet_ready
+            else 'operations'
+        ),
+        'can_recall': application.status in {
+            application.STATUS_READY_FOR_REVIEW, application.STATUS_REVIEWED,
+        },
+        'recall_requires_confirmation': bool(active_review_package),
+        'review_packet_ready': review_packet_ready,
     }
     identity = application.identity_snapshot or applicant_identity_snapshot(
         application.form_payload, schema=application.schema_snapshot,
@@ -1446,13 +1722,22 @@ def serialize_application(
         })
         from core.services.origination_documents import serialize_packet
         payload['document_packet'] = serialize_packet(application)
-        package = application.signing_packages.order_by('-created_at').first()
+        package = latest_package
         if package:
             from core.services.origination_signing import active_test_stamps, serialize_test_signing
             from core.services.origination_esign import serialize_verified_signing
             payload['signing_package'] = {
                 'id': str(package.pk), 'reference': package.external_reference,
                 'status': package.status,
+                'application_revision': package.application_revision,
+                'unsigned_document_hash': package.unsigned_document_hash,
+                'review_scope_sha256': package.review_scope_sha256,
+                'reviewed': bool(package.reviewed_at),
+                'reviewed_at': package.reviewed_at.isoformat() if package.reviewed_at else None,
+                'reviewed_by_name': (
+                    package.reviewed_by.get_full_name() or package.reviewed_by.get_username()
+                    if package.reviewed_by_id else ''
+                ),
                 'test_signing': serialize_test_signing(package),
                 'test_stamps': active_test_stamps(application) if package.test_mode else [],
                 'verified_signing': serialize_verified_signing(package) if not package.test_mode else {},

@@ -359,12 +359,16 @@ Do not reuse a production application.
 3. Complete every required field, including the exact canonical field mapped as
    each external signer's OTP phone.
 4. Select any optional supporting documents needed for the test.
-5. Complete and preview the main LAF and every selected supporting document.
-6. Preview the full packet and verify page order and content.
+5. Complete the main LAF and every selected supporting-document form.
+6. Preview the full packet once and verify page order and content. This single
+   preview satisfies the current revision's primary/supporting preview gate.
 7. Submit the application for review.
-8. Open it as an authorized independent reviewer and approve it.
-9. Open the reviewed application as authorized Operations staff.
-10. Select **Prepare signing package**.
+8. Open the **Prepare** queue as authorized Operations staff and select
+   **Prepare review packet**.
+9. Open the **Review** queue as an authorized independent checker, select
+   **Preview frozen packet**, inspect it, and approve that exact hash-bound PDF.
+10. Open the approved application in **Signing** as Operations and select
+    **Start signing**.
 11. Confirm the panel says **Verified packet signing**, not **Non-production
     simulator**.
 12. For the borrower or other external signer, choose **Send to signer's
