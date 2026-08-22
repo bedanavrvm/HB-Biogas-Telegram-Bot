@@ -23,6 +23,7 @@ from core.models import GroupSheetConfiguration, SpinBatchReviewItem, SpinCredit
 from core.services.branches import global_branch_choices, validate_workflow_branch, workflow_branches, workflow_default_branch
 from core.services.parser import analyze_whatsapp_export
 from core.services.sheets import get_sheets_service
+from core.services.workflow_data_mode import WORKFLOW_SPIN, mode_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -327,9 +328,11 @@ def process_spin_batch_export(
     for item in parsed:
         item.missing_fields = missing_fields_for(item)
         status = 'review_needed' if item.missing_fields else 'imported'
+        scope = mode_snapshot(WORKFLOW_SPIN)
         duplicate = SpinCreditRequest.objects.filter(
             group_id=group_config.group_id,
             source_message_hash=item.source_message_hash,
+            data_scope_key=scope.data_scope_key,
         ).first()
         if duplicate:
             results.append({'status': 'duplicate', 'parsed': item, 'record': duplicate})
@@ -345,6 +348,7 @@ def process_spin_batch_export(
             duplicate = SpinCreditRequest.objects.filter(
                 group_id=group_config.group_id,
                 source_message_hash=item.source_message_hash,
+                data_scope_key=scope.data_scope_key,
             ).first()
             results.append({'status': 'duplicate', 'parsed': item, 'record': duplicate})
             continue
@@ -655,6 +659,7 @@ def parse_spin_review_candidate(
     return parsed
 
 
+@transaction.atomic
 def persist_spin_batch_review_item(
     group_config,
     entry: dict[str, Any],
@@ -665,9 +670,11 @@ def persist_spin_batch_review_item(
 ) -> SpinBatchReviewItem | None:
     """Persist uncertain messages so a batch import can never silently discard them."""
     candidate = parse_spin_review_candidate(entry, classification, index, source_filename)
+    scope = mode_snapshot(WORKFLOW_SPIN, for_update=True)
     existing_request = SpinCreditRequest.objects.filter(
         group_id=str(group_config.group_id),
         source_message_hash=candidate.source_message_hash,
+        data_scope_key=scope.data_scope_key,
     ).first()
     defaults = {
         'telegram_message_id': str(telegram_message_id or ''),
@@ -688,7 +695,8 @@ def persist_spin_batch_review_item(
     item, created = SpinBatchReviewItem.objects.get_or_create(
         group_id=str(group_config.group_id),
         source_message_hash=candidate.source_message_hash,
-        defaults=defaults,
+        data_scope_key=scope.data_scope_key,
+        defaults={**defaults, **scope.creation_fields()},
     )
     if existing_request and item.status == 'pending':
         item.status = 'resolved'
@@ -964,6 +972,7 @@ def save_spin_request(
     actor=None,
     request_id: str = '',
     origin: str = 'system',
+    expected_mode_version: int | None = None,
 ) -> SpinCreditRequest:
     request_dt = parsed.request_datetime or timezone.now()
     year = timezone.localtime(request_dt).year if timezone.is_aware(request_dt) else request_dt.year
@@ -973,6 +982,10 @@ def save_spin_request(
     custom_values = parsed_fields_value.pop('_product_custom_values', {})
     selected_fee_keys = parsed_fields_value.pop('_product_selected_fee_keys', [])
     with transaction.atomic():
+        scope = mode_snapshot(WORKFLOW_SPIN, for_update=True)
+        if expected_mode_version is not None and expected_mode_version != scope.mode_version:
+            from core.services.workflow_data_mode import WorkflowModeChanged
+            raise WorkflowModeChanged()
         sequence, _ = SpinRequestSequence.objects.select_for_update().get_or_create(
             group_id=str(group_config.group_id),
             year=year,
@@ -982,6 +995,7 @@ def save_spin_request(
         sequence.next_number = number + 1
         sequence.save(update_fields=['next_number', 'updated_at'])
         record = SpinCreditRequest.objects.create(
+            **scope.creation_fields(),
             group_id=group_config.group_id,
             sheet_id=getattr(group_config, 'sheet_id', '') or '',
             sheet_name=getattr(group_config, 'sheet_name', '') or '',
@@ -1081,7 +1095,12 @@ def record_spin_event(
         deduplication_key=f'spin:SpinCreditRequest:{source_event_id}',
         before_values=before_values or {},
         after_values=after_values or {},
-        metadata=metadata or {},
+        metadata={
+            **(metadata or {}),
+            'data_mode': record.data_mode,
+            'pilot_cycle_id': str(record.pilot_cycle_id or ''),
+            'data_scope_key': record.data_scope_key,
+        },
         sensitive=True,
         occurred_at=record.updated_at or record.created_at or timezone.now(),
     )
@@ -1588,7 +1607,12 @@ def process_spin_form_submission(
     uploaded_files: list | None = None,
     client_request_id: str = '',
     actor=None,
+    expected_mode_version: int | None = None,
 ) -> dict[str, Any]:
+    scope = mode_snapshot(WORKFLOW_SPIN)
+    if expected_mode_version is not None and expected_mode_version != scope.mode_version:
+        from core.services.workflow_data_mode import WorkflowModeChanged
+        raise WorkflowModeChanged()
     cleaned, errors = validate_spin_form_fields(fields)
     if not errors:
         try:
@@ -1655,6 +1679,7 @@ def process_spin_form_submission(
         existing = SpinCreditRequest.objects.filter(
             group_id=str(group_config.group_id),
             source_message_hash=request_hash,
+            data_scope_key=scope.data_scope_key,
         ).first()
         if existing:
             return {
@@ -1734,12 +1759,14 @@ def process_spin_form_submission(
             actor=actor,
             request_id=client_request_id,
             origin='human',
+            expected_mode_version=expected_mode_version,
         )
     except IntegrityError:
         if request_hash:
             existing = SpinCreditRequest.objects.filter(
                 group_id=str(group_config.group_id),
                 source_message_hash=request_hash,
+                data_scope_key=scope.data_scope_key,
             ).first()
             if existing:
                 return {
@@ -2144,6 +2171,7 @@ def resolve_spin_batch_review_item(
 
     record = SpinCreditRequest.objects.filter(
         group_id=str(group_config.group_id), source_message_hash=item.source_message_hash,
+        data_scope_key=item.data_scope_key,
     ).first()
     if not record:
         try:
@@ -2151,6 +2179,7 @@ def resolve_spin_batch_review_item(
         except IntegrityError:
             record = SpinCreditRequest.objects.filter(
                 group_id=str(group_config.group_id), source_message_hash=item.source_message_hash,
+                data_scope_key=item.data_scope_key,
             ).first()
     if not record:
         return {'success': False, 'status': 'failed', 'message': 'The request could not be created. Try again.'}

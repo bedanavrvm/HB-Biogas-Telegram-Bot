@@ -9,6 +9,7 @@ migrations, tests, settings, and these operational documents take precedence.
 | [Glossary](glossary.md) | Shared roles, capabilities, workflow language, and UI status semantics. |
 | [Loan Origination Admin Guide](origination-admin-guide.md) | Superuser setup of products, fields, main/supporting PDFs, access, publication, testing, and troubleshooting. |
 | [Loan Origination Developer Guide](origination-developer-guide.md) | Origination architecture, models, APIs, security, versioning, local development, verification, and safe extension rules. |
+| [SPIN and TAT Pilot Modes](spin-tat-pilot-modes.md) | Superuser mode switches, protected Pilot cycles, Mini App behavior, verified Sheet cleanup, recovery, and developer scoping rules. |
 | [ADR 0001](adr/0001-server-owned-miniapp-recovery-drafts.md) | Decision and release safety record for server-owned Mini App recovery drafts. |
 | [ADR 0007](adr/0007-sheet-register-governance-and-verified-tat-repair.md) | Publication-only Sheet contracts, drift evidence, and verified TAT duplicate-row repair. |
 | [../CHANGELOG.md](../CHANGELOG.md) | Dated visible/operational changes. |

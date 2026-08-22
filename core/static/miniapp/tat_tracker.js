@@ -22,6 +22,7 @@
     identityContextRequestNumber: 0,
     identityContextTimer: null,
     pendingCorrection: null,
+    workflowMode: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -45,7 +46,12 @@
   }
 
   function basePayload(extra) {
-    return Object.assign({ group_id: state.groupId, token: state.token, init_data: state.initData }, extra || {});
+    return Object.assign({
+      group_id: state.groupId,
+      token: state.token,
+      init_data: state.initData,
+      workflow_mode_version: state.workflowMode ? state.workflowMode.mode_version : '',
+    }, extra || {});
   }
 
   function configureHtmx() {
@@ -58,22 +64,34 @@
   }
 
   async function api(path, payload) {
-    if (tatApi.postJson) return tatApi.postJson(path, basePayload(payload), utils);
-    if (utils.fetchJson) {
-      return utils.fetchJson(path, {
+    try {
+      if (tatApi.postJson) return await tatApi.postJson(path, basePayload(payload), utils);
+      if (utils.fetchJson) {
+        return await utils.fetchJson(path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(basePayload(payload)),
+        });
+      }
+      const response = await fetch(path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(basePayload(payload)),
       });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) {
+        const error = new Error(data.error || 'Request failed.');
+        error.code = data.code || '';
+        throw error;
+      }
+      return data;
+    } catch (error) {
+      if (error && error.code === 'WORKFLOW_MODE_CHANGED') {
+        setStatus('Workflow mode changed. Reloading the current operational queue…', 'error');
+        window.setTimeout(() => window.location.reload(), 900);
+      }
+      throw error;
     }
-    const response = await fetch(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(basePayload(payload)),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.ok) throw new Error(data.error || 'Request failed.');
-    return data;
   }
 
   async function fragmentPost(path, payload) {
@@ -732,8 +750,17 @@
 
   function bootstrap(data) {
     state.data = data;
+    state.workflowMode = data.workflow_mode || null;
     if (!data.authorized) throw new Error(data.reason || 'Unauthorized.');
     $('loadingBrand').classList.add('hidden');
+    const modeBanner = $('workflowModeBanner');
+    if (modeBanner && state.workflowMode) {
+      modeBanner.hidden = false;
+      modeBanner.classList.toggle('pilot', Boolean(state.workflowMode.is_pilot));
+      modeBanner.textContent = state.workflowMode.is_pilot
+        ? 'PILOT MODE · Entries are test data in the active pilot cycle.'
+        : 'PRODUCTION MODE · New entries are official operational records.';
+    }
     const user = data.user || {};
     const capabilities = new Set(user.capabilities || []);
     document.querySelectorAll('[data-required-capability]').forEach((node) => {
@@ -889,6 +916,7 @@
           <span class="detail-branch">${escapeHtml(summary.branch || '')}</span>
         </div>
       </div>
+      ${summary.read_only ? `<div class="closed-pilot-notice" role="status"><strong>Closed Pilot cycle</strong><span>This case is retained for reference and can no longer be edited. Reload the queue to continue with current work.</span></div>` : ''}
       <div class="summary-facts">
         <div class="fact">
           <small>Amount</small>

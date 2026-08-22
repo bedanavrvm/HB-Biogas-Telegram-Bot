@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=101">
-  <link rel="stylesheet" href="{% static 'miniapp/spin_form.css' %}?v=104">
+  <link rel="stylesheet" href="{% static 'miniapp/spin_form.css' %}?v=105">
   <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=14">
 </head>
 <body class="workflow-standard spin-app">
@@ -43,6 +43,7 @@
   </nav>
 
   <div id="statusBanner" class="status-banner" role="alert" aria-live="assertive" hidden></div>
+  <div id="workflowModeBanner" class="workflow-mode-banner" role="status" aria-live="polite" hidden></div>
 
   <!-- Tab Page 1: New Request Form -->
   <div id="tab-new-request" class="tab-page active">
@@ -352,9 +353,9 @@
 
 <script id="spin-form-data" type="application/json">{{ form_json|safe }}</script>
 <script src="{% static 'miniapp/telegram.js' %}"></script>
-  <script src="{% static 'miniapp/utils.js' %}?v=3"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=4"></script>
   <script src="{% static 'miniapp/spin_api.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/spin_form.js' %}?v=110"></script>
+  <script src="{% static 'miniapp/spin_form.js' %}?v=111"></script>
 </body>
 </html>
 

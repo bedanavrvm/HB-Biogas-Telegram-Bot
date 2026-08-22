@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=22">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=23">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -35,6 +35,7 @@
       <img src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu">
       <span>Loading tracker...</span>
     </div>
+    <div id="workflowModeBanner" class="workflow-mode-banner" role="status" aria-live="polite" hidden></div>
 
     <section class="overview-strip" aria-label="Tracker summary">
       <div class="metric-tile priority">
@@ -293,8 +294,8 @@
   </main>
 
   <script src="{% static 'miniapp/telegram.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/utils.js' %}?v=3"></script>
-  <script src="{% static 'miniapp/tat_api.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=36"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=4"></script>
+  <script src="{% static 'miniapp/tat_api.js' %}?v=2"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=38"></script>
 </body>
 </html>

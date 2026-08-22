@@ -177,10 +177,11 @@ def assert_registered_schema_before_publish(group_configuration, sheet_name: str
 
 def _tat_cases_for_contract(contract: SheetRegisterContract):
     """Return only active TAT cases expected on this configured tab."""
-    queryset = TatTrackerCase.objects.filter(
+    from core.services.workflow_data_mode import operational_tat_cases
+    queryset = operational_tat_cases(TatTrackerCase.objects.filter(
         group_id=str(contract.group_configuration.group_id),
         is_deleted=False,
-    )
+    ))
     # Case.sheet_name is the current output pointer. Older rows can be blank;
     # keep them in the audit when their configured product resolves to this tab.
     product_keys = []

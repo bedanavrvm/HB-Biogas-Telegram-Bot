@@ -1,5 +1,27 @@
 # Changelog
 
+## SPIN and TAT Pilot data isolation - 22-August-2026
+
+- Added independent, Superuser-controlled Pilot/Production modes for SPIN and
+  TAT. New records retain an immutable creation-mode/cycle snapshot, while
+  Mini Apps visibly identify Pilot data and reject stale writes after a mode
+  or cycle change with a reload-safe conflict response.
+- Centralized operational visibility so Production data and only the active
+  Pilot scope reach live queues, Portal references, dashboards, repairs, SLA
+  candidates, escalations, and daily metrics. Closed Pilot records remain
+  Admin-visible and read-only.
+- Added protected Pilot-cycle rotation and durable, resumable cleanup of closed
+  cycles. Cleanup uses non-PII manifests, exact stable Sheet IDs, bottom-up row
+  deletion, post-delete verification, row-pointer repair, concurrency locks,
+  and formula/layout acknowledgements. Production/current-cycle records and all
+  Drive/media objects are hard-excluded.
+
+  Migration note: `core.0125_workflow_pilot_modes` classifies all existing
+  SPIN and TAT operational data as Pilot, creates separate protected active
+  cycles, and seeds a durable TAT case-number sequence. Applying the migration
+  performs no Google Sheet, Drive, or Telegram side effect. Review both Admin
+  modes before allowing new operational entries.
+
 ## Origination verified packet signing and Africa's Talking OTP - 21-August-2026
 
 - Added revocable self-service and staff-assisted signer sessions for immutable

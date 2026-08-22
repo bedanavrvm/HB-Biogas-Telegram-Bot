@@ -1,0 +1,26 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div id="content-main" class="admin-custom-page" style="max-width:760px">
+  <h1>{{ title }}</h1>
+  <div class="module" style="padding:16px">
+    <p><strong>This closes the current pilot cycle and immediately starts a new one.</strong></p>
+    <p>Existing rows keep their original Pilot classification. The closed cycle disappears from normal queues and becomes eligible for verified cleanup. The new active cycle can never be purged.</p>
+  </div>
+  <form method="post" data-single-submit>
+    {% csrf_token %}
+    <input type="hidden" name="request_id" value="{{ request_id }}">
+    <fieldset class="module aligned">
+      <div class="form-row">
+        <label for="id_reason">Reason</label>
+        <textarea id="id_reason" name="reason" rows="3" required></textarea>
+      </div>
+    </fieldset>
+    <div class="submit-row">
+      <a class="button cancel-link" href="{% url 'admin:core_workflowdatamodestate_change' state.pk %}">Cancel</a>
+      <input type="submit" value="Rotate pilot cycle">
+    </div>
+  </form>
+</div>
+<script>document.querySelector('[data-single-submit]')?.addEventListener('submit', e => { const b=e.currentTarget.querySelector('[type=submit]'); if(b){b.disabled=true;b.value='Rotating…';} });</script>
+{% endblock %}

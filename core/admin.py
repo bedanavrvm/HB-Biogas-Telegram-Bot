@@ -136,6 +136,10 @@ from .models import (
     TatTrackerCase,
     TatTrackerEvent,
     TatRepairJob,
+    WorkflowDataModeEvent,
+    WorkflowDataModeState,
+    WorkflowPilotFormulaReadiness,
+    WorkflowPilotPurgeRun,
     UserProfile,
     UserMiniAppPreference,
     AccessGrant,
@@ -159,6 +163,39 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class WorkflowDataModeStateForm(forms.ModelForm):
+    reason = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={'rows': 3}),
+        help_text='Required whenever SPIN or TAT mode changes. Stored in immutable audit history.',
+    )
+
+    class Meta:
+        model = WorkflowDataModeState
+        fields = ('spin_mode', 'tat_mode')
+
+    def clean(self):
+        cleaned = super().clean()
+        changed_fields = [
+            field for field in ('spin_mode', 'tat_mode')
+            if cleaned.get(field) != self.initial.get(field)
+        ]
+        changed = bool(changed_fields)
+        if changed and not str(cleaned.get('reason') or '').strip():
+            self.add_error('reason', 'Explain why the workflow mode is changing.')
+        if self.instance.pk:
+            current = WorkflowDataModeState.objects.filter(pk=self.instance.pk).first()
+            if current:
+                for field in changed_fields:
+                    prefix = 'spin' if field == 'spin_mode' else 'tat'
+                    if getattr(current, f'active_{prefix}_purge_id'):
+                        self.add_error(
+                            field,
+                            'Finish the active pilot purge before changing this workflow mode.',
+                        )
+        return cleaned
 
 
 class OriginationProductDefinitionForm(forms.ModelForm):
@@ -2313,16 +2350,241 @@ for _product_key, _product_label, _field_names in TAT_TARGET_FIELD_GROUPS:
         GroupSheetConfigurationAdminForm.declared_fields[_field_name] = _field
 
 
+@admin.register(WorkflowDataModeState)
+class WorkflowDataModeStateAdmin(ModelAdmin):
+    """Superuser-only switchboard and entry point for verified pilot cleanup."""
+
+    form = WorkflowDataModeStateForm
+    change_form_template = 'admin/core/workflowdatamodestate/change_form.html'
+    fieldsets = (
+        ('Current creation modes', {'fields': (('spin_mode', 'tat_mode'), 'reason')}),
+        ('Protected active cycles', {
+            'fields': (
+                ('spin_pilot_cycle_id', 'spin_mode_version'),
+                ('tat_pilot_cycle_id', 'tat_mode_version'),
+                ('active_spin_purge_id', 'active_tat_purge_id'),
+                ('updated_by', 'updated_at'),
+            ),
+        }),
+    )
+    readonly_fields = (
+        'spin_pilot_cycle_id', 'spin_mode_version', 'tat_pilot_cycle_id',
+        'tat_mode_version', 'active_spin_purge_id', 'active_tat_purge_id',
+        'updated_by', 'updated_at',
+    )
+
+    def has_module_permission(self, request):
+        return bool(request.user and request.user.is_active and request.user.is_superuser)
+
+    def has_view_permission(self, request, obj=None):
+        return self.has_module_permission(request)
+
+    def has_change_permission(self, request, obj=None):
+        return self.has_module_permission(request)
+
+    def has_add_permission(self, request):
+        return self.has_module_permission(request) and not WorkflowDataModeState.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def save_model(self, request, obj, form, change):
+        from core.services.workflow_data_mode import WORKFLOW_SPIN, WORKFLOW_TAT, change_mode
+
+        if not change:
+            obj.updated_by = request.user
+            super().save_model(request, obj, form, change)
+            return
+        current = WorkflowDataModeState.objects.get(pk=obj.pk)
+        reason = str(form.cleaned_data.get('reason') or '').strip()
+        request_base = str(request.headers.get('X-Request-ID') or uuid.uuid4())
+        for workflow, field in ((WORKFLOW_SPIN, 'spin_mode'), (WORKFLOW_TAT, 'tat_mode')):
+            desired = form.cleaned_data[field]
+            if getattr(current, field) != desired:
+                change_mode(
+                    workflow, desired, actor=request.user, reason=reason,
+                    request_id=f'{request_base}:{workflow}',
+                )
+        obj.refresh_from_db()
+
+    def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
+        """Convert a rare mode-change race into a safe Admin message, never a 500."""
+        try:
+            return super().changeform_view(request, object_id, form_url, extra_context)
+        except ValidationError as exc:
+            detail = '; '.join(exc.messages)
+            self.message_user(request, detail, messages.ERROR)
+            target = request.path if object_id else reverse(
+                'admin:core_workflowdatamodestate_changelist'
+            )
+            return HttpResponseRedirect(target)
+
+    def get_urls(self):
+        return [
+            path(
+                '<path:object_id>/rotate/<str:workflow>/',
+                self.admin_site.admin_view(self.rotate_cycle_view),
+                name='core_workflowdatamodestate_rotate',
+            ),
+            path(
+                '<path:object_id>/pilot-purge/',
+                self.admin_site.admin_view(self.pilot_purge_view),
+                name='core_workflowdatamodestate_purge',
+            ),
+        ] + super().get_urls()
+
+    def change_view(self, request, object_id, form_url='', extra_context=None):
+        context = dict(extra_context or {})
+        context.update({
+            'rotate_spin_url': reverse('admin:core_workflowdatamodestate_rotate', args=[object_id, 'spin']),
+            'rotate_tat_url': reverse('admin:core_workflowdatamodestate_rotate', args=[object_id, 'tat_tracker']),
+            'pilot_purge_url': reverse('admin:core_workflowdatamodestate_purge', args=[object_id]),
+        })
+        return super().change_view(request, object_id, form_url, context)
+
+    def rotate_cycle_view(self, request, object_id, workflow):
+        if not self.has_module_permission(request):
+            raise PermissionDenied
+        if workflow not in {'spin', 'tat_tracker'}:
+            raise PermissionDenied
+        state = WorkflowDataModeState.objects.get(pk=object_id)
+        if request.method == 'POST':
+            from core.services.workflow_data_mode import rotate_pilot_cycle
+            try:
+                rotate_pilot_cycle(
+                    workflow,
+                    actor=request.user,
+                    reason=request.POST.get('reason') or '',
+                    request_id=str(request.POST.get('request_id') or uuid.uuid4()),
+                )
+            except ValidationError as exc:
+                self.message_user(request, '; '.join(exc.messages), messages.ERROR)
+            else:
+                self.message_user(
+                    request,
+                    f'{workflow} now has a new active pilot cycle. The prior cycle is closed and purge-eligible.',
+                    messages.SUCCESS,
+                )
+                return HttpResponseRedirect(reverse('admin:core_workflowdatamodestate_change', args=[state.pk]))
+        context = {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'state': state,
+            'workflow': workflow,
+            'title': f'Rotate {workflow} pilot cycle',
+            'request_id': str(uuid.uuid4()),
+        }
+        return TemplateResponse(request, 'admin/core/workflowdatamodestate/rotate.html', context)
+
+    def pilot_purge_view(self, request, object_id):
+        if not self.has_module_permission(request):
+            raise PermissionDenied
+        from core.services.workflow_pilot_purge import (
+            acknowledge_sheet_readiness,
+            inspect_sheet_readiness,
+            preview_purge,
+            process_purge,
+            start_purge,
+        )
+
+        scope = str(request.POST.get('scope') or request.GET.get('scope') or 'spin')
+        if scope not in {'spin', 'tat_tracker', 'both'}:
+            scope = 'spin'
+        if request.method == 'POST':
+            action = str(request.POST.get('action') or '')
+            try:
+                if action == 'acknowledge':
+                    acknowledge_sheet_readiness(
+                        request.POST.get('workflow') or '',
+                        request.POST.get('sheet_id') or '',
+                        request.POST.get('sheet_tab') or '',
+                        actor=request.user,
+                        note=request.POST.get('note') or '',
+                    )
+                    self.message_user(request, 'Sheet formula/range readiness acknowledged.', messages.SUCCESS)
+                elif action == 'start':
+                    if str(request.POST.get('confirmation') or '').strip() != 'PURGE CLOSED PILOT DATA':
+                        raise ValidationError('Type PURGE CLOSED PILOT DATA exactly to confirm.')
+                    run, replayed = start_purge(
+                        scope,
+                        request.POST.get('manifest_hash') or '',
+                        actor=request.user,
+                        reason=request.POST.get('reason') or '',
+                        request_id=str(request.POST.get('request_id') or uuid.uuid4()),
+                    )
+                    run = process_purge(run.pk)
+                    level = messages.SUCCESS if run.status == 'completed' else messages.WARNING
+                    self.message_user(
+                        request,
+                        f'Pilot purge {run.status}. Deleted {run.progress.get("deleted_records", 0)} database records.',
+                        level,
+                    )
+                elif action == 'retry':
+                    run = process_purge(request.POST.get('run_id'))
+                    self.message_user(request, f'Purge retry finished with status {run.status}.', messages.SUCCESS if run.status == 'completed' else messages.WARNING)
+            except (ValidationError, RuntimeError, ValueError) as exc:
+                detail = '; '.join(exc.messages) if isinstance(exc, ValidationError) else str(exc)
+                self.message_user(request, detail, messages.ERROR)
+            return HttpResponseRedirect(
+                reverse('admin:core_workflowdatamodestate_purge', args=[object_id]) + f'?scope={scope}'
+            )
+
+        preview = preview_purge(scope)
+        readiness = []
+        for group in preview['sheet_groups']:
+            try:
+                readiness.append({**group, **inspect_sheet_readiness(
+                    group['workflow'], group['sheet_id'], group['sheet_tab'],
+                )})
+            except RuntimeError as exc:
+                readiness.append({**group, 'acknowledged': False, 'error': str(exc)})
+        runs = WorkflowPilotPurgeRun.objects.filter(scope__in=[scope, 'both'] if scope != 'both' else ['spin', 'tat_tracker', 'both'])[:20]
+        context = {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'state': WorkflowDataModeState.objects.get(pk=object_id),
+            'title': 'SPIN/TAT pilot data cleanup',
+            'scope': scope,
+            'preview': preview,
+            'readiness': readiness,
+            'runs': runs,
+            'request_id': str(uuid.uuid4()),
+        }
+        return TemplateResponse(request, 'admin/core/workflowdatamodestate/purge.html', context)
+
+
+@admin.register(WorkflowDataModeEvent)
+class WorkflowDataModeEventAdmin(ReadOnlyAuditAdmin):
+    list_display = ('workflow', 'action', 'old_mode', 'new_mode', 'actor', 'created_at')
+    list_filter = ('workflow', 'action', 'created_at')
+    search_fields = ('request_id', 'reason')
+    readonly_fields = [field.name for field in WorkflowDataModeEvent._meta.fields]
+
+
+@admin.register(WorkflowPilotFormulaReadiness)
+class WorkflowPilotFormulaReadinessAdmin(ReadOnlyAuditAdmin):
+    list_display = ('workflow', 'sheet_tab', 'formula_fingerprint', 'acknowledged_by', 'acknowledged_at')
+    list_filter = ('workflow', 'acknowledged_at')
+    readonly_fields = [field.name for field in WorkflowPilotFormulaReadiness._meta.fields]
+
+
+@admin.register(WorkflowPilotPurgeRun)
+class WorkflowPilotPurgeRunAdmin(ReadOnlyAuditAdmin):
+    list_display = ('id', 'scope', 'status', 'requested_by', 'cutoff_at', 'completed_at')
+    list_filter = ('scope', 'status', 'created_at')
+    readonly_fields = [field.name for field in WorkflowPilotPurgeRun._meta.fields]
+
+
 @admin.register(TatTrackerCase)
 class TatTrackerCaseAdmin(TestDataDeleteAdmin):
     compressed_fields = True
     list_filter_submit = True
     list_fullwidth = True
     list_display = [
-        'case_id', 'group_id', 'product_label', 'client_name', 'branch',
+        'case_id', 'data_mode', 'group_id', 'product_label', 'client_name', 'branch',
         'status', 'current_stage', 'is_deleted', 'deleted_at', 'updated_at',
     ]
-    list_filter = ['is_deleted', 'group_id', 'product_key', 'branch', 'status', 'current_stage']
+    list_filter = ['data_mode', 'pilot_cycle_id', 'is_deleted', 'group_id', 'product_key', 'branch', 'status', 'current_stage']
     search_fields = ['case_id', 'client_name', 'national_id', 'primary_phone', 'bro_name', 'branch']
     actions = ['mark_selected_deleted']
 
@@ -4393,10 +4655,10 @@ class IntegrationCircuitStateAdmin(ReadOnlyAuditAdmin):
 @admin.register(SpinCreditRequest)
 class SpinCreditRequestAdmin(TestDataDeleteAdmin):
     list_display = (
-        'request_datetime', 'request_type', 'customer_name', 'national_id',
+        'request_datetime', 'data_mode', 'request_type', 'customer_name', 'national_id',
         'primary_phone', 'requested_amount', 'import_status', 'requested_by',
     )
-    list_filter = ('request_type', 'import_status', 'source_chat', 'created_at')
+    list_filter = ('data_mode', 'pilot_cycle_id', 'request_type', 'import_status', 'source_chat', 'created_at')
     search_fields = (
         'customer_name', 'national_id', 'primary_phone', 'secondary_phone',
         'requested_by', 'raw_message', 'source_message_hash',
@@ -4405,8 +4667,8 @@ class SpinCreditRequestAdmin(TestDataDeleteAdmin):
 
 @admin.register(SpinBatchReviewItem)
 class SpinBatchReviewItemAdmin(ReadOnlyAuditAdmin):
-    list_display = ('category', 'status', 'group_id', 'source_sender', 'source_received_at', 'reviewed_by')
-    list_filter = ('group_id', 'category', 'status', 'created_at')
+    list_display = ('category', 'data_mode', 'status', 'group_id', 'source_sender', 'source_received_at', 'reviewed_by')
+    list_filter = ('data_mode', 'pilot_cycle_id', 'group_id', 'category', 'status', 'created_at')
     search_fields = ('source_sender', 'raw_message', 'source_message_hash', 'reviewed_by')
     readonly_fields = [field.name for field in SpinBatchReviewItem._meta.fields]
 

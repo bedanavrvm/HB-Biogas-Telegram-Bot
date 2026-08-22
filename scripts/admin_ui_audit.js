@@ -24,6 +24,8 @@ const routes = [
   ['product-list', '/admin/core/product/'],
   ['product-add', '/admin/core/product/add/'],
   ['user-inlines', '/admin/auth/user/1/change/'],
+  ['pilot-mode-switchboard', '/admin/core/workflowdatamodestate/1/change/'],
+  ['pilot-cleanup', '/admin/core/workflowdatamodestate/1/pilot-purge/?scope=spin'],
   ['origination-list', '/admin/core/originationproductdefinition/'],
   ['field-list', '/admin/core/originationdatafield/'],
   ['terminology-audit', '/admin/core/originationdatafield/terminology-audit/'],
@@ -112,6 +114,14 @@ async function auditSharedPages(browser, viewport) {
       assert(await page.locator('body.change-form').count(), `${viewport.name}/${name}: change-form selector no longer matches`);
     }
     if (name === 'user-inlines') assert(await page.locator('.inline-group').count(), `${viewport.name}/${name}: inline selector no longer matches`);
+    if (name === 'pilot-mode-switchboard') {
+      assert(await page.getByText('Current creation modes').count(), `${viewport.name}: pilot mode controls missing`);
+      assert(await page.getByText('Pilot cleanup').count(), `${viewport.name}: pilot cleanup entry point missing`);
+    }
+    if (name === 'pilot-cleanup') {
+      assert(await page.getByText('Permanent cleanup').count(), `${viewport.name}: pilot cleanup confirmation missing`);
+      assert(await page.getByText('Drive files and media metadata are never deleted').count(), `${viewport.name}: deletion boundary is not visible`);
+    }
     if (name === 'origination-builder') {
       assert(await page.locator('#origination-product-builder').count(), `${viewport.name}: product builder missing`);
       const builderOverflow = await page.locator('#origination-product-builder').evaluate(node => node.scrollWidth - node.clientWidth);
@@ -141,7 +151,7 @@ async function auditSharedPages(browser, viewport) {
       await page.screenshot({ path: path.join(output, `${viewport.name}-origination-field-picker.png`) });
       await picker.locator('.opb-picker-close').click();
     }
-    if (['dashboard', 'origination-builder', 'version-history'].includes(name)) {
+    if (['dashboard', 'pilot-mode-switchboard', 'pilot-cleanup', 'origination-builder', 'version-history'].includes(name)) {
       await page.screenshot({ path: path.join(output, `${viewport.name}-${name}.png`), fullPage: true });
     }
   }

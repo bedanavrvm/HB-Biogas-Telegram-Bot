@@ -4100,7 +4100,10 @@ def portal_farmer_detail(request, farmer_id: str):
             identity_filters = (identity_filters | phone_filter) if identity_filters is not None else phone_filter
     spin_references = []
     if identity_filters:
-        for record in SpinCreditRequest.objects.filter(identity_filters).order_by('-created_at')[:20]:
+        from core.services.workflow_data_mode import operational_spin_requests
+        for record in operational_spin_requests(
+            SpinCreditRequest.objects.filter(identity_filters)
+        ).order_by('-created_at')[:20]:
             parsed = record.parsed_fields or {}
             links = []
             for key, label in (

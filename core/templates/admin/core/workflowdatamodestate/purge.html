@@ -1,0 +1,67 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div id="content-main" class="admin-custom-page">
+  <h1>{{ title }}</h1>
+  <p>Only <strong>closed Pilot cycles</strong> are eligible. Production rows and the currently active Pilot cycle are hard-blocked. Drive files and media metadata are never deleted.</p>
+
+  <form method="get" style="margin-bottom:16px">
+    <label for="id_scope">Workflow</label>
+    <select id="id_scope" name="scope" onchange="this.form.submit()">
+      <option value="spin"{% if scope == 'spin' %} selected{% endif %}>SPIN</option>
+      <option value="tat_tracker"{% if scope == 'tat_tracker' %} selected{% endif %}>TAT Tracker</option>
+      <option value="both"{% if scope == 'both' %} selected{% endif %}>SPIN and TAT</option>
+    </select>
+  </form>
+
+  <div class="module" style="padding:16px;margin-bottom:16px">
+    <h2 style="margin-top:0">Frozen preview</h2>
+    <p><strong>{{ preview.manifest.records|length }}</strong> database record{{ preview.manifest.records|length|pluralize }} across {{ preview.sheet_groups|length }} configured Sheet tab{{ preview.sheet_groups|length|pluralize }}.</p>
+    {% for workflow, count in preview.counts.items %}<p>{{ workflow }}: {{ count }}</p>{% endfor %}
+  </div>
+
+  <h2>Sheet formula/range readiness</h2>
+  {% if readiness %}
+    <div class="module" style="overflow-x:auto">
+      <table style="width:100%">
+        <thead><tr><th>Workflow</th><th>Tab</th><th>Rows</th><th>Formulas</th><th>Status</th><th>Acknowledge current fingerprint</th></tr></thead>
+        <tbody>
+        {% for item in readiness %}
+          <tr>
+            <td>{{ item.workflow }}</td><td>{{ item.sheet_tab }}</td><td>{{ item.count }}</td><td>{{ item.formula_count|default:"—" }}</td>
+            <td>{% if item.error %}<span style="color:#b91c1c">{{ item.error }}</span>{% elif item.acknowledged %}<strong style="color:#047857">Ready</strong>{% else %}<strong style="color:#b45309">Review required</strong>{% endif %}</td>
+            <td>
+              {% if not item.error and not item.acknowledged %}
+              <form method="post">
+                {% csrf_token %}<input type="hidden" name="action" value="acknowledge"><input type="hidden" name="scope" value="{{ scope }}">
+                <input type="hidden" name="workflow" value="{{ item.workflow }}"><input type="hidden" name="sheet_id" value="{{ item.sheet_id }}"><input type="hidden" name="sheet_tab" value="{{ item.sheet_tab }}">
+                <input name="note" required placeholder="What formulas/ranges were checked?" style="min-width:240px"><button class="button" type="submit">Acknowledge</button>
+              </form>
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}<p>No configured Sheet-backed rows are in this preview.</p>{% endif %}
+
+  <h2>Permanent cleanup</h2>
+  <form method="post" data-single-submit>
+    {% csrf_token %}
+    <input type="hidden" name="action" value="start"><input type="hidden" name="scope" value="{{ scope }}">
+    <input type="hidden" name="manifest_hash" value="{{ preview.manifest_hash }}"><input type="hidden" name="request_id" value="{{ request_id }}">
+    <fieldset class="module aligned">
+      <div class="form-row"><label for="id_reason">Reason</label><textarea id="id_reason" name="reason" rows="3" required></textarea></div>
+      <div class="form-row"><label for="id_confirmation">Confirmation</label><input id="id_confirmation" name="confirmation" autocomplete="off" required><p class="help">Type <code>PURGE CLOSED PILOT DATA</code> exactly.</p></div>
+    </fieldset>
+    <div class="submit-row"><a class="button cancel-link" href="{% url 'admin:core_workflowdatamodestate_change' state.pk %}">Cancel</a><input type="submit" value="Purge verified closed pilot data"{% if not preview.manifest.records %} disabled{% endif %}></div>
+  </form>
+
+  <h2>Recent runs</h2>
+  <div class="module" style="overflow-x:auto"><table style="width:100%"><thead><tr><th>Run</th><th>Scope</th><th>Status</th><th>Deleted</th><th>Started</th><th>Action</th></tr></thead><tbody>
+  {% for run in runs %}<tr><td>{{ run.pk }}</td><td>{{ run.scope }}</td><td>{{ run.status }}</td><td>{{ run.progress.deleted_records|default:0 }}</td><td>{{ run.created_at }}</td><td>{% if run.status == 'partial' or run.status == 'failed' %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="retry"><input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="run_id" value="{{ run.pk }}"><button class="button" type="submit">Retry safely</button></form>{% else %}—{% endif %}</td></tr>{% empty %}<tr><td colspan="6">No purge runs.</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+<script>document.querySelector('[data-single-submit]')?.addEventListener('submit', e => { const b=e.currentTarget.querySelector('[type=submit]'); if(b){b.disabled=true;b.value='Purging…';} });</script>
+{% endblock %}

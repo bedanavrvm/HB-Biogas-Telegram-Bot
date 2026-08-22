@@ -145,6 +145,20 @@ def _bind_miniapp_write_request(request, payload: dict):
     return None
 
 
+def _workflow_mode_version(payload: dict):
+    """Parse the optimistic mode token without allowing malformed values to become 500s."""
+    raw_value = payload.get('workflow_mode_version')
+    if raw_value in (None, ''):
+        return None
+    try:
+        version = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError('Workflow mode version must be a whole number.') from exc
+    if version < 1:
+        raise ValueError('Workflow mode version must be a positive whole number.')
+    return version
+
+
 def miniapp_write_response(view_func):
     """Return the shared keyed/legacy-client response marker for Mini Apps."""
     @wraps(view_func)
@@ -594,10 +608,13 @@ def tat_tracker_create(request):
     if capability_error:
         return capability_error
     from core.services.tat_tracker import create_case
+    from core.services.workflow_data_mode import WorkflowModeChanged
     try:
         data = create_case(group_config, user, payload)
         _send_tat_next_role_alert(group_config, data)
         return JsonResponse({'ok': True, 'data': data})
+    except WorkflowModeChanged as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'code': exc.code}, status=409)
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     except Exception:
@@ -679,6 +696,7 @@ def tat_tracker_update(request):
         WorkflowRevisionRequired,
         parse_expected_revision,
     )
+    from core.services.workflow_data_mode import WorkflowModeChanged
     try:
         expected_revision = parse_expected_revision(payload.get('workflow_revision', payload.get('revision')))
         data = update_case(
@@ -687,6 +705,7 @@ def tat_tracker_update(request):
             payload.get('case_id', ''),
             payload.get('updates') or [],
             expected_revision=expected_revision,
+            expected_mode_version=_workflow_mode_version(payload),
             request_id=str(payload.get('request_id') or request.headers.get('X-Request-ID') or ''),
             requirement_evidence=payload.get('product_requirement_evidence'),
             custom_values=payload.get('product_custom_values'),
@@ -695,6 +714,8 @@ def tat_tracker_update(request):
         _dispatch_tat_approval_certificate(payload.get('case_id', ''), user)
         _send_tat_next_role_alert(group_config, data)
         return JsonResponse({'ok': True, 'data': data})
+    except WorkflowModeChanged as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'code': exc.code}, status=409)
     except WorkflowRevisionConflict as exc:
         return JsonResponse({
             'ok': False,
@@ -1324,6 +1345,8 @@ def spin_form(request):
         'default_branch': default_branch,
         'product_options': product_options,
     }
+    from core.services.workflow_data_mode import WORKFLOW_SPIN, serialize_mode
+    payload['workflow_mode'] = serialize_mode(WORKFLOW_SPIN)
     return render(
         request,
         'spin/form.html',
@@ -1399,15 +1422,22 @@ def spin_form_submit(request):
 
     from core.services.spin_credit import process_spin_form_submission
 
-    result = process_spin_form_submission(
-        group_config=group_config,
-        fields=fields,
-        sender=_sender_from_webapp_auth(auth_payload),
-        received_at=timezone.now(),
-        uploaded_files=uploaded_files,
-        client_request_id=payload.get('client_request_id') or fields.get('client_request_id', ''),
-        actor=_spin_canonical_user(auth_payload),
-    )
+    from core.services.workflow_data_mode import WorkflowModeChanged
+    try:
+        result = process_spin_form_submission(
+            group_config=group_config,
+            fields=fields,
+            sender=_sender_from_webapp_auth(auth_payload),
+            received_at=timezone.now(),
+            uploaded_files=uploaded_files,
+            client_request_id=payload.get('client_request_id') or fields.get('client_request_id', ''),
+            actor=_spin_canonical_user(auth_payload),
+            expected_mode_version=_workflow_mode_version(payload),
+        )
+    except WorkflowModeChanged as exc:
+        return JsonResponse({'success': False, 'message': str(exc), 'code': exc.code}, status=409)
+    except ValueError as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
     if not result.get('idempotent_replay'):
         _send_spin_webapp_chat_reply(group_id, result)
     return JsonResponse(result, status=200 if result.get('success') else 400)
@@ -1464,7 +1494,10 @@ def spin_form_requests(request):
             status=403,
         )
     from core.models import SpinCreditRequest
-    queryset = SpinCreditRequest.objects.filter(group_id=group_id)
+    from core.services.workflow_data_mode import (
+        WORKFLOW_SPIN, operational_spin_requests, operational_spin_review_items, serialize_mode,
+    )
+    queryset = operational_spin_requests(SpinCreditRequest.objects.filter(group_id=group_id))
     # JSON-backed legacy branch values cannot be safely expressed as a single
     # portable ORM predicate. Evaluate each candidate against the same exact
     # grant tuple before exposing report links.
@@ -1522,12 +1555,15 @@ def spin_form_requests(request):
             'credit_analysis_report_url': parsed_f.get('credit_analysis_report_url', ''),
             'analysis_completed_at': parsed_f.get('analysis_completed_at', ''),
             'analysis_completed_by': parsed_f.get('analysis_completed_by', ''),
+            'data_mode': r.data_mode,
+            'is_pilot': r.data_mode == 'pilot',
+            'pilot_cycle_id': str(r.pilot_cycle_id or ''),
         })
     from core.models import SpinBatchReviewItem
-    batch_review_items = SpinBatchReviewItem.objects.filter(
+    batch_review_items = operational_spin_review_items(SpinBatchReviewItem.objects.filter(
         group_id=group_id,
         status='pending',
-    ).order_by('-source_received_at', '-created_at')[:100]
+    )).order_by('-source_received_at', '-created_at')[:100]
     batch_review_items = [
         item for item in batch_review_items
         if _spin_user_has_capability(
@@ -1538,6 +1574,7 @@ def spin_form_requests(request):
         'success': True,
         'is_analyst': is_analyst,
         'capabilities': sorted(capabilities),
+        'workflow_mode': serialize_mode(WORKFLOW_SPIN),
         'requests': data,
         'batch_review_items': [batch_review_item_summary(item) for item in batch_review_items],
     })
@@ -1561,11 +1598,13 @@ def spin_form_settings(request):
         return JsonResponse({'success': False, 'message': 'Your SPIN staff account could not be resolved.'}, status=403)
     from core.services.miniapp_settings import account_summary_payload, preference_payload
     from core.services.telegram_identity import user_access
+    from core.services.workflow_data_mode import WORKFLOW_SPIN, serialize_mode
 
     access = user_access(actor, 'spin_credit_analysis', group_configuration=group_config)
     return JsonResponse({
         'success': True,
         'data': preference_payload(actor, 'spin_credit_analysis'),
+        'workflow_mode': serialize_mode(WORKFLOW_SPIN),
         'account': account_summary_payload(
             actor,
             'spin_credit_analysis',
@@ -1632,6 +1671,16 @@ def spin_form_complete(request):
         auth_payload, 'spin.request.complete', group_config=group_config, resource=record,
     ):
         return JsonResponse({'success': False, 'message': 'This request is outside your assigned SPIN scope.'}, status=403)
+    from core.services.workflow_data_mode import WorkflowModeChanged, assert_record_writable
+    try:
+        assert_record_writable(
+            record,
+            expected_mode_version=_workflow_mode_version(payload),
+        )
+    except WorkflowModeChanged as exc:
+        return JsonResponse({'success': False, 'message': str(exc), 'code': exc.code}, status=409)
+    except ValueError as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
     if record.import_status == 'completed':
         parsed_fields = record.parsed_fields or {}
         return JsonResponse({
@@ -1769,6 +1818,16 @@ def spin_form_review_update(request):
         auth_payload, 'spin.request.review', group_config=group_config, resource=record,
     ):
         return JsonResponse({'success': False, 'message': 'This request is outside your assigned SPIN scope.'}, status=403)
+    from core.services.workflow_data_mode import WorkflowModeChanged, assert_record_writable
+    try:
+        assert_record_writable(
+            record,
+            expected_mode_version=_workflow_mode_version(payload),
+        )
+    except WorkflowModeChanged as exc:
+        return JsonResponse({'success': False, 'message': str(exc), 'code': exc.code}, status=409)
+    except ValueError as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
 
     result = update_spin_review_request(
         group_config=group_config,
@@ -1823,6 +1882,16 @@ def spin_batch_review_resolve(request):
         auth_payload, 'spin.batch.review', group_config=group_config, resource=item,
     ):
         return JsonResponse({'success': False, 'message': 'This review item is outside your assigned SPIN scope.'}, status=403)
+    from core.services.workflow_data_mode import WorkflowModeChanged, assert_record_writable
+    try:
+        assert_record_writable(
+            item,
+            expected_mode_version=_workflow_mode_version(payload),
+        )
+    except WorkflowModeChanged as exc:
+        return JsonResponse({'success': False, 'message': str(exc), 'code': exc.code}, status=409)
+    except ValueError as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
 
     result = resolve_spin_batch_review_item(
         group_config=group_config,

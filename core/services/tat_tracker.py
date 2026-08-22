@@ -24,7 +24,7 @@ from django.db.models import Q
 from django.utils import timezone
 import openpyxl
 
-from core.models import TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent
+from core.models import TatCaseSequence, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent
 from core.services.access_policies import BUSINESS_ADMIN_ROLE
 from core.services.branches import DEFAULT_WORKFLOW_BRANCHES, global_branch_choices, workflow_branches as configured_workflow_branches
 from core.services.business_calendar import business_minutes_between
@@ -32,6 +32,14 @@ from core.services.identifiers import normalize_kenyan_phone, normalize_national
 from core.services.sheets import get_sheets_service
 from core.services.workflow_escalations import latest_escalation
 from core.services.workflow_timeline import tat_case_timeline
+from core.services.workflow_data_mode import (
+    WORKFLOW_TAT,
+    assert_record_writable,
+    is_record_operational,
+    mode_snapshot,
+    operational_tat_cases,
+    serialize_mode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -496,6 +504,7 @@ def bootstrap(group_config, user_payload: dict) -> dict:
     )
     return {
         'authorized': True,
+        'workflow_mode': serialize_mode(WORKFLOW_TAT),
         'user': public_user(user),
         'products': products,
         'branches': _allowed_branches(workflow, user),
@@ -522,7 +531,9 @@ def home_data(
 ) -> dict:
     """Return independently paginated home lists for the TAT Mini App."""
     workflow = getattr(group_config, 'workflow', None) or {}
-    queryset = TatTrackerCase.objects.filter(group_id=str(group_config.group_id), is_deleted=False)
+    queryset = operational_tat_cases(
+        TatTrackerCase.objects.filter(group_id=str(group_config.group_id), is_deleted=False)
+    )
     queryset = _scope_tat_queryset(queryset, user, 'tat.home.view')
     allowed_keys = [p.key for p in _allowed_products(workflow, user)]
     selected_product = str(product_key or '').strip()
@@ -587,7 +598,9 @@ def search_cases(group_config, user: dict, query: str) -> list[dict]:
         query |= Q(national_id=normalized_id)
     if normalized_phone:
         query |= Q(primary_phone=normalized_phone)
-    queryset = TatTrackerCase.objects.filter(group_id=str(group_config.group_id), is_deleted=False).filter(query)
+    queryset = operational_tat_cases(
+        TatTrackerCase.objects.filter(group_id=str(group_config.group_id), is_deleted=False)
+    ).filter(query)
     queryset = _scope_tat_queryset(queryset, user, 'tat.case.search')
     return [serialize_case_summary(case, user, workflow=workflow) for case in queryset.order_by('-updated_at')[:25]]
 
@@ -633,6 +646,9 @@ def record_tat_event(**values) -> TatTrackerEvent:
             'reason': event.reason,
             'revision_before': event.revision_before,
             'revision_after': event.revision_after,
+            'data_mode': event.case.data_mode,
+            'pilot_cycle_id': str(event.case.pilot_cycle_id or ''),
+            'data_scope_key': event.case.data_scope_key,
         },
         sensitive=bool(event.old_value or event.new_value),
         occurred_at=event.created_at,
@@ -753,11 +769,17 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
                 product_version, amount=amount, tenor=payload.get('tenor'),
                 optional_fee_keys=selected_fee_keys,
             )
+    scope = mode_snapshot(WORKFLOW_TAT, for_update=True)
+    expected_mode_version = payload.get('workflow_mode_version')
+    if expected_mode_version not in (None, '') and int(expected_mode_version) != scope.mode_version:
+        from core.services.workflow_data_mode import WorkflowModeChanged
+        raise WorkflowModeChanged()
     create_request_id = normalize_create_request_id(payload.get('client_request_id') or payload.get('create_request_id') or payload.get('request_id'))
     if create_request_id:
         existing = TatTrackerCase.objects.select_for_update().filter(
             group_id=str(group_config.group_id),
             create_request_id=create_request_id,
+            data_scope_key=scope.data_scope_key,
         ).first()
         if existing:
             if existing.is_deleted:
@@ -776,6 +798,7 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
                 'started_at': now.isoformat(),
             }
     case = TatTrackerCase.objects.create(
+        **scope.creation_fields(),
         group_id=str(group_config.group_id), sheet_id=str(group_config.sheet_id or ''), sheet_name=product.sheet_name,
         create_request_id=create_request_id,
         case_id=case_id, product_key=product.key, product_label=product.label, client_name=client_name,
@@ -842,9 +865,9 @@ def tat_case_identity_context(
     if not query.children:
         return {'matches': [], 'matched_on': []}
 
-    cases = TatTrackerCase.objects.filter(
+    cases = operational_tat_cases(TatTrackerCase.objects.filter(
         group_id=str(group_config.group_id), is_deleted=False,
-    ).filter(query)
+    )).filter(query)
     if user is not None:
         cases = _scope_tat_queryset(cases, user, 'tat.case.create')
     cases = cases.order_by('-updated_at')[:5]
@@ -1265,6 +1288,7 @@ def update_case(
     updates: list[dict],
     *,
     expected_revision: int | None = None,
+    expected_mode_version: int | None = None,
     request_id: str = '',
     requirement_evidence: dict | None = None,
     custom_values: dict | None = None,
@@ -1280,6 +1304,7 @@ def update_case(
 
     workflow = getattr(group_config, 'workflow', None) or {}
     case = TatTrackerCase.objects.select_for_update().get(group_id=str(group_config.group_id), case_id=str(case_id), is_deleted=False)
+    assert_record_writable(case, expected_mode_version=expected_mode_version)
     if not _tat_scope_allowed(user, 'tat.home.view', case):
         raise ValueError('This TAT case is outside your assigned access scope.')
     if request_id and case.events.filter(request_id=str(request_id), source='workflow_transition').exists():
@@ -1507,14 +1532,27 @@ def normalize_create_request_id(value: Any) -> str:
 def next_case_id(group_config, product: ProductConfig) -> str:
     year = timezone.localdate().year
     prefix = f'{product.case_prefix}-{year}'
-    existing = TatTrackerCase.objects.filter(group_id=str(group_config.group_id), case_id__startswith=prefix).values_list('case_id', flat=True)
-    max_num = 0
-    for case_id in existing:
-        try:
-            max_num = max(max_num, int(str(case_id).rsplit('-', 1)[-1]))
-        except (TypeError, ValueError):
-            continue
-    return f'{prefix}-{max_num + 1:03d}'
+    sequence, created = TatCaseSequence.objects.select_for_update().get_or_create(
+        group_id=str(group_config.group_id),
+        product_key=product.key,
+        year=year,
+        defaults={'next_number': 1},
+    )
+    if created:
+        existing = TatTrackerCase.objects.filter(
+            group_id=str(group_config.group_id), case_id__startswith=prefix,
+        ).values_list('case_id', flat=True)
+        maximum = 0
+        for case_id in existing:
+            try:
+                maximum = max(maximum, int(str(case_id).rsplit('-', 1)[-1]))
+            except (TypeError, ValueError):
+                continue
+        sequence.next_number = maximum + 1
+    number = sequence.next_number
+    sequence.next_number = number + 1
+    sequence.save(update_fields=['next_number', 'updated_at'])
+    return f'{prefix}-{number:03d}'
 
 
 def _tat_google_quota_error(exc: Exception) -> bool:
@@ -1763,7 +1801,9 @@ def resync_tat_tracker_cases(
         raise ValueError(f'Unknown TAT product: {selected_product}.')
 
     selected_case_ids = [str(case_id).strip() for case_id in (case_ids or []) if str(case_id).strip()]
-    queryset = TatTrackerCase.objects.filter(group_id=str(group_config.group_id), is_deleted=False)
+    queryset = operational_tat_cases(
+        TatTrackerCase.objects.filter(group_id=str(group_config.group_id), is_deleted=False)
+    )
     if selected_product:
         queryset = queryset.filter(product_key=selected_product)
     if selected_case_ids:
@@ -2312,9 +2352,9 @@ def inspect_tat_sheet_duplicate_case_ids(
             continue
         canonical = None
         if group_id:
-            canonical = TatTrackerCase.objects.filter(
+            canonical = operational_tat_cases(TatTrackerCase.objects.filter(
                 group_id=str(group_id), case_id=case_id, is_deleted=False,
-            ).first()
+            )).first()
         canonical_row = int(canonical.row_number or 0) if canonical else 0
         keeper = max(
             rows,
@@ -2406,9 +2446,9 @@ def cleanup_tat_sheet_duplicate_case_ids(
     if group_id:
         linked_cases = {
             case.case_id: case
-            for case in TatTrackerCase.objects.filter(
+            for case in operational_tat_cases(TatTrackerCase.objects.filter(
                 group_id=str(group_id), is_deleted=False, case_id__in=[item['case_id'] for item in actionable],
-            )
+            ))
         }
 
     for report in actionable:
@@ -2527,16 +2567,18 @@ def serialize_case_summary(case: TatTrackerCase, user: dict | None = None, next_
     tat_days = calculated_tat_days(case) if tat_minutes is not None else None
     total_target = total_target_minutes(workflow, product)
     certificates = {certificate.stage_key: certificate.status for certificate in case.approval_certificates.all()}
-    return {'case_id': case.case_id, 'product': case.product_label or product.label, 'product_key': case.product_key, 'client_name': case.client_name, 'national_id': case.national_id, 'primary_phone': case.primary_phone, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'status': case.status, 'current_stage': case.current_stage, 'workflow_revision': int(case.workflow_revision or 1), 'next_stage': next_stage.label if next_stage else '', 'next_stage_key': next_stage.key if next_stage else '', 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'wall_clock_minutes': str(tat_minutes) if tat_minutes is not None else '', 'business_minutes': str(business_minutes) if business_minutes is not None else '', 'sla_minutes': str(tat_minutes) if tat_minutes is not None else '', 'tat_hours': str(tat_hours) if tat_hours is not None else '', 'tat_days': str(tat_days) if tat_days is not None else '', 'target_minutes': str(total_target) if total_target is not None else '', 'sla_status': sla_status(tat_minutes, total_target), 'certificate_statuses': certificates, 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at)}
+    read_only = not is_record_operational(case)
+    return {'case_id': case.case_id, 'product': case.product_label or product.label, 'product_key': case.product_key, 'client_name': case.client_name, 'national_id': case.national_id, 'primary_phone': case.primary_phone, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'status': case.status, 'current_stage': case.current_stage, 'workflow_revision': int(case.workflow_revision or 1), 'next_stage': next_stage.label if next_stage and not read_only else '', 'next_stage_key': next_stage.key if next_stage and not read_only else '', 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'wall_clock_minutes': str(tat_minutes) if tat_minutes is not None else '', 'business_minutes': str(business_minutes) if business_minutes is not None else '', 'sla_minutes': str(tat_minutes) if tat_minutes is not None else '', 'tat_hours': str(tat_hours) if tat_hours is not None else '', 'tat_days': str(tat_days) if tat_days is not None else '', 'target_minutes': str(total_target) if total_target is not None else '', 'sla_status': sla_status(tat_minutes, total_target), 'certificate_statuses': certificates, 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at), 'data_mode': case.data_mode, 'is_pilot': case.data_mode == 'pilot', 'read_only': read_only, 'pilot_cycle_id': str(case.pilot_cycle_id or '')}
 
 
 def serialize_case_detail(case: TatTrackerCase, user: dict, workflow: dict | None = None) -> dict:
     product = product_by_key(case.product_key)
-    can_correct_details = can_user_correct_case_details(user, case)
+    read_only = not is_record_operational(case)
+    can_correct_details = (not read_only) and can_user_correct_case_details(user, case)
     fields = []
     for stage in product.stages:
         value = case.stage_values.get(stage.key, '')
-        editable = previous_stages_complete(case, stage) and can_user_edit_stage(user, case, stage) and (not value or stage.kind == 'dropdown')
+        editable = (not read_only) and previous_stages_complete(case, stage) and can_user_edit_stage(user, case, stage) and (not value or stage.kind == 'dropdown')
         tat_minutes = stage_tat_minutes(case, stage)
         business_minutes = stage_business_tat_minutes(case, stage)
         target = stage_target_minutes_for_case(case, workflow, product, stage)

@@ -25,7 +25,12 @@
       body: JSON.stringify(body),
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.ok) throw new Error(data.error || 'Request failed.');
+    if (!response.ok || !data.ok) {
+      const error = new Error(data.error || 'Request failed.');
+      error.code = data.code || '';
+      error.status = response.status;
+      throw error;
+    }
     return data;
   }
 

@@ -44,6 +44,9 @@ class WorkflowSlaCandidate:
     branch: str = ''
     responsible_role: str = ''
     responsible_actor: str = ''
+    data_mode: str = 'production'
+    pilot_cycle_id: str = ''
+    data_scope_key: str = 'production'
 
     def payload(self) -> dict:
         payload = asdict(self)
@@ -160,7 +163,10 @@ def tat_sla_candidates(*, now=None) -> list[WorkflowSlaCandidate]:
     configs = [config for config in GroupSheetConfiguration.objects.filter(enabled=True) if is_tat_tracker_workflow(config)]
     for config in configs:
         workflow = config.workflow or {}
-        cases = TatTrackerCase.objects.filter(group_id=str(config.group_id), is_deleted=False, status='Active')
+        from core.services.workflow_data_mode import operational_tat_cases
+        cases = operational_tat_cases(
+            TatTrackerCase.objects.filter(group_id=str(config.group_id), is_deleted=False, status='Active')
+        )
         for case in cases:
             stage = next_action(case)
             if not stage:
@@ -182,6 +188,9 @@ def tat_sla_candidates(*, now=None) -> list[WorkflowSlaCandidate]:
                 branch=str(case.branch or ''),
                 responsible_role=str(stage.role or ''),
                 responsible_actor=str(case.bro_name or '') if str(stage.role or '').upper() == 'BRO' else '',
+                data_mode=case.data_mode,
+                pilot_cycle_id=str(case.pilot_cycle_id or ''),
+                data_scope_key=case.data_scope_key,
             ))
     return candidates
 
@@ -211,7 +220,10 @@ def record_sla_candidates(candidates: list[WorkflowSlaCandidate], *, today=None)
             subject_id=item.subject_id,
             stage_key=item.stage_key,
             escalation_date=today,
+            data_scope_key=item.data_scope_key,
             defaults={
+                'data_mode': item.data_mode,
+                'pilot_cycle_id': item.pilot_cycle_id or None,
                 'group_id': item.group_id,
                 'branch': item.branch,
                 'responsible_role': item.responsible_role,
@@ -263,8 +275,11 @@ def _metric_bucket(
     stage_key: str,
     responsible_role: str,
     responsible_actor: str,
+    data_mode: str = 'production',
+    pilot_cycle_id: str = '',
+    data_scope_key: str = 'production',
 ) -> dict:
-    key = (workflow, group_id, branch, product_key, stage_key, responsible_role, responsible_actor)
+    key = (workflow, group_id, branch, product_key, stage_key, responsible_role, responsible_actor, data_scope_key)
     return buckets.setdefault(key, {
         'workflow': workflow,
         'group_id': group_id,
@@ -273,6 +288,9 @@ def _metric_bucket(
         'stage_key': stage_key,
         'responsible_role': responsible_role,
         'responsible_actor': responsible_actor,
+        'data_mode': data_mode,
+        'pilot_cycle_id': pilot_cycle_id,
+        'data_scope_key': data_scope_key,
         'active_count': 0,
         'completed_count': 0,
         'overdue_count': 0,
@@ -327,11 +345,12 @@ def collect_tat_daily_metrics(*, metric_date=None, now=None) -> list[dict]:
     configs = [config for config in GroupSheetConfiguration.objects.filter(enabled=True) if is_tat_tracker_workflow(config)]
     for config in configs:
         workflow = config.workflow or {}
-        for case in TatTrackerCase.objects.filter(
+        from core.services.workflow_data_mode import operational_tat_cases
+        for case in operational_tat_cases(TatTrackerCase.objects.filter(
             group_id=str(config.group_id),
             is_deleted=False,
             status='Active',
-        ):
+        )):
             product = product_by_key(case.product_key)
             for stage in product.stages:
                 wall_clock_minutes = stage_tat_minutes(case, stage, now=now)
@@ -347,6 +366,9 @@ def collect_tat_daily_metrics(*, metric_date=None, now=None) -> list[dict]:
                     stage_key=stage.key,
                     responsible_role=stage.role,
                     responsible_actor=str(case.bro_name or '') if str(stage.role or '').upper() == 'BRO' else '',
+                    data_mode=case.data_mode,
+                    pilot_cycle_id=str(case.pilot_cycle_id or ''),
+                    data_scope_key=case.data_scope_key,
                 )
                 bucket['sla_values'].append(sla_minutes)
                 if wall_clock_minutes is not None:
@@ -371,7 +393,7 @@ def collect_tat_daily_metrics(*, metric_date=None, now=None) -> list[dict]:
         bucket['median_wall_clock_minutes'] = _metric_percentile(wall_clock_values, Decimal('0.5'))
         metrics.append(bucket)
     return sorted(metrics, key=lambda item: (
-        item['workflow'], item['group_id'], item['branch'], item['product_key'], item['stage_key'], item['responsible_role'], item['responsible_actor'],
+        item['workflow'], item['group_id'], item['branch'], item['product_key'], item['stage_key'], item['responsible_role'], item['responsible_actor'], item['data_scope_key'],
     ))
 
 
@@ -380,7 +402,7 @@ def record_tat_daily_metrics(metrics: list[dict], *, metric_date=None) -> tuple[
     metric_date = metric_date or timezone.localdate()
     records: list[WorkflowTatDailyMetric] = []
     created_count = 0
-    dimensions = ('workflow', 'group_id', 'branch', 'product_key', 'stage_key', 'responsible_role', 'responsible_actor')
+    dimensions = ('workflow', 'group_id', 'branch', 'product_key', 'stage_key', 'responsible_role', 'responsible_actor', 'data_scope_key')
     values = (
         'active_count', 'completed_count', 'overdue_count', 'sample_count',
         'median_sla_minutes', 'p90_sla_minutes', 'median_wall_clock_minutes',
@@ -395,6 +417,8 @@ def record_tat_daily_metrics(metrics: list[dict], *, metric_date=None) -> tuple[
             defaults={
                 **{field: item.get(field) for field in values},
                 'product': product,
+                'data_mode': item.get('data_mode') or 'production',
+                'pilot_cycle_id': item.get('pilot_cycle_id') or None,
             },
         )
         records.append(record)

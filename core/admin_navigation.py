@@ -247,6 +247,7 @@ def get_admin_navigation(request) -> list[dict]:
     configuration = [
         _model_item("auth.User", "Users", "group"),
         _model_item("auth.Group", "Groups", "groups"),
+        _model_item("core.WorkflowDataModeState", "SPIN/TAT pilot modes", "science"),
         _model_item("core.OperationalLocation", "Global locations", "map"),
         _model_item("core.BranchServiceArea", "Branch service areas", "conversion_path"),
         _model_item("core.OperationalLocationAlias", "Location aliases", "alt_route"),
@@ -254,7 +255,7 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("core.LocationPolicyState", "Location enforcement", "policy"),
         _model_item("core.Product", "Global products", "inventory_2"),
         _model_item("core.ProductVersion", "Product terms and requirements", "price_change"),
-        _model_item("core.OriginationProductDefinition", "Origination product definitions", "dynamic_form"),
+        _model_item("core.OriginationProductDefinition", "Loan form definitions", "dynamic_form"),
         _model_item("core.OriginationDocumentTemplate", "Origination PDF templates", "picture_as_pdf"),
         _model_item("core.OriginationProductDocumentAssignment", "Product document assignments", "assignment"),
         _model_item("core.OriginationDataField", "Origination data fields", "data_object"),

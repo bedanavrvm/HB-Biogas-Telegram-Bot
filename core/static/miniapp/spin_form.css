@@ -129,6 +129,22 @@ h2 { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacin
   border-left: 4px solid var(--spin-ok);
   color: var(--spin-ok);
 }
+
+.workflow-mode-banner {
+  margin: 6px 0;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, #0f766e 35%, var(--spin-line));
+  border-radius: 9px;
+  background: color-mix(in srgb, #0f766e 8%, var(--spin-surface));
+  color: var(--spin-text);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .035em;
+}
+.workflow-mode-banner.pilot {
+  border-color: color-mix(in srgb, #f59e0b 50%, var(--spin-line));
+  background: color-mix(in srgb, #f59e0b 11%, var(--spin-surface));
+}
 .status-banner.warning {
   background: var(--spin-warning-bg);
   border-color: color-mix(in srgb, var(--spin-warning) 25%, transparent);

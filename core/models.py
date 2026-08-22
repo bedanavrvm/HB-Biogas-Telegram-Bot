@@ -11,6 +11,14 @@ from django.db.models.functions import Lower
 from django.utils import timezone
 
 
+WORKFLOW_DATA_MODE_PILOT = 'pilot'
+WORKFLOW_DATA_MODE_PRODUCTION = 'production'
+WORKFLOW_DATA_MODE_CHOICES = [
+    (WORKFLOW_DATA_MODE_PILOT, 'Pilot'),
+    (WORKFLOW_DATA_MODE_PRODUCTION, 'Production'),
+]
+
+
 def bot_display_name() -> str:
     from django.conf import settings
 
@@ -665,8 +673,13 @@ class SpinCreditRequest(models.Model):
         ('completed', 'Completed'),
     ]
 
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    data_mode = models.CharField(
+        max_length=16, choices=WORKFLOW_DATA_MODE_CHOICES,
+        default=WORKFLOW_DATA_MODE_PILOT, db_index=True, editable=False,
+    )
+    pilot_cycle_id = models.UUIDField(null=True, blank=True, db_index=True, editable=False)
+    data_scope_key = models.CharField(max_length=64, default='pilot:legacy', db_index=True, editable=False)
     group_id = models.CharField(max_length=100, db_index=True)
     sheet_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
     sheet_name = models.CharField(max_length=255, blank=True, default='')
@@ -725,10 +738,11 @@ class SpinCreditRequest(models.Model):
             models.Index(fields=['group_id', 'national_id', 'primary_phone']),
             models.Index(fields=['group_id', 'import_status']),
             models.Index(fields=['source_message_hash']),
+            models.Index(fields=['data_mode', 'pilot_cycle_id', 'created_at']),
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=['group_id', 'source_message_hash'],
+                fields=['group_id', 'source_message_hash', 'data_scope_key'],
                 name='unique_spin_request_source_per_group',
             ),
             models.UniqueConstraint(
@@ -744,6 +758,11 @@ class SpinCreditRequest(models.Model):
         return f"{self.get_request_type_display()} {self.customer_name or self.national_id or self.primary_phone}".strip()
 
     def save(self, *args, **kwargs):
+        if self._state.adding and not self.pilot_cycle_id and self.data_scope_key == 'pilot:legacy':
+            from core.services.workflow_data_mode import WORKFLOW_SPIN, mode_snapshot
+            snapshot = mode_snapshot(WORKFLOW_SPIN)
+            for field, value in snapshot.creation_fields().items():
+                setattr(self, field, value)
         from core.services.product_catalog import (
             active_product_version, resolve_product, serialize_product_version,
             stage_product_mapping_issue,
@@ -784,6 +803,12 @@ class SpinBatchReviewItem(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    data_mode = models.CharField(
+        max_length=16, choices=WORKFLOW_DATA_MODE_CHOICES,
+        default=WORKFLOW_DATA_MODE_PILOT, db_index=True, editable=False,
+    )
+    pilot_cycle_id = models.UUIDField(null=True, blank=True, db_index=True, editable=False)
+    data_scope_key = models.CharField(max_length=64, default='pilot:legacy', db_index=True, editable=False)
     group_id = models.CharField(max_length=100, db_index=True)
     telegram_message_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
     source_message_hash = models.CharField(max_length=64, db_index=True)
@@ -815,17 +840,26 @@ class SpinBatchReviewItem(models.Model):
         ordering = ['-source_received_at', '-created_at']
         constraints = [
             models.UniqueConstraint(
-                fields=['group_id', 'source_message_hash'],
+                fields=['group_id', 'source_message_hash', 'data_scope_key'],
                 name='unique_spin_batch_review_source_per_group',
             ),
         ]
         indexes = [
             models.Index(fields=['group_id', 'status', 'created_at']),
             models.Index(fields=['group_id', 'category', 'status']),
+            models.Index(fields=['data_mode', 'pilot_cycle_id', 'created_at']),
         ]
 
     def __str__(self):
         return f"{self.get_category_display()} {self.group_id} #{self.source_message_index or 0}"
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and not self.pilot_cycle_id and self.data_scope_key == 'pilot:legacy':
+            from core.services.workflow_data_mode import WORKFLOW_SPIN, mode_snapshot
+            snapshot = mode_snapshot(WORKFLOW_SPIN)
+            for field, value in snapshot.creation_fields().items():
+                setattr(self, field, value)
+        return super().save(*args, **kwargs)
 
 
 class SpinRequestSequence(models.Model):
@@ -860,6 +894,12 @@ class TatTrackerCase(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    data_mode = models.CharField(
+        max_length=16, choices=WORKFLOW_DATA_MODE_CHOICES,
+        default=WORKFLOW_DATA_MODE_PILOT, db_index=True, editable=False,
+    )
+    pilot_cycle_id = models.UUIDField(null=True, blank=True, db_index=True, editable=False)
+    data_scope_key = models.CharField(max_length=64, default='pilot:legacy', db_index=True, editable=False)
     group_id = models.CharField(max_length=100, db_index=True)
     sheet_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
     sheet_name = models.CharField(max_length=255, blank=True, default='', db_index=True)
@@ -918,7 +958,7 @@ class TatTrackerCase(models.Model):
                 name='unique_tat_case_id_per_group',
             ),
             models.UniqueConstraint(
-                fields=['group_id', 'create_request_id'],
+                fields=['group_id', 'create_request_id', 'data_scope_key'],
                 condition=~models.Q(create_request_id=''),
                 name='unique_tat_create_request_per_group',
             ),
@@ -929,12 +969,21 @@ class TatTrackerCase(models.Model):
             models.Index(fields=['group_id', 'client_name']),
             models.Index(fields=['group_id', 'current_stage']),
             models.Index(fields=['group_id', 'is_deleted']),
+            models.Index(fields=['data_mode', 'pilot_cycle_id', 'created_at']),
         ]
         verbose_name = 'TAT tracker case'
         verbose_name_plural = 'TAT tracker cases'
 
     def __str__(self):
         return f"{self.case_id} - {self.client_name}"
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and not self.pilot_cycle_id and self.data_scope_key == 'pilot:legacy':
+            from core.services.workflow_data_mode import WORKFLOW_TAT, mode_snapshot
+            snapshot = mode_snapshot(WORKFLOW_TAT)
+            for field, value in snapshot.creation_fields().items():
+                setattr(self, field, value)
+        return super().save(*args, **kwargs)
 
 
 class TatTrackerEvent(models.Model):
@@ -1050,6 +1099,205 @@ class TatRepairJob(models.Model):
 
     def __str__(self):
         return f"TAT repair {self.id} ({self.status})"
+
+
+class TatCaseSequence(models.Model):
+    """Durable TAT case counter; purging pilot rows must never reuse a case ID."""
+
+    group_id = models.CharField(max_length=100, db_index=True)
+    product_key = models.CharField(max_length=80, db_index=True)
+    year = models.PositiveIntegerField(db_index=True)
+    next_number = models.PositiveIntegerField(default=1)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['group_id', 'product_key', 'year'],
+                name='unique_tat_sequence_group_product_year',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.group_id} {self.product_key} {self.year}: next {self.next_number}'
+
+
+class WorkflowDataModeState(models.Model):
+    """Singleton switchboard for SPIN/TAT creation modes and active pilot cycles."""
+
+    SINGLETON_PK = 1
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=SINGLETON_PK, editable=False)
+    spin_mode = models.CharField(
+        max_length=16, choices=WORKFLOW_DATA_MODE_CHOICES,
+        default=WORKFLOW_DATA_MODE_PILOT,
+    )
+    spin_pilot_cycle_id = models.UUIDField(default=uuid.uuid4, editable=False)
+    spin_mode_version = models.PositiveIntegerField(default=1, editable=False)
+    tat_mode = models.CharField(
+        max_length=16, choices=WORKFLOW_DATA_MODE_CHOICES,
+        default=WORKFLOW_DATA_MODE_PILOT,
+    )
+    tat_pilot_cycle_id = models.UUIDField(default=uuid.uuid4, editable=False)
+    tat_mode_version = models.PositiveIntegerField(default=1, editable=False)
+    active_spin_purge_id = models.UUIDField(null=True, blank=True, editable=False)
+    active_tat_purge_id = models.UUIDField(null=True, blank=True, editable=False)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='workflow_data_mode_updates',
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'SPIN/TAT data mode'
+        verbose_name_plural = 'SPIN/TAT data modes'
+
+    def save(self, *args, **kwargs):
+        self.pk = self.SINGLETON_PK
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('The workflow data-mode switchboard cannot be deleted.')
+
+    def __str__(self):
+        return f'SPIN {self.get_spin_mode_display()} / TAT {self.get_tat_mode_display()}'
+
+
+class WorkflowDataModeEvent(models.Model):
+    """Append-only, non-PII evidence for mode, cycle, and purge actions."""
+
+    WORKFLOW_CHOICES = [('spin', 'SPIN'), ('tat_tracker', 'TAT Tracker')]
+    ACTION_CHOICES = [
+        ('mode_changed', 'Mode changed'),
+        ('cycle_rotated', 'Pilot cycle rotated'),
+        ('purge_started', 'Pilot purge started'),
+        ('purge_completed', 'Pilot purge completed'),
+        ('purge_failed', 'Pilot purge failed'),
+        ('purge_cancelled', 'Pilot purge cancelled'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workflow = models.CharField(max_length=32, choices=WORKFLOW_CHOICES, db_index=True)
+    action = models.CharField(max_length=32, choices=ACTION_CHOICES, db_index=True)
+    old_mode = models.CharField(max_length=16, choices=WORKFLOW_DATA_MODE_CHOICES, blank=True, default='')
+    new_mode = models.CharField(max_length=16, choices=WORKFLOW_DATA_MODE_CHOICES, blank=True, default='')
+    old_cycle_id = models.UUIDField(null=True, blank=True)
+    new_cycle_id = models.UUIDField(null=True, blank=True)
+    reason = models.TextField()
+    request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='workflow_data_mode_events',
+    )
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['workflow', 'action', 'request_id'],
+                condition=~models.Q(request_id=''),
+                name='unique_workflow_mode_event_request',
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError('Workflow data-mode events are append-only.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Workflow data-mode events are append-only.')
+
+    def __str__(self):
+        return f'{self.get_workflow_display()} - {self.get_action_display()}'
+
+
+class WorkflowPilotFormulaReadiness(models.Model):
+    """Superuser acknowledgement that deleting rows is safe for one Sheet layout."""
+
+    WORKFLOW_CHOICES = WorkflowDataModeEvent.WORKFLOW_CHOICES
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workflow = models.CharField(max_length=32, choices=WORKFLOW_CHOICES, db_index=True)
+    group_configuration = models.ForeignKey(
+        'GroupSheetConfiguration', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='workflow_pilot_formula_readiness',
+    )
+    sheet_id = models.CharField(max_length=255, db_index=True)
+    sheet_tab = models.CharField(max_length=255)
+    configuration_fingerprint = models.CharField(max_length=64)
+    formula_fingerprint = models.CharField(max_length=64)
+    note = models.TextField()
+    acknowledged_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='acknowledged_workflow_pilot_formula_readiness',
+    )
+    acknowledged_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['workflow', 'sheet_tab', '-acknowledged_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    'workflow', 'sheet_id', 'sheet_tab',
+                    'configuration_fingerprint', 'formula_fingerprint',
+                ],
+                name='unique_workflow_pilot_formula_readiness',
+            ),
+        ]
+        verbose_name = 'pilot purge Sheet readiness'
+        verbose_name_plural = 'pilot purge Sheet readiness'
+
+
+class WorkflowPilotPurgeRun(models.Model):
+    """Durable manifest and progress for a resumable, verified pilot purge."""
+
+    SCOPE_CHOICES = [
+        ('spin', 'SPIN'), ('tat_tracker', 'TAT Tracker'), ('both', 'SPIN and TAT Tracker'),
+    ]
+    STATUS_CHOICES = [
+        ('pending', 'Pending'), ('running', 'Running'), ('partial', 'Partially completed'),
+        ('completed', 'Completed'), ('failed', 'Failed'), ('cancelled', 'Cancelled'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    scope = models.CharField(max_length=32, choices=SCOPE_CHOICES, db_index=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='pending', db_index=True)
+    reason = models.TextField()
+    request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    manifest = models.JSONField(default=dict, blank=True)
+    manifest_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    progress = models.JSONField(default=dict, blank=True)
+    failures = models.JSONField(default=list, blank=True)
+    cutoff_at = models.DateTimeField(default=timezone.now)
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='requested_workflow_pilot_purges',
+    )
+    started_at = models.DateTimeField(null=True, blank=True)
+    heartbeat_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['scope', 'request_id'],
+                condition=~models.Q(request_id=''),
+                name='unique_workflow_pilot_purge_request',
+            ),
+        ]
+        indexes = [models.Index(fields=['scope', 'status', 'created_at'])]
+        verbose_name = 'pilot purge run'
+        verbose_name_plural = 'pilot purge runs'
+
+    def __str__(self):
+        return f'{self.get_scope_display()} purge {self.id} ({self.status})'
+
 
 class LiveSheetRecordChange(models.Model):
     """Audit trail for Django admin edits and deletes applied to live sheet rows."""
@@ -1919,6 +2167,12 @@ class WorkflowSlaEscalation(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    data_mode = models.CharField(
+        max_length=16, choices=WORKFLOW_DATA_MODE_CHOICES,
+        default=WORKFLOW_DATA_MODE_PRODUCTION, db_index=True,
+    )
+    pilot_cycle_id = models.UUIDField(null=True, blank=True, db_index=True)
+    data_scope_key = models.CharField(max_length=64, default='production', db_index=True)
     workflow = models.CharField(max_length=40, choices=WORKFLOW_CHOICES, db_index=True)
     subject_id = models.CharField(max_length=64, db_index=True)
     group_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
@@ -1949,7 +2203,7 @@ class WorkflowSlaEscalation(models.Model):
         ordering = ['-created_at']
         constraints = [
             models.UniqueConstraint(
-                fields=['workflow', 'subject_id', 'stage_key', 'escalation_date'],
+                fields=['workflow', 'subject_id', 'stage_key', 'escalation_date', 'data_scope_key'],
                 name='unique_workflow_sla_escalation_day',
             ),
         ]
@@ -2007,6 +2261,12 @@ class WorkflowTatDailyMetric(models.Model):
 
     WORKFLOW_CHOICES = WorkflowSlaEscalation.WORKFLOW_CHOICES
 
+    data_mode = models.CharField(
+        max_length=16, choices=WORKFLOW_DATA_MODE_CHOICES,
+        default=WORKFLOW_DATA_MODE_PRODUCTION, db_index=True,
+    )
+    pilot_cycle_id = models.UUIDField(null=True, blank=True, db_index=True)
+    data_scope_key = models.CharField(max_length=64, default='production', db_index=True)
     metric_date = models.DateField(db_index=True)
     workflow = models.CharField(max_length=40, choices=WORKFLOW_CHOICES, db_index=True)
     group_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
@@ -2033,7 +2293,7 @@ class WorkflowTatDailyMetric(models.Model):
         ordering = ['-metric_date', 'workflow', 'stage_key']
         constraints = [
             models.UniqueConstraint(
-                fields=['metric_date', 'workflow', 'group_id', 'branch', 'product_key', 'stage_key', 'responsible_role', 'responsible_actor'],
+                fields=['metric_date', 'workflow', 'group_id', 'branch', 'product_key', 'stage_key', 'responsible_role', 'responsible_actor', 'data_scope_key'],
                 name='unique_workflow_tat_daily_metric',
             ),
         ]

@@ -27,7 +27,10 @@ def create_repair_job(
     include_unlinked: bool = False,
     case_ids: list[str] | None = None,
 ) -> TatRepairJob:
-    queryset = TatTrackerCase.objects.filter(group_id=config.group_id, is_deleted=False)
+    from core.services.workflow_data_mode import operational_tat_cases
+    queryset = operational_tat_cases(
+        TatTrackerCase.objects.filter(group_id=config.group_id, is_deleted=False)
+    )
     if product_key:
         queryset = queryset.filter(product_key=product_key)
     requested_case_ids = [str(case_id).strip() for case_id in (case_ids or []) if str(case_id).strip()]

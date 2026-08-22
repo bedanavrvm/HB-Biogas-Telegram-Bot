@@ -47,10 +47,13 @@ def dashboard_callback(request, context: dict[str, Any]) -> dict[str, Any]:
     last_day = now - timezone.timedelta(hours=24)
     last_week = now - timezone.timedelta(days=7)
 
-    active_tat_cases = TatTrackerCase.objects.filter(is_deleted=False)
+    from core.services.workflow_data_mode import operational_tat_cases
+    active_tat_cases = operational_tat_cases(TatTrackerCase.objects.filter(is_deleted=False))
     enabled_groups = GroupSheetConfiguration.objects.filter(enabled=True)
     active_farmers = JawabuFarmerMaster.objects.filter(status='active')
-    pending_spin = SpinCreditRequest.objects.filter(import_status='review_needed')
+    from core.services.workflow_data_mode import operational_spin_requests
+    operational_spin = operational_spin_requests(SpinCreditRequest.objects.all())
+    pending_spin = operational_spin.filter(import_status='review_needed')
     pending_payment_review = PaymentDocument.objects.filter(status='pending_review')
     pending_uploads = JawabuFarmerUploadBatch.objects.filter(status='pending_review')
     open_orders = RequisitionBatch.objects.exclude(status='completed')
@@ -77,7 +80,7 @@ def dashboard_callback(request, context: dict[str, Any]) -> dict[str, Any]:
             },
             {
                 'title': 'SPIN Requests',
-                'value': SpinCreditRequest.objects.count(),
+                'value': operational_spin.count(),
                 'detail': f"{pending_spin.count()} need analyst review",
                 'url': reverse('admin:core_spincreditrequest_changelist'),
             },
@@ -125,7 +128,7 @@ def dashboard_callback(request, context: dict[str, Any]) -> dict[str, Any]:
             },
             {
                 'title': 'SPIN Import Status',
-                'items': _status_counts(SpinCreditRequest.objects.all(), 'import_status'),
+                'items': _status_counts(operational_spin, 'import_status'),
             },
             {
                 'title': 'TAT Case Status',
@@ -181,7 +184,7 @@ def dashboard_callback(request, context: dict[str, Any]) -> dict[str, Any]:
             },
             {
                 'label': 'SPIN sheet sync failures',
-                'count': SpinCreditRequest.objects.exclude(sync_error='').count(),
+                'count': operational_spin.exclude(sync_error='').count(),
                 'url': reverse('admin:core_spincreditrequest_changelist'),
             },
             {

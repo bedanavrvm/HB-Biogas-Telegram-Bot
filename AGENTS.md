@@ -53,6 +53,8 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **FCA** | Field Control Visit / field review workflow — data collected during in-field visits, reviewed and imported into the platform. |
 | **TAT** | Turnaround Time — tracked per loan/case stage with role- and product-based rules (`tat_tracker.py`). |
 | **SPIN** | Credit/CRB-report-linked request workflow handled by `spin_credit.py`, completed by credit analysts. |
+| **Workflow data mode** | The immutable Pilot or Production classification captured when a SPIN/TAT operational record is created. Production records remain operational; while a workflow is in Pilot mode, normal reads also include only its currently active Pilot cycle. |
+| **Pilot cycle** | A versioned SPIN or TAT test-data scope. Rotating a cycle closes the old scope, makes it read-only and purge-eligible, and starts a new active scope that cannot be purged. |
 | **Global product** | The stable `Product` identity shared across workflows. Commercial terms and product-specific configuration belong to immutable, effective-dated `ProductVersion` records; workflow cases retain their selected version and snapshots. |
 | **Global location** | The stable `OperationalLocation` identity for branches, counties, and sub-counties. Codes and hierarchy are immutable; aliases preserve legacy labels, branch service areas govern availability, and workflow records retain canonical references plus historical display values. |
 | **Mini App** | A Telegram Web App (mobile-first web UI launched inside Telegram) backed by Django templates/static assets under `core/templates/*` and `core/static/miniapp/`. |
@@ -139,6 +141,8 @@ Key modules:
 - `spin_credit.py` — SPIN request parsing and workflow logic
 - `storage.py` — media/file storage abstraction
 - `tat_tracker.py` — TAT workflow configuration and transitions
+- `workflow_data_mode.py` — independent SPIN/TAT Pilot/Production switches, immutable creation snapshots, centralized operational visibility, cycle rotation, and stale-client write protection
+- `workflow_pilot_purge.py` — Superuser-only manifest-based cleanup of closed SPIN/TAT Pilot cycles with Sheet fingerprint readiness, verified row deletion, resumable locks, and no Drive deletion
 - `telegram_command_menu.py` — Telegram command registration
 - `workflow_presets.py` — workflow definitions/presets
 - `workflow_transitions.py` — shared revision validation and transition-conflict responses

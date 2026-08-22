@@ -1130,3 +1130,34 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
   .metric-tile span { font-size: 13px; }
   .metric-tile small { font-size: 8px; }
 }
+
+.workflow-mode-banner {
+  margin: 6px 0;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, #0f766e 35%, var(--tat-line));
+  border-radius: 9px;
+  background: color-mix(in srgb, #0f766e 8%, var(--tat-surface));
+  color: var(--tat-text);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .035em;
+}
+.workflow-mode-banner.pilot {
+  border-color: color-mix(in srgb, #f59e0b 50%, var(--tat-line));
+  background: color-mix(in srgb, #f59e0b 11%, var(--tat-surface));
+}
+
+.closed-pilot-notice {
+  display: grid;
+  gap: 2px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, #f59e0b 50%, var(--tat-line));
+  border-radius: 8px;
+  background: color-mix(in srgb, #f59e0b 11%, var(--tat-surface));
+  color: var(--tat-text);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.closed-pilot-notice strong { font-size: 11px; }

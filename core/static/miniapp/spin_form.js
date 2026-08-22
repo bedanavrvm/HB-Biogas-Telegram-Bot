@@ -71,6 +71,7 @@
   let isAnalyst = false;
   let capabilities = new Set();
   let personalPreference = null;
+  let workflowMode = config.workflow_mode || null;
 
   document.getElementById('groupId').value = config.group_id || '';
   document.getElementById('formToken').value = config.form_token || '';
@@ -359,6 +360,27 @@
     return String(value).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
   }
 
+  function renderWorkflowMode() {
+    const modeBanner = document.getElementById('workflowModeBanner');
+    if (!modeBanner || !workflowMode) return;
+    modeBanner.hidden = false;
+    modeBanner.classList.toggle('pilot', Boolean(workflowMode.is_pilot));
+    modeBanner.textContent = workflowMode.is_pilot
+      ? 'PILOT MODE · Entries are test data in the active pilot cycle.'
+      : 'PRODUCTION MODE · New entries are official operational records.';
+  }
+
+  function modeVersion() {
+    return workflowMode ? workflowMode.mode_version : '';
+  }
+
+  function handleModeChanged(result, targetBanner) {
+    if (!result || result.code !== 'WORKFLOW_MODE_CHANGED') return false;
+    setBanner(result.message || 'Workflow mode changed. Reloading…', 'error', targetBanner);
+    window.setTimeout(() => window.location.reload(), 900);
+    return true;
+  }
+
   const serverDraft = utils.createServerDraft ? utils.createServerDraft({
     workflow: 'spin_request',
     contextKey: config.group_id || 'unknown',
@@ -441,6 +463,7 @@
           form_token: config.form_token || '',
           init_data: tg ? tg.initData || '' : '',
           client_request_id: requestId || '',
+          workflow_mode_version: modeVersion(),
           fields: data
         })
       };
@@ -451,6 +474,7 @@
     payload.set('form_token', config.form_token || '');
     payload.set('init_data', tg ? tg.initData || '' : '');
     payload.set('client_request_id', requestId || '');
+    payload.set('workflow_mode_version', modeVersion());
     Object.entries(data).forEach(([key, value]) => payload.set(key, typeof value === 'object' ? JSON.stringify(value) : value || ''));
     files.forEach(({ fieldName, file }) => payload.append(fieldName, file, file.name));
     return { method: 'POST', body: payload };
@@ -489,6 +513,7 @@
         : await fetch('/api/spin/submit/', buildSubmitOptions(data, clientRequestId)).then(async res => ({ ok: res.ok, data: await res.json().catch(() => ({})) }));
       const result = response.data || {};
       if (!response.ok || !result.success) {
+        if (handleModeChanged(result)) return;
         const messages = (result.errors && result.errors.length ? result.errors : [result.message || 'Submission failed.']);
         setBanner(messages, 'error');
         return;
@@ -742,6 +767,8 @@
         return;
       }
       requests = (result.requests || []).filter(r => r.import_status !== 'failed');
+      workflowMode = result.workflow_mode || workflowMode;
+      renderWorkflowMode();
       batchReviewItems = result.batch_review_items || [];
       isAnalyst = !!result.is_analyst;
       capabilities = new Set(result.capabilities || []);
@@ -788,6 +815,7 @@
       group_id: config.group_id || '',
       form_token: config.form_token || '',
       init_data: tg ? tg.initData || '' : '',
+      workflow_mode_version: modeVersion(),
     };
   }
 
@@ -823,6 +851,8 @@
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spinSettingsContext()),
       }).then(async (res) => ({ ok: res.ok, data: await res.json().catch(() => ({})) }));
     const result = response.data || {};
+    workflowMode = result.workflow_mode || workflowMode;
+    renderWorkflowMode();
     if (!response.ok || !result.success) throw new Error(result.message || 'Could not load SPIN settings.');
     applySpinPreference(result.data || {}, options);
     if (utils.renderSettingsAccount) utils.renderSettingsAccount(document.getElementById('spinSettingsAccount'), result.account || {});
@@ -956,6 +986,7 @@
       group_id: config.group_id || '',
       form_token: config.form_token || '',
       init_data: tg ? tg.initData || '' : '',
+      workflow_mode_version: modeVersion(),
       fields: reviewFormValues()
     };
     reviewRequestKey = reviewRequestKey || (utils.createRequestId ? utils.createRequestId('spin-review') : `spin-review-${Date.now()}`);
@@ -971,6 +1002,7 @@
         }).then(async res => ({ ok: res.ok, data: await res.json().catch(() => ({})) }));
       const result = response.data || {};
       if (!response.ok || !result.success) {
+        if (handleModeChanged(result, reviewModalBanner)) return;
         setBanner(result.errors || result.message || 'Review could not be saved.', 'error', reviewModalBanner);
         return;
       }
@@ -996,7 +1028,8 @@
           action: 'reject',
           group_id: config.group_id || '',
           form_token: config.form_token || '',
-          init_data: tg ? tg.initData || '' : ''
+          init_data: tg ? tg.initData || '' : '',
+          workflow_mode_version: modeVersion()
         })
         : await fetch('/api/spin/batch-review/resolve/', {
           method: 'POST',
@@ -1006,11 +1039,13 @@
             action: 'reject',
             group_id: config.group_id || '',
             form_token: config.form_token || '',
-            init_data: tg ? tg.initData || '' : ''
+            init_data: tg ? tg.initData || '' : '',
+            workflow_mode_version: modeVersion()
           })
         }).then(async res => ({ ok: res.ok, data: await res.json().catch(() => ({})) }));
       const result = response.data || {};
       if (!response.ok || !result.success) {
+        if (handleModeChanged(result, reviewModalBanner)) return;
         setBanner(result.message || 'The message could not be marked.', 'error', reviewModalBanner);
         return;
       }
@@ -1046,6 +1081,7 @@
     formData.append('group_id', config.group_id || '');
     formData.append('form_token', config.form_token || '');
     formData.append('init_data', tg ? tg.initData || '' : '');
+    formData.append('workflow_mode_version', modeVersion());
 
     try {
       const response = spinApi.postForm
@@ -1056,6 +1092,7 @@
         }).then(async res => ({ ok: res.ok, data: await res.json().catch(() => ({})) }));
       const result = response.data || {};
       if (!response.ok || !result.success) {
+        if (handleModeChanged(result, modalBanner)) return;
         setBanner(result.message || 'Upload failed.', 'error', modalBanner);
         return;
       }
@@ -1153,6 +1190,7 @@
   // access from being presented with a misleading active form.
   if (submitBtn) submitBtn.disabled = true;
   renderProductConfiguration();
+  renderWorkflowMode();
   fetchRequests().then(async () => {
     try {
       const personal = await loadSpinSettings({ preserveSession: false });
