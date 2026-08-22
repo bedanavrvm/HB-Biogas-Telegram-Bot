@@ -46,8 +46,8 @@ An unconnected or blocked primary is immediately soft-escalated; the system does
 
 1. The private Telegram message contains minimal operational context and **Open TAT task**.
 2. The button opens the exact case and pending stage.
-3. Timestamp stages show a compact **Confirm stamp** sheet.
-4. Choice stages show only the permitted outcomes and a confirmation action.
+3. Timestamp stages use one idempotent **Stamp Approval** tap; no redundant confirmation sheet is shown.
+4. Choice stages save the selected permitted outcome directly; no redundant confirmation card is opened.
 5. The update goes through the existing revision-aware and idempotent TAT transition service.
 6. After success, the actor can open the next task directly.
 
@@ -87,7 +87,7 @@ A Superuser is not added to operational recipient lists automatically. They can 
 - Confirm users without matching grants are rejected from assignments.
 - Connect one synthetic Telegram account and verify the private test message.
 - Create a synthetic TAT case and confirm exactly one private prompt is sent.
-- Confirm the deep link opens the correct case and compact confirmation sheet.
+- Confirm the deep link opens the correct case and focuses its action without submitting it; no nested confirmation card should appear.
 - Double-tap confirmation and verify only one workflow event is created.
 - Mark a primary unconnected and confirm the first reachable backup is prompted immediately.
 - Advance the SLA clock and run `process_tat_notifications`; verify ranked backup delivery.

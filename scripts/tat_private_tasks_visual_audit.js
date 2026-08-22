@@ -51,6 +51,10 @@ const detail = {
   product_custom_values: {}, correction_branches: ['Nakuru'], can_correct_details: false,
 };
 
+let updateCalls = 0;
+let stamped = false;
+let currentKind = 'timestamp';
+
 async function installMocks(page) {
   await page.route('https://telegram.org/**', route => route.abort());
   await page.route('https://unpkg.com/**', route => route.abort());
@@ -62,7 +66,17 @@ async function installMocks(page) {
     const json = data => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data }) });
     if (url.pathname.endsWith('/bootstrap/')) return json(bootstrap);
     if (url.pathname.endsWith('/detail/')) return json(detail);
-    if (url.pathname.endsWith('/tasks/')) return json({ ...bootstrap.task_inbox, private_alerts: bootstrap.private_alerts });
+    if (url.pathname.endsWith('/update/')) {
+      updateCalls += 1;
+      stamped = true;
+      detail.fields[0].value = currentKind === 'dropdown' ? 'Approved' : '22-Aug-2026 09:00';
+      detail.fields[0].editable = false;
+      return json(detail);
+    }
+    if (url.pathname.endsWith('/tasks/')) return json({
+      ...(stamped ? { items: [], unread_count: 0, total: 0 } : bootstrap.task_inbox),
+      private_alerts: bootstrap.private_alerts,
+    });
     if (url.pathname.endsWith('/home/')) return json(bootstrap);
     return json({});
   });
@@ -73,6 +87,12 @@ async function installMocks(page) {
   const browser = await chromium.launch({ headless: true });
   try {
     for (const viewport of viewports) {
+      stamped = false;
+      currentKind = viewport.width >= 390 ? 'dropdown' : 'timestamp';
+      detail.fields[0].value = '';
+      detail.fields[0].editable = true;
+      detail.fields[0].kind = currentKind;
+      detail.fields[0].options = currentKind === 'dropdown' ? ['Approved', 'Rejected'] : [];
       const page = await browser.newPage({ viewport });
       await installMocks(page);
       await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
@@ -88,20 +108,16 @@ async function installMocks(page) {
       assert(layout.taskWidth >= viewport.width - 40, `${viewport.name}: task card does not use the compact viewport width`);
 
       await page.locator('.task-inbox-card').click();
-      await page.locator('#stageConfirmSheet:not(.hidden)').waitFor();
-      const sheet = await page.evaluate(() => {
-        const panel = document.querySelector('.action-sheet-panel');
-        const style = getComputedStyle(panel);
-        return {
-          background: style.backgroundColor,
-          width: panel.getBoundingClientRect().width,
-          documentWidth: document.documentElement.scrollWidth,
-          viewportWidth: document.documentElement.clientWidth,
-        };
-      });
-      assert(sheet.background !== 'rgba(0, 0, 0, 0)', `${viewport.name}: confirmation panel is transparent`);
-      assert(sheet.width <= viewport.width + 1, `${viewport.name}: confirmation panel exceeds viewport`);
-      assert(sheet.documentWidth <= sheet.viewportWidth + 1, `${viewport.name}: sheet causes horizontal overflow`);
+      const control = page.locator(currentKind === 'dropdown' ? '.stage-action-wrap select' : '.stage-action-wrap button');
+      await control.waitFor();
+      assert(await page.locator('#stageConfirmSheet').count() === 0, `${viewport.name}: redundant confirmation card remains in the Mini App`);
+      const callsBefore = updateCalls;
+      if (currentKind === 'dropdown') await control.selectOption('Approved');
+      else await control.click();
+      await page.locator('.stage-row.done').waitFor();
+      assert(updateCalls === callsBefore + 1, `${viewport.name}: one stage action did not produce exactly one update request`);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1);
+      assert(overflow, `${viewport.name}: stamped detail causes horizontal overflow`);
       await page.screenshot({ path: path.join(outputDir, `${viewport.name}.png`), fullPage: true });
       await page.close();
     }

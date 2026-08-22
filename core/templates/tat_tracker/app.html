@@ -313,30 +313,11 @@
         <button id="closeNoticeBtn" type="button" class="notice-close" aria-label="Close message">×</button>
       </div>
     </div>
-    <div id="stageConfirmSheet" class="action-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="stageConfirmTitle">
-      <button id="stageConfirmBackdrop" type="button" class="action-sheet-backdrop" tabindex="-1" aria-label="Close confirmation"></button>
-      <section class="action-sheet-panel">
-        <div class="action-sheet-handle" aria-hidden="true"></div>
-        <div class="section-head compact">
-          <div>
-            <span class="settings-eyebrow">CONFIRM TAT UPDATE</span>
-            <h2 id="stageConfirmTitle">Confirm stage</h2>
-          </div>
-          <button id="closeStageConfirmBtn" type="button" class="ghost-btn" aria-label="Close confirmation">Close</button>
-        </div>
-        <div id="stageConfirmSummary" class="stage-confirm-summary"></div>
-        <label id="stageConfirmChoiceWrap" class="hidden">Outcome<select id="stageConfirmChoice"></select></label>
-        <div class="form-actions action-sheet-actions">
-          <button id="cancelStageConfirmBtn" type="button" class="ghost-btn">Cancel</button>
-          <button id="confirmStageBtn" type="button" class="primary">Confirm stamp</button>
-        </div>
-      </section>
-    </div>
   </main>
 
   <script src="{% static 'miniapp/telegram.js' %}?v=2"></script>
   <script src="{% static 'miniapp/utils.js' %}?v=4"></script>
   <script src="{% static 'miniapp/tat_api.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=40"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=42"></script>
 </body>
 </html>

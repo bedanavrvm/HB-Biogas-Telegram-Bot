@@ -25,14 +25,13 @@
     pendingCorrection: null,
     workflowMode: null,
     taskInbox: { items: [], unread_count: 0, total: 0 },
-    pendingStageAction: null,
+    pendingStageUpdate: null,
     directTask: null,
   };
 
   const $ = (id) => document.getElementById(id);
   let statusTimeout = null;
   let noticeTimeout = null;
-  let stageSheetReturnFocus = null;
 
   function readPendingCreateRequestId() {
     try { return window.sessionStorage.getItem('tatPendingCreateRequestId') || ''; } catch (error) { return ''; }
@@ -957,7 +956,9 @@
       const field = (result.data.fields || []).find((item) => item.key === focusStageKey);
       const row = [...document.querySelectorAll('[data-stage-key]')].find((node) => node.dataset.stageKey === focusStageKey);
       row?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      if (field && field.editable) window.setTimeout(() => openStageConfirmation(field), 180);
+      if (field && field.editable) {
+        window.setTimeout(() => row?.querySelector('.stage-action-wrap button, .stage-action-wrap select')?.focus(), 180);
+      }
       else if (field) setStatus(field.value ? 'This task has already been completed.' : (field.locked_reason || 'This task is no longer actionable.'), 'error');
     }
   }
@@ -1080,9 +1081,9 @@
           select.setAttribute('aria-label', 'Update ' + field.label);
           select.innerHTML = '<option value="">Select outcome...</option>' + (field.options || []).map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`).join('');
           select.value = field.value || '';
-          select.addEventListener('change', () => {
-            if (select.value) openStageConfirmation(field, select.value);
-            select.value = field.value || '';
+          select.addEventListener('change', async () => {
+            const selected = select.value;
+            if (selected) await updateStageOnce(select, field, selected);
           });
           actionWrap.appendChild(select);
         } else {
@@ -1096,7 +1097,7 @@
             </svg>
             <span>Stamp Approval</span>
           `;
-          button.addEventListener('click', () => openStageConfirmation(field, 'STAMP'));
+          button.addEventListener('click', () => updateStageOnce(button, field, 'STAMP'));
           actionWrap.appendChild(button);
         }
         row.querySelector('.stage-content').appendChild(actionWrap);
@@ -1310,101 +1311,42 @@
     }
   }
 
-  function closeStageConfirmation() {
-    state.pendingStageAction = null;
-    const sheet = $('stageConfirmSheet');
-    sheet.classList.add('hidden');
-    document.body.classList.remove('sheet-open');
-    $('confirmStageBtn').dataset.nextCase = '';
-    const returnTarget = stageSheetReturnFocus;
-    stageSheetReturnFocus = null;
-    if (returnTarget && returnTarget.isConnected && returnTarget.offsetParent !== null) {
-      window.setTimeout(() => returnTarget.focus(), 0);
+  async function updateStageOnce(control, field, value) {
+    if (!state.detail || !field || !field.editable || control.disabled || !value) return;
+    const caseId = state.detail.summary.case_id;
+    const workflowRevision = Number(state.detail.summary.workflow_revision || 1);
+    if (!state.pendingStageUpdate
+      || state.pendingStageUpdate.caseId !== caseId
+      || state.pendingStageUpdate.fieldKey !== field.key
+      || state.pendingStageUpdate.value !== value
+      || state.pendingStageUpdate.workflowRevision !== workflowRevision) {
+      state.pendingStageUpdate = {
+        caseId,
+        fieldKey: field.key,
+        value,
+        workflowRevision,
+        requestId: newRequestId(),
+      };
     }
-  }
-
-  function openStageConfirmation(field, proposedValue) {
-    if (!state.detail || !field || !field.editable) return;
-    stageSheetReturnFocus = document.activeElement;
-    state.pendingStageAction = {
-      field,
-      value: proposedValue || '',
-      caseId: state.detail.summary.case_id,
-      workflowRevision: Number(state.detail.summary.workflow_revision || 1),
-      requestId: newRequestId(),
-    };
-    $('stageConfirmTitle').textContent = field.label;
-    $('stageConfirmSummary').innerHTML = `
-      <span><small>Case</small><strong>${escapeHtml(state.detail.summary.case_id)}</strong></span>
-      <span><small>Branch</small><strong>${escapeHtml(state.detail.summary.branch || '')}</strong></span>
-      <span><small>Responsible role</small><strong>${escapeHtml(field.role || '')}</strong></span>`;
-    const choiceWrap = $('stageConfirmChoiceWrap');
-    const choice = $('stageConfirmChoice');
-    if (field.kind === 'dropdown') {
-      choice.innerHTML = '<option value="">Select outcome...</option>' + (field.options || []).map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`).join('');
-      choice.value = proposedValue || '';
-      choiceWrap.classList.remove('hidden');
-    } else {
-      choiceWrap.classList.add('hidden');
-      choice.innerHTML = '';
-    }
-    $('cancelStageConfirmBtn').hidden = false;
-    $('confirmStageBtn').textContent = field.kind === 'dropdown' ? 'Confirm outcome' : 'Confirm stamp';
-    $('confirmStageBtn').dataset.nextCase = '';
-    $('stageConfirmSheet').classList.remove('hidden');
-    document.body.classList.add('sheet-open');
-    window.setTimeout(() => (field.kind === 'dropdown' ? choice : $('confirmStageBtn')).focus(), 30);
-  }
-
-  async function confirmStageAction() {
-    const button = $('confirmStageBtn');
-    if (button.dataset.nextCase) {
-      if (button.dataset.nextCase === '__done__') {
-        closeStageConfirmation();
-        show('queue');
-        await refresh({ background: true });
-        return;
-      }
-      const caseId = button.dataset.nextCase;
-      const stageKey = button.dataset.nextStage || '';
-      closeStageConfirmation();
-      await openCase(caseId, stageKey);
-      return;
-    }
-    const action = state.pendingStageAction;
-    if (!action) return;
-    const value = action.field.kind === 'dropdown' ? $('stageConfirmChoice').value : 'STAMP';
-    if (!value) {
-      setStatus('Select an outcome before confirming.', 'error');
-      return;
-    }
+    const pending = state.pendingStageUpdate;
+    const isButton = control.tagName === 'BUTTON';
     try {
-      setButtonLoading(button, true, 'Saving');
-      await submitUpdate([{ field: action.field.key, value }], {
-        caseId: action.caseId,
-        workflowRevision: action.workflowRevision,
-        requestId: action.requestId,
+      if (isButton) setButtonLoading(control, true, 'Stamping');
+      else control.disabled = true;
+      await submitUpdate([{ field: field.key, value }], {
+        caseId: pending.caseId,
+        workflowRevision: pending.workflowRevision,
+        requestId: pending.requestId,
       });
-      const inbox = await loadTaskInbox();
-      const next = (inbox.items || [])[0];
-      $('stageConfirmTitle').textContent = 'Stage updated';
-      $('stageConfirmSummary').innerHTML = `<strong>${escapeHtml(action.field.label)} was recorded successfully.</strong>`;
-      $('stageConfirmChoiceWrap').classList.add('hidden');
-      $('cancelStageConfirmBtn').hidden = true;
-      state.pendingStageAction = null;
-      if (next) {
-        button.textContent = 'Open next task';
-        button.dataset.nextCase = next.case_id;
-        button.dataset.nextStage = next.stage_key;
-      } else {
-        button.textContent = 'Done';
-        button.dataset.nextCase = '__done__';
-        button.dataset.nextStage = '';
-      }
+      state.pendingStageUpdate = null;
+      await loadTaskInbox();
+      setStatus(value === 'STAMP' ? `${field.label} stamped.` : `${field.label} recorded.`, 'ok');
     } catch (error) {
-      setStatus(error.message, 'error');
+      if (!isButton) control.value = field.value || '';
+      setStatus(`${error.message} Retry will safely check the same update.`, 'error');
     } finally {
-      setButtonLoading(button, false);
+      if (isButton) setButtonLoading(control, false);
+      else control.disabled = false;
     }
   }
 
@@ -1551,25 +1493,6 @@
   });
 
   $('closeNoticeBtn').addEventListener('click', closeNotice);
-  $('stageConfirmBackdrop').addEventListener('click', closeStageConfirmation);
-  $('closeStageConfirmBtn').addEventListener('click', closeStageConfirmation);
-  $('cancelStageConfirmBtn').addEventListener('click', closeStageConfirmation);
-  $('confirmStageBtn').addEventListener('click', confirmStageAction);
-  document.addEventListener('keydown', (event) => {
-    const sheet = $('stageConfirmSheet');
-    if (event.key === 'Escape' && !sheet.classList.contains('hidden')) closeStageConfirmation();
-    if (event.key === 'Tab' && !sheet.classList.contains('hidden')) {
-      const focusable = [...sheet.querySelectorAll('button:not([hidden]):not([disabled]), select:not([hidden]):not([disabled])')];
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault(); last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault(); first.focus();
-      }
-    }
-  });
   $('connectPrivateAlertsBtn').addEventListener('click', async (event) => {
     const button = event.currentTarget;
     try {
@@ -1717,9 +1640,7 @@
   configureHtmx();
   if (tg && tg.BackButton && typeof tg.BackButton.onClick === 'function') {
     tg.BackButton.onClick(() => {
-      if (!$('stageConfirmSheet').classList.contains('hidden')) {
-        closeStageConfirmation();
-      } else if (state.currentView === 'detail') {
+      if (state.currentView === 'detail') {
         show('queue');
         refresh({ background: true }).catch(() => {});
       }
