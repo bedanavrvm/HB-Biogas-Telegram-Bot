@@ -135,6 +135,13 @@ from .models import (
     SheetSyncDiscrepancy,
     TatTrackerCase,
     TatTrackerEvent,
+    TatResponsibilityAssignment,
+    TatResponsibilityBackup,
+    TatPrivateAlertConnection,
+    TatActionTask,
+    TatActionTaskRecipient,
+    TatActionTaskLocator,
+    TatGroupExceptionStatus,
     TatRepairJob,
     WorkflowDataModeEvent,
     WorkflowDataModeState,
@@ -1666,6 +1673,214 @@ class TatEscalationRuleAdmin(GovernedConfigurationAuditAdmin):
     search_fields = ('group_configuration__display_name', 'group_configuration__group_id', 'branch')
 
 
+class TatResponsibilityAssignmentForm(forms.ModelForm):
+    branch = forms.ChoiceField(choices=(), required=True)
+    role = forms.ChoiceField(choices=(), required=True)
+    product_key = forms.ChoiceField(choices=(), required=False, label='Product')
+    stage_key = forms.ChoiceField(choices=(), required=False, label='Stage')
+
+    class Meta:
+        model = TatResponsibilityAssignment
+        fields = '__all__'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        branches = set(global_branch_choices())
+        workflows = list(GroupSheetConfiguration.objects.filter(
+            workflow__type='tat_tracker', enabled=True,
+        ).values_list('workflow', flat=True))
+        product_configs = {product.key: product for product in PRODUCTS.values()}
+        for workflow in workflows:
+            branches.update(configured_workflow_branches(workflow or {}, default=[]))
+            for product in configured_products(workflow or {}):
+                product_configs[product.key] = product
+        if self.instance and self.instance.pk and self.instance.branch:
+            branches.add(self.instance.branch)
+        self.fields['branch'].choices = [(value, value) for value in sorted(branches)]
+        roles = {stage.role for product in product_configs.values() for stage in product.stages}
+        if self.instance and self.instance.pk and self.instance.role:
+            roles.add(self.instance.role)
+        roles = sorted(roles)
+        self.fields['role'].choices = [(value, value.replace('_', ' ').title()) for value in roles]
+        product_choices = [('', 'All products')] + [
+            (product.key, product.label) for product in product_configs.values()
+        ]
+        product_values = {value for value, _label in product_choices}
+        if self.instance and self.instance.pk and self.instance.product_key not in product_values:
+            product_choices.append((self.instance.product_key, self.instance.product_key))
+        self.fields['product_key'].choices = product_choices
+        stage_labels = {}
+        for product in product_configs.values():
+            for stage in product.stages:
+                stage_labels.setdefault(stage.key, stage.label)
+        if self.instance and self.instance.pk and self.instance.stage_key:
+            stage_labels.setdefault(self.instance.stage_key, self.instance.stage_key)
+        self.fields['stage_key'].choices = [('', 'All stages')] + sorted(stage_labels.items(), key=lambda row: row[1])
+        self.fields['primary_user'].queryset = get_user_model().objects.filter(
+            models.Q(is_superuser=True)
+            | models.Q(access_grants__workflow='tat_tracker', access_grants__active=True),
+            is_active=True,
+        ).distinct().order_by('first_name', 'last_name', 'username')
+
+
+class TatResponsibilityBackupForm(forms.ModelForm):
+    threshold_percent = forms.ChoiceField(choices=(), label='SLA escalation threshold')
+
+    class Meta:
+        model = TatResponsibilityBackup
+        fields = '__all__'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        thresholds = sorted(set(TatEscalationRule.objects.filter(active=True).values_list('threshold_percent', flat=True)))
+        if self.instance and self.instance.pk and self.instance.threshold_percent:
+            thresholds = sorted(set(thresholds) | {self.instance.threshold_percent})
+        self.fields['threshold_percent'].choices = [
+            (value, f'{value}%') for value in thresholds
+        ]
+        self.fields['user'].queryset = get_user_model().objects.filter(
+            models.Q(is_superuser=True)
+            | models.Q(access_grants__workflow='tat_tracker', access_grants__active=True),
+            is_active=True,
+        ).distinct().order_by('first_name', 'last_name', 'username')
+
+
+class TatResponsibilityBackupInline(TabularInline):
+    model = TatResponsibilityBackup
+    form = TatResponsibilityBackupForm
+    extra = 1
+    fields = ('rank', 'user', 'threshold_percent', 'active')
+
+
+@admin.register(TatResponsibilityAssignment)
+class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
+    """Superuser-managed routing; matching AccessGrants remain authoritative."""
+
+    form = TatResponsibilityAssignmentForm
+    list_display = (
+        'group_configuration', 'branch', 'role', 'product_key', 'stage_key',
+        'primary_user', 'active', 'effective_from', 'effective_until',
+    )
+    list_filter = ('active', 'group_configuration', 'role', 'branch', 'product_key', 'stage_key')
+    search_fields = (
+        'primary_user__username', 'primary_user__first_name', 'primary_user__last_name',
+        'group_configuration__display_name', 'branch', 'role', 'product_key', 'stage_key',
+    )
+    readonly_fields = ('created_by', 'created_at', 'updated_at')
+    inlines = (TatResponsibilityBackupInline,)
+    fieldsets = (
+        ('Responsibility scope', {
+            'fields': (
+                'group_configuration', ('branch', 'role'),
+                ('product_key', 'stage_key'), 'primary_user',
+            ),
+            'description': 'Assignment routes alerts only. Every actor still needs a matching TAT AccessGrant.',
+        }),
+        ('Availability', {'fields': (('active', 'effective_from', 'effective_until'),)}),
+        ('Audit', {'fields': (('created_by', 'created_at', 'updated_at'),), 'classes': ('collapse',)}),
+    )
+
+    def save_model(self, request, obj, form, change):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        if not obj.created_by_id:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+    def has_module_permission(self, request):
+        return bool(request.user and request.user.is_active and request.user.is_superuser)
+
+    def has_add_permission(self, request):
+        return self.has_module_permission(request)
+
+    def has_change_permission(self, request, obj=None):
+        return self.has_module_permission(request)
+
+    def has_delete_permission(self, request, obj=None):
+        return self.has_module_permission(request)
+
+
+class TatActionTaskRecipientInline(TabularInline):
+    model = TatActionTaskRecipient
+    extra = 0
+    can_delete = False
+    fields = (
+        'user', 'kind', 'rank', 'threshold_percent', 'inbox_status',
+        'delivery_state', 'deliver_after', 'delivery_attempts', 'delivered_at',
+    )
+    readonly_fields = fields
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(TatActionTask)
+class TatActionTaskAdmin(GovernedConfigurationAuditAdmin):
+    list_display = (
+        'case', 'stage_label', 'responsible_role', 'case_revision', 'status',
+        'assignment', 'acted_by', 'created_at',
+    )
+    list_filter = ('status', 'responsible_role', 'stage_key', 'group_configuration', 'created_at')
+    search_fields = ('case__case_id', 'case__client_name', 'stage_label', 'responsible_role')
+    readonly_fields = [field.name for field in TatActionTask._meta.fields]
+    inlines = (TatActionTaskRecipientInline,)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(TatPrivateAlertConnection)
+class TatPrivateAlertConnectionAdmin(GovernedConfigurationAuditAdmin):
+    list_display = ('user', 'status', 'connected_at', 'last_success_at', 'last_failure_at', 'updated_at')
+    list_filter = ('status', 'updated_at')
+    search_fields = ('user__username', 'user__first_name', 'user__last_name')
+    readonly_fields = [field.name for field in TatPrivateAlertConnection._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(TatGroupExceptionStatus)
+class TatGroupExceptionStatusAdmin(GovernedConfigurationAuditAdmin):
+    list_display = (
+        'group_configuration', 'responsible_role', 'unresolved_count', 'oldest_task_at',
+        'active', 'last_attempt_at',
+    )
+    list_filter = ('active', 'responsible_role', 'group_configuration')
+    search_fields = ('group_configuration__display_name', 'group_configuration__group_id', 'responsible_role')
+    readonly_fields = [field.name for field in TatGroupExceptionStatus._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(TatActionTaskLocator)
+class TatActionTaskLocatorAdmin(GovernedConfigurationAuditAdmin):
+    list_display = ('task', 'recipient', 'expires_at', 'revoked_at', 'created_at')
+    list_filter = ('expires_at', 'revoked_at')
+    search_fields = ('task__case__case_id', 'recipient__username')
+    exclude = ('token_hash',)
+    readonly_fields = [
+        field.name for field in TatActionTaskLocator._meta.fields
+        if field.name != 'token_hash'
+    ]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(WorkflowConfigurationChangeRequest)
 class WorkflowConfigurationChangeRequestAdmin(GovernedConfigurationAuditAdmin):
     list_display = ('setting_key', 'group_configuration', 'status', 'requested_by', 'requested_at', 'reviewed_by', 'reviewed_at')
@@ -1826,6 +2041,17 @@ class TestDataDeleteAdmin(ReadOnlyAuditAdmin):
 class GroupSheetConfigurationAdminForm(forms.ModelForm):
     """Admin helper that can generate workflow JSON from a simple preset."""
 
+    tat_notification_mode = forms.ChoiceField(
+        choices=(
+            ('group', 'Existing group alerts'),
+            ('shadow', 'Shadow inbox (no Telegram delivery)'),
+            ('hybrid', 'Private inbox and Telegram alerts'),
+        ),
+        required=False,
+        initial='group',
+        label='TAT notification delivery',
+        help_text='Use Shadow to validate responsibility routing before private delivery.',
+    )
     workflow_preset = forms.ChoiceField(
         choices=preset_choices,
         required=False,
@@ -2083,6 +2309,7 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
             )
         if preset_key == 'tat_tracker':
             self.fields['workflow_preset'].initial = 'tat_tracker'
+            self.fields['tat_notification_mode'].initial = workflow.get('tat_notification_mode') or 'group'
         if preset_key == 'tat_tracker' or workflow.get('tat_targets_minutes'):
             self._populate_tat_target_initials(workflow)
         if preset_key == 'jawabu_homebiogas':
@@ -2212,6 +2439,7 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 or existing_workflow.get('tat_targets_minutes')
             ):
                 workflow['tat_targets_minutes'] = self.tat_targets_minutes()
+                workflow['tat_notification_mode'] = self.cleaned_data.get('tat_notification_mode') or 'group'
                 return workflow
             return workflow
         workflow = build_workflow_from_preset(
@@ -2244,6 +2472,7 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 'internal_order_record_id_prefix': self.cleaned_data.get('jawabu_internal_order_record_id_prefix'),
                 'existing_workflow': getattr(self.instance, 'workflow', None) or {},
                 'tat_targets_minutes': self.tat_targets_minutes(),
+                'tat_notification_mode': self.cleaned_data.get('tat_notification_mode') or 'group',
             },
         )
         self._apply_selected_launchers(workflow)
@@ -3237,9 +3466,10 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
         }),
         ('TAT Tracker Targets', {
             'fields': tuple(
-                field_name
+                ['tat_notification_mode'] + [field_name
                 for _product_key, _product_label, field_names in TAT_TARGET_FIELD_GROUPS
                 for field_name in field_names
+                ]
             ),
             'description': (
                 'SLA targets in minutes. Total target controls overall case SLA; '

@@ -113,6 +113,7 @@ WORKFLOW_PRESETS = {
             'branches': ['Biogas Unit', 'Embu', 'Nakuru', 'West Nairobi'],
             'allow_unconfigured_users': False,
             'default_roles': ['BRO'],
+            'tat_notification_mode': 'group',
             'tat_targets_minutes': {
                 'business': {'total': 20160, 'stages': {}},
                 'logbook': {'total': 20160, 'stages': {}},
@@ -362,6 +363,9 @@ def build_workflow_from_preset(
         tat_targets_minutes = overrides.get('tat_targets_minutes')
         if tat_targets_minutes:
             workflow['tat_targets_minutes'] = tat_targets_minutes
+        notification_mode = str(overrides.get('tat_notification_mode') or '').strip().lower()
+        if notification_mode in {'group', 'shadow', 'hybrid'}:
+            workflow['tat_notification_mode'] = notification_mode
 
     return workflow
 

@@ -409,6 +409,11 @@ def staff_user_for_payload(group_config, user_payload: dict, fallback_name: str 
     access = user_access(canonical_user, 'tat_tracker', group_configuration=group_config)
     if access['authorized']:
         from core.services.workflow_capabilities import capabilities_payload
+        from core.services.tat_notifications import mark_private_alert_seen
+        mark_private_alert_seen(
+            canonical_user,
+            allows_write=bool(user_payload.get('allows_write_to_pm')),
+        )
         profile = getattr(canonical_user, 'staff_profile', None)
         return {
             'authorized': True,
@@ -784,6 +789,8 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
         if existing:
             if existing.is_deleted:
                 raise ValueError('This submission was previously deleted. Refresh the Mini App before trying again.')
+            from core.services.tat_notifications import synchronize_case_task
+            synchronize_case_task(group_config, existing)
             return serialize_case_detail(existing, user, workflow=workflow)
     case_id = next_case_id(group_config, product)
     now = timezone.now()
@@ -814,6 +821,8 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
         created_by=user.get('name', ''), created_by_telegram_id=user.get('telegram_id', ''), last_updated_by=user.get('name', ''),
     )
     record_tat_event(case=case, group_id=case.group_id, actor_name=user.get('name', ''), actor_telegram_id=user.get('telegram_id', ''), actor_role=','.join(user.get('roles') or []), actor_user_id=user.get('user_id') or None, authority_user_id=user.get('user_id') or None, stage_key='created', stage_label='Case Created', new_value=format_datetime(now), source='mini_app', sheet_name=case.sheet_name)
+    from core.services.tat_notifications import synchronize_case_task
+    synchronize_case_task(group_config, case)
     if payload.get('_defer_sheet_sync'):
         return serialize_case_detail(case, user, workflow=workflow)
     sync_case_to_sheet(group_config, case)
@@ -1308,6 +1317,8 @@ def update_case(
     if not _tat_scope_allowed(user, 'tat.home.view', case):
         raise ValueError('This TAT case is outside your assigned access scope.')
     if request_id and case.events.filter(request_id=str(request_id), source='workflow_transition').exists():
+        from core.services.tat_notifications import synchronize_case_task
+        synchronize_case_task(group_config, case)
         return serialize_case_detail(case, user, workflow=workflow)
     validate_workflow_revision(case, expected_revision)
     if not updates:
@@ -1370,6 +1381,12 @@ def update_case(
         revision_after=revision_after,
         sheet_name=case.sheet_name,
         row_number=case.row_number,
+    )
+    from core.services.tat_notifications import synchronize_case_task
+    synchronize_case_task(
+        group_config,
+        case,
+        actor_user=user.get('_canonical_user'),
     )
     sync_case_to_sheet(group_config, case)
     return serialize_case_detail(case, user, workflow=workflow)

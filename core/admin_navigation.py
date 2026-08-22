@@ -150,6 +150,14 @@ def _group_workflow_items(config: GroupSheetConfiguration) -> list[dict]:
         items.extend([
             _filtered_model_item("core.TatTrackerCase", "Cases", "schedule", group_id=group_id),
             _filtered_model_item("core.TatTrackerEvent", "Event history", "timeline", group_id=group_id),
+            _filtered_model_item(
+                "core.TatResponsibilityAssignment", "Responsibility routing", "account_tree",
+                group_configuration_id=config.pk,
+            ),
+            _filtered_model_item(
+                "core.TatActionTask", "Private task inbox", "inbox",
+                group_configuration_id=config.pk,
+            ),
             _link_item(
                 "Reconcile TAT Sheet",
                 reverse("admin:core_groupsheetconfiguration_tat_repair", args=[config.pk]),
@@ -248,6 +256,7 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("auth.User", "Users", "group"),
         _model_item("auth.Group", "Groups", "groups"),
         _model_item("core.WorkflowDataModeState", "SPIN/TAT pilot modes", "science"),
+        _model_item("core.TatResponsibilityAssignment", "TAT responsibility routing", "account_tree"),
         _model_item("core.OperationalLocation", "Global locations", "map"),
         _model_item("core.BranchServiceArea", "Branch service areas", "conversion_path"),
         _model_item("core.OperationalLocationAlias", "Location aliases", "alt_route"),
@@ -297,6 +306,9 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("core.FcaImportRecord", "FCA import records", "input"),
         _model_item("core.JawabuPipelineEvent", "Pipeline events", "event_note"),
         _model_item("core.TatTrackerApprovalCertificate", "Approval certificates", "verified"),
+        _model_item("core.TatActionTask", "TAT private tasks", "inbox"),
+        _model_item("core.TatPrivateAlertConnection", "TAT private alert connections", "notifications"),
+        _model_item("core.TatGroupExceptionStatus", "TAT delivery exceptions", "notification_important"),
         _model_item("core.OriginationDataFieldEvent", "Origination field audit", "history"),
         _model_item("core.LocationConfigurationEvent", "Location configuration audit", "history"),
     ]

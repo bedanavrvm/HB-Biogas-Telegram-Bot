@@ -113,10 +113,14 @@ def readiness_check(request):
 def tat_tracker_app(request):
     """Render the TAT Tracker Telegram Mini App."""
     from core.services.tat_tracker import decode_tat_start_param
-    start_payload = decode_tat_start_param(request.GET.get('tgWebAppStartParam') or request.GET.get('startapp') or '')
+    raw_start = request.GET.get('tgWebAppStartParam') or request.GET.get('startapp') or ''
+    task_token = str(raw_start or '').strip() if str(raw_start or '').startswith('tt_') else ''
+    start_payload = {} if task_token else decode_tat_start_param(raw_start)
     group_id = request.GET.get('group_id') or start_payload.get('group_id', '')
     token = request.GET.get('token') or start_payload.get('token', '')
-    return render(request, 'tat_tracker/app.html', {'group_id': group_id, 'token': token})
+    return render(request, 'tat_tracker/app.html', {
+        'group_id': group_id, 'token': token, 'task_token': task_token,
+    })
 
 
 def _tat_json_body(request) -> dict:
@@ -361,7 +365,110 @@ def tat_tracker_bootstrap(request):
     actor = get_user_model().objects.filter(pk=user.get('user_id')).first()
     if actor:
         data['personal'] = preference_payload(actor, 'tat_tracker')
+        from core.services.tat_notifications import connection_payload, inbox_payload
+        from core.services.telegram_identity import database_group_configuration
+        data['private_alerts'] = connection_payload(actor)
+        data['task_inbox'] = inbox_payload(
+            actor,
+            group=database_group_configuration(group_config),
+        )
     return JsonResponse({'ok': True, 'data': data})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def tat_tracker_task_resolve(request):
+    """Resolve an opaque DM locator only after Telegram and role authorization."""
+    payload = _tat_json_body(request)
+    from core.services.group_config import GroupRegistry
+    from core.services.tat_notifications import (
+        mark_task_read, resolve_locator, task_access_allowed,
+    )
+    from core.services.tat_tracker import staff_user_for_payload, validate_tat_telegram_webapp_init_data
+    auth_valid, auth_error, user_payload = validate_tat_telegram_webapp_init_data(
+        str(payload.get('init_data') or ''),
+    )
+    if not auth_valid:
+        return JsonResponse({'ok': False, 'error': auth_error}, status=403)
+    locator = resolve_locator(payload.get('task_token') or '')
+    if not locator:
+        return JsonResponse({'ok': False, 'error': 'This TAT task link is invalid.'}, status=404)
+    task = locator.task
+    group_config = GroupRegistry.get_instance().get_group(task.case.group_id)
+    if not group_config:
+        return JsonResponse({'ok': False, 'error': 'This TAT workflow is no longer available.'}, status=404)
+    user = staff_user_for_payload(group_config, user_payload)
+    actor = user.get('_canonical_user')
+    if not user.get('authorized') or not task_access_allowed(task, actor):
+        return JsonResponse({'ok': False, 'error': 'This task is outside your current TAT assignment.'}, status=403)
+    current = task
+    if task.status != task.STATUS_PENDING:
+        current = task.superseded_by or task.case.action_tasks.filter(status=task.STATUS_PENDING).order_by('-created_at').first()
+    if current and not task_access_allowed(current, actor):
+        current = None
+    expired = bool(locator.revoked_at or locator.expires_at <= timezone.now())
+    if current and current.status == current.STATUS_PENDING and task_access_allowed(current, actor):
+        mark_task_read(current, actor)
+    return JsonResponse({'ok': True, 'data': {
+        'group_id': task.case.group_id,
+        'case_id': current.case.case_id if current else task.case.case_id,
+        'stage_key': current.stage_key if current else '',
+        'task_id': str(current.pk) if current else '',
+        'link_status': 'expired' if expired else ('current' if current == task else 'superseded'),
+        'message': (
+            'This link has expired. The current task is available in your inbox.' if expired
+            else ('This task changed. The current task has been opened.' if current != task else '')
+        ),
+    }})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def tat_tracker_tasks(request):
+    payload = _tat_json_body(request)
+    _group_id, group_config, _user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    capability_error = _tat_capability_error(user, 'tat.home.view', group_config)
+    if capability_error:
+        return capability_error
+    from core.services.tat_notifications import connection_payload, inbox_payload
+    from core.services.telegram_identity import database_group_configuration
+    actor = user.get('_canonical_user')
+    return JsonResponse({'ok': True, 'data': {
+        **inbox_payload(actor, group=database_group_configuration(group_config)),
+        'private_alerts': connection_payload(actor),
+    }})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@miniapp_write_response
+def tat_tracker_connect_private_alerts(request):
+    payload = _tat_json_body(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    _group_id, group_config, _user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    capability_error = _tat_capability_error(user, 'tat.home.view', group_config)
+    if capability_error:
+        return capability_error
+    from core.services.tat_notifications import connect_private_alerts
+    try:
+        return JsonResponse({'ok': True, 'data': connect_private_alerts(
+            user.get('_canonical_user'),
+            request_id=getattr(request, 'miniapp_request_id', ''),
+        )})
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('TAT private alert connection failed for user=%s.', user.get('user_id'))
+        return JsonResponse({
+            'ok': False,
+            'error': 'Telegram could not deliver a private test message. Start the bot privately, then try again.',
+        }, status=409)
 
 
 @csrf_exempt
@@ -796,6 +903,9 @@ def tat_signature_webhook(request):
 
 
 def _send_tat_next_role_alert(group_config, case_data: dict) -> None:
+    from core.services.tat_notifications import MODE_GROUP, notification_mode
+    if notification_mode(group_config) != MODE_GROUP:
+        return
     from core.services.tat_tracker import next_role_alert
 
     alert = next_role_alert(group_config, case_data)

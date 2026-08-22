@@ -1,0 +1,750 @@
+"""Durable, private-first TAT action routing and Telegram delivery."""
+from __future__ import annotations
+
+import hashlib
+import logging
+import secrets
+from datetime import datetime, timedelta
+from typing import Iterable
+
+import requests
+from django.conf import settings
+from django.db import transaction
+from django.db.models import Q
+from django.utils import timezone
+
+from core.models import (
+    AccessGrant,
+    GroupSheetConfiguration,
+    TatActionTask,
+    TatActionTaskLocator,
+    TatActionTaskRecipient,
+    TatGroupExceptionStatus,
+    TatPrivateAlertConnection,
+    TatResponsibilityAssignment,
+    TatTrackerCase,
+)
+from core.services.telegram_identity import database_group_configuration
+
+logger = logging.getLogger(__name__)
+
+MODE_GROUP = 'group'
+MODE_SHADOW = 'shadow'
+MODE_HYBRID = 'hybrid'
+VALID_MODES = {MODE_GROUP, MODE_SHADOW, MODE_HYBRID}
+LOCATOR_PREFIX = 'tt_'
+LOCATOR_TTL = timedelta(hours=72)
+TRANSIENT_DELIVERY_GRACE = timedelta(minutes=5)
+
+
+def notification_mode(group_config) -> str:
+    workflow = getattr(group_config, 'workflow', None) or {}
+    mode = str(workflow.get('tat_notification_mode') or MODE_GROUP).strip().lower()
+    return mode if mode in VALID_MODES else MODE_GROUP
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(str(token).encode('utf-8')).hexdigest()
+
+
+def issue_locator(task: TatActionTask, recipient=None) -> str:
+    """Issue a 192-bit, hash-only locator that fits Telegram's startapp budget."""
+    token = secrets.token_urlsafe(24)
+    TatActionTaskLocator.objects.create(
+        task=task,
+        recipient=recipient,
+        token_hash=_token_hash(token),
+        expires_at=timezone.now() + LOCATOR_TTL,
+    )
+    return token
+
+
+def build_task_url(token: str) -> str:
+    username = str(getattr(settings, 'TELEGRAM_BOT_USERNAME', '') or '').strip().lstrip('@')
+    short_name = str(getattr(settings, 'TAT_TRACKER_MINI_APP_SHORT_NAME', '') or '').strip().strip('/')
+    if username and short_name:
+        return f'https://t.me/{username}/{short_name}?startapp={LOCATOR_PREFIX}{token}'
+    base = str(getattr(settings, 'APP_BASE_URL', '') or '').rstrip('/')
+    return f'{base}/api/tat-tracker/?startapp={LOCATOR_PREFIX}{token}'
+
+
+def resolve_locator(token: str) -> TatActionTaskLocator | None:
+    value = str(token or '').strip()
+    if value.startswith(LOCATOR_PREFIX):
+        value = value[len(LOCATOR_PREFIX):]
+    if not value:
+        return None
+    return (
+        TatActionTaskLocator.objects.select_related(
+            'task__case', 'task__group_configuration', 'recipient',
+        )
+        .filter(token_hash=_token_hash(value))
+        .first()
+    )
+
+
+def mark_private_alert_seen(user, *, allows_write: bool = False) -> TatPrivateAlertConnection | None:
+    connection = TatPrivateAlertConnection.objects.filter(user=user).first()
+    if not connection and not allows_write:
+        return None
+    if not connection:
+        connection = TatPrivateAlertConnection.objects.create(user=user)
+    if allows_write:
+        now = timezone.now()
+        connection.status = TatPrivateAlertConnection.STATUS_CONNECTED
+        connection.connected_at = connection.connected_at or now
+        connection.last_success_at = now
+        connection.last_failure_code = ''
+        connection.save(update_fields=[
+            'status', 'connected_at', 'last_success_at', 'last_failure_code', 'updated_at',
+        ])
+    return connection
+
+
+def connection_payload(user) -> dict:
+    connection = TatPrivateAlertConnection.objects.filter(user=user).first()
+    profile = getattr(user, 'staff_profile', None)
+    status = connection.status if connection else TatPrivateAlertConnection.STATUS_UNKNOWN
+    if not str(getattr(profile, 'telegram_id', '') or '').strip():
+        status = TatPrivateAlertConnection.STATUS_UNCONNECTED
+    return {
+        'status': status,
+        'connected': status == TatPrivateAlertConnection.STATUS_CONNECTED,
+        'connected_at': connection.connected_at.isoformat() if connection and connection.connected_at else '',
+        'last_success_at': connection.last_success_at.isoformat() if connection and connection.last_success_at else '',
+    }
+
+
+def _group_row(group_config) -> GroupSheetConfiguration | None:
+    return database_group_configuration(group_config)
+
+
+def _grant_matches(grant: AccessGrant, *, group, branch: str, product_key: str, role: str) -> bool:
+    if not grant.active or str(grant.role or '').upper() != role.upper():
+        return False
+    if grant.group_configuration_id and (not group or grant.group_configuration_id != group.pk):
+        return False
+    if grant.branch and str(grant.branch).casefold() != str(branch).casefold():
+        return False
+    if grant.product and str(grant.product).casefold() != str(product_key).casefold():
+        return False
+    return bool(grant.user.is_active)
+
+
+def user_can_receive_task(user, *, group, case: TatTrackerCase, role: str) -> bool:
+    if not user or not user.is_active:
+        return False
+    if user.is_superuser:
+        return True
+    grants = AccessGrant.objects.filter(
+        user=user, workflow='tat_tracker', active=True,
+    ).select_related('user', 'group_configuration')
+    return any(_grant_matches(
+        grant, group=group, branch=case.branch,
+        product_key=case.product_key, role=role,
+    ) for grant in grants)
+
+
+def eligible_role_users(*, group, case: TatTrackerCase, role: str) -> list:
+    grants = AccessGrant.objects.filter(
+        workflow='tat_tracker', active=True, user__is_active=True,
+        role__iexact=role,
+    ).filter(Q(group_configuration__isnull=True) | Q(group_configuration=group)).select_related(
+        'user', 'user__staff_profile', 'group_configuration',
+    )
+    users = {}
+    for grant in grants:
+        if _grant_matches(grant, group=group, branch=case.branch, product_key=case.product_key, role=role):
+            users[grant.user_id] = grant.user
+    return list(users.values())
+
+
+def resolve_assignment(*, group, case: TatTrackerCase, role: str, stage_key: str):
+    if not group:
+        return None
+    now = timezone.now()
+    assignments = TatResponsibilityAssignment.objects.filter(
+        group_configuration=group, branch__iexact=case.branch, role__iexact=role,
+        active=True, effective_from__lte=now,
+    ).filter(Q(effective_until__isnull=True) | Q(effective_until__gt=now)).select_related(
+        'primary_user', 'primary_user__staff_profile',
+    ).prefetch_related('backups__user', 'backups__user__staff_profile')
+    candidates = []
+    for assignment in assignments:
+        if assignment.product_key and assignment.product_key.casefold() != case.product_key.casefold():
+            continue
+        if assignment.stage_key and assignment.stage_key != stage_key:
+            continue
+        specificity = int(bool(assignment.product_key)) + (2 * int(bool(assignment.stage_key)))
+        candidates.append((specificity, assignment))
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1] if candidates else None
+
+
+def _stage_started_at(case: TatTrackerCase, stage_key: str):
+    snapshot = (case.stage_target_snapshots or {}).get(stage_key) or {}
+    raw = snapshot.get('started_at')
+    if raw:
+        try:
+            parsed = datetime.fromisoformat(str(raw).replace('Z', '+00:00'))
+            return parsed if timezone.is_aware(parsed) else timezone.make_aware(parsed)
+        except (TypeError, ValueError):
+            pass
+    return case.updated_at or case.created_at or timezone.now()
+
+
+def _backup_due_at(case: TatTrackerCase, stage_key: str, threshold_percent: int):
+    snapshot = (case.stage_target_snapshots or {}).get(stage_key) or {}
+    try:
+        target_minutes = float(snapshot.get('target_minutes'))
+    except (TypeError, ValueError):
+        return None
+    return _stage_started_at(case, stage_key) + timedelta(
+        minutes=target_minutes * (int(threshold_percent) / 100),
+    )
+
+
+def _connection_status(user) -> str:
+    profile = getattr(user, 'staff_profile', None)
+    if not str(getattr(profile, 'telegram_id', '') or '').strip():
+        return TatPrivateAlertConnection.STATUS_UNCONNECTED
+    connection = TatPrivateAlertConnection.objects.filter(user=user).first()
+    return connection.status if connection else TatPrivateAlertConnection.STATUS_UNKNOWN
+
+
+@transaction.atomic
+def synchronize_case_task(group_config, case: TatTrackerCase, *, actor_user=None) -> TatActionTask | None:
+    """Supersede stale work and create exactly one task for the current revision."""
+    mode = notification_mode(group_config)
+    if mode == MODE_GROUP:
+        return None
+    from core.services.tat_tracker import next_action
+
+    group = _group_row(group_config)
+    stage = next_action(case)
+    pending = list(TatActionTask.objects.select_for_update().filter(case=case, status=TatActionTask.STATUS_PENDING))
+    if not stage:
+        now = timezone.now()
+        for old in pending:
+            old.status = TatActionTask.STATUS_ACTED if actor_user else TatActionTask.STATUS_CANCELLED
+            old.acted_by = actor_user
+            old.acted_at = now if actor_user else None
+            old.save(update_fields=['status', 'acted_by', 'acted_at', 'updated_at'])
+            old.recipients.update(
+                inbox_status=(TatActionTaskRecipient.INBOX_ACTED if actor_user else TatActionTaskRecipient.INBOX_SUPERSEDED),
+                updated_at=now,
+            )
+            old.locators.filter(revoked_at__isnull=True).update(revoked_at=now)
+        if group:
+            transaction.on_commit(lambda: safe_refresh_group_exception(group.pk))
+        return None
+
+    existing = TatActionTask.objects.filter(
+        case=case, stage_key=stage.key, case_revision=case.workflow_revision,
+    ).first()
+    if existing:
+        return existing
+
+    previous = pending[0] if pending else None
+    now = timezone.now()
+    for old in pending:
+        completed_stage = old.stage_key != stage.key
+        old.status = TatActionTask.STATUS_ACTED if completed_stage and actor_user else TatActionTask.STATUS_SUPERSEDED
+        old.acted_by = actor_user if completed_stage else None
+        old.acted_at = now if completed_stage and actor_user else None
+        old.save(update_fields=['status', 'acted_by', 'acted_at', 'updated_at'])
+        old.recipients.update(
+            inbox_status=(TatActionTaskRecipient.INBOX_ACTED if completed_stage else TatActionTaskRecipient.INBOX_SUPERSEDED),
+            updated_at=now,
+        )
+        old.locators.filter(revoked_at__isnull=True).update(revoked_at=now)
+
+    assignment = resolve_assignment(group=group, case=case, role=stage.role, stage_key=stage.key)
+    recipients = []
+    invalid_assignment = False
+    if assignment:
+        if user_can_receive_task(assignment.primary_user, group=group, case=case, role=stage.role):
+            recipients.append((assignment.primary_user, TatActionTaskRecipient.KIND_PRIMARY, 0, None))
+        else:
+            invalid_assignment = True
+        for backup in assignment.backups.filter(active=True).select_related('user').order_by('rank'):
+            if user_can_receive_task(backup.user, group=group, case=case, role=stage.role):
+                recipients.append((
+                    backup.user, TatActionTaskRecipient.KIND_BACKUP,
+                    backup.rank, backup.threshold_percent,
+                ))
+            else:
+                invalid_assignment = True
+    if not recipients:
+        recipients = [
+            (user, TatActionTaskRecipient.KIND_ROLE, index + 1, None)
+            for index, user in enumerate(eligible_role_users(group=group, case=case, role=stage.role))
+        ]
+
+    task = TatActionTask.objects.create(
+        case=case, group_configuration=group, assignment=assignment,
+        stage_key=stage.key, stage_label=stage.label, responsible_role=stage.role,
+        case_revision=case.workflow_revision,
+        recipient_snapshot={
+            'invalid_assignment': invalid_assignment,
+            'assignment_id': str(assignment.pk) if assignment else '',
+            'recipient_user_ids': [user.pk for user, _kind, _rank, _threshold in recipients],
+            'delivery_exception': not bool(recipients),
+        },
+    )
+    previous_delivered_user_ids = set()
+    if previous and previous.stage_key == stage.key:
+        previous_delivered_user_ids = set(previous.recipients.filter(
+            delivery_state=TatActionTaskRecipient.DELIVERY_DELIVERED,
+        ).values_list('user_id', flat=True))
+    created_rows = []
+    for user, kind, rank, threshold in recipients:
+        deliver_after = now if kind in {TatActionTaskRecipient.KIND_PRIMARY, TatActionTaskRecipient.KIND_ROLE} else _backup_due_at(case, stage.key, threshold)
+        delivery_state = TatActionTaskRecipient.DELIVERY_PENDING
+        if user.pk in previous_delivered_user_ids:
+            delivery_state = TatActionTaskRecipient.DELIVERY_SKIPPED
+            deliver_after = None
+        created_rows.append(TatActionTaskRecipient(
+            task=task, user=user, kind=kind, rank=rank,
+            threshold_percent=threshold, deliver_after=deliver_after,
+            delivery_state=delivery_state,
+        ))
+    TatActionTaskRecipient.objects.bulk_create(created_rows)
+    for old in pending:
+        if old.status == TatActionTask.STATUS_SUPERSEDED:
+            old.superseded_by = task
+            old.save(update_fields=['superseded_by', 'updated_at'])
+    transaction.on_commit(lambda task_id=task.pk: safe_dispatch_task(task_id))
+    if group:
+        transaction.on_commit(lambda group_id=group.pk: safe_refresh_group_exception(group_id))
+    return task
+
+
+def _telegram_request(method: str, payload: dict):
+    token = str(getattr(settings, 'TELEGRAM_BOT_TOKEN', '') or '')
+    if not token:
+        raise RuntimeError('Telegram bot delivery is not configured.')
+    response = requests.post(
+        f'https://api.telegram.org/bot{token}/{method}', json=payload,
+        timeout=getattr(settings, 'API_REQUEST_TIMEOUT', 10),
+    )
+    data = response.json() if response.content else {}
+    if not response.ok or not data.get('ok'):
+        error = requests.HTTPError(f'Telegram delivery failed ({response.status_code}).')
+        error.response = response
+        raise error
+    return data.get('result') or {}
+
+
+def _send_recipient(recipient: TatActionTaskRecipient) -> bool:
+    # Claim the row before crossing the Telegram boundary. A concurrent web
+    # request or scheduler run will see the future retry time and cannot send
+    # the same prompt. If this process dies mid-request, the claim naturally
+    # becomes retryable after one minute.
+    now = timezone.now()
+    with transaction.atomic():
+        recipient = TatActionTaskRecipient.objects.select_for_update().select_related(
+            'user', 'user__staff_profile', 'task__case', 'task__group_configuration',
+        ).get(pk=recipient.pk)
+        if recipient.delivery_state == TatActionTaskRecipient.DELIVERY_DELIVERED:
+            return True
+        if recipient.delivery_state not in {
+            TatActionTaskRecipient.DELIVERY_PENDING,
+            TatActionTaskRecipient.DELIVERY_RETRY,
+        }:
+            return False
+        if recipient.deliver_after and recipient.deliver_after > now:
+            return False
+        recipient.delivery_attempts += 1
+        recipient.delivery_state = TatActionTaskRecipient.DELIVERY_RETRY
+        recipient.deliver_after = now + timedelta(minutes=1)
+        recipient.save(update_fields=[
+            'delivery_attempts', 'delivery_state', 'deliver_after', 'updated_at',
+        ])
+    user = recipient.user
+    profile = getattr(user, 'staff_profile', None)
+    chat_id = str(getattr(profile, 'telegram_id', '') or '').strip()
+    connection, _ = TatPrivateAlertConnection.objects.get_or_create(user=user)
+    if not user_can_receive_task(
+        user,
+        group=recipient.task.group_configuration,
+        case=recipient.task.case,
+        role=recipient.task.responsible_role,
+    ):
+        recipient.delivery_state = TatActionTaskRecipient.DELIVERY_UNREACHABLE
+        recipient.delivery_error = 'The recipient no longer has the required TAT access scope.'
+        recipient.save(update_fields=['delivery_state', 'delivery_error', 'updated_at'])
+        return False
+    known_status = _connection_status(user)
+    if known_status in {TatPrivateAlertConnection.STATUS_UNCONNECTED, TatPrivateAlertConnection.STATUS_BLOCKED} or not chat_id:
+        recipient.delivery_state = TatActionTaskRecipient.DELIVERY_UNREACHABLE
+        recipient.delivery_error = 'Private alerts are not connected.'
+        recipient.save(update_fields=['delivery_state', 'delivery_error', 'delivery_attempts', 'updated_at'])
+        return False
+    token = issue_locator(recipient.task, user)
+    locator = resolve_locator(token)
+    url = build_task_url(token)
+    text = (
+        f'TAT action needed: {recipient.task.stage_label}\n'
+        f'Branch: {recipient.task.case.branch}\n'
+        f'Product: {recipient.task.case.product_label or recipient.task.case.product_key}\n'
+        f'Reference: {recipient.task.case.case_id}\n\n'
+        'Open the secure task to review and confirm.'
+    )
+    try:
+        result = _telegram_request('sendMessage', {
+            'chat_id': chat_id,
+            'text': text,
+            'reply_markup': {'inline_keyboard': [[{'text': 'Open TAT task', 'url': url}]]},
+        })
+    except requests.HTTPError as exc:
+        if locator:
+            locator.revoked_at = timezone.now()
+            locator.save(update_fields=['revoked_at'])
+        code = getattr(getattr(exc, 'response', None), 'status_code', 0)
+        permanent = code in {400, 403}
+        recipient.delivery_state = (
+            TatActionTaskRecipient.DELIVERY_UNREACHABLE if permanent
+            else TatActionTaskRecipient.DELIVERY_RETRY
+        )
+        recipient.delivery_error = f'Telegram HTTP {code or "error"}'
+        if not permanent and now - recipient.created_at < TRANSIENT_DELIVERY_GRACE:
+            recipient.deliver_after = now + timedelta(minutes=1)
+        else:
+            recipient.delivery_state = TatActionTaskRecipient.DELIVERY_UNREACHABLE
+        connection.status = (
+            TatPrivateAlertConnection.STATUS_BLOCKED if permanent
+            else TatPrivateAlertConnection.STATUS_TEMPORARY_FAILURE
+        )
+        connection.last_failure_at = now
+        connection.last_failure_code = str(code or 'network')
+        connection.save(update_fields=['status', 'last_failure_at', 'last_failure_code', 'updated_at'])
+        recipient.save(update_fields=[
+            'delivery_state', 'delivery_error', 'delivery_attempts', 'deliver_after', 'updated_at',
+        ])
+        return False
+    except (requests.RequestException, RuntimeError):
+        if locator:
+            locator.revoked_at = timezone.now()
+            locator.save(update_fields=['revoked_at'])
+        recipient.delivery_state = TatActionTaskRecipient.DELIVERY_RETRY
+        recipient.delivery_error = 'Temporary Telegram delivery failure.'
+        recipient.deliver_after = now + timedelta(minutes=1)
+        if now - recipient.created_at >= TRANSIENT_DELIVERY_GRACE:
+            recipient.delivery_state = TatActionTaskRecipient.DELIVERY_UNREACHABLE
+        connection.status = TatPrivateAlertConnection.STATUS_TEMPORARY_FAILURE
+        connection.last_failure_at = now
+        connection.last_failure_code = 'network'
+        connection.save(update_fields=['status', 'last_failure_at', 'last_failure_code', 'updated_at'])
+        recipient.save(update_fields=[
+            'delivery_state', 'delivery_error', 'delivery_attempts', 'deliver_after', 'updated_at',
+        ])
+        return False
+    recipient.delivery_state = TatActionTaskRecipient.DELIVERY_DELIVERED
+    recipient.delivery_error = ''
+    recipient.telegram_message_id = str(result.get('message_id') or '')
+    recipient.delivered_at = now
+    recipient.save(update_fields=[
+        'delivery_state', 'delivery_error', 'telegram_message_id', 'delivered_at',
+        'delivery_attempts', 'updated_at',
+    ])
+    connection.status = TatPrivateAlertConnection.STATUS_CONNECTED
+    connection.connected_at = connection.connected_at or now
+    connection.last_success_at = now
+    connection.last_failure_code = ''
+    connection.save(update_fields=[
+        'status', 'connected_at', 'last_success_at', 'last_failure_code', 'updated_at',
+    ])
+    return True
+
+
+def _advance_unreachable_backup(task: TatActionTask) -> bool:
+    now = timezone.now()
+    rows = list(task.recipients.select_related('user', 'user__staff_profile').order_by('rank', 'created_at'))
+    immediate = [row for row in rows if row.kind in {
+        TatActionTaskRecipient.KIND_PRIMARY, TatActionTaskRecipient.KIND_ROLE,
+    }]
+    if any(row.delivery_state == TatActionTaskRecipient.DELIVERY_DELIVERED for row in immediate):
+        return True
+    if immediate and not all(row.delivery_state == TatActionTaskRecipient.DELIVERY_UNREACHABLE for row in immediate):
+        return True
+    for backup in [row for row in rows if row.kind == TatActionTaskRecipient.KIND_BACKUP]:
+        if backup.delivery_state in {
+            TatActionTaskRecipient.DELIVERY_DELIVERED,
+            TatActionTaskRecipient.DELIVERY_PENDING,
+            TatActionTaskRecipient.DELIVERY_RETRY,
+        }:
+            if backup.delivery_state == TatActionTaskRecipient.DELIVERY_DELIVERED:
+                return True
+            backup.deliver_after = now
+            backup.save(update_fields=['deliver_after', 'updated_at'])
+            return _send_recipient(backup) or _advance_unreachable_backup(task)
+    return False
+
+
+def _advance_after_failed_backup(task: TatActionTask, failed_rank: int) -> bool:
+    """Do not wait for a later threshold when the alerted backup is unreachable."""
+    now = timezone.now()
+    for backup in task.recipients.select_related('user', 'user__staff_profile').filter(
+        kind=TatActionTaskRecipient.KIND_BACKUP,
+        rank__gt=failed_rank,
+        delivery_state__in=[
+            TatActionTaskRecipient.DELIVERY_PENDING,
+            TatActionTaskRecipient.DELIVERY_RETRY,
+        ],
+    ).order_by('rank'):
+        backup.deliver_after = now
+        backup.save(update_fields=['deliver_after', 'updated_at'])
+        if _send_recipient(backup):
+            return True
+        if backup.delivery_state == TatActionTaskRecipient.DELIVERY_UNREACHABLE:
+            continue
+        return True
+    return False
+
+
+def dispatch_task(task_id) -> None:
+    task = TatActionTask.objects.select_related(
+        'case', 'group_configuration',
+    ).filter(pk=task_id, status=TatActionTask.STATUS_PENDING).first()
+    if not task:
+        return
+    group_config = task.group_configuration
+    mode = notification_mode(group_config) if group_config else MODE_SHADOW
+    now = timezone.now()
+    due = list(task.recipients.select_related('user', 'user__staff_profile').filter(
+        delivery_state__in=[TatActionTaskRecipient.DELIVERY_PENDING, TatActionTaskRecipient.DELIVERY_RETRY],
+        deliver_after__isnull=False, deliver_after__lte=now,
+    ).order_by('rank', 'created_at'))
+    if mode == MODE_SHADOW:
+        TatActionTaskRecipient.objects.filter(pk__in=[row.pk for row in due]).update(
+            delivery_state=TatActionTaskRecipient.DELIVERY_SHADOW,
+            delivery_error='Would send private TAT alert.', updated_at=now,
+        )
+        snapshot = dict(task.recipient_snapshot or {})
+        snapshot['shadow_evaluated_at'] = now.isoformat()
+        snapshot['would_group_fallback'] = not task.recipients.exists()
+        task.recipient_snapshot = snapshot
+        task.save(update_fields=['recipient_snapshot', 'updated_at'])
+        return
+    if mode != MODE_HYBRID:
+        return
+    for recipient in due:
+        _send_recipient(recipient)
+        recipient.refresh_from_db(fields=['delivery_state'])
+    failed_backup_ranks = [
+        row.rank for row in due
+        if row.kind == TatActionTaskRecipient.KIND_BACKUP
+        and row.delivery_state == TatActionTaskRecipient.DELIVERY_UNREACHABLE
+    ]
+    if failed_backup_ranks:
+        reachable = _advance_after_failed_backup(task, max(failed_backup_ranks))
+    else:
+        reachable = _advance_unreachable_backup(task)
+    snapshot = dict(task.recipient_snapshot or {})
+    snapshot['delivery_exception'] = not reachable
+    task.recipient_snapshot = snapshot
+    task.save(update_fields=['recipient_snapshot', 'updated_at'])
+    if group_config:
+        refresh_group_exception(group_config.pk, role=task.responsible_role)
+
+
+def safe_dispatch_task(task_id) -> None:
+    try:
+        dispatch_task(task_id)
+    except Exception:
+        logger.exception('TAT private task delivery failed for task=%s.', task_id)
+
+
+def safe_refresh_group_exception(group_id) -> None:
+    try:
+        refresh_group_exception(group_id)
+    except Exception:
+        logger.exception('TAT group exception refresh failed for group=%s.', group_id)
+
+
+def process_due_tasks(*, limit: int = 100) -> int:
+    task_ids = list(TatActionTaskRecipient.objects.filter(
+        task__status=TatActionTask.STATUS_PENDING,
+        delivery_state__in=[TatActionTaskRecipient.DELIVERY_PENDING, TatActionTaskRecipient.DELIVERY_RETRY],
+        deliver_after__isnull=False, deliver_after__lte=timezone.now(),
+    ).values_list('task_id', flat=True).distinct()[:limit])
+    for task_id in task_ids:
+        dispatch_task(task_id)
+    return len(task_ids)
+
+
+@transaction.atomic
+def refresh_group_exception(group_id, *, role: str = '') -> None:
+    # Serialize cumulative-message refreshes per workflow group so overlapping
+    # task deliveries cannot create two fallback messages for the same role.
+    group = GroupSheetConfiguration.objects.select_for_update().filter(pk=group_id).first()
+    if not group or notification_mode(group) != MODE_HYBRID:
+        return
+    roles: Iterable[str]
+    if role:
+        roles = [role]
+    else:
+        roles = TatActionTask.objects.filter(
+            group_configuration=group, status=TatActionTask.STATUS_PENDING,
+        ).values_list('responsible_role', flat=True).distinct()
+    for responsible_role in roles:
+        stuck = TatActionTask.objects.filter(
+            group_configuration=group, responsible_role=responsible_role,
+            status=TatActionTask.STATUS_PENDING,
+            recipient_snapshot__delivery_exception=True,
+        ).order_by('created_at')
+        count = stuck.count()
+        status, _ = TatGroupExceptionStatus.objects.get_or_create(
+            group_configuration=group, responsible_role=responsible_role,
+        )
+        status.unresolved_count = count
+        status.oldest_task_at = stuck.values_list('created_at', flat=True).first() if count else None
+        status.active = bool(count)
+        status.last_attempt_at = timezone.now()
+        from core.services.tat_tracker import build_tat_tracker_mini_app_url
+        launch_url = build_tat_tracker_mini_app_url(group.group_id)
+        reply_markup = {'inline_keyboard': [[{'text': 'Open TAT inbox', 'url': launch_url}]]} if launch_url else None
+        if not count:
+            status.last_error = ''
+            if status.telegram_message_id:
+                try:
+                    _telegram_request('editMessageText', {
+                        'chat_id': group.group_id,
+                        'message_id': status.telegram_message_id,
+                        'text': f'TAT delivery exceptions resolved for {responsible_role}.',
+                        **({'reply_markup': reply_markup} if reply_markup else {}),
+                    })
+                except Exception:
+                    status.last_error = 'The resolved Telegram exception message could not be updated.'
+            status.save()
+            continue
+        age_minutes = max(int((timezone.now() - status.oldest_task_at).total_seconds() // 60), 0)
+        text = (
+            f'TAT delivery exception: {count} {responsible_role} task(s) need a reachable assignee.\n'
+            f'Oldest waiting: {age_minutes} minute(s).\n\n'
+            'Open the TAT inbox. No customer details are included here.'
+        )
+        try:
+            if status.telegram_message_id:
+                _telegram_request('editMessageText', {
+                    'chat_id': group.group_id, 'message_id': status.telegram_message_id,
+                    'text': text,
+                    **({'reply_markup': reply_markup} if reply_markup else {}),
+                })
+            else:
+                result = _telegram_request('sendMessage', {
+                    'chat_id': group.group_id, 'text': text,
+                    **({'reply_markup': reply_markup} if reply_markup else {}),
+                })
+                status.telegram_message_id = str(result.get('message_id') or '')
+            status.last_error = ''
+        except Exception:
+            try:
+                result = _telegram_request('sendMessage', {
+                    'chat_id': group.group_id, 'text': text,
+                    **({'reply_markup': reply_markup} if reply_markup else {}),
+                })
+                status.telegram_message_id = str(result.get('message_id') or '')
+                status.last_error = ''
+            except Exception:
+                status.last_error = 'The cumulative Telegram exception message could not be updated.'
+                logger.warning('TAT cumulative exception update failed for group=%s role=%s', group.pk, responsible_role)
+        status.save()
+
+
+def inbox_payload(user, *, group=None, limit: int = 50) -> dict:
+    if not user or not user.is_active:
+        return {'items': [], 'unread_count': 0, 'total': 0}
+    recipients = TatActionTaskRecipient.objects.select_related(
+        'task__case', 'task__group_configuration',
+    ).filter(
+        user=user, task__status=TatActionTask.STATUS_PENDING,
+        inbox_status__in=[TatActionTaskRecipient.INBOX_UNREAD, TatActionTaskRecipient.INBOX_READ],
+    )
+    if group:
+        recipients = recipients.filter(task__group_configuration=group)
+    grants = [] if user.is_superuser else list(AccessGrant.objects.filter(
+        user=user, workflow='tat_tracker', active=True,
+    ).select_related('user', 'group_configuration'))
+    rows = []
+    total = 0
+    unread_count = 0
+    bounded_limit = max(1, min(limit, 100))
+    for recipient in recipients.order_by('task__created_at'):
+        task = recipient.task
+        if not user.is_superuser and not any(_grant_matches(
+            grant,
+            group=task.group_configuration,
+            branch=task.case.branch,
+            product_key=task.case.product_key,
+            role=task.responsible_role,
+        ) for grant in grants):
+            continue
+        total += 1
+        unread_count += int(recipient.inbox_status == TatActionTaskRecipient.INBOX_UNREAD)
+        if len(rows) >= bounded_limit:
+            continue
+        rows.append({
+            'task_id': str(task.pk), 'case_id': task.case.case_id,
+            'stage_key': task.stage_key, 'stage_label': task.stage_label,
+            'role': task.responsible_role, 'kind': recipient.kind,
+            'branch': task.case.branch,
+            'product': task.case.product_label or task.case.product_key,
+            'workflow_revision': task.case_revision,
+            'unread': recipient.inbox_status == TatActionTaskRecipient.INBOX_UNREAD,
+            'delivery_state': recipient.delivery_state,
+            'created_at': task.created_at.isoformat(),
+        })
+    return {'items': rows, 'unread_count': unread_count, 'total': total}
+
+
+@transaction.atomic
+def mark_task_read(task: TatActionTask, user) -> None:
+    recipient = TatActionTaskRecipient.objects.select_for_update().filter(task=task, user=user).first()
+    if not recipient:
+        return
+    if recipient.inbox_status == TatActionTaskRecipient.INBOX_UNREAD:
+        recipient.inbox_status = TatActionTaskRecipient.INBOX_READ
+        recipient.read_at = timezone.now()
+        recipient.save(update_fields=['inbox_status', 'read_at', 'updated_at'])
+
+
+def task_access_allowed(task: TatActionTask, user) -> bool:
+    if not user or not user.is_active:
+        return False
+    if user.is_superuser:
+        return True
+    if task.recipients.filter(user=user).exists():
+        return user_can_receive_task(
+            user, group=task.group_configuration, case=task.case,
+            role=task.responsible_role,
+        )
+    return False
+
+
+@transaction.atomic
+def connect_private_alerts(user, *, request_id: str = '') -> dict:
+    connection, _ = TatPrivateAlertConnection.objects.select_for_update().get_or_create(user=user)
+    request_id = str(request_id or '').strip()
+    if request_id and connection.last_connect_request_id == request_id:
+        return connection_payload(user)
+    profile = getattr(user, 'staff_profile', None)
+    telegram_id = str(getattr(profile, 'telegram_id', '') or '').strip()
+    if not telegram_id:
+        raise ValueError('Your staff profile is not linked to a Telegram account.')
+    _telegram_request('sendMessage', {
+        'chat_id': telegram_id,
+        'text': 'Private TAT alerts are connected. Future assigned actions can appear in this chat.',
+    })
+    now = timezone.now()
+    connection.status = TatPrivateAlertConnection.STATUS_CONNECTED
+    connection.connected_at = connection.connected_at or now
+    connection.last_success_at = now
+    connection.last_failure_code = ''
+    connection.last_connect_request_id = request_id
+    connection.save(update_fields=[
+        'status', 'connected_at', 'last_success_at', 'last_failure_code',
+        'last_connect_request_id', 'updated_at',
+    ])
+    return connection_payload(user)

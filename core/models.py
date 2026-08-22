@@ -1055,6 +1055,349 @@ class TatTrackerEvent(models.Model):
         return f"{self.case.case_id} {self.stage_label or self.stage_key}"
 
 
+class TatResponsibilityAssignment(models.Model):
+    """Operational TAT owner for one scoped role, without granting access."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    group_configuration = models.ForeignKey(
+        'GroupSheetConfiguration', on_delete=models.CASCADE,
+        related_name='tat_responsibility_assignments',
+    )
+    branch = models.CharField(max_length=120, db_index=True)
+    role = models.CharField(max_length=80, db_index=True)
+    product_key = models.CharField(max_length=80, blank=True, default='', db_index=True)
+    stage_key = models.CharField(max_length=120, blank=True, default='', db_index=True)
+    primary_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='primary_tat_responsibilities',
+    )
+    active = models.BooleanField(default=True, db_index=True)
+    effective_from = models.DateTimeField(default=timezone.now, db_index=True)
+    effective_until = models.DateTimeField(null=True, blank=True, db_index=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='created_tat_responsibilities',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['group_configuration', 'branch', 'role', '-stage_key', '-product_key']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['group_configuration', 'branch', 'role', 'product_key', 'stage_key'],
+                condition=models.Q(active=True), name='unique_active_tat_responsibility',
+            ),
+        ]
+        indexes = [models.Index(fields=['group_configuration', 'branch', 'role', 'active'])]
+        verbose_name = 'TAT responsibility assignment'
+        verbose_name_plural = 'TAT responsibility assignments'
+
+    def clean(self):
+        super().clean()
+        self.branch = str(self.branch or '').strip()
+        self.role = str(self.role or '').strip().upper()
+        self.product_key = str(self.product_key or '').strip().lower()
+        self.stage_key = str(self.stage_key or '').strip()
+        if not self.branch:
+            raise ValidationError({'branch': 'Choose the branch this responsibility covers.'})
+        if not self.role:
+            raise ValidationError({'role': 'Choose the responsible TAT role.'})
+        if self.effective_until and self.effective_until <= self.effective_from:
+            raise ValidationError({'effective_until': 'The end time must be after the start time.'})
+        if self.primary_user_id and not self.primary_user.is_superuser:
+            grants = self.primary_user.access_grants.filter(
+                workflow='tat_tracker', role__iexact=self.role, active=True,
+            ).filter(
+                models.Q(group_configuration__isnull=True)
+                | models.Q(group_configuration=self.group_configuration)
+            )
+            valid = any(
+                (not grant.branch or grant.branch.casefold() == self.branch.casefold())
+                and (not grant.product or grant.product.casefold() == self.product_key.casefold())
+                for grant in grants
+            )
+            if not valid:
+                raise ValidationError({
+                    'primary_user': 'The primary actor needs a matching active TAT AccessGrant for this role and scope.',
+                })
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        scope = '/'.join(part for part in [self.branch, self.product_key, self.stage_key] if part)
+        return f'{scope}: {self.role} -> {self.primary_user}'
+
+
+class TatResponsibilityBackup(models.Model):
+    """Ordered, SLA-triggered backup for a responsibility assignment."""
+
+    assignment = models.ForeignKey(
+        TatResponsibilityAssignment, on_delete=models.CASCADE, related_name='backups',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='backup_tat_responsibilities',
+    )
+    rank = models.PositiveSmallIntegerField(default=1)
+    threshold_percent = models.PositiveSmallIntegerField(
+        default=100,
+        help_text='Existing SLA percentage at which this backup receives a private alert.',
+    )
+    active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['rank', 'created_at']
+        constraints = [
+            models.UniqueConstraint(fields=['assignment', 'rank'], name='unique_tat_backup_rank'),
+            models.UniqueConstraint(fields=['assignment', 'user'], name='unique_tat_backup_user'),
+            models.CheckConstraint(condition=models.Q(rank__gte=1), name='tat_backup_rank_positive'),
+            models.CheckConstraint(condition=models.Q(threshold_percent__gte=1), name='tat_backup_threshold_positive'),
+        ]
+        verbose_name = 'TAT responsibility backup'
+        verbose_name_plural = 'TAT responsibility backups'
+
+    def clean(self):
+        super().clean()
+        if self.assignment_id and self.user_id == self.assignment.primary_user_id:
+            raise ValidationError({'user': 'The primary actor cannot also be a backup.'})
+        if self.assignment_id and self.user_id and not self.user.is_superuser:
+            assignment = self.assignment
+            grants = self.user.access_grants.filter(
+                workflow='tat_tracker', role__iexact=assignment.role, active=True,
+            ).filter(
+                models.Q(group_configuration__isnull=True)
+                | models.Q(group_configuration=assignment.group_configuration)
+            )
+            valid = any(
+                (not grant.branch or grant.branch.casefold() == assignment.branch.casefold())
+                and (not grant.product or grant.product.casefold() == assignment.product_key.casefold())
+                for grant in grants
+            )
+            if not valid:
+                raise ValidationError({'user': 'This backup needs a matching active TAT AccessGrant.'})
+        if self.assignment_id:
+            assignment = self.assignment
+            if not TatEscalationRule.objects.filter(
+                group_configuration=assignment.group_configuration,
+                active=True,
+                threshold_percent=self.threshold_percent,
+            ).filter(models.Q(branch='') | models.Q(branch__iexact=assignment.branch)).exists():
+                raise ValidationError({
+                    'threshold_percent': 'Choose a percentage from an active TAT escalation rule for this branch.',
+                })
+            earlier = type(self).objects.filter(
+                assignment=self.assignment, active=True, rank__lt=self.rank,
+                threshold_percent__gt=self.threshold_percent,
+            )
+            later = type(self).objects.filter(
+                assignment=self.assignment, active=True, rank__gt=self.rank,
+                threshold_percent__lt=self.threshold_percent,
+            )
+            if self.pk:
+                earlier = earlier.exclude(pk=self.pk)
+                later = later.exclude(pk=self.pk)
+            if earlier.exists() or later.exists():
+                raise ValidationError({'threshold_percent': 'Backup thresholds must increase with backup rank.'})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+
+class TatPrivateAlertConnection(models.Model):
+    """TAT-only knowledge of whether Telegram can privately reach a user."""
+
+    STATUS_UNKNOWN = 'unknown'
+    STATUS_CONNECTED = 'connected'
+    STATUS_UNCONNECTED = 'unconnected'
+    STATUS_BLOCKED = 'blocked'
+    STATUS_TEMPORARY_FAILURE = 'temporary_failure'
+    STATUS_CHOICES = [
+        (STATUS_UNKNOWN, 'Unknown'),
+        (STATUS_CONNECTED, 'Connected'),
+        (STATUS_UNCONNECTED, 'Never connected'),
+        (STATUS_BLOCKED, 'Bot blocked or permission withdrawn'),
+        (STATUS_TEMPORARY_FAILURE, 'Temporarily failing'),
+    ]
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='tat_private_alert_connection',
+    )
+    status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_UNKNOWN, db_index=True)
+    connected_at = models.DateTimeField(null=True, blank=True)
+    last_success_at = models.DateTimeField(null=True, blank=True)
+    last_failure_at = models.DateTimeField(null=True, blank=True)
+    last_failure_code = models.CharField(max_length=80, blank=True, default='')
+    last_connect_request_id = models.CharField(max_length=128, blank=True, default='')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'TAT private alert connection'
+        verbose_name_plural = 'TAT private alert connections'
+
+
+class TatActionTask(models.Model):
+    """Durable, revision-bound inbox task for the next TAT stage."""
+
+    STATUS_PENDING = 'pending'
+    STATUS_ACTED = 'acted'
+    STATUS_SUPERSEDED = 'superseded'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'), (STATUS_ACTED, 'Acted'),
+        (STATUS_SUPERSEDED, 'Superseded'), (STATUS_CANCELLED, 'Cancelled'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    case = models.ForeignKey(TatTrackerCase, on_delete=models.CASCADE, related_name='action_tasks')
+    group_configuration = models.ForeignKey(
+        'GroupSheetConfiguration', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='tat_action_tasks',
+    )
+    assignment = models.ForeignKey(
+        TatResponsibilityAssignment, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='tasks',
+    )
+    stage_key = models.CharField(max_length=120, db_index=True)
+    stage_label = models.CharField(max_length=160)
+    responsible_role = models.CharField(max_length=80, db_index=True)
+    case_revision = models.PositiveIntegerField()
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    recipient_snapshot = models.JSONField(default=dict, blank=True)
+    acted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='acted_tat_tasks',
+    )
+    acted_at = models.DateTimeField(null=True, blank=True)
+    superseded_by = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.SET_NULL, related_name='supersedes',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['case', 'stage_key', 'case_revision'],
+                name='unique_tat_task_case_stage_revision',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['case', 'status', 'created_at']),
+            models.Index(fields=['group_configuration', 'responsible_role', 'status']),
+        ]
+        verbose_name = 'TAT action task'
+        verbose_name_plural = 'TAT action tasks'
+
+    def __str__(self):
+        return f'{self.case.case_id}: {self.stage_label}'
+
+
+class TatActionTaskLocator(models.Model):
+    """Hash-only record for an issued task deep link; raw tokens are never stored."""
+
+    task = models.ForeignKey(TatActionTask, on_delete=models.CASCADE, related_name='locators')
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE,
+        related_name='tat_task_locators',
+    )
+    token_hash = models.CharField(max_length=64, unique=True, db_index=True)
+    expires_at = models.DateTimeField(db_index=True)
+    revoked_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['task', 'recipient', 'expires_at'])]
+        verbose_name = 'TAT task locator'
+        verbose_name_plural = 'TAT task locators'
+
+
+class TatActionTaskRecipient(models.Model):
+    """Per-user inbox and private-delivery state for one TAT task."""
+
+    KIND_PRIMARY = 'primary'
+    KIND_BACKUP = 'backup'
+    KIND_ROLE = 'role'
+    KIND_CHOICES = [(KIND_PRIMARY, 'Primary'), (KIND_BACKUP, 'Backup'), (KIND_ROLE, 'Role member')]
+    INBOX_UNREAD = 'unread'
+    INBOX_READ = 'read'
+    INBOX_ACTED = 'acted'
+    INBOX_SUPERSEDED = 'superseded'
+    INBOX_CHOICES = [
+        (INBOX_UNREAD, 'Unread'), (INBOX_READ, 'Read'),
+        (INBOX_ACTED, 'Acted'), (INBOX_SUPERSEDED, 'Superseded'),
+    ]
+    DELIVERY_PENDING = 'pending'
+    DELIVERY_SHADOW = 'shadow'
+    DELIVERY_DELIVERED = 'delivered'
+    DELIVERY_UNREACHABLE = 'unreachable'
+    DELIVERY_RETRY = 'retry'
+    DELIVERY_SKIPPED = 'skipped'
+    DELIVERY_CHOICES = [
+        (DELIVERY_PENDING, 'Pending'), (DELIVERY_SHADOW, 'Shadow'),
+        (DELIVERY_DELIVERED, 'Delivered'), (DELIVERY_UNREACHABLE, 'Unreachable'),
+        (DELIVERY_RETRY, 'Retry'), (DELIVERY_SKIPPED, 'Skipped'),
+    ]
+
+    task = models.ForeignKey(TatActionTask, on_delete=models.CASCADE, related_name='recipients')
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='tat_action_task_recipients',
+    )
+    kind = models.CharField(max_length=16, choices=KIND_CHOICES)
+    rank = models.PositiveSmallIntegerField(default=0)
+    threshold_percent = models.PositiveSmallIntegerField(null=True, blank=True)
+    inbox_status = models.CharField(max_length=16, choices=INBOX_CHOICES, default=INBOX_UNREAD, db_index=True)
+    delivery_state = models.CharField(max_length=16, choices=DELIVERY_CHOICES, default=DELIVERY_PENDING, db_index=True)
+    deliver_after = models.DateTimeField(null=True, blank=True, db_index=True)
+    delivery_attempts = models.PositiveSmallIntegerField(default=0)
+    telegram_message_id = models.CharField(max_length=100, blank=True, default='')
+    delivery_error = models.CharField(max_length=500, blank=True, default='')
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['task', 'rank', 'created_at']
+        constraints = [models.UniqueConstraint(fields=['task', 'user'], name='unique_tat_task_recipient')]
+        indexes = [models.Index(fields=['user', 'inbox_status', 'created_at'])]
+        verbose_name = 'TAT task recipient'
+        verbose_name_plural = 'TAT task recipients'
+
+
+class TatGroupExceptionStatus(models.Model):
+    """One cumulative, privacy-safe group notification for unreachable tasks."""
+
+    group_configuration = models.ForeignKey(
+        'GroupSheetConfiguration', on_delete=models.CASCADE,
+        related_name='tat_group_exception_statuses',
+    )
+    responsible_role = models.CharField(max_length=80)
+    telegram_message_id = models.CharField(max_length=100, blank=True, default='')
+    unresolved_count = models.PositiveIntegerField(default=0)
+    oldest_task_at = models.DateTimeField(null=True, blank=True)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=500, blank=True, default='')
+    active = models.BooleanField(default=False, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['group_configuration', 'responsible_role'],
+                name='unique_tat_group_role_exception',
+            ),
+        ]
+        verbose_name = 'TAT group delivery exception'
+        verbose_name_plural = 'TAT group delivery exceptions'
+
+
 class TatRepairJob(models.Model):
     """Persistent progress for an asynchronous TAT Sheet repair."""
 

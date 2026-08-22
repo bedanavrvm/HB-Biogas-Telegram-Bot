@@ -11,9 +11,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=23">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=24">
 </head>
-<body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}">
+<body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}" data-task-token="{{ task_token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
     <header class="app-top">
       <div class="app-brand">
@@ -90,6 +90,17 @@
       <section class="filter-bar" aria-label="Queue filters">
         <label>Product<select id="queueProductFilter"></select></label>
         <label>Branch<select id="queueBranchFilter"></select></label>
+      </section>
+
+      <section id="privateTaskSection" class="section-block task-inbox-block" hidden>
+        <div class="section-head">
+          <div>
+            <h2>Private task inbox</h2>
+            <p>Assigned actions and backup cover waiting for you.</p>
+          </div>
+          <span id="privateTaskCount" class="count-pill">0</span>
+        </div>
+        <div id="privateTaskList" class="case-list"></div>
       </section>
 
       <section class="section-block">
@@ -185,6 +196,17 @@
         </div>
         <div class="form-actions"><button id="savePersonalSettingsBtn" type="submit" class="secondary">Save my settings</button></div>
       </form>
+
+      <section id="privateAlertSettings" class="form-card private-alert-settings" aria-live="polite">
+        <div class="form-heading">
+          <span class="settings-eyebrow">PRIVATE ALERTS</span>
+          <h2>Telegram task alerts</h2>
+          <p id="privateAlertStatusText">Checking whether the bot can reach you privately...</p>
+        </div>
+        <div class="form-actions">
+          <button id="connectPrivateAlertsBtn" type="button" class="secondary">Connect private alerts</button>
+        </div>
+      </section>
 
       <section class="form-card tat-settings-about">
         <div class="form-heading"><span class="settings-eyebrow">ABOUT &amp; SUPPORT</span><h2>TAT access</h2><p>Telegram verifies sign-in. Assignment, approval, security, and overdue-breach alerts remain mandatory.</p></div>
@@ -291,11 +313,30 @@
         <button id="closeNoticeBtn" type="button" class="notice-close" aria-label="Close message">×</button>
       </div>
     </div>
+    <div id="stageConfirmSheet" class="action-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="stageConfirmTitle">
+      <button id="stageConfirmBackdrop" type="button" class="action-sheet-backdrop" tabindex="-1" aria-label="Close confirmation"></button>
+      <section class="action-sheet-panel">
+        <div class="action-sheet-handle" aria-hidden="true"></div>
+        <div class="section-head compact">
+          <div>
+            <span class="settings-eyebrow">CONFIRM TAT UPDATE</span>
+            <h2 id="stageConfirmTitle">Confirm stage</h2>
+          </div>
+          <button id="closeStageConfirmBtn" type="button" class="ghost-btn" aria-label="Close confirmation">Close</button>
+        </div>
+        <div id="stageConfirmSummary" class="stage-confirm-summary"></div>
+        <label id="stageConfirmChoiceWrap" class="hidden">Outcome<select id="stageConfirmChoice"></select></label>
+        <div class="form-actions action-sheet-actions">
+          <button id="cancelStageConfirmBtn" type="button" class="ghost-btn">Cancel</button>
+          <button id="confirmStageBtn" type="button" class="primary">Confirm stamp</button>
+        </div>
+      </section>
+    </div>
   </main>
 
   <script src="{% static 'miniapp/telegram.js' %}?v=2"></script>
   <script src="{% static 'miniapp/utils.js' %}?v=4"></script>
   <script src="{% static 'miniapp/tat_api.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=38"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=40"></script>
 </body>
 </html>
