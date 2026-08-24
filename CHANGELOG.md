@@ -3,6 +3,8 @@
 ## TAT private-delivery reliability - 24-August-2026
 
 - Fixed private TAT Telegram delivery on PostgreSQL by locking only the task-recipient row instead of applying `FOR UPDATE` across nullable profile and group joins. Due recipients now advance beyond `Pending` and record their delivery attempt.
+- Made DM task locators one-shot Mini App navigation state. Back now restores the cached queue with a quiet background reconciliation, and Refresh updates the current view without reloading and refocusing the original DM task.
+- Renamed the overlapping queue surfaces to **Assigned to me** for durable responsibility recipients and **Available to my role** for the broader capability-authorized work pool.
 
 ## Centralized TAT access and responsibility routing - 22-August-2026
 

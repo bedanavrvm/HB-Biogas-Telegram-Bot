@@ -339,6 +339,20 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn("api('/api/tat-tracker/home/', homePayload(payload))", source)
         self.assertIn('utils.fetchJson(path', source)
 
+    def test_dm_task_launch_is_consumed_and_queue_navigation_does_not_reload_it(self):
+        source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
+        template = Path('core/templates/tat_tracker/app.html').read_text(encoding='utf-8')
+
+        self.assertIn('function consumeTaskLaunchUrl()', source)
+        self.assertIn("const keys = ['startapp', 'start_param', 'tgWebAppStartParam'];", source)
+        self.assertIn("window.history.replaceState(window.history.state, '', url.toString())", source)
+        self.assertIn("$('backBtn').addEventListener('click', returnToQueue)", source)
+        self.assertIn("refresh({ background: true }).catch(() => {})", source)
+        self.assertIn('Assigned to me', template)
+        self.assertIn('Available to my role', template)
+        self.assertIn('miniapp/tat_tracker.js', template)
+        self.assertIn('?v=43', template)
+
     def test_compact_cards_have_a_distinct_queue_hierarchy(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
         stylesheet = Path('core/static/miniapp/tat_tracker.css').read_text(encoding='utf-8')

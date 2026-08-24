@@ -54,6 +54,8 @@ const detail = {
 let updateCalls = 0;
 let stamped = false;
 let currentKind = 'timestamp';
+let resolveCalls = 0;
+let failNextHome = false;
 
 async function installMocks(page) {
   await page.route('https://telegram.org/**', route => route.abort());
@@ -64,6 +66,13 @@ async function installMocks(page) {
     const url = new URL(route.request().url());
     if (route.request().resourceType() !== 'fetch' && route.request().resourceType() !== 'xhr') return route.continue();
     const json = data => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data }) });
+    if (url.pathname.endsWith('/tasks/resolve/')) {
+      resolveCalls += 1;
+      return json({
+        group_id: '-100-synthetic', case_id: task.case_id, stage_key: task.stage_key,
+        task_id: task.task_id, link_status: 'current', message: '',
+      });
+    }
     if (url.pathname.endsWith('/bootstrap/')) return json(bootstrap);
     if (url.pathname.endsWith('/detail/')) return json(detail);
     if (url.pathname.endsWith('/update/')) {
@@ -77,7 +86,17 @@ async function installMocks(page) {
       ...(stamped ? { items: [], unread_count: 0, total: 0 } : bootstrap.task_inbox),
       private_alerts: bootstrap.private_alerts,
     });
-    if (url.pathname.endsWith('/home/')) return json(bootstrap);
+    if (url.pathname.endsWith('/home/')) {
+      if (failNextHome) {
+        failNextHome = false;
+        return route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: false, error: 'Synthetic queue outage.' }),
+        });
+      }
+      return json(bootstrap);
+    }
     return json({});
   });
 }
@@ -120,6 +139,35 @@ async function installMocks(page) {
       assert(overflow, `${viewport.name}: stamped detail causes horizontal overflow`);
       await page.screenshot({ path: path.join(outputDir, `${viewport.name}.png`), fullPage: true });
       await page.close();
+
+      // A DM locator is one-shot navigation state. Returning to the queue must
+      // use the cached queue immediately, and a header refresh must not reload
+      // the original Telegram start parameter or focus the same task again.
+      resolveCalls = 0;
+      failNextHome = false;
+      detail.fields[0].value = '';
+      detail.fields[0].editable = true;
+      detail.fields[0].kind = 'timestamp';
+      const dmPage = await browser.newPage({ viewport });
+      await installMocks(dmPage);
+      const dmUrl = new URL(baseUrl);
+      dmUrl.searchParams.set('startapp', 'tt_synthetic-private-task-token');
+      await dmPage.goto(dmUrl.toString(), { waitUntil: 'domcontentloaded' });
+      await dmPage.locator('#detailView.active [data-stage-key="mpesa_to_admin"]').waitFor();
+      assert(resolveCalls === 1, `${viewport.name}: DM task was not resolved exactly once`);
+      assert(!new URL(dmPage.url()).searchParams.has('startapp'), `${viewport.name}: consumed DM locator remains in the URL`);
+
+      failNextHome = true;
+      await dmPage.locator('#backBtn').click();
+      await dmPage.locator('#queueView.active').waitFor();
+      await dmPage.waitForTimeout(250);
+      assert(!(await dmPage.locator('#status').textContent()).includes('Queue refresh failed'), `${viewport.name}: background return surfaced a queue refresh failure`);
+
+      await dmPage.locator('#refreshBtn').click();
+      await dmPage.waitForTimeout(250);
+      assert(await dmPage.locator('#queueView').evaluate(node => node.classList.contains('active')), `${viewport.name}: refresh left the queue`);
+      assert(resolveCalls === 1, `${viewport.name}: refresh resolved and focused the consumed DM task again`);
+      await dmPage.close();
     }
   } finally {
     await browser.close();

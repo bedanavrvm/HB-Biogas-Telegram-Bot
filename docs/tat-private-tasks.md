@@ -11,6 +11,13 @@ troubleshooting, see
 
 Telegram buttons never stamp a case directly. They open the exact pending stage, where the current user, access grant, case revision, and stage permission are checked again before confirmation.
 
+The Mini App deliberately shows two different work surfaces:
+
+- **Assigned to me** is the durable recipient inbox created by responsibility routing. It contains explicit primary, backup, or safe-fallback task copies, tracks unread/delivery state, and is the source targeted by private Telegram DMs.
+- **Available to my role** is the broader live work pool calculated from the user's current capabilities and branch/product scope. It remains useful for shared-role cover and work that has no dedicated roster. A case may appear in both because assignment chooses who should act first while authorization determines everyone who may safely act.
+
+A DM locator is consumed after its first successful resolution. Returning to the queue or refreshing the current view must not resolve and focus the same locator again.
+
 ## Rollout modes
 
 Open **Django Admin → Workflow groups**, select the TAT group, and use **TAT notification delivery**:

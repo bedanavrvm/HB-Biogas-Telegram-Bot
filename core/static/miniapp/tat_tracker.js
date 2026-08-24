@@ -473,6 +473,42 @@
     }
   }
 
+  function consumeTaskLaunchUrl() {
+    state.taskToken = '';
+    body.dataset.taskToken = '';
+    try {
+      const url = new URL(window.location.href);
+      const keys = ['startapp', 'start_param', 'tgWebAppStartParam'];
+      keys.forEach((key) => url.searchParams.delete(key));
+      const rawHash = url.hash.replace(/^#/, '');
+      if (rawHash.includes('=')) {
+        const hashParams = new URLSearchParams(rawHash);
+        let changed = false;
+        keys.forEach((key) => {
+          if (hashParams.has(key)) {
+            hashParams.delete(key);
+            changed = true;
+          }
+        });
+        if (changed) url.hash = hashParams.toString() ? `#${hashParams.toString()}` : '';
+      }
+      window.history.replaceState(window.history.state, '', url.toString());
+    } catch (error) {
+      // The in-memory token is still consumed. History replacement is a UX
+      // safeguard and must not block access in older Telegram WebViews.
+    }
+  }
+
+  function returnToQueue() {
+    state.directTask = null;
+    show('queue');
+    setStatus('');
+    // The bootstrap queue is already usable. Reconcile it quietly so Back is
+    // instant and a temporary network failure cannot replace navigation with
+    // a misleading foreground error.
+    refresh({ background: true }).catch(() => {});
+  }
+
   async function loadTaskInbox() {
     const result = await api('/api/tat-tracker/tasks/', {});
     renderTaskInbox(result.data || {});
@@ -1408,21 +1444,20 @@
     show(button.dataset.view);
     if (button.dataset.view === 'settings') loadSettings().catch((error) => setStatus(error.message, 'error'));
   }));
-  $('refreshBtn').addEventListener('click', () => {
+  $('refreshBtn').addEventListener('click', async () => {
     if (state.refreshing) return;
     state.refreshing = true;
-    window.location.reload();
-  });
-  $('backBtn').addEventListener('click', async () => {
-    show('queue');
     try {
-      await refresh();
+      const caseId = state.detail && state.detail.summary && state.detail.summary.case_id;
+      if (state.currentView === 'detail' && caseId) await openCase(caseId);
+      else await refresh();
     } catch (error) {
-      // refresh() restores the cached queue and reports the failure. Keep the
-      // catch here so an expected network error does not become an unhandled
-      // promise rejection in Telegram's WebView.
+      // The invoked loader already presents a safe, contextual error.
+    } finally {
+      state.refreshing = false;
     }
   });
+  $('backBtn').addEventListener('click', returnToQueue);
   $('loadMoreQueueBtn').addEventListener('click', () => loadMoreHome('action_required'));
   $('loadMoreRecentBtn').addEventListener('click', () => loadMoreHome('recent'));
   $('queueProductFilter').addEventListener('change', () => refresh().catch(() => {}));
@@ -1628,6 +1663,7 @@
       state.groupId = resolved.data.group_id;
       state.token = '';
       state.directTask = resolved.data;
+      consumeTaskLaunchUrl();
       if (resolved.data.message) setStatus(resolved.data.message, resolved.data.link_status === 'current' ? 'ok' : 'error');
     }
     const result = await api('/api/tat-tracker/bootstrap/', {});
@@ -1641,8 +1677,7 @@
   if (tg && tg.BackButton && typeof tg.BackButton.onClick === 'function') {
     tg.BackButton.onClick(() => {
       if (state.currentView === 'detail') {
-        show('queue');
-        refresh({ background: true }).catch(() => {});
+        returnToQueue();
       }
     });
   }
