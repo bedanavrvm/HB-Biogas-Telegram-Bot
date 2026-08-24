@@ -5530,7 +5530,11 @@ class OriginationSigningAction(models.Model):
 
     TYPE_SIGNATURE = 'signature'
     TYPE_STAMP = 'stamp'
-    TYPE_CHOICES = [(TYPE_SIGNATURE, 'Signature'), (TYPE_STAMP, 'Stamp')]
+    TYPE_DATE_SIGNED = 'date_signed'
+    TYPE_CHOICES = [
+        (TYPE_SIGNATURE, 'Signature'), (TYPE_STAMP, 'Stamp'),
+        (TYPE_DATE_SIGNED, 'Signing date'),
+    ]
     MODE_TEST = 'test'
     MODE_VERIFIED = 'verified'
     MODE_CHOICES = [(MODE_TEST, 'Test simulation'), (MODE_VERIFIED, 'Verified production')]

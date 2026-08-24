@@ -413,6 +413,21 @@ first dry-run and then explicitly apply the seed:
 `--apply` requires a configured restricted Drive folder and creates synthetic
 PDFs there. It does not create a customer application.
 
+The reviewed Invoice Finance contract has its own idempotent, dry-run-first
+seed. Its source PDF remains ignored under `LAFS/` and coordinates are never
+auto-published:
+
+```powershell
+.\.venv\Scripts\python.exe manage.py seed_invoice_finance_origination --actor <active-superuser>
+.\.venv\Scripts\python.exe manage.py seed_invoice_finance_origination --actor <active-superuser> --apply
+```
+
+The command requires an existing global `Product` and `ProductVersion`, updates
+mutable canonical-field governance, fails on frozen type conflicts, replaces a
+draft contract or creates a successor, and records field/product/template audit
+events. Tests must mock the Drive upload; do not seed a real environment from
+the automated test suite.
+
 Preview Telegram launchers without external writes:
 
 ```powershell
@@ -424,7 +439,7 @@ Preview Telegram launchers without external writes:
 Run the narrow Origination suite first:
 
 ```powershell
-.\.venv\Scripts\python.exe manage.py test core.tests_loan_origination core.tests_loan_origination_frontend core.tests_origination_templates core.tests_origination_fields core.tests_origination_safe_workflow core.tests_origination_command core.tests_origination_seed_command core.tests_origination_god_mode
+.\.venv\Scripts\python.exe manage.py test core.tests_loan_origination core.tests_loan_origination_frontend core.tests_origination_templates core.tests_origination_fields core.tests_origination_safe_workflow core.tests_origination_command core.tests_origination_seed_command core.tests_origination_god_mode core.tests_invoice_finance_origination_seed
 ```
 
 Check migration drift:

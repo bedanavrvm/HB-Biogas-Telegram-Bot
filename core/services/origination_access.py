@@ -13,6 +13,14 @@ MASKED = 'masked'
 DENIED = 'denied'
 
 
+def _staff_signing_status(application) -> bool:
+    """Staff-signing access exists only while an approved packet needs signatures."""
+    return str(getattr(application, 'status', '') or '') in {
+        application.STATUS_SIGNING_PENDING,
+        application.STATUS_PARTIALLY_SIGNED,
+    }
+
+
 def _capabilities(user, access: dict | None) -> set[str]:
     if access is None:
         # Authentication-disabled local/test environments historically expose
@@ -20,6 +28,7 @@ def _capabilities(user, access: dict | None) -> set[str]:
         return {
             'portal.origination.view', 'portal.origination.create',
             'portal.origination.review', 'portal.origination.signing.start',
+            'portal.origination.signing.staff',
         }
     return effective_capability_keys(user, 'jawabu_portal', access=access)
 
@@ -60,15 +69,26 @@ def application_presentation_mode(application, *, user, access: dict | None) -> 
         return FULL
     if any(portal_access_decision(
         user, capability, access=access, resource=application,
-    ).allowed for capability in {'portal.origination.review', 'portal.origination.signing.start'}):
+    ).allowed for capability in {
+        'portal.origination.review', 'portal.origination.signing.start',
+    }):
+        return FULL
+    if _staff_signing_status(application) and portal_access_decision(
+        user, 'portal.origination.signing.staff', access=access, resource=application,
+    ).allowed:
         return FULL
     if portal_access_decision(
         user, 'portal.origination.create', access=access, resource=application,
     ).allowed:
         return FULL if application.officer_id == user.pk else DENIED
-    if portal_access_decision(
+    view_decision = portal_access_decision(
         user, 'portal.origination.view', access=access, resource=application,
-    ).allowed:
+    )
+    if view_decision.allowed:
+        # BM and Management receive view as the dependency of staff signing;
+        # it must not become a branch-wide masked-data browsing permission.
+        if view_decision.roles and set(view_decision.roles).issubset({'BM', 'MANAGEMENT'}):
+            return DENIED
         return MASKED
     return DENIED
 
@@ -80,17 +100,12 @@ def scope_application_queryset(queryset: QuerySet, *, user, access: dict | None)
     if access is None or getattr(user, 'is_superuser', False):
         return queryset
     capabilities = _capabilities(user, access)
-    elevated = capabilities.intersection({
+    candidate_capabilities = capabilities.intersection({
         'portal.origination.review', 'portal.origination.signing.start',
+        'portal.origination.signing.staff', 'portal.origination.create',
     })
-    if elevated:
-        candidate_capabilities = elevated
-    elif 'portal.origination.create' in capabilities:
-        # View is a dependency of create, not permission to browse another
-        # officer's applications. Ownership stays part of the create scope.
-        candidate_capabilities = {'portal.origination.create'}
-    else:
-        candidate_capabilities = capabilities.intersection({'portal.origination.view'})
+    if not candidate_capabilities and 'portal.origination.view' in capabilities:
+        candidate_capabilities = {'portal.origination.view'}
     if not candidate_capabilities:
         return queryset.none()
 
@@ -118,16 +133,35 @@ def scope_application_queryset(queryset: QuerySet, *, user, access: dict | None)
                 item &= Q(product_version__product__code__iexact=grant.product)
             if capability == 'portal.origination.create':
                 item &= Q(officer=user)
+            elif capability == 'portal.origination.signing.staff':
+                item &= Q(status__in=[
+                    queryset.model.STATUS_SIGNING_PENDING,
+                    queryset.model.STATUS_PARTIALLY_SIGNED,
+                ])
             combined |= item
     return queryset.filter(combined).distinct()
 
 
 def queue_capabilities(*, user, access: dict | None) -> dict:
     capabilities = _capabilities(user, access)
+    from core.services.origination_esign import STAFF_SIGNER_ACCESS_ROLES
+
+    access_roles = {
+        str(role or '').strip().upper() for role in (access or {}).get('roles', [])
+    }
+    if access is None or getattr(user, 'is_superuser', False):
+        staff_signer_roles = sorted(STAFF_SIGNER_ACCESS_ROLES)
+    else:
+        staff_signer_roles = sorted(
+            signer_role for signer_role, allowed_roles in STAFF_SIGNER_ACCESS_ROLES.items()
+            if allowed_roles.intersection(access_roles)
+        )
     return {
         'user_id': getattr(user, 'pk', None),
         'is_superuser': bool(getattr(user, 'is_superuser', False)),
         'can_create': 'portal.origination.create' in capabilities,
         'can_review': 'portal.origination.review' in capabilities,
         'can_start_signing': 'portal.origination.signing.start' in capabilities,
+        'can_staff_sign': 'portal.origination.signing.staff' in capabilities,
+        'staff_signer_roles': staff_signer_roles,
     }

@@ -480,6 +480,29 @@ its fields, and preview the packet.
 The command refuses an inactive/non-Superuser actor and a conflicting partial
 demo setup. Re-running it against the complete published demo is safe.
 
+### Prepare the reviewed Invoice Finance LAF
+
+Keep `LAFS/INVOICE FINANCE.pdf` outside Git. First create the global **Invoice
+Finance** product and its commercial terms in Django Admin. Then run the safe
+preview:
+
+```powershell
+.\.venv\Scripts\python.exe manage.py seed_invoice_finance_origination --actor <superuser-username>
+```
+
+If the summary is correct, apply it:
+
+```powershell
+.\.venv\Scripts\python.exe manage.py seed_invoice_finance_origination --actor <superuser-username> --apply
+```
+
+The command governs the approved canonical fields, replaces only an editable
+draft (or creates a successor to a published definition), uploads the primary
+PDF to restricted Drive, and leaves it unpublished. Open the resulting draft's
+alignment builder to place the fields and signer slots, inspect the filled
+sample, and publish. The source form's **ATTACH** checklist is deliberately not
+converted into supporting-document requirements.
+
 ## Change an existing production product
 
 1. Open the published Product Terms version and use **Create editable next

@@ -69,6 +69,8 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **Household relationship** | An Operations-verified link between a JBL applicant and a distinct spouse/household person, supported by attestation and evidence; it never merges their legal customer identities. |
 | **Head of Rural** | The Portal label for the stable scoped Mini App role (`BUSINESS_ADMIN`), responsible for final/payment approvals. It is distinct from Django `is_staff`. |
 | **Operations Administrator** | A scoped Portal role (`OPERATIONS_ADMIN`) for operational processing such as orders, invoices, and payment preparation; it does not grant Head of Rural approvals or JBL visit logging. |
+| **Origination Branch Manager** | A scoped Portal role (`BM`) that may view in-scope Origination signing work and complete Branch Manager or shared management-approval signer slots. It does not prepare/dispatch packets or inherit TAT authority. |
+| **Origination Management** | A scoped Portal role (`MANAGEMENT`) that may view in-scope Origination signing work and complete the shared management-approval signer slot. It does not prepare/dispatch packets or inherit unrelated workflow authority. |
 | **Django Superuser** | Active `is_superuser` is the explicitly approved technical break-glass override across Mini App capabilities and scopes. It is auditable and is not the same staff business role as Head of Rural or Operations Administrator. |
 | **IT** | A scoped support role available in every access-controlled Mini App workflow. It is assigned through `AccessGrant`, never inferred from Django technical-admin flags. |
 | **Access Control Checker** | A Django Admin staff user appointed by a technical Superuser to independently review Mini App access-policy requests. It is not a Mini App workflow role. |
@@ -159,6 +161,7 @@ Key modules:
 - `portal_reporting.py` — IT-only, catalogue-constrained live Portal reports, chart aggregates, XLSX exports, and reporting audit events
 - `loan_origination.py` — product-neutral origination schemas, revision-aware drafts, maker-checker review, append-only events, and local signing-package preparation
 - `origination_esign.py` — verified packet signing sessions, immutable consent/signature binding, Africa's Talking OTP delivery, throttling, and signed-PDF archival
+- `invoice_finance_origination_seed.py` — reviewed, idempotent Invoice Finance canonical-field/schema/signer contract used by the dry-run-first LAF setup command; it never publishes PDF coordinates
 - `reporting_relationships.py` — read-only model-relationship inventory used to govern future report-source expansion; it never creates cross-workflow customer joins
 - `workflow_capabilities.py` — centrally defined Mini App capabilities and role policy resolution
 - `miniapp_requests.py` — shared Mini App retry-key compatibility and strict-mode policy

@@ -24,6 +24,7 @@ from core.services.loan_origination import (
     OriginationError,
     _record_event,
     _require_request_id,
+    _slot_request_id,
 )
 
 
@@ -212,6 +213,29 @@ def simulate_slot(
             'capture_sha256': capture_hash,
         },
     )
+    if action_type == OriginationSigningAction.TYPE_SIGNATURE:
+        signed_date = timezone.localdate().isoformat()
+        for date_slot in _slot_catalog(package):
+            if (
+                date_slot['role'] != signer_role
+                or date_slot['type'] != OriginationSigningAction.TYPE_DATE_SIGNED
+            ):
+                continue
+            OriginationSigningAction.objects.get_or_create(
+                package=package, document_key=date_slot['document_key'], slot_key=date_slot['key'],
+                defaults={
+                    'signer_role': signer_role,
+                    'action_type': OriginationSigningAction.TYPE_DATE_SIGNED,
+                    'mode': OriginationSigningAction.MODE_TEST, 'actor': actor,
+                    'request_id': _slot_request_id(
+                        request_id, date_slot['document_key'], date_slot['key'],
+                    ),
+                    'metadata': {
+                        'warning': 'TEST ONLY - no OTP or legal signature verification',
+                        'signed_date': signed_date,
+                    },
+                },
+            )
     package.status = package.STATUS_IN_PROGRESS
     completed = {
         (item.document_key, item.slot_key)
@@ -302,6 +326,22 @@ def _slot_overlay(
                 stamp_image, stamp_x, stamp_y, width=stamp_width, height=stamp_height,
                 preserveAspectRatio=False, mask='auto',
             )
+        elif action.action_type == OriginationSigningAction.TYPE_DATE_SIGNED:
+            signed_date = str((action.metadata or {}).get('signed_date') or '')
+            pdf.setFillColorRGB(.09, .14, .12)
+            try:
+                font_size = max(6, min(14, float(spec.get('font_size') or 9)))
+            except (TypeError, ValueError):
+                font_size = 9
+            pdf.setFont('Helvetica', font_size)
+            text_y = content_y + max(0, (content_height - font_size) / 2)
+            align = str(spec.get('align') or 'center')
+            if align == 'left':
+                pdf.drawString(content_x, text_y, signed_date)
+            elif align == 'right':
+                pdf.drawRightString(content_x + content_width, text_y, signed_date)
+            else:
+                pdf.drawCentredString(content_x + content_width / 2, text_y, signed_date)
         else:
             if test_mode:
                 pdf.setStrokeColorRGB(.48, .23, .93)

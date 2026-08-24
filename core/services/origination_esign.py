@@ -28,7 +28,10 @@ from core.models import (
     OriginationStampAsset,
 )
 from core.services.identifiers import normalize_kenyan_phone
-from core.services.loan_origination import OriginationConflict, OriginationError, _record_event, _require_request_id
+from core.services.loan_origination import (
+    OriginationConflict, OriginationError, _record_event, _require_request_id,
+    _slot_request_id,
+)
 from core.services.origination_signing import _slot_catalog, _validated_signature_capture, render_verified_package
 
 
@@ -37,7 +40,36 @@ CONSENT_VERSION = 'origination_packet_v1'
 OTP_TTL = timedelta(minutes=10)
 LOCKOUT_WINDOW = timedelta(minutes=30)
 SESSION_TTL_DEFAULT_HOURS = 48
-STAFF_SIGNER_ROLES = {'bro_1', 'bro_2', 'loan_officer', 'officer', 'branch_manager'}
+STAFF_SIGNER_ROLES = {
+    'bro_1', 'bro_2', 'loan_officer', 'officer', 'branch_manager',
+    'management_approver',
+}
+
+STAFF_SIGNER_ACCESS_ROLES = {
+    'bro_1': {'JBL_OFFICER'},
+    'bro_2': {'JBL_OFFICER'},
+    'loan_officer': {'JBL_OFFICER'},
+    'officer': {'JBL_OFFICER'},
+    'branch_manager': {'BM'},
+    'management_approver': {'BM', 'MANAGEMENT'},
+}
+
+
+def authorize_staff_signer(*, actor, application, signer_role: str) -> None:
+    """Require one complete scoped grant for the exact configured staff slot."""
+    from core.services.portal_permissions import portal_access_decision
+    from core.services.telegram_identity import user_access
+
+    access = user_access(actor, 'jawabu_portal')
+    decision = portal_access_decision(
+        actor, 'portal.origination.signing.staff', access=access,
+        resource=application,
+    )
+    allowed_roles = STAFF_SIGNER_ACCESS_ROLES.get(signer_role, set())
+    if not decision.allowed or not (
+        decision.technical_override or allowed_roles.intersection(decision.roles)
+    ):
+        raise OriginationError('You are not authorized to complete this staff signer role.')
 
 
 class OriginationSigningRateLimited(OriginationError):
@@ -143,6 +175,13 @@ def _participant(package: OriginationSigningPackage, signer_role: str) -> dict[s
     if not signature_slots:
         raise OriginationError('This signer has no configured signature slots.')
     participant['signature_slots'] = signature_slots
+    participant['completion_slots'] = [
+        item for item in _slot_catalog(package)
+        if item['role'] == signer_role and item['type'] in {
+            OriginationSigningAction.TYPE_SIGNATURE,
+            OriginationSigningAction.TYPE_DATE_SIGNED,
+        }
+    ]
     return participant
 
 
@@ -616,15 +655,22 @@ def verify_otp(*, raw_token: str, code: str, request_id: str, ip_hash: str) -> O
                 challenge.verified_at = now
                 challenge.save(update_fields=['verified_at', 'last_attempt_at'])
                 capture = dict(session.signature_capture or {})
-                for slot in _participant(package, session.signer_role)['signature_slots']:
+                for slot in _participant(package, session.signer_role)['completion_slots']:
+                    action_type = (
+                        OriginationSigningAction.TYPE_DATE_SIGNED
+                        if slot['type'] == OriginationSigningAction.TYPE_DATE_SIGNED
+                        else OriginationSigningAction.TYPE_SIGNATURE
+                    )
                     OriginationSigningAction.objects.get_or_create(
                         package=package, document_key=slot['document_key'], slot_key=slot['key'],
                         defaults={
                             'signer_role': session.signer_role,
-                            'action_type': OriginationSigningAction.TYPE_SIGNATURE,
+                            'action_type': action_type,
                             'mode': OriginationSigningAction.MODE_VERIFIED,
                             'signer_session': session,
-                            'request_id': f'otp:{challenge.pk}:{slot["document_key"]}:{slot["key"]}'[:128],
+                            'request_id': _slot_request_id(
+                                f'otp:{challenge.pk}', slot['document_key'], slot['key'],
+                            ),
                             'metadata': {
                                 'signature_capture': capture,
                                 'capture_sha256': session.signature_capture_sha256,
@@ -633,6 +679,8 @@ def verify_otp(*, raw_token: str, code: str, request_id: str, ip_hash: str) -> O
                                 'otp_verified_at': now.isoformat(),
                                 'access_mode': session.access_mode,
                                 'phone_last4': session.phone_last4,
+                                **({'signed_date': timezone.localdate(now).isoformat()}
+                                   if action_type == OriginationSigningAction.TYPE_DATE_SIGNED else {}),
                             },
                         },
                     )
@@ -787,6 +835,9 @@ def complete_staff_signatures(
     if signer_role not in STAFF_SIGNER_ROLES:
         raise OriginationError('This role must sign through its external signer session.')
     package = OriginationSigningPackage.objects.select_for_update().select_related('application').get(pk=package_id)
+    authorize_staff_signer(
+        actor=actor, application=package.application, signer_role=signer_role,
+    )
     _require_approved_package(package)
     if package.test_mode:
         raise OriginationError('Staff verified signing is unavailable on a test package.')
@@ -796,17 +847,25 @@ def complete_staff_signatures(
     capture = _validated_signature_capture(signature_capture)
     capture_hash = hashlib.sha256(json.dumps(capture, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
     created_any = False
-    for slot in participant['signature_slots']:
+    signed_at = timezone.now()
+    for slot in participant['completion_slots']:
+        action_type = (
+            OriginationSigningAction.TYPE_DATE_SIGNED
+            if slot['type'] == OriginationSigningAction.TYPE_DATE_SIGNED
+            else OriginationSigningAction.TYPE_SIGNATURE
+        )
         action, created = OriginationSigningAction.objects.get_or_create(
             package=package, document_key=slot['document_key'], slot_key=slot['key'],
             defaults={
-                'signer_role': signer_role, 'action_type': OriginationSigningAction.TYPE_SIGNATURE,
+                'signer_role': signer_role, 'action_type': action_type,
                 'mode': OriginationSigningAction.MODE_VERIFIED, 'actor': actor,
-                'request_id': f'{request_id}:{slot["document_key"]}:{slot["key"]}'[:128],
+                'request_id': _slot_request_id(request_id, slot['document_key'], slot['key']),
                 'metadata': {
                     'signature_capture': capture, 'capture_sha256': capture_hash,
                     'consent_version': CONSENT_VERSION, 'consented_at': timezone.now().isoformat(),
                     'staff_authenticated': True,
+                    **({'signed_date': timezone.localdate(signed_at).isoformat()}
+                       if action_type == OriginationSigningAction.TYPE_DATE_SIGNED else {}),
                 },
             },
         )

@@ -20,6 +20,8 @@ BUSINESS_ADMIN_WORKFLOWS = frozenset({
 WORKFLOW_ROLES = {
     'jawabu_portal': (
         ('JBL_OFFICER', 'JBL Officer'),
+        ('BM', 'Branch Manager'),
+        ('MANAGEMENT', 'Management'),
         ('CREDIT_ANALYST', 'Credit Analyst'),
         ('HB_STAFF', 'HomeBiogas / Operations Staff'),
         (OPERATIONS_ADMIN_ROLE, 'Operations Administrator'),
@@ -60,6 +62,7 @@ ROLE_ALIASES = {
         'credit_analyst': 'CREDIT_ANALYST', 'operations': 'HB_STAFF',
         'hb_staff': 'HB_STAFF', 'head_rural': BUSINESS_ADMIN_ROLE,
         'operations_admin': OPERATIONS_ADMIN_ROLE, 'ops_admin': OPERATIONS_ADMIN_ROLE,
+        'branch_manager': 'BM', 'bm': 'BM', 'management': 'MANAGEMENT',
     },
     'tat_tracker': {
         'admin': BUSINESS_ADMIN_ROLE,

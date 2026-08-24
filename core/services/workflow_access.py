@@ -37,6 +37,16 @@ def _resource_product(resource) -> str:
     product = getattr(resource, 'product', None)
     if product is not None and not isinstance(product, str):
         return _normalized(getattr(product, 'code', '') or getattr(product, 'name', ''))
+    product_definition = getattr(resource, 'product_definition', None)
+    if product_definition is not None:
+        definition_product = getattr(getattr(product_definition, 'product_version', None), 'product', None)
+        return _normalized(
+            getattr(definition_product, 'code', '')
+            or getattr(product_definition, 'product_key', '')
+        )
+    product_version = getattr(resource, 'product_version', None)
+    if product_version is not None:
+        return _normalized(getattr(getattr(product_version, 'product', None), 'code', ''))
     return _normalized(
         getattr(resource, 'product_key', '')
         or getattr(resource, 'loan_product', '')

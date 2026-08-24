@@ -24,7 +24,7 @@
   let listScrollY = 0;
   let listRequestGeneration = 0;
   let listSearchTimer = null;
-  let capabilities = { can_create: false, can_review: false, can_start_signing: false };
+  let capabilities = { can_create: false, can_review: false, can_start_signing: false, can_staff_sign: false };
   let listState = { queue: '', status: '', productKey: '', query: '', page: 1, pages: 1 };
   let current = null;
   let step = 0;
@@ -1546,8 +1546,11 @@
         const accessMode = participant.access_mode || 'self_service';
         const modeLabel = accessMode === 'assisted' ? 'Assisted signing' : 'Remote signing';
         const assistedFallback = `<details class="assisted-signing-fallback"><summary>In-person assisted signing</summary><p>Use only when the signer is physically present and personally controls the officer device and OTP.</p><button type="button" class="btn btn-secondary" data-create-signer-session data-access-mode="assisted" data-package-id="${escapeHtml(packageData.id)}" data-signer-role="${escapeHtml(participant.role)}">Sign on this officer device</button></details>`;
-        const externalAction = participant.staff
+        const staffRoleAllowed = (capabilities.staff_signer_roles || []).includes(participant.role);
+        const externalAction = participant.staff && capabilities.can_staff_sign && staffRoleAllowed
           ? `<button type="button" class="btn btn-secondary" data-staff-sign data-package-id="${escapeHtml(packageData.id)}" data-signer-role="${escapeHtml(participant.role)}">Capture staff signature</button>`
+          : participant.staff
+            ? '<span class="status-chip">Awaiting authorized staff</span>'
           : participant.session_status
             ? `<div class="signing-session-actions"><span class="signing-mode-chip ${escapeHtml(accessMode)}">${escapeHtml(modeLabel)}</span><span class="status-chip">${escapeHtml(participant.session_status.replaceAll('_', ' '))}</span>${participant.session_status === 'verified' ? '' : `<button type="button" class="btn btn-secondary" data-reset-signer-session data-session-id="${escapeHtml(participant.session_id)}" data-access-mode="${escapeHtml(accessMode)}" data-target-access-mode="${escapeHtml(accessMode)}">Reset / reissue</button>${accessMode === 'assisted' ? `<button type="button" class="btn btn-primary" data-reset-signer-session data-switch-mode="true" data-session-id="${escapeHtml(participant.session_id)}" data-access-mode="assisted" data-target-access-mode="self_service">Send remotely instead</button>` : `<details class="assisted-signing-fallback"><summary>Need in-person assistance?</summary><button type="button" class="btn btn-secondary" data-reset-signer-session data-switch-mode="true" data-session-id="${escapeHtml(participant.session_id)}" data-access-mode="self_service" data-target-access-mode="assisted">Switch to officer device</button></details>`}`}</div>`
             : `<div class="signing-primary-actions"><button type="button" class="btn btn-primary" data-create-signer-session data-access-mode="self_service" data-package-id="${escapeHtml(packageData.id)}" data-signer-role="${escapeHtml(participant.role)}">Send to signer's phone</button><small>The signer can review, sign and enter their OTP from any location.</small>${assistedFallback}</div>`;
@@ -2634,7 +2637,8 @@
     const queueTabs = [
       ...(capabilities.can_create ? [['mine', 'My applications'], ['corrections', 'Corrections']] : []),
       ...(capabilities.can_review ? [['review', 'Review']] : []),
-      ...(capabilities.can_start_signing ? [['prepare', 'Prepare packet'], ['signing', 'Signing']] : []),
+      ...(capabilities.can_start_signing ? [['prepare', 'Prepare packet']] : []),
+      ...(capabilities.can_start_signing || capabilities.can_staff_sign ? [['signing', 'Signing']] : []),
     ].map(([key, label]) => {
       const count = queueCount(key);
       return `<button type="button" data-queue="${key}" class="queue-tab${listState.queue === key ? ' active' : ''}"><span>${label}</span>${count !== '' ? `<strong>${count}</strong>` : ''}</button>`;
@@ -2731,7 +2735,7 @@
     branches = productResult.data.branches || [];
     locationCatalog = productResult.data.location_catalog || {};
     capabilities = productResult.data.capabilities || capabilities;
-    if (!listState.queue) listState.queue = capabilities.can_create ? 'mine' : capabilities.can_start_signing ? 'prepare' : capabilities.can_review ? 'review' : '';
+    if (!listState.queue) listState.queue = capabilities.can_create ? 'mine' : capabilities.can_start_signing ? 'prepare' : capabilities.can_staff_sign ? 'signing' : capabilities.can_review ? 'review' : '';
     await loadApplications();
     root().setAttribute('aria-busy', 'false');
   }

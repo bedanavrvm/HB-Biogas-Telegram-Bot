@@ -324,7 +324,7 @@ def portal_origination_applications(request):
                     status=LoanOriginationApplication.STATUS_READY_FOR_REVIEW,
                 ).exclude(prepared_review_filter).distinct()
         elif queue_name == 'signing':
-            if not capabilities['can_start_signing']:
+            if not (capabilities['can_start_signing'] or capabilities['can_staff_sign']):
                 queryset = queryset.none()
             else:
                 queryset = queryset.filter(status__in=[
@@ -1109,7 +1109,7 @@ def portal_origination_staff_signature(request, application_id: str):
     application = _application(application_id)
     if not application:
         return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
-    if (error := _capability_error(request, 'portal.origination.signing.start', application)):
+    if (error := _capability_error(request, 'portal.origination.signing.staff', application)):
         return error
     if (error := _application_access_error(request, application)):
         return error

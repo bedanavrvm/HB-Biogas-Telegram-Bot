@@ -61,6 +61,7 @@ APPLICANT_IDENTITY_CONTRACT = 'applicant_v1'
 SIGNER_ROLE_CATALOG = (
     ('borrower', 'Borrower'),
     ('customer', 'Borrower (legacy compatibility role)'),
+    ('invoice_payer_representative', 'Invoice Payer Representative'),
     ('guarantor_1', 'Guarantor 1'),
     ('guarantor_2', 'Guarantor 2'),
     ('bro_1', 'Business Relationship Officer 1'),
@@ -68,6 +69,7 @@ SIGNER_ROLE_CATALOG = (
     ('loan_officer', 'Loan Officer'),
     ('officer', 'Officer (legacy role)'),
     ('branch_manager', 'Branch Manager'),
+    ('management_approver', 'Management Approver'),
     ('commissioner_for_oaths', 'Commissioner for Oaths'),
     ('witness', 'Witness'),
 )
@@ -84,6 +86,14 @@ def _require_request_id(request_id: str) -> str:
     if not value:
         raise OriginationError('A client request ID is required.')
     return value[:128]
+
+
+def _slot_request_id(request_id: str, *parts: str) -> str:
+    """Keep per-slot retries unique even when the client key is already long."""
+    material = ':'.join([str(request_id or '').strip(), *(str(part or '').strip() for part in parts)])
+    if len(material) <= 128:
+        return material
+    return f'{str(request_id or "")[:72]}:{hashlib.sha256(material.encode()).hexdigest()[:48]}'
 
 
 def _schema_fields(schema: dict[str, Any]) -> list[dict[str, Any]]:
@@ -262,7 +272,10 @@ def validate_product_form_contract(
         if (
             getattr(settings, 'ORIGINATION_ESIGN_ENABLED', False)
             and rule.get('required', False) and has_signature
-            and str(rule.get('role') or '') not in {'bro_1', 'bro_2', 'loan_officer', 'officer', 'branch_manager'}
+            and str(rule.get('role') or '') not in {
+                'bro_1', 'bro_2', 'loan_officer', 'officer', 'branch_manager',
+                'management_approver',
+            }
         ):
             if not str(identity_fields.get('name') or '').strip() or not str(identity_fields.get('phone') or '').strip():
                 raise OriginationError(
