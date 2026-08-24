@@ -149,6 +149,28 @@ async function installMocks(page) {
       await page.locator('#openQueueFiltersBtn').click();
       await page.locator('#queueFilterOverlay:not([hidden])').waitFor();
       assert(await page.locator('#queueFilterOverlay').getAttribute('role') === 'dialog', `${viewport.name}: filter sheet lost dialog semantics`);
+      const filterSheetGeometry = await page.evaluate(() => {
+        const sheet = document.querySelector('#queueFilterSheet').getBoundingClientRect();
+        const header = document.querySelector('#queueFilterSheet > header').getBoundingClientRect();
+        const close = document.querySelector('#closeQueueFiltersBtn').getBoundingClientRect();
+        return {
+          closeTop: close.top,
+          closeRight: close.right,
+          closeWidth: close.width,
+          closeHeight: close.height,
+          headerTop: header.top,
+          headerBottom: header.bottom,
+          sheetRight: sheet.right,
+        };
+      });
+      assert(filterSheetGeometry.closeTop >= filterSheetGeometry.headerTop, `${viewport.name}: filter close control escaped above the sheet header`);
+      assert(filterSheetGeometry.closeTop < filterSheetGeometry.headerBottom, `${viewport.name}: filter close control wrapped below the sheet header`);
+      assert(
+        filterSheetGeometry.sheetRight - filterSheetGeometry.closeRight <= 18,
+        `${viewport.name}: filter close control is not aligned to the top-right (${JSON.stringify(filterSheetGeometry)})`,
+      );
+      assert(filterSheetGeometry.closeWidth >= 40 && filterSheetGeometry.closeHeight >= 40, `${viewport.name}: filter close control is not touch-safe`);
+      await page.screenshot({ path: path.join(outputDir, `filters-${viewport.name}.png`), fullPage: true });
       await page.locator('#closeQueueFiltersBtn').click();
       await page.screenshot({ path: path.join(outputDir, `home-${viewport.name}.png`), fullPage: true });
       await page.locator('#queueList .case-card').click();

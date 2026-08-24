@@ -405,6 +405,9 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('state.personalPreference.show_business_hours_time !== false', source)
         self.assertIn('preferenceBusinessHours', template)
         self.assertIn('.tat-sheet-overlay', stylesheet)
+        self.assertIn('class="notice-close tat-sheet-close"', template)
+        self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
+        self.assertIn("miniapp/tat_tracker.css' %}?v=26", template)
         self.assertIn('.queue-pagination', stylesheet)
 
     def test_compact_cards_have_a_distinct_queue_hierarchy(self):

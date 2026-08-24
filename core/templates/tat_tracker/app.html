@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=25">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=26">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}" data-task-token="{{ task_token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -298,9 +298,9 @@
     </section>
     <div id="queueFilterOverlay" class="tat-sheet-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="queueFilterTitle" hidden>
       <section id="queueFilterSheet" class="tat-sheet" tabindex="-1">
-        <header>
-          <div><p class="eyebrow">TAT queue</p><h2 id="queueFilterTitle">Filter cases</h2><p>Narrow the current queue without changing your access.</p></div>
-          <button id="closeQueueFiltersBtn" type="button" class="notice-close" aria-label="Close filters">&times;</button>
+        <header class="tat-sheet-header">
+          <div class="tat-sheet-heading"><p class="eyebrow">TAT queue</p><h2 id="queueFilterTitle">Filter cases</h2><p>Narrow the current queue without changing your access.</p></div>
+          <button id="closeQueueFiltersBtn" type="button" class="notice-close tat-sheet-close" aria-label="Close filters">&times;</button>
         </header>
         <form id="queueFilterForm" class="sheet-form">
           <label>Product<select id="queueProductFilter"></select></label>
