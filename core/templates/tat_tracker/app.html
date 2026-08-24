@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=24">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=25">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}" data-task-token="{{ task_token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -39,16 +39,24 @@
 
     <section class="overview-strip" aria-label="Tracker summary">
       <div class="metric-tile priority">
-        <span id="statQueue">0</span>
-        <small>My actions</small>
+        <span id="statAssigned">0</span>
+        <small>Assigned to me</small>
       </div>
       <div class="metric-tile">
-        <span id="statRecent">0</span>
-        <small>Recent</small>
+        <span id="statRoleQueue">0</span>
+        <small>My role queue</small>
       </div>
-      <div class="metric-tile wide">
-        <span id="statRole">-</span>
-        <small>Signed in as</small>
+      <div class="metric-tile">
+        <span id="statTotal">0</span>
+        <small>Total cases</small>
+      </div>
+      <div class="metric-tile">
+        <span id="statCompleted">0</span>
+        <small>Completed</small>
+      </div>
+      <div class="metric-tile warning">
+        <span id="statStalled">0</span>
+        <small>Stalled</small>
       </div>
     </section>
 
@@ -87,44 +95,28 @@
     </nav>
 
     <section id="queueView" class="view active" aria-label="Queue">
-      <section class="filter-bar" aria-label="Queue filters">
-        <label>Product<select id="queueProductFilter"></select></label>
-        <label>Branch<select id="queueBranchFilter"></select></label>
-      </section>
+      <nav class="home-queue-tabs" aria-label="TAT work queues">
+        <button type="button" class="active" data-home-queue="assigned"><span>Assigned</span><strong id="assignedTabCount">0</strong></button>
+        <button type="button" data-home-queue="role"><span>My roles</span><strong id="roleTabCount">0</strong></button>
+        <button type="button" data-home-queue="all"><span>All cases</span><strong id="allTabCount">0</strong></button>
+      </nav>
 
-      <section id="privateTaskSection" class="section-block task-inbox-block" hidden>
-        <div class="section-head">
-          <div>
-            <h2>Assigned to me</h2>
-            <p>Direct primary and backup assignments that can also reach you by private DM.</p>
-          </div>
-          <span id="privateTaskCount" class="count-pill">0</span>
-        </div>
-        <div id="privateTaskList" class="case-list"></div>
-      </section>
+      <div class="queue-tools">
+        <div><h2 id="activeQueueHeading">Assigned to me</h2><span id="activeQueueCount">0 cases</span></div>
+        <button id="openQueueFiltersBtn" type="button" class="queue-filter-btn" aria-haspopup="dialog">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+          <span>Filters</span><b aria-hidden="true" hidden></b>
+        </button>
+      </div>
+      <div id="activeQueueFilters" class="active-filters" aria-label="Active filters" hidden></div>
 
-      <section class="section-block">
-        <div class="section-head">
-          <div>
-            <h2>Available to my role</h2>
-            <p>The wider work pool your current role and scope permit you to action.</p>
-          </div>
-          <span id="queueCount" class="count-pill">0</span>
-        </div>
+      <section class="section-block active-queue-block">
         <div id="queueList" class="case-list"></div>
-        <button id="loadMoreQueueBtn" type="button" class="ghost-btn load-more-btn" hidden>Load more cases</button>
-      </section>
-
-      <section class="section-block">
-        <div class="section-head">
-          <div>
-            <h2>Recent Activity</h2>
-            <p>Latest cases in this workflow.</p>
-          </div>
-          <span id="recentCount" class="count-pill">0</span>
-        </div>
-        <div id="recentList" class="case-list"></div>
-        <button id="loadMoreRecentBtn" type="button" class="ghost-btn load-more-btn" hidden>Load more cases</button>
+        <nav id="queuePagination" class="queue-pagination" aria-label="Case pages" hidden>
+          <button id="queuePreviousBtn" type="button" class="secondary">Previous</button>
+          <span id="queuePageLabel">Page 1 of 1</span>
+          <button id="queueNextBtn" type="button" class="secondary">Next</button>
+        </nav>
       </section>
     </section>
 
@@ -193,6 +185,7 @@
         <div class="form-grid">
           <label>Start on<select id="preferenceDefaultScreen"><option value="home">Queue</option><option value="new">Create case</option></select></label>
           <label class="check-label"><input id="preferenceCompactCards" type="checkbox"><span>Use compact case cards<small>Queue cards show the client, amount, product, branch, and next action only. Open a case for identifiers and timestamps.</small></span></label>
+          <label class="check-label"><input id="preferenceBusinessHours" type="checkbox"><span>Show business-hours time<small>Keep the optional Nairobi business-hours comparison visible alongside official wall-clock TAT.</small></span></label>
         </div>
         <div class="form-actions"><button id="savePersonalSettingsBtn" type="submit" class="secondary">Save my settings</button></div>
       </form>
@@ -303,6 +296,22 @@
         </div>
       </section>
     </section>
+    <div id="queueFilterOverlay" class="tat-sheet-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="queueFilterTitle" hidden>
+      <section id="queueFilterSheet" class="tat-sheet" tabindex="-1">
+        <header>
+          <div><p class="eyebrow">TAT queue</p><h2 id="queueFilterTitle">Filter cases</h2><p>Narrow the current queue without changing your access.</p></div>
+          <button id="closeQueueFiltersBtn" type="button" class="notice-close" aria-label="Close filters">&times;</button>
+        </header>
+        <form id="queueFilterForm" class="sheet-form">
+          <label>Product<select id="queueProductFilter"></select></label>
+          <label>Branch<select id="queueBranchFilter"></select></label>
+        </form>
+        <footer>
+          <button id="resetQueueFiltersBtn" type="button" class="secondary">Reset</button>
+          <button type="submit" form="queueFilterForm" class="primary">Apply filters</button>
+        </footer>
+      </section>
+    </div>
     <div id="noticeModal" class="notice-toast hidden" role="status" aria-live="polite" aria-labelledby="noticeTitle" aria-describedby="noticeMessage">
       <div class="notice-dialog">
         <span class="notice-icon" aria-hidden="true"></span>
@@ -318,6 +327,6 @@
   <script src="{% static 'miniapp/telegram.js' %}?v=2"></script>
   <script src="{% static 'miniapp/utils.js' %}?v=4"></script>
   <script src="{% static 'miniapp/tat_api.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=43"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=44"></script>
 </body>
 </html>

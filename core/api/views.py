@@ -491,6 +491,9 @@ def tat_tracker_home(request):
             recent_offset=_tat_home_offset(payload.get('recent_offset')),
             product_key=payload.get('product_key') or '',
             branch=payload.get('branch') or '',
+            queue=payload.get('queue') or 'role',
+            page=_tat_home_page(payload.get('page')),
+            page_size=_tat_home_page_size(payload.get('page_size')),
         ),
     })
 
@@ -534,6 +537,20 @@ def _tat_home_offset(value) -> int:
         return max(0, int(value or 0))
     except (TypeError, ValueError):
         return 0
+
+
+def _tat_home_page(value) -> int:
+    try:
+        return max(1, int(value or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _tat_home_page_size(value) -> int:
+    try:
+        return max(1, min(int(value or 25), 50))
+    except (TypeError, ValueError):
+        return 25
 
 
 @csrf_exempt

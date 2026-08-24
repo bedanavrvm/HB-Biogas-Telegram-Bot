@@ -78,7 +78,9 @@ DEFAULT_TAT_TARGETS_MINUTES = {
 NEAR_SLA_RATIO = Decimal('0.8')
 TAT_TARGET_MANAGER_ROLES = frozenset({'IT'})
 TAT_CASE_CORRECTION_ROLES = frozenset({'IT', BUSINESS_ADMIN_ROLE})
-TAT_HOME_PAGE_SIZE = 10
+TAT_HOME_PAGE_SIZE = 25
+TAT_HOME_QUEUES = frozenset({'assigned', 'role', 'all'})
+TAT_COMPLETED_STATUSES = frozenset({'Disbursed', 'Rejected', 'Declined'})
 TAT_CREATE_INTENT_NEW_LOAN = 'new_loan'
 
 
@@ -533,8 +535,14 @@ def home_data(
     page_size: int = TAT_HOME_PAGE_SIZE,
     product_key: str = '',
     branch: str = '',
+    queue: str = 'role',
+    page: int = 1,
 ) -> dict:
-    """Return independently paginated home lists for the TAT Mini App."""
+    """Return one compact queue plus filtered dashboard metrics.
+
+    The legacy ``action_required`` and ``recent`` collections remain in the
+    response for cached Mini App clients during the responsive-home rollout.
+    """
     workflow = getattr(group_config, 'workflow', None) or {}
     queryset = operational_tat_cases(
         TatTrackerCase.objects.filter(group_id=str(group_config.group_id), is_deleted=False)
@@ -557,13 +565,24 @@ def home_data(
     action_offset = max(0, int(action_offset or 0))
     recent_offset = max(0, int(recent_offset or 0))
     page_size = max(1, min(int(page_size or TAT_HOME_PAGE_SIZE), 50))
+    queue_key = str(queue or 'role').strip().lower()
+    if queue_key not in TAT_HOME_QUEUES:
+        queue_key = 'role'
+    current_page = max(1, int(page or 1))
+    page_offset = (current_page - 1) * page_size
 
-    recent_total = queryset.count()
-    recent_cases = queryset.order_by('-created_at')[recent_offset:recent_offset + page_size]
-    recent = [serialize_case_summary(case, user, workflow=workflow) for case in recent_cases]
+    cases = list(queryset.prefetch_related('approval_certificates'))
+    recent_total = len(cases)
+    recent_cases = sorted(cases, key=lambda item: item.updated_at, reverse=True)
+    recent = [
+        serialize_case_summary(case, user, workflow=workflow)
+        for case in recent_cases[recent_offset:recent_offset + page_size]
+    ]
 
     actionable_cases = []
-    for case in queryset.exclude(status__in=['Disbursed', 'Rejected', 'Declined']).order_by('-updated_at'):
+    for case in sorted(cases, key=lambda item: item.updated_at):
+        if case.status in TAT_COMPLETED_STATUSES:
+            continue
         next_stage = next_action(case)
         if next_stage and can_user_edit_stage(user, case, next_stage):
             actionable_cases.append((case, next_stage))
@@ -572,10 +591,97 @@ def home_data(
         serialize_case_summary(case, user, next_stage=next_stage, workflow=workflow)
         for case, next_stage in actionable_cases[action_offset:action_offset + page_size]
     ]
+    completed_total = sum(case.status in TAT_COMPLETED_STATUSES for case in cases)
+    stalled_case_ids = set()
+    for case in cases:
+        if case.status == 'Stalled':
+            stalled_case_ids.add(case.pk)
+            continue
+        if case.status in TAT_COMPLETED_STATUSES:
+            continue
+        stage = next_action(case)
+        if not stage:
+            continue
+        product = product_by_key(case.product_key)
+        target = stage_target_minutes_for_case(case, workflow, product, stage)
+        elapsed = stage_tat_minutes(case, stage)
+        if target is not None and target > 0 and elapsed is not None and elapsed > target:
+            stalled_case_ids.add(case.pk)
+
+    from core.services.tat_notifications import inbox_payload
+    from core.services.telegram_identity import database_group_configuration
+
+    assigned = inbox_payload(
+        user.get('_canonical_user'),
+        group=database_group_configuration(group_config),
+        group_id=str(group_config.group_id),
+        limit=page_size,
+        offset=page_offset if queue_key == 'assigned' else 0,
+        product_key=selected_product,
+        branch=selected_branch,
+    )
+
+    if queue_key == 'assigned':
+        items = assigned['items']
+        selected_total = assigned['total']
+    elif queue_key == 'all':
+        items = [
+            serialize_case_summary(case, user, workflow=workflow)
+            for case in recent_cases[page_offset:page_offset + page_size]
+        ]
+        selected_total = recent_total
+    else:
+        items = [
+            serialize_case_summary(case, user, next_stage=next_stage, workflow=workflow)
+            for case, next_stage in actionable_cases[page_offset:page_offset + page_size]
+        ]
+        selected_total = action_total
+
+    selected_pages = max(1, (selected_total + page_size - 1) // page_size)
+    if current_page > selected_pages:
+        current_page = selected_pages
+        page_offset = (current_page - 1) * page_size
+        if queue_key == 'assigned':
+            assigned = inbox_payload(
+                user.get('_canonical_user'),
+                group=database_group_configuration(group_config),
+                group_id=str(group_config.group_id),
+                limit=page_size,
+                offset=page_offset,
+                product_key=selected_product,
+                branch=selected_branch,
+            )
+            items = assigned['items']
+        elif queue_key == 'all':
+            items = [
+                serialize_case_summary(case, user, workflow=workflow)
+                for case in recent_cases[page_offset:page_offset + page_size]
+            ]
+        else:
+            items = [
+                serialize_case_summary(case, user, next_stage=next_stage, workflow=workflow)
+                for case, next_stage in actionable_cases[page_offset:page_offset + page_size]
+            ]
+
+    selected_pagination = pagination_payload(page_offset, page_size, selected_total, len(items))
+    selected_pagination.update({
+        'page': current_page,
+        'pages': selected_pages,
+    })
     return {
+        'queue': queue_key,
+        'items': items,
+        'metrics': {
+            'assigned': assigned['total'],
+            'role': action_total,
+            'total': recent_total,
+            'completed': completed_total,
+            'stalled': len(stalled_case_ids),
+        },
         'recent': recent,
         'action_required': action_required,
         'pagination': {
+            **selected_pagination,
             'recent': pagination_payload(recent_offset, page_size, recent_total, len(recent)),
             'action_required': pagination_payload(action_offset, page_size, action_total, len(action_required)),
         },

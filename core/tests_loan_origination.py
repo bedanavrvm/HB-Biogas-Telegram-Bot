@@ -58,6 +58,7 @@ from core.services.origination_documents import (
 from core.services.origination_templates import attach_shared_supporting_template
 from core.services.origination_signing import (
     _validated_signature_capture,
+    _slot_overlay,
     _test_overlay,
     serialize_test_signing,
     simulate_slot,
@@ -712,6 +713,11 @@ class LoanOriginationServiceTests(TestCase):
         stamp_pdf = PdfReader(BytesIO(_test_overlay(200, 100, [(stamp_slot, stamp)])))
         self.assertEqual(len(stamp_pdf.pages), 1)
         self.assertIn('TEST ONLY - NOT LEGALLY SIGNED', stamp_pdf.pages[0].extract_text())
+
+    def test_verified_overlay_without_slots_still_has_one_mergeable_page(self):
+        overlay = PdfReader(BytesIO(_slot_overlay(200, 100, [], test_mode=False)))
+
+        self.assertEqual(len(overlay.pages), 1)
 
     def test_superuser_may_review_own_submission_as_break_glass_override(self):
         self.officer.is_superuser = True

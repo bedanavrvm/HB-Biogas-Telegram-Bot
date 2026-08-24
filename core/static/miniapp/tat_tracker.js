@@ -14,12 +14,15 @@
     pendingCreateRequestId: readPendingCreateRequestId(),
     creatingCase: false,
     refreshing: false,
-    home: { action_required: [], recent: [], pagination: {} },
+    home: { queue: 'role', items: [], metrics: {}, pagination: {} },
+    homeQueue: 'role',
+    homePages: { assigned: 1, role: 1, all: 1 },
+    autoSelectHomeQueue: true,
     // Keep the last server-confirmed queue so a transient return request
     // cannot leave the user looking at an empty list.
     lastSuccessfulHome: null,
     homeRequestNumber: 0,
-    loadingHomePage: { action_required: false, recent: false },
+    loadingHomePage: false,
     identityContextRequestNumber: 0,
     identityContextTimer: null,
     pendingCorrection: null,
@@ -27,6 +30,9 @@
     taskInbox: { items: [], unread_count: 0, total: 0 },
     pendingStageUpdate: null,
     directTask: null,
+    filterSheetOpen: false,
+    filterSheetReturnFocus: null,
+    personalPreference: { show_business_hours_time: true },
   };
 
   const $ = (id) => document.getElementById(id);
@@ -256,7 +262,9 @@
   }
 
   function formatMinutes(value) {
-    const number = Number(String(value || '').replace(/,/g, '').trim());
+    const raw = String(value == null ? '' : value).replace(/,/g, '').trim();
+    if (!raw) return '';
+    const number = Number(raw);
     if (!Number.isFinite(number)) return '';
     let minutes = Math.max(0, Math.round(number));
     const days = Math.floor(minutes / 1440);
@@ -342,7 +350,7 @@
           ${escapeHtml(utils.formatDateTime ? utils.formatDateTime(item.updated_at) : (item.updated_at || ''))}
         </span>
       </div>`;
-    button.addEventListener('click', () => openCase(item.case_id));
+    button.addEventListener('click', () => openCase(item.case_id, item.stage_key || ''));
     return button;
   }
 
@@ -403,31 +411,70 @@
     }
   }
 
-  function renderHome(data, appendList) {
+  function queuePresentation(queue) {
+    if (queue === 'assigned') return ['Assigned to me', 'No assigned tasks', 'Direct primary and backup work will appear here.'];
+    if (queue === 'all') return ['All cases', 'No cases found', 'Change the filters or create a case.'];
+    return ['Available to my roles', 'No role actions', 'Cases your current roles can action will appear here.'];
+  }
+
+  function renderActiveFilters() {
+    const filters = currentHomeFilters();
+    const chips = [];
+    const product = ((state.data || {}).products || []).find((item) => item.key === filters.product_key);
+    if (filters.product_key) chips.push(['product_key', product ? product.label : filters.product_key]);
+    if (filters.branch) chips.push(['branch', filters.branch]);
+    const container = $('activeQueueFilters');
+    container.hidden = !chips.length;
+    container.innerHTML = chips.map(([key, label]) => (
+      `<button type="button" class="filter-chip" data-remove-filter="${escapeHtml(key)}"><span>${escapeHtml(label)}</span><span aria-hidden="true">&times;</span></button>`
+    )).join('');
+    container.querySelectorAll('[data-remove-filter]').forEach((button) => button.addEventListener('click', async () => {
+      if (button.dataset.removeFilter === 'product_key') $('queueProductFilter').value = '';
+      if (button.dataset.removeFilter === 'branch') $('queueBranchFilter').value = '';
+      await applyQueueFilters();
+    }));
+    $('openQueueFiltersBtn').classList.toggle('active', Boolean(chips.length));
+    $('openQueueFiltersBtn').querySelector('b').hidden = !chips.length;
+  }
+
+  function renderHome(data) {
     const page = data || {};
-    const pagination = page.pagination || {};
-    if (appendList) {
-      state.home[appendList] = state.home[appendList].concat(page[appendList] || []);
-      state.home.pagination[appendList] = pagination[appendList] || {};
-    } else {
-      state.home = {
-        action_required: page.action_required || [],
-        recent: page.recent || [],
-        pagination,
-      };
-    }
-    const actionRequired = state.home.action_required;
-    const recent = state.home.recent;
-    const actionTotal = (state.home.pagination.action_required || {}).total;
-    const recentTotal = (state.home.pagination.recent || {}).total;
-    $('queueCount').textContent = actionTotal == null ? actionRequired.length : actionTotal;
-    $('recentCount').textContent = recentTotal == null ? recent.length : recentTotal;
-    $('statQueue').textContent = actionTotal == null ? actionRequired.length : actionTotal;
-    $('statRecent').textContent = recentTotal == null ? recent.length : recentTotal;
-    renderList('queueList', actionRequired, 'No action needed', 'Cases that need your role will appear here.');
-    renderList('recentList', recent, 'No recent cases', 'Create a case or search existing records.');
-    updateLoadMoreButton('loadMoreQueueBtn', state.home.pagination.action_required, 'Needs My Action');
-    updateLoadMoreButton('loadMoreRecentBtn', state.home.pagination.recent, 'Recent Activity');
+    const legacyItems = state.homeQueue === 'all' ? (page.recent || []) : (page.action_required || []);
+    state.home = {
+      queue: page.queue || state.homeQueue,
+      items: page.items || legacyItems,
+      metrics: page.metrics || {},
+      pagination: page.pagination || {},
+    };
+    state.homeQueue = state.home.queue;
+    state.homePages[state.homeQueue] = Number(state.home.pagination.page || state.homePages[state.homeQueue] || 1);
+    const metrics = state.home.metrics;
+    const values = {
+      statAssigned: metrics.assigned,
+      statRoleQueue: metrics.role,
+      statTotal: metrics.total,
+      statCompleted: metrics.completed,
+      statStalled: metrics.stalled,
+      assignedTabCount: metrics.assigned,
+      roleTabCount: metrics.role,
+      allTabCount: metrics.total,
+    };
+    Object.entries(values).forEach(([id, value]) => { $(id).textContent = Number(value || 0); });
+    document.querySelectorAll('[data-home-queue]').forEach((button) => {
+      button.classList.toggle('active', button.dataset.homeQueue === state.homeQueue);
+    });
+    const presentation = queuePresentation(state.homeQueue);
+    $('activeQueueHeading').textContent = presentation[0];
+    const total = Number(state.home.pagination.total ?? state.home.items.length);
+    $('activeQueueCount').textContent = `${total} ${total === 1 ? 'case' : 'cases'}`;
+    renderList('queueList', state.home.items, presentation[1], presentation[2]);
+    const pages = Number(state.home.pagination.pages || 1);
+    const currentPage = Number(state.home.pagination.page || 1);
+    $('queuePagination').hidden = pages <= 1;
+    $('queuePageLabel').textContent = `Page ${currentPage} of ${pages}`;
+    $('queuePreviousBtn').disabled = currentPage <= 1;
+    $('queueNextBtn').disabled = currentPage >= pages;
+    renderActiveFilters();
   }
 
   function renderTaskInbox(inbox) {
@@ -435,6 +482,7 @@
     state.taskInbox = data;
     const section = $('privateTaskSection');
     const list = $('privateTaskList');
+    if (!section || !list) return;
     const items = data.items || [];
     $('privateTaskCount').textContent = data.unread_count || data.total || items.length;
     section.hidden = !items.length;
@@ -518,12 +566,10 @@
 
   function snapshotHome() {
     return {
-      action_required: (state.home.action_required || []).slice(),
-      recent: (state.home.recent || []).slice(),
-      pagination: Object.assign({}, state.home.pagination || {}, {
-        action_required: Object.assign({}, (state.home.pagination || {}).action_required || {}),
-        recent: Object.assign({}, (state.home.pagination || {}).recent || {}),
-      }),
+      queue: state.home.queue,
+      items: (state.home.items || []).slice(),
+      metrics: Object.assign({}, state.home.metrics || {}),
+      pagination: Object.assign({}, state.home.pagination || {}),
       filters: currentHomeFilters(),
     };
   }
@@ -535,25 +581,15 @@
   }
 
   function homeHasItems(home) {
-    return Boolean(
-      home
-      && ((home.action_required && home.action_required.length)
-        || (home.recent && home.recent.length)),
-    );
+    return Boolean(home && home.items && home.items.length);
   }
 
   function sameHomeFilters(left, right) {
     return Boolean(left && right)
       && String(left.product_key || '') === String(right.product_key || '')
-      && String(left.branch || '') === String(right.branch || '');
-  }
-
-  function updateLoadMoreButton(id, page, label) {
-    const button = $(id);
-    const total = Number((page || {}).total || 0);
-    const shown = (page || {}).offset + (page || {}).page_size;
-    button.hidden = !(page || {}).has_more;
-    button.textContent = total ? `Load more ${label} (${Math.max(total - shown, 0)} remaining)` : `Load more ${label}`;
+      && String(left.branch || '') === String(right.branch || '')
+      && String(left.queue || '') === String(right.queue || '')
+      && Number(left.page || 1) === Number(right.page || 1);
   }
 
   function fillSelect(select, items, valueKey, labelKey) {
@@ -567,7 +603,10 @@
   }
 
   function fillFilterSelect(select, items, valueKey, labelKey, allLabel) {
-    const options = [{ value: '', label: allLabel }].concat(items || []);
+    const allOption = {};
+    allOption[valueKey] = '';
+    allOption[labelKey] = allLabel;
+    const options = [allOption].concat(items || []);
     fillSelect(select, options, valueKey, labelKey);
   }
 
@@ -575,11 +614,80 @@
     return {
       product_key: $('queueProductFilter') ? $('queueProductFilter').value : '',
       branch: $('queueBranchFilter') ? $('queueBranchFilter').value : '',
+      queue: state.homeQueue,
+      page: state.homePages[state.homeQueue] || 1,
     };
   }
 
   function homePayload(extra) {
-    return Object.assign({}, currentHomeFilters(), extra || {});
+    return Object.assign({ page_size: 25 }, currentHomeFilters(), extra || {});
+  }
+
+  function focusableSheetElements() {
+    return Array.from($('queueFilterSheet').querySelectorAll('button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+  }
+
+  function openQueueFilters(trigger) {
+    state.filterSheetOpen = true;
+    state.filterSheetReturnFocus = trigger || document.activeElement;
+    $('queueFilterOverlay').hidden = false;
+    $('queueFilterOverlay').setAttribute('aria-hidden', 'false');
+    document.body.classList.add('tat-sheet-open');
+    $('queueFilterSheet').focus();
+    tg?.BackButton?.show?.();
+  }
+
+  function closeQueueFilters(options) {
+    if (!state.filterSheetOpen) return;
+    state.filterSheetOpen = false;
+    $('queueFilterOverlay').hidden = true;
+    $('queueFilterOverlay').setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('tat-sheet-open');
+    if (state.currentView !== 'detail') tg?.BackButton?.hide?.();
+    if (!(options && options.restoreFocus === false)) state.filterSheetReturnFocus?.focus?.();
+    state.filterSheetReturnFocus = null;
+  }
+
+  function trapFilterSheetFocus(event) {
+    if (event.key !== 'Tab') return;
+    const focusable = focusableSheetElements();
+    if (!focusable.length) return event.preventDefault();
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  async function applyQueueFilters() {
+    Object.keys(state.homePages).forEach((key) => { state.homePages[key] = 1; });
+    closeQueueFilters({ restoreFocus: false });
+    window.scrollTo(0, 0);
+    await refresh();
+    $('openQueueFiltersBtn').focus();
+  }
+
+  async function selectHomeQueue(queue) {
+    if (!['assigned', 'role', 'all'].includes(queue) || queue === state.homeQueue) return;
+    state.autoSelectHomeQueue = false;
+    state.homeQueue = queue;
+    window.scrollTo(0, 0);
+    await refresh();
+  }
+
+  async function changeHomePage(delta) {
+    const pagination = state.home.pagination || {};
+    const current = Number(pagination.page || 1);
+    const pages = Number(pagination.pages || 1);
+    const next = Math.max(1, Math.min(pages, current + delta));
+    if (next === current) return;
+    state.homePages[state.homeQueue] = next;
+    window.scrollTo(0, 0);
+    await refresh();
   }
 
   function isTargetManager() {
@@ -799,6 +907,7 @@
     if ($('tatSettingsRelease')) $('tatSettingsRelease').textContent = result.data.account?.app_release || 'Current release';
     $('preferenceDefaultScreen').value = personal.default_screen || 'home';
     $('preferenceCompactCards').checked = Boolean(personal.compact_cards);
+    $('preferenceBusinessHours').checked = personal.show_business_hours_time !== false;
     const targetCard = (configuration.cards || {}).tat_targets || {};
     $('targetSettingsForm').classList.toggle('hidden', !targetCard.can_propose);
     if (targetCard.can_propose) renderTargetSettings(configuration.targets || []);
@@ -830,6 +939,7 @@
     const personal = preference || {};
     state.personalPreference = personal;
     document.body.classList.toggle('compact-cards', Boolean(personal.compact_cards));
+    document.body.classList.toggle('hide-business-hours-time', personal.show_business_hours_time === false);
     const savedFilters = personal.default_filters || {};
     const hasOption = (select, value) => Array.from(select.options).some((option) => option.value === String(value));
     if (savedFilters.product_key && hasOption($('queueProductFilter'), savedFilters.product_key)) {
@@ -849,7 +959,7 @@
     $('loadingBrand').classList.add('hidden');
     const modeBanner = $('workflowModeBanner');
     if (modeBanner && state.workflowMode) {
-      modeBanner.hidden = false;
+      modeBanner.hidden = !state.workflowMode.is_pilot;
       modeBanner.classList.toggle('pilot', Boolean(state.workflowMode.is_pilot));
       modeBanner.textContent = state.workflowMode.is_pilot
         ? 'PILOT MODE · Entries are test data in the active pilot cycle.'
@@ -862,7 +972,6 @@
     });
     const roles = (user.roles || []).join(', ') || 'Staff';
     $('userLine').textContent = `${user.name || 'Staff'} | ${roles}`;
-    $('statRole').textContent = user.name || 'Staff';
     fillSelect(document.querySelector('[name="product_key"]'), data.products, 'key', 'label');
     document.querySelector('[name="product_key"]')?.addEventListener('change', renderNewCaseProductConfiguration);
     renderNewCaseProductConfiguration();
@@ -881,15 +990,21 @@
     );
     fillSelect(broInput, broOptions, 'value', 'label');
     if ((data.bro_names || []).includes(currentUserName())) broInput.value = currentUserName();
+    const initialQueue = Number((data.metrics || {}).assigned || 0) > 0 ? 'assigned' : 'role';
+    state.homeQueue = initialQueue;
+    state.homePages[initialQueue] = 1;
     renderHome(data);
-    renderTaskInbox(data.task_inbox || {});
     renderPrivateAlertConnection(data.private_alerts || {});
-    state.lastSuccessfulHome = snapshotHome();
     $('trackerTabs').classList.add('has-settings');
     const initialView = applyPersonalPreference(data.personal || {});
     show(initialView);
-    if (currentHomeFilters().product_key || currentHomeFilters().branch) refresh({ background: true }).catch(() => {});
-    setStatus('Ready.', 'ok');
+    if (state.home.queue !== initialQueue || currentHomeFilters().product_key || currentHomeFilters().branch) {
+      state.homeQueue = initialQueue;
+      refresh({ background: true }).catch(() => {});
+    } else {
+      state.lastSuccessfulHome = snapshotHome();
+    }
+    setStatus('');
   }
 
   function productConfigurationControl(item, value, dataName) {
@@ -954,6 +1069,7 @@
         && homeHasItems(cachedHome)
         && sameHomeFilters(cachedHome.filters, currentHomeFilters())
         && !homeHasItems(nextHome)
+        && !nextHome.metrics
       ) {
         throw new Error('Queue refresh returned no cases. Showing the last loaded queue; tap Refresh to retry.');
       }
@@ -961,6 +1077,17 @@
       // current queue with stale (or empty) data.
       if (requestNumber !== state.homeRequestNumber) return result;
       renderHome(nextHome);
+      if (
+        state.autoSelectHomeQueue
+        && state.homeQueue === 'assigned'
+        && Number((state.home.metrics || {}).assigned || 0) === 0
+        && Number((state.home.metrics || {}).role || 0) > 0
+      ) {
+        state.autoSelectHomeQueue = false;
+        state.homeQueue = 'role';
+        return refresh(options);
+      }
+      state.autoSelectHomeQueue = false;
       state.lastSuccessfulHome = snapshotHome();
       if (!background) setStatus('Queue updated.', 'ok');
       return result;
@@ -1042,7 +1169,7 @@
         <div class="fact">
           <small>Official TAT (wall clock)</small>
           <span class="tat-badge ${escapeHtml(summary.sla_status || '')}">${escapeHtml(formatMinutes(summary.wall_clock_minutes || summary.tat_minutes) || 'Not started')}</span>
-          ${summary.business_minutes ? `<details class="tat-business-time"><summary>Show business-hours time</summary><small>${escapeHtml(formatMinutes(summary.business_minutes))}</small></details>` : ''}
+          ${summary.business_minutes && state.personalPreference.show_business_hours_time !== false ? `<details class="tat-business-time"><summary>Show business-hours time</summary><small>${escapeHtml(formatMinutes(summary.business_minutes))}</small></details>` : ''}
         </div>
         <div class="fact fact-activity">
           <small>Activity</small>
@@ -1082,7 +1209,7 @@
           <span class="tat-badge ${escapeHtml(field.sla_status || '')}">${escapeHtml(tatText)}</span>
           ${targetText ? `<span class="tat-target">Target ${escapeHtml(targetText)}</span>` : ''}
           ${slaText ? `<span class="tat-target">${escapeHtml(slaText)}</span>` : ''}
-          ${businessText ? `<details class="tat-business-time"><summary>Business-hours time</summary><span class="tat-target">${escapeHtml(businessText)}</span></details>` : ''}
+          ${businessText && state.personalPreference.show_business_hours_time !== false ? `<details class="tat-business-time"><summary>Business-hours time</summary><span class="tat-target">${escapeHtml(businessText)}</span></details>` : ''}
         </div>
       ` : '';
       const certificateMeta = field.certificate_status ? `<div class="stage-tat-row"><span class="tat-target">Certificate: ${escapeHtml(field.certificate_status.replace(/_/g, ' '))}</span></div>` : '';
@@ -1376,6 +1503,7 @@
       });
       state.pendingStageUpdate = null;
       await loadTaskInbox();
+      refresh({ background: true }).catch(() => {});
       setStatus(value === 'STAMP' ? `${field.label} stamped.` : `${field.label} recorded.`, 'ok');
     } catch (error) {
       if (!isButton) control.value = field.value || '';
@@ -1402,28 +1530,6 @@
     renderDetail(result.data);
     setStatus('Saved.', 'ok');
     return result.data;
-  }
-
-  async function loadMoreHome(kind) {
-    if (state.loadingHomePage[kind]) return;
-    const buttonId = kind === 'action_required' ? 'loadMoreQueueBtn' : 'loadMoreRecentBtn';
-    const button = $(buttonId);
-    const offset = (state.home[kind] || []).length;
-    try {
-      state.loadingHomePage[kind] = true;
-      setButtonLoading(button, true, 'Loading');
-      const payload = kind === 'action_required'
-        ? { action_offset: offset }
-        : { recent_offset: offset };
-      const result = await api('/api/tat-tracker/home/', homePayload(payload));
-      renderHome(result.data, kind);
-      state.lastSuccessfulHome = snapshotHome();
-    } catch (error) {
-      setStatus(error.message, 'error');
-    } finally {
-      state.loadingHomePage[kind] = false;
-      setButtonLoading(button, false);
-    }
   }
 
   async function saveDropdownStageUpdate(select, field) {
@@ -1458,10 +1564,26 @@
     }
   });
   $('backBtn').addEventListener('click', returnToQueue);
-  $('loadMoreQueueBtn').addEventListener('click', () => loadMoreHome('action_required'));
-  $('loadMoreRecentBtn').addEventListener('click', () => loadMoreHome('recent'));
-  $('queueProductFilter').addEventListener('change', () => refresh().catch(() => {}));
-  $('queueBranchFilter').addEventListener('change', () => refresh().catch(() => {}));
+  document.querySelectorAll('[data-home-queue]').forEach((button) => button.addEventListener('click', () => {
+    selectHomeQueue(button.dataset.homeQueue).catch((error) => setStatus(error.message, 'error'));
+  }));
+  $('queuePreviousBtn').addEventListener('click', () => changeHomePage(-1).catch((error) => setStatus(error.message, 'error')));
+  $('queueNextBtn').addEventListener('click', () => changeHomePage(1).catch((error) => setStatus(error.message, 'error')));
+  $('openQueueFiltersBtn').addEventListener('click', (event) => openQueueFilters(event.currentTarget));
+  $('closeQueueFiltersBtn').addEventListener('click', () => closeQueueFilters());
+  $('queueFilterOverlay').addEventListener('click', (event) => {
+    if (event.target === event.currentTarget) closeQueueFilters();
+  });
+  $('queueFilterSheet').addEventListener('keydown', trapFilterSheetFocus);
+  $('queueFilterForm').addEventListener('submit', (event) => {
+    event.preventDefault();
+    applyQueueFilters().catch((error) => setStatus(error.message, 'error'));
+  });
+  $('resetQueueFiltersBtn').addEventListener('click', () => {
+    $('queueProductFilter').value = '';
+    $('queueBranchFilter').value = '';
+    applyQueueFilters().catch((error) => setStatus(error.message, 'error'));
+  });
   $('saveRemarksBtn').addEventListener('click', async (event) => {
     const button = event.currentTarget;
     try {
@@ -1627,11 +1749,13 @@
         preferences: {
           default_screen: $('preferenceDefaultScreen').value,
           compact_cards: $('preferenceCompactCards').checked,
+          show_business_hours_time: $('preferenceBusinessHours').checked,
         },
       });
       applyPersonalPreference(result.data || {
         compact_cards: $('preferenceCompactCards').checked,
         default_screen: $('preferenceDefaultScreen').value,
+        show_business_hours_time: $('preferenceBusinessHours').checked,
       });
       setStatus($('preferenceCompactCards').checked
         ? 'Compact cards saved. Queue cards now hide identifiers and timestamps; open a case for full detail.'
@@ -1649,6 +1773,14 @@
     setStatus(enabled
       ? 'Compact queue preview on. Save my settings to keep it.'
       : 'Standard queue preview on. Save my settings to keep it.', 'ok');
+  });
+
+  $('preferenceBusinessHours').addEventListener('change', () => {
+    const enabled = $('preferenceBusinessHours').checked;
+    state.personalPreference.show_business_hours_time = enabled;
+    document.body.classList.toggle('hide-business-hours-time', !enabled);
+    if (state.detail) renderDetail(state.detail);
+    setStatus(`${enabled ? 'Business-hours comparison shown' : 'Business-hours comparison hidden'}. Save my settings to keep it.`, 'ok');
   });
 
   ['national_id', 'primary_phone'].forEach((fieldName) => {
@@ -1674,8 +1806,12 @@
   }
 
   configureHtmx();
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && state.filterSheetOpen) closeQueueFilters();
+  });
   if (tg && tg.BackButton && typeof tg.BackButton.onClick === 'function') {
     tg.BackButton.onClick(() => {
+      if (state.filterSheetOpen) return closeQueueFilters();
       if (state.currentView === 'detail') {
         returnToQueue();
       }

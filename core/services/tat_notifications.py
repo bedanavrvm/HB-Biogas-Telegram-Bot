@@ -686,9 +686,20 @@ def refresh_group_exception(group_id, *, role: str = '') -> None:
         status.save()
 
 
-def inbox_payload(user, *, group=None, limit: int = 50) -> dict:
+def inbox_payload(
+    user,
+    *,
+    group=None,
+    group_id: str = '',
+    limit: int = 50,
+    offset: int = 0,
+    product_key: str = '',
+    branch: str = '',
+) -> dict:
     if not user or not user.is_active:
-        return {'items': [], 'unread_count': 0, 'total': 0}
+        return {'items': [], 'unread_count': 0, 'total': 0, 'pagination': {
+            'offset': 0, 'page_size': max(1, min(limit, 100)), 'total': 0, 'has_more': False,
+        }}
     recipients = TatActionTaskRecipient.objects.select_related(
         'task__case', 'task__group_configuration',
     ).filter(
@@ -697,13 +708,23 @@ def inbox_payload(user, *, group=None, limit: int = 50) -> dict:
     )
     if group:
         recipients = recipients.filter(task__group_configuration=group)
+    elif str(group_id or '').strip():
+        recipients = recipients.filter(task__case__group_id=str(group_id).strip())
+    selected_product = str(product_key or '').strip()
+    selected_branch = str(branch or '').strip()
+    if selected_product:
+        recipients = recipients.filter(task__case__product_key=selected_product)
+    if selected_branch:
+        recipients = recipients.filter(task__case__branch=selected_branch)
     grants = [] if user.is_superuser else list(AccessGrant.objects.filter(
         user=user, workflow='tat_tracker', active=True,
     ).select_related('user', 'group_configuration'))
-    rows = []
+    eligible = []
     total = 0
     unread_count = 0
     bounded_limit = max(1, min(limit, 100))
+    bounded_offset = max(0, int(offset or 0))
+    seen_case_ids = set()
     for recipient in recipients.order_by('task__created_at'):
         task = recipient.task
         if not user.is_superuser and not any(_grant_matches(
@@ -714,22 +735,46 @@ def inbox_payload(user, *, group=None, limit: int = 50) -> dict:
             role=task.responsible_role,
         ) for grant in grants):
             continue
+        if task.case_id in seen_case_ids:
+            continue
+        seen_case_ids.add(task.case_id)
         total += 1
         unread_count += int(recipient.inbox_status == TatActionTaskRecipient.INBOX_UNREAD)
-        if len(rows) >= bounded_limit:
-            continue
+        eligible.append((recipient, task))
+    rows = []
+    for recipient, task in eligible[bounded_offset:bounded_offset + bounded_limit]:
+        case = task.case
         rows.append({
             'task_id': str(task.pk), 'case_id': task.case.case_id,
             'stage_key': task.stage_key, 'stage_label': task.stage_label,
             'role': task.responsible_role, 'kind': recipient.kind,
-            'branch': task.case.branch,
-            'product': task.case.product_label or task.case.product_key,
+            'branch': case.branch,
+            'product': case.product_label or case.product_key,
+            'product_key': case.product_key,
+            'client_name': case.client_name,
+            'national_id': case.national_id,
+            'primary_phone': case.primary_phone,
+            'amount': str(case.amount or ''),
+            'status': case.status,
+            'current_stage': case.current_stage,
+            'next_stage': task.stage_label,
             'workflow_revision': task.case_revision,
             'unread': recipient.inbox_status == TatActionTaskRecipient.INBOX_UNREAD,
             'delivery_state': recipient.delivery_state,
             'created_at': task.created_at.isoformat(),
+            'updated_at': case.updated_at.isoformat(),
         })
-    return {'items': rows, 'unread_count': unread_count, 'total': total}
+    return {
+        'items': rows,
+        'unread_count': unread_count,
+        'total': total,
+        'pagination': {
+            'offset': bounded_offset,
+            'page_size': bounded_limit,
+            'total': total,
+            'has_more': bounded_offset + len(rows) < total,
+        },
+    }
 
 
 @transaction.atomic

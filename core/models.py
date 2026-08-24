@@ -3336,6 +3336,7 @@ class UserMiniAppPreference(models.Model):
     default_screen = models.CharField(max_length=80, blank=True, default='')
     default_filters = models.JSONField(blank=True, default=dict)
     compact_cards = models.BooleanField(default=False)
+    show_business_hours_time = models.BooleanField(default=True)
     alert_mode = models.CharField(max_length=16, choices=ALERT_CHOICES, default=ALERT_IMMEDIATE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

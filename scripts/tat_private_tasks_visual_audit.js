@@ -20,6 +20,9 @@ const task = {
   stage_key: 'mpesa_to_admin',
   stage_label: 'MPESA sent to Admin',
   role: 'BRO', kind: 'primary', branch: 'Nakuru', product: 'Business',
+  product_key: 'business', client_name: 'Synthetic Applicant', amount: '25000',
+  national_id: '00000000', primary_phone: '254700000000', status: 'Active',
+  next_stage: 'MPESA sent to Admin', updated_at: '2026-08-22T09:00:00+03:00',
   workflow_revision: 1, unread: true, delivery_state: 'delivered',
   created_at: '2026-08-22T09:00:00+03:00',
 };
@@ -30,11 +33,23 @@ const bootstrap = {
   workflow_mode: { mode: 'production', is_pilot: false, mode_version: 1 },
   products: [{ key: 'business', label: 'Business' }], branches: ['Nakuru'],
   bro_names: ['Synthetic Officer'], action_required: [], recent: [],
-  pagination: { action_required: { total: 0 }, recent: { total: 0 } },
+  queue: 'assigned', items: [task],
+  metrics: { assigned: 1, role: 1, total: 1, completed: 0, stalled: 0 },
+  pagination: { page: 1, pages: 1, total: 1, page_size: 25, action_required: { total: 1 }, recent: { total: 1 } },
   task_inbox: { items: [task], unread_count: 1, total: 1 },
   private_alerts: { status: 'connected', connected: true },
-  personal: { default_screen: 'home', compact_cards: true, default_filters: {} },
+  personal: { default_screen: 'home', compact_cards: true, show_business_hours_time: true, default_filters: {} },
 };
+
+function homeData() {
+  if (!stamped) return bootstrap;
+  return {
+    ...bootstrap,
+    items: [],
+    metrics: { ...bootstrap.metrics, assigned: 0 },
+    pagination: { ...bootstrap.pagination, total: 0 },
+  };
+}
 
 const detail = {
   summary: {
@@ -42,10 +57,12 @@ const detail = {
     product_key: 'business', branch: 'Nakuru', status: 'Active', amount: '25000',
     national_id: '00000000', primary_phone: '254700000000', next_stage: task.stage_label,
     workflow_revision: 1, created_at: task.created_at, updated_at: task.created_at,
+    business_minutes: '45', wall_clock_minutes: '60', tat_minutes: '60',
   },
   fields: [{
     key: task.stage_key, label: task.stage_label, role: 'BRO', kind: 'timestamp',
     value: '', raw_value: '', editable: true, locked_reason: '', options: [],
+    business_minutes: '30', tat_minutes: '40',
   }],
   remarks: '', events: [], timeline: [], product_requirements: [],
   product_custom_values: {}, correction_branches: ['Nakuru'], can_correct_details: false,
@@ -95,7 +112,7 @@ async function installMocks(page) {
           body: JSON.stringify({ ok: false, error: 'Synthetic queue outage.' }),
         });
       }
-      return json(bootstrap);
+      return json(homeData());
     }
     return json({});
   });
@@ -107,6 +124,7 @@ async function installMocks(page) {
   try {
     for (const viewport of viewports) {
       stamped = false;
+      bootstrap.personal.show_business_hours_time = viewport.width >= 390;
       currentKind = viewport.width >= 390 ? 'dropdown' : 'timestamp';
       detail.fields[0].value = '';
       detail.fields[0].editable = true;
@@ -115,20 +133,32 @@ async function installMocks(page) {
       const page = await browser.newPage({ viewport });
       await installMocks(page);
       await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
-      await page.locator('#privateTaskSection:not([hidden])').waitFor();
+      await page.locator('#queueList .case-card').waitFor();
       const layout = await page.evaluate(() => ({
         documentWidth: document.documentElement.scrollWidth,
         viewportWidth: document.documentElement.clientWidth,
-        taskTop: document.querySelector('.task-inbox-card').getBoundingClientRect().top,
-        taskWidth: document.querySelector('.task-inbox-card').getBoundingClientRect().width,
+        taskTop: document.querySelector('#queueList .case-card').getBoundingClientRect().top,
+        taskWidth: document.querySelector('#queueList .case-card').getBoundingClientRect().width,
       }));
       assert(layout.documentWidth <= layout.viewportWidth + 1, `${viewport.name}: document-level horizontal overflow`);
-      assert(layout.taskTop < viewport.height * 0.75, `${viewport.name}: first private task wastes too much vertical space`);
+      assert(layout.taskTop < viewport.height * 0.75, `${viewport.name}: first private task wastes too much vertical space (${layout.taskTop}px)`);
       assert(layout.taskWidth >= viewport.width - 40, `${viewport.name}: task card does not use the compact viewport width`);
+      assert(await page.locator('.filter-chip').count() === 0, `${viewport.name}: empty filters rendered as an active chip`);
+      assert(await page.locator('#queuePagination').isHidden(), `${viewport.name}: one-page queue rendered redundant pagination`);
 
-      await page.locator('.task-inbox-card').click();
+      await page.locator('#openQueueFiltersBtn').click();
+      await page.locator('#queueFilterOverlay:not([hidden])').waitFor();
+      assert(await page.locator('#queueFilterOverlay').getAttribute('role') === 'dialog', `${viewport.name}: filter sheet lost dialog semantics`);
+      await page.locator('#closeQueueFiltersBtn').click();
+      await page.screenshot({ path: path.join(outputDir, `home-${viewport.name}.png`), fullPage: true });
+      await page.locator('#queueList .case-card').click();
       const control = page.locator(currentKind === 'dropdown' ? '.stage-action-wrap select' : '.stage-action-wrap button');
       await control.waitFor();
+      const businessTimeCount = await page.getByText('Business-hours time', { exact: true }).count();
+      assert(
+        viewport.width >= 390 ? businessTimeCount > 0 : businessTimeCount === 0,
+        `${viewport.name}: business-hours visibility preference was not applied`,
+      );
       assert(await page.locator('#stageConfirmSheet').count() === 0, `${viewport.name}: redundant confirmation card remains in the Mini App`);
       const callsBefore = updateCalls;
       if (currentKind === 'dropdown') await control.selectOption('Approved');

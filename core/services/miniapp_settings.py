@@ -120,6 +120,7 @@ def preference_payload(user, workflow: str) -> dict[str, Any]:
             'default_screen': '',
             'default_filters': {},
             'compact_cards': False,
+            'show_business_hours_time': True,
             'alert_mode': UserMiniAppPreference.ALERT_IMMEDIATE,
         }
     return {
@@ -127,6 +128,7 @@ def preference_payload(user, workflow: str) -> dict[str, Any]:
         'default_screen': preference.default_screen,
         'default_filters': preference.default_filters or {},
         'compact_cards': preference.compact_cards,
+        'show_business_hours_time': preference.show_business_hours_time,
         'alert_mode': preference.alert_mode,
     }
 
@@ -165,8 +167,16 @@ def update_preference(user, workflow: str, payload: dict[str, Any]) -> dict[str,
     preference.default_screen = default_screen
     preference.default_filters = clean_filters
     preference.compact_cards = _normalise_boolean(payload.get('compact_cards'), field='Compact cards')
+    if 'show_business_hours_time' in payload:
+        preference.show_business_hours_time = _normalise_boolean(
+            payload.get('show_business_hours_time'),
+            field='Show business-hours time',
+        )
     preference.alert_mode = alert_mode
-    preference.save(update_fields=['default_screen', 'default_filters', 'compact_cards', 'alert_mode', 'updated_at'])
+    preference.save(update_fields=[
+        'default_screen', 'default_filters', 'compact_cards',
+        'show_business_hours_time', 'alert_mode', 'updated_at',
+    ])
     after = preference_payload(user, workflow)
     record_event(
         workflow={'jawabu_portal': 'portal', 'complaint_cases': 'complaint_cases', 'tat_tracker': 'tat_tracker', 'spin_credit_analysis': 'spin'}[workflow],

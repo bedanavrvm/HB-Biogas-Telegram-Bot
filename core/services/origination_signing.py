@@ -369,6 +369,12 @@ def _slot_overlay(
             pdf.setFillColorRGB(.78, .08, .08)
             pdf.setFont('Helvetica-Bold', min(6, max(4, box_height * .16)))
             pdf.drawRightString(x + box_width - 2, y + 2, 'TEST')
+    # ReportLab does not emit a page when a verified package page has no
+    # signature/stamp items. Multi-page packets legitimately contain such
+    # pages, and callers always merge the first overlay page. Finalize the
+    # current page explicitly so the overlay contract remains exactly one PDF
+    # page even when it is intentionally blank.
+    pdf.showPage()
     pdf.save()
     return output.getvalue()
 

@@ -17,7 +17,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import AccessGrant, BusinessCalendarHoliday, GroupSheetConfiguration, LiveSheetRecordChange, SheetRegisterContract, SheetSyncAuditSnapshot, TatEscalationRule, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, UserMiniAppPreference, UserProfile, WorkflowConfigurationChangeRequest, WorkflowSlaEscalation
+from core.models import AccessGrant, BusinessCalendarHoliday, GroupSheetConfiguration, LiveSheetRecordChange, SheetRegisterContract, SheetSyncAuditSnapshot, TatActionTask, TatActionTaskRecipient, TatEscalationRule, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, UserMiniAppPreference, UserProfile, WorkflowConfigurationChangeRequest, WorkflowSlaEscalation
 from core.api.views import _dispatch_tat_approval_certificate, _process_telegram_message, tat_tracker_identity_context, tat_tracker_settings
 from core.services.group_config import GroupConfig, GroupRegistry
 from core.services.tat_tracker import (
@@ -166,7 +166,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(WorkflowSlaEscalation.objects.filter(subject_id=str(case.pk)).count(), 1)
 
     def test_home_lists_paginate_independently(self):
-        for index in range(12):
+        for index in range(30):
             TatTrackerCase.objects.create(
                 group_id=self.config.group_id,
                 case_id=f'JBL-BS-2026-{index:03d}',
@@ -179,16 +179,51 @@ class TatTrackerWorkflowTest(TestCase):
             )
         user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
 
-        first_page = home_data(self.config, user)
-        second_page = home_data(self.config, user, action_offset=10, recent_offset=10)
+        first_page = home_data(self.config, user, queue='role', page=1)
+        second_page = home_data(self.config, user, queue='role', page=2)
+        legacy_page = home_data(self.config, user, action_offset=10, recent_offset=10, page_size=10)
 
-        self.assertEqual(len(first_page['action_required']), 10)
-        self.assertEqual(first_page['pagination']['action_required']['total'], 12)
+        self.assertEqual(len(first_page['items']), 25)
+        self.assertEqual(first_page['pagination']['total'], 30)
+        self.assertEqual(first_page['pagination']['pages'], 2)
+        self.assertEqual(len(second_page['items']), 5)
+        self.assertEqual(second_page['pagination']['page'], 2)
+        self.assertEqual(len(legacy_page['action_required']), 10)
+        self.assertEqual(first_page['pagination']['action_required']['total'], 30)
         self.assertTrue(first_page['pagination']['action_required']['has_more'])
-        self.assertEqual(len(second_page['action_required']), 2)
-        self.assertFalse(second_page['pagination']['action_required']['has_more'])
-        self.assertEqual(len(first_page['recent']), 10)
-        self.assertEqual(len(second_page['recent']), 2)
+        self.assertEqual(len(legacy_page['recent']), 10)
+
+    def test_home_metrics_follow_filters_and_deduplicate_stalled_cases(self):
+        self.config.workflow['tat_targets_minutes'] = {
+            'business': {'stages': {'mpesa_to_admin': 30}},
+        }
+        self.config.save(update_fields=['workflow', 'updated_at'])
+        now = timezone.now()
+        cases = []
+        for index, status in enumerate(['Active', 'Stalled', 'Active', 'Disbursed', 'Rejected', 'Declined']):
+            cases.append(TatTrackerCase.objects.create(
+                group_id=self.config.group_id,
+                case_id=f'JBL-BS-METRIC-{index}',
+                product_key='business', product_label='Business',
+                client_name=f'Metric Client {index}', branch='Nakuru', status=status,
+                stage_values={'created': (now - timedelta(minutes=120 if index in {1, 2} else 5)).isoformat()},
+            ))
+        task = TatActionTask.objects.create(
+            case=cases[0], group_configuration=self.config,
+            stage_key='mpesa_to_admin', stage_label='M-Pesa to Admin',
+            responsible_role='BRO', case_revision=cases[0].workflow_revision,
+        )
+        TatActionTaskRecipient.objects.create(
+            task=task, user=self.bro_user, kind=TatActionTaskRecipient.KIND_PRIMARY,
+        )
+        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+
+        result = home_data(self.config, user, queue='assigned', product_key='business', branch='Nakuru')
+
+        self.assertEqual(result['metrics'], {
+            'assigned': 1, 'role': 3, 'total': 6, 'completed': 3, 'stalled': 2,
+        })
+        self.assertEqual([item['case_id'] for item in result['items']], [cases[0].case_id])
 
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token')
     def test_home_fragment_renders_recent_cases(self):
@@ -336,7 +371,9 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn("miniapp/utils.js", template)
         self.assertIn("product_key: $('queueProductFilter') ? $('queueProductFilter').value : ''", source)
         self.assertIn("branch: $('queueBranchFilter') ? $('queueBranchFilter').value : ''", source)
-        self.assertIn("api('/api/tat-tracker/home/', homePayload(payload))", source)
+        self.assertIn("api('/api/tat-tracker/home/', homePayload())", source)
+        self.assertIn("queue: state.homeQueue", source)
+        self.assertIn("page: state.homePages[state.homeQueue] || 1", source)
         self.assertIn('utils.fetchJson(path', source)
 
     def test_dm_task_launch_is_consumed_and_queue_navigation_does_not_reload_it(self):
@@ -349,9 +386,26 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn("$('backBtn').addEventListener('click', returnToQueue)", source)
         self.assertIn("refresh({ background: true }).catch(() => {})", source)
         self.assertIn('Assigned to me', template)
-        self.assertIn('Available to my role', template)
+        self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn('?v=43', template)
+        self.assertIn('?v=44', template)
+
+    def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
+        source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
+        stylesheet = Path('core/static/miniapp/tat_tracker.css').read_text(encoding='utf-8')
+        template = Path('core/templates/tat_tracker/app.html').read_text(encoding='utf-8')
+
+        for label in ['Assigned to me', 'My role queue', 'Total cases', 'Completed', 'Stalled']:
+            self.assertIn(label, template)
+        self.assertIn('queueFilterOverlay', template)
+        self.assertIn('queuePreviousBtn', template)
+        self.assertIn('queueNextBtn', template)
+        self.assertIn('function applyQueueFilters()', source)
+        self.assertIn('function trapFilterSheetFocus(event)', source)
+        self.assertIn('state.personalPreference.show_business_hours_time !== false', source)
+        self.assertIn('preferenceBusinessHours', template)
+        self.assertIn('.tat-sheet-overlay', stylesheet)
+        self.assertIn('.queue-pagination', stylesheet)
 
     def test_compact_cards_have_a_distinct_queue_hierarchy(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -417,9 +471,10 @@ class TatTrackerWorkflowTest(TestCase):
         admin_actor = staff_user_for_payload(self.config, {'id': 222, 'username': 'admin_user'})
         preference = update_preference(self.it_user, 'tat_tracker', {
             'default_screen': 'home', 'default_filters': {'branch': 'Nakuru'},
-            'compact_cards': True, 'alert_mode': 'quiet',
+            'compact_cards': True, 'show_business_hours_time': False, 'alert_mode': 'quiet',
         })
         self.assertEqual(preference['alert_mode'], 'quiet')
+        self.assertFalse(preference['show_business_hours_time'])
         self.assertTrue(UserMiniAppPreference.objects.filter(user=self.it_user, workflow='tat_tracker').exists())
 
         proposal = create_tat_configuration_request(self.config, it_actor,
@@ -523,6 +578,7 @@ class TatTrackerWorkflowTest(TestCase):
         payload = preference_payload(self.it_user, 'tat_tracker')
 
         self.assertEqual(payload['default_screen'], '')
+        self.assertTrue(payload['show_business_hours_time'])
         self.assertFalse(UserMiniAppPreference.objects.filter(user=self.it_user, workflow='tat_tracker').exists())
 
     def test_target_minutes_must_be_whole_number(self):
