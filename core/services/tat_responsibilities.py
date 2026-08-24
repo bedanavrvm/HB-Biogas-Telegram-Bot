@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 from django.utils import timezone
 
 
@@ -65,6 +67,42 @@ def assignment_snapshot(assignment) -> dict:
         'effective_until': assignment.effective_until.isoformat() if assignment.effective_until else None,
         'backups': backups,
     }
+
+
+def eligible_responsibility_users(*, group_configuration, branch: str, role: str, product_key: str = ''):
+    """Return active users whose explicit TAT grant covers this routing scope.
+
+    This query is shared by the Admin form and its dependent-select endpoint so
+    changing a scope in the browser cannot make its displayed choices diverge
+    from server-side validation.
+    """
+    from core.models import AccessGrant
+
+    users = get_user_model().objects.none()
+    branch = str(branch or '').strip()
+    role = str(role or '').strip().upper()
+    product_key = str(product_key or '').strip().lower()
+    if not group_configuration or not branch or not role:
+        return users
+
+    grants = AccessGrant.objects.filter(
+        workflow='tat_tracker', role__iexact=role, active=True,
+        user__is_active=True,
+    ).filter(
+        Q(group_configuration__isnull=True)
+        | Q(group_configuration=group_configuration)
+    ).filter(
+        Q(branch='') | Q(branch__iexact=branch)
+    )
+    if product_key:
+        grants = grants.filter(Q(product='') | Q(product__iexact=product_key))
+    else:
+        # An all-products roster must not nominate someone whose permission is
+        # limited to only one product.
+        grants = grants.filter(product='')
+    return get_user_model().objects.filter(
+        access_grants__in=grants, is_active=True,
+    ).distinct().order_by('first_name', 'last_name', 'username')
 
 
 def configuration_issues(assignments) -> dict:

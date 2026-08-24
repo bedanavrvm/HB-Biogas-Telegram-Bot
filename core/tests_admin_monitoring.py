@@ -100,7 +100,7 @@ class AdminMonitoringTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Operations dashboard')
         self.assertContains(response, '/static/admin/css/compact_unfold.css')
-        self.assertContains(response, 'compact_unfold.css?v=5')
+        self.assertContains(response, 'compact_unfold.css?v=7')
 
     def test_admin_density_css_only_assigns_label_width_to_horizontal_rows(self):
         css = (Path(settings.BASE_DIR) / 'core/static/admin/css/compact_unfold.css').read_text(
@@ -277,6 +277,8 @@ class AdminMonitoringTests(TestCase):
                 'Live Sheet (view only)',
                 'Cases',
                 'Event history',
+                'Access & responsibilities',
+                'Private task inbox',
                 'Reconcile TAT Sheet',
                 'Find duplicate rows',
             },

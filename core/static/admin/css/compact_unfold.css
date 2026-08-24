@@ -41,7 +41,10 @@
     body.change-form #content,
     body.change-list #content,
     body.dashboard #content {
-        max-width: min(96vw, 1720px) !important;
+        box-sizing: border-box;
+        max-width: min(100%, 1720px) !important;
+        min-width: 0;
+        width: 100%;
     }
 
     body.change-form #content-main {
@@ -82,6 +85,45 @@
     body.change-form .helptext {
         margin-top: .25rem !important;
         max-width: 62rem;
+    }
+
+    /* Three availability fields share one Unfold grid row. Its horizontal
+       label basis plus the date/time widgets' min-width utilities otherwise
+       push the final time control beyond the open desktop sidebar. */
+    body.model-tatresponsibilityassignment.change-form
+    fieldset.tat-responsibility-availability .field-line[class~='lg:flex-row'] {
+        align-items: stretch;
+        flex-direction: column !important;
+    }
+
+    body.model-tatresponsibilityassignment.change-form
+    fieldset.tat-responsibility-availability .field-line > div:first-child {
+        flex: 0 0 auto !important;
+        min-width: 0 !important;
+    }
+
+    body.model-tatresponsibilityassignment.change-form
+    fieldset.tat-responsibility-availability .datetime,
+    body.model-tatresponsibilityassignment.change-form
+    fieldset.tat-responsibility-availability .datetime > div,
+    body.model-tatresponsibilityassignment.change-form
+    fieldset.tat-responsibility-availability .datetime > div > div {
+        box-sizing: border-box;
+        min-width: 0 !important;
+        width: 100%;
+    }
+
+    body.model-tatresponsibilityassignment.change-form
+    fieldset.tat-responsibility-availability .datetime * {
+        box-sizing: border-box;
+        max-width: 100%;
+        min-width: 0 !important;
+    }
+
+    body.model-tatresponsibilityassignment.change-form
+    fieldset.tat-responsibility-availability .datetime > div {
+        flex: 1 1 0 !important;
+        margin-left: 0 !important;
     }
 
     body.model-groupsheetconfiguration.change-form fieldset.preset-tat_tracker > div {
@@ -1309,7 +1351,7 @@ body.change-form #content-main .related-widget-wrapper {
     flex: 1 1 auto;
     max-width: 100%;
     min-width: 0;
-    width: auto;
+    width: 100%;
 }
 
 body.change-form #content-main .related-widget-wrapper > :first-child {
@@ -1322,7 +1364,7 @@ body.change-form #content-main .related-widget-wrapper > :first-child {
 body.change-form #content-main .related-widget-wrapper select {
     flex: 1 1 0;
     min-width: 0;
-    width: 0 !important;
+    width: 100% !important;
 }
 
 body.change-form #content-main .related-widget-wrapper-link {
@@ -1382,9 +1424,13 @@ body.change-form fieldset.module .text-sm {
 
 body.change-form fieldset.module input:not([type='checkbox']):not([type='radio']),
 body.change-form fieldset.module select {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
     min-height: 2rem !important;
     padding-bottom: .3rem !important;
     padding-top: .3rem !important;
+    width: 100%;
 }
 
 body.change-form fieldset.module textarea {
@@ -1506,6 +1552,56 @@ body.change-list #changelist-filter li {
 }
 
 @media (max-width: 767px) {
+    /* Related-object CRUD icons consume most of a phone row and collapse the
+       actual responsibility selectors. Access grants remain reachable from
+       the explicit help link and the centralized workspace. */
+    body.model-tatresponsibilityassignment.change-form
+    .related-widget-wrapper-link {
+        display: none !important;
+    }
+
+    body.model-tatresponsibilityassignment.change-form .inline-group .tabular {
+        overflow-x: visible;
+    }
+
+    body.model-tatresponsibilityassignment.change-form .inline-group .tabular table,
+    body.model-tatresponsibilityassignment.change-form .inline-group .tabular tbody,
+    body.model-tatresponsibilityassignment.change-form .inline-group .tabular tr {
+        box-sizing: border-box;
+        display: block !important;
+        min-width: 0 !important;
+        width: 100% !important;
+    }
+
+    body.model-tatresponsibilityassignment.change-form .inline-group .tabular thead,
+    body.model-tatresponsibilityassignment.change-form .inline-group .tabular tbody.template {
+        display: none !important;
+    }
+
+    body.model-tatresponsibilityassignment.change-form .inline-group .tabular tr.form-row {
+        border: 1px solid rgb(var(--color-base-200));
+        border-radius: .5rem;
+        display: flex !important;
+        flex-direction: column !important;
+        margin-bottom: .6rem;
+        overflow: hidden;
+        width: 100% !important;
+    }
+
+    body.model-tatresponsibilityassignment.change-form .inline-group .tabular td {
+        align-items: center;
+        box-sizing: border-box;
+        display: flex !important;
+        max-width: 100%;
+        min-width: 0;
+        width: 100% !important;
+    }
+
+    body.model-tatresponsibilityassignment.change-form .inline-group .tabular td > div {
+        flex: 1 1 0;
+        min-width: 0;
+    }
+
     body.change-form fieldset.module .field-line > div:first-child {
         flex-basis: auto;
         min-width: 0;

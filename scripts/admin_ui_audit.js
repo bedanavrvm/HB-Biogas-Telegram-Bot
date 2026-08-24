@@ -55,9 +55,22 @@ async function assertContained(page, label) {
   const values = await page.evaluate(() => ({
     documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     bodyOverflow: document.body.scrollWidth - document.body.clientWidth,
+    shell: ['#page', 'main', '#content', '#content-main', '#content-main form'].map(selector => {
+      const node = document.querySelector(selector);
+      if (!node) return { selector, missing: true };
+      const rect = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      return { selector, left: rect.left, right: rect.right, width: rect.width, maxWidth: style.maxWidth, minWidth: style.minWidth, overflowX: style.overflowX };
+    }),
     offenders: [...document.querySelectorAll('body *')].map(node => {
       const rect = node.getBoundingClientRect();
-      return { tag: node.tagName, id: node.id, className: String(node.className || '').slice(0, 120), left: rect.left, right: rect.right, width: rect.width };
+      const ancestors = [];
+      let parent = node.parentElement;
+      while (parent && ancestors.length < 4) {
+        ancestors.push(`${parent.tagName.toLowerCase()}#${parent.id}.${String(parent.className || '').replace(/\s+/g, '.').slice(0, 100)}`);
+        parent = parent.parentElement;
+      }
+      return { tag: node.tagName, id: node.id, className: String(node.className || '').slice(0, 120), left: rect.left, right: rect.right, width: rect.width, ancestors };
     }).filter(item => item.right > innerWidth + 2 || item.left < -2).sort((a, b) => b.right - a.right).slice(0, 6),
   }));
   assert(values.documentOverflow <= 1 && values.bodyOverflow <= 1, `${label}: document overflow ${JSON.stringify(values)}`);
@@ -129,6 +142,61 @@ async function auditSharedPages(browser, viewport) {
       assert(await page.getByText('Eligible staff and private alerts').count(), `${viewport.name}: scoped grant and alert health panel missing`);
       const stageScroller = page.locator('table').filter({ hasText: 'Responsible role' }).locator('..');
       assert(await stageScroller.count(), `${viewport.name}: contained stage table missing`);
+      const rosterHref = await page.getByRole('link', { name: 'Edit roster' }).first().getAttribute('href');
+      assert(rosterHref, `${viewport.name}: seeded TAT roster edit link missing`);
+      const rosterPage = await context.newPage();
+      await rosterPage.goto(new URL(rosterHref, base).toString(), { waitUntil: 'domcontentloaded' });
+      await rosterPage.waitForFunction(() => document.querySelectorAll('#id_primary_user option').length > 1);
+      await rosterPage.waitForFunction(() => document.querySelector('#tat-eligible-users-help')?.textContent.includes('2 eligible active users'));
+      const primaryUserMetrics = await rosterPage.locator('#id_primary_user').evaluate(select => ({
+        width: select.getBoundingClientRect().width,
+        selectedText: select.selectedOptions[0]?.textContent?.trim() || '',
+        optionTexts: [...select.options].map(option => option.textContent.trim()),
+      }));
+      assert(primaryUserMetrics.optionTexts.includes('ui-audit-admin'), `${viewport.name}: eligible primary user option is missing`);
+      assert(primaryUserMetrics.selectedText === 'ui-audit-admin', `${viewport.name}: selected primary user text is not visible`);
+      const minimumPrimaryWidth = viewport.width < 390 ? 96 : 160;
+      assert(primaryUserMetrics.width >= minimumPrimaryWidth, `${viewport.name}: primary user select collapsed to ${primaryUserMetrics.width}px`);
+      const backupUser = rosterPage.locator('#id_backups-0-user');
+      await backupUser.waitFor({ state: 'visible' });
+      const backupUserMetrics = await backupUser.evaluate(select => {
+        const rect = select.getBoundingClientRect();
+        const ancestors = [];
+        let parent = select.parentElement;
+        while (parent && ancestors.length < 12) {
+          const parentRect = parent.getBoundingClientRect();
+          ancestors.push({
+            tag: parent.tagName,
+            className: String(parent.className || '').slice(0, 100),
+            display: getComputedStyle(parent).display,
+            left: parentRect.left,
+            right: parentRect.right,
+            width: parentRect.width,
+          });
+          parent = parent.parentElement;
+        }
+        return {
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+          selectedText: select.selectedOptions[0]?.textContent?.trim() || '',
+          optionTexts: [...select.options].map(option => option.textContent.trim()),
+          ancestors,
+        };
+      });
+      assert(backupUserMetrics.left >= 0 && backupUserMetrics.right <= viewport.width + 1, `${viewport.name}: backup user select is outside the viewport`);
+      const minimumBackupWidth = viewport.width < 390 ? 96 : 120;
+      assert(backupUserMetrics.width >= minimumBackupWidth, `${viewport.name}: backup user select collapsed ${JSON.stringify(backupUserMetrics)}`);
+      assert(backupUserMetrics.selectedText === 'ui-audit-backup', `${viewport.name}: selected backup user text is not visible ${JSON.stringify(backupUserMetrics)}`);
+      assert(backupUserMetrics.optionTexts.includes('ui-audit-backup'), `${viewport.name}: eligible backup user option is missing`);
+      assert(!backupUserMetrics.optionTexts.includes('ui-audit-admin'), `${viewport.name}: selected primary remains available as its own backup`);
+      assert(
+        await rosterPage.locator('#tat-eligible-users-help').getByText('2 eligible active users').count() === 1,
+        `${viewport.name}: eligible-user status is not visible`,
+      );
+      await assertContained(rosterPage, `${viewport.name}/tat-responsibility-form`);
+      await rosterPage.screenshot({ path: path.join(output, `${viewport.name}-tat-responsibility-form.png`), fullPage: true });
+      await rosterPage.close();
     }
     if (name === 'origination-builder') {
       assert(await page.locator('#origination-product-builder').count(), `${viewport.name}: product builder missing`);

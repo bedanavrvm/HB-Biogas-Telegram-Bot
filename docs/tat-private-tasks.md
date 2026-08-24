@@ -4,6 +4,11 @@
 
 Routine TAT stage alerts can be routed to individual staff instead of filling the workflow group. Django remains the source of truth: the Mini App task inbox is durable, while Telegram only delivers a private prompt and an authenticated deep link.
 
+For the complete administrator setup order, multi-role access behavior,
+responsibility precedence, governed escalation configuration, testing, and
+troubleshooting, see
+[TAT Access, Responsibilities, Escalations, and Private Alerts](tat-access-and-responsibilities.md).
+
 Telegram buttons never stamp a case directly. They open the exact pending stage, where the current user, access grant, case revision, and stage permission are checked again before confirmation.
 
 ## Rollout modes
@@ -19,7 +24,8 @@ Start with Shadow. Review responsibility mappings and private-alert connection s
 ## Configure responsibility routing
 
 1. Create the required TAT `AccessGrant`s first. An assignment routes work but never grants permission.
-2. Open **Django Admin → Configuration → TAT responsibility routing**.
+2. Open **Django Admin → TAT Tracker → Access & responsibilities** (also
+   available under **Configuration → TAT access & responsibilities**).
 3. Select the TAT workflow group, branch, and role.
 4. Optionally restrict the mapping to one product and/or one stage. Blank product and stage values cover the whole branch-role scope.
 5. Choose the primary actor.

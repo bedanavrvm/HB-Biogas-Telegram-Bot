@@ -219,6 +219,82 @@ class TatPrivateTaskTests(TestCase):
         self.assertContains(response, 'mpesa_to_admin')
         self.assertContains(response, 'primary')
 
+    def test_responsibility_add_form_lists_exact_scope_users(self):
+        superuser = get_user_model().objects.create_superuser(
+            username='form-admin', password='test-password', email='form@example.test',
+        )
+        self.client.force_login(superuser)
+
+        response = self.client.get(reverse('admin:core_tatresponsibilityassignment_add'), {
+            'group_configuration': str(self.group.pk),
+            'branch': 'Nakuru',
+            'role': 'BRO',
+            'product_key': '',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        field = response.context['adminform'].form.fields['primary_user']
+        self.assertQuerySetEqual(
+            field.queryset.order_by('username'),
+            [self.backup, self.primary],
+            transform=lambda user: user,
+        )
+        self.assertContains(response, '2 eligible active users match this exact TAT scope.')
+        self.assertContains(response, reverse('admin:core_tatresponsibilityassignment_eligible_users'))
+
+    def test_eligible_user_lookup_supports_multi_role_and_filters_exact_scope(self):
+        superuser = get_user_model().objects.create_superuser(
+            username='lookup-admin', password='test-password', email='lookup@example.test',
+        )
+        multi_role = self._user('multi-scope', '107')
+        self._grant(multi_role, 'BRO')
+        self._grant(multi_role, 'FINANCE')
+        wrong_role = self._user('finance-only', '108')
+        self._grant(wrong_role, 'FINANCE')
+        product_only = self._user('product-only', '109')
+        self._grant(product_only, 'BRO', product='business')
+        self.client.force_login(superuser)
+        url = reverse('admin:core_tatresponsibilityassignment_eligible_users')
+
+        all_products = self.client.get(url, {
+            'group_configuration': str(self.group.pk),
+            'branch': 'Nakuru',
+            'role': 'BRO',
+            'product_key': '',
+        })
+        self.assertEqual(all_products.status_code, 200)
+        all_product_ids = [row['id'] for row in all_products.json()['users']]
+        self.assertIn(str(multi_role.pk), all_product_ids)
+        self.assertNotIn(str(wrong_role.pk), all_product_ids)
+        self.assertNotIn(str(product_only.pk), all_product_ids)
+        self.assertEqual(all_product_ids.count(str(multi_role.pk)), 1)
+
+        business = self.client.get(url, {
+            'group_configuration': str(self.group.pk),
+            'branch': 'Nakuru',
+            'role': 'BRO',
+            'product_key': 'business',
+        })
+        self.assertEqual(business.status_code, 200)
+        business_ids = [row['id'] for row in business.json()['users']]
+        self.assertIn(str(multi_role.pk), business_ids)
+        self.assertIn(str(product_only.pk), business_ids)
+        self.assertNotIn(str(wrong_role.pk), business_ids)
+
+    def test_eligible_user_lookup_explains_incomplete_scope(self):
+        superuser = get_user_model().objects.create_superuser(
+            username='empty-lookup-admin', password='test-password', email='empty@example.test',
+        )
+        self.client.force_login(superuser)
+        response = self.client.get(
+            reverse('admin:core_tatresponsibilityassignment_eligible_users'),
+            {'group_configuration': str(self.group.pk), 'branch': 'Nakuru'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['users'], [])
+        self.assertIn('role', response.json()['message'])
+
     def test_admin_stage_override_derives_role_and_writes_audit_event(self):
         superuser = get_user_model().objects.create_superuser(
             username='routing-admin', password='test-password', email='routing@example.test',

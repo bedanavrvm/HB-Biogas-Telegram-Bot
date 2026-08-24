@@ -43,6 +43,7 @@ from core.services.tat_responsibilities import (
     assignment_snapshot,
     canonical_stage_role,
     configuration_issues,
+    eligible_responsibility_users,
     stage_catalog,
 )
 from core.services.telegram_launchers import MINI_APP_LAUNCHER_CHOICES, default_launcher_keys
@@ -1770,23 +1771,45 @@ class TatResponsibilityAssignmentForm(forms.ModelForm):
                 self.fields['role'].disabled = True
                 self.fields['role'].help_text = 'Derived automatically from the selected canonical TAT stage.'
 
-        grants = AccessGrant.objects.filter(workflow='tat_tracker', active=True)
-        if selected_role:
-            grants = grants.filter(role__iexact=selected_role)
-        if selected_group_id:
-            grants = grants.filter(
-                models.Q(group_configuration__isnull=True)
-                | models.Q(group_configuration_id=selected_group_id)
+        selected_group = (
+            GroupSheetConfiguration.objects.filter(pk=selected_group_id).first()
+            if selected_group_id else None
+        )
+        eligible_users = eligible_responsibility_users(
+            group_configuration=selected_group,
+            branch=selected_branch,
+            role=selected_role,
+            product_key=selected_product,
+        )
+        primary_queryset = eligible_users
+        if self.instance and self.instance.pk and self.instance.primary_user_id:
+            # Keep an invalid historical selection visible while requiring the
+            # administrator to replace it before a successful save.
+            primary_queryset = get_user_model().objects.filter(
+                models.Q(pk__in=eligible_users.values('pk'))
+                | models.Q(pk=self.instance.primary_user_id)
+            ).distinct().order_by('first_name', 'last_name', 'username')
+        self.fields['primary_user'].queryset = primary_queryset
+        primary_widget = self.fields['primary_user'].widget
+        primary_native_widget = getattr(primary_widget, 'widget', primary_widget)
+        primary_native_widget.attrs['data-eligible-users-url'] = reverse(
+            'admin:core_tatresponsibilityassignment_eligible_users',
+        )
+        if selected_group and selected_branch and selected_role:
+            count = eligible_users.count()
+            eligibility_message = (
+                f'{count} eligible active user{"s" if count != 1 else ""} match this exact TAT scope.'
+                if count else
+                'No eligible users match this TAT role and scope. Add or correct an active AccessGrant, then retry.'
             )
-        if selected_branch:
-            grants = grants.filter(models.Q(branch='') | models.Q(branch__iexact=selected_branch))
-        if selected_product:
-            grants = grants.filter(models.Q(product='') | models.Q(product__iexact=selected_product))
         else:
-            grants = grants.filter(product='')
-        self.fields['primary_user'].queryset = get_user_model().objects.filter(
-            access_grants__in=grants, is_active=True,
-        ).distinct().order_by('first_name', 'last_name', 'username')
+            eligibility_message = 'Choose the workflow group, branch, and role to load eligible users.'
+        self.fields['primary_user'].help_text = format_html(
+            '<span id="tat-eligible-users-help">{}</span> '
+            '<a href="{}">Manage user access grants</a>',
+            eligibility_message,
+            reverse('admin:auth_user_changelist'),
+        )
 
     def clean(self):
         cleaned = super().clean()
@@ -1823,19 +1846,24 @@ class TatResponsibilityBackupForm(forms.ModelForm):
         grants = AccessGrant.objects.filter(workflow='tat_tracker', active=True)
         assignment = getattr(self.instance, 'assignment', None)
         if assignment and assignment.pk:
-            grants = grants.filter(role__iexact=assignment.role).filter(
-                models.Q(group_configuration__isnull=True)
-                | models.Q(group_configuration=assignment.group_configuration)
-            ).filter(
-                models.Q(branch='') | models.Q(branch__iexact=assignment.branch)
+            users = eligible_responsibility_users(
+                group_configuration=assignment.group_configuration,
+                branch=assignment.branch,
+                role=assignment.role,
+                product_key=assignment.product_key,
             )
-            if assignment.product_key:
-                grants = grants.filter(models.Q(product='') | models.Q(product__iexact=assignment.product_key))
-            else:
-                grants = grants.filter(product='')
-        self.fields['user'].queryset = get_user_model().objects.filter(
-            access_grants__in=grants, is_active=True,
-        ).distinct().order_by('first_name', 'last_name', 'username')
+            if self.instance.user_id:
+                users = get_user_model().objects.filter(
+                    models.Q(pk__in=users.values('pk')) | models.Q(pk=self.instance.user_id)
+                ).distinct().order_by('first_name', 'last_name', 'username')
+            self.fields['user'].queryset = users
+            if self.instance.user_id:
+                native_widget = getattr(self.fields['user'].widget, 'widget', self.fields['user'].widget)
+                native_widget.attrs['data-initial-user-id'] = str(self.instance.user_id)
+        else:
+            self.fields['user'].queryset = get_user_model().objects.filter(
+                access_grants__in=grants, is_active=True,
+            ).distinct().order_by('first_name', 'last_name', 'username')
 
 
 class TatResponsibilityBackupInline(TabularInline):
@@ -1871,9 +1899,75 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
             ),
             'description': 'Assignment routes alerts only. Every actor still needs a matching TAT AccessGrant.',
         }),
-        ('Availability', {'fields': (('active', 'effective_from', 'effective_until'),)}),
+        ('Availability', {
+            'fields': (('active', 'effective_from', 'effective_until'),),
+            'classes': ('tat-responsibility-availability',),
+        }),
         ('Audit', {'fields': (('created_by', 'created_at', 'updated_at'),), 'classes': ('collapse',)}),
     )
+
+    def get_urls(self):
+        return [
+            path(
+                'eligible-users/',
+                self.admin_site.admin_view(self.eligible_users_view),
+                name='core_tatresponsibilityassignment_eligible_users',
+            ),
+        ] + super().get_urls()
+
+    def eligible_users_view(self, request):
+        if not request.user.is_active or not request.user.is_superuser:
+            raise PermissionDenied
+        if request.method != 'GET':
+            return JsonResponse({'ok': False, 'error': 'GET required.'}, status=405)
+
+        group_id = str(request.GET.get('group_configuration') or '').strip()
+        branch = str(request.GET.get('branch') or '').strip()
+        role = str(request.GET.get('role') or '').strip().upper()
+        product_key = str(request.GET.get('product_key') or '').strip().lower()
+        missing = [
+            label for label, value in (
+                ('workflow group', group_id), ('branch', branch), ('role', role),
+            ) if not value
+        ]
+        if missing:
+            return JsonResponse({
+                'ok': True,
+                'users': [],
+                'message': f'Choose {", ".join(missing)} to load eligible users.',
+            })
+
+        group = GroupSheetConfiguration.objects.filter(pk=group_id, enabled=True).first()
+        if not group or str((group.workflow or {}).get('type') or '') != 'tat_tracker':
+            return JsonResponse({
+                'ok': False,
+                'users': [],
+                'error': 'Choose an enabled TAT workflow group.',
+            }, status=400)
+
+        users = list(eligible_responsibility_users(
+            group_configuration=group,
+            branch=branch,
+            role=role,
+            product_key=product_key,
+        ))
+        payload = []
+        for user in users:
+            full_name = user.get_full_name().strip()
+            payload.append({
+                'id': str(user.pk),
+                'label': f'{full_name} ({user.get_username()})' if full_name else user.get_username(),
+            })
+        scope = f'{role} / {branch} / {product_key or "all products"}'
+        return JsonResponse({
+            'ok': True,
+            'users': payload,
+            'message': (
+                f'{len(payload)} eligible active user{"s" if len(payload) != 1 else ""} match {scope}.'
+                if payload else
+                f'No eligible users match {scope}. Add or correct an active TAT AccessGrant, then retry.'
+            ),
+        })
 
     def save_model(self, request, obj, form, change):
         if not request.user.is_superuser:

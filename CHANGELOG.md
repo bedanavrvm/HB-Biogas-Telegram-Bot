@@ -12,6 +12,13 @@
 - Hardened routing with deterministic specificity, fail-closed ambiguity,
   recipient deduplication, strictly increasing ranked-backup SLA thresholds,
   safe shared-role/unassigned fallback, and append-only responsibility events.
+- Added the canonical administrator/developer guide for multi-role grants,
+  routing precedence, governed thresholds, Shadow-to-Hybrid testing,
+  troubleshooting, migration, and rollback.
+- Fixed responsibility Primary/Backup selectors so scope changes reload every
+  exactly eligible multi-role user, explain empty results, and link directly
+  to AccessGrant administration. The form now remains contained beside the
+  open Unfold sidebar at desktop widths.
 
   Migration note: `core.0127_tat_responsibility_canonical_routing` adds the
   responsibility-event audit table and deactivates only conflicting or unknown
