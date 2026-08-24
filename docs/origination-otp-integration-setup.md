@@ -131,9 +131,10 @@ Important rules:
 Redeploy the application after changing environment variables.
 
 Africa's Talking Sandbox isolates SMS only. It does not turn Google Drive into
-a test service. Point staging at an approved staging/restricted Drive folder,
-or stop the acceptance test before **Archive signed packet**. Never archive
-synthetic test output into a production customer-document folder.
+a test service. Final verified signing now schedules restricted-Drive archival
+automatically after the local signing transaction commits. Point staging at an
+approved staging/restricted Drive folder before completing every required slot.
+Never archive synthetic test output into a production customer-document folder.
 
 ### 4. Configure the delivery-report callback
 
@@ -394,11 +395,13 @@ Do not reuse a production application.
 25. Confirm the application becomes `fully_signed` only after every required
     slot is complete.
 26. Preview/inspect the completed packet.
-27. Select **Archive signed packet** and confirm restricted-Drive archival.
+27. Confirm automatic restricted-Drive archival reaches `uploaded`. If the
+    automatic attempt reports `failed`, use **Retry archival** after correcting
+    the Drive configuration or transient outage.
 
-Perform step 27 only when the deployment is configured with an approved staging
-Drive folder. Otherwise confirm that the package reached `fully_signed`, then
-stop without invoking archival.
+Complete the signing test only when the deployment is configured with an
+approved staging Drive folder. The signed packet remains locally complete when
+Drive is unavailable, but its archival status will require attention.
 
 ### Assisted-signing test
 

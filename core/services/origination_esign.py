@@ -517,13 +517,16 @@ def _update_package_status(package: OriginationSigningPackage) -> None:
     }
     complete = set(package.actions.filter(mode=OriginationSigningAction.MODE_VERIFIED).values_list('document_key', 'slot_key'))
     application = package.application
+    schedule_archive = False
     if required and required <= complete:
-        signed = render_verified_package(package)
-        package.signed_document_hash = hashlib.sha256(signed).hexdigest()
-        package.pending_signed_document = signed
+        if package.status != package.STATUS_FULLY_SIGNED or not package.signed_document_hash:
+            signed = render_verified_package(package)
+            package.signed_document_hash = hashlib.sha256(signed).hexdigest()
+            package.pending_signed_document = signed
+            package.archive_status = 'pending'
+            package.finalized_at = timezone.now()
+            schedule_archive = True
         package.status = package.STATUS_FULLY_SIGNED
-        package.archive_status = 'pending'
-        package.finalized_at = timezone.now()
         application.status = LoanOriginationApplication.STATUS_FULLY_SIGNED
     elif complete:
         package.status = package.STATUS_IN_PROGRESS
@@ -531,6 +534,37 @@ def _update_package_status(package: OriginationSigningPackage) -> None:
     package.save()
     application.revision += 1
     application.save(update_fields=['status', 'revision', 'updated_at'])
+    if schedule_archive:
+        package_id = package.pk
+        signed_hash = package.signed_document_hash
+        transaction.on_commit(
+            lambda: _archive_signed_package_after_commit(
+                package_id=package_id, signed_hash=signed_hash,
+            )
+        )
+
+
+def _archive_signed_package_after_commit(*, package_id, signed_hash: str) -> None:
+    """Archive a locally finalized packet without risking its signing commit."""
+    try:
+        archive_signed_package(
+            package_id=package_id, actor=None,
+            request_id=f'auto-archive:{package_id}:{str(signed_hash)[:16]}',
+        )
+    except Exception:
+        # archive_signed_package records an actionable failed state for Drive
+        # failures. Protect the same invariant for an unexpected post-commit
+        # failure: signing remains complete and staff retain a bounded retry.
+        OriginationSigningPackage.objects.filter(
+            pk=package_id, archive_status='pending',
+        ).update(
+            archive_status='failed',
+            archive_error='Automatic Drive archival failed; retry required.',
+        )
+        logger.warning(
+            'Automatic Origination signed-packet archival did not complete for package %s.',
+            package_id, exc_info=True,
+        )
 
 
 def verify_otp(*, raw_token: str, code: str, request_id: str, ip_hash: str) -> OriginationSignerSession:

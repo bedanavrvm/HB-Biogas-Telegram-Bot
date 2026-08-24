@@ -366,11 +366,12 @@ def portal_origination_applications(request):
             )
         try:
             page = max(1, int(request.GET.get('page') or 1))
-            page_size = min(100, max(1, int(request.GET.get('page_size') or 25)))
+            page_size = min(10, max(1, int(request.GET.get('page_size') or 10)))
         except (TypeError, ValueError):
             return JsonResponse({'ok': False, 'error': 'Pagination values must be whole numbers.'}, status=400)
         total = queryset.count()
         pages = max(1, (total + page_size - 1) // page_size)
+        page = min(page, pages)
         start = (page - 1) * page_size
         items = queryset.order_by('-updated_at', '-created_at')[start:start + page_size]
         reviewer_alerts = []

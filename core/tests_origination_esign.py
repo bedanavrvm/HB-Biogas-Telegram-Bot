@@ -132,10 +132,14 @@ class OriginationVerifiedSigningTests(TestCase):
         challenge.refresh_from_db()
         self.assertEqual(challenge.attempts_remaining, 4)
 
-        with patch('core.services.origination_esign.render_verified_package', return_value=b'synthetic-signed-pdf'):
+        with patch('core.services.origination_esign.transaction.on_commit') as on_commit, patch(
+            'core.services.origination_esign.render_verified_package',
+            return_value=b'synthetic-signed-pdf',
+        ):
             verified = verify_otp(
                 raw_token=token, code=code, request_id='verify-good', ip_hash='ip-one',
             )
+        on_commit.assert_called_once()
         self.assertEqual(verified.status, OriginationSignerSession.STATUS_VERIFIED)
         actions = OriginationSigningAction.objects.filter(package=self.package, mode='verified')
         self.assertEqual(actions.count(), 2)
@@ -151,6 +155,23 @@ class OriginationVerifiedSigningTests(TestCase):
         self.assertFalse(serialized['signing_package']['test_signing']['test_mode'])
         self.assertEqual(serialized['signing_package']['test_signing']['slots'], [])
         self.assertTrue(serialized['signing_package']['verified_signing']['enabled'])
+        with patch('core.services.origination_esign.archive_signed_package') as archive:
+            on_commit.call_args.args[0]()
+        archive.assert_called_once_with(
+            package_id=self.package.pk, actor=None,
+            request_id=f'auto-archive:{self.package.pk}:{self.package.signed_document_hash[:16]}',
+        )
+        with patch(
+            'core.services.origination_esign.archive_signed_package',
+            side_effect=RuntimeError('synthetic post-commit failure'),
+        ):
+            on_commit.call_args.args[0]()
+        self.package.refresh_from_db()
+        self.assertEqual(self.package.archive_status, 'failed')
+        self.assertEqual(
+            self.package.archive_error,
+            'Automatic Drive archival failed; retry required.',
+        )
 
     def test_legacy_test_action_without_actor_uses_safe_system_label(self):
         self.package.test_mode = True

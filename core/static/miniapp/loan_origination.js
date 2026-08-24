@@ -22,6 +22,8 @@
   let reviewerAlerts = [];
   let listTotal = 0;
   let listScrollY = 0;
+  let listRequestGeneration = 0;
+  let listSearchTimer = null;
   let capabilities = { can_create: false, can_review: false, can_start_signing: false };
   let listState = { queue: '', status: '', productKey: '', query: '', page: 1, pages: 1 };
   let current = null;
@@ -162,6 +164,13 @@
   function root() { return document.getElementById('origination-root'); }
   function draftKey(id) { return `loan-origination-draft:${id}`; }
   function normalizeLabel(field) { return field.label || field.key.replaceAll('_', ' '); }
+
+  function applicationStatusLabel(application) {
+    if (application?.status === 'ready_for_review') {
+      return application.review_packet_ready ? 'Final review' : 'Prepare packet';
+    }
+    return String(application?.status || '').replaceAll('_', ' ');
+  }
 
   function iconSvg(name, className = '') {
     const paths = {
@@ -895,12 +904,11 @@
   function openCreationSheet(trigger) {
     const branchOptions = branches.map(item => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join('');
     openSheet({
-      mode: 'create', eyebrow: 'New application', title: 'Start an application',
+      mode: 'create', eyebrow: 'Origination', title: 'New application',
       hint: 'Choose a branch, then select a product available there.', trigger,
       body: `<form id="origination-create" class="sheet-form"><label><span>Branch</span><select name="branch" id="origination-create-branch" required><option value="">Choose branch</option>${branchOptions}</select></label><label><span>Product</span><select name="product_key" id="origination-create-product" required disabled><option value="">Choose branch first</option></select></label></form>`,
-      footer: '<button type="button" class="btn btn-secondary" data-sheet-cancel>Cancel</button><button type="submit" form="origination-create" class="btn btn-primary" id="origination-create-submit" data-primary-action="Start application" disabled>Start application</button>',
+      footer: '<button type="submit" form="origination-create" class="btn btn-primary" id="origination-create-submit" data-primary-action="Start application" disabled>Start application</button>',
     });
-    document.querySelector('[data-sheet-cancel]').onclick = () => closeSheet();
     document.getElementById('origination-create-branch').onchange = event => loadProductsForBranch(event.target.value);
     document.getElementById('origination-create').onsubmit = startApplication;
     syncPrimaryAction();
@@ -992,7 +1000,7 @@
   }
 
   function applicationListParams() {
-    const params = new URLSearchParams({ queue: listState.queue, page: String(listState.page), page_size: '25' });
+    const params = new URLSearchParams({ queue: listState.queue, page: String(listState.page), page_size: '10' });
     if (listState.status) params.set('status', listState.status);
     if (listState.productKey) params.set('product_key', listState.productKey);
     if (listState.query) params.set('q', listState.query);
@@ -1498,27 +1506,29 @@
 
   function reviewMarkup(values) {
     const hasPacket = (current?.document_packet?.documents || []).filter(item => item.selected).length > 1;
-    return `${reviewWorkflowMarkup()}<div class="review-intro"><div><p class="eyebrow">Final check</p><h3>Review the application</h3><p>${current?.review_packet_ready ? 'Inspect the frozen packet and open sections to verify the captured data.' : 'Open each section to correct details, then inspect the complete document packet.'}</p></div><div class="review-preview-actions"><button type="button" class="btn btn-primary" id="origination-preview">${latestPreviewLabel(hasPacket ? 'Preview full packet' : 'Preview main LAF')}</button></div></div>
-      <div class="review-sections">${wizardSections().slice(0, -1).map((section, index) => {
-        if (section.key === 'document_selection') {
-          const selected = (current?.document_packet?.documents || []).filter(item => item.role === 'supporting' && item.selected);
-          return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>Supporting documents</strong><small>${selected.length} selected</small></span><span>Edit ${iconSvg('arrowRight')}</span></button>`;
-        }
-        if (section.key.startsWith('document:')) {
-          const document = section.document;
-          return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(document.name)}</strong><small>${document.complete ? 'Fields complete' : `${document.missing_fields?.length || 0} fields missing`} · ${document.previewed ? 'Previewed' : 'Preview required'}</small></span><span>Open ${iconSvg('arrowRight')}</span></button>`;
-        }
-        if (section.key === 'product_requirements') {
-          const configuration = collectProductConfiguration();
-          const completed = Object.values(configuration.requirements).filter(value => value !== '' && value != null && value !== false).length
-            + Object.values(configuration.customValues).filter(value => value !== '' && value != null).length;
-          const total = (current?.product_terms?.requirements || []).length + (current?.product_terms?.custom_attributes || []).length;
-          return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(section.label)}</strong><small>${completed} of ${total} details completed</small></span><span>Edit ${iconSvg('arrowRight')}</span></button>`;
-        }
-        const fields = fieldsFor(section.key);
-        const completed = fields.filter(field => values[field.key] !== '' && values[field.key] != null).length;
-        return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(section.label)}</strong><small>${completed} of ${fields.length} fields completed</small></span><span>Edit ${iconSvg('arrowRight')}</span></button>`;
-      }).join('')}</div>${signingTestMarkup()}`;
+    const signed = current?.status === 'fully_signed';
+    const reviewCards = current?.status === 'fully_signed' ? '' : `<div class="review-sections">${wizardSections().slice(0, -1).map((section, index) => {
+      if (section.key === 'document_selection') {
+        const selected = (current?.document_packet?.documents || []).filter(item => item.role === 'supporting' && item.selected);
+        return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>Supporting documents</strong><small>${selected.length} selected</small></span><span>Edit ${iconSvg('arrowRight')}</span></button>`;
+      }
+      if (section.key.startsWith('document:')) {
+        const document = section.document;
+        return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(document.name)}</strong><small>${document.complete ? 'Fields complete' : `${document.missing_fields?.length || 0} fields missing`} · ${document.previewed ? 'Previewed' : 'Preview required'}</small></span><span>Open ${iconSvg('arrowRight')}</span></button>`;
+      }
+      if (section.key === 'product_requirements') {
+        const configuration = collectProductConfiguration();
+        const completed = Object.values(configuration.requirements).filter(value => value !== '' && value != null && value !== false).length
+          + Object.values(configuration.customValues).filter(value => value !== '' && value != null).length;
+        const total = (current?.product_terms?.requirements || []).length + (current?.product_terms?.custom_attributes || []).length;
+        return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(section.label)}</strong><small>${completed} of ${total} details completed</small></span><span>Edit ${iconSvg('arrowRight')}</span></button>`;
+      }
+      const fields = fieldsFor(section.key);
+      const completed = fields.filter(field => values[field.key] !== '' && values[field.key] != null).length;
+      return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(section.label)}</strong><small>${completed} of ${fields.length} fields completed</small></span><span>Edit ${iconSvg('arrowRight')}</span></button>`;
+    }).join('')}</div>`;
+    return `${reviewWorkflowMarkup()}<div class="review-intro"><div><p class="eyebrow">${signed ? 'Completed packet' : 'Final check'}</p><h3>${signed ? 'Signed application' : 'Review the application'}</h3><p>${signed ? 'The application is immutable. View the final signed packet below.' : current?.review_packet_ready ? 'Inspect the frozen packet and open sections to verify the captured data.' : 'Open each section to correct details, then inspect the complete document packet.'}</p></div><div class="review-preview-actions"><button type="button" class="btn btn-primary" id="origination-preview">${latestPreviewLabel(hasPacket ? 'Preview full packet' : 'Preview main LAF')}</button></div></div>
+      ${reviewCards}${signingTestMarkup()}`;
   }
 
   function signingTestMarkup() {
@@ -1546,11 +1556,12 @@
         return signatureRow + stampRows;
       }).join('');
       const archive = current.status === 'fully_signed' && verified.archive_status !== 'uploaded'
-        ? `<aside class="notice"><strong>Signed packet archive: ${escapeHtml(verified.archive_status || 'pending')}</strong><span>${escapeHtml(verified.archive_error || 'Upload the immutable signed PDF to restricted Drive.')}</span><button type="button" class="btn btn-primary" id="origination-archive-signed" data-package-id="${escapeHtml(packageData.id)}">${verified.archive_status === 'failed' ? 'Retry archival' : 'Archive signed packet'}</button></aside>` : '';
+        ? `<aside class="notice"><strong>${verified.archive_status === 'failed' ? 'Automatic archival needs attention' : 'Automatic archival in progress'}</strong><span>${escapeHtml(verified.archive_error || 'The immutable signed PDF is being stored in restricted Drive automatically.')}</span>${verified.archive_status === 'failed' ? `<button type="button" class="btn btn-primary" id="origination-archive-signed" data-package-id="${escapeHtml(packageData.id)}">Retry archival</button>` : ''}</aside>` : '';
       const signedPacket = verified.signed_packet_available
-        ? `<aside class="signed-packet-access"><div><strong>${verified.archive_status === 'uploaded' ? 'Archived signed packet' : 'Final signed packet'}</strong><span>${verified.archive_status === 'uploaded' ? 'Stored in restricted Drive and verified against its immutable hash.' : 'Ready to view now; archive it to restricted Drive for permanent retention.'}</span></div><div><button type="button" class="btn btn-secondary" id="origination-view-signed" data-package-id="${escapeHtml(packageData.id)}">View signed LAF</button><button type="button" class="btn btn-primary" id="origination-download-signed" data-package-id="${escapeHtml(packageData.id)}">Download PDF</button></div></aside>`
+        ? `<aside class="signed-packet-access"><div><strong>${verified.archive_status === 'uploaded' ? 'Archived signed packet' : 'Final signed packet'}</strong><span>${verified.archive_status === 'uploaded' ? 'Stored in restricted Drive and verified against its immutable hash.' : 'Ready to view while automatic archival completes.'}</span></div><div><button type="button" class="btn btn-secondary" id="origination-view-signed" data-package-id="${escapeHtml(packageData.id)}">View signed LAF</button><button type="button" class="btn btn-primary" id="origination-open-signed-pdf" data-package-id="${escapeHtml(packageData.id)}">Open PDF</button></div></aside>`
         : '';
-      return `<section class="signing-verified-panel"><p class="eyebrow">Verified packet signing</p><h3>Send each signer their secure link</h3><p>Remote signing works from any location. Each external signer reviews the immutable packet and verifies their own OTP.</p>${participants || '<div class="empty-state">No signing participants were configured.</div>'}${signedPacket}${archive}</section>`;
+      const signingComplete = current.status === 'fully_signed';
+      return `<section class="signing-verified-panel"><p class="eyebrow">Verified packet signing</p><h3>${signingComplete ? 'Signing complete' : 'Send each signer their secure link'}</h3><p>${signingComplete ? 'Every required signature and stamp has been applied to the immutable packet.' : 'Remote signing works from any location. Each external signer reviews the immutable packet and verifies their own OTP.'}</p>${participants || '<div class="empty-state">No signing participants were configured.</div>'}${signedPacket}${archive}</section>`;
     }
     const stamps = packageData.test_stamps || [];
     const rows = (test.slots || []).map(slot => {
@@ -1587,7 +1598,7 @@
       if (current.status === 'reviewed' && capabilities.can_start_signing) return `${recall}<button class="btn btn-primary" id="origination-start-signing" data-primary-action="Start signing">Start signing</button>`;
       return recall;
     }
-    return `${step > 0 ? `<button class="btn btn-secondary" id="wizard-previous">${iconSvg('arrowLeft')} Previous</button>` : '<span></span>'}${step < wizardSections().length - 1 ? '<button class="btn btn-primary" id="wizard-next" data-primary-action="Save & continue">Save & continue</button>' : '<button class="btn btn-primary" id="origination-submit" data-primary-action="Submit for review">Submit for review</button>'}`;
+    return `${step > 0 ? `<button class="btn btn-secondary" id="wizard-previous">${iconSvg('arrowLeft')} Previous</button>` : '<span></span>'}${step < wizardSections().length - 1 ? '<button class="btn btn-primary" id="wizard-next" data-primary-action="Save & continue">Save & continue</button>' : '<button class="btn btn-primary" id="origination-submit" data-primary-action="Submit for packet preparation">Submit for packet preparation</button>'}`;
   }
 
   function correctionChecklistMarkup() {
@@ -1615,6 +1626,7 @@
   }
 
   function renderEditor(application, requestedStep) {
+    document.body.classList.add('origination-editor-open');
     current = application;
     step = Number.isInteger(requestedStep) ? requestedStep : step;
     const values = collectPayload();
@@ -1645,7 +1657,7 @@
     const actionFooter = editable || actions
       ? `<footer class="wizard-actions">${editable ? `<span id="origination-save-status" data-state="${recoveryState[1]}">${recoveryState[0]}</span>` : '<span></span>'}<div>${actions}</div></footer>`
       : '';
-    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small><small class="editor-status-text">${escapeHtml(application.status_text || application.status.replaceAll('_', ' '))}</small></div><span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(application.status.replaceAll('_', ' '))}</span></div>${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${progressMarkup()}<section class="wizard-card">${content}</section>${actionFooter}`;
+    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small><small class="editor-status-text">${escapeHtml(application.status_text || applicationStatusLabel(application))}</small></div><span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(applicationStatusLabel(application))}</span></div>${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${progressMarkup()}<section class="wizard-card">${content}</section>${actionFooter}`;
     bindEditor(sectionEditable);
     syncTelegramControls();
     window.requestAnimationFrame(() => window.scrollTo(0, 0));
@@ -2321,25 +2333,33 @@
       await load(); showToast('Signed packet archived in restricted Drive.');
     }));
     document.getElementById('origination-view-signed')?.addEventListener('click', () => openPreview('__signed_packet__'));
-    document.getElementById('origination-download-signed')?.addEventListener('click', event => downloadSignedPacket(event.currentTarget.dataset.packageId));
+    document.getElementById('origination-open-signed-pdf')?.addEventListener('click', event => openSignedPacketPdf(event.currentTarget.dataset.packageId));
     document.getElementById('origination-test-signing-preview')?.addEventListener('click', () => openPreview('__test_signing__'));
   }
 
-  async function downloadSignedPacket(packageId) {
-    const key = requestKey('signed-packet-download');
-    const result = await apiFetch(`/applications/${current.id}/signed-packet/?package_id=${encodeURIComponent(packageId)}&download=1`, {
+  async function openSignedPacketPdf(packageId) {
+    const viewer = window.open('', '_blank');
+    const key = requestKey('signed-packet-open');
+    const result = await apiFetch(`/applications/${current.id}/signed-packet/?package_id=${encodeURIComponent(packageId)}`, {
       headers: { 'X-Request-ID': key },
     });
-    if (!result.ok || !result.blob) return showToast(result.data?.error || 'Could not download the signed packet.', true);
+    if (!result.ok || !result.blob) {
+      try { viewer?.close?.(); } catch (_) { /* Ignore a browser-owned viewer failure. */ }
+      return showToast(result.data?.error || 'Could not open the signed packet.', true);
+    }
     const url = URL.createObjectURL(result.blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${current.reference_number}-SIGNED.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+    if (viewer && !viewer.closed) viewer.location.replace(url);
+    else {
+      const link = document.createElement('a');
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
     window.setTimeout(() => URL.revokeObjectURL(url), 60000);
-    showToast('Signed packet downloaded.');
+    showToast('Opening the signed PDF.');
   }
 
   async function openPreview(documentKey = '') {
@@ -2588,7 +2608,8 @@
     window.clearTimeout(showToast.timer); showToast.timer = window.setTimeout(() => { toast.hidden = true; }, 3500);
   }
 
-  function renderList({ restoreScroll = false } = {}) {
+  function renderList({ restoreScroll = false, focusSearch = false } = {}) {
+    document.body.classList.remove('origination-editor-open');
     current = null;
     step = 0;
     dirty = false;
@@ -2607,13 +2628,13 @@
       const identity = item.applicant_summary || {};
       const applicantName = identity.name || 'Applicant details pending';
       const identifiers = [identity.national_id ? `ID ${identity.national_id}` : '', identity.phone || ''].filter(Boolean).join(' · ');
-      return `<button type="button" class="application-card" data-application-id="${item.id}"><span><strong>${escapeHtml(applicantName)}</strong><small>${escapeHtml(identifiers || 'ID and telephone pending')}</small><small>${escapeHtml(item.product_name)} · ${escapeHtml(item.branch || 'No branch')} · ${escapeHtml(item.reference_number)}${capabilities.can_review ? ` · ${escapeHtml(item.officer_name || 'Unassigned')}` : ''}</small><small class="application-status-text">${escapeHtml(item.status_text || item.status.replaceAll('_', ' '))}</small></span><span class="application-card-state"><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(item.status.replaceAll('_', ' '))}</span>${iconSvg('arrowRight')}</span></button>`;
+      return `<button type="button" class="application-card" data-application-id="${item.id}"><span><strong>${escapeHtml(applicantName)}</strong><small>${escapeHtml(identifiers || 'ID and telephone pending')}</small><small>${escapeHtml(item.product_name)} · ${escapeHtml(item.branch || 'No branch')} · ${escapeHtml(item.reference_number)}${capabilities.can_review ? ` · ${escapeHtml(item.officer_name || 'Unassigned')}` : ''}</small><small class="application-status-text">${escapeHtml(item.status_text || applicationStatusLabel(item))}</small></span><span class="application-card-state"><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(applicationStatusLabel(item))}</span>${iconSvg('arrowRight')}</span></button>`;
     }).join('');
     const alerts = reviewerAlerts.map(item => `<button type="button" class="reviewer-alert" data-reviewer-alert="${escapeHtml(item.id)}" data-application-id="${escapeHtml(item.application_id)}"><span><strong>Approval invalidated</strong><small>${escapeHtml(item.message)}</small></span>${iconSvg('arrowRight')}</button>`).join('');
     const queueTabs = [
       ...(capabilities.can_create ? [['mine', 'My applications'], ['corrections', 'Corrections']] : []),
       ...(capabilities.can_review ? [['review', 'Review']] : []),
-      ...(capabilities.can_start_signing ? [['prepare', 'Prepare'], ['signing', 'Signing']] : []),
+      ...(capabilities.can_start_signing ? [['prepare', 'Prepare packet'], ['signing', 'Signing']] : []),
     ].map(([key, label]) => {
       const count = queueCount(key);
       return `<button type="button" data-queue="${key}" class="queue-tab${listState.queue === key ? ' active' : ''}"><span>${label}</span>${count !== '' ? `<strong>${count}</strong>` : ''}</button>`;
@@ -2642,14 +2663,32 @@
     document.getElementById('origination-start')?.addEventListener('click', event => openCreationSheet(event.currentTarget));
     document.getElementById('origination-open-filters').onclick = event => openFilterSheet(event.currentTarget);
     document.getElementById('origination-list-refresh').onclick = () => loadApplications();
-    document.getElementById('origination-search').onsubmit = event => {
+    const searchForm = document.getElementById('origination-search');
+    const searchInput = searchForm.querySelector('input[name="q"]');
+    searchInput.oninput = event => {
+      window.clearTimeout(listSearchTimer);
+      listState.query = String(event.currentTarget.value || '').trim();
+      listState.page = 1;
+      listRequestGeneration += 1;
+      if (!listState.query) return void loadApplications({ focusSearch: true });
+      listSearchTimer = window.setTimeout(() => void loadApplications({ focusSearch: true }), 250);
+    };
+    searchForm.onsubmit = event => {
       event.preventDefault();
-      applyListFilters({ query: String(new FormData(event.currentTarget).get('q') || '').trim() });
+      window.clearTimeout(listSearchTimer);
+      listState.query = String(new FormData(event.currentTarget).get('q') || '').trim();
+      listState.page = 1;
+      void loadApplications({ focusSearch: true });
     };
     document.getElementById('origination-page-previous')?.addEventListener('click', async () => { if (listState.page > 1) { listState.page -= 1; window.scrollTo(0, 0); await loadApplications(); } });
     document.getElementById('origination-page-next')?.addEventListener('click', async () => { if (listState.page < listState.pages) { listState.page += 1; window.scrollTo(0, 0); await loadApplications(); } });
     syncTelegramControls();
-    if (restoreScroll) window.requestAnimationFrame(() => window.scrollTo(0, listScrollY));
+    if (focusSearch) window.requestAnimationFrame(() => {
+      const input = document.querySelector('#origination-search input[name="q"]');
+      input?.focus?.();
+      input?.setSelectionRange?.(input.value.length, input.value.length);
+    });
+    else if (restoreScroll) window.requestAnimationFrame(() => window.scrollTo(0, listScrollY));
     else window.requestAnimationFrame(() => window.scrollTo(0, 0));
   }
 
@@ -2668,8 +2707,10 @@
     if (!products.length) showToast('No active origination product is available for this branch.', true);
   }
 
-  async function loadApplications() {
+  async function loadApplications({ focusSearch = false } = {}) {
+    const generation = ++listRequestGeneration;
     const result = await apiFetch(`/applications/?${applicationListParams()}`, {});
+    if (generation !== listRequestGeneration) return;
     if (!result.ok) return showToast(result.data?.error || 'Could not load applications.', true);
     applications = result.data.applications || [];
     listCounts = result.data.counts || {};
@@ -2678,7 +2719,7 @@
     listState.page = result.data.pagination?.page || 1;
     listState.pages = result.data.pagination?.pages || 1;
     listTotal = result.data.pagination?.total ?? applications.length;
-    renderList();
+    renderList({ focusSearch });
   }
 
   async function load() {
@@ -2707,7 +2748,6 @@
   };
   document.getElementById('preview-zoom-out').onclick = () => setPreviewZoom(previewZoom - 25);
   document.getElementById('preview-zoom-in').onclick = () => setPreviewZoom(previewZoom + 25);
-  document.getElementById('preview-open').onclick = () => { if (previewUrl) window.open(previewUrl, '_blank', 'noopener'); };
   document.getElementById('origination-review-dialog').onsubmit = event => { event.preventDefault(); submitReviewDialog(); };
   document.getElementById('review-dialog-close').onclick = closeReviewDialog;
   document.getElementById('review-dialog-cancel').onclick = closeReviewDialog;
@@ -2757,7 +2797,6 @@
   };
   document.getElementById('origination-review-dialog').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
   document.getElementById('document-preview-overlay').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
-  document.getElementById('origination-refresh').onclick = load;
   bindPreviewPinch();
   window.addEventListener('beforeunload', closePreview);
   window.addEventListener('online', () => { if (current && dirty && !syncConflict) void saveDraft(false); else if (!current) void loadApplications(); });

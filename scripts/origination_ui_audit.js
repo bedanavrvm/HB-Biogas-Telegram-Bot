@@ -70,11 +70,22 @@ async function installApiMocks(page, delayMs = 0, options = {}) {
       branches: ['Embu', 'Nakuru'], capabilities: { user_id: 1, can_create: true, can_review: true, can_start_signing: true },
       location_catalog: { branches: [], counties: [], branch_service_areas: {} },
     });
-    if (apiPath === '/applications/' && request.method() === 'GET') return json({
-      applications, counts: { draft: 16, correction_required: 2, ready_for_review: 3, reviewed: 1 },
+    if (apiPath === '/applications/' && request.method() === 'GET') {
+      const query = String(url.searchParams.get('q') || '').trim().toLowerCase();
+      const filtered = query
+        ? applications.filter(item => `${item.applicant_summary.name} ${item.reference_number}`.toLowerCase().includes(query))
+        : applications;
+      const pageNumber = Math.max(1, Number(url.searchParams.get('page') || 1));
+      const pageSize = Math.min(10, Math.max(1, Number(url.searchParams.get('page_size') || 10)));
+      const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
+      const resolvedPage = Math.min(pageNumber, pages);
+      const start = (resolvedPage - 1) * pageSize;
+      return json({
+      applications: filtered.slice(start, start + pageSize), counts: { draft: 16, correction_required: 2, ready_for_review: 3, reviewed: 1 },
       capabilities: { user_id: 1, can_create: true, can_review: true, can_start_signing: true },
-      pagination: { page: 1, pages: 1, total: applications.length },
+      pagination: { page: resolvedPage, page_size: pageSize, pages, total: filtered.length },
     });
+    }
     if (apiPath === '/applications/' && request.method() === 'POST') {
       createCalls += 1;
       return json({ ok: true, application: application(99) });
@@ -213,6 +224,14 @@ async function auditViewport(browser, viewport) {
   assert(metrics.firstTop <= 320, `${viewport.name}: first card begins at ${metrics.firstTop}px`);
   assert(metrics.visibleCards >= 3, `${viewport.name}: only ${metrics.visibleCards} complete cards visible`);
   assert((await page.locator('.application-card').first().textContent()).includes('Synthetic Applicant 1'), `${viewport.name}: queue card does not lead with Applicant identity`);
+  assert(await page.locator('.application-card').count() === 10, `${viewport.name}: queue renders more than ten applications`);
+  assert(await page.locator('#origination-page-next').isVisible(), `${viewport.name}: pagination is missing for a multi-page queue`);
+  const liveSearch = page.locator('#origination-search input[name="q"]');
+  await liveSearch.fill('Synthetic Applicant 12');
+  await page.waitForFunction(() => document.querySelectorAll('.application-card').length === 1);
+  assert((await page.locator('.application-card').first().textContent()).includes('Synthetic Applicant 12'), `${viewport.name}: live search did not filter while typing`);
+  await liveSearch.fill('');
+  await page.waitForFunction(() => document.querySelectorAll('.application-card').length === 10);
   await page.screenshot({ path: path.join(outputDir, `${viewport.name}-list.png`), fullPage: true });
 
   const start = page.locator('#origination-start');
@@ -227,7 +246,7 @@ async function auditViewport(browser, viewport) {
   await page.locator('#origination-select-close').click();
   await page.waitForFunction(() => document.activeElement?.classList.contains('origination-select-trigger'));
   assert(await page.locator('#origination-sheet').evaluate(sheet => sheet.getBoundingClientRect().bottom <= innerHeight + 1), `${viewport.name}: sheet exceeds live viewport`);
-  await page.locator('[data-sheet-cancel]').focus();
+  await page.locator('#origination-create-submit').focus();
   await page.keyboard.press('Tab');
   assert(await page.locator('#origination-sheet-close').evaluate(node => document.activeElement === node), `${viewport.name}: sheet focus escaped instead of wrapping`);
   await page.screenshot({ path: path.join(outputDir, `${viewport.name}-create-sheet.png`) });
@@ -342,7 +361,7 @@ async function auditTelegramAndSlowNetwork(browser) {
     actionDisplay: getComputedStyle(document.querySelector('.wizard-actions')).display,
   }));
   assert(!keyboardState.mainVisible, 'Telegram MainButton remained over the contracted keyboard viewport');
-  assert(keyboardState.actionPosition === 'static', `Wizard actions stayed ${keyboardState.actionPosition} while the keyboard input was active`);
+  assert(keyboardState.actionPosition === 'fixed', `Wizard actions are not pinned outside the keyboard viewport (${keyboardState.actionPosition})`);
   assert(keyboardState.actionDisplay === 'none', `Wizard action overlay remained ${keyboardState.actionDisplay} above the keyboard`);
   await page.screenshot({ path: path.join(outputDir, 'telegram-keyboard-active.png') });
   await page.evaluate(() => document.activeElement?.blur());
@@ -518,7 +537,8 @@ async function auditArchivedSignedPacketAccess(browser) {
   await page.locator('[data-section-index]').last().click();
   await page.locator('#origination-root').getByText('Archived signed packet', { exact: true }).waitFor();
   assert(await page.getByText('View signed LAF', { exact: true }).isVisible(), 'Archived signed LAF view action is missing');
-  assert(await page.getByText('Download PDF', { exact: true }).isVisible(), 'Archived signed LAF download action is missing');
+  assert(await page.getByText('Open PDF', { exact: true }).isVisible(), 'Archived signed PDF open action is missing');
+  assert(await page.locator('.review-card').count() === 0, 'Fully signed application still exposes review edit cards');
   assert(await page.locator('.wizard-actions').count() === 0, 'Read-only archived packet is obscured by a sticky action footer');
   await page.screenshot({ path: path.join(outputDir, 'phone-390-archived-signed-packet-actions.png'), fullPage: true });
 
@@ -543,12 +563,13 @@ async function auditArchivedSignedPacketAccess(browser) {
   assert(viewerLayout.firstLeft >= viewerLayout.toolbarLeft, 'Archived viewer clips its first toolbar action');
   await page.screenshot({ path: path.join(outputDir, 'phone-390-archived-signed-packet-preview.png') });
   await page.locator('#preview-close').click();
-  const downloadPromise = page.waitForEvent('download');
-  await page.getByText('Download PDF', { exact: true }).click();
-  const download = await downloadPromise;
-  assert(download.suggestedFilename() === 'JBL-2026-0001-SIGNED.pdf', `Unexpected signed packet filename: ${download.suggestedFilename()}`);
+  const viewerPromise = page.waitForEvent('popup');
+  await page.getByText('Open PDF', { exact: true }).click();
+  const viewer = await viewerPromise;
+  assert(Boolean(viewer), 'Signed PDF did not open in a viewer surface');
+  await viewer.close();
   assert(signedPacketRequests.filter(item => item.preview).length >= 4, 'One or more preview entry points did not use the signed-packet endpoint');
-  assert(signedPacketRequests.some(item => item.download), 'Archived packet download did not use the signed-packet endpoint');
+  assert(signedPacketRequests.some(item => !item.preview && !item.download), 'PDF viewer did not use the inline signed-packet endpoint');
   assert(!pageErrors.length, `Archived packet access raised a browser error: ${pageErrors.join(' | ')}`);
   await page.close();
 }

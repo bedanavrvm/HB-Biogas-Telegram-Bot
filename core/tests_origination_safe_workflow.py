@@ -248,6 +248,42 @@ class OriginationSafeWorkflowTests(TestCase):
         self.assertEqual(payload['counts']['correction_required'], 1)
         self.assertEqual(payload['applications'][0]['id'], str(self.application.pk))
 
+    def test_application_queue_never_returns_more_than_ten_and_clamps_page(self):
+        from core.api.origination_views import portal_origination_applications
+
+        LoanOriginationApplication.objects.bulk_create([
+            LoanOriginationApplication(
+                reference_number=f'ORG-PAGE-{index:03d}',
+                product_definition=self.definition, officer=self.officer, branch='Embu',
+                schema_snapshot=self.definition.form_schema,
+                signer_rules_snapshot=self.definition.signer_rules,
+                product_terms_snapshot={},
+            )
+            for index in range(10)
+        ])
+        request = RequestFactory().get('/api/origination/api/applications/', {
+            'queue': 'mine', 'page': '1', 'page_size': '25',
+        })
+        request.portal_user = self.officer
+        request.portal_access = None
+
+        first = json.loads(portal_origination_applications(request).content)
+
+        self.assertEqual(first['pagination'], {
+            'page': 1, 'page_size': 10, 'total': 11, 'pages': 2,
+        })
+        self.assertEqual(len(first['applications']), 10)
+
+        request = RequestFactory().get('/api/origination/api/applications/', {
+            'queue': 'mine', 'page': '99', 'page_size': '25',
+        })
+        request.portal_user = self.officer
+        request.portal_access = None
+        last = json.loads(portal_origination_applications(request).content)
+
+        self.assertEqual(last['pagination']['page'], 2)
+        self.assertEqual(len(last['applications']), 1)
+
     @patch('core.api.origination_views._capability_error', return_value=None)
     @patch('core.services.origination_access.effective_capability_keys')
     def test_application_detail_denies_another_officers_record(

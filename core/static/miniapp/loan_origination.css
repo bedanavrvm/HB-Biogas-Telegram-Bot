@@ -42,7 +42,7 @@ body.origination-modal-open { overflow: hidden; }
   top: 0;
   z-index: 20;
   display: grid !important;
-  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  grid-template-columns: 40px minmax(0, 1fr);
   align-items: center;
   gap: 9px !important;
   margin: 0 -10px 6px !important;
@@ -286,15 +286,14 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 .input-prefix { position: absolute; left: 10px; top: 50%; z-index: 1; transform: translateY(-50%); color: var(--laf-muted); font-size: .65rem; }
 .has-prefix input { padding-left: 40px; }
 
-.wizard-actions { position: sticky; bottom: 0; z-index: 20; margin: 8px -10px 0; padding: 7px 10px calc(7px + env(safe-area-inset-bottom)); border-top: 1px solid var(--laf-line); background: color-mix(in srgb, var(--laf-surface) 96%, transparent); backdrop-filter: blur(12px); }
+.origination-editor-open .origination-shell { padding-bottom: calc(72px + env(safe-area-inset-bottom)) !important; }
+.wizard-actions { position: fixed; right: max(10px, calc((100vw - 760px) / 2 + 10px)); bottom: 0; left: max(10px, calc((100vw - 760px) / 2 + 10px)); z-index: 20; margin: 0; padding: 7px 10px calc(7px + env(safe-area-inset-bottom)); border: 1px solid var(--laf-line); border-bottom: 0; border-radius: 11px 11px 0 0; background: color-mix(in srgb, var(--laf-surface) 97%, transparent); box-shadow: 0 -5px 18px rgb(18 44 35 / 8%); backdrop-filter: blur(12px); }
 .wizard-actions > div { display: flex; justify-content: flex-end; gap: 6px; }
 .wizard-actions > span { color: var(--laf-muted); font-size: .64rem; font-weight: 700; }
 .wizard-actions > span[data-state=saving] { color: #946200; }
 .wizard-actions > span[data-state=offline] { color: #b42318; }
 .wizard-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 40px; padding: 7px 11px; font-size: .7rem; }
-.telegram-main-button-active .wizard-actions, .origination-keyboard-open .wizard-actions, .origination-input-active .wizard-actions { position: static; padding-bottom: 7px; backdrop-filter: none; }
 .origination-keyboard-open .wizard-actions { display: none !important; }
-.origination-input-active .origination-shell { padding-bottom: max(12px, env(safe-area-inset-bottom)) !important; }
 
 .review-intro { align-items: flex-start; padding: 1px 0 11px; border-bottom: 1px solid var(--laf-line); }
 .review-intro h3, .review-intro p { margin: 0; }
