@@ -12,7 +12,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=6">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=7">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
   <main class="complaint-app" aria-label="Complaint Cases">
@@ -39,9 +39,11 @@
 
     <section id="listView" class="view active" hidden>
       <section class="overview-strip" aria-label="Complaint summary">
-        <button class="metric-tile priority" type="button" data-status-filter="Open"><span id="openCount">0</span><small>Open</small></button>
-        <button class="metric-tile" type="button" data-status-filter="In Progress"><span id="progressCount">0</span><small>In progress</small></button>
-        <button class="metric-tile" type="button" data-status-filter="Closed"><span id="closedCount">0</span><small>Closed</small></button>
+        <button class="metric-tile priority" type="button" data-metric-filter="open"><span id="openCount">0</span><small>Open</small></button>
+        <button class="metric-tile" type="button" data-metric-filter="in_progress"><span id="progressCount">0</span><small>In progress</small></button>
+        <button class="metric-tile" type="button" data-metric-filter="closed"><span id="closedCount">0</span><small>Closed</small></button>
+        <button class="metric-tile" type="button" data-metric-filter="total"><span id="totalCount">0</span><small>Total</small></button>
+        <button class="metric-tile warning" type="button" data-metric-filter="overdue"><span id="overdueCount">0</span><small>Overdue</small></button>
       </section>
 
       <nav id="complaintTabs" class="tabs" aria-label="Complaint views">
@@ -52,22 +54,15 @@
       </nav>
 
       <section class="section-block" aria-label="Complaint queue">
-        <div class="section-head"><div><h2>Complaint queue</h2><p>Open and in-progress cases in this group.</p></div></div>
+        <div class="queue-tools"><div><h2 id="queueHeading">Complaint queue</h2><span id="queueResultCount">0 cases</span></div><button id="openQueueFiltersBtn" class="queue-filter-btn" type="button" aria-haspopup="dialog"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg><span>Filters</span><b aria-hidden="true" hidden></b></button></div>
         <div class="search-card">
           <label class="sr-label" for="caseSearch">Find a case</label>
           <div class="search-input-wrap"><svg class="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input id="caseSearch" type="search" autocomplete="off" placeholder="Name, case ID, ID number, phone..."></div>
         </div>
-        <div class="queue-filters">
-          <div class="filter-tabs" aria-label="Case status"><button class="active" type="button" data-status="active">Active</button><button type="button" data-status="Open">Open</button><button type="button" data-status="In Progress">In progress</button><button type="button" data-status="Closed">Closed</button></div>
-          <label>Branch<select id="branchFilter"><option value="">All branches</option></select></label>
-          <div class="queue-filter-row">
-            <label>Priority<select id="priorityFilter"><option value="">All priorities</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select></label>
-            <label>Assignment<select id="assignmentFilter"><option value="">Everyone</option><option value="mine">Assigned to me</option><option value="unassigned">Unassigned</option></select></label>
-            <label>SLA<select id="slaFilter"><option value="">Any SLA</option><option value="overdue">Overdue</option><option value="due_soon">Due soon</option></select></label>
-          </div>
-        </div>
+        <div class="filter-tabs" aria-label="Case status"><button class="active" type="button" data-status="active">Active</button><button type="button" data-status="Open">Open</button><button type="button" data-status="In Progress">In progress</button><button type="button" data-status="Closed">Closed</button><button type="button" data-status="all">All</button></div>
+        <div id="activeQueueFilters" class="active-filters" aria-label="Active filters" hidden></div>
         <div id="caseList" class="case-list"></div>
-        <button id="loadMoreBtn" class="secondary load-more" type="button" hidden>Load more</button>
+        <nav id="queuePagination" class="queue-pagination" aria-label="Complaint case pages" hidden><button id="queuePreviousBtn" class="secondary" type="button">Previous</button><span id="queuePageLabel">Page 1 of 1</span><button id="queueNextBtn" class="secondary" type="button">Next</button></nav>
         <p id="emptyState" class="empty-state" hidden>No complaint cases match this view.</p>
       </section>
     </section>
@@ -88,7 +83,7 @@
         <div class="location-actions"><button id="createCaptureLocationBtn" class="secondary" type="button">Use my current location</button><span id="createCaptureState" class="capture-state">Location is optional</span></div>
         <label class="upload-field">Evidence <input id="createEvidenceInput" type="file" name="evidence" multiple accept="image/jpeg,image/png,image/webp,.pdf,.docx"><span>JPEG, PNG, WebP, PDF, or DOCX &middot; 10 MB each / 30 MB total</span></label>
         <ul id="createSelectedEvidence" class="selected-evidence"></ul>
-        <div class="form-actions"><button id="createSaveBtn" class="primary" type="submit"><span>Create complaint</span></button></div>
+        <div class="form-actions sticky-actions"><button id="createSaveBtn" class="primary" type="submit"><span>Create complaint</span></button></div>
       </form>
     </section>
 
@@ -121,15 +116,30 @@
         <div class="form-grid"><label>Status<select id="statusInput" name="status"><option>Open</option><option>In Progress</option><option>Closed</option></select></label><label data-required-capability="complaint.case.assign">Assigned officer<select id="assigneeInput" name="assigned_to"><option value="">Unassigned</option></select></label><label data-required-capability="complaint.case.assign">Priority<select id="priorityInput" name="priority"><option value="high">High - 24 hours</option><option value="normal">Normal - 72 hours</option><option value="low">Low - 120 hours</option></select></label><label class="full-width">Update note<textarea id="noteInput" name="resolution_text" rows="3" maxlength="5000" placeholder="What happened, what is next, and who owns it?"></textarea></label></div>
         <div class="location-actions" hidden><button id="captureLocationBtn" class="secondary" type="button">Use my current location</button><span id="captureState" class="capture-state">No new location selected</span></div>
         <label class="upload-field">Evidence <input id="evidenceInput" type="file" name="evidence" multiple accept="image/jpeg,image/png,image/webp,.pdf,.docx"><span>JPEG, PNG, WebP, PDF, or DOCX &middot; 10 MB each / 30 MB total</span></label><ul id="selectedEvidence" class="selected-evidence"></ul>
-        <div class="form-actions"><button id="saveBtn" class="primary" type="submit"><span>Save update</span></button></div>
+        <div class="form-actions sticky-actions"><button id="saveBtn" class="primary" type="submit"><span>Save update</span></button></div>
       </form>
       <section class="detail-card"><div class="section-title"><div><h2>Evidence</h2><p>Files are saved in the group&rsquo;s configured Google Drive location.</p></div></div><div id="evidenceList" class="evidence-list"></div></section>
       <section class="detail-card"><div class="section-title"><div><h2>Activity</h2><p id="activityDescription">Case updates recorded by staff.</p></div></div><div id="activityList" class="activity-list"></div></section>
     </section>
+    <div id="queueFilterOverlay" class="complaint-sheet-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="queueFilterTitle" hidden>
+      <section id="queueFilterSheet" class="complaint-sheet" tabindex="-1">
+        <header class="complaint-sheet-header">
+          <div class="complaint-sheet-heading"><p class="eyebrow">Complaint queue</p><h2 id="queueFilterTitle">Filter cases</h2><p>Narrow the current queue without changing your access.</p></div>
+          <button id="closeQueueFiltersBtn" type="button" class="sheet-close" aria-label="Close filters">&times;</button>
+        </header>
+        <form id="queueFilterForm" class="sheet-form">
+          <label>Branch<select id="branchFilter"><option value="">All branches</option></select></label>
+          <label>Priority<select id="priorityFilter"><option value="">All priorities</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select></label>
+          <label>Assignment<select id="assignmentFilter"><option value="">Everyone</option><option value="mine">Assigned to me</option><option value="unassigned">Unassigned</option></select></label>
+          <label>SLA<select id="slaFilter"><option value="">Any SLA</option><option value="overdue">Overdue</option><option value="due_soon">Due soon</option></select></label>
+        </form>
+        <footer><button id="resetQueueFiltersBtn" class="secondary" type="button">Reset</button><button class="primary" type="submit" form="queueFilterForm">Apply filters</button></footer>
+      </section>
+    </div>
   </main>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script src="{% static 'miniapp/utils.js' %}?v=3"></script>
   <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=10"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=11"></script>
 </body>
 </html>

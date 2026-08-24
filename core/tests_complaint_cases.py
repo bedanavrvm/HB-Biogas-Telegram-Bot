@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import time
+from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlencode
 from unittest.mock import patch
@@ -31,8 +32,10 @@ from core.services.complaint_cases import (
     ComplaintCaseConflict,
     ComplaintCaseError,
     create_complaint_case,
+    bootstrap_data,
     evidence_filename,
     list_cases,
+    list_cases_page,
     staff_actor_for_payload,
     update_case,
     ensure_case_control,
@@ -106,6 +109,35 @@ class ComplaintCaseServiceTests(TestCase):
 
         self.assertEqual([case['case_id'] for case in cases], ['CASE-3'])
 
+    def test_numbered_pages_are_limited_to_ten_and_report_totals(self):
+        for index in range(11):
+            self.create_case('-100100', f'CASE-PAGE-{index:02d}')
+
+        first = list_cases_page(self.config, self.actor('100'), page=1, page_size=50)
+        second = list_cases_page(self.config, self.actor('100'), page=2, page_size=50)
+
+        self.assertEqual(len(first['items']), 10)
+        self.assertEqual(len(second['items']), 2)
+        self.assertEqual(first['pagination'], {'page': 1, 'pages': 2, 'total': 12, 'page_size': 10})
+        self.assertEqual(first['start_index'], 1)
+        self.assertEqual(second['start_index'], 11)
+        self.assertFalse({item['case_id'] for item in first['items']} & {item['case_id'] for item in second['items']})
+
+    def test_status_focused_counts_are_actor_scoped(self):
+        self.case.complaint_status = 'In Progress'
+        self.case.save(update_fields=['complaint_status'])
+        control = ensure_case_control(self.case)
+        control.sla_due_at = timezone.now() - timedelta(hours=1)
+        control.save(update_fields=['sla_due_at'])
+
+        counts = bootstrap_data(self.config, self.actor('100'))['counts']
+
+        self.assertEqual(counts['open'], 0)
+        self.assertEqual(counts['in_progress'], 1)
+        self.assertEqual(counts['closed'], 0)
+        self.assertEqual(counts['total'], 1)
+        self.assertEqual(counts['overdue'], 1)
+
     def test_branch_scoped_officer_only_sees_their_branch(self):
         AccessGrant.objects.filter(user=self.officer, workflow='complaint_cases').update(branch='Nakuru')
         self.case.branch_region = 'Nakuru'
@@ -136,6 +168,21 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertTemplateUsed(response, 'complaint_cases/partials/case_list.html')
         self.assertContains(response, 'CASE-1')
         self.assertNotContains(response, 'CASE-3')
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_list_endpoint_returns_numbered_pagination_contract(self):
+        response = self.client.post(
+            reverse('complaint_cases_list'),
+            data=json.dumps({'group_id': self.group.group_id, 'status': 'all', 'page': 1}),
+            content_type='application/json',
+            HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('100'),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload['pagination']['page_size'], 10)
+        self.assertEqual(payload['pagination']['total'], 1)
+        self.assertEqual(payload['start_index'], 1)
 
     def test_registry_resolves_a_group_added_after_the_initial_cache(self):
         GroupRegistry._instance = None
@@ -306,7 +353,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         template = (root / 'templates' / 'complaint_cases' / 'app.html').read_text(encoding='utf-8')
         script = (root / 'static' / 'miniapp' / 'complaint_cases.js').read_text(encoding='utf-8')
 
-        for expected in ('class="app-top"', 'class="overview-strip"', 'class="tabs"', 'class="form-card"', 'id="complaintTabs"', 'data-view="create"', 'id="createCaseForm"', 'name="client_name"', 'name="customer_phone"', 'name="customer_id"', 'name="branch_region"', 'name="complaint_category"', 'name="complaint_description"', 'id="createEvidenceInput"', 'id="branchFilter"', 'data-status-filter="Open"', 'data-status-filter="In Progress"', 'data-status-filter="Closed"', 'id="captureLocationBtn" class="secondary" type="button"', 'htmx.org'):
+        for expected in ('class="app-top"', 'class="overview-strip"', 'class="tabs"', 'class="form-card"', 'id="complaintTabs"', 'data-view="create"', 'id="createCaseForm"', 'name="client_name"', 'name="customer_phone"', 'name="customer_id"', 'name="branch_region"', 'name="complaint_category"', 'name="complaint_description"', 'id="createEvidenceInput"', 'id="branchFilter"', 'data-status="Open"', 'data-status="In Progress"', 'data-status="Closed"', 'id="captureLocationBtn" class="secondary" type="button"', 'htmx.org'):
             self.assertIn(expected, template)
         self.assertIn('<div class="location-actions" hidden><button id="captureLocationBtn"', template)
         self.assertIn("miniapp/utils.js", template)
@@ -321,7 +368,14 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn("utils.fetchJson(`/api/complaints/${path}`", script)
         self.assertIn("formData.set('expected_revision'", script)
         self.assertIn("telegram?.BackButton?.onClick", script)
-        self.assertIn("id=\"loadMoreBtn\"", template)
+        self.assertIn('id="queuePagination"', template)
+        self.assertIn('id="queueFilterOverlay"', template)
+        self.assertIn('id="activeQueueFilters"', template)
+        self.assertIn('data-metric-filter="overdue"', template)
+        self.assertIn("page: state.page", script)
+        self.assertIn('function trapFilterSheetFocus(event)', script)
+        self.assertIn("window.setTimeout(() => loadCases({ scrollTop: true }), 250)", script)
+        self.assertNotIn("window.location.reload()", script)
 
 
 class ComplaintCaseAdminTests(TestCase):

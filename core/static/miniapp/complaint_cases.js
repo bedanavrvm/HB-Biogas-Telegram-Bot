@@ -9,19 +9,27 @@
   const state = {
     groupId: document.body.dataset.groupId || '',
     initData: telegram ? telegram.initData || '' : '',
-    status: String(restoredUi.status || 'active'), branch: String(restoredUi.branch || ''), query: String(restoredUi.query || ''), priority: '', assignment: '', sla: '', currentCase: null, map: null, marker: null,
+    status: String(restoredUi.status || 'active'), branch: String(restoredUi.branch || ''), query: String(restoredUi.query || ''),
+    priority: String(restoredUi.priority || ''), assignment: String(restoredUi.assignment || ''), sla: String(restoredUi.sla || ''),
+    page: Math.max(1, Number(restoredUi.page || 1)), pages: 1, total: 0, startIndex: 0,
+    currentCase: null, map: null, marker: null,
     capturedLocation: null, createCapturedLocation: null, debounce: null,
     capabilities: new Set(),
     personal: null,
     pendingCreateRequestId: '',
     pendingUpdateRequestId: '', nextCursor: '', assignees: [], submitting: false,
+    queueRequestSequence: 0, queueScrollY: 0, queueDirty: false,
+    filterSheetOpen: false, filterSheetReturnFocus: null,
   };
   const $ = (id) => document.getElementById(id);
   const escapeHtml = utils.escapeHtml || ((value) => String(value == null ? '' : value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[character])));
   const requestId = () => window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : `complaint-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
   function rememberUi() {
-    uiContext?.write?.({ status: state.status, branch: state.branch, query: state.query });
+    uiContext?.write?.({
+      status: state.status, branch: state.branch, query: state.query,
+      priority: state.priority, assignment: state.assignment, sla: state.sla, page: state.page,
+    });
   }
 
   function hasUnsavedFormWork() {
@@ -39,9 +47,17 @@
     else telegram.disableClosingConfirmation?.();
   }
 
-  function returnToQueue() {
+  async function returnToQueue() {
     if (hasUnsavedFormWork() && !window.confirm('Discard the unsaved complaint changes?')) return;
-    showComplaintView('queue'); loadCases(); syncClosingConfirmation();
+    const restoreScroll = state.queueScrollY;
+    showComplaintView('queue');
+    syncClosingConfirmation();
+    if (state.queueDirty) {
+      state.queueDirty = false;
+      await loadCases({ restoreScroll: true });
+    } else {
+      window.requestAnimationFrame(() => window.scrollTo(0, restoreScroll));
+    }
   }
 
   function configureHtmx() {
@@ -126,9 +142,11 @@
     $('openCount').textContent = counts.open || 0;
     $('progressCount').textContent = counts.in_progress || 0;
     $('closedCount').textContent = counts.closed || 0;
+    $('totalCount').textContent = counts.total || 0;
+    $('overdueCount').textContent = counts.overdue || 0;
   }
 
-  function renderCases(cases) {
+  function renderCases(cases, startIndex) {
     const list = $('caseList');
     list.innerHTML = cases.map((caseItem) => `
       <button type="button" class="case-row ${statusClass(caseItem.status)}" data-case-id="${escapeHtml(caseItem.case_id)}">
@@ -136,8 +154,10 @@
         <span class="status-pill">${escapeHtml(caseItem.status)}</span>
       </button>`).join('');
     $('emptyState').hidden = cases.length > 0;
-    list.querySelectorAll('[data-case-id]').forEach((button) => {
+    list.querySelectorAll('[data-case-id]').forEach((button, index) => {
       const caseItem = cases.find((item) => item.case_id === button.dataset.caseId);
+      const caseIdNode = button.querySelector('.case-id');
+      if (caseIdNode) caseIdNode.insertAdjacentHTML('afterbegin', `<span class="queue-number">#${Number(startIndex || 0) + index}</span> `);
       if (caseItem && caseItem.recorded_at) {
         const recorded = document.createElement('p');
         recorded.className = 'case-recorded';
@@ -174,20 +194,57 @@
         query: state.query,
         status: state.status,
         branch: state.branch,
+        priority: state.priority,
+        assignment: state.assignment,
+        sla: state.sla,
+        page: state.page,
       });
       const list = $('caseList');
       list.innerHTML = html;
       hydrateCaseRows(list);
       $('emptyState').hidden = !list.querySelector('[data-case-id]');
+      $('queuePagination').hidden = true;
       return true;
     } catch (error) {
       return false;
     }
   }
 
-  async function loadCases(append) {
+  function activeFilterEntries() {
+    const labels = {
+      branch: state.branch,
+      priority: state.priority ? `${state.priority} priority` : '',
+      assignment: state.assignment === 'mine' ? 'Assigned to me' : (state.assignment === 'unassigned' ? 'Unassigned' : ''),
+      sla: state.sla === 'overdue' ? 'Overdue' : (state.sla === 'due_soon' ? 'Due soon' : ''),
+    };
+    return Object.entries(labels).filter(([, value]) => value);
+  }
+
+  function renderActiveFilters() {
+    const entries = activeFilterEntries();
+    const root = $('activeQueueFilters');
+    root.hidden = entries.length === 0;
+    root.innerHTML = entries.map(([key, label]) => `<button type="button" class="filter-chip" data-remove-filter="${escapeHtml(key)}"><span>${escapeHtml(label)}</span><span aria-hidden="true">&times;</span></button>`).join('');
+    $('openQueueFiltersBtn').classList.toggle('active', entries.length > 0);
+    $('openQueueFiltersBtn').querySelector('b').hidden = entries.length === 0;
+  }
+
+  function renderQueueState() {
+    const pages = Math.max(1, Number(state.pages || 1));
+    $('queueResultCount').textContent = `${state.total} ${state.total === 1 ? 'case' : 'cases'}`;
+    $('queuePageLabel').textContent = `Page ${state.page} of ${pages}`;
+    $('queuePreviousBtn').disabled = state.page <= 1;
+    $('queueNextBtn').disabled = state.page >= pages;
+    $('queuePagination').hidden = pages <= 1;
+    document.querySelectorAll('.filter-tabs button').forEach((node) => node.classList.toggle('active', node.dataset.status === state.status));
+    renderActiveFilters();
+  }
+
+  async function loadCases(options) {
+    const settings = options || {};
+    const requestSequence = ++state.queueRequestSequence;
     const list = $('caseList');
-    if (list && !append) {
+    if (list && !settings.silent) {
       list.innerHTML = `<div class="mini-skeleton-list" role="status" aria-label="Loading complaint cases">${utils.skeletonCards ? utils.skeletonCards(3) : ''}</div>`;
       $('emptyState').hidden = true;
     }
@@ -195,23 +252,25 @@
       const response = await api('cases/', {
         query: state.query, status: state.status, branch: state.branch,
         priority: state.priority, assignment: state.assignment, sla: state.sla,
-        cursor: append ? state.nextCursor : '',
+        page: state.page,
       });
+      if (requestSequence !== state.queueRequestSequence) return false;
       state.nextCursor = response.next_cursor || '';
-      if (append) {
-        const oldMarkup = list.innerHTML;
-        renderCases(response.cases || []);
-        const newMarkup = list.innerHTML;
-        list.innerHTML = oldMarkup + newMarkup;
-        hydrateCaseRows(list);
-        $('emptyState').hidden = !list.querySelector('[data-case-id]');
-      } else {
-        renderCases(response.cases || []);
-      }
-      $('loadMoreBtn').hidden = !state.nextCursor;
+      state.page = Number(response.pagination?.page || 1);
+      state.pages = Number(response.pagination?.pages || 1);
+      state.total = Number(response.pagination?.total || 0);
+      state.startIndex = Number(response.start_index || 0);
+      renderCases(response.cases || [], state.startIndex);
+      renderQueueState();
+      rememberUi();
+      if (settings.restoreScroll) window.requestAnimationFrame(() => window.scrollTo(0, state.queueScrollY));
+      else if (settings.scrollTop) window.scrollTo(0, 0);
+      return true;
     } catch (error) {
-      if (!append && await renderCasesFragment()) return;
+      if (requestSequence !== state.queueRequestSequence) return false;
+      if (!settings.silent && await renderCasesFragment()) return true;
       notify(error.message, true);
+      return false;
     }
   }
 
@@ -234,7 +293,11 @@
       $('caseSearch').value = state.query;
       $('listView').hidden = false;
       await loadCases();
-    } catch (error) { notify(error.message, true); }
+    } catch (error) {
+      $('listView').hidden = false;
+      window.requestAnimationFrame(() => window.scrollTo(0, state.queueScrollY));
+      notify(error.message, true);
+    }
     finally { setLoading(false); }
   }
 
@@ -282,6 +345,69 @@
     const selected = state.branch;
     select.innerHTML = '<option value="">All branches</option>' + (branches || []).map((branch) => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join('');
     select.value = selected;
+  }
+
+  function filterSheetFocusable() {
+    return Array.from($('queueFilterSheet').querySelectorAll('button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+  }
+
+  function syncFilterControls() {
+    $('branchFilter').value = state.branch;
+    $('priorityFilter').value = state.priority;
+    $('assignmentFilter').value = state.assignment;
+    $('slaFilter').value = state.sla;
+  }
+
+  function openQueueFilters(trigger) {
+    syncFilterControls();
+    state.filterSheetOpen = true;
+    state.filterSheetReturnFocus = trigger || document.activeElement;
+    $('queueFilterOverlay').hidden = false;
+    $('queueFilterOverlay').setAttribute('aria-hidden', 'false');
+    document.body.classList.add('complaint-sheet-open');
+    $('queueFilterSheet').focus();
+    telegram?.BackButton?.show?.();
+  }
+
+  function closeQueueFilters(options) {
+    if (!state.filterSheetOpen) return;
+    state.filterSheetOpen = false;
+    $('queueFilterOverlay').hidden = true;
+    $('queueFilterOverlay').setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('complaint-sheet-open');
+    if ($('detailView').hidden && $('createView').hidden && $('settingsView').hidden) telegram?.BackButton?.hide?.();
+    if (!(options && options.restoreFocus === false)) state.filterSheetReturnFocus?.focus?.();
+    state.filterSheetReturnFocus = null;
+  }
+
+  function trapFilterSheetFocus(event) {
+    if (event.key !== 'Tab') return;
+    const controls = filterSheetFocusable();
+    if (!controls.length) return;
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }
+
+  async function applyQueueFilters() {
+    state.branch = $('branchFilter').value;
+    state.priority = $('priorityFilter').value;
+    state.assignment = $('assignmentFilter').value;
+    state.sla = $('slaFilter').value;
+    state.page = 1;
+    rememberUi();
+    closeQueueFilters({ restoreFocus: false });
+    await loadCases({ scrollTop: true });
+    $('openQueueFiltersBtn').focus();
+  }
+
+  async function clearQueueFilters() {
+    $('branchFilter').value = '';
+    $('priorityFilter').value = '';
+    $('assignmentFilter').value = '';
+    $('slaFilter').value = '';
+    await applyQueueFilters();
   }
 
   function renderPersonalSettings(data) {
@@ -348,6 +474,7 @@
   }
 
   async function loadDetail(caseId) {
+    state.queueScrollY = window.scrollY;
     setLoading(true);
     try {
       const response = await api(`cases/${encodeURIComponent(caseId)}/`);
@@ -355,7 +482,11 @@
       $('listView').hidden = true; $('detailView').hidden = false;
       window.scrollTo({ top: 0, behavior: 'instant' });
       telegram?.BackButton?.show();
-    } catch (error) { notify(error.message, true); }
+    } catch (error) {
+      $('listView').hidden = false;
+      window.requestAnimationFrame(() => window.scrollTo(0, state.queueScrollY));
+      notify(error.message, true);
+    }
     finally { setLoading(false); }
   }
 
@@ -410,6 +541,7 @@
       renderDetail(response.case); $('noteInput').value = ''; $('evidenceInput').value = ''; $('selectedEvidence').innerHTML = ''; state.capturedLocation = null; $('captureState').textContent = 'No new location selected';
       syncClosingConfirmation();
       state.pendingUpdateRequestId = '';
+      state.queueDirty = true;
       notify(response.message || 'Case update saved.'); await refreshCounts();
     } catch (error) { notify(error.message, true); }
     finally { state.submitting = false; button.disabled = false; button.removeAttribute('aria-busy'); button.querySelector('span').textContent = 'Save update'; }
@@ -437,6 +569,7 @@
       syncClosingConfirmation();
       $('createCaptureState').textContent = 'Location is optional';
       $('createView').hidden = true; $('detailView').hidden = false;
+      state.queueDirty = true;
       notify(response.message || 'Complaint created.');
       await refreshCounts();
     } catch (error) { notify(error.message, true); }
@@ -447,7 +580,25 @@
     const response = await api('bootstrap/'); renderCounts((response.data || {}).counts || {});
   }
 
+  async function refreshWorkspace() {
+    const button = $('refreshBtn');
+    if (button.disabled) return;
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    try {
+      await refreshCounts();
+      const loaded = await loadCases({ silent: true, restoreScroll: true });
+      if (loaded) notify('Complaint queue refreshed.');
+    } catch (error) {
+      notify(error.message, true);
+    } finally {
+      button.disabled = false;
+      button.removeAttribute('aria-busy');
+    }
+  }
+
   function showComplaintView(view) {
+    if (state.filterSheetOpen) closeQueueFilters({ restoreFocus: false });
     const showCreate = view === 'create';
     const showSettings = view === 'settings';
     $('listView').hidden = !(view === 'queue' || view === 'find');
@@ -465,10 +616,24 @@
 
   function applyStatusFilter(status) {
     state.status = status || 'active';
+    state.page = 1;
     rememberUi();
     document.querySelectorAll('.filter-tabs button').forEach((node) => node.classList.toggle('active', node.dataset.status === state.status));
     showComplaintView('queue');
-    loadCases();
+    loadCases({ scrollTop: true });
+  }
+
+  function applyMetricFilter(metric) {
+    state.sla = '';
+    if (metric === 'open') state.status = 'Open';
+    else if (metric === 'in_progress') state.status = 'In Progress';
+    else if (metric === 'closed') state.status = 'Closed';
+    else if (metric === 'overdue') { state.status = 'active'; state.sla = 'overdue'; }
+    else state.status = 'all';
+    state.page = 1;
+    showComplaintView('queue');
+    rememberUi();
+    loadCases({ scrollTop: true });
   }
 
   async function claimCurrentCase() {
@@ -482,7 +647,7 @@
     formData.set('client_request_id', requestId());
     try {
       const response = await api(`cases/${encodeURIComponent(state.currentCase.case_id)}/update/`, null, formData);
-      renderDetail(response.case); notify('Case assigned to you.');
+      renderDetail(response.case); state.queueDirty = true; notify('Case assigned to you.');
     } catch (error) { notify(error.message, true); }
     finally { state.submitting = false; button.disabled = false; }
   }
@@ -499,14 +664,40 @@
   }
 
   document.querySelectorAll('.filter-tabs button').forEach((button) => button.addEventListener('click', () => applyStatusFilter(button.dataset.status)));
-  document.querySelectorAll('[data-status-filter]').forEach((button) => button.addEventListener('click', () => applyStatusFilter(button.dataset.statusFilter)));
-  $('branchFilter').addEventListener('change', (event) => { state.branch = event.target.value; rememberUi(); loadCases(); });
-  $('priorityFilter').addEventListener('change', (event) => { state.priority = event.target.value; loadCases(); });
-  $('assignmentFilter').addEventListener('change', (event) => { state.assignment = event.target.value; loadCases(); });
-  $('slaFilter').addEventListener('change', (event) => { state.sla = event.target.value; loadCases(); });
-  $('loadMoreBtn').addEventListener('click', () => loadCases(true));
-  $('caseSearch').addEventListener('input', (event) => { state.query = event.target.value; rememberUi(); window.clearTimeout(state.debounce); state.debounce = window.setTimeout(loadCases, 250); });
-  $('refreshBtn').addEventListener('click', () => window.location.reload());
+  document.querySelectorAll('[data-metric-filter]').forEach((button) => button.addEventListener('click', () => applyMetricFilter(button.dataset.metricFilter)));
+  $('openQueueFiltersBtn').addEventListener('click', (event) => openQueueFilters(event.currentTarget));
+  $('closeQueueFiltersBtn').addEventListener('click', () => closeQueueFilters());
+  $('queueFilterOverlay').addEventListener('click', (event) => { if (event.target === event.currentTarget) closeQueueFilters(); });
+  $('queueFilterSheet').addEventListener('keydown', trapFilterSheetFocus);
+  $('queueFilterForm').addEventListener('submit', (event) => { event.preventDefault(); applyQueueFilters(); });
+  $('resetQueueFiltersBtn').addEventListener('click', clearQueueFilters);
+  $('activeQueueFilters').addEventListener('click', (event) => {
+    const chip = event.target.closest('[data-remove-filter]');
+    if (!chip) return;
+    state[chip.dataset.removeFilter] = '';
+    state.page = 1;
+    rememberUi();
+    loadCases({ scrollTop: true });
+  });
+  $('queuePreviousBtn').addEventListener('click', () => {
+    if (state.page <= 1) return;
+    state.page -= 1;
+    loadCases({ scrollTop: true });
+  });
+  $('queueNextBtn').addEventListener('click', () => {
+    if (state.page >= state.pages) return;
+    state.page += 1;
+    loadCases({ scrollTop: true });
+  });
+  $('caseSearch').addEventListener('input', (event) => {
+    state.query = event.target.value;
+    state.page = 1;
+    rememberUi();
+    window.clearTimeout(state.debounce);
+    if (!state.query) loadCases({ scrollTop: true });
+    else state.debounce = window.setTimeout(() => loadCases({ scrollTop: true }), 250);
+  });
+  $('refreshBtn').addEventListener('click', refreshWorkspace);
   document.querySelectorAll('#complaintTabs [data-view]').forEach((button) => button.addEventListener('click', () => showComplaintView(button.dataset.view)));
   $('cancelCreateBtn').addEventListener('click', returnToQueue);
   $('backBtn').addEventListener('click', returnToQueue);
@@ -533,16 +724,31 @@
     $(id).addEventListener('change', syncClosingConfirmation);
   });
   telegram?.BackButton?.onClick(() => {
+    if (state.filterSheetOpen) return closeQueueFilters();
     if (!$('detailView').hidden || !$('createView').hidden || !$('settingsView').hidden) {
       returnToQueue();
     }
   });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && state.filterSheetOpen) closeQueueFilters();
+  });
+  const ensureFocusedInputVisible = () => {
+    const focused = document.activeElement;
+    if (!focused || !focused.matches('input, select, textarea')) return;
+    const viewportHeight = window.visualViewport?.height || window.innerHeight;
+    const action = focused.closest('form')?.querySelector('.sticky-actions');
+    const lowerLimit = viewportHeight - (action?.getBoundingClientRect().height || 0) - 12;
+    const rect = focused.getBoundingClientRect();
+    if (rect.bottom > lowerLimit) window.scrollBy({ top: rect.bottom - lowerLimit + 10, behavior: 'smooth' });
+  };
   const updateViewport = () => {
     const height = window.visualViewport?.height || window.innerHeight;
     document.documentElement.style.setProperty('--complaint-viewport-height', `${height}px`);
+    window.requestAnimationFrame(ensureFocusedInputVisible);
   };
   window.visualViewport?.addEventListener('resize', updateViewport);
   telegram?.onEvent?.('viewportChanged', updateViewport);
+  document.addEventListener('focusin', () => window.setTimeout(ensureFocusedInputVisible, 80));
   updateViewport();
   $('complaintSettingsForm').addEventListener('submit', async (event) => {
     event.preventDefault();

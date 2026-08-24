@@ -269,6 +269,10 @@ def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
             'open': cases.filter(complaint_status='Open').count(),
             'in_progress': cases.filter(complaint_status='In Progress').count(),
             'closed': cases.filter(complaint_status='Closed').count(),
+            'total': cases.count(),
+            'overdue': cases.exclude(complaint_status='Closed').filter(
+                complaint_control__sla_due_at__lt=timezone.now(),
+            ).count(),
         },
     }
 
@@ -276,6 +280,7 @@ def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
 def list_cases_page(
     group_config, actor: ComplaintCaseActor | None = None, query: str = '', status: str = 'active',
     branch: str = '', priority: str = '', assignment: str = '', sla: str = '', cursor: str = '', limit: int = 40,
+    page: int | str | None = None, page_size: int = 10,
 ) -> dict[str, Any]:
     cases = _case_queryset(group_config.group_id, actor=actor)
     cases = _filter_status(cases, status)
@@ -296,6 +301,28 @@ def list_cases_page(
             | Q(complaint_control__priority='normal', complaint_control__sla_due_at__range=(now, now + timedelta(hours=18)))
             | Q(complaint_control__priority='low', complaint_control__sla_due_at__range=(now, now + timedelta(hours=30)))
         )
+    if page not in (None, ''):
+        try:
+            requested_page = max(1, int(page))
+            bounded_page_size = max(1, min(int(page_size or 10), 10))
+        except (TypeError, ValueError):
+            raise ComplaintCaseError('The requested case-list page is invalid. Refresh the queue.')
+        total = cases.count()
+        pages = max(1, (total + bounded_page_size - 1) // bounded_page_size)
+        current_page = min(requested_page, pages)
+        offset = (current_page - 1) * bounded_page_size
+        rows = list(cases[offset:offset + bounded_page_size])
+        return {
+            'items': [serialize_case(case) for case in rows],
+            'next_cursor': '',
+            'start_index': offset + 1 if rows else 0,
+            'pagination': {
+                'page': current_page,
+                'pages': pages,
+                'total': total,
+                'page_size': bounded_page_size,
+            },
+        }
     if cursor:
         try:
             decoded_cursor = json.loads(base64.urlsafe_b64decode(cursor + ('=' * (-len(cursor) % 4))).decode())
@@ -316,7 +343,12 @@ def list_cases_page(
             'at': rows[page_size - 1].timestamp.isoformat(), 'id': str(rows[page_size - 1].pk),
         }, separators=(',', ':')).encode()
         next_cursor = base64.urlsafe_b64encode(raw_cursor).decode().rstrip('=')
-    return {'items': [serialize_case(case) for case in rows[:page_size]], 'next_cursor': next_cursor}
+    return {
+        'items': [serialize_case(case) for case in rows[:page_size]],
+        'next_cursor': next_cursor,
+        'start_index': 1,
+        'pagination': None,
+    }
 
 
 def list_cases(group_config, actor: ComplaintCaseActor | None = None, **filters) -> list[dict[str, Any]]:

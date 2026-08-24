@@ -171,14 +171,24 @@ def complaint_cases_list(request):
     capability_error = _capability_error(actor, 'complaint.queue.view', group_config)
     if capability_error:
         return capability_error
-    page = list_cases_page(
-        group_config, actor,
-        query=str(payload.get('query') or ''), status=str(payload.get('status') or 'active'),
-        branch=str(payload.get('branch') or ''), priority=str(payload.get('priority') or ''),
-        assignment=str(payload.get('assignment') or ''), sla=str(payload.get('sla') or ''),
-        cursor=str(payload.get('cursor') or ''),
-    )
-    return JsonResponse({'ok': True, 'cases': page['items'], 'next_cursor': page['next_cursor']})
+    try:
+        result = list_cases_page(
+            group_config, actor,
+            query=str(payload.get('query') or ''), status=str(payload.get('status') or 'active'),
+            branch=str(payload.get('branch') or ''), priority=str(payload.get('priority') or ''),
+            assignment=str(payload.get('assignment') or ''), sla=str(payload.get('sla') or ''),
+            cursor=str(payload.get('cursor') or ''), limit=10,
+            page=payload.get('page') if 'page' in payload else None, page_size=10,
+        )
+    except ComplaintCaseError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({
+        'ok': True,
+        'cases': result['items'],
+        'next_cursor': result['next_cursor'],
+        'pagination': result.get('pagination'),
+        'start_index': result.get('start_index', 0),
+    })
 
 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
@@ -191,13 +201,22 @@ def complaint_cases_list_fragment(request):
     capability_error = _capability_error(actor, 'complaint.queue.view', group_config)
     if capability_error:
         return capability_error
-    page = list_cases_page(
-        group_config, actor,
-        query=str(payload.get('query') or ''),
-        status=str(payload.get('status') or 'active'),
-        branch=str(payload.get('branch') or ''),
-    )
-    return render(request, 'complaint_cases/partials/case_list.html', {'cases': page['items'], 'next_cursor': page['next_cursor']})
+    try:
+        result = list_cases_page(
+            group_config, actor,
+            query=str(payload.get('query') or ''), status=str(payload.get('status') or 'active'),
+            branch=str(payload.get('branch') or ''), priority=str(payload.get('priority') or ''),
+            assignment=str(payload.get('assignment') or ''), sla=str(payload.get('sla') or ''),
+            page=payload.get('page') or 1, page_size=10,
+        )
+    except ComplaintCaseError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return render(request, 'complaint_cases/partials/case_list.html', {
+        'cases': result['items'],
+        'next_cursor': result['next_cursor'],
+        'start_index': result.get('start_index', 0),
+        'pagination': result.get('pagination'),
+    })
 
 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
