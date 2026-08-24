@@ -9,6 +9,7 @@ from pypdf import PdfReader, PdfWriter
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -20,6 +21,7 @@ from core.models import (
     LoanOriginationApplication,
     OriginationApplicationEvent,
     OriginationReviewerNotice,
+    OriginationDataField,
     OriginationDocumentTemplate,
     OriginationProductDocumentAssignment,
     OriginationProductDefinition,
@@ -1335,6 +1337,121 @@ class LoanOriginationServiceTests(TestCase):
         self.assertFalse(
             OriginationProductDocumentAssignment.objects.filter(template=first['template']).exists(),
         )
+
+
+class OriginationDocumentTemplateUploadAdminTests(TestCase):
+    def setUp(self):
+        self.actor = get_user_model().objects.create_superuser(
+            username='template-upload-admin', email='template-upload@example.test', password='password',
+        )
+        self.client.force_login(self.actor)
+        self.add_url = reverse('admin:core_originationdocumenttemplate_add')
+
+    @staticmethod
+    def _pdf_upload(name='generic-laf.pdf', *, width=612):
+        output = BytesIO()
+        writer = PdfWriter()
+        writer.add_blank_page(width=width, height=792)
+        writer.add_blank_page(width=width, height=792)
+        writer.write(output)
+        return SimpleUploadedFile(name, output.getvalue(), content_type='application/pdf')
+
+    @staticmethod
+    def _mark_uploaded(template, **_kwargs):
+        template.drive_file_id = f'synthetic-drive-{template.version}'
+        template.drive_url = f'https://example.test/templates/{template.pk}'
+        template.status = template.STATUS_READY
+        template.save(update_fields=['drive_file_id', 'drive_url', 'status', 'updated_at'])
+        return template
+
+    def test_upload_page_exposes_reusable_family_and_reviewed_field_setup(self):
+        response = self.client.get(self.add_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Reusable template family')
+        self.assertContains(response, 'Generic Jawabu LAF - reviewed two-page field set')
+        self.assertContains(response, 'No JSON or code entry is required')
+
+    @patch('core.services.origination_templates.upload_template_record')
+    def test_admin_upload_applies_generic_laf_contract_and_versions_its_family(self, upload_mock):
+        upload_mock.side_effect = self._mark_uploaded
+        first_response = self.client.post(self.add_url, {
+            'product_definition': '',
+            'reusable_family': '',
+            'schema_preset': 'generic_jawabu_laf',
+            'name': 'Generic Jawabu LAF',
+            'document_role': OriginationDocumentTemplate.ROLE_PRIMARY,
+            'inclusion_mode': OriginationDocumentTemplate.INCLUDE_REQUIRED,
+            'display_order': '0',
+            'pdf_file': self._pdf_upload(),
+        })
+
+        self.assertEqual(first_response.status_code, 302)
+        first = OriginationDocumentTemplate.objects.get(document_type='jawabu_generic_laf', version=1)
+        self.assertIsNone(first.product_definition_id)
+        self.assertEqual(first.document_key, 'primary')
+        self.assertEqual(first.document_role, OriginationDocumentTemplate.ROLE_PRIMARY)
+        self.assertGreater(len(first.form_schema['fields']), 20)
+        self.assertGreater(len(first.signer_rules), 2)
+        self.assertTrue(OriginationDataField.objects.filter(key='enterprise_net_income').exists())
+        self.assertIn(
+            reverse('admin:core_originationdocumenttemplate_calibrate', args=[first.pk]),
+            first_response['Location'],
+        )
+
+        second_response = self.client.post(self.add_url, {
+            'product_definition': '',
+            'reusable_family': 'jawabu_generic_laf',
+            'schema_preset': '',
+            'name': 'Generic Jawabu LAF revised PDF',
+            # The selected family is authoritative even if a stale browser posts another role.
+            'document_role': OriginationDocumentTemplate.ROLE_SUPPORTING,
+            'inclusion_mode': OriginationDocumentTemplate.INCLUDE_REQUIRED,
+            'display_order': '0',
+            'pdf_file': self._pdf_upload('generic-laf-v2.pdf', width=613),
+        })
+
+        self.assertEqual(second_response.status_code, 302)
+        second = OriginationDocumentTemplate.objects.get(document_type='jawabu_generic_laf', version=2)
+        self.assertEqual(second.document_role, OriginationDocumentTemplate.ROLE_PRIMARY)
+        self.assertEqual(second.document_key, 'primary')
+        self.assertEqual(second.form_schema, first.form_schema)
+        self.assertEqual(second.signer_rules, first.signer_rules)
+
+    @patch('core.services.origination_templates.upload_template_record')
+    def test_product_owned_primary_upload_derives_technical_identity(self, upload_mock):
+        upload_mock.side_effect = self._mark_uploaded
+        product = OriginationProductDefinition.objects.create(
+            product_key='admin-upload-product', name='Admin upload product', version=1,
+            form_schema={
+                'sections': [{'key': 'application', 'label': 'Application'}],
+                'fields': [{
+                    'key': 'application_note', 'label': 'Application note', 'type': 'text',
+                    'required': True, 'section_key': 'application',
+                }],
+            },
+            signer_rules=[], document_type='admin_upload_product',
+            document_template_name='', document_template_version=1,
+            document_template_sha256='', is_active=False,
+        )
+
+        response = self.client.post(self.add_url, {
+            'product_definition': str(product.pk),
+            'reusable_family': '',
+            'schema_preset': '',
+            'name': 'Admin upload LAF',
+            'document_role': OriginationDocumentTemplate.ROLE_PRIMARY,
+            'inclusion_mode': OriginationDocumentTemplate.INCLUDE_REQUIRED,
+            'display_order': '0',
+            'pdf_file': self._pdf_upload('product-owned.pdf'),
+        })
+
+        self.assertEqual(response.status_code, 302)
+        template = OriginationDocumentTemplate.objects.get(product_definition=product)
+        self.assertEqual(template.document_key, 'primary')
+        self.assertEqual(template.document_type, product.document_type)
+        self.assertEqual(template.version, product.version)
+        self.assertEqual(template.form_schema, product.form_schema)
 
 
 class OriginationSupportingDocumentSetupAdminTests(TestCase):

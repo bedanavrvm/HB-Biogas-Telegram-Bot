@@ -9,6 +9,15 @@
   const supportingDocument = root.dataset.builderKind === 'supporting-document';
   const requiresFields = root.dataset.requireFields !== 'false';
   const requiresSigners = root.dataset.requireSigners !== 'false';
+  const templateRoleInput = document.getElementById('id_document_role');
+  const templateProductInput = document.getElementById('id_product_definition');
+  const templatePresetInput = document.getElementById('id_schema_preset');
+  const needsInlineDocumentBuilder = () => {
+    if (!supportingDocument) return true;
+    if (templatePresetInput?.value) return false;
+    if (templateRoleInput?.value === 'supporting') return true;
+    return !templateProductInput?.value;
+  };
 
   const roles = JSON.parse(document.getElementById('origination-signer-role-data')?.textContent || '[]');
   const catalogue = JSON.parse(document.getElementById('origination-data-field-data')?.textContent || '[]');
@@ -488,9 +497,10 @@
   schemaInput.form?.addEventListener('submit', event => {
     sync();
     const errors = [];
-    if (requiresFields && !schema.sections.length) errors.push('Add at least one section.');
-    if (requiresFields && !schema.fields.length) errors.push('Add at least one canonical field.');
-    if (requiresSigners && !signers.length) errors.push('Add at least one signer.');
+    const validateBuilder = needsInlineDocumentBuilder();
+    if (validateBuilder && requiresFields && !schema.sections.length) errors.push('Add at least one section.');
+    if (validateBuilder && requiresFields && !schema.fields.length) errors.push('Add at least one canonical field.');
+    if (validateBuilder && requiresSigners && !signers.length) errors.push('Add at least one signer.');
     const keys = schema.fields.map(field => slug(field.key));
     if (new Set(keys).size !== keys.length) errors.push('Field variable keys must be unique.');
     const canonicalIds = schema.fields.map(field => String(field.data_field_id || '')).filter(Boolean);
@@ -504,18 +514,24 @@
   render();
 
   if (supportingDocument) {
-    const roleInput = document.getElementById('id_document_role');
     const note = root.querySelector('[data-supporting-builder-note]');
     const content = root.querySelector('[data-supporting-builder-content]');
     const updateSupportingVisibility = () => {
-      // The product-scoped supporting-document wizard has no role selector:
-      // its context already guarantees it is a supporting PDF.
-      const isSupporting = !roleInput || roleInput.value === 'supporting';
-      if (note) note.hidden = isSupporting;
-      if (content) content.hidden = !isSupporting;
-      root.classList.toggle('opb-builder-muted', !isSupporting);
+      const isActive = needsInlineDocumentBuilder();
+      if (note) {
+        note.hidden = isActive;
+        if (!isActive) {
+          note.textContent = templatePresetInput?.value
+            ? 'The reviewed field setup will be applied automatically after upload. Continue to the alignment builder to place its fields on the PDF.'
+            : 'This primary LAF inherits the fields and signer roles from the selected draft product.';
+        }
+      }
+      if (content) content.hidden = !isActive;
+      root.classList.toggle('opb-builder-muted', !isActive);
     };
-    roleInput?.addEventListener('change', updateSupportingVisibility);
+    templateRoleInput?.addEventListener('change', updateSupportingVisibility);
+    templateProductInput?.addEventListener('change', updateSupportingVisibility);
+    templatePresetInput?.addEventListener('change', updateSupportingVisibility);
     updateSupportingVisibility();
   }
 })();

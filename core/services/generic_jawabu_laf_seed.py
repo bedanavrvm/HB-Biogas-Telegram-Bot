@@ -216,6 +216,24 @@ def preflight(*, pdf_path: str | Path) -> dict[str, Any]:
     return {'path': path, 'pdf_data': pdf_data, 'pdf_sha256': digest, 'page_count': page_count, 'existing': existing}
 
 
+def validate_catalogue_contract() -> None:
+    """Reject incompatible canonical fields before an Admin upload writes anything."""
+
+    incompatible = []
+    for spec in FIELD_SPECS:
+        existing = OriginationDataField.objects.filter(key=spec['key']).first()
+        if not existing:
+            continue
+        if existing.preferred_field_id:
+            incompatible.append(f"{spec['key']} is a retired duplicate")
+        elif existing.data_type != spec['type']:
+            incompatible.append(f"{spec['key']} ({existing.data_type} != {spec['type']})")
+        elif spec['type'] == 'repeating_group' and (existing.structure_schema or {}) != spec['structure']:
+            incompatible.append(f"{spec['key']} (repeatable structure differs)")
+    if incompatible:
+        raise GenericJawabuLafSeedError('Canonical field conflicts: ' + '; '.join(incompatible))
+
+
 def _upsert_fields(*, actor) -> dict[str, OriginationDataField]:
     resolved = {}
     for spec in FIELD_SPECS:
@@ -262,6 +280,16 @@ def _upsert_fields(*, actor) -> dict[str, OriginationDataField]:
             )
         resolved[field.key] = field
     return resolved
+
+
+@transaction.atomic
+def ensure_catalogue(*, actor) -> dict[str, OriginationDataField]:
+    """Create/update the reviewed canonical catalogue for Admin and command flows."""
+
+    if not getattr(actor, 'is_active', False) or not getattr(actor, 'is_superuser', False):
+        raise GenericJawabuLafSeedError('The catalogue actor must be an active Django Superuser.')
+    validate_catalogue_contract()
+    return _upsert_fields(actor=actor)
 
 
 def build_form_schema(fields: dict[str, OriginationDataField]) -> dict[str, Any]:
@@ -335,7 +363,7 @@ def apply_seed(*, pdf_path: str | Path, actor) -> dict[str, Any]:
         raise GenericJawabuLafSeedError('The seed actor must be an active Django Superuser.')
     plan = preflight(pdf_path=pdf_path)
     with transaction.atomic():
-        fields = _upsert_fields(actor=actor)
+        fields = ensure_catalogue(actor=actor)
         schema = build_form_schema(fields)
         from core.services.loan_origination import validate_product_form_contract
         validate_product_form_contract(schema, list(SIGNER_RULES))

@@ -11,11 +11,11 @@
   {% if add %}
     <section class="opb-shell opb-next-step{% if not has_eligible_product_definitions %} opb-prerequisite-warning{% endif %}">
       {% if has_eligible_product_definitions %}
-        <h2>Upload a primary LAF or shared supporting form</h2>
-        <p>Select a draft loan form for its primary LAF. For a reusable guarantor, home-visit, or other supporting form, leave the loan form blank, choose <b>Supporting document</b>, and retain the same document key for every family version.</p>
+        <h2>Upload a product PDF or reusable document</h2>
+        <p>Select a draft product only for a product-owned PDF. For a document shared by several products, leave the product blank and choose its reusable family. Technical keys and version numbers are generated automatically.</p>
       {% else %}
-        <h2>No draft loan form is ready for a primary LAF</h2>
-        <p>You may still upload a global supporting form by leaving the loan form blank and choosing <b>Supporting document</b>. For a primary LAF, first create a loan form definition or create an editable next version.</p>
+        <h2>Upload to the reusable document library</h2>
+        <p>No draft product is currently available, but you can still upload a reusable primary LAF or supporting document. Choose the reviewed Generic Jawabu LAF field setup when uploading that form.</p>
       {% endif %}
       <div class="opb-actions">
         <a class="button" href="{{ create_product_definition_url }}">Create loan form definition</a>
@@ -32,10 +32,10 @@
     {{ origination_data_fields|json_script:"origination-data-field-data" }}
     {{ origination_condition_fields_by_product|json_script:"origination-condition-fields-data" }}
     <section id="origination-product-builder" class="opb-shell" data-builder-kind="supporting-document" data-require-fields="true" data-require-signers="false">
-      <header class="opb-header">
+      <header class="opb-header" data-document-builder-header>
         <div>
-          <h2>Supporting document form builder</h2>
-          <p>Choose the canonical fields this PDF needs, arrange them into clear Mini App sections, and add a signer only where the document needs one. A field already collected on the main LAF is reused automatically; a new field is entered only once.</p>
+          <h2>Document form builder</h2>
+          <p>For a custom reusable document, choose its canonical fields and signer slots here. Product-owned primary LAFs inherit their product form, while the reviewed Generic Jawabu LAF preset is populated automatically.</p>
         </div>
         <div class="opb-actions">
           <a class="opb-secondary-link" href="{{ origination_data_field_add_url }}" target="_blank" rel="noopener">Create canonical field</a>
@@ -44,7 +44,7 @@
         </div>
       </header>
       <div class="opb-role-note" data-supporting-builder-note>
-        This builder applies to a <b>Supporting document</b>. A primary LAF always uses the fields and signers already configured on its loan-form definition.
+        Choose the document type, product, and field setup above. This visual form builder appears only when fields need to be configured during upload.
       </div>
       <div id="opb-errors" class="opb-errors" hidden></div>
       <div class="opb-grid" data-supporting-builder-content>
@@ -60,7 +60,7 @@
         </aside>
       </div>
     </section>
-    <script src="{% static 'admin/origination_product_builder.js' %}?v=8" defer></script>
+    <script src="{% static 'admin/origination_product_builder.js' %}?v=9" defer></script>
     <script src="{% static 'admin/origination_document_conditions.js' %}?v=1" defer></script>
   {% endif %}
 {% endblock %}

@@ -18,6 +18,7 @@ from django.db import DatabaseError, connections, models, transaction
 from django.urls import path, reverse
 from django.utils.html import format_html
 from django.utils import timezone
+from django.utils.text import slugify
 from unfold.admin import ModelAdmin, StackedInline, TabularInline
 from unfold.widgets import UnfoldAdminFileFieldWidget, UnfoldAdminSelectWidget
 from urllib.parse import urlencode
@@ -420,6 +421,8 @@ class DocumentApplicabilityRuleFormMixin:
 
 
 class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.ModelForm):
+    SCHEMA_PRESET_GENERIC_JAWABU_LAF = 'generic_jawabu_laf'
+
     # ModelForm's metaclass only collects declared fields from this concrete
     # class, so keep the visual-rule controls here as well as their shared
     # behaviour in the mixin.
@@ -438,9 +441,34 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
     )
     product_definition = OriginationProductDefinitionChoiceField(
         queryset=OriginationProductDefinition.objects.none(), required=False,
-        empty_label='Select a draft loan form definition',
-        label='Loan form definition',
-        help_text='Draft form/schema linked to the global product terms that own this PDF.',
+        empty_label='Reusable template library (not tied to one product)',
+        label='Draft product (optional)',
+        help_text=(
+            'Choose a draft product only when this PDF belongs exclusively to it. '
+            'Leave blank for a reusable LAF or supporting document that several products can share.'
+        ),
+        widget=UnfoldAdminSelectWidget,
+    )
+    reusable_family = forms.ChoiceField(
+        required=False,
+        label='Reusable template family',
+        help_text=(
+            'For a replacement PDF, choose the existing family so it becomes the next version. '
+            'For a new reusable document, leave this on Create new family.'
+        ),
+        widget=UnfoldAdminSelectWidget,
+    )
+    schema_preset = forms.ChoiceField(
+        required=False,
+        label='Field setup',
+        choices=(
+            ('', 'Build fields visually after upload'),
+            (SCHEMA_PRESET_GENERIC_JAWABU_LAF, 'Generic Jawabu LAF - reviewed two-page field set'),
+        ),
+        help_text=(
+            'The reviewed preset creates or updates the canonical fields and signer roles automatically. '
+            'No JSON or code entry is required.'
+        ),
         widget=UnfoldAdminSelectWidget,
     )
     pdf_file = forms.FileField(
@@ -451,7 +479,8 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
     class Meta:
         model = OriginationDocumentTemplate
         fields = (
-            'product_definition', 'document_key', 'name', 'document_role',
+            'product_definition', 'reusable_family', 'schema_preset',
+            'document_key', 'name', 'document_role',
             'inclusion_mode', 'display_order', 'officer_selectable',
             'default_selected', 'applicability_rule', 'form_schema',
             'signer_rules', 'pdf_file',
@@ -462,6 +491,7 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
             'applicability_rule': forms.HiddenInput,
             'form_schema': forms.HiddenInput,
             'signer_rules': forms.HiddenInput,
+            'document_key': forms.HiddenInput,
         }
 
     @staticmethod
@@ -475,6 +505,25 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['product_definition'].queryset = self.eligible_product_definitions()
+        reusable_families = []
+        seen_families = set()
+        family_templates = OriginationDocumentTemplate.objects.filter(
+            product_definition__isnull=True,
+        ).exclude(
+            status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
+        ).order_by('document_type', '-version')
+        for template in family_templates:
+            if template.document_type in seen_families:
+                continue
+            seen_families.add(template.document_type)
+            reusable_families.append((
+                template.document_type,
+                f'{template.name} - {template.get_document_role_display()} (current v{template.version})',
+            ))
+        self.fields['reusable_family'].choices = [
+            ('', 'Create a new reusable family from the document name'),
+            *reusable_families,
+        ]
         defaults = {
             'document_key': 'primary',
             'document_role': OriginationDocumentTemplate.ROLE_PRIMARY,
@@ -488,18 +537,28 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
         }
         if not self.is_bound:
             for key, value in defaults.items():
-                self.fields[key].initial = value
+                if key in self.fields:
+                    self.fields[key].initial = value
         for key in defaults:
-            self.fields[key].required = False
+            if key in self.fields:
+                self.fields[key].required = False
         self._configure_condition_editor()
+
+    @staticmethod
+    def _derived_family_key(name, role):
+        key = slugify(str(name or '')).strip('-')[:80]
+        if key:
+            return key
+        return 'shared-primary' if role == OriginationDocumentTemplate.ROLE_PRIMARY else 'shared-document'
 
     def clean(self):
         cleaned = super().clean()
         pdf_file = cleaned.get('pdf_file')
         product = cleaned.get('product_definition')
+        reusable_family = str(cleaned.get('reusable_family') or '').strip()
+        schema_preset = str(cleaned.get('schema_preset') or '').strip()
         if not pdf_file:
             return cleaned
-        cleaned['document_key'] = str(cleaned.get('document_key') or 'primary').strip()
         cleaned['document_role'] = cleaned.get('document_role') or OriginationDocumentTemplate.ROLE_PRIMARY
         cleaned['inclusion_mode'] = cleaned.get('inclusion_mode') or OriginationDocumentTemplate.INCLUDE_REQUIRED
         cleaned['display_order'] = cleaned.get('display_order') or 0
@@ -508,17 +567,85 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
         cleaned['applicability_rule'] = self._clean_condition_rule(cleaned)
         cleaned['form_schema'] = cleaned.get('form_schema') or {}
         cleaned['signer_rules'] = cleaned.get('signer_rules') or []
-        for key, value in cleaned.items():
-            if key in self.fields:
-                setattr(self.instance, key, value)
         if not str(pdf_file.name).lower().endswith('.pdf'):
             self.add_error('pdf_file', 'Upload a PDF file.')
             return cleaned
-        document_key = cleaned['document_key']
+        family_template = None
+        if product and reusable_family:
+            self.add_error('reusable_family', 'A product-owned PDF cannot also be placed in a reusable family.')
+        if product and schema_preset:
+            self.add_error(
+                'schema_preset',
+                'The Generic Jawabu LAF preset creates a reusable primary LAF. Leave Draft product blank.',
+            )
+        if reusable_family:
+            family_template = OriginationDocumentTemplate.objects.filter(
+                product_definition__isnull=True,
+                document_type=reusable_family,
+            ).exclude(
+                status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
+            ).order_by('-version').first()
+            if not family_template:
+                self.add_error('reusable_family', 'Choose an existing reusable template family.')
+
+        role = cleaned['document_role']
+        name = str(cleaned.get('name') or '').strip()
+        if schema_preset == self.SCHEMA_PRESET_GENERIC_JAWABU_LAF:
+            from core.services.generic_jawabu_laf_seed import (
+                DOCUMENT_NAME, DOCUMENT_TYPE, GenericJawabuLafSeedError,
+                validate_catalogue_contract,
+            )
+            if reusable_family and reusable_family != DOCUMENT_TYPE:
+                self.add_error('reusable_family', 'The reviewed preset belongs to the Generic Jawabu LAF family.')
+            try:
+                validate_catalogue_contract()
+            except GenericJawabuLafSeedError as exc:
+                self.add_error('schema_preset', str(exc))
+            role = OriginationDocumentTemplate.ROLE_PRIMARY
+            name = name or DOCUMENT_NAME
+            document_type = DOCUMENT_TYPE
+            family_template = OriginationDocumentTemplate.objects.filter(
+                product_definition__isnull=True, document_type=DOCUMENT_TYPE,
+            ).exclude(status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED).order_by('-version').first()
+        elif family_template:
+            role = family_template.document_role
+            name = name or family_template.name
+            document_type = family_template.document_type
+        elif product:
+            document_type = product.document_type if role == OriginationDocumentTemplate.ROLE_PRIMARY else ''
+        else:
+            document_type = self._derived_family_key(name, role)
+            if OriginationDocumentTemplate.objects.filter(
+                product_definition__isnull=True,
+                document_type=document_type,
+            ).exclude(status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED).exists():
+                self.add_error(
+                    'reusable_family',
+                    'A reusable family with this name already exists. Select it above to upload its next version.',
+                )
+
+        if not name:
+            self.add_error('name', 'Enter a clear document name.')
+        if role == OriginationDocumentTemplate.ROLE_PRIMARY:
+            document_key = 'primary'
+        elif family_template:
+            document_key = family_template.document_key
+        else:
+            document_key = self._derived_family_key(name, role)
+        if product and role == OriginationDocumentTemplate.ROLE_SUPPORTING:
+            document_type = f'{product.product_key}-{document_key}'[:80]
+        cleaned.update({
+            'name': name,
+            'document_key': document_key,
+            'document_role': role,
+        })
+        for key, value in cleaned.items():
+            if key in self.fields:
+                setattr(self.instance, key, value)
         if product and product.document_templates.exclude(
             status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
         ).filter(document_key=document_key).exists():
-            self.add_error('document_key', 'This product version already has a document with this key.')
+            self.add_error('product_definition', 'This draft product already has this document. Open its existing template instead.')
             return cleaned
         from core.services.origination_templates import (
             OriginationTemplateError, initial_template_configuration, validate_template_pdf,
@@ -529,14 +656,16 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
             digest, page_count = validate_template_pdf(pdf_data)
         except OriginationTemplateError as exc:
             raise forms.ValidationError(str(exc)) from exc
+        if schema_preset == self.SCHEMA_PRESET_GENERIC_JAWABU_LAF and page_count != 2:
+            self.add_error(
+                'pdf_file',
+                f'The reviewed Generic Jawabu LAF preset expects the two-page form; this PDF has {page_count} page(s).',
+            )
         self.instance.product_definition = product
-        role = cleaned['document_role']
-        self.instance.document_type = (
-            product.document_type if role == OriginationDocumentTemplate.ROLE_PRIMARY and product
-            else f'shared-primary-{digest[:12]}' if role == OriginationDocumentTemplate.ROLE_PRIMARY
-            else f'{product.product_key}-{document_key}'[:80] if product
-            else document_key[:80]
-        )
+        self.instance.name = name
+        self.instance.document_key = document_key
+        self.instance.document_role = role
+        self.instance.document_type = document_type
         self.instance.version = (
             product.version if product else
             (OriginationDocumentTemplate.objects.filter(document_type=self.instance.document_type)
@@ -546,18 +675,22 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
         self.instance.source_sha256 = digest
         self.instance.source_byte_size = len(pdf_data)
         self.instance.page_count = page_count
-        self.instance.placement_config = initial_template_configuration(product)
+        inherited_schema = family_template.form_schema if family_template else {}
+        inherited_signers = family_template.signer_rules if family_template else []
+        self.instance.placement_config = initial_template_configuration(
+            product, form_schema=inherited_schema or None,
+        )
         self.instance.placement_config['version'] = self.instance.version
         self.instance.placement_config['document_type'] = self.instance.document_type
-        # The product contract is the only source of primary-LAF form fields.
-        # Supporting forms have their own visual schema and signer slots.
+        # Product-owned primaries use their product contract. Reusable family
+        # successors inherit the family's governed schema and signer roles.
         self.instance.form_schema = (
             product.form_schema if role == OriginationDocumentTemplate.ROLE_PRIMARY and product
-            else cleaned.get('form_schema') or {}
+            else inherited_schema or cleaned.get('form_schema') or {}
         )
         self.instance.signer_rules = (
             product.signer_rules if role == OriginationDocumentTemplate.ROLE_PRIMARY and product
-            else cleaned.get('signer_rules') or []
+            else inherited_signers or cleaned.get('signer_rules') or []
         )
         sample_context = self.instance.placement_config.setdefault('sample_context', {})
         for field in (self.instance.form_schema or {}).get('fields', []):
@@ -7550,12 +7683,14 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                 'Upload PDF template',
                 {
                     'description': (
-                        'Select the draft loan form that defines the fields for this PDF. '
-                        'After upload, the visual calibration screen opens automatically.'
+                        'Upload a product-owned PDF or add it to the reusable template library. '
+                        'Choose the reviewed Generic Jawabu LAF field setup when applicable; '
+                        'otherwise define fields visually after upload. The alignment builder opens automatically.'
                     ),
                     'fields': (
-                        'product_definition', ('document_key', 'name'),
-                        ('document_role', 'inclusion_mode', 'display_order'),
+                        'product_definition', 'reusable_family', 'schema_preset',
+                        ('name', 'document_role'),
+                        ('inclusion_mode', 'display_order'),
                         ('officer_selectable', 'default_selected'),
                         ('condition_field', 'condition_operator'), 'condition_value',
                         'applicability_rule', 'form_schema', 'signer_rules', 'pdf_file',
@@ -7627,19 +7762,10 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             })
         else:
             original = self.get_object(request, object_id)
-            if (
-                original
-                and original.product_definition_id is None
-                and original.document_role == original.ROLE_SUPPORTING
-            ):
+            if original and original.product_definition_id is None:
                 context['origination_next_family_version_url'] = (
                     reverse('admin:core_originationdocumenttemplate_add') + '?' + urlencode({
-                        'document_key': original.document_key,
-                        'document_role': original.document_role,
-                        'inclusion_mode': original.inclusion_mode,
-                        'display_order': original.display_order,
-                        'officer_selectable': int(original.officer_selectable),
-                        'default_selected': int(original.default_selected),
+                        'reusable_family': original.document_type,
                         'name': original.name,
                     })
                 )
@@ -7979,6 +8105,25 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             return
         obj.created_by = request.user
         obj.status = OriginationDocumentTemplate.STATUS_READY
+        schema_preset = str(form.cleaned_data.get('schema_preset') or '').strip()
+        if schema_preset == OriginationDocumentTemplateForm.SCHEMA_PRESET_GENERIC_JAWABU_LAF:
+            from core.services.generic_jawabu_laf_seed import (
+                SIGNER_RULES, build_form_schema, ensure_catalogue,
+            )
+            from core.services.loan_origination import validate_product_form_contract
+            from core.services.origination_templates import initial_template_configuration
+
+            fields = ensure_catalogue(actor=request.user)
+            obj.form_schema = build_form_schema(fields)
+            obj.signer_rules = json.loads(json.dumps(SIGNER_RULES))
+            validate_product_form_contract(obj.form_schema, obj.signer_rules)
+            obj.placement_config = initial_template_configuration(
+                None, form_schema=obj.form_schema,
+            )
+            obj.placement_config.update({
+                'document_type': obj.document_type,
+                'version': obj.version,
+            })
         obj.full_clean()
         super().save_model(request, obj, form, change)
         OriginationDocumentTemplateEvent.objects.create(
@@ -7987,6 +8132,8 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                 'sha256': obj.source_sha256,
                 'byte_size': obj.source_byte_size,
                 'page_count': obj.page_count,
+                'reusable_family': obj.document_type if obj.product_definition_id is None else '',
+                'schema_preset': schema_preset,
             },
         )
         from core.services.origination_templates import upload_template_record
@@ -7994,7 +8141,10 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         if obj.status == OriginationDocumentTemplate.STATUS_UPLOAD_FAILED:
             messages.error(request, obj.upload_error)
         else:
-            messages.success(request, 'Template uploaded to Drive. Calibrate its fields and publish the product.')
+            messages.success(
+                request,
+                'Template uploaded. Review its fields and align them in the visual builder before activation.',
+            )
 
     def response_add(self, request, obj, post_url_continue=None):
         if obj.drive_file_id and obj.status != OriginationDocumentTemplate.STATUS_UPLOAD_FAILED:
