@@ -31,6 +31,7 @@ from core.services.tat_notifications import (
     dispatch_task,
     inbox_payload,
     issue_locator,
+    process_due_tasks,
     refresh_group_exception,
     resolve_locator,
     resolve_assignment,
@@ -367,6 +368,25 @@ class TatPrivateTaskTests(TestCase):
             task.recipients.get(user=self.primary).delivery_state,
             TatActionTaskRecipient.DELIVERY_DELIVERED,
         )
+        self.assertEqual(
+            task.recipients.get(user=self.primary).delivery_attempts,
+            1,
+        )
+
+    @patch('core.services.tat_notifications._telegram_request', return_value={'message_id': 781})
+    def test_due_pending_recipient_is_recovered_by_notification_processor(self, telegram):
+        TatPrivateAlertConnection.objects.create(
+            user=self.primary, status=TatPrivateAlertConnection.STATUS_CONNECTED,
+        )
+        task = synchronize_case_task(self.group, self.case)
+
+        processed = process_due_tasks(limit=100)
+
+        recipient = task.recipients.get(user=self.primary)
+        self.assertEqual(processed, 1)
+        self.assertEqual(recipient.delivery_state, TatActionTaskRecipient.DELIVERY_DELIVERED)
+        self.assertEqual(recipient.delivery_attempts, 1)
+        self.assertEqual(telegram.call_count, 1)
 
     @patch('core.services.tat_notifications._telegram_request', return_value={'message_id': 79})
     def test_connect_private_alerts_replays_same_request_without_second_message(self, telegram):

@@ -1,5 +1,9 @@
 # Changelog
 
+## TAT private-delivery reliability - 24-August-2026
+
+- Fixed private TAT Telegram delivery on PostgreSQL by locking only the task-recipient row instead of applying `FOR UPDATE` across nullable profile and group joins. Due recipients now advance beyond `Pending` and record their delivery attempt.
+
 ## Centralized TAT access and responsibility routing - 22-August-2026
 
 - Added one Superuser workspace showing canonical TAT stage ownership, scoped

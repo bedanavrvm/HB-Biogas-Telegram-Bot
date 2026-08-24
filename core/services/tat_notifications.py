@@ -374,9 +374,11 @@ def _send_recipient(recipient: TatActionTaskRecipient) -> bool:
     # becomes retryable after one minute.
     now = timezone.now()
     with transaction.atomic():
-        recipient = TatActionTaskRecipient.objects.select_for_update().select_related(
-            'user', 'user__staff_profile', 'task__case', 'task__group_configuration',
-        ).get(pk=recipient.pk)
+        # Lock only the recipient row. Joining nullable relations such as the
+        # reverse staff profile or optional group configuration makes
+        # PostgreSQL reject FOR UPDATE with "nullable side of an outer join".
+        # Related objects are loaded lazily after this short claim transaction.
+        recipient = TatActionTaskRecipient.objects.select_for_update().get(pk=recipient.pk)
         if recipient.delivery_state == TatActionTaskRecipient.DELIVERY_DELIVERED:
             return True
         if recipient.delivery_state not in {
