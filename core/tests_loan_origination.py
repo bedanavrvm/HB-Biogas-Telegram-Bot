@@ -1,5 +1,7 @@
 from base64 import b64decode
 from io import BytesIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -55,7 +57,10 @@ from core.services.origination_documents import (
     render_packet,
     validate_applicability_rule,
 )
-from core.services.origination_templates import attach_shared_supporting_template
+from core.services.origination_templates import (
+    attach_shared_document_template,
+    attach_shared_supporting_template,
+)
 from core.services.origination_signing import (
     _validated_signature_capture,
     _slot_overlay,
@@ -1176,6 +1181,161 @@ class LoanOriginationServiceTests(TestCase):
         self.assertEqual(repeated.pk, assignment.pk)
         self.assertEqual(draft.document_assignments.count(), 1)
 
+    def test_reusable_primary_is_merged_snapshotted_and_keeps_document_requirements(self):
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='primary', document_role='primary',
+            inclusion_mode='required', display_order=0,
+            document_type='generic_primary', name='Generic primary LAF', version=1,
+            status='active', source_filename='generic.pdf', source_sha256='5' * 64,
+            source_byte_size=100, page_count=2, placement_config={}, created_by=self.officer,
+            form_schema={
+                'identity_contract': 'applicant_v1',
+                'sections': [{'key': 'applicant', 'label': 'Applicant'}],
+                'fields': [
+                    {'key': 'applicant_first_name', 'type': 'text', 'required': True, 'section_key': 'applicant'},
+                    {'key': 'applicant_surname', 'type': 'text', 'required': True, 'section_key': 'applicant'},
+                    {'key': 'applicant_id_number', 'type': 'national_id', 'required': True, 'section_key': 'applicant'},
+                    {'key': 'applicant_phone', 'type': 'phone', 'required': True, 'section_key': 'applicant'},
+                    {'key': 'guarantor_1_name', 'type': 'text', 'required': True, 'section_key': 'applicant'},
+                ],
+                'evidence_requirements': [{
+                    'key': 'guarantor_1_id_copy', 'label': 'Guarantor 1 ID Copy',
+                    'type': 'document', 'workflow': 'loan_origination',
+                    'enforcement_stage': 'review', 'required': True, 'validation': {},
+                }, {
+                    'key': 'guarantor_2_id_copy', 'label': 'Guarantor 2 ID Copy',
+                    'type': 'document', 'workflow': 'loan_origination',
+                    'enforcement_stage': 'review', 'required': False,
+                    'validation': {'required_when': {'field': 'guarantor_2_name', 'operator': 'truthy'}},
+                }],
+            },
+            signer_rules=[{
+                'role': 'borrower', 'required': True,
+                'identity_fields': {
+                    'name': 'applicant_first_name', 'national_id': 'applicant_id_number',
+                    'phone': 'applicant_phone',
+                },
+                'slots': [{'key': 'borrower_signature', 'type': 'signature', 'required': True}],
+            }],
+        )
+        revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=template, revision=1, configuration={}, is_published=True,
+            created_by=self.officer,
+        )
+        template.published_configuration_revision = revision
+        template.save(update_fields=['published_configuration_revision'])
+
+        assignment = attach_shared_document_template(
+            product_definition=self.product, template=template,
+            inclusion_mode='optional', display_order=99, officer_selectable=True,
+            default_selected=True, applicability_rule={'field': 'consent', 'operator': 'truthy'},
+            actor=self.officer,
+        )
+        self.product.refresh_from_db()
+
+        self.assertEqual(assignment.document_key, 'primary')
+        self.assertEqual(assignment.display_order, 0)
+        self.assertEqual(assignment.inclusion_mode, 'required')
+        self.assertFalse(assignment.officer_selectable)
+        self.assertEqual(self.product.document_template_sha256, template.source_sha256)
+        self.assertIn(
+            'applicant_id_number',
+            {item['key'] for item in self.product.form_schema['fields']},
+        )
+
+        application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='shared-primary-create',
+        )
+        document = application.packet_documents.get(document_key='primary')
+        self.assertEqual(document.document_role, 'primary')
+        self.assertTrue(document.selected)
+        self.assertEqual(document.template_id, template.pk)
+        self.assertIn(
+            'guarantor_1_id_copy',
+            {item['key'] for item in application.product_terms_snapshot['requirements']},
+        )
+        from core.services.loan_origination import _missing_application_requirements
+        self.assertEqual(
+            {item['key'] for item in _missing_application_requirements(application, stage='review')},
+            {'guarantor_1_id_copy'},
+        )
+        application.form_payload = {'guarantor_2_name': 'Synthetic Guarantor'}
+        self.assertEqual(
+            {item['key'] for item in _missing_application_requirements(application, stage='review')},
+            {'guarantor_1_id_copy', 'guarantor_2_id_copy'},
+        )
+
+        template.status = template.STATUS_RETIRED
+        template.save(update_fields=['status'])
+        successor = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='primary', document_role='primary',
+            inclusion_mode='required', display_order=0,
+            document_type='generic_primary', name='Generic primary LAF', version=2,
+            status='active', source_filename='generic-v2.pdf', source_sha256='4' * 64,
+            source_byte_size=100, page_count=2, placement_config={}, created_by=self.officer,
+            form_schema=template.form_schema, signer_rules=template.signer_rules,
+        )
+        successor_revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=successor, revision=1, configuration={'marker': 'v2'}, is_published=True,
+            created_by=self.officer,
+        )
+        successor.published_configuration_revision = successor_revision
+        successor.save(update_fields=['published_configuration_revision'])
+
+        newer, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='shared-primary-v2-create',
+        )
+        self.assertEqual(newer.packet_documents.get(document_key='primary').template_id, successor.pk)
+        self.assertEqual(newer.template_configuration_snapshot, {'marker': 'v2'})
+        application.refresh_from_db()
+        self.assertEqual(application.packet_documents.get(document_key='primary').template_id, template.pk)
+
+    def test_generic_laf_net_income_fields_are_independent_manual_values(self):
+        from core.services.generic_jawabu_laf_seed import FIELD_SPECS
+
+        specs = {item['key']: item for item in FIELD_SPECS}
+        self.assertEqual(specs['enterprise_net_income']['type'], 'money')
+        self.assertEqual(specs['household_net_income']['type'], 'money')
+        self.assertEqual(specs['enterprise_net_income']['source'], 'user_input')
+        self.assertEqual(specs['household_net_income']['source'], 'user_input')
+        self.assertEqual(specs['enterprise_net_income']['validation'], {})
+        self.assertEqual(specs['household_net_income']['validation'], {})
+
+    @patch('core.services.generic_jawabu_laf_seed.upload_template_record')
+    def test_generic_laf_seed_is_idempotent_and_does_not_attach_products(self, upload_mock):
+        from core.services.generic_jawabu_laf_seed import apply_seed
+
+        upload_mock.side_effect = lambda template, **_kwargs: template
+        actor = get_user_model().objects.create_superuser(
+            username='generic-laf-seed-admin', email='seed@example.test', password='password',
+        )
+        with TemporaryDirectory() as temp_dir:
+            pdf_path = Path(temp_dir) / 'synthetic-generic-laf.pdf'
+            writer = PdfWriter()
+            writer.add_blank_page(width=612, height=792)
+            writer.add_blank_page(width=612, height=792)
+            with pdf_path.open('wb') as output:
+                writer.write(output)
+
+            first = apply_seed(pdf_path=pdf_path, actor=actor)
+            second = apply_seed(pdf_path=pdf_path, actor=actor)
+
+        self.assertEqual(first['template'].pk, second['template'].pk)
+        self.assertEqual(first['template'].document_role, 'primary')
+        self.assertIsNone(first['template'].product_definition_id)
+        self.assertEqual(first['template'].page_count, 2)
+        self.assertEqual(
+            OriginationDocumentTemplate.objects.filter(
+                document_type='jawabu_generic_laf', source_sha256=first['template'].source_sha256,
+            ).count(),
+            1,
+        )
+        self.assertFalse(
+            OriginationProductDocumentAssignment.objects.filter(template=first['template']).exists(),
+        )
+
 
 class OriginationSupportingDocumentSetupAdminTests(TestCase):
     def setUp(self):
@@ -1233,3 +1393,35 @@ class OriginationSupportingDocumentSetupAdminTests(TestCase):
         self.assertTrue(response.json()['removed'])
         self.assertFalse(OriginationProductDocumentAssignment.objects.filter(pk=assignment.pk).exists())
         self.assertTrue(OriginationDocumentTemplate.objects.filter(pk=template.pk).exists())
+
+    def test_packet_card_can_assign_a_reusable_primary_and_merge_its_contract(self):
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='primary', document_role='primary',
+            inclusion_mode='required', display_order=0, document_type='generic_admin_primary',
+            name='Generic Admin Primary', version=1, status='active',
+            source_filename='generic.pdf', source_sha256='3' * 64,
+            source_byte_size=100, page_count=2, placement_config={}, created_by=self.actor,
+            form_schema={
+                'sections': [{'key': 'applicant', 'label': 'Applicant'}],
+                'fields': [{'key': 'applicant_name', 'type': 'text', 'required': True, 'section_key': 'applicant'}],
+            },
+            signer_rules=[],
+        )
+        revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=template, revision=1, configuration={}, is_published=True,
+            created_by=self.actor,
+        )
+        template.published_configuration_revision = revision
+        template.save(update_fields=['published_configuration_revision'])
+
+        response = self.client.post(reverse(
+            'admin:core_originationproductdefinition_packet_add_shared', args=[self.product.pk],
+        ), {'template_id': template.pk})
+
+        self.assertEqual(response.status_code, 200)
+        assignment = self.product.document_assignments.get()
+        self.assertEqual(assignment.document_key, 'primary')
+        self.assertEqual(assignment.display_order, 0)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.document_template_sha256, template.source_sha256)
+        self.assertIn('applicant_name', {item['key'] for item in self.product.form_schema['fields']})

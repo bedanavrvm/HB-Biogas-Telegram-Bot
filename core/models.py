@@ -4644,8 +4644,11 @@ class OriginationProductDocumentAssignment(models.Model):
         super().clean()
         errors = {}
         if self.template_id:
-            if self.template.document_role != OriginationDocumentTemplate.ROLE_SUPPORTING:
-                errors['template'] = 'Only supporting-document templates can be assigned.'
+            if (
+                self.template.document_role == OriginationDocumentTemplate.ROLE_PRIMARY
+                and self.template.product_definition_id is not None
+            ):
+                errors['template'] = 'A reusable primary LAF must be a global template.'
             if (
                 self.template.product_definition_id not in (None, self.product_definition_id)
                 and self.template.status not in {
@@ -4659,6 +4662,19 @@ class OriginationProductDocumentAssignment(models.Model):
                 and self.template.product_definition_id is not None
             ):
                 errors['version_policy'] = 'Latest-compatible requires a global shared-template family.'
+            if self.template.document_role == OriginationDocumentTemplate.ROLE_PRIMARY:
+                if self.document_key != 'primary':
+                    errors['document_key'] = 'A reusable primary LAF must use the key "primary".'
+                if self.inclusion_mode != OriginationDocumentTemplate.INCLUDE_REQUIRED:
+                    errors['inclusion_mode'] = 'The primary LAF is always required.'
+                if self.officer_selectable:
+                    errors['officer_selectable'] = 'The primary LAF cannot be officer selectable.'
+                if self.default_selected:
+                    errors['default_selected'] = 'The primary LAF is selected automatically.'
+                if self.applicability_rule:
+                    errors['applicability_rule'] = 'The primary LAF cannot have an applicability rule.'
+            elif self.document_key == 'primary':
+                errors['document_key'] = 'Supporting documents require their own stable key.'
         if self.inclusion_mode == OriginationDocumentTemplate.INCLUDE_OPTIONAL and not self.officer_selectable:
             errors['officer_selectable'] = 'Optional documents must be officer selectable.'
         if self.inclusion_mode != OriginationDocumentTemplate.INCLUDE_OPTIONAL and self.default_selected:

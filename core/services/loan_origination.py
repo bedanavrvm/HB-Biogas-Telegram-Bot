@@ -661,9 +661,14 @@ def _missing_application_requirements(
     for item in (application.product_terms_snapshot or {}).get('requirements', []):
         if not isinstance(item, dict):
             continue
+        validation = item.get('validation') if isinstance(item.get('validation'), dict) else {}
+        required = bool(item.get('required'))
+        required_when = validation.get('required_when')
+        if required_when:
+            from core.services.origination_documents import rule_matches
+            required = rule_matches(required_when, application.form_payload)
         if not (
-            bool(item.get('required'))
-            and str(item.get('enforcement_stage') or '') == str(stage or '')
+            required and str(item.get('enforcement_stage') or '') == str(stage or '')
             and str(item.get('workflow') or '') in {'', 'loan_origination'}
         ):
             continue
@@ -678,7 +683,6 @@ def _missing_application_requirements(
         elif requirement_type in {'amount', 'money', 'number'} and valid:
             try:
                 amount = Decimal(str(value))
-                validation = item.get('validation') if isinstance(item.get('validation'), dict) else {}
                 minimum = validation.get('min')
                 maximum = validation.get('max')
                 valid = (minimum in (None, '') or amount >= Decimal(str(minimum))) and (
@@ -720,13 +724,53 @@ def _record_event(application, action: str, *, actor, request_id: str = '', befo
 
 
 def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
+    terms = application.product_terms_snapshot or {}
+    applicant_name = ' '.join(
+        str(application.form_payload.get(key) or '').strip()
+        for key in ('applicant_first_name', 'applicant_middle_name', 'applicant_surname')
+        if str(application.form_payload.get(key) or '').strip()
+    )
+    applicant_name = (
+        applicant_name
+        or str(application.form_payload.get('applicant_full_name') or '').strip()
+        or str(application.form_payload.get('borrower_full_name') or '').strip()
+    )
     context = {
         **application.form_payload,
         'reference_number': application.reference_number,
         'branch_code': application.branch,
         'loan_officer_name': application.officer.get_full_name() or application.officer.get_username(),
         'application_date': timezone.localdate(application.created_at).isoformat(),
+        'product_code': str(terms.get('product_code') or application.product_definition.product_key),
+        'product_name': str(terms.get('product_name') or application.product_definition.name),
+        'loan_product': str(terms.get('product_name') or application.product_definition.name),
+        'loan_product_other': str(terms.get('product_name') or application.product_definition.name),
+        'borrower_full_name': applicant_name,
+        'deponent_full_name': applicant_name,
+        'acknowledgement_recipient_name': applicant_name,
+        'repayment_frequency': str(terms.get('repayment_frequency') or '').replace('_', ' ').title(),
+        'interest_rate': str(terms.get('interest_rate') or application.form_payload.get('interest_rate') or ''),
+        'installment_amount': str(
+            (application.product_quote_snapshot or {}).get('installment_amount')
+            or application.form_payload.get('daily_weekly_repayment_amount')
+            or application.form_payload.get('installment_amount')
+            or ''
+        ),
+        'bro_1_name': application.officer.get_full_name() or application.officer.get_username(),
+        'bro_2_name': '',
+        'branch_manager_name': (
+            application.reviewed_by.get_full_name() or application.reviewed_by.get_username()
+            if application.reviewed_by_id else ''
+        ),
     }
+    approved_amount = (
+        application.form_payload.get('approval_amount')
+        or application.form_payload.get('loan_amount')
+        or ''
+    )
+    context.setdefault('approval_amount', approved_amount)
+    context.setdefault('amount_advanced', approved_amount)
+    context.setdefault('acknowledgement_amount', approved_amount)
     assets = context.get('secured_assets')
     if isinstance(assets, list):
         total = Decimal('0')
@@ -753,6 +797,24 @@ def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
 def render_application_preview(application: LoanOriginationApplication) -> bytes:
     """Render the approved PDF locally; no signing package or file is persisted."""
     definition = application.product_definition
+    primary_document = application.packet_documents.select_related('template').filter(
+        document_role='primary', selected=True,
+    ).first()
+    if primary_document and primary_document.template_id:
+        try:
+            from core.services.origination_templates import load_template_source
+            from core.services.partnership_laf_preview import render_template
+            configuration = (primary_document.template_snapshot or {}).get('configuration') or {}
+            return render_template(
+                load_template_source(primary_document.template),
+                configuration,
+                preview_context(application),
+            )
+        except Exception as exc:
+            from core.services.partnership_laf_preview import PartnershipLafPreviewError
+            if isinstance(exc, PartnershipLafPreviewError):
+                raise OriginationError(str(exc)) from exc
+            raise
     # Until a signing package is prepared this endpoint is a live preview, so
     # it must reflect the latest published Admin calibration.  The signing
     # package remains immutable and continues to use its captured snapshot.
@@ -814,6 +876,20 @@ def create_application(*, product_key: str, officer, branch: str, client_request
         serialize_product_version(definition.product_version)
         if definition.product_version_id else {}
     )
+    from core.services.origination_documents import resolved_document_requirements
+    document_requirements = resolved_document_requirements(definition)
+    if document_requirements:
+        terms_snapshot = json.loads(json.dumps(terms_snapshot or {}))
+        requirements = [
+            item for item in terms_snapshot.get('requirements', []) if isinstance(item, dict)
+        ]
+        by_key = {str(item.get('key') or ''): item for item in requirements}
+        for item in document_requirements:
+            key = str(item.get('key') or '')
+            if key not in by_key:
+                requirements.append(item)
+                by_key[key] = item
+        terms_snapshot['requirements'] = requirements
     application_id = uuid.uuid4()
     from core.services.location_catalog import location_snapshot, validate_location_selection
     branch_record, _county, _sub_county = validate_location_selection(
@@ -854,6 +930,14 @@ def create_application(*, product_key: str, officer, branch: str, client_request
     _record_event(application, 'created', actor=officer, request_id=client_request_id)
     from core.services.origination_documents import initialize_document_packet
     initialize_document_packet(application)
+    primary_document = application.packet_documents.filter(
+        document_role='primary', selected=True,
+    ).first()
+    if primary_document:
+        resolved_configuration = (primary_document.template_snapshot or {}).get('configuration') or {}
+        if resolved_configuration != application.template_configuration_snapshot:
+            application.template_configuration_snapshot = resolved_configuration
+            application.save(update_fields=['template_configuration_snapshot', 'updated_at'])
     return application, False
 
 
@@ -1412,15 +1496,21 @@ def prepare_review_package(
         'product_custom_values': application.product_custom_values,
         'product_selected_fee_keys': application.product_selected_fee_keys,
     }
+    primary_document = application.packet_documents.filter(
+        document_role='primary', selected=True,
+    ).first()
+    primary_snapshot = primary_document.template_snapshot if primary_document else {}
     package = OriginationSigningPackage(
         id=package_id,
         application=application,
         application_revision=application.revision,
         external_reference=f'ESIGN-{str(package_id)[:12].upper()}',
-        document_type=application.product_definition.document_type,
-        template_version=application.product_definition.document_template_version,
-        template_sha256=application.product_definition.document_template_sha256,
-        template_configuration_snapshot=application.template_configuration_snapshot,
+        document_type=str(primary_snapshot.get('document_type') or application.product_definition.document_type),
+        template_version=int(primary_snapshot.get('version') or application.product_definition.document_template_version),
+        template_sha256=str(primary_snapshot.get('sha256') or application.product_definition.document_template_sha256),
+        template_configuration_snapshot=(
+            primary_snapshot.get('configuration') or application.template_configuration_snapshot
+        ),
         context_snapshot=frozen_context,
         participants_snapshot=packet_signers(application),
         requirement_evidence_snapshot=evidence_manifest(application),

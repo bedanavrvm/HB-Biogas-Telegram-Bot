@@ -63,6 +63,23 @@ SYSTEM_CONTEXT_KEYS = (
     ('application_date', 'Application Date'),
     ('secured_assets_total', 'Secured Assets Total'),
     ('home_visit_completed_date', 'Home Visit Completed Date'),
+    ('product_code', 'Product Code'),
+    ('product_name', 'Product Name'),
+    ('borrower_full_name', 'Borrower Full Name'),
+    ('deponent_full_name', 'Deponent Full Name'),
+    ('acknowledgement_recipient_name', 'Acknowledgement Recipient Name'),
+    ('repayment_frequency', 'Repayment Frequency'),
+    ('interest_rate', 'Interest Rate'),
+    ('loan_product', 'Loan Product'),
+    ('loan_product_other', 'Other Loan Product'),
+    ('approval_amount', 'Approved Amount'),
+    ('amount_advanced', 'Amount Advanced'),
+    ('acknowledgement_amount', 'Acknowledgement Amount'),
+    ('installment_amount', 'Installment Amount'),
+    ('penalty_rate', 'Penalty Rate'),
+    ('bro_1_name', 'Business Relationship Officer 1 Name'),
+    ('bro_2_name', 'Business Relationship Officer 2 Name'),
+    ('branch_manager_name', 'Branch Manager Name'),
 )
 
 
@@ -119,6 +136,13 @@ def initial_template_configuration(
         'branch_code': 'Sample Branch',
         'loan_officer_name': 'Sample Loan Officer',
         'application_date': '13-Aug-2026',
+        'product_code': 'sample_product',
+        'product_name': 'Sample Loan Product',
+        'borrower_full_name': 'Sample Applicant',
+        'deponent_full_name': 'Sample Applicant',
+        'acknowledgement_recipient_name': 'Sample Applicant',
+        'repayment_frequency': 'Weekly',
+        'interest_rate': '10',
     })
     return {
         'document_type': product.document_type if product else '',
@@ -236,7 +260,10 @@ def validate_template_configuration(
     product = _template_product(template)
     schema = (
         template.form_schema
-        if template.document_role == template.ROLE_SUPPORTING and template.form_schema
+        if template.form_schema and (
+            template.document_role == template.ROLE_SUPPORTING
+            or template.product_definition_id is None
+        )
         else product.form_schema if product else {}
     )
     schema_fields = (schema or {}).get('fields', [])
@@ -256,7 +283,7 @@ def validate_template_configuration(
         raise OriginationTemplateError(f'Unknown application fields: {", ".join(unknown)}.')
     if require_complete and (
         template.product_definition_id
-        or (template.document_role == template.ROLE_SUPPORTING and bool(schema_fields))
+        or bool(schema_fields)
     ):
         required = {str(item.get('key')) for item in schema_fields if item.get('required') and item.get('key')}
         missing = sorted(required - configured_context_keys)
@@ -520,21 +547,28 @@ def create_template(
     return upload_template_record(template, pdf_data=pdf_data, actor=actor)
 
 
-def create_shared_supporting_template(
+def create_shared_document_template(
     *, pdf_file, name: str, document_key: str, form_schema: dict[str, Any],
-    signer_rules: list[dict[str, Any]], actor,
+    signer_rules: list[dict[str, Any]], actor, document_role: str = OriginationDocumentTemplate.ROLE_SUPPORTING,
 ) -> OriginationDocumentTemplate:
-    """Create an unassigned reusable supporting PDF from the visual builder.
+    """Create an unassigned reusable primary or supporting PDF.
 
     The document is deliberately global: attaching it to a draft product is a
     separate, auditable action and uses ``latest_compatible`` by default.
     """
+    if document_role not in {
+        OriginationDocumentTemplate.ROLE_PRIMARY,
+        OriginationDocumentTemplate.ROLE_SUPPORTING,
+    }:
+        raise OriginationTemplateError('Choose primary LAF or supporting document.')
     document_key = str(document_key or '').strip().lower()
     try:
         validate_slug(document_key)
     except ValidationError as exc:
         raise OriginationTemplateError('Document key must be a lowercase slug.') from exc
-    if document_key == 'primary':
+    if document_role == OriginationDocumentTemplate.ROLE_PRIMARY:
+        document_key = 'primary'
+    elif document_key == 'primary':
         raise OriginationTemplateError('Supporting documents need their own document key.')
     from core.services.loan_origination import OriginationError, validate_product_form_contract
     try:
@@ -552,9 +586,9 @@ def create_shared_supporting_template(
         template = OriginationDocumentTemplate(
             product_definition=None,
             document_key=document_key,
-            document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
+            document_role=document_role,
             inclusion_mode=OriginationDocumentTemplate.INCLUDE_REQUIRED,
-            display_order=10,
+            display_order=0 if document_role == OriginationDocumentTemplate.ROLE_PRIMARY else 10,
             officer_selectable=False,
             default_selected=False,
             applicability_rule={},
@@ -585,12 +619,102 @@ def create_shared_supporting_template(
     return upload_template_record(template, pdf_data=pdf_data, actor=actor)
 
 
-def attach_shared_supporting_template(
+def create_shared_supporting_template(**kwargs) -> OriginationDocumentTemplate:
+    """Compatibility wrapper for existing supporting-document callers."""
+    return create_shared_document_template(
+        **kwargs, document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
+    )
+
+
+def _merge_shared_primary_contract(
+    *, product: OriginationProductDefinition, template: OriginationDocumentTemplate,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Merge the reusable primary's minimum contract into an editable product."""
+    product_schema = json.loads(json.dumps(product.form_schema or {}))
+    template_schema = template.form_schema or {}
+    sections = [item for item in product_schema.get('sections', []) if isinstance(item, dict)]
+    product_fields = [item for item in product_schema.get('fields', []) if isinstance(item, dict)]
+    if product_fields and any(not str(item.get('section_key') or '').strip() for item in product_fields):
+        fallback_section = next((str(item.get('key') or '') for item in sections if item.get('key')), '')
+        if not fallback_section:
+            fallback_section = 'product_specific'
+            sections.append({
+                'key': fallback_section,
+                'label': 'Product Specific',
+                'help_text': 'Additional fields configured for this loan product.',
+            })
+        for item in product_fields:
+            if not str(item.get('section_key') or '').strip():
+                item['section_key'] = fallback_section
+    section_keys = {str(item.get('key') or '') for item in sections}
+    for section in template_schema.get('sections', []) or []:
+        if isinstance(section, dict) and str(section.get('key') or '') not in section_keys:
+            sections.append(json.loads(json.dumps(section)))
+            section_keys.add(str(section.get('key') or ''))
+    fields = product_fields
+    fields_by_key = {str(item.get('key') or ''): item for item in fields}
+    for field in template_schema.get('fields', []) or []:
+        if not isinstance(field, dict) or not field.get('key'):
+            continue
+        key = str(field['key'])
+        current = fields_by_key.get(key)
+        if current:
+            if str(current.get('type') or 'text') != str(field.get('type') or 'text'):
+                raise OriginationTemplateError(
+                    f'Canonical field {key} has a different type in this product.',
+                )
+            if field.get('required') and not current.get('required'):
+                current['required'] = True
+            continue
+        copied = json.loads(json.dumps(field))
+        fields.append(copied)
+        fields_by_key[key] = copied
+    product_schema.update({
+        'sections': sections,
+        'fields': fields,
+        'identity_contract': template_schema.get('identity_contract') or product_schema.get('identity_contract'),
+    })
+
+    product_rules = [
+        json.loads(json.dumps(item)) for item in (product.signer_rules or [])
+        if isinstance(item, dict)
+    ]
+    product_by_role = {str(item.get('role') or ''): item for item in product_rules}
+    for rule in template.signer_rules or []:
+        if not isinstance(rule, dict) or not rule.get('role'):
+            continue
+        role = str(rule['role'])
+        current = product_by_role.get(role)
+        if not current:
+            copied = json.loads(json.dumps(rule))
+            product_rules.append(copied)
+            product_by_role[role] = copied
+            continue
+        if rule.get('required'):
+            current['required'] = True
+        current['identity_fields'] = {
+            **(rule.get('identity_fields') if isinstance(rule.get('identity_fields'), dict) else {}),
+            **(current.get('identity_fields') if isinstance(current.get('identity_fields'), dict) else {}),
+        }
+        slots = [item for item in current.get('slots', [])]
+        slot_keys = {
+            str(item.get('key') if isinstance(item, dict) else item) for item in slots
+        }
+        for slot in rule.get('slots', []) or []:
+            slot_key = str(slot.get('key') if isinstance(slot, dict) else slot)
+            if slot_key not in slot_keys:
+                slots.append(json.loads(json.dumps(slot)))
+                slot_keys.add(slot_key)
+        current['slots'] = slots
+    return product_schema, product_rules
+
+
+def attach_shared_document_template(
     *, product_definition: OriginationProductDefinition,
     template: OriginationDocumentTemplate, inclusion_mode: str, display_order: int,
     officer_selectable: bool, default_selected: bool, applicability_rule: dict[str, Any], actor,
 ) -> OriginationProductDocumentAssignment:
-    """Attach a published global supporting template to one draft product."""
+    """Attach a published global document family to one draft product."""
     with transaction.atomic():
         product = OriginationProductDefinition.objects.select_for_update().get(pk=product_definition.pk)
         template = OriginationDocumentTemplate.objects.select_for_update().get(pk=template.pk)
@@ -598,11 +722,27 @@ def attach_shared_supporting_template(
             raise OriginationTemplateError('Create an editable product version before changing its document packet.')
         if (
             template.product_definition_id is not None
-            or template.document_role != template.ROLE_SUPPORTING
             or template.status != template.STATUS_ACTIVE
             or not template.published_configuration_revision_id
         ):
-            raise OriginationTemplateError('Choose a published reusable supporting document.')
+            raise OriginationTemplateError('Choose a published reusable document.')
+        if template.document_role == template.ROLE_PRIMARY:
+            owned_primary = product.document_templates.filter(
+                document_role=template.ROLE_PRIMARY,
+                status__in=[template.STATUS_READY, template.STATUS_ACTIVE],
+            ).exists()
+            assigned_primary = product.document_assignments.filter(
+                template__document_role=template.ROLE_PRIMARY,
+            ).exclude(template=template).exists()
+            if owned_primary or assigned_primary:
+                raise OriginationTemplateError(
+                    'This product already has a primary LAF. Remove or retire it before assigning another.',
+                )
+            inclusion_mode = template.INCLUDE_REQUIRED
+            display_order = 0
+            officer_selectable = False
+            default_selected = False
+            applicability_rule = {}
         from core.services.origination_documents import validate_applicability_rule
         product_keys = {
             str(item.get('key')) for item in (product.form_schema or {}).get('fields', [])
@@ -640,19 +780,42 @@ def attach_shared_supporting_template(
         )
         assignment.full_clean()
         assignment.save()
+        if template.document_role == template.ROLE_PRIMARY:
+            merged_schema, merged_signers = _merge_shared_primary_contract(
+                product=product, template=template,
+            )
+            product.form_schema = merged_schema
+            product.signer_rules = merged_signers
+            product.document_type = template.document_type
+            product.document_template_name = template.name
+            product.document_template_version = template.version
+            product.document_template_sha256 = template.source_sha256
+            product.save(update_fields=[
+                'form_schema', 'signer_rules', 'document_type', 'document_template_name',
+                'document_template_version', 'document_template_sha256', 'updated_at',
+            ])
         OriginationProductDefinitionEvent.objects.create(
             product_definition=product, action='shared_document_assigned', actor=actor,
             metadata={
                 'assignment_id': str(assignment.pk), 'template_id': str(template.pk),
                 'document_key': assignment.document_key,
                 'version_policy': assignment.version_policy,
+                'document_role': template.document_role,
                 'origin': 'product_document_packet_wizard',
             },
         )
         return assignment
 
 
-def remove_shared_supporting_template(
+def attach_shared_supporting_template(**kwargs) -> OriginationProductDocumentAssignment:
+    """Compatibility wrapper that continues to reject primary templates."""
+    template = kwargs.get('template')
+    if template and template.document_role != OriginationDocumentTemplate.ROLE_SUPPORTING:
+        raise OriginationTemplateError('Choose a published reusable supporting document.')
+    return attach_shared_document_template(**kwargs)
+
+
+def remove_shared_document_template(
     *, product_definition: OriginationProductDefinition,
     assignment_id, actor,
 ) -> bool:
@@ -670,12 +833,26 @@ def remove_shared_supporting_template(
             'document_key': assignment.document_key,
             'origin': 'product_document_packet',
         }
+        removed_primary = assignment.template.document_role == assignment.template.ROLE_PRIMARY
         assignment.delete()
+        if removed_primary:
+            product.document_template_name = ''
+            product.document_template_sha256 = ''
+            product.document_template_version = product.version
+            product.save(update_fields=[
+                'document_template_name', 'document_template_sha256',
+                'document_template_version', 'updated_at',
+            ])
         OriginationProductDefinitionEvent.objects.create(
             product_definition=product, action='shared_document_assignment_removed',
             actor=actor, metadata=metadata,
         )
         return True
+
+
+def remove_shared_supporting_template(**kwargs) -> bool:
+    """Compatibility wrapper for existing callers."""
+    return remove_shared_document_template(**kwargs)
 
 
 def publish_and_attach_shared_supporting_template(
@@ -988,7 +1165,7 @@ def activate_template(template: OriginationDocumentTemplate, *, actor) -> Origin
     template.activated_at = timezone.now()
     template.save(update_fields=['status', 'activated_by', 'activated_at', 'updated_at'])
     activation_metadata = {}
-    if template.document_role == template.ROLE_SUPPORTING and template.product_definition_id is None:
+    if template.product_definition_id is None:
         family_assignments = OriginationProductDocumentAssignment.objects.filter(
             version_policy=OriginationProductDocumentAssignment.VERSION_LATEST_COMPATIBLE,
             template__document_type=template.document_type,
@@ -1016,8 +1193,8 @@ def assignment_template_compatibility_errors(
 ) -> list[str]:
     """Return contract breaks that prevent transparent family-version adoption."""
     errors: list[str] = []
-    if candidate.document_role != candidate.ROLE_SUPPORTING:
-        errors.append('the candidate is not a supporting document')
+    if candidate.document_role != baseline.document_role:
+        errors.append('the candidate changed document role')
     if candidate.document_type != baseline.document_type:
         errors.append('the candidate belongs to another document family')
     if candidate.product_definition_id is not None:
@@ -1062,6 +1239,32 @@ def assignment_template_compatibility_errors(
                     errors.append(f'required column {key}.{column_key} was removed')
                 elif candidate_column and str(candidate_column.get('type') or 'text') != str(baseline_column.get('type') or 'text'):
                     errors.append(f'column {key}.{column_key} changed type')
+
+    baseline_requirements = {
+        str(item.get('key') or ''): item
+        for item in (baseline.form_schema or {}).get('evidence_requirements', [])
+        if isinstance(item, dict) and item.get('key')
+    }
+    candidate_requirements = {
+        str(item.get('key') or ''): item
+        for item in (candidate.form_schema or {}).get('evidence_requirements', [])
+        if isinstance(item, dict) and item.get('key')
+    }
+    for key, baseline_requirement in baseline_requirements.items():
+        baseline_validation = (
+            baseline_requirement.get('validation')
+            if isinstance(baseline_requirement.get('validation'), dict) else {}
+        )
+        governed = bool(
+            baseline_requirement.get('required') or baseline_validation.get('required_when')
+        )
+        if not governed:
+            continue
+        candidate_requirement = candidate_requirements.get(key)
+        if not candidate_requirement:
+            errors.append(f'required evidence requirement {key} was removed')
+        elif str(candidate_requirement.get('type') or '') != str(baseline_requirement.get('type') or ''):
+            errors.append(f'evidence requirement {key} changed type')
 
     baseline_signers = {
         str(item.get('role') or ''): item
@@ -1112,15 +1315,14 @@ def resolve_assignment_template(
         or baseline.product_definition_id is not None
     ):
         return baseline if (
-            baseline.document_role == baseline.ROLE_SUPPORTING
-            and baseline.status in {baseline.STATUS_ACTIVE, baseline.STATUS_RETIRED}
+            baseline.status in {baseline.STATUS_ACTIVE, baseline.STATUS_RETIRED}
             and baseline.published_configuration_revision_id
         ) else None
 
     candidates = OriginationDocumentTemplate.objects.filter(
         product_definition__isnull=True,
         document_type=baseline.document_type,
-        document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
+        document_role=baseline.document_role,
         status__in=[
             OriginationDocumentTemplate.STATUS_ACTIVE,
             OriginationDocumentTemplate.STATUS_RETIRED,
@@ -1263,7 +1465,7 @@ def replace_draft_template(
 @transaction.atomic
 def publish_product_template(
     *, template: OriginationDocumentTemplate, revision: int, actor,
-    client_request_id: str = '',
+    client_request_id: str = '', product_definition: OriginationProductDefinition | None = None,
 ) -> tuple[OriginationProductDefinition | None, OriginationDocumentTemplate, OriginationTemplateConfigurationRevision]:
     """Publish calibration, activate its immutable PDF, and expose the product atomically."""
     # Lock only the template row. ``product_definition`` is nullable, so
@@ -1273,14 +1475,15 @@ def publish_product_template(
     template = OriginationDocumentTemplate.objects.select_for_update().get(
         pk=template.pk,
     )
-    if not template.product_definition_id:
+    publishing_assigned_primary = bool(product_definition and not template.product_definition_id)
+    if not template.product_definition_id and not publishing_assigned_primary:
         published = publish_calibration(
             template=template, revision=revision, actor=actor,
             client_request_id=client_request_id,
         )
         return None, activate_template(template, actor=actor), published
     product = OriginationProductDefinition.objects.select_for_update().get(
-        pk=template.product_definition_id,
+        pk=product_definition.pk if publishing_assigned_primary else template.product_definition_id,
     )
     if (
         product.lifecycle_status == product.STATUS_PUBLISHED
@@ -1301,11 +1504,20 @@ def publish_product_template(
             + '.',
         )
 
-    selected = template.configuration_revisions.get(revision=revision)
+    selected = (
+        template.published_configuration_revision
+        if publishing_assigned_primary else template.configuration_revisions.get(revision=revision)
+    )
+    if publishing_assigned_primary and (
+        template.document_role != template.ROLE_PRIMARY
+        or template.status != template.STATUS_ACTIVE
+        or not selected
+    ):
+        raise OriginationTemplateError('The assigned primary LAF must be published before the product.')
     validate_template_configuration(
         selected.configuration, template=template, require_complete=True,
     )
-    if template.document_role == template.ROLE_SUPPORTING:
+    if template.document_role == template.ROLE_SUPPORTING and not publishing_assigned_primary:
         published = publish_calibration(
             template=template, revision=revision, actor=actor,
             client_request_id=client_request_id,
@@ -1337,10 +1549,35 @@ def publish_product_template(
     ]
     invalid_assignments = [item for item, resolved in resolved_assignments if not resolved]
     if invalid_assignments:
-        raise OriginationTemplateError('Every shared supporting document must be published before the product.')
+        raise OriginationTemplateError('Every reusable document must have a compatible published version before the product.')
     primaries = [item for item in packet_templates if item.document_role == item.ROLE_PRIMARY]
+    primaries.extend(
+        resolved for _assignment, resolved in resolved_assignments
+        if resolved and resolved.document_role == resolved.ROLE_PRIMARY
+    )
     if len(primaries) != 1:
         raise OriginationTemplateError('A published product requires exactly one primary LAF.')
+    primary_template = primaries[0]
+    if publishing_assigned_primary and primary_template.pk != template.pk:
+        raise OriginationTemplateError('The selected reusable primary LAF is not this product\'s resolved primary.')
+    product_fields = {
+        str(item.get('key') or ''): item
+        for item in (product.form_schema or {}).get('fields', [])
+        if isinstance(item, dict) and item.get('key')
+    }
+    for field in (primary_template.form_schema or {}).get('fields', []) or []:
+        if not isinstance(field, dict) or not field.get('key'):
+            continue
+        key = str(field['key'])
+        product_field = product_fields.get(key)
+        if field.get('required') and not product_field:
+            raise OriginationTemplateError(
+                f'The primary LAF requires canonical field {key}; restore it to the product form.',
+            )
+        if product_field and str(product_field.get('type') or 'text') != str(field.get('type') or 'text'):
+            raise OriginationTemplateError(
+                f'The primary LAF and product disagree on the type of {key}.',
+            )
     keys = [item.document_key for item in packet_templates if item.document_role == item.ROLE_PRIMARY]
     keys.extend(item.document_key for item in assignments)
     keys.extend(
@@ -1362,7 +1599,7 @@ def publish_product_template(
                 product.form_schema, product.signer_rules,
             )
             validate_applicant_identity_contract(product.form_schema, product.signer_rules)
-            if template.form_schema != product.form_schema:
+            if not publishing_assigned_primary and template.form_schema != product.form_schema:
                 template.form_schema = json.loads(json.dumps(product.form_schema))
                 template.save(update_fields=['form_schema', 'updated_at'])
                 OriginationDocumentTemplateEvent.objects.create(
@@ -1415,15 +1652,20 @@ def publish_product_template(
             publish_product_version(version=product.product_version, actor=actor)
         except ProductCatalogError as exc:
             raise OriginationTemplateError(str(exc)) from exc
-    published = publish_calibration(
-        template=template, revision=revision, actor=actor,
-        client_request_id=client_request_id,
-    )
-    activated = activate_template(template, actor=actor)
+    if publishing_assigned_primary:
+        published = selected
+        activated = template
+    else:
+        published = publish_calibration(
+            template=template, revision=revision, actor=actor,
+            client_request_id=client_request_id,
+        )
+        activated = activate_template(template, actor=actor)
 
-    product.document_template_name = template.name
-    product.document_template_version = template.version
-    product.document_template_sha256 = template.source_sha256
+    product.document_type = primary_template.document_type
+    product.document_template_name = primary_template.name
+    product.document_template_version = primary_template.version
+    product.document_template_sha256 = primary_template.source_sha256
     from core.services.loan_origination import validate_product_definition
     validate_product_definition(product)
 
@@ -1447,17 +1689,17 @@ def publish_product_template(
     product.published_by = actor
     product.published_at = product.published_at or timezone.now()
     product.save(update_fields=[
-        'form_schema', 'document_template_name', 'document_template_version', 'document_template_sha256',
+        'form_schema', 'document_type', 'document_template_name', 'document_template_version', 'document_template_sha256',
         'is_active', 'lifecycle_status', 'published_by', 'published_at', 'updated_at',
     ])
     if not was_published:
         product_event = OriginationProductDefinitionEvent.objects.create(
             product_definition=product, action='published', actor=actor,
             metadata={
-                'template_id': str(template.pk),
-                'template_sha256': template.source_sha256,
+                'template_id': str(primary_template.pk),
+                'template_sha256': primary_template.source_sha256,
                 'configuration_revision': published.revision,
-                'supporting_document_resolutions': [
+                'shared_document_resolutions': [
                     {
                         'assignment_id': str(assignment.pk),
                         'family': assignment.template.document_type,
@@ -1478,7 +1720,7 @@ def publish_product_template(
             source_model='OriginationProductDefinitionEvent', source_event_id=str(product_event.pk),
             deduplication_key=f'portal:OriginationProductDefinitionEvent:{product_event.pk}',
             after_values={'product_key': product.product_key, 'version': product.version},
-            metadata={'template_id': str(template.pk), 'template_sha256': template.source_sha256},
+            metadata={'template_id': str(primary_template.pk), 'template_sha256': primary_template.source_sha256},
         )
     return product, activated, published
 

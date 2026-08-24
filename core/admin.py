@@ -531,11 +531,9 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
             raise forms.ValidationError(str(exc)) from exc
         self.instance.product_definition = product
         role = cleaned['document_role']
-        if not product and role != OriginationDocumentTemplate.ROLE_SUPPORTING:
-            self.add_error('product_definition', 'A primary LAF must belong to a draft loan form.')
-            return cleaned
         self.instance.document_type = (
-            product.document_type if role == OriginationDocumentTemplate.ROLE_PRIMARY
+            product.document_type if role == OriginationDocumentTemplate.ROLE_PRIMARY and product
+            else f'shared-primary-{digest[:12]}' if role == OriginationDocumentTemplate.ROLE_PRIMARY
             else f'{product.product_key}-{document_key}'[:80] if product
             else document_key[:80]
         )
@@ -632,6 +630,19 @@ class OriginationProductDocumentAssignmentForm(DocumentApplicabilityRuleFormMixi
             # not create another, typo-prone key and name for that same form.
             self.instance.document_key = template.document_key
             self.instance.name = template.name
+            if template.document_role == template.ROLE_PRIMARY:
+                cleaned.update({
+                    'inclusion_mode': template.INCLUDE_REQUIRED,
+                    'display_order': 0,
+                    'officer_selectable': False,
+                    'default_selected': False,
+                    'applicability_rule': {},
+                })
+                for key in (
+                    'inclusion_mode', 'display_order', 'officer_selectable',
+                    'default_selected', 'applicability_rule',
+                ):
+                    setattr(self.instance, key, cleaned[key])
         return cleaned
 
 
@@ -6621,7 +6632,6 @@ class OriginationProductDocumentAssignmentAdmin(OriginationGodModeAdminMixin, Co
         elif db_field.name == 'template':
             kwargs['queryset'] = OriginationDocumentTemplate.objects.filter(
                 product_definition__isnull=True,
-                document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
                 status=OriginationDocumentTemplate.STATUS_ACTIVE,
             ).order_by('name', '-version')
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
@@ -6629,11 +6639,26 @@ class OriginationProductDocumentAssignmentAdmin(OriginationGodModeAdminMixin, Co
     def save_model(self, request, obj, form, change):
         if not obj.created_by_id:
             obj.created_by = request.user
+        if not change:
+            from core.services.origination_templates import attach_shared_document_template
+            assignment = attach_shared_document_template(
+                product_definition=obj.product_definition,
+                template=obj.template,
+                inclusion_mode=obj.inclusion_mode,
+                display_order=obj.display_order,
+                officer_selectable=obj.officer_selectable,
+                default_selected=obj.default_selected,
+                applicability_rule=obj.applicability_rule or {},
+                actor=request.user,
+            )
+            obj.pk = assignment.pk
+            obj._state.adding = False
+            return
         obj.full_clean()
         super().save_model(request, obj, form, change)
         OriginationProductDefinitionEvent.objects.create(
             product_definition=obj.product_definition,
-            action='shared_document_assignment_updated' if change else 'shared_document_assigned',
+            action='shared_document_assignment_updated',
             actor=request.user,
             metadata={
                 'assignment_id': str(obj.pk), 'template_id': str(obj.template_id),
@@ -6646,6 +6671,14 @@ class OriginationProductDocumentAssignmentAdmin(OriginationGodModeAdminMixin, Co
         product = obj.product_definition
         metadata = {'assignment_id': str(obj.pk), 'template_id': str(obj.template_id), 'document_key': obj.document_key}
         super().delete_model(request, obj)
+        if obj.template.document_role == OriginationDocumentTemplate.ROLE_PRIMARY:
+            product.document_template_name = ''
+            product.document_template_sha256 = ''
+            product.document_template_version = product.version
+            product.save(update_fields=[
+                'document_template_name', 'document_template_sha256',
+                'document_template_version', 'updated_at',
+            ])
         OriginationProductDefinitionEvent.objects.create(
             product_definition=product, action='shared_document_assignment_removed',
             actor=request.user, metadata=metadata,
@@ -6698,6 +6731,11 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
                 '<path:object_id>/document-packet/add-shared/',
                 self.admin_site.admin_view(self.add_shared_document_to_packet_view),
                 name='core_originationproductdefinition_packet_add_shared',
+            ),
+            path(
+                '<path:object_id>/publish-assigned-primary/',
+                self.admin_site.admin_view(self.publish_assigned_primary_view),
+                name='core_originationproductdefinition_publish_assigned_primary',
             ),
             path(
                 '<path:object_id>/document-packet/<path:assignment_id>/remove/',
@@ -6909,6 +6947,7 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
         failed_template = None
         existing_successor = None
         shared_assignments = []
+        shared_primary = None
         packet_readiness = []
         if product is not None:
             templates = product.document_templates.order_by('-created_at')
@@ -6931,10 +6970,21 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
                     'template', 'template__published_configuration_revision',
                 ).order_by('display_order', 'document_key')
             ]
+            shared_primary = next((
+                item['resolved_template'] for item in shared_assignments
+                if item['resolved_template']
+                and item['resolved_template'].document_role == OriginationDocumentTemplate.ROLE_PRIMARY
+            ), None)
+            if not template and shared_primary:
+                template = shared_primary
             packet_readiness.append({
                 'label': 'Main LAF',
-                'ready': bool(template and template.drive_file_id),
-                'detail': 'Ready to align' if template and template.drive_file_id else 'Upload the primary LAF PDF',
+                'ready': bool((template and template.drive_file_id) or shared_primary),
+                'detail': (
+                    f'Uses reusable {shared_primary.name} v{shared_primary.version}' if shared_primary
+                    else 'Ready to align' if template and template.drive_file_id
+                    else 'Upload or assign the primary LAF PDF'
+                ),
             })
             packet_readiness.extend({
                 'label': item['assignment'].name,
@@ -6967,11 +7017,12 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
             'origination_available_shared_documents': list(
                 OriginationDocumentTemplate.objects.filter(
                     product_definition__isnull=True,
-                    document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
                     status=OriginationDocumentTemplate.STATUS_ACTIVE,
                     published_configuration_revision__isnull=False,
                 ).exclude(
-                    pk__in=[item['assignment'].template_id for item in shared_assignments],
+                    document_type__in=[
+                        item['assignment'].template.document_type for item in shared_assignments
+                    ],
                 ).order_by('name', '-version')
             ) if product and product.lifecycle_status == product.STATUS_DRAFT else [],
             'origination_packet_readiness': packet_readiness,
@@ -7019,6 +7070,12 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
                     args=[product.pk],
                 ) if product and product.lifecycle_status == product.STATUS_DRAFT else ''
             ),
+            'origination_publish_assigned_primary_url': (
+                reverse(
+                    'admin:core_originationproductdefinition_publish_assigned_primary',
+                    args=[product.pk],
+                ) if product and product.lifecycle_status == product.STATUS_DRAFT and shared_primary else ''
+            ),
             'origination_assignment_add_url': (
                 reverse('admin:core_originationproductdocumentassignment_add')
                 + f'?product_definition={product.pk}' if product and product.lifecycle_status == product.STATUS_DRAFT else ''
@@ -7054,18 +7111,17 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
                 return JsonResponse({'ok': False, 'error': 'Product definition not found.'}, status=404)
             template = OriginationDocumentTemplate.objects.filter(
                 pk=request.POST.get('template_id'), product_definition__isnull=True,
-                document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
                 status=OriginationDocumentTemplate.STATUS_ACTIVE,
                 published_configuration_revision__isnull=False,
             ).first()
             if not template:
-                raise ValidationError('Choose a published reusable supporting document.')
+                raise ValidationError('Choose a published reusable document.')
             next_order = (
                 product.document_assignments.aggregate(models.Max('display_order'))['display_order__max']
                 or 0
             ) + 10
-            from core.services.origination_templates import attach_shared_supporting_template
-            assignment = attach_shared_supporting_template(
+            from core.services.origination_templates import attach_shared_document_template
+            assignment = attach_shared_document_template(
                 product_definition=product, template=template,
                 inclusion_mode=template.inclusion_mode, display_order=next_order,
                 officer_selectable=template.officer_selectable,
@@ -7085,8 +7141,8 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
             product = self._draft_packet_product(request, object_id)
             if not product:
                 return JsonResponse({'ok': False, 'error': 'Product definition not found.'}, status=404)
-            from core.services.origination_templates import remove_shared_supporting_template
-            removed = remove_shared_supporting_template(
+            from core.services.origination_templates import remove_shared_document_template
+            removed = remove_shared_document_template(
                 product_definition=product, assignment_id=assignment_id, actor=request.user,
             )
         except PermissionDenied:
@@ -7094,6 +7150,54 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
         except Exception as exc:
             return self._packet_error_response(exc)
         return JsonResponse({'ok': True, 'removed': removed})
+
+    def publish_assigned_primary_view(self, request, object_id):
+        if request.method != 'POST':
+            response = HttpResponse(status=405)
+            response['Allow'] = 'POST'
+            return response
+        product_url = reverse('admin:core_originationproductdefinition_change', args=[object_id])
+        try:
+            product = self._draft_packet_product(request, object_id)
+            if not product:
+                return HttpResponse(status=404)
+            from core.services.origination_templates import (
+                publish_product_template, resolve_assignment_template,
+            )
+            primary_assignments = list(product.document_assignments.select_related(
+                'template', 'template__published_configuration_revision',
+            ).filter(template__document_role=OriginationDocumentTemplate.ROLE_PRIMARY))
+            if len(primary_assignments) != 1:
+                raise ValidationError('Assign exactly one reusable primary LAF before publishing.')
+            primary = resolve_assignment_template(primary_assignments[0])
+            if not primary or not primary.published_configuration_revision_id:
+                raise ValidationError('The reusable primary LAF must be calibrated and published first.')
+            published_product, _template, _revision = publish_product_template(
+                template=primary,
+                revision=primary.published_configuration_revision.revision,
+                product_definition=product,
+                actor=request.user,
+                client_request_id=str(request.POST.get('request_id') or ''),
+            )
+        except PermissionDenied:
+            raise
+        except Exception as exc:
+            from core.services.origination_templates import OriginationTemplateError
+            if isinstance(exc, (OriginationTemplateError, ValidationError)):
+                self.message_user(request, str(exc), level=messages.ERROR)
+            else:
+                logger.exception('Publishing product with assigned primary LAF failed.')
+                self.message_user(
+                    request, 'The product could not be published. No partial publication was committed.',
+                    level=messages.ERROR,
+                )
+            return HttpResponseRedirect(product_url)
+        self.message_user(
+            request,
+            f'{published_product.name} version {published_product.version} is published for new applications.',
+            level=messages.SUCCESS,
+        )
+        return HttpResponseRedirect(product_url)
 
     def supporting_document_setup_view(self, request, object_id):
         """Single product-first entry point for shared packet documents."""
@@ -7196,6 +7300,12 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
             OriginationDocumentTemplate.STATUS_READY,
             OriginationDocumentTemplate.STATUS_ACTIVE,
         ], document_role=OriginationDocumentTemplate.ROLE_PRIMARY).order_by('-created_at').first()
+        if not template:
+            from core.services.origination_templates import resolve_assignment_template
+            assignment = obj.document_assignments.select_related(
+                'template', 'template__published_configuration_revision',
+            ).filter(template__document_role=OriginationDocumentTemplate.ROLE_PRIMARY).first()
+            template = resolve_assignment_template(assignment) if assignment else None
         if not template:
             failed = obj.document_templates.filter(
                 status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
@@ -7656,7 +7766,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         )
         fields = (
             obj.form_schema
-            if obj.document_role == obj.ROLE_SUPPORTING and obj.form_schema
+            if obj.form_schema and (obj.document_role == obj.ROLE_SUPPORTING or obj.product_definition_id is None)
             else product.form_schema if product else {}
         )
         presentations = {
@@ -7667,7 +7777,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         context_keys = catalogue_for_product(product)
         for item in context_keys:
             presentation = presentations.get(str(item.get('key') or ''), {})
-            if obj.document_role == obj.ROLE_SUPPORTING:
+            if obj.document_role == obj.ROLE_SUPPORTING or obj.product_definition_id is None:
                 item['attached'] = bool(presentation)
             item['required'] = bool(presentation.get('required', False))
             item['section_key'] = str(presentation.get('section_key') or '')
@@ -7680,7 +7790,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             'configuration': config,
             'page_sizes': page_sizes,
             'context_keys': context_keys,
-            'schema_revision': template_schema_revision(obj) if obj.document_role == obj.ROLE_SUPPORTING else product_schema_revision(product) if product else 0,
+            'schema_revision': template_schema_revision(obj) if obj.product_definition_id is None or obj.document_role == obj.ROLE_SUPPORTING else product_schema_revision(product) if product else 0,
             'form_sections': list(fields.get('sections') or []),
             'signature_slots': list(_expected_signature_slots(product, obj).values()),
         })
@@ -7773,7 +7883,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                     ).first()
                     if not data_field:
                         raise ValidationError('Choose an active canonical data field.')
-                if obj.document_role == obj.ROLE_SUPPORTING:
+                if obj.document_role == obj.ROLE_SUPPORTING or obj.product_definition_id is None:
                     obj, replayed = attach_data_field_to_template(
                         template=obj, data_field=data_field,
                         presentation=body.get('presentation') or {}, actor=request.user,
@@ -7793,12 +7903,12 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         context_keys = catalogue_for_product(product)
         presentations = {
             str(item.get('key') or ''): item
-            for item in (((obj.form_schema if obj.document_role == obj.ROLE_SUPPORTING else product.form_schema) or {}).get('fields') or [])
+            for item in (((obj.form_schema if obj.document_role == obj.ROLE_SUPPORTING or obj.product_definition_id is None else product.form_schema) or {}).get('fields') or [])
             if isinstance(item, dict) and item.get('key')
         }
         for item in context_keys:
             presentation = presentations.get(str(item.get('key') or ''), {})
-            if obj.document_role == obj.ROLE_SUPPORTING:
+            if obj.document_role == obj.ROLE_SUPPORTING or obj.product_definition_id is None:
                 item['attached'] = bool(presentation)
             item['required'] = bool(presentation.get('required', False))
             item['section_key'] = str(presentation.get('section_key') or '')
@@ -7807,8 +7917,8 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                 item for item in context_keys if item['key'] == data_field.key
             ),
             'context_keys': context_keys,
-            'schema_revision': template_schema_revision(obj) if obj.document_role == obj.ROLE_SUPPORTING else product_schema_revision(product),
-            'form_sections': list(((obj.form_schema if obj.document_role == obj.ROLE_SUPPORTING else product.form_schema) or {}).get('sections') or []),
+            'schema_revision': template_schema_revision(obj) if obj.document_role == obj.ROLE_SUPPORTING or obj.product_definition_id is None else product_schema_revision(product),
+            'form_sections': list(((obj.form_schema if obj.document_role == obj.ROLE_SUPPORTING or obj.product_definition_id is None else product.form_schema) or {}).get('sections') or []),
             'replayed': replayed,
         })
 

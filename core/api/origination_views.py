@@ -224,7 +224,7 @@ def portal_origination_products(request):
             assignment_documents.append({
                 'key': assignment.document_key,
                 'name': assignment.name,
-                'role': 'supporting',
+                'role': resolved_template.document_role if resolved_template else assignment.template.document_role,
                 'order': assignment.display_order,
                 'inclusion_mode': assignment.inclusion_mode,
                 'default_selected': assignment.default_selected,

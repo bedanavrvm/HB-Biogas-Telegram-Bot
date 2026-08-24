@@ -99,14 +99,17 @@
           <span class="opb-packet-actions">
             {% if origination_available_shared_documents %}
               <label class="opb-packet-picker">Add reusable document
-                <select data-packet-document-select aria-label="Reusable supporting document">
+                <select data-packet-document-select aria-label="Reusable document">
                   <option value="">Choose a document</option>
-                  {% for document in origination_available_shared_documents %}<option value="{{ document.pk }}">{{ document.name }} — v{{ document.version }}</option>{% endfor %}
+                  {% for document in origination_available_shared_documents %}<option value="{{ document.pk }}">{{ document.name }} — {{ document.get_document_role_display }} v{{ document.version }}</option>{% endfor %}
                 </select>
               </label>
               <button type="button" class="button" data-packet-add-url="{{ origination_packet_add_shared_url }}">Add</button>
             {% endif %}
             {% if origination_supporting_document_setup_url %}<a class="button" href="{{ origination_supporting_document_setup_url }}">Create supporting document</a>{% endif %}
+            {% if origination_publish_assigned_primary_url %}
+              <button type="button" class="button" data-packet-publish-url="{{ origination_publish_assigned_primary_url }}">Publish product</button>
+            {% endif %}
             <a class="opb-secondary-link" href="{{ origination_shared_library_url }}">Manage reusable library</a>
           </span>
         </header>
@@ -134,7 +137,7 @@
           <div class="opb-document-packet">
             {% for item in origination_shared_document_assignments %}
               <article>
-                <span><b>{{ item.assignment.name }}</b><small>{{ item.assignment.get_version_policy_display }}{% if item.resolved_template %} &middot; currently v{{ item.resolved_template.version }}{% else %} &middot; unavailable{% endif %} &middot; {{ item.assignment.get_inclusion_mode_display }}</small></span>
+                <span><b>{{ item.assignment.name }}</b><small>{% if item.resolved_template %}{{ item.resolved_template.get_document_role_display }} &middot; {% endif %}{{ item.assignment.get_version_policy_display }}{% if item.resolved_template %} &middot; currently v{{ item.resolved_template.version }}{% else %} &middot; unavailable{% endif %} &middot; {{ item.assignment.get_inclusion_mode_display }}</small></span>
                 <span>{% if item.resolved_template %}<a href="{% url 'admin:core_originationdocumenttemplate_calibrate' item.resolved_template.pk %}">Preview PDF mapping</a>{% endif %} <a href="{% url 'admin:core_originationproductdocumentassignment_change' item.assignment.pk %}">Advanced settings</a> <button type="button" class="opb-remove-document" data-packet-remove-url="{% url 'admin:core_originationproductdefinition_packet_remove_shared' original.pk item.assignment.pk %}" data-document-name="{{ item.assignment.name }}">Remove</button></span>
               </article>
             {% endfor %}
@@ -147,6 +150,7 @@
     <script>
       document.addEventListener('DOMContentLoaded', function () {
         const addButton = document.querySelector('[data-packet-add-url]');
+        const publishButton = document.querySelector('[data-packet-publish-url]');
         const picker = document.querySelector('[data-packet-document-select]');
         const csrf = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value;
         async function post(url, values) {
@@ -156,10 +160,18 @@
           return data;
         }
         addButton?.addEventListener('click', async function () {
-          if (!picker?.value) { window.alert('Choose a reusable supporting document first.'); return; }
+          if (!picker?.value) { window.alert('Choose a reusable document first.'); return; }
           addButton.disabled = true;
           try { await post(addButton.dataset.packetAddUrl, {template_id: picker.value}); window.location.reload(); }
           catch (error) { window.alert(error.message); addButton.disabled = false; }
+        });
+        publishButton?.addEventListener('click', async function () {
+          if (!window.confirm('Publish this product using its resolved reusable primary LAF? Existing applications will not change.')) return;
+          publishButton.disabled = true;
+          try {
+            const response = await fetch(publishButton.dataset.packetPublishUrl, {method: 'POST', headers: {'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest'}, body: new URLSearchParams({request_id: 'publish-' + Date.now()})});
+            window.location.assign(response.url || window.location.href);
+          } catch (error) { window.alert('The product could not be published.'); publishButton.disabled = false; }
         });
         document.querySelectorAll('[data-packet-remove-url]').forEach(function (button) {
           button.addEventListener('click', async function () {

@@ -15,6 +15,7 @@ from core.models import (
     LoanOriginationApplication,
     OriginationApplicationDocument,
     OriginationDocumentTemplate,
+    OriginationProductDefinition,
     OriginationProductDocumentAssignment,
 )
 
@@ -204,6 +205,35 @@ def initialize_document_packet(application: LoanOriginationApplication) -> None:
                 else deepcopy(template.signer_rules or [])
             ),
         )
+
+
+def resolved_document_requirements(
+    product_definition: OriginationProductDefinition,
+) -> list[dict[str, Any]]:
+    """Return document-owned evidence requirements for a new application snapshot."""
+    from core.services.origination_templates import resolve_assignment_template
+
+    templates = list(product_definition.document_templates.filter(
+        status=OriginationDocumentTemplate.STATUS_ACTIVE,
+    ))
+    for assignment in product_definition.document_assignments.select_related(
+        'template', 'template__published_configuration_revision',
+    ):
+        resolved = resolve_assignment_template(assignment)
+        if resolved:
+            templates.append(resolved)
+    requirements: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for template in templates:
+        for item in (template.form_schema or {}).get('evidence_requirements', []) or []:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get('key') or '').strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            requirements.append(deepcopy(item))
+    return requirements
 
 
 def refresh_document_applicability(application: LoanOriginationApplication) -> None:
