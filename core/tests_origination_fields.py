@@ -27,6 +27,7 @@ from core.services.origination_fields import (
     OriginationFieldConflict,
     OriginationFieldError,
     attach_data_field,
+    attach_data_field_to_template,
     bind_compatible_schema_fields,
     catalogue_for_product,
     correct_draft_data_field_type,
@@ -517,3 +518,97 @@ class OriginationDataFieldCatalogueTests(TestCase):
         self.client.force_login(staff)
         forbidden = self.client.post(url, body, content_type='application/json')
         self.assertEqual(forbidden.status_code, 403)
+
+    def test_mapper_can_attach_a_product_field_to_a_reusable_primary_laf(self):
+        field, _ = create_data_field(
+            payload={
+                'label': 'Generic LAF extra field',
+                'key': 'generic_laf_extra_field_test',
+                'type': 'text',
+                'sensitivity': 'internal',
+            },
+            actor=self.superuser,
+        )
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=None,
+            document_key='primary',
+            document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
+            document_type='generic_laf_field_test',
+            name='Reusable Generic LAF',
+            version=1,
+            status=OriginationDocumentTemplate.STATUS_READY,
+            source_filename='generic.pdf',
+            source_sha256='d' * 64,
+            source_byte_size=100,
+            page_count=2,
+            placement_config={},
+            form_schema={
+                '_revision': 0,
+                'sections': [{'key': 'applicant', 'label': 'Applicant'}],
+                'fields': [],
+            },
+            created_by=self.superuser,
+        )
+        self.client.force_login(self.superuser)
+
+        response = self.client.post(
+            reverse(
+                'admin:core_originationdocumenttemplate_calibration_field',
+                args=[template.pk],
+            ),
+            {
+                'schema_revision': 0,
+                'data_field_id': str(field.pk),
+                'presentation': {
+                    'section_key': 'applicant',
+                    'label': 'Extra product field',
+                    'required': False,
+                    'width': 'half',
+                },
+            },
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        template.refresh_from_db()
+        self.assertEqual(template.form_schema['_revision'], 1)
+        self.assertEqual(template.form_schema['fields'][0]['key'], field.key)
+        self.assertTrue(response.json()['field']['attached'])
+
+    def test_template_schema_service_still_rejects_a_product_owned_primary_laf(self):
+        field, _ = create_data_field(
+            payload={
+                'label': 'Product-owned primary field',
+                'key': 'product_owned_primary_field_test',
+                'type': 'text',
+            },
+            actor=self.superuser,
+        )
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=self.product,
+            document_key='primary',
+            document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
+            document_type=self.product.document_type,
+            name='Product-owned LAF',
+            version=1,
+            status=OriginationDocumentTemplate.STATUS_READY,
+            source_filename='owned.pdf',
+            source_sha256='e' * 64,
+            source_byte_size=100,
+            page_count=1,
+            placement_config={},
+            form_schema=self.product.form_schema,
+            created_by=self.superuser,
+        )
+
+        with self.assertRaisesMessage(
+            OriginationFieldError,
+            'must be added to the draft product form',
+        ):
+            attach_data_field_to_template(
+                template=template,
+                data_field=field,
+                presentation={'section_key': 'applicant'},
+                actor=self.superuser,
+                expected_schema_revision=0,
+            )

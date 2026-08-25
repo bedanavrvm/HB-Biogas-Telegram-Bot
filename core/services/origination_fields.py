@@ -414,6 +414,14 @@ def template_schema_revision(template: OriginationDocumentTemplate) -> int:
         return 0
 
 
+def template_owns_form_schema(template: OriginationDocumentTemplate) -> bool:
+    """Return whether fields belong to this PDF instead of a product form."""
+    return (
+        template.document_role == template.ROLE_SUPPORTING
+        or template.product_definition_id is None
+    )
+
+
 def catalogue_for_product(product: OriginationProductDefinition | None) -> list[dict[str, Any]]:
     schema_fields = (product.form_schema or {}).get('fields', []) if product else []
     attached_keys = {
@@ -652,12 +660,20 @@ def attach_data_field_to_template(
     *, template: OriginationDocumentTemplate, data_field: OriginationDataField,
     presentation: dict[str, Any], actor, expected_schema_revision: int,
 ) -> tuple[OriginationDocumentTemplate, bool]:
-    """Attach a canonical field to a supporting template without polluting the main LAF."""
+    """Attach a canonical field to a template-owned document contract.
+
+    Supporting documents always own their document schema. A global reusable
+    primary LAF owns its schema too because it has no product definition; that
+    contract is merged into each draft product when the LAF is assigned. A
+    product-owned primary must continue using the product's form schema.
+    """
     if not getattr(actor, 'is_superuser', False):
-        raise OriginationFieldError('Only a Django Superuser may change a supporting-document schema.')
+        raise OriginationFieldError('Only a Django Superuser may change a document schema.')
     template = OriginationDocumentTemplate.objects.select_for_update().get(pk=template.pk)
-    if template.document_role != template.ROLE_SUPPORTING:
-        raise OriginationFieldError('Only supporting documents use a document-specific schema.')
+    if not template_owns_form_schema(template):
+        raise OriginationFieldError(
+            'Product-owned primary LAF fields must be added to the draft product form.',
+        )
     if template.status not in {template.STATUS_READY, template.STATUS_UPLOAD_FAILED}:
         raise OriginationFieldError('Create a new template revision before changing a published schema.')
     if template.product_definition_id and template.product_definition.lifecycle_status != OriginationProductDefinition.STATUS_DRAFT:
@@ -671,7 +687,7 @@ def attach_data_field_to_template(
         return template, True
     actual_revision = template_schema_revision(template)
     if int(expected_schema_revision) != actual_revision:
-        raise OriginationFieldConflict('This supporting-document schema changed. Reload before adding the field.')
+        raise OriginationFieldConflict('This document schema changed. Reload before adding the field.')
     sections = [item for item in (schema.get('sections') or []) if isinstance(item, dict)]
     if not sections:
         sections = [{'key': 'document', 'label': template.name, 'help_text': ''}]

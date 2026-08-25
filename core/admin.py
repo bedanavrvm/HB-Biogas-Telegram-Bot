@@ -7903,11 +7903,13 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             document_type=obj.document_type, is_active=True,
         ).order_by('-version').first()
         from core.services.origination_fields import (
-            catalogue_for_product, product_schema_revision, template_schema_revision,
+            catalogue_for_product, product_schema_revision, template_owns_form_schema,
+            template_schema_revision,
         )
+        owns_schema = template_owns_form_schema(obj)
         fields = (
             obj.form_schema
-            if obj.form_schema and (obj.document_role == obj.ROLE_SUPPORTING or obj.product_definition_id is None)
+            if obj.form_schema and owns_schema
             else product.form_schema if product else {}
         )
         presentations = {
@@ -7918,7 +7920,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         context_keys = catalogue_for_product(product)
         for item in context_keys:
             presentation = presentations.get(str(item.get('key') or ''), {})
-            if obj.document_role == obj.ROLE_SUPPORTING or obj.product_definition_id is None:
+            if owns_schema:
                 item['attached'] = bool(presentation)
             item['required'] = bool(presentation.get('required', False))
             item['section_key'] = str(presentation.get('section_key') or '')
@@ -7931,7 +7933,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             'configuration': config,
             'page_sizes': page_sizes,
             'context_keys': context_keys,
-            'schema_revision': template_schema_revision(obj) if obj.product_definition_id is None or obj.document_role == obj.ROLE_SUPPORTING else product_schema_revision(product) if product else 0,
+            'schema_revision': template_schema_revision(obj) if owns_schema else product_schema_revision(product) if product else 0,
             'form_sections': list(fields.get('sections') or []),
             'signature_slots': list(_expected_signature_slots(product, obj).values()),
         })
@@ -8009,7 +8011,8 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         try:
             from core.services.origination_fields import (
                 attach_data_field, attach_data_field_to_template, catalogue_for_product,
-                create_data_field, product_schema_revision, template_schema_revision,
+                create_data_field, product_schema_revision, template_owns_form_schema,
+                template_schema_revision,
             )
             body = self._json_body(request)
             with transaction.atomic():
@@ -8024,7 +8027,8 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                     ).first()
                     if not data_field:
                         raise ValidationError('Choose an active canonical data field.')
-                if obj.document_role == obj.ROLE_SUPPORTING or obj.product_definition_id is None:
+                owns_schema = template_owns_form_schema(obj)
+                if owns_schema:
                     obj, replayed = attach_data_field_to_template(
                         template=obj, data_field=data_field,
                         presentation=body.get('presentation') or {}, actor=request.user,
@@ -8044,12 +8048,12 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         context_keys = catalogue_for_product(product)
         presentations = {
             str(item.get('key') or ''): item
-            for item in (((obj.form_schema if obj.document_role == obj.ROLE_SUPPORTING or obj.product_definition_id is None else product.form_schema) or {}).get('fields') or [])
+            for item in (((obj.form_schema if owns_schema else product.form_schema) or {}).get('fields') or [])
             if isinstance(item, dict) and item.get('key')
         }
         for item in context_keys:
             presentation = presentations.get(str(item.get('key') or ''), {})
-            if obj.document_role == obj.ROLE_SUPPORTING or obj.product_definition_id is None:
+            if owns_schema:
                 item['attached'] = bool(presentation)
             item['required'] = bool(presentation.get('required', False))
             item['section_key'] = str(presentation.get('section_key') or '')
@@ -8058,8 +8062,8 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                 item for item in context_keys if item['key'] == data_field.key
             ),
             'context_keys': context_keys,
-            'schema_revision': template_schema_revision(obj) if obj.document_role == obj.ROLE_SUPPORTING or obj.product_definition_id is None else product_schema_revision(product),
-            'form_sections': list(((obj.form_schema if obj.document_role == obj.ROLE_SUPPORTING or obj.product_definition_id is None else product.form_schema) or {}).get('sections') or []),
+            'schema_revision': template_schema_revision(obj) if owns_schema else product_schema_revision(product),
+            'form_sections': list(((obj.form_schema if owns_schema else product.form_schema) or {}).get('sections') or []),
             'replayed': replayed,
         })
 
