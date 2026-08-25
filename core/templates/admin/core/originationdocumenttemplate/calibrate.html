@@ -1,6 +1,6 @@
 {% extends "admin/base_site.html" %}
 {% load static %}
-{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_calibration.css' %}?v=15">{% endblock %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_calibration.css' %}?v=16">{% endblock %}
 {% block breadcrumbs %}{% endblock %}
 {% block content_title %}{% endblock %}
 {% block content_subtitle %}{% endblock %}
@@ -45,8 +45,9 @@
           <button type="button" class="cal-button cal-button-primary" id="global-apply">Apply to all text fields</button>
         </div>
       </details>
-      <section id="calibration-inspector" hidden>
-        <h2 id="calibration-inspector-title">Selected field</h2>
+      <details id="calibration-inspector" class="calibration-inspector" hidden open>
+        <summary><span id="calibration-inspector-title">Selected field</span></summary>
+        <div class="calibration-inspector-body">
         <div id="calibration-field-controls">
           <label>Data field<select id="cal-context"></select></label>
           <label>Font<select id="cal-font"><option value="Helvetica">Helvetica</option><option value="Helvetica-Bold">Helvetica Bold</option><option value="Times-Roman">Times</option><option value="Times-Bold">Times Bold</option><option value="Courier">Courier</option><option value="Courier-Bold">Courier Bold</option></select></label>
@@ -84,7 +85,8 @@
           <label>Vertical alignment<select id="cal-vertical"><option value="bottom">Above line</option><option value="center">Middle</option><option value="top">Top</option></select></label>
           <label>Overflow<select id="cal-fit"><option value="shrink">Shrink to fit</option><option value="truncate">Truncate</option><option value="overflow">Allow overflow</option></select></label>
         </div>
-      </section>
+        </div>
+      </details>
     </aside>
     <main class="calibration-main">
       <div class="calibration-toolbar" id="calibration-toolbar" aria-labelledby="calibration-view-title">
@@ -127,5 +129,5 @@
     </form>
   </dialog>
 </div>
-<script src="{% static 'admin/origination_calibration.js' %}?v=15"></script>
+<script src="{% static 'admin/origination_calibration.js' %}?v=16"></script>
 {% endblock %}

@@ -83,6 +83,7 @@ body #content, body #content-main { max-width: none !important; }
   border-right: 1px solid var(--cal-border);
   background: #f8fafc !important;
 }
+.calibration-sidebar > * { flex: 0 0 auto; }
 .calibration-sidebar label { display: grid; gap: 2px; margin: 0; color: #334155; font-size: 11px; font-weight: 650; }
 .calibration-sidebar input, .calibration-sidebar select {
   width: 100%;
@@ -108,13 +109,13 @@ body #content, body #content-main { max-width: none !important; }
 .calibration-readiness-title { font-size: 12px; font-weight: 750; }
 .calibration-readiness strong, .calibration-readiness p, .calibration-readiness li { font-size: 10px; }
 .calibration-readiness ul { display: grid; gap: 2px; margin: 0; padding-left: 17px; }
-.calibration-field-browser { min-height: 0; border: 1px solid var(--cal-border); border-radius: 8px; background: var(--cal-sheet-surface); }
+.calibration-field-browser { min-height: 0; overflow: hidden; border: 1px solid var(--cal-border); border-radius: 8px; background: var(--cal-sheet-surface); }
 .calibration-field-browser > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 8px; color: var(--cal-text); font-size: 11px; font-weight: 750; cursor: pointer; }
 .calibration-field-browser > summary strong { color: var(--cal-muted); font-size: 9px; white-space: nowrap; }
-.calibration-readiness > summary, .calibration-field-browser > summary { list-style: none; }
-.calibration-readiness > summary::-webkit-details-marker, .calibration-field-browser > summary::-webkit-details-marker { display: none; }
-.calibration-readiness > summary::after, .calibration-field-browser > summary::after { content: ''; flex: 0 0 6px; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); transition: transform .15s ease; }
-.calibration-readiness[open] > summary::after, .calibration-field-browser[open] > summary::after { transform: rotate(225deg); }
+.calibration-readiness > summary, .calibration-field-browser > summary, .global-formatting > summary, .calibration-inspector > summary { list-style: none; }
+.calibration-readiness > summary::-webkit-details-marker, .calibration-field-browser > summary::-webkit-details-marker, .global-formatting > summary::-webkit-details-marker, .calibration-inspector > summary::-webkit-details-marker { display: none; }
+.calibration-readiness > summary::after, .calibration-field-browser > summary::after, .global-formatting > summary::after, .calibration-inspector > summary::after { content: ''; flex: 0 0 6px; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); transition: transform .15s ease; }
+.calibration-readiness[open] > summary::after, .calibration-field-browser[open] > summary::after, .global-formatting[open] > summary::after, .calibration-inspector[open] > summary::after { transform: rotate(225deg); }
 .calibration-field-browser-body { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 6px; height: clamp(220px, 36vh, 420px); min-height: 0; padding: 0 7px 7px; }
 .calibration-navigator { display: grid; align-content: start; gap: 7px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .calibration-nav-group { display: grid; gap: 4px; }
@@ -132,12 +133,12 @@ body #content, body #content-main { max-width: none !important; }
 .calibration-nav-row.is-selected button { border-color: #0f766e; background: #f0fdfa; box-shadow: inset 3px 0 #0f766e; }
 .calibration-nav-row.is-unplaced button { border-style: dashed; }
 .calibration-nav-empty { margin: 0; padding: 8px; color: var(--cal-muted); font-size: 10px; text-align: center; }
-.global-formatting { border: 1px solid #cbd5e1; border-radius: 7px; background: #fff; }
-.global-formatting summary { padding: 7px 8px; color: #172033; font-size: 12px; font-weight: 750; cursor: pointer; }
-.global-formatting-body { display: grid; gap: 6px; padding: 0 8px 8px; }
+.global-formatting, .calibration-inspector { overflow: hidden; border: 1px solid #cbd5e1; border-radius: 7px; background: #fff; }
+.global-formatting > summary, .calibration-inspector > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 8px; color: #172033; font-size: 12px; font-weight: 750; cursor: pointer; }
+.global-formatting-body { display: grid; gap: 6px; max-height: min(330px, 44vh); padding: 0 8px 8px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .global-formatting-body .cal-button { width: 100%; }
-#calibration-inspector { display: grid; gap: 6px; }
 #calibration-inspector[hidden] { display: none; }
+.calibration-inspector-body { display: grid; gap: 6px; max-height: min(430px, 54vh); padding: 0 8px 8px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .calibration-slot-appearance { display: grid; gap: 6px; padding: 7px; border: 1px solid #cbd5e1; border-radius: 7px; background: #fff; }
 .calibration-slot-appearance[hidden] { display: none; }
 .calibration-slot-appearance h3 { margin: 0; color: #475569; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
@@ -180,7 +181,7 @@ body #content, body #content-main { max-width: none !important; }
   color: #172033;
   box-shadow: 0 20px 60px rgba(15, 23, 42, .28);
 }
-.calibration-field-browser { display: grid; gap: 5px; }
+.calibration-field-browser { display: block; }
 .calibration-sheet-header, .calibration-mobile-dock, .calibration-mobile-backdrop { display: none; }
 .calibration-field-dialog::backdrop { background: rgba(15, 23, 42, .55); }
 .calibration-field-dialog form { display: grid; gap: 12px; padding: 18px; }
@@ -253,8 +254,9 @@ body #content, body #content-main { max-width: none !important; }
     background-image: none !important;
   }
   .calibration-sidebar.mobile-mode-fields .tool-row { padding: 7px; }
-  .calibration-sidebar.mobile-mode-fields .calibration-field-browser,
-  .calibration-sidebar.mobile-mode-inspector #calibration-inspector { padding: 8px; }
+  .calibration-sidebar.mobile-mode-fields .calibration-field-browser { padding: 8px; }
+  .calibration-sidebar.mobile-mode-inspector #calibration-inspector { padding: 0; }
+  .calibration-sidebar.mobile-mode-inspector .calibration-inspector-body { max-height: min(62dvh, 520px); }
   .calibration-sidebar.mobile-mode-fields .calibration-readiness { padding: 8px; }
   .calibration-sidebar.mobile-mode-global .global-formatting { border: 0; background-color: var(--cal-sheet-surface) !important; }
   .calibration-sidebar.mobile-mode-global .global-formatting > summary { display: none; }
@@ -274,12 +276,12 @@ body #content, body #content-main { max-width: none !important; }
 }
 
 .dark #calibration-app { --cal-border: #475569; --cal-surface: #0f172a; --cal-muted: #94a3b8; --cal-control: #1e293b; --cal-text: #f1f5f9; --cal-sheet-surface: #0f172a; --cal-sheet-sub-surface: #1e293b; --cal-sheet-border: #475569; background: #0f172a; }
-.dark .calibration-topbar, .dark .calibration-sidebar, .dark .global-formatting, .dark .global-formatting-body, .dark .calibration-field-dialog { background-color: #0f172a !important; background-image: none !important; color: var(--cal-text); }
+.dark .calibration-topbar, .dark .calibration-sidebar, .dark .global-formatting, .dark .global-formatting-body, .dark .calibration-inspector, .dark .calibration-inspector-body, .dark .calibration-field-dialog { background-color: #0f172a !important; background-image: none !important; color: var(--cal-text); }
 .dark .calibration-field-dialog section { background-color: #1e293b !important; background-image: none !important; color: var(--cal-text); }
 .dark .calibration-heading > a, .dark .cal-button, .dark .calibration-sidebar input, .dark .calibration-sidebar select, .dark .calibration-field-dialog input:not([type="checkbox"]), .dark .calibration-field-dialog select, .dark .calibration-field-dialog textarea { border-color: #475569 !important; background: #1e293b !important; color: #f1f5f9 !important; -webkit-text-fill-color: #f1f5f9 !important; color-scheme: dark !important; }
 .dark .calibration-sidebar select option { background: #1e293b !important; color: #f1f5f9 !important; }
 .dark .calibration-topbar h1, .dark .calibration-sidebar h2, .dark .calibration-toolbar strong, .dark .calibration-toolbar span, .dark .calibration-field-dialog label { color: var(--cal-text) !important; }
-.dark .calibration-sidebar label, .dark .global-formatting summary, .dark .global-formatting-body p { color: #cbd5e1 !important; }
+.dark .calibration-sidebar label, .dark .global-formatting summary, .dark .calibration-inspector > summary, .dark .global-formatting-body p { color: #cbd5e1 !important; }
 .dark .calibration-readiness { border-color: #b45309; background: #422006; color: #fde68a; }
 .dark .calibration-readiness.is-ready { border-color: #0f766e; background: #042f2e; color: #99f6e4; }
 .dark .calibration-nav-group h3 span, .dark .calibration-nav-meta em, .dark .calibration-mobile-dock button b { background: #334155; color: #cbd5e1; }

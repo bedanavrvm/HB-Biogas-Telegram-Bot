@@ -690,6 +690,7 @@
           ? 'Global formatting'
           : selectedKind === 'signature' ? 'Selected signer slot' : 'Selected field';
       if (mode === 'global') document.querySelector('.global-formatting').open = true;
+      if (mode === 'inspector') $('calibration-inspector').open = true;
     } else toolbar.classList.add('mobile-open');
     target.setAttribute('role', 'dialog'); target.setAttribute('aria-modal', 'true'); target.setAttribute('aria-hidden', 'false');
     $('calibration-mobile-backdrop').hidden = false;
