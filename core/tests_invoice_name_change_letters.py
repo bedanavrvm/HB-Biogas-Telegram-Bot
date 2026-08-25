@@ -13,7 +13,7 @@ from core.models import (
     JawabuFarmerMaster, ParsedInvoice,
 )
 from core.services.invoice_identity import (
-    create_name_change, decide_identity_review, ensure_identity_review,
+    assemble_name_change_batch, create_name_change, decide_identity_review, ensure_identity_review,
     mark_name_change_sent,
 )
 
@@ -142,6 +142,9 @@ class InvoiceNameChangeArtifactTests(TestCase):
             related_phone='0700000000', attestation_note='Verified household relationship.',
             evidence_reference='approved-evidence-reference', client_request_id='batch-request-1',
         )
+        self.item.batch = assemble_name_change_batch(
+            [self.item], actor='Operations', client_request_id='letter-batch-request-1',
+        )[0]
         self.template = InvoiceNameChangeLetterTemplate.objects.create(
             name='Approved letter', file='invoice_name_change_templates/letter.docx', is_active=True,
         )

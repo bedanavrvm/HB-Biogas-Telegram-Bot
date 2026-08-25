@@ -254,13 +254,24 @@ class MiniAppFrontendSmokeTests(TestCase):
 
     def test_invoice_name_change_uses_governed_mobile_sheet_and_generated_letter(self):
         source = Path('core/static/miniapp/portal_invoices.js').read_text(encoding='utf-8')
+        template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')
+        css = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
 
         self.assertIn('openInvoiceWorkflowSheet', source)
         self.assertIn("'/invoice-name-changes/'", source)
+        self.assertIn('createNameChangeBatch', source)
+        self.assertIn('openReplacementSelector', source)
+        self.assertIn("scope', state.candidateScope", source)
+        self.assertIn('Strong suggestion', source)
         self.assertIn("'/generate/'", source)
         self.assertIn('artifact_id: letter.id', source)
         self.assertNotIn('Existing draft letter batch ID', source)
         self.assertNotIn('Approved Drive reference for the sent letter', source)
+        self.assertNotIn('window.prompt', source)
+        self.assertNotIn('window.confirm', source)
+        self.assertIn('Invoice name changes', template)
+        self.assertIn('invoice-name-change-tabs', css)
+        self.assertIn('@media (min-width: 760px)', css)
 
     def test_portal_sheets_do_not_reexpand_during_external_media_activity_return(self):
         navigation_source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')

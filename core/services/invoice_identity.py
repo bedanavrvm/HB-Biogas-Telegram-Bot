@@ -118,8 +118,10 @@ def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
     latest = reviews.first()
     open_change = invoice.name_change_requests.filter(
         status__in=['draft', 'awaiting_replacement'],
-    ).select_related('batch').first()
-    if open_change:
+    ).select_related('batch', 'review').first()
+    if open_change and open_change.review.status == InvoiceIdentityReview.STATUS_PENDING:
+        blocker = 'invoice_identity_verification_pending'
+    elif open_change:
         blocker = 'invoice_name_change_pending'
     elif not codes:
         blocker = ''
@@ -127,6 +129,8 @@ def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
         blocker = ''
     elif latest and latest.status == InvoiceIdentityReview.STATUS_DIFFERENT_PERSON:
         blocker = 'invoice_name_change_required'
+    elif latest and latest.status == InvoiceIdentityReview.STATUS_FLAGGED:
+        blocker = 'invoice_identity_flagged'
     else:
         blocker = 'invoice_identity_verification_pending'
     return {
@@ -147,7 +151,10 @@ def serialize_review(review: InvoiceIdentityReview | None) -> dict | None:
         'id': str(review.id),
         'status': review.status,
         'discrepancy_codes': review.discrepancy_codes or [],
-        'decision_note': review.decision_note,
+        # Specialist escalation notes are intentionally not part of the
+        # general invoice projection. The authorized detail endpoint adds
+        # them back for invoice-identity managers only.
+        'decision_note': '' if review.status == InvoiceIdentityReview.STATUS_FLAGGED else review.decision_note,
         'decided_by': review.decided_by,
         'decided_at': review.decided_at.isoformat() if review.decided_at else None,
         'created_at': review.created_at.isoformat() if review.created_at else None,
@@ -158,16 +165,18 @@ def serialize_name_change_item(item: InvoiceNameChangeItem | None) -> dict | Non
     if not item:
         return None
     batch = item.batch
-    latest = batch.letter_artifacts.order_by('-version').first()
+    latest = batch.letter_artifacts.order_by('-version').first() if batch else None
     from core.services.invoice_name_change_letters import letter_batch_readiness, serialize_artifact
-    readiness = letter_batch_readiness(batch) if batch.status == 'draft' else {
-        'ready': False, 'blockers': [], 'row_count': batch.items.count(),
+    readiness = letter_batch_readiness(batch) if batch and batch.status == 'draft' else {
+        'ready': False, 'blockers': [], 'row_count': batch.items.count() if batch else 0,
     }
+    now = timezone.now()
+    age_days = max(0, (now.date() - item.updated_at.date()).days) if item.updated_at else 0
     return {
         'id': str(item.id),
-        'batch_id': str(item.batch_id),
-        'batch_reference': batch.reference,
-        'batch_status': batch.status,
+        'batch_id': str(item.batch_id or ''),
+        'batch_reference': batch.reference if batch else '',
+        'batch_status': batch.status if batch else '',
         'batch_row_count': readiness['row_count'],
         'letter_readiness': {
             'ready': readiness['ready'], 'blockers': readiness['blockers'],
@@ -175,6 +184,18 @@ def serialize_name_change_item(item: InvoiceNameChangeItem | None) -> dict | Non
         'latest_letter': serialize_artifact(latest),
         'status': item.status,
         'replacement_invoice_id': str(item.replacement_invoice_id or ''),
+        'original_invoice_id': str(item.original_invoice_id),
+        'original_invoice_no': item.original_invoice.invoice_no,
+        'farmer_id': str(item.farmer_id),
+        'applicant_name': str(item.requested_identity.get('name') or item.farmer.customer_name or ''),
+        'invoice_holder_name': str(item.original_identity.get('name') or ''),
+        'age_days': age_days,
+        'closed_reason': item.closed_reason,
+        'hb_communication_reference': item.hb_communication_reference,
+        'follow_up_of': str(item.follow_up_of_id or ''),
+        'revision': item.revision,
+        'created_at': item.created_at.isoformat() if item.created_at else None,
+        'updated_at': item.updated_at.isoformat() if item.updated_at else None,
     }
 
 
@@ -189,6 +210,7 @@ def decide_identity_review(review: InvoiceIdentityReview, *, outcome: str, actor
         InvoiceIdentityReview.STATUS_SAME_PERSON,
         InvoiceIdentityReview.STATUS_DIFFERENT_PERSON,
         InvoiceIdentityReview.STATUS_INSUFFICIENT,
+        InvoiceIdentityReview.STATUS_FLAGGED,
         InvoiceIdentityReview.STATUS_CANCELLED,
     }:
         raise ValueError('Unsupported identity review outcome.')
@@ -242,6 +264,13 @@ def create_name_change(
         raise ValueError('Confirm the invoice belongs to a different person before starting this workflow.')
     if hasattr(review, 'name_change_item'):
         return review.name_change_item
+    request_id = str(client_request_id or '').strip()
+    if request_id:
+        prior = InvoiceNameChangeItem.objects.filter(client_request_id=request_id).first()
+        if prior:
+            if prior.review_id != review.id:
+                raise ValueError('That retry key belongs to another invoice-name-change request.')
+            return prior
     related_name = str(related_name or '').strip()
     attestation_note = str(attestation_note or '').strip()
     evidence_reference = str(evidence_reference or '').strip()
@@ -273,22 +302,6 @@ def create_name_change(
         batch = InvoiceNameChangeBatch.objects.select_for_update().get(pk=batch.pk)
         if batch.status != 'draft':
             raise ValueError('Cases can only be added to a draft change letter.')
-    else:
-        request_id = str(client_request_id or '').strip()
-        if request_id:
-            prior_batch = InvoiceNameChangeBatch.objects.filter(client_request_id=request_id).first()
-            if prior_batch:
-                prior_item = prior_batch.items.filter(review=review).first()
-                if prior_item:
-                    return prior_item
-                raise ValueError('That retry key belongs to another change letter.')
-        batch_id = uuid.uuid4()
-        batch = InvoiceNameChangeBatch.objects.create(
-            id=batch_id,
-            reference=f'COIN-{timezone.localdate():%Y%m%d}-{str(batch_id)[:8].upper()}',
-            created_by=actor,
-            client_request_id=request_id,
-        )
     item = InvoiceNameChangeItem.objects.create(
         batch=batch,
         review=review,
@@ -297,15 +310,193 @@ def create_name_change(
         original_invoice=review.invoice,
         original_identity=review.invoice_identity,
         requested_identity=review.applicant_identity,
+        client_request_id=request_id,
     )
     _record_case_event(
         review.farmer,
         action='invoice_name_change_started',
         actor=actor,
         request_id=f'invoice-name-change:{item.id}',
-        metadata={'invoice_id': str(review.invoice_id), 'item_id': str(item.id), 'batch_id': str(batch.id)},
+        metadata={
+            'invoice_id': str(review.invoice_id), 'item_id': str(item.id),
+            'batch_id': str(batch.id) if batch else '',
+        },
     )
     return item
+
+
+@transaction.atomic
+def assemble_name_change_batch(
+    items: list[InvoiceNameChangeItem], *, actor: str, client_request_id: str = '',
+) -> tuple[InvoiceNameChangeBatch, list[dict]]:
+    """Atomically place currently-ready requests into one governed letter batch."""
+    request_id = str(client_request_id or '').strip()
+    if request_id:
+        prior = InvoiceNameChangeBatch.objects.filter(client_request_id=request_id).first()
+        if prior:
+            return prior, []
+    item_ids = sorted({str(item.pk) for item in items if item and item.pk})
+    locked = list(
+        InvoiceNameChangeItem.objects.select_for_update().select_related('batch', 'farmer', 'review')
+        .filter(pk__in=item_ids).order_by('created_at')
+    )
+    conflicts = []
+    ready = []
+    for item in locked:
+        if item.status != 'draft' or item.batch_id or item.review.status != InvoiceIdentityReview.STATUS_DIFFERENT_PERSON:
+            conflicts.append({
+                'item_id': str(item.id),
+                'applicant_name': item.requested_identity.get('name') or item.farmer.customer_name,
+                'reason': (
+                    'already_batched' if item.batch_id
+                    else 'identity_reverification_required'
+                    if item.review.status != InvoiceIdentityReview.STATUS_DIFFERENT_PERSON
+                    else f'not_ready:{item.status}'
+                ),
+                'batch_id': str(item.batch_id or ''),
+                'batch_reference': item.batch.reference if item.batch_id else '',
+            })
+        else:
+            ready.append(item)
+    if conflicts:
+        raise NameChangeBatchConflict(conflicts)
+    if len(ready) != len(item_ids) or not ready:
+        raise ValueError('Select at least one ready invoice-name-change request.')
+    batch_id = uuid.uuid4()
+    batch = InvoiceNameChangeBatch.objects.create(
+        id=batch_id,
+        reference=f'COIN-{timezone.localdate():%Y%m%d}-{str(batch_id)[:8].upper()}',
+        created_by=actor,
+        client_request_id=request_id,
+    )
+    for item in ready:
+        item.batch = batch
+        item.revision += 1
+        item.save(update_fields=['batch', 'revision', 'updated_at'])
+        _record_case_event(
+            item.farmer, action='invoice_name_change_batched', actor=actor,
+            request_id=f'invoice-name-change-batched:{batch.id}:{item.id}',
+            metadata={'item_id': str(item.id), 'batch_id': str(batch.id)},
+        )
+    return batch, []
+
+
+class NameChangeBatchConflict(ValueError):
+    def __init__(self, conflicts: list[dict]):
+        super().__init__('One or more selected requests changed before the batch was created.')
+        self.conflicts = conflicts
+
+
+def _refresh_batch_terminal_status(batch: InvoiceNameChangeBatch | None) -> None:
+    if not batch:
+        return
+    statuses = set(batch.items.values_list('status', flat=True))
+    if not statuses and batch.status == 'draft':
+        target = 'cancelled'
+    elif statuses and statuses <= {'cancelled'}:
+        target = 'cancelled'
+    elif statuses and statuses <= {'withdrawn'}:
+        target = 'withdrawn'
+    elif statuses and statuses <= {'completed', 'cancelled', 'withdrawn'}:
+        target = 'completed'
+    else:
+        return
+    if batch.status != target:
+        batch.status = target
+        batch.revision += 1
+        batch.save(update_fields=['status', 'revision', 'updated_at'])
+
+
+@transaction.atomic
+def close_name_change(
+    item: InvoiceNameChangeItem, *, actor: str, reason: str,
+    hb_communication_reference: str = '', withdraw: bool = False,
+) -> InvoiceNameChangeItem:
+    item = InvoiceNameChangeItem.objects.select_for_update().select_related('batch', 'farmer').get(pk=item.pk)
+    reason = str(reason or '').strip()
+    communication = str(hb_communication_reference or '').strip()
+    if not reason:
+        raise ValueError('A reason is required.')
+    prior_batch = item.batch
+    if withdraw:
+        if not item.batch_id or item.batch.status not in {'sent_to_hb', 'awaiting_replacements'}:
+            raise ValueError('Only a request whose letter was sent to HB can be withdrawn.')
+        if not communication:
+            raise ValueError('The HB communication reference is required for withdrawal.')
+        target = 'withdrawn'
+        action = 'invoice_name_change_withdrawn'
+    else:
+        if item.status != 'draft' or (item.batch_id and item.batch.status != 'draft'):
+            raise ValueError('Only an unsent request can be cancelled.')
+        target = 'cancelled'
+        action = 'invoice_name_change_cancelled'
+    if item.status == target:
+        return item
+    item.status = target
+    item.closed_reason = reason
+    item.hb_communication_reference = communication
+    item.closed_by = str(actor or '').strip()
+    item.closed_at = timezone.now()
+    if not withdraw:
+        # An unsent draft is a mutable assembly. Removing the cancelled item
+        # keeps the remaining batch usable; any generated artifact becomes
+        # non-current through its source fingerprint and remains auditable.
+        item.batch = None
+    item.revision += 1
+    item.save(update_fields=[
+        'status', 'closed_reason', 'hb_communication_reference', 'closed_by',
+        'closed_at', 'batch', 'revision', 'updated_at',
+    ])
+    _record_case_event(
+        item.farmer, action=action, actor=actor,
+        request_id=f'{action}:{item.id}:{item.revision}',
+        metadata={'item_id': str(item.id), 'reason': reason, 'hb_reference': communication},
+    )
+    _refresh_batch_terminal_status(prior_batch)
+    return item
+
+
+@transaction.atomic
+def create_name_change_follow_up(
+    item: InvoiceNameChangeItem, *, actor: str, client_request_id: str = '',
+) -> InvoiceNameChangeItem:
+    item = InvoiceNameChangeItem.objects.select_for_update().select_related(
+        'review', 'review__invoice', 'farmer', 'relationship',
+    ).get(pk=item.pk)
+    if item.status not in {'cancelled', 'withdrawn'}:
+        raise ValueError('Only a cancelled or withdrawn request can start a follow-up.')
+    request_id = str(client_request_id or '').strip()
+    if request_id:
+        prior = InvoiceNameChangeItem.objects.filter(client_request_id=request_id).first()
+        if prior:
+            return prior
+    review = InvoiceIdentityReview.objects.create(
+        invoice=item.review.invoice,
+        farmer=item.farmer,
+        status=InvoiceIdentityReview.STATUS_PENDING,
+        discrepancy_codes=item.review.discrepancy_codes,
+        invoice_identity=item.review.invoice_identity,
+        applicant_identity=item.review.applicant_identity,
+        decision_note=f'Follow-up to {item.id}. Identity must be re-verified before batching.',
+        decided_by='',
+        decided_at=None,
+    )
+    follow_up = InvoiceNameChangeItem.objects.create(
+        review=review,
+        farmer=item.farmer,
+        relationship=item.relationship,
+        original_invoice=item.original_invoice,
+        original_identity=item.original_identity,
+        requested_identity=item.requested_identity,
+        follow_up_of=item,
+        client_request_id=request_id,
+    )
+    _record_case_event(
+        item.farmer, action='invoice_name_change_follow_up_started', actor=actor,
+        request_id=f'invoice-name-change-follow-up:{follow_up.id}',
+        metadata={'item_id': str(follow_up.id), 'follow_up_of': str(item.id)},
+    )
+    return follow_up
 
 
 @transaction.atomic
@@ -385,8 +576,8 @@ def confirm_replacement(
         raise ValueError('The original invoice cannot replace itself.')
     if replacement.matched_farmer_id and replacement.matched_farmer_id != farmer.id:
         raise ValueError('The replacement invoice is already matched to another applicant.')
-    if replacement.status not in {'draft', 'unmatched', 'ambiguous'}:
-        raise ValueError('Select an unmatched replacement invoice.')
+    if replacement.status not in {'draft', 'unmatched', 'ambiguous', 'ignored', 'matched'}:
+        raise ValueError('Select an available replacement invoice.')
     expected_id = normalize_national_id(farmer.national_id)
     replacement_id = normalize_national_id(replacement.customer_id)
     if not replacement_id:

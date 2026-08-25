@@ -219,11 +219,37 @@
         <h1>Invoice record</h1>
         <p class="meta">Review the source, reconciliation signals, and invoice activity without keeping the case list open underneath.</p>
       </div>
-      <a class="btn btn-secondary" href="{% url 'portal_invoices_screen' %}" hx-get="{% url 'portal_invoices_screen' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Back to invoices</a>
+      <a class="btn btn-secondary" id="invoice-detail-route-back" href="{% url 'portal_invoices_screen' %}" hx-get="{% url 'portal_invoices_screen' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Back to invoices</a>
     </header>
     <div id="invoice-detail-page" class="invoice-detail-page">
       <div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading invoice detail...</div></div>
     </div>
+    {% elif invoice_view == 'name_changes' %}
+    <header class="invoice-page-header">
+      <div>
+        <p class="eyebrow">GOVERNED CORRECTIONS</p>
+        <h1>Invoice name changes</h1>
+        <p class="meta">Verify identity, assemble approved requests into letters, and track replacements without internal IDs.</p>
+      </div>
+      <a class="btn btn-secondary" href="{% url 'portal_invoices_screen' %}" hx-get="{% url 'portal_invoices_screen' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Invoice review</a>
+    </header>
+    <nav class="invoice-name-change-tabs" id="invoice-name-change-tabs" aria-label="Name change status">
+      <button type="button" class="active" data-segment="ready">Ready <span data-count="ready">0</span></button>
+      <button type="button" data-segment="draft_letters">Letters <span data-count="draft_letters">0</span></button>
+      <button type="button" data-segment="awaiting_replacement">Awaiting <span data-count="awaiting_replacement">0</span></button>
+      <button type="button" data-segment="completed">Done <span data-count="completed">0</span></button>
+      <button type="button" data-segment="withdrawn">Closed <span data-count="withdrawn">0</span></button>
+    </nav>
+    <div class="invoice-list-toolbar">
+      <label class="invoice-search-control" for="invoice-name-change-search"><span class="sr-only">Search name changes</span><input type="search" id="invoice-name-change-search" placeholder="Applicant, invoice holder, invoice, or letter"></label>
+    </div>
+    <div class="invoice-name-change-selection" id="invoice-name-change-selection" style="display:none;">
+      <strong id="invoice-name-change-selected-count">0 selected</strong>
+      <button type="button" class="btn btn-primary" id="invoice-name-change-create-batch">Create letter batch</button>
+      <button type="button" class="btn btn-secondary" id="invoice-name-change-clear">Clear</button>
+    </div>
+    <div id="invoice-name-change-list" class="farmer-list"><div class="empty-state"><div class="spinner-inline"></div></div></div>
+    <div class="pagination" id="pg-invoice-name-changes"></div>
     {% elif invoice_view == 'upload' %}
     <header class="invoice-page-header">
       <div>
@@ -239,6 +265,10 @@
         <span>Upload invoices without selecting an order</span>
       </div>
       <form id="invoice-pool-upload-form" class="batch-form" style="align-items:end;">
+        <div class="field-group">
+          <label for="invoice-pool-order">Order number <span class="meta">(optional)</span></label>
+          <input type="text" id="invoice-pool-order" name="order_number" autocomplete="off" placeholder="Leave blank for the global pool">
+        </div>
         <div class="field-group">
           <label for="invoice-pool-file">HB invoice PDFs</label>
           <label class="invoice-upload-dropzone" for="invoice-pool-file"><span class="upload-icon">↑</span><strong>Upload invoice PDFs</strong><small>Tap to select one or more PDF files</small></label>
@@ -256,17 +286,17 @@
     {% else %}
     <header class="invoice-page-header">
       <div>
-        <p class="eyebrow">{% if invoice_view == 'matched' %}RECONCILED{% elif invoice_view == 'ignored' %}DISMISSED{% else %}INVOICE INBOX{% endif %}</p>
-        <h1>{% if invoice_view == 'matched' %}Matched invoices{% elif invoice_view == 'ignored' %}Ignored invoices{% else %}Needs review{% endif %}</h1>
-        <p class="meta">{% if invoice_view == 'matched' %}Search reconciled invoices and review the linked customer or payment readiness.{% elif invoice_view == 'ignored' %}Review records intentionally excluded from matching and restore one when needed.{% else %}Unmatched, ambiguous, and draft invoice records that need a reconciliation decision.{% endif %}</p>
+        <p class="eyebrow">INVOICE REVIEW</p>
+        <h1>{% if invoice_view == 'matched' %}Matched invoices{% elif invoice_view == 'ignored' %}Ignored invoices{% elif invoice_view == 'all' %}All invoices{% else %}Needs action{% endif %}</h1>
+        <p class="meta">Review one invoice at a time with identity, duplicate, and match signals visible together.</p>
       </div>
-      <a class="btn btn-primary" data-required-capability="portal.invoice.write" href="{% url 'portal_invoices_upload' %}" hx-get="{% url 'portal_invoices_upload' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Upload invoices</a>
+      <div class="invoice-header-actions"><a class="btn btn-secondary" data-required-capability="portal.invoice_identity.manage" href="{% url 'portal_invoice_name_changes_screen' %}" hx-get="{% url 'portal_invoice_name_changes_screen' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Name changes</a><a class="btn btn-primary" data-required-capability="portal.invoice.write" href="{% url 'portal_invoices_upload' %}" hx-get="{% url 'portal_invoices_upload' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Upload invoices</a></div>
     </header>
-    <nav class="portal-invoice-tabs" aria-label="Invoice workspace">
+    <nav class="portal-invoice-tabs" aria-label="Invoice status">
       <a class="{% if invoice_view != 'matched' and invoice_view != 'ignored' %}active{% endif %}" href="{% url 'portal_invoices_screen' %}" hx-get="{% url 'portal_invoices_screen' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Needs review</a>
       <a class="{% if invoice_view == 'matched' %}active{% endif %}" href="{% url 'portal_invoices_matched' %}" hx-get="{% url 'portal_invoices_matched' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Matched</a>
       <a class="{% if invoice_view == 'ignored' %}active{% endif %}" href="{% url 'portal_invoices_ignored' %}" hx-get="{% url 'portal_invoices_ignored' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Ignored</a>
-      <a href="{% url 'portal_invoices_upload' %}" hx-get="{% url 'portal_invoices_upload' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Upload</a>
+      <a class="{% if invoice_view == 'all' %}active{% endif %}" href="{% url 'portal_invoices_all' %}" hx-get="{% url 'portal_invoices_all' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">All</a>
     </nav>
     <div class="batch-summary-grid" id="invoice-pool-summary"></div>
     <div class="invoice-list-toolbar">

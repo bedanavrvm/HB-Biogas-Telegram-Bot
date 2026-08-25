@@ -3,10 +3,14 @@ from decimal import Decimal
 
 from django.test import TestCase
 
-from core.models import InvoiceUploadBatch, JawabuFarmerMaster, ParsedInvoice
+from core.models import InvoiceIdentityReview, InvoiceUploadBatch, JawabuFarmerMaster, ParsedInvoice
 from core.services.invoice_identity import (
+    NameChangeBatchConflict,
+    assemble_name_change_batch,
+    close_name_change,
     confirm_replacement,
     create_name_change,
+    create_name_change_follow_up,
     decide_identity_review,
     discrepancy_codes,
     ensure_identity_review,
@@ -92,6 +96,9 @@ class InvoiceIdentityWorkflowTests(TestCase):
             evidence_reference='drive-reference-1',
             client_request_id='change-request-1',
         )
+        item.batch = assemble_name_change_batch(
+            [item], actor='Operations', client_request_id='letter-batch-1',
+        )[0]
         self.assertEqual(identity_gate(original, self.farmer)['blocker'], 'invoice_name_change_pending')
         item.batch.legacy_manual_letter_allowed = True
         item.batch.save(update_fields=['legacy_manual_letter_allowed', 'updated_at'])
@@ -125,3 +132,68 @@ class InvoiceIdentityWorkflowTests(TestCase):
         self.farmer.save(update_fields=['invoice_number', 'updated_at'])
         readiness = payment_readiness(self.farmer.order_number)
         self.assertIn('invoice_identity_verification_pending', readiness['blocked'][0]['blocker_codes'])
+
+    def test_flagged_review_stays_blocked_and_hides_specialist_note_from_general_projection(self):
+        original = self.invoice(customer_id='87654321', customer_name='Jane Wanjiku')
+        review = ensure_identity_review(original, self.farmer)
+
+        review = decide_identity_review(
+            review, outcome=InvoiceIdentityReview.STATUS_FLAGGED,
+            actor='Operations', note='Escalated due to conflicting evidence.',
+        )
+
+        gate = identity_gate(original, self.farmer)
+        self.assertEqual(gate['blocker'], 'invoice_identity_flagged')
+        self.assertEqual(gate['review']['decision_note'], '')
+        review.refresh_from_db()
+        self.assertEqual(review.decision_note, 'Escalated due to conflicting evidence.')
+
+    def test_verified_name_change_is_independent_until_selected_for_a_letter(self):
+        original = self.invoice(customer_id='87654321', customer_name='Jane Wanjiku')
+        review = ensure_identity_review(original, self.farmer)
+        decide_identity_review(
+            review, outcome='different_person_confirmed', actor='Operations',
+            note='Confirmed spouse invoice.',
+        )
+        item = create_name_change(
+            review, actor='Operations', relationship_type='spouse',
+            related_name='Jane Wanjiku', related_national_id='87654321',
+            related_phone='0700000000', attestation_note='Relationship verified.',
+            evidence_reference='evidence-1', client_request_id='independent-request-1',
+        )
+
+        self.assertIsNone(item.batch_id)
+        batch, conflicts = assemble_name_change_batch(
+            [item], actor='Operations', client_request_id='assembled-batch-1',
+        )
+        item.refresh_from_db()
+        self.assertEqual(conflicts, [])
+        self.assertEqual(item.batch_id, batch.id)
+        with self.assertRaises(NameChangeBatchConflict):
+            assemble_name_change_batch([item], actor='Operations', client_request_id='assembled-batch-2')
+
+    def test_cancelled_request_can_start_linked_follow_up_that_requires_reverification(self):
+        original = self.invoice(customer_id='87654321', customer_name='Jane Wanjiku')
+        review = ensure_identity_review(original, self.farmer)
+        decide_identity_review(
+            review, outcome='different_person_confirmed', actor='Operations',
+            note='Confirmed spouse invoice.',
+        )
+        item = create_name_change(
+            review, actor='Operations', relationship_type='spouse',
+            related_name='Jane Wanjiku', related_national_id='87654321',
+            related_phone='0700000000', attestation_note='Relationship verified.',
+            evidence_reference='evidence-1', client_request_id='cancel-request-1',
+        )
+        close_name_change(item, actor='Operations', reason='Request was opened in error.')
+
+        follow_up = create_name_change_follow_up(
+            item, actor='Operations', client_request_id='follow-up-request-1',
+        )
+
+        self.assertEqual(follow_up.follow_up_of_id, item.id)
+        self.assertEqual(follow_up.review.status, InvoiceIdentityReview.STATUS_PENDING)
+        with self.assertRaises(NameChangeBatchConflict):
+            assemble_name_change_batch(
+                [follow_up], actor='Operations', client_request_id='follow-up-batch-1',
+            )

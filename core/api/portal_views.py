@@ -1419,7 +1419,7 @@ def portal_invoices_screen(request, invoice_view: str = 'inbox', invoice_id: str
     into an inbox, focused reconciliation lists, an upload page, and a
     dedicated record detail screen.
     """
-    if invoice_view not in {'inbox', 'matched', 'ignored', 'upload', 'detail'}:
+    if invoice_view not in {'inbox', 'matched', 'ignored', 'all', 'upload', 'name_changes', 'detail'}:
         return HttpResponse('Unknown invoice screen.', status=404)
     if invoice_view == 'detail' and not invoice_id:
         return HttpResponse('An invoice identifier is required.', status=404)
@@ -4763,6 +4763,11 @@ def portal_invoice_pool_upload(request):
 
     max_mb = max(1, int(getattr(settings, 'INVOICE_UPLOAD_MAX_FILE_SIZE_MB', 8) or 8))
     max_bytes = max_mb * 1024 * 1024
+    order_number = str(request.POST.get('order_number') or '').strip()
+    if order_number:
+        scope_error = _portal_order_scope_error(request, order_number, capability='portal.invoice.write')
+        if scope_error:
+            return scope_error
     request_id = _portal_request_id(request, request.POST.dict())
     for pdf_index, pdf_file in enumerate(pdf_files, start=1):
         if not str(pdf_file.name or '').lower().endswith('.pdf'):
@@ -4787,6 +4792,7 @@ def portal_invoice_pool_upload(request):
                 filename=filename,
                 content_type=getattr(pdf_file, 'content_type', '') or 'application/pdf',
                 uploaded_by=uploaded_by,
+                order_number=order_number,
                 client_request_id=(f'{request_id}:{pdf_index}' if request_id else ''),
             )
             batches.append(batch)
@@ -4817,6 +4823,7 @@ def portal_invoice_pool_upload(request):
         'invoice_batch_ids': [str(batch.id) for batch in batches],
         'drive_url': first_batch.drive_url,
         'status': 'partial' if failures else 'parsed',
+        'order_number': order_number,
         'total_uploaded': len(batches),
         'total_failed': len(failures),
         'total_pages': total_pages,
@@ -5077,7 +5084,11 @@ def portal_invoice_pool(request):
         # reconciliation decision.  Batch-level parse failures remain visible
         # through the returned upload history and summary rather than being
         # fabricated as invoice records.
-        invoices = invoices.filter(status__in=['draft', 'unmatched', 'ambiguous'])
+        invoices = invoices.filter(
+            Q(status__in=['draft', 'unmatched', 'ambiguous'])
+            | Q(identity_reviews__status__in=['pending', 'flagged_for_review'])
+            | Q(name_change_requests__status__in=['draft', 'awaiting_replacement'])
+        ).distinct()
     elif workspace in {'matched', 'ignored'}:
         invoices = invoices.filter(status=workspace)
     elif status:
@@ -5163,6 +5174,15 @@ def portal_invoice_pool(request):
         'matched_count': scoped_invoices.filter(status='matched').count(),
         'ambiguous_count': scoped_invoices.filter(status='ambiguous').count(),
         'ignored_count': scoped_invoices.filter(status='ignored').count(),
+        'identity_action_count': scoped_invoices.filter(
+            Q(identity_reviews__status__in=['pending', 'flagged_for_review'])
+            | Q(name_change_requests__status__in=['draft', 'awaiting_replacement'])
+        ).distinct().count(),
+        'needs_action_count': scoped_invoices.filter(
+            Q(status__in=['draft', 'unmatched', 'ambiguous'])
+            | Q(identity_reviews__status__in=['pending', 'flagged_for_review'])
+            | Q(name_change_requests__status__in=['draft', 'awaiting_replacement'])
+        ).distinct().count(),
         # Parse-failed batches have no ParsedInvoice row. Do not expose their
         # filenames or count to a branch-limited user because no trusted
         # branch can be derived from the failed source document yet.
@@ -5225,9 +5245,14 @@ def portal_invoice_detail(request, invoice_id: str):
             }
 
     events = invoice.events.all().order_by('-created_at')[:25]
+    invoice_data = _serialize_parsed_invoice(invoice, readiness_by_order)
+    review = invoice.identity_reviews.filter(status='flagged_for_review').order_by('-created_at').first()
+    if review and _portal_capability_error(request, 'portal.invoice_identity.manage', invoice.matched_farmer) is None:
+        if invoice_data.get('identity', {}).get('review'):
+            invoice_data['identity']['review']['decision_note'] = review.decision_note
     return JsonResponse({
         'ok': True,
-        'invoice': _serialize_parsed_invoice(invoice, readiness_by_order),
+        'invoice': invoice_data,
         'batch': _serialize_invoice_batch(invoice.batch),
         'source_pdf_url': invoice.batch.drive_url,
         'events': [_serialize_invoice_event(event) for event in events],
@@ -5239,14 +5264,20 @@ def portal_invoice_detail(request, invoice_id: str):
 @require_http_methods(["GET"])
 def portal_invoice_farmer_candidates(request):
     """Search farmer records that an invoice can be manually linked to."""
+    from datetime import timedelta
     from django.db.models import Q
     from core.models import JawabuFarmerMaster
+    from core.services.identifiers import normalize_kenyan_phone, normalize_national_id
+    from core.services.invoice_identity import normalize_person_name
 
     access_error = _portal_read_access_error(request, capability='portal.invoice.view')
     if access_error:
         return access_error
 
     search = str(request.GET.get('search') or '').strip()
+    candidate_scope = str(request.GET.get('scope') or 'operational').strip().lower()
+    if candidate_scope not in {'operational', 'historical'}:
+        candidate_scope = 'operational'
     invoice_id = str(request.GET.get('invoice_id') or '').strip()
     parsed_invoice = None
     if invoice_id:
@@ -5278,7 +5309,10 @@ def portal_invoice_farmer_candidates(request):
             query |= Q(primary_phone__icontains=phone_digits[-9:])
     if not query.children:
         return JsonResponse({'ok': True, 'farmers': []})
-    candidate_qs = JawabuFarmerMaster.objects.filter(status='active').filter(query)
+    candidate_qs = JawabuFarmerMaster.objects.filter(query)
+    if candidate_scope == 'operational':
+        recent_cutoff = timezone.now() - timedelta(days=365)
+        candidate_qs = candidate_qs.filter(Q(status='active') | Q(updated_at__gte=recent_cutoff))
     candidate_qs = _apply_county_branch_filters(
         candidate_qs, request, capability='portal.invoice.view',
     )
@@ -5288,15 +5322,17 @@ def portal_invoice_farmer_candidates(request):
         points = 0
         reasons = []
         if parsed_invoice:
-            if parsed_invoice.customer_id and str(farmer.national_id or '').strip() == parsed_invoice.customer_id:
+            invoice_id = normalize_national_id(parsed_invoice.customer_id)
+            farmer_id = normalize_national_id(farmer.national_id)
+            if invoice_id and farmer_id and farmer_id == invoice_id:
                 points += 100
                 reasons.append('ID match')
-            inv_phone = re.sub(r'\D', '', parsed_invoice.customer_phone or '')[-9:]
-            farmer_phone = re.sub(r'\D', '', farmer.primary_phone or '')[-9:]
+            inv_phone = normalize_kenyan_phone(parsed_invoice.customer_phone)
+            farmer_phone = normalize_kenyan_phone(farmer.primary_phone)
             if inv_phone and farmer_phone and inv_phone == farmer_phone:
                 points += 80
                 reasons.append('Phone match')
-            if parsed_invoice.customer_name and str(farmer.customer_name or '').strip().lower() == parsed_invoice.customer_name.strip().lower():
+            if normalize_person_name(parsed_invoice.customer_name) and normalize_person_name(farmer.customer_name) == normalize_person_name(parsed_invoice.customer_name):
                 points += 60
                 reasons.append('Name match')
         if search:
@@ -5307,12 +5343,23 @@ def portal_invoice_farmer_candidates(request):
             if needle in str(farmer.customer_no or '').lower():
                 points += 25
                 reasons.append('Customer no search')
-        return points, reasons
+        exact_id = 'ID match' in reasons
+        exact_phone = 'Phone match' in reasons
+        exact_name = 'Name match' in reasons
+        if exact_id and (exact_phone or exact_name):
+            tier = 'strong'
+        elif exact_id or (exact_phone and exact_name):
+            tier = 'likely'
+        elif exact_phone or exact_name:
+            tier = 'possible'
+        else:
+            tier = 'search_result'
+        return points, reasons, tier
 
     scored = []
     for farmer in qs:
-        points, reasons = score(farmer)
-        scored.append((points, farmer.customer_name or '', farmer, reasons))
+        points, reasons, tier = score(farmer)
+        scored.append((points, farmer.customer_name or '', farmer, reasons, tier))
     scored.sort(key=lambda item: (-item[0], item[1]))
     return JsonResponse({
         'ok': True,
@@ -5334,9 +5381,13 @@ def portal_invoice_farmer_candidates(request):
                 ),
                 'match_score': points,
                 'match_reasons': reasons,
+                'match_tier': tier,
+                'candidate_scope': candidate_scope,
             }
-            for points, _name, farmer, reasons in scored[:15]
+            for points, _name, farmer, reasons, tier in scored[:15]
         ],
+        'candidate_scope': candidate_scope,
+        'historical_search': candidate_scope == 'historical',
     })
 
 
@@ -5490,29 +5541,227 @@ def _serialize_name_change_batch(request, batch) -> dict:
         'latest_letter': artifact,
         'created_by': batch.created_by,
         'created_at': batch.created_at.isoformat(),
+        'revision': batch.revision,
+        'items': [
+            {
+                'id': str(item.id),
+                'applicant_name': item.requested_identity.get('name') or item.farmer.customer_name,
+                'invoice_holder_name': item.original_identity.get('name') or '',
+                'status': item.status,
+            }
+            for item in batch.items.select_related('farmer').all()
+        ],
     }
 
 
 @csrf_exempt
-@require_http_methods(["GET"])
+@require_http_methods(["GET", "POST"])
 def portal_invoice_name_change_batches(request):
-    from core.models import InvoiceNameChangeBatch
+    from django.db.models import Q
+    from core.models import InvoiceNameChangeBatch, InvoiceNameChangeItem
+    from core.services.invoice_identity import (
+        NameChangeBatchConflict, assemble_name_change_batch, serialize_name_change_item,
+    )
 
     capability_error = _portal_capability_error(request, 'portal.invoice_identity.manage')
     if capability_error:
         return capability_error
+
+    def can_manage_item(item) -> bool:
+        access = getattr(request, 'portal_access', None)
+        if access is None:
+            return True
+        from core.services.portal_permissions import portal_access_decision
+        return portal_access_decision(
+            request.portal_user, 'portal.invoice_identity.manage',
+            access=access, resource=item.farmer,
+        ).allowed
+
+    if request.method == 'POST':
+        body = _json_body(request)
+        item_ids = [str(value).strip() for value in body.get('item_ids', []) if str(value).strip()]
+        items = list(InvoiceNameChangeItem.objects.filter(pk__in=item_ids).select_related('farmer'))
+        if len(items) != len(set(item_ids)):
+            return JsonResponse({'ok': False, 'error': 'One or more selected requests no longer exist.'}, status=404)
+        for item in items:
+            scope_error = _portal_capability_error(request, 'portal.invoice_identity.manage', item.farmer)
+            if scope_error:
+                return scope_error
+        try:
+            batch, _ = assemble_name_change_batch(
+                items,
+                actor=_portal_sender_from_request(request),
+                client_request_id=str(
+                    body.get('client_request_id') or request.headers.get('Idempotency-Key') or ''
+                ).strip(),
+            )
+        except NameChangeBatchConflict as exc:
+            return JsonResponse({
+                'ok': False,
+                'error': str(exc),
+                'code': 'batch_selection_conflict',
+                'conflicts': exc.conflicts,
+                'available_item_ids': list(
+                    InvoiceNameChangeItem.objects.filter(
+                        pk__in=item_ids, status='draft', batch__isnull=True,
+                    ).values_list('id', flat=True)
+                ),
+            }, status=409)
+        except ValueError as exc:
+            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return JsonResponse({'ok': True, 'batch': _serialize_name_change_batch(request, batch)}, status=201)
+
+    segment = str(request.GET.get('segment') or 'ready').strip().lower()
+    search = str(request.GET.get('search') or '').strip()
+    status_map = {
+        'ready': Q(status='draft', batch__isnull=True),
+        'draft_letters': Q(status='draft', batch__status='draft'),
+        'awaiting_replacement': Q(status='awaiting_replacement'),
+        'completed': Q(status='completed'),
+        'withdrawn': Q(status__in=['cancelled', 'withdrawn']),
+        'all': Q(),
+    }
+    item_qs = InvoiceNameChangeItem.objects.select_related(
+        'farmer', 'batch', 'review', 'original_invoice', 'replacement_invoice',
+    ).filter(status_map.get(segment, status_map['ready']))
+    if search:
+        item_qs = item_qs.filter(
+            Q(farmer__customer_name__icontains=search)
+            | Q(original_invoice__customer_name__icontains=search)
+            | Q(original_invoice__invoice_no__icontains=search)
+            | Q(batch__reference__icontains=search)
+        )
+    visible_items = []
+    for item in item_qs.order_by('updated_at')[:250]:
+        if can_manage_item(item):
+            visible_items.append(item)
+    paged_items, pagination = _paginate_list(visible_items, request, page_size=10)
     visible = []
     queryset = InvoiceNameChangeBatch.objects.filter(status='draft').prefetch_related(
         'items__farmer', 'letter_artifacts',
     ).order_by('-created_at')
     for batch in queryset:
         items = list(batch.items.all())
-        if items and all(
-            _portal_capability_error(request, 'portal.invoice_identity.manage', item.farmer) is None
-            for item in items
-        ):
+        if items and all(can_manage_item(item) for item in items):
             visible.append(_serialize_name_change_batch(request, batch))
-    return JsonResponse({'ok': True, 'batches': visible})
+    visible_counts = {key: 0 for key in status_map if key != 'all'}
+    for count_item in InvoiceNameChangeItem.objects.select_related('farmer', 'batch').all():
+        if not can_manage_item(count_item):
+            continue
+        if count_item.status == 'draft' and count_item.batch_id is None:
+            visible_counts['ready'] += 1
+        if count_item.status == 'draft' and count_item.batch_id and count_item.batch.status == 'draft':
+            visible_counts['draft_letters'] += 1
+        if count_item.status == 'awaiting_replacement':
+            visible_counts['awaiting_replacement'] += 1
+        if count_item.status == 'completed':
+            visible_counts['completed'] += 1
+        if count_item.status in {'cancelled', 'withdrawn'}:
+            visible_counts['withdrawn'] += 1
+    return JsonResponse({
+        'ok': True,
+        'items': [serialize_name_change_item(item) for item in paged_items],
+        'batches': visible,
+        'pagination': pagination,
+        'segment': segment,
+        'counts': visible_counts,
+    })
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_invoice_name_change_close(request, item_id: str):
+    from core.models import InvoiceNameChangeItem
+    from core.services.invoice_identity import close_name_change, serialize_name_change_item
+
+    item = InvoiceNameChangeItem.objects.select_related('farmer').filter(pk=item_id).first()
+    if not item:
+        return JsonResponse({'ok': False, 'error': 'Invoice-name-change request not found.'}, status=404)
+    scope_error = _portal_capability_error(request, 'portal.invoice_identity.manage', item.farmer)
+    if scope_error:
+        return scope_error
+    body = _json_body(request)
+    action = str(body.get('action') or '').strip().lower()
+    try:
+        item = close_name_change(
+            item,
+            actor=_portal_sender_from_request(request),
+            reason=str(body.get('reason') or ''),
+            hb_communication_reference=str(body.get('hb_communication_reference') or ''),
+            withdraw=action == 'withdraw',
+        )
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'name_change': serialize_name_change_item(item)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_invoice_name_change_follow_up(request, item_id: str):
+    from core.models import InvoiceNameChangeItem
+    from core.services.invoice_identity import create_name_change_follow_up, serialize_name_change_item
+
+    item = InvoiceNameChangeItem.objects.select_related('farmer').filter(pk=item_id).first()
+    if not item:
+        return JsonResponse({'ok': False, 'error': 'Invoice-name-change request not found.'}, status=404)
+    scope_error = _portal_capability_error(request, 'portal.invoice_identity.manage', item.farmer)
+    if scope_error:
+        return scope_error
+    body = _json_body(request)
+    try:
+        follow_up = create_name_change_follow_up(
+            item, actor=_portal_sender_from_request(request),
+            client_request_id=str(
+                body.get('client_request_id') or request.headers.get('Idempotency-Key') or ''
+            ).strip(),
+        )
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'name_change': serialize_name_change_item(follow_up)}, status=201)
+
+
+@require_http_methods(["GET"])
+def portal_invoice_name_change_replacement_candidates(request, item_id: str):
+    from django.db.models import Q
+    from core.models import InvoiceNameChangeItem, ParsedInvoice
+    from core.services.identifiers import normalize_national_id
+
+    item = InvoiceNameChangeItem.objects.select_related('farmer', 'original_invoice').filter(pk=item_id).first()
+    if not item:
+        return JsonResponse({'ok': False, 'error': 'Invoice-name-change request not found.'}, status=404)
+    scope_error = _portal_capability_error(request, 'portal.invoice_identity.manage', item.farmer)
+    if scope_error:
+        return scope_error
+    search = str(request.GET.get('search') or '').strip()
+    invoices = ParsedInvoice.objects.select_related('matched_farmer', 'batch').exclude(pk=item.original_invoice_id)
+    if search:
+        invoices = invoices.filter(
+            Q(invoice_no__icontains=search) | Q(customer_name__icontains=search)
+            | Q(customer_id__icontains=search) | Q(customer_phone__icontains=search)
+        )
+    expected_id = normalize_national_id(item.farmer.national_id)
+    rows = []
+    for invoice in invoices.order_by('-created_at')[:100]:
+        id_match = bool(expected_id and normalize_national_id(invoice.customer_id) == expected_id)
+        conflict = bool(invoice.matched_farmer_id and invoice.matched_farmer_id != item.farmer_id)
+        rows.append({
+            'invoice': _serialize_parsed_invoice(invoice),
+            'id_match': id_match,
+            'conflict': conflict,
+            'selectable': not conflict and invoice.status in {'draft', 'unmatched', 'ambiguous', 'ignored', 'matched'},
+            'status_note': (
+                f'Matched to {invoice.matched_farmer.customer_name}' if conflict
+                else 'Ignored - will be restored on confirmation' if invoice.status == 'ignored'
+                else 'Already matched to this applicant' if invoice.matched_farmer_id == item.farmer_id
+                else ''
+            ),
+        })
+    # Python's sort is stable, so equally ranked results retain the queryset's
+    # newest-first order instead of quietly preferring an older upload.
+    rows.sort(key=lambda row: (
+        not row['id_match'], row['conflict'], row['invoice']['status'] != 'unmatched',
+    ))
+    return JsonResponse({'ok': True, 'candidates': rows[:30]})
 
 
 @csrf_exempt

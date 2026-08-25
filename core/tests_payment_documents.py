@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 import io
 import json
@@ -9,6 +9,7 @@ from django.core.files import File
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from openpyxl import load_workbook
 
 from core.models import (
@@ -338,8 +339,30 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         data = response.json()
         self.assertEqual(data['farmers'][0]['id'], str(id_match.id))
         self.assertIn('ID match', data['farmers'][0]['match_reasons'])
+        self.assertEqual(data['farmers'][0]['match_tier'], 'likely')
+        self.assertEqual(data['candidate_scope'], 'operational')
         ids = {farmer['id'] for farmer in data['farmers']}
         self.assertIn(str(phone_match.id), ids)
+
+    def test_historical_applicant_search_is_explicit_and_labelled(self):
+        farmer = self.farmer(
+            customer_name='Historical Applicant', national_id='44556677', status='inactive',
+        )
+        JawabuFarmerMaster.objects.filter(pk=farmer.pk).update(
+            updated_at=timezone.now() - timedelta(days=500),
+        )
+
+        operational = self.client.get(
+            reverse('portal_invoice_farmer_candidates'), {'search': '44556677'},
+        ).json()
+        historical = self.client.get(
+            reverse('portal_invoice_farmer_candidates'), {'search': '44556677', 'scope': 'historical'},
+        ).json()
+
+        self.assertEqual(operational['farmers'], [])
+        self.assertTrue(historical['historical_search'])
+        self.assertEqual(historical['farmers'][0]['id'], str(farmer.id))
+        self.assertEqual(historical['farmers'][0]['candidate_scope'], 'historical')
 
     def test_invoice_detail_exposes_audit_events_and_duplicates(self):
         farmer = self.farmer(order_number='ORDER-MATCHED')

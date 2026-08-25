@@ -6836,12 +6836,14 @@ class InvoiceIdentityReview(models.Model):
     STATUS_SAME_PERSON = 'same_person_confirmed'
     STATUS_DIFFERENT_PERSON = 'different_person_confirmed'
     STATUS_INSUFFICIENT = 'insufficient_information'
+    STATUS_FLAGGED = 'flagged_for_review'
     STATUS_CANCELLED = 'cancelled'
     STATUS_CHOICES = [
         (STATUS_PENDING, 'Pending verification'),
         (STATUS_SAME_PERSON, 'Same person confirmed'),
         (STATUS_DIFFERENT_PERSON, 'Different person confirmed'),
         (STATUS_INSUFFICIENT, 'Insufficient information'),
+        (STATUS_FLAGGED, 'Flagged for specialist review'),
         (STATUS_CANCELLED, 'Cancelled'),
     ]
 
@@ -6932,6 +6934,7 @@ class InvoiceNameChangeBatch(models.Model):
         ('awaiting_replacements', 'Awaiting replacements'),
         ('completed', 'Completed'),
         ('cancelled', 'Cancelled'),
+        ('withdrawn', 'Withdrawn'),
     ]
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     reference = models.CharField(max_length=128, blank=True, default='', db_index=True)
@@ -6950,6 +6953,7 @@ class InvoiceNameChangeBatch(models.Model):
     created_by = models.CharField(max_length=255)
     sent_by = models.CharField(max_length=255, blank=True, default='')
     sent_at = models.DateTimeField(null=True, blank=True)
+    revision = models.PositiveIntegerField(default=1)
     client_request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -7103,9 +7107,12 @@ class InvoiceNameChangeItem(models.Model):
         ('awaiting_replacement', 'Awaiting replacement'),
         ('completed', 'Completed'),
         ('cancelled', 'Cancelled'),
+        ('withdrawn', 'Withdrawn'),
     ]
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    batch = models.ForeignKey(InvoiceNameChangeBatch, on_delete=models.PROTECT, related_name='items')
+    batch = models.ForeignKey(
+        InvoiceNameChangeBatch, on_delete=models.PROTECT, related_name='items', null=True, blank=True,
+    )
     review = models.OneToOneField(InvoiceIdentityReview, on_delete=models.PROTECT, related_name='name_change_item')
     farmer = models.ForeignKey(JawabuFarmerMaster, on_delete=models.PROTECT, related_name='invoice_name_changes')
     relationship = models.ForeignKey(JawabuHouseholdRelationship, on_delete=models.PROTECT, related_name='invoice_name_changes')
@@ -7118,6 +7125,15 @@ class InvoiceNameChangeItem(models.Model):
     requested_identity = models.JSONField(blank=True, default=dict)
     completed_by = models.CharField(max_length=255, blank=True, default='')
     completed_at = models.DateTimeField(null=True, blank=True)
+    closed_reason = models.TextField(blank=True, default='')
+    hb_communication_reference = models.CharField(max_length=255, blank=True, default='')
+    closed_by = models.CharField(max_length=255, blank=True, default='')
+    closed_at = models.DateTimeField(null=True, blank=True)
+    follow_up_of = models.ForeignKey(
+        'self', on_delete=models.PROTECT, null=True, blank=True, related_name='follow_ups',
+    )
+    client_request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    revision = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -7127,6 +7143,10 @@ class InvoiceNameChangeItem(models.Model):
                 fields=['original_invoice'],
                 condition=models.Q(status__in=['draft', 'awaiting_replacement']),
                 name='unique_open_invoice_name_change',
+            ),
+            models.UniqueConstraint(
+                fields=['client_request_id'], condition=~models.Q(client_request_id=''),
+                name='unique_invoice_name_change_item_request',
             ),
         ]
 
