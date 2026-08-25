@@ -723,6 +723,29 @@ def _record_event(application, action: str, *, actor, request_id: str = '', befo
     )
 
 
+def apply_choice_display_values(context: dict[str, Any], schema: dict[str, Any] | None) -> dict[str, Any]:
+    """Keep canonical choice values for conditions while exposing labels to text overlays."""
+    canonical_values = dict(context.get('_canonical_values') or {})
+    for field in _schema_fields(schema or {}):
+        if str(field.get('type') or '') != 'choice':
+            continue
+        key = str(field.get('key') or '')
+        stored = context.get(key)
+        for option in field.get('options') or []:
+            if not isinstance(option, dict):
+                continue
+            code = str(option.get('code') or '')
+            label = str(option.get('label') or code)
+            if str(stored) not in {code, label}:
+                continue
+            canonical_values[key] = code
+            context[key] = label
+            break
+    if canonical_values:
+        context['_canonical_values'] = canonical_values
+    return context
+
+
 def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
     terms = application.product_terms_snapshot or {}
     applicant_name = ' '.join(
@@ -780,18 +803,7 @@ def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
             except (InvalidOperation, TypeError, ValueError):
                 continue
         context['secured_assets_total'] = format(total, 'f')
-    for field in _schema_fields(application.schema_snapshot):
-        if str(field.get('type') or '') != 'choice':
-            continue
-        key = str(field.get('key') or '')
-        stored = context.get(key)
-        for option in field.get('options') or []:
-            if not isinstance(option, dict):
-                continue
-            if str(option.get('code') or '') == stored:
-                context[key] = str(option.get('label') or stored)
-                break
-    return context
+    return apply_choice_display_values(context, application.schema_snapshot)
 
 
 def render_application_preview(application: LoanOriginationApplication) -> bytes:

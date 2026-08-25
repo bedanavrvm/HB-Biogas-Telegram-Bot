@@ -100,37 +100,59 @@ def validate_template_pdf(pdf_data: bytes) -> tuple[str, int]:
     return hashlib.sha256(pdf_data).hexdigest(), page_count
 
 
+def _sample_value_for_field(field: dict[str, Any]) -> tuple[Any, Any | None]:
+    """Return a display sample and, for governed choices, its canonical value."""
+    key = str(field.get('key') or '').strip()
+    field_type = str(field.get('type') or 'text')
+    if field_type == 'boolean':
+        return 'Yes', True
+    if field_type in {'money', 'number'}:
+        return '12,500', None
+    if field_type == 'date':
+        return '13-Aug-2026', None
+    if field_type == 'choice':
+        options = [item for item in (field.get('options') or []) if isinstance(item, dict) and item.get('code') and item.get('active', True)]
+        if options:
+            option = options[0]
+            code = str(option['code'])
+            return str(option.get('label') or code), code
+    if field_type == 'repeating_group':
+        return [{
+            str(column.get('key') or ''): (
+                '12,500' if str(column.get('type') or '') == 'money'
+                else str(column.get('label') or column.get('key') or 'Sample')
+            )
+            for column in ((field.get('structure') or {}).get('columns') or [])
+            if isinstance(column, dict) and column.get('key')
+        }], None
+    return field.get('label') or key.replace('_', ' ').title(), None
+
+
+def sample_context_for_schema(schema: dict[str, Any] | None) -> dict[str, Any]:
+    """Build display samples while retaining canonical values for checkbox tests."""
+    sample_context: dict[str, Any] = {}
+    canonical_values: dict[str, Any] = {}
+    for field in (schema or {}).get('fields', []) or []:
+        if not isinstance(field, dict):
+            continue
+        key = str(field.get('key') or '').strip()
+        if not key:
+            continue
+        display_value, canonical_value = _sample_value_for_field(field)
+        sample_context[key] = display_value
+        if canonical_value is not None:
+            canonical_values[key] = canonical_value
+    if canonical_values:
+        sample_context['_canonical_values'] = canonical_values
+    return sample_context
+
+
 def initial_template_configuration(
     product: OriginationProductDefinition | None,
     *, form_schema: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    sample_context = {}
     schema = form_schema if form_schema is not None else (product.form_schema if product else {})
-    for field in (schema or {}).get('fields', []) or []:
-        key = str(field.get('key') or '').strip()
-        if not key:
-            continue
-        field_type = str(field.get('type') or 'text')
-        if field_type == 'boolean':
-            value = True
-        elif field_type in {'money', 'number'}:
-            value = '12,500'
-        elif field_type == 'date':
-            value = '13-Aug-2026'
-        elif field_type == 'choice':
-            value = next(iter(field.get('options') or []), field.get('label') or key)
-        elif field_type == 'repeating_group':
-            value = [{
-                str(column.get('key') or ''): (
-                    '12,500' if str(column.get('type') or '') == 'money'
-                    else str(column.get('label') or column.get('key') or 'Sample')
-                )
-                for column in ((field.get('structure') or {}).get('columns') or [])
-                if isinstance(column, dict) and column.get('key')
-            }]
-        else:
-            value = field.get('label') or key.replace('_', ' ').title()
-        sample_context[key] = value
+    sample_context = sample_context_for_schema(schema)
     sample_context.update({
         'reference_number': 'ORG-2026-SAMPLE',
         'branch_code': 'Sample Branch',

@@ -83,11 +83,25 @@ def _draw_cell(pdf, value: Any, box: dict[str, float], spec: dict[str, Any], def
     pdf.drawString(draw_x, draw_y, text)
 
 
-def _overlay_page(width: float, height: float, fields: list[tuple[dict, str]], defaults: dict) -> bytes:
+def _normalized_checkbox_value(value: Any) -> str:
+    return _display_value(value).casefold().replace('_', ' ').replace('-', ' ')
+
+
+def _checkbox_is_checked(actual: Any, expected: Any, *, display_value: Any = None) -> bool:
+    actual_values = {_normalized_checkbox_value(actual), _normalized_checkbox_value(display_value)} - {''}
+    if isinstance(expected, list):
+        expected_values = {_normalized_checkbox_value(item) for item in expected}
+        return bool(actual_values & expected_values)
+    if expected is not None and expected != '':
+        return _normalized_checkbox_value(expected) in actual_values
+    return bool(actual_values & {'yes', 'true', '1', 'x'})
+
+
+def _overlay_page(width: float, height: float, fields: list[tuple[dict, Any, Any]], defaults: dict) -> bytes:
     output = BytesIO()
     pdf = canvas.Canvas(output, pagesize=(width, height), pageCompression=1)
     pdf.setFillColorRGB(0.04, 0.04, 0.04)
-    for spec, raw_value in fields:
+    for spec, raw_value, condition_value in fields:
         box = spec.get('allowed_area') or spec.get('box') or {}
         unit_scale = 72 / 25.4 if spec.get('units', 'pt') == 'mm' else 1
         if spec.get('render_as') == 'repeating_table':
@@ -117,13 +131,7 @@ def _overlay_page(width: float, height: float, fields: list[tuple[dict, str]], d
             continue
         value = _formatted_value(raw_value, spec)
         if spec.get('render_as') == 'checkbox':
-            expected = spec.get('checked_when')
-            normalized = value.casefold().replace('_', ' ').replace('-', ' ')
-            if isinstance(expected, list):
-                checked = normalized in {_display_value(item).casefold().replace('_', ' ').replace('-', ' ') for item in expected}
-            else:
-                checked = normalized == _display_value(expected).casefold().replace('_', ' ').replace('-', ' ') if expected is not None else normalized in {'yes', 'true', '1', 'x'}
-            if checked:
+            if _checkbox_is_checked(condition_value, spec.get('checked_when'), display_value=raw_value):
                 x, y = float(box.get('x', 0)) * unit_scale, float(box.get('y', 0)) * unit_scale
                 box_width, box_height = float(box.get('width', 0)) * unit_scale, float(box.get('height', 0)) * unit_scale
                 size = max(min(box_width, box_height), 1)
@@ -255,15 +263,19 @@ def _signature_preview_page(width: float, height: float, slots: list[dict]) -> b
 
 def render_template(source: bytes, config: dict[str, Any], context: dict[str, Any]) -> bytes:
     reader = PdfReader(BytesIO(source))
-    fields_by_page: dict[int, list[tuple[dict, str]]] = {}
+    fields_by_page: dict[int, list[tuple[dict, Any, Any]]] = {}
     overlay_manifest = config.get('field_overlay_manifest') or {}
     manifest = overlay_manifest.get('fields') or {}
     defaults = overlay_manifest.get('defaults') or {}
+    canonical_values = context.get('_canonical_values') if isinstance(context.get('_canonical_values'), dict) else {}
     for spec in manifest.values():
         if not isinstance(spec, dict):
             continue
         page_number = int(spec.get('page_number') or 1)
-        fields_by_page.setdefault(page_number, []).append((spec, context.get(spec.get('context_key'))))
+        context_key = str(spec.get('context_key') or '')
+        display_value = context.get(context_key)
+        condition_value = canonical_values.get(context_key, display_value)
+        fields_by_page.setdefault(page_number, []).append((spec, display_value, condition_value))
     signature_slots_by_page: dict[int, list[dict]] = {}
     if context.get('_show_signature_slots'):
         signature_manifest = (config.get('signature_overlay_manifest') or {}).get('slots') or {}

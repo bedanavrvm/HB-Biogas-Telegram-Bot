@@ -72,7 +72,8 @@
           <div class="coordinate-grid"><label>Padding X<input id="cal-padding-x" type="number" min="0" step="0.5"></label><label>Padding Y<input id="cal-padding-y" type="number" min="0" step="0.5"></label></div>
           <label>Capitalization<select id="cal-text-case"><option value="none">Keep original</option><option value="uppercase">UPPERCASE</option><option value="lowercase">lowercase</option><option value="titlecase">Title Case</option></select></label>
           <label>Render as<select id="cal-render-as"><option value="text">Text</option><option value="checkbox">Checkbox tick</option><option value="repeating_table">Repeatable table</option></select></label>
-          <label id="cal-checked-wrap">Checked when<input id="cal-checked-when" type="text"></label>
+          <label id="cal-checked-wrap">Checked when<select id="cal-checked-when"></select><span class="help">Choose which canonical value draws the tick.</span></label>
+          <label id="cal-sample-value-wrap">Filled sample value<select id="cal-sample-value"></select><span class="help">Choose the value to demonstrate in Filled sample.</span></label>
           <label>Horizontal alignment<select id="cal-align"><option value="left">Left</option><option value="center">Centre</option><option value="right">Right</option></select></label>
           <label>Vertical alignment<select id="cal-vertical"><option value="bottom">Above line</option><option value="center">Middle</option><option value="top">Top</option></select></label>
           <label>Overflow<select id="cal-fit"><option value="shrink">Shrink to fit</option><option value="truncate">Truncate</option><option value="overflow">Allow overflow</option></select></label>
@@ -120,5 +121,5 @@
     </form>
   </dialog>
 </div>
-<script src="{% static 'admin/origination_calibration.js' %}?v=13"></script>
+<script src="{% static 'admin/origination_calibration.js' %}?v=14"></script>
 {% endblock %}

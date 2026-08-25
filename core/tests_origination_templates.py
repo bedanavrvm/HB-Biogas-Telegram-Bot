@@ -50,6 +50,8 @@ from core.services.origination_fields import (
 from core.services.origination_terminology import terminology_signature
 from core.services.partnership_laf_preview import (
     PartnershipLafPreviewError,
+    _checkbox_is_checked,
+    _overlay_page,
     render_pdf_page,
     render_template,
 )
@@ -78,6 +80,41 @@ def synthetic_config() -> bytes:
 
 
 class OriginationTemplateValidationTests(SimpleTestCase):
+    def test_choice_samples_keep_display_label_and_canonical_checkbox_value(self):
+        config = initial_template_configuration(None, form_schema={'fields': [{
+            'key': 'applicant_marital_status', 'label': 'Marital Status', 'type': 'choice',
+            'options': [
+                {'code': 'single', 'label': 'Single'},
+                {'code': 'married', 'label': 'Married'},
+            ],
+        }]})
+
+        self.assertEqual(config['sample_context']['applicant_marital_status'], 'Single')
+        self.assertEqual(
+            config['sample_context']['_canonical_values']['applicant_marital_status'],
+            'single',
+        )
+
+    def test_checkbox_matches_canonical_code_and_legacy_display_label(self):
+        self.assertTrue(_checkbox_is_checked('married', 'married', display_value='Married'))
+        self.assertTrue(_checkbox_is_checked('married', 'Married', display_value='Married'))
+        self.assertFalse(_checkbox_is_checked('single', 'married', display_value='Single'))
+
+    def test_checkbox_overlay_draws_tick_only_for_matching_choice(self):
+        spec = {
+            'render_as': 'checkbox', 'checked_when': 'married',
+            'box': {'x': 10, 'y': 10, 'width': 12, 'height': 12},
+        }
+        checked = PdfReader(BytesIO(
+            _overlay_page(100, 100, [(spec, 'Married', 'married')], {}),
+        )).pages[0].get_contents().get_data()
+        unchecked = PdfReader(BytesIO(
+            _overlay_page(100, 100, [(spec, 'Single', 'single')], {}),
+        )).pages[0].get_contents().get_data()
+
+        self.assertEqual(checked.count(b' l'), 2)
+        self.assertEqual(unchecked.count(b' l'), 0)
+
     def test_validates_pdf_and_placement_manifest(self):
         pdf = synthetic_pdf()
         config, digest, pages = validate_template_files(pdf, synthetic_config())
@@ -661,7 +698,22 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertIn("mode = 'filled'", source)
         self.assertIn('await renderPage()', source)
         self.assertIn('default for fields added later', template)
-        self.assertIn('origination_calibration.js\' %}?v=13', template)
+        self.assertIn('origination_calibration.js\' %}?v=14', template)
+
+    def test_checkbox_builder_uses_canonical_selectors_and_sample_control(self):
+        source = (
+            Path(settings.BASE_DIR) / 'core/static/admin/origination_calibration.js'
+        ).read_text(encoding='utf-8')
+        template = (
+            Path(settings.BASE_DIR)
+            / 'core/templates/admin/core/originationdocumenttemplate/calibrate.html'
+        ).read_text(encoding='utf-8')
+
+        self.assertIn('function checkboxOptions(spec)', source)
+        self.assertIn('function normalizeChoiceSamples()', source)
+        self.assertIn('cal-sample-value', template)
+        self.assertIn('<select id="cal-checked-when">', template)
+        self.assertNotIn('id="cal-checked-when" type="text"', template)
 
     def test_pdf_only_onboarding_derives_product_contract(self):
         digest, pages = validate_template_pdf(self.pdf)

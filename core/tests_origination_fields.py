@@ -339,7 +339,9 @@ class OriginationDataFieldCatalogueTests(TestCase):
             form_payload={'marital_status_test': 'married'},
             schema_snapshot=snapshot_form_schema(product.form_schema),
         )
-        self.assertEqual(preview_context(application)['marital_status_test'], 'Married / customary')
+        context = preview_context(application)
+        self.assertEqual(context['marital_status_test'], 'Married / customary')
+        self.assertEqual(context['_canonical_values']['marital_status_test'], 'married')
 
     def test_attach_retry_is_idempotent_even_with_stale_schema_revision(self):
         field, _ = create_data_field(

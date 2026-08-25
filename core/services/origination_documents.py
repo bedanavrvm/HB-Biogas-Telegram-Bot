@@ -259,8 +259,9 @@ def _document_fields(document: OriginationApplicationDocument) -> list[dict[str,
 
 
 def document_context(application: LoanOriginationApplication, document: OriginationApplicationDocument) -> dict[str, Any]:
-    from core.services.loan_origination import preview_context
+    from core.services.loan_origination import apply_choice_display_values, preview_context
     context = {**preview_context(application), **(document.field_payload or {})}
+    apply_choice_display_values(context, document.schema_snapshot)
     context['home_visit_completed_date'] = timezone.localdate(
         document.completed_at or timezone.now(),
     ).isoformat()

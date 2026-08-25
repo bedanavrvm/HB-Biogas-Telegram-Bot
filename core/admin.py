@@ -650,7 +650,8 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
             self.add_error('product_definition', 'This draft product already has this document. Open its existing template instead.')
             return cleaned
         from core.services.origination_templates import (
-            OriginationTemplateError, initial_template_configuration, validate_template_pdf,
+            OriginationTemplateError, initial_template_configuration, sample_context_for_schema,
+            validate_template_pdf,
         )
         pdf_data = pdf_file.read()
         pdf_file.seek(0)
@@ -695,11 +696,14 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
             else inherited_signers or cleaned.get('signer_rules') or []
         )
         sample_context = self.instance.placement_config.setdefault('sample_context', {})
-        for field in (self.instance.form_schema or {}).get('fields', []):
-            if isinstance(field, dict) and field.get('key'):
-                sample_context.setdefault(
-                    str(field['key']), str(field.get('label') or field['key']).replace('_', ' ').title(),
-                )
+        generated_samples = sample_context_for_schema(self.instance.form_schema)
+        generated_canonical = generated_samples.pop('_canonical_values', {})
+        for key, value in generated_samples.items():
+            sample_context.setdefault(key, value)
+        if generated_canonical:
+            canonical_values = sample_context.setdefault('_canonical_values', {})
+            for key, value in generated_canonical.items():
+                canonical_values.setdefault(key, value)
         if role == OriginationDocumentTemplate.ROLE_SUPPORTING and not self.instance.form_schema:
             self.instance.form_schema = {'_revision': 0, 'sections': [], 'fields': []}
         from core.services.origination_documents import validate_applicability_rule
@@ -7924,6 +7928,8 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                 item['attached'] = bool(presentation)
             item['required'] = bool(presentation.get('required', False))
             item['section_key'] = str(presentation.get('section_key') or '')
+            if item.get('type') == OriginationDataField.TYPE_CHOICE and presentation.get('options'):
+                item['choice_options'] = list(presentation['options'])
         from core.services.origination_templates import _expected_signature_slots
         return JsonResponse({
             'ok': True,
@@ -8057,6 +8063,8 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                 item['attached'] = bool(presentation)
             item['required'] = bool(presentation.get('required', False))
             item['section_key'] = str(presentation.get('section_key') or '')
+            if item.get('type') == OriginationDataField.TYPE_CHOICE and presentation.get('options'):
+                item['choice_options'] = list(presentation['options'])
         return JsonResponse({
             'ok': True, 'field': next(
                 item for item in context_keys if item['key'] == data_field.key

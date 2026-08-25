@@ -227,6 +227,7 @@
       schemaRevision = state.schema_revision || 0;
       formSections = state.form_sections || [];
       signatureCatalog = state.signature_slots || [];
+      normalizeChoiceSamples();
       zoomMode = mobileLayout() ? 'fit-width' : 'manual';
       zoom = 1;
       const firstField = Object.keys(fields())[0];
@@ -273,6 +274,65 @@
   }
 
   const catalogueByKey = key => contextKeys.find(item => item.key === key);
+  function checkboxOptions(spec) {
+    const item = catalogueByKey(spec?.context_key);
+    let options = [];
+    if (item?.type === 'choice') {
+      options = (item.choice_options || [])
+        .filter(option => option && option.active !== false && option.code)
+        .map(option => ({ code: String(option.code), label: String(option.label || option.code) }));
+    } else if (item?.type === 'boolean') {
+      options = [{ code: 'true', label: 'Yes' }, { code: 'false', label: 'No' }];
+    }
+    const current = String(spec?.checked_when ?? '').trim();
+    if (!options.length && current) {
+      options.push({ code: current, label: `${current} (existing value)` });
+    }
+    return options;
+  }
+
+  function optionForValue(options, value) {
+    const candidate = value && typeof value === 'object' ? value.code : value;
+    const normalized = String(candidate ?? '').trim().toLowerCase();
+    return options.find(option => option.code.toLowerCase() === normalized || option.label.toLowerCase() === normalized);
+  }
+
+  function setSampleValue(contextKey, option) {
+    if (!contextKey || !option) return;
+    configuration.sample_context ||= {};
+    configuration.sample_context._canonical_values ||= {};
+    const item = catalogueByKey(contextKey);
+    const canonical = item?.type === 'boolean' ? option.code === 'true' : option.code;
+    configuration.sample_context._canonical_values[contextKey] = canonical;
+    configuration.sample_context[contextKey] = option.label;
+  }
+
+  function normalizeChoiceSamples() {
+    configuration.sample_context ||= {};
+    configuration.sample_context._canonical_values ||= {};
+    contextKeys.filter(item => ['choice', 'boolean'].includes(item.type)).forEach(item => {
+      const options = checkboxOptions({ context_key: item.key });
+      if (!options.length) return;
+      const canonical = configuration.sample_context._canonical_values[item.key];
+      const display = configuration.sample_context[item.key];
+      setSampleValue(item.key, optionForValue(options, canonical) || optionForValue(options, display) || options[0]);
+    });
+  }
+
+  function populateCheckboxControls(spec) {
+    const options = checkboxOptions(spec);
+    const html = options.map(option => `<option value="${escapeHtml(option.code)}">${escapeHtml(option.label)}</option>`).join('');
+    $('cal-checked-when').innerHTML = html;
+    $('cal-sample-value').innerHTML = html;
+    const condition = optionForValue(options, spec.checked_when) || options[0];
+    if (condition) $('cal-checked-when').value = condition.code;
+    const canonical = configuration.sample_context?._canonical_values?.[spec.context_key];
+    const sample = optionForValue(options, canonical) || optionForValue(options, configuration.sample_context?.[spec.context_key]) || condition;
+    if (sample) $('cal-sample-value').value = sample.code;
+    const isCheckbox = (spec.render_as || 'text') === 'checkbox';
+    $('cal-checked-wrap').hidden = !isCheckbox;
+    $('cal-sample-value-wrap').hidden = !isCheckbox;
+  }
   const signatureByKey = key => signatureCatalog.find(item => `${item.role}.${item.slot_key}` === key);
   function readinessState() {
     const placedContexts = new Set(Object.values(fields()).map(spec => String(spec.context_key || '')));
@@ -691,12 +751,11 @@
     $('cal-font-size').value = spec.font_size || 8;
     $('cal-min-font-size').value = spec.min_font_size || 5;
     $('cal-render-as').value = spec.render_as || 'text';
-    $('cal-checked-when').value = spec.checked_when ?? '';
     const padding = typeof spec.padding === 'object' ? spec.padding : { x: spec.padding || 0, y: spec.padding || 0 };
     $('cal-padding-x').value = padding.x || 0; $('cal-padding-y').value = padding.y || 0;
     $('cal-text-case').value = spec.text_case || 'none';
     $('cal-align').value = spec.align || 'left'; $('cal-vertical').value = spec.vertical_align || 'bottom'; $('cal-fit').value = spec.fit || 'shrink';
-    $('cal-checked-wrap').hidden = $('cal-render-as').value !== 'checkbox';
+    populateCheckboxControls(spec);
   }
 
   function markDirty() {
@@ -738,7 +797,15 @@
     spec.render_as = $('cal-render-as').value;
     spec.padding = { x: Number($('cal-padding-x').value), y: Number($('cal-padding-y').value) };
     spec.text_case = $('cal-text-case').value;
-    spec.checked_when = $('cal-checked-when').value;
+    if (spec.render_as === 'checkbox') {
+      const options = checkboxOptions(spec);
+      const selected = optionForValue(options, $('cal-checked-when').value) || options[0];
+      spec.checked_when = selected?.code || '';
+      setSampleValue(
+        spec.context_key,
+        optionForValue(options, $('cal-sample-value').value) || selected,
+      );
+    }
     spec.align = $('cal-align').value;
     spec.vertical_align = $('cal-vertical').value;
     spec.fit = $('cal-fit').value;
@@ -910,13 +977,30 @@
         Object.fromEntries(columns.map(column => [column.key, column.type === 'money' ? '12,500' : column.label || column.key])),
       ];
     } else {
-      configuration.sample_context[context] ||= catalogueField?.label || context.replaceAll('_', ' ');
+      const options = checkboxOptions({ context_key: context });
+      if (options.length) {
+        setSampleValue(
+          context,
+          optionForValue(options, configuration.sample_context?._canonical_values?.[context]) || options[0],
+        );
+      } else {
+        configuration.sample_context[context] ||= catalogueField?.label || context.replaceAll('_', ' ');
+      }
     }
     select('field', key); markDirty(); recordHistory('Place field', before);
   }
 
   ['cal-x', 'cal-y', 'cal-width', 'cal-height'].forEach(id => $(id).addEventListener('change', updateGeometry));
   ['cal-font', 'cal-font-size', 'cal-min-font-size', 'cal-padding-x', 'cal-padding-y', 'cal-text-case', 'cal-render-as', 'cal-checked-when', 'cal-align', 'cal-vertical', 'cal-fit'].forEach(id => $(id).addEventListener('change', updateSelectedField));
+  $('cal-sample-value').addEventListener('change', () => {
+    const spec = currentSpec();
+    if (!spec || selectedKind !== 'field' || (spec.render_as || 'text') !== 'checkbox') return;
+    const option = optionForValue(checkboxOptions(spec), $('cal-sample-value').value);
+    if (!option) return;
+    const before = configurationHash(configuration);
+    setSampleValue(spec.context_key, option);
+    markDirty(); inspect(); recordHistory('Change filled sample value', before);
+  });
   ['cal-signature-label', 'cal-signature-align', 'cal-signature-vertical', 'cal-signature-padding-x', 'cal-signature-padding-y', 'cal-signature-rotation', 'cal-signature-ink', 'cal-signature-font', 'cal-signature-font-size', 'cal-signature-stroke-width', 'cal-stamp-fit'].forEach(id => $(id).addEventListener('change', updateSelectedSignature));
   $('cal-context').addEventListener('change', event => {
     const item = contextKeys.find(candidate => candidate.key === event.target.value);
