@@ -987,8 +987,16 @@ def _inherit_template_for_product_version(
             officer_selectable=source_template.officer_selectable,
             default_selected=source_template.default_selected,
             applicability_rule=json.loads(json.dumps(source_template.applicability_rule)),
-            form_schema=json.loads(json.dumps(source_template.form_schema)),
-            signer_rules=json.loads(json.dumps(source_template.signer_rules)),
+            form_schema=json.loads(json.dumps(
+                successor.form_schema
+                if source_template.document_role == source_template.ROLE_PRIMARY
+                else source_template.form_schema
+            )),
+            signer_rules=json.loads(json.dumps(
+                successor.signer_rules
+                if source_template.document_role == source_template.ROLE_PRIMARY
+                else source_template.signer_rules
+            )),
             document_type=document_type,
             name=(
                 f'{successor.name} LAF v{successor.version}'
@@ -1050,6 +1058,15 @@ def clone_product_version(
         product_key=source.product_key, lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
     ).order_by('-version').first()
     if existing:
+        if existing.product_version_id:
+            from core.services.origination_commercial_terms import (
+                ensure_commercial_catalogue, merge_commercial_contract,
+            )
+            fields = ensure_commercial_catalogue(actor=actor)
+            upgraded_schema = merge_commercial_contract(existing.form_schema, fields=fields)
+            if upgraded_schema != existing.form_schema:
+                existing.form_schema = upgraded_schema
+                existing.save(update_fields=['form_schema', 'updated_at'])
         _inherit_template_for_product_version(
             source=source, successor=existing, actor=actor,
         )
@@ -1060,12 +1077,19 @@ def clone_product_version(
         OriginationProductDefinition.objects.filter(product_key=source.product_key)
         .aggregate(models.Max('version'))['version__max'] or 0
     ) + 1
+    successor_schema = json.loads(json.dumps(source.form_schema))
+    if source.product_version_id:
+        from core.services.origination_commercial_terms import (
+            ensure_commercial_catalogue, merge_commercial_contract,
+        )
+        fields = ensure_commercial_catalogue(actor=actor)
+        successor_schema = merge_commercial_contract(source.form_schema, fields=fields)
     clone = OriginationProductDefinition.objects.create(
         product_version=global_version,
         product_key=source.product_key,
         name=source.name,
         version=next_version,
-        form_schema=json.loads(json.dumps(source.form_schema)),
+        form_schema=successor_schema,
         signer_rules=json.loads(json.dumps(source.signer_rules)),
         document_type=source.document_type,
         document_template_name='',

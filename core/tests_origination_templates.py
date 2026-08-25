@@ -698,7 +698,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertIn("mode = 'filled'", source)
         self.assertIn('await renderPage()', source)
         self.assertIn('default for fields added later', template)
-        self.assertIn('origination_calibration.js\' %}?v=14', template)
+        self.assertIn('origination_calibration.js\' %}?v=15', template)
 
     def test_checkbox_builder_uses_canonical_selectors_and_sample_control(self):
         source = (
@@ -714,6 +714,25 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertIn('cal-sample-value', template)
         self.assertIn('<select id="cal-checked-when">', template)
         self.assertNotIn('id="cal-checked-when" type="text"', template)
+
+    def test_readiness_and_field_catalogue_are_bounded_collapsible_panels(self):
+        source = (
+            Path(settings.BASE_DIR) / 'core/static/admin/origination_calibration.js'
+        ).read_text(encoding='utf-8')
+        styles = (
+            Path(settings.BASE_DIR) / 'core/static/admin/origination_calibration.css'
+        ).read_text(encoding='utf-8')
+        template = (
+            Path(settings.BASE_DIR)
+            / 'core/templates/admin/core/originationdocumenttemplate/calibrate.html'
+        ).read_text(encoding='utf-8')
+
+        self.assertIn('<details id="calibration-readiness"', template)
+        self.assertIn('id="calibration-field-browser"', template)
+        self.assertIn('calibration-field-summary-count', template)
+        self.assertIn('max-height: min(180px, 26vh)', styles)
+        self.assertIn('height: clamp(220px, 36vh, 420px)', styles)
+        self.assertIn("$('calibration-readiness').open = true", source)
 
     def test_pdf_only_onboarding_derives_product_contract(self):
         digest, pages = validate_template_pdf(self.pdf)

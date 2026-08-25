@@ -309,7 +309,8 @@ def _form_schema(fields: dict[str, OriginationDataField]) -> dict[str, Any]:
             'width': spec['width'], 'help_text': spec['help_text'],
             'validation': spec['validation'], 'options': spec['options'],
         }))
-    return schema
+    from core.services.origination_commercial_terms import merge_commercial_contract
+    return merge_commercial_contract(schema, fields=fields)
 
 
 @transaction.atomic
@@ -412,6 +413,8 @@ def apply_seed(*, product_code: str, pdf_path: str | Path, actor) -> dict[str, A
     plan = preflight(product_code=product_code, pdf_path=pdf_path)
     with transaction.atomic():
         fields = _upsert_fields(actor=actor)
+        from core.services.origination_commercial_terms import ensure_commercial_catalogue
+        fields.update(ensure_commercial_catalogue(actor=actor))
         schema = _form_schema(fields)
         from core.services.loan_origination import validate_product_form_contract
         validate_product_form_contract(schema, list(SIGNER_RULES))

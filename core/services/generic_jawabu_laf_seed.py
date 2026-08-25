@@ -148,7 +148,7 @@ FIELD_SPECS = (
     _field('approval_amount', 'Approved Amount', 'money', 'loan_details', required=False, category='System', source=OriginationDataField.SOURCE_SYSTEM, sensitivity='financial'),
     _field('amount_advanced', 'Amount Advanced', 'money', 'loan_details', required=False, category='System', source=OriginationDataField.SOURCE_SYSTEM, sensitivity='financial'),
     _field('acknowledgement_amount', 'Acknowledgement Amount', 'money', 'loan_details', required=False, category='System', source=OriginationDataField.SOURCE_SYSTEM, sensitivity='financial'),
-    _field('installment_amount', 'Installment Amount', 'money', 'loan_details', required=False, category='System', source=OriginationDataField.SOURCE_SYSTEM, sensitivity='financial'),
+    _field('installment_amount', 'Installment Amount', 'money', 'loan_details', required=True, category='Commercial Terms', source=OriginationDataField.SOURCE_USER_INPUT, sensitivity='financial'),
     _field('interest_rate', 'Interest Rate', 'text', 'loan_details', required=False, category='System', source=OriginationDataField.SOURCE_SYSTEM, sensitivity='financial'),
     _field('repayment_frequency', 'Repayment Frequency', 'text', 'loan_details', required=False, category='System', source=OriginationDataField.SOURCE_SYSTEM, sensitivity='financial'),
     _field('penalty_rate', 'Penalty Rate', 'text', 'loan_details', required=False, category='System', source=OriginationDataField.SOURCE_SYSTEM, sensitivity='financial'),
@@ -289,7 +289,10 @@ def ensure_catalogue(*, actor) -> dict[str, OriginationDataField]:
     if not getattr(actor, 'is_active', False) or not getattr(actor, 'is_superuser', False):
         raise GenericJawabuLafSeedError('The catalogue actor must be an active Django Superuser.')
     validate_catalogue_contract()
-    return _upsert_fields(actor=actor)
+    fields = _upsert_fields(actor=actor)
+    from core.services.origination_commercial_terms import ensure_commercial_catalogue
+    fields.update(ensure_commercial_catalogue(actor=actor))
+    return fields
 
 
 def build_form_schema(fields: dict[str, OriginationDataField]) -> dict[str, Any]:
@@ -308,7 +311,8 @@ def build_form_schema(fields: dict[str, OriginationDataField]) -> dict[str, Any]
             'width': spec['width'], 'validation': spec['validation'],
             'options': spec['options'], 'structure': spec['structure'],
         }))
-    return schema
+    from core.services.origination_commercial_terms import merge_commercial_contract
+    return merge_commercial_contract(schema, fields=fields)
 
 
 @transaction.atomic

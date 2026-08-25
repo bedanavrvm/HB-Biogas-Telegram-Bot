@@ -1,6 +1,6 @@
 {% extends "admin/base_site.html" %}
 {% load static %}
-{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_calibration.css' %}?v=13">{% endblock %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_calibration.css' %}?v=15">{% endblock %}
 {% block breadcrumbs %}{% endblock %}
 {% block content_title %}{% endblock %}
 {% block content_subtitle %}{% endblock %}
@@ -22,10 +22,16 @@
   <div class="calibration-workspace">
     <aside class="calibration-sidebar" id="calibration-sidebar" aria-labelledby="calibration-sheet-title">
       <header class="calibration-sheet-header"><div><p>Calibration controls</p><h2 id="calibration-sheet-title">Fields and signer slots</h2></div><button type="button" class="cal-button cal-button-icon" id="calibration-sheet-close" aria-label="Close controls"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
-      <section id="calibration-readiness" class="calibration-readiness" aria-labelledby="calibration-readiness-heading"><div><h2 id="calibration-readiness-heading">Publish readiness</h2><strong id="calibration-readiness-count">0 of 0 required items placed</strong></div><p id="calibration-readiness-message">Checking the product requirements.</p><ul id="calibration-readiness-items"></ul></section>
+      <details id="calibration-readiness" class="calibration-readiness" open>
+        <summary><span><span id="calibration-readiness-heading" class="calibration-readiness-title">Publish readiness</span><strong id="calibration-readiness-count">0 of 0 required items placed</strong></span></summary>
+        <div class="calibration-readiness-body"><p id="calibration-readiness-message">Checking the product requirements.</p><ul id="calibration-readiness-items"></ul></div>
+      </details>
       <div class="tool-row"><button type="button" class="cal-button" id="calibration-add">+ Field</button><button type="button" class="cal-button" id="calibration-add-signature">+ Signer slot</button><button type="button" class="cal-button" id="calibration-draw">Draw</button><button type="button" class="cal-button" id="calibration-duplicate">Duplicate field</button><button type="button" class="cal-button cal-button-danger" id="calibration-delete">Delete</button></div>
-      <div class="calibration-field-browser"><label>Find field<input id="calibration-search" type="search" placeholder="Name, key, category, or role"></label>
-      <div id="calibration-fields" class="calibration-navigator" role="list" aria-label="Product fields and signer slots"></div></div>
+      <details class="calibration-field-browser" id="calibration-field-browser" open>
+        <summary><span>Product fields and signer slots</span><strong id="calibration-field-summary-count">0 items</strong></summary>
+        <div class="calibration-field-browser-body"><label>Find field<input id="calibration-search" type="search" placeholder="Name, key, category, or role"></label>
+        <div id="calibration-fields" class="calibration-navigator" role="list" aria-label="Product fields and signer slots"></div></div>
+      </details>
       <details class="global-formatting">
         <summary>Global formatting</summary>
         <div class="global-formatting-body">
@@ -121,5 +127,5 @@
     </form>
   </dialog>
 </div>
-<script src="{% static 'admin/origination_calibration.js' %}?v=14"></script>
+<script src="{% static 'admin/origination_calibration.js' %}?v=15"></script>
 {% endblock %}

@@ -2977,7 +2977,7 @@ class ProductVersion(models.Model):
         help_text='Origination/workflow variable containing the requested principal.',
     )
     quote_tenor_field_key = models.SlugField(
-        max_length=80, default='repayment_period',
+        max_length=80, default='repayment_tenor',
         help_text='Origination/workflow variable containing the numeric tenor.',
     )
     effective_from = models.DateField(default=timezone.localdate, db_index=True)
@@ -4920,6 +4920,84 @@ class LoanOriginationApplication(models.Model):
 
     def __str__(self):
         return self.reference_number
+
+
+class OriginationCommercialException(models.Model):
+    """Immutable Superuser approval for exact policy mismatches on one revision."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    application = models.ForeignKey(
+        LoanOriginationApplication, on_delete=models.PROTECT,
+        related_name='commercial_exceptions',
+    )
+    application_revision = models.PositiveIntegerField()
+    product_version = models.ForeignKey(
+        ProductVersion, on_delete=models.PROTECT,
+        related_name='origination_commercial_exceptions',
+    )
+    entered_terms_sha256 = models.CharField(max_length=64)
+    expected_quote_sha256 = models.CharField(max_length=64)
+    covered_mismatch_codes = models.JSONField(default=list)
+    reason = models.TextField()
+    approval_reference = models.CharField(max_length=255)
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='approved_origination_commercial_exceptions',
+    )
+    approved_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        verbose_name = 'Origination commercial exception'
+        verbose_name_plural = 'Origination commercial exceptions'
+        ordering = ['-approved_at', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    'application', 'application_revision', 'entered_terms_sha256',
+                    'expected_quote_sha256',
+                ],
+                name='unique_origination_commercial_exception',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['application', 'application_revision'],
+                name='orig_comm_exception_rev_idx',
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.application_id and self.product_version_id:
+            if self.application.product_version_id != self.product_version_id:
+                errors['product_version'] = 'The exception must use the application product version.'
+        if self.approved_by_id and (
+            not self.approved_by.is_active or not self.approved_by.is_superuser
+        ):
+            errors['approved_by'] = 'Only an active Django Superuser may approve this exception.'
+        codes = self.covered_mismatch_codes or []
+        if not isinstance(codes, list) or not codes or any(not isinstance(item, str) for item in codes):
+            errors['covered_mismatch_codes'] = 'At least one stable policy mismatch code is required.'
+        if not str(self.reason or '').strip():
+            errors['reason'] = 'Record why this exception was approved.'
+        if not str(self.approval_reference or '').strip():
+            errors['approval_reference'] = 'Record the external approval reference.'
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError('Origination commercial exceptions are append-only.')
+        self.covered_mismatch_codes = sorted(set(self.covered_mismatch_codes or []))
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Origination commercial exceptions cannot be deleted.')
+
+    def __str__(self):
+        return f'{self.application.reference_number} r{self.application_revision}'
 
 
 class OriginationReportingValue(models.Model):

@@ -268,6 +268,7 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("core.OriginationDocumentTemplate", "Origination PDF templates", "picture_as_pdf"),
         _model_item("core.OriginationProductDocumentAssignment", "Product document assignments", "assignment"),
         _model_item("core.OriginationDataField", "Origination data fields", "data_object"),
+        _model_item("core.OriginationCommercialException", "Origination commercial exceptions", "gavel"),
         _model_item("core.OriginationStampAsset", "Origination stamp assets", "verified"),
         _model_item("core.OriginationSigningPackage", "Origination signing packages", "draw"),
         _model_item("core.OriginationSignerSession", "Origination signer sessions", "sms"),

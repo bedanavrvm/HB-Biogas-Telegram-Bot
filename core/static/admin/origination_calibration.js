@@ -385,6 +385,8 @@
   function renderItemList() {
     const query = $('calibration-search').value.trim().toLowerCase();
     const { fieldRows, signatureRows } = navigatorRows();
+    const itemCount = fieldRows.length + signatureRows.length;
+    $('calibration-field-summary-count').textContent = `${itemCount} item${itemCount === 1 ? '' : 's'}`;
     const group = (label, rows) => {
       const filtered = rows.filter(item => !query || [item.kind, item.key, item.label, item.canonicalKey, item.category, ...(item.aliases || [])].join(' ').toLowerCase().includes(query));
       return `<section class="calibration-nav-group"><h3>${label}<span>${filtered.length}</span></h3>${filtered.length ? filtered.map(navigatorRowMarkup).join('') : '<p class="calibration-nav-empty">No matching items.</p>'}</section>`;
@@ -1171,8 +1173,12 @@
   $('cal-mobile-global').onclick = event => openMobileSheet('global', event.currentTarget);
   $('cal-mobile-view').onclick = event => openMobileSheet('view', event.currentTarget);
   $('calibration-readiness-trigger').onclick = () => {
+    $('calibration-readiness').open = true;
     if (mobileLayout()) openMobileSheet('fields', $('cal-mobile-fields'));
-    else { $('calibration-readiness').scrollIntoView({ block: 'nearest' }); $('calibration-readiness').focus?.(); }
+    else {
+      $('calibration-readiness').scrollIntoView({ block: 'nearest' });
+      $('calibration-readiness').querySelector('summary')?.focus();
+    }
   };
   $('calibration-sheet-close').onclick = () => closeMobileSheets();
   $('calibration-view-close').onclick = () => closeMobileSheets();

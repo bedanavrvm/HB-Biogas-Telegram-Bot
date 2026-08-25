@@ -51,18 +51,22 @@ def _fee_amount(fee: ProductFee, bases: dict[str, Decimal]) -> Decimal:
 def calculate_product_quote(
     version: ProductVersion, *, amount: object, tenor: object,
     optional_fee_keys: list[str] | tuple[str, ...] | None = None,
+    enforce_policy_bounds: bool = True,
 ) -> dict[str, Any]:
     principal = _decimal(amount, 'loan amount')
     try:
         tenor_value = int(str(tenor).strip())
     except (TypeError, ValueError) as exc:
         raise ProductCatalogError('Enter a valid whole-number tenor.') from exc
-    if principal < version.min_amount:
-        raise ProductCatalogError(f'Amount must be at least {version.currency} {version.min_amount:,.2f}.')
-    if version.max_amount is not None and principal > version.max_amount:
-        raise ProductCatalogError(f'Amount must not exceed {version.currency} {version.max_amount:,.2f}.')
-    if tenor_value < version.min_tenor or tenor_value > version.max_tenor:
-        raise ProductCatalogError(f'Tenor must be between {version.min_tenor} and {version.max_tenor} {version.tenor_unit}s.')
+    if enforce_policy_bounds:
+        if principal < version.min_amount:
+            raise ProductCatalogError(f'Amount must be at least {version.currency} {version.min_amount:,.2f}.')
+        if version.max_amount is not None and principal > version.max_amount:
+            raise ProductCatalogError(f'Amount must not exceed {version.currency} {version.max_amount:,.2f}.')
+        if tenor_value < version.min_tenor or tenor_value > version.max_tenor:
+            raise ProductCatalogError(f'Tenor must be between {version.min_tenor} and {version.max_tenor} {version.tenor_unit}s.')
+    if principal < 0 or tenor_value < 1:
+        raise ProductCatalogError('Loan amount cannot be negative and tenor must be at least one.')
 
     selected = set(optional_fee_keys or [])
     fees = [fee for fee in version.fees.all() if fee.mandatory or fee.key in selected]

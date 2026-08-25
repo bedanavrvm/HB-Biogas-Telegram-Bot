@@ -83,6 +83,7 @@ deletion, or another Mini App.
 | PDF upload/calibration/publication | `core/services/origination_templates.py` |
 | Canonical field governance | `core/services/origination_fields.py` |
 | Product terms and availability | `core/services/product_catalog.py` |
+| Officer-entered commercial contract, quote comparison and exact exceptions | `core/services/origination_commercial_terms.py` |
 | Authorization and scoping | `core/services/origination_access.py`, `core/services/workflow_capabilities.py` |
 | HTTP boundary | `core/api/origination_views.py`, `core/api/urls.py` |
 | Mini App | `core/templates/loan_origination/app.html`, `core/static/miniapp/loan_origination.*` |
@@ -108,6 +109,32 @@ version resolver in a view or Mini App.
 
 The Origination definition may reference a Product Version. When linked, its
 `product_key` and `name` must equal the Global Product code and name.
+
+### Officer-entered Commercial Terms
+
+`origination_commercial_terms.py` owns the shared versioned field contract and
+the comparison boundary. New/cloned definitions and both reviewed LAF seeds
+merge this contract idempotently. `create_application()` snapshots it; no
+existing application is rewritten when a definition later changes.
+
+On every Draft save, the service stores the latest expected ProductVersion
+quote in `product_quote_snapshot` and appends the entered terms, expected quote,
+findings, and stable hashes to `OriginationApplicationEvent.metadata`. Policy
+mismatches remain editable readiness findings. Submission recomputes from the
+current revision and blocks unresolved findings.
+
+`OriginationCommercialException` is append-only and matches only the exact
+application revision, ProductVersion, entered-terms hash, expected-quote hash,
+and named mismatch codes. A revision/hash change makes it inapplicable without
+mutating the historical approval. Missing/invalid input and internal arithmetic
+findings are marked non-waivable. The frozen `product_quote_snapshot` carries
+the consumed exception into review/signing package context.
+
+The dry-run-first `upgrade_origination_commercial_contract` command signs its
+exact target/fingerprint manifest with Django signing. Apply locks every target
+and aborts the entire transaction on drift. It changes Draft definitions and
+their editable primary template schema only; published definitions and all
+application snapshots are excluded.
 
 ### Canonical fields and schemas
 
@@ -417,6 +444,9 @@ The reviewed Invoice Finance contract has its own idempotent, dry-run-first
 seed. Its source PDF remains ignored under `LAFS/` and coordinates are never
 auto-published:
 
+Its canonical field/type/validation/rendering and signer contract is documented
+in [Invoice Finance LAF seed reference](origination/invoice-finance-laf-seed.md).
+
 ```powershell
 .\.venv\Scripts\python.exe manage.py seed_invoice_finance_origination --actor <active-superuser>
 .\.venv\Scripts\python.exe manage.py seed_invoice_finance_origination --actor <active-superuser> --apply
@@ -427,6 +457,18 @@ mutable canonical-field governance, fails on frozen type conflicts, replaces a
 draft contract or creates a successor, and records field/product/template audit
 events. Tests must mock the Drive upload; do not seed a real environment from
 the automated test suite.
+
+The reusable Generic Jawabu LAF has a separate dry-run-first seed and mapping
+reference: [Generic Jawabu LAF seed reference](origination/generic-jawabu-laf-seed.md).
+
+```powershell
+.\.venv\Scripts\python.exe manage.py seed_generic_jawabu_laf --actor <active-superuser>
+.\.venv\Scripts\python.exe manage.py seed_generic_jawabu_laf --actor <active-superuser> --apply
+```
+
+It creates or reuses a global primary-template family, but deliberately leaves
+product assignment, PDF coordinates, calibration, and publication to explicit
+Django Admin actions.
 
 Preview Telegram launchers without external writes:
 
@@ -439,7 +481,7 @@ Preview Telegram launchers without external writes:
 Run the narrow Origination suite first:
 
 ```powershell
-.\.venv\Scripts\python.exe manage.py test core.tests_loan_origination core.tests_loan_origination_frontend core.tests_origination_templates core.tests_origination_fields core.tests_origination_safe_workflow core.tests_origination_command core.tests_origination_seed_command core.tests_origination_god_mode core.tests_invoice_finance_origination_seed
+.\.venv\Scripts\python.exe manage.py test core.tests_loan_origination core.tests_origination_commercial_terms core.tests_loan_origination_frontend core.tests_origination_templates core.tests_origination_fields core.tests_origination_safe_workflow core.tests_origination_command core.tests_origination_seed_command core.tests_origination_god_mode core.tests_invoice_finance_origination_seed core.tests_laf_seed_documentation
 ```
 
 Check migration drift:

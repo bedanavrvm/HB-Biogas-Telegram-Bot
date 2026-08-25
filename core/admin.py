@@ -118,6 +118,7 @@ from .models import (
     OriginationDocumentTemplateEvent,
     OriginationTemplateConfigurationRevision,
     LoanOriginationApplication,
+    OriginationCommercialException,
     OriginationReportingValue,
     OriginationApplicationEvent,
     OriginationCorrectionItem,
@@ -7489,6 +7490,14 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
             obj.is_active = False
         if not obj.created_by_id:
             obj.created_by = request.user
+        if obj.product_version_id:
+            from core.services.origination_commercial_terms import (
+                ensure_commercial_catalogue, merge_commercial_contract,
+            )
+            commercial_fields = ensure_commercial_catalogue(actor=request.user)
+            obj.form_schema = merge_commercial_contract(
+                obj.form_schema, fields=commercial_fields,
+            )
         from core.services.loan_origination import validate_product_form_contract
         validate_product_form_contract(obj.form_schema, obj.signer_rules)
         super().save_model(request, obj, form, change)
@@ -8211,6 +8220,125 @@ class LoanOriginationApplicationAdmin(OriginationGodModeAdminMixin, ModelAdmin):
 
     def has_add_permission(self, request):
         return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class OriginationCommercialExceptionForm(forms.ModelForm):
+    class Meta:
+        model = OriginationCommercialException
+        fields = ('application', 'reason', 'approval_reference')
+        widgets = {'reason': forms.Textarea(attrs={'rows': 4})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['application'].queryset = LoanOriginationApplication.objects.filter(
+            status__in=[
+                LoanOriginationApplication.STATUS_DRAFT,
+                LoanOriginationApplication.STATUS_CORRECTION_REQUIRED,
+            ],
+        ).select_related('product_version', 'product_definition').order_by('-updated_at')
+        self.fields['application'].help_text = (
+            'Choose the exact editable application revision. Any later edit invalidates this approval.'
+        )
+
+    def clean(self):
+        cleaned = super().clean()
+        application = cleaned.get('application')
+        if not application:
+            return cleaned
+        from core.services.origination_commercial_terms import validate_commercial_terms
+        validation = validate_commercial_terms(application)
+        if not validation['enabled']:
+            self.add_error('application', 'This application does not use the governed Commercial Terms contract.')
+            return cleaned
+        if any(not item['waivable'] for item in validation['blocking_findings']):
+            self.add_error(
+                'application',
+                'Fix missing, invalid, or internally inconsistent values before approving a policy exception.',
+            )
+        elif not validation['policy_mismatch_codes']:
+            self.add_error('application', 'This revision has no product-policy mismatch to approve.')
+        elif OriginationCommercialException.objects.filter(
+            application=application,
+            application_revision=application.revision,
+            entered_terms_sha256=validation['entered_terms_sha256'],
+            expected_quote_sha256=validation['expected_quote_sha256'],
+        ).exists():
+            self.add_error('application', 'This exact revision already has a commercial exception.')
+        self._commercial_validation = validation
+        return cleaned
+
+
+@admin.register(OriginationCommercialException)
+class OriginationCommercialExceptionAdmin(OriginationGodModeAdminMixin, ModelAdmin):
+    form = OriginationCommercialExceptionForm
+    list_display = (
+        'application', 'application_revision', 'product_version',
+        'approval_reference', 'approved_by', 'approved_at',
+    )
+    list_filter = ('approved_at', 'product_version__product')
+    search_fields = (
+        'application__reference_number', 'approval_reference',
+        'approved_by__username',
+    )
+    readonly_fields = (
+        'application_revision', 'product_version', 'entered_terms_sha256',
+        'expected_quote_sha256', 'covered_mismatch_codes', 'approved_by', 'approved_at',
+    )
+
+    def get_readonly_fields(self, request, obj=None):
+        return self.readonly_fields if obj else ()
+
+    def get_fields(self, request, obj=None):
+        if obj:
+            return (
+                'application', 'application_revision', 'product_version',
+                'covered_mismatch_codes', 'reason', 'approval_reference',
+                'entered_terms_sha256', 'expected_quote_sha256',
+                'approved_by', 'approved_at',
+            )
+        return ('application', 'reason', 'approval_reference')
+
+    def save_model(self, request, obj, form, change):
+        if change or not request.user.is_active or not request.user.is_superuser:
+            raise PermissionDenied
+        validation = getattr(form, '_commercial_validation', None)
+        if not validation:
+            raise ValidationError('Commercial validation must complete before approval.')
+        obj.application_revision = obj.application.revision
+        obj.product_version = obj.application.product_version
+        obj.entered_terms_sha256 = validation['entered_terms_sha256']
+        obj.expected_quote_sha256 = validation['expected_quote_sha256']
+        obj.covered_mismatch_codes = sorted(set(validation['policy_mismatch_codes']))
+        obj.approved_by = request.user
+        super().save_model(request, obj, form, change)
+        OriginationApplicationEvent.objects.create(
+            application=obj.application, action='commercial_exception_approved',
+            revision=obj.application_revision, actor=request.user,
+            after_values={
+                'exception_id': str(obj.pk),
+                'covered_mismatch_codes': obj.covered_mismatch_codes,
+                'approval_reference': obj.approval_reference,
+            },
+            metadata={
+                'entered_terms_sha256': obj.entered_terms_sha256,
+                'expected_quote_sha256': obj.expected_quote_sha256,
+            },
+        )
+
+    def has_module_permission(self, request):
+        return request.user.is_active and request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_active and request.user.is_superuser
+
+    def has_add_permission(self, request):
+        return request.user.is_active and request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        return bool(obj is None and self.has_add_permission(request))
 
     def has_delete_permission(self, request, obj=None):
         return False

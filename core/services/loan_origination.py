@@ -699,7 +699,10 @@ def _missing_application_requirements(
     return result
 
 
-def _record_event(application, action: str, *, actor, request_id: str = '', before=None, after=None) -> None:
+def _record_event(
+    application, action: str, *, actor, request_id: str = '', before=None,
+    after=None, metadata=None,
+) -> None:
     event = OriginationApplicationEvent.objects.create(
         application=application,
         action=action,
@@ -708,6 +711,7 @@ def _record_event(application, action: str, *, actor, request_id: str = '', befo
         request_id=request_id,
         before_values=before or {},
         after_values=after or {},
+        metadata=metadata or {},
     )
     from core.services.compliance_audit import record_event
     record_event(
@@ -758,6 +762,8 @@ def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
         or str(application.form_payload.get('applicant_full_name') or '').strip()
         or str(application.form_payload.get('borrower_full_name') or '').strip()
     )
+    from core.services.origination_commercial_terms import commercial_contract_enabled
+    governed_commercial = commercial_contract_enabled(application.schema_snapshot)
     context = {
         **application.form_payload,
         'reference_number': application.reference_number,
@@ -771,12 +777,20 @@ def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
         'borrower_full_name': applicant_name,
         'deponent_full_name': applicant_name,
         'acknowledgement_recipient_name': applicant_name,
-        'repayment_frequency': str(terms.get('repayment_frequency') or '').replace('_', ' ').title(),
-        'interest_rate': str(terms.get('interest_rate') or application.form_payload.get('interest_rate') or ''),
+        'repayment_frequency': str(
+            application.form_payload.get('contract_repayment_frequency')
+            or application.form_payload.get('repayment_frequency')
+            or terms.get('repayment_frequency') or ''
+        ).replace('_', ' ').title(),
+        'interest_rate': str(
+            application.form_payload.get('contract_interest_rate_percent')
+            or application.form_payload.get('interest_rate')
+            or terms.get('interest_rate') or ''
+        ),
         'installment_amount': str(
-            (application.product_quote_snapshot or {}).get('installment_amount')
+            application.form_payload.get('installment_amount')
             or application.form_payload.get('daily_weekly_repayment_amount')
-            or application.form_payload.get('installment_amount')
+            or (application.product_quote_snapshot or {}).get('installment_amount')
             or ''
         ),
         'bro_1_name': application.officer.get_full_name() or application.officer.get_username(),
@@ -803,6 +817,16 @@ def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
             except (InvalidOperation, TypeError, ValueError):
                 continue
         context['secured_assets_total'] = format(total, 'f')
+    if governed_commercial:
+        context.update({
+            'repayment_period': ' '.join(filter(None, [
+                str(application.form_payload.get('repayment_tenor') or ''),
+                str(application.form_payload.get('repayment_tenor_unit') or ''),
+            ])).strip(),
+            'daily_weekly_repayment_amount': str(
+                application.form_payload.get('installment_amount') or ''
+            ),
+        })
     return apply_choice_display_values(context, application.schema_snapshot)
 
 
@@ -917,6 +941,13 @@ def create_application(*, product_key: str, officer, branch: str, client_request
     try:
         with transaction.atomic():
             from core.services.origination_fields import snapshot_form_schema
+            from core.services.origination_commercial_terms import (
+                commercial_contract_enabled, initial_fee_rows,
+            )
+            schema_snapshot = snapshot_form_schema(definition.form_schema)
+            initial_payload = {}
+            if commercial_contract_enabled(schema_snapshot):
+                initial_payload['loan_fees'] = initial_fee_rows(definition.product_version)
             application = LoanOriginationApplication.objects.create(
                 id=application_id,
                 reference_number=f'ORG-{timezone.localdate():%Y}-{str(application_id)[:8].upper()}',
@@ -926,7 +957,8 @@ def create_application(*, product_key: str, officer, branch: str, client_request
                 branch=branch,
                 branch_ref=branch_record,
                 location_snapshot=location_snapshot(branch=branch_record),
-                schema_snapshot=snapshot_form_schema(definition.form_schema),
+                schema_snapshot=schema_snapshot,
+                form_payload=initial_payload,
                 signer_rules_snapshot=definition.signer_rules,
                 template_configuration_snapshot=_published_template_configuration(definition),
                 product_terms_snapshot=terms_snapshot,
@@ -1046,7 +1078,26 @@ def save_application_fields(
                 errors={f'custom:{key}': value for key, value in errors.items()},
             )
     quote_snapshot = application.product_quote_snapshot
-    if application.product_version_id:
+    from core.services.origination_commercial_terms import (
+        commercial_contract_enabled, quote_snapshot as commercial_quote_snapshot,
+        validate_commercial_terms,
+    )
+    commercial_validation = None
+    if commercial_contract_enabled(application.schema_snapshot):
+        commercial_validation = validate_commercial_terms(
+            application, payload=payload, selected_fee_keys=selected_fee_keys,
+        )
+        # A successful save creates a new application revision. Commercial
+        # exceptions are deliberately bound to the exact pre-save revision, so
+        # the saved readiness snapshot must not imply that the old approval
+        # carries forward. Internal/input findings remain non-waivable in all
+        # cases; policy findings require a fresh exception for the new revision.
+        if commercial_validation.get('exception'):
+            commercial_validation['exception'] = None
+            commercial_validation['blocking_findings'] = list(commercial_validation['findings'])
+            commercial_validation['ready'] = not commercial_validation['blocking_findings']
+        quote_snapshot = commercial_quote_snapshot(commercial_validation)
+    elif application.product_version_id:
         amount_key = application.product_version.quote_amount_field_key
         tenor_key = application.product_version.quote_tenor_field_key
         amount_value = payload.get(amount_key)
@@ -1130,7 +1181,19 @@ def save_application_fields(
     ])
     from core.services.origination_documents import refresh_document_applicability
     refresh_document_applicability(application)
-    _record_event(application, 'fields_saved', actor=actor, request_id=request_id, before=before)
+    _record_event(
+        application, 'fields_saved', actor=actor, request_id=request_id, before=before,
+        metadata=(
+            {
+                'commercial_terms': commercial_validation['entered_terms'],
+                'commercial_terms_sha256': commercial_validation['entered_terms_sha256'],
+                'expected_quote': commercial_validation['expected_quote'],
+                'expected_quote_sha256': commercial_validation['expected_quote_sha256'],
+                'commercial_findings': commercial_validation['findings'],
+            }
+            if commercial_validation else {}
+        ),
+    )
     return application
 
 
@@ -1214,6 +1277,22 @@ def submit_for_review(*, application_id, actor, expected_revision: int, request_
         raise OriginationError(
             'Complete all required application fields before review.', errors=result.errors,
         )
+    from core.services.origination_commercial_terms import (
+        commercial_contract_enabled, quote_snapshot as commercial_quote_snapshot,
+        validate_commercial_terms,
+    )
+    commercial_validation = None
+    if commercial_contract_enabled(application.schema_snapshot):
+        commercial_validation = validate_commercial_terms(application)
+        if commercial_validation['blocking_findings']:
+            errors = {}
+            for finding in commercial_validation['blocking_findings']:
+                for key in finding.get('field_keys') or ['commercial_terms']:
+                    errors.setdefault(key, finding['message'])
+            raise OriginationError(
+                'Correct the Commercial Terms readiness items before review.',
+                errors=errors,
+            )
     if application.schema_snapshot.get('identity_contract') == APPLICANT_IDENTITY_CONTRACT:
         identity = applicant_identity_snapshot(
             application.form_payload, schema=application.schema_snapshot,
@@ -1245,14 +1324,29 @@ def submit_for_review(*, application_id, actor, expected_revision: int, request_
             'Complete required product evidence before review: ' + ', '.join(item['label'] for item in missing),
             errors={f"requirement:{item['key']}": 'Required before review' for item in missing},
         )
+    if commercial_validation:
+        application.product_quote_snapshot = commercial_quote_snapshot(commercial_validation)
     application.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
     application.revision += 1
     application.submitted_at = timezone.now()
-    application.save(update_fields=['status', 'revision', 'submitted_at', 'updated_at'])
+    update_fields = ['status', 'revision', 'submitted_at', 'updated_at']
+    if commercial_validation:
+        update_fields.append('product_quote_snapshot')
+    application.save(update_fields=update_fields)
     application.correction_requests.filter(status='open').update(
         status='addressed', addressed_by=actor, addressed_at=timezone.now(),
     )
-    _record_event(application, 'submitted_for_review', actor=actor, request_id=request_id)
+    _record_event(
+        application, 'submitted_for_review', actor=actor, request_id=request_id,
+        metadata=(
+            {
+                'commercial_terms_sha256': commercial_validation['entered_terms_sha256'],
+                'expected_quote_sha256': commercial_validation['expected_quote_sha256'],
+                'commercial_exception': commercial_validation['exception'],
+            }
+            if commercial_validation else {}
+        ),
+    )
     return application
 
 
@@ -1824,6 +1918,9 @@ def serialize_application(
             'form_schema': application.schema_snapshot,
             'product_terms': application.product_terms_snapshot,
             'product_quote': application.product_quote_snapshot,
+            'commercial_readiness': (
+                (application.product_quote_snapshot or {}).get('commercial_validation') or {}
+            ),
             'product_requirements': (
                 {} if presentation == 'masked' else application.product_requirement_evidence
             ),

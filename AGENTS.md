@@ -135,6 +135,7 @@ Key modules:
 - `parser.py` — complaint/message parsing
 - `product_catalog.py` — canonical product resolution, effective-dated Superuser publication, availability assignments, mapping review, requirements, and typed custom attributes
 - `product_quotes.py` — Decimal-only product quote calculations for interest, repayment frequency, and fixed/percentage fees
+- `origination_commercial_terms.py` — officer-entered contractual lending terms, arithmetic/policy readiness, immutable quote hashes, and exact revision-bound Superuser exceptions
 - `requisition.py` — requisition generation and files
 - `sheet_analyzer.py` — spreadsheet inspection
 - `sheet_schema.py` — expected sheet structure and mappings
@@ -163,6 +164,7 @@ Key modules:
 - `loan_origination.py` — product-neutral origination schemas, revision-aware drafts, maker-checker review, append-only events, and local signing-package preparation
 - `origination_esign.py` — verified packet signing sessions, immutable consent/signature binding, Africa's Talking OTP delivery, throttling, and signed-PDF archival
 - `invoice_finance_origination_seed.py` — reviewed, idempotent Invoice Finance canonical-field/schema/signer contract used by the dry-run-first LAF setup command; it never publishes PDF coordinates
+- `generic_jawabu_laf_seed.py` — reviewed reusable Jawabu LAF canonical-field, repeating-table, evidence, and signer contract; product assignment and PDF coordinates remain explicit Admin actions
 - `reporting_relationships.py` — read-only model-relationship inventory used to govern future report-source expansion; it never creates cross-workflow customer joins
 - `workflow_capabilities.py` — centrally defined Mini App capabilities and role policy resolution
 - `miniapp_requests.py` — shared Mini App retry-key compatibility and strict-mode policy
@@ -215,6 +217,7 @@ The Mini Apps use Django templates and mostly vanilla JavaScript. Preserve Teleg
 - `core/tests_portal_approval_controls.py`
 - `core/tests_portal_reporting.py`
 - `core/tests_loan_origination.py`
+- `core/tests_laf_seed_documentation.py`
 
 - `core/tests_portal_imports.py`
 
@@ -983,6 +986,15 @@ Prefer documenting:
 - data ownership
 - security model
 - migration/rollback instructions
+
+Every reviewed LAF seed must create or update one dedicated Markdown reference
+under `docs/origination/` in the same change. The reference must identify the
+source template and seed command and document every canonical mapping, data
+type, input/system ownership, required flag, validation/choice contract, PDF
+render mode or condition, repeating structure, signer/stamp slot, evidence
+requirement, product-assignment rule, and the boundary between seeded semantic
+configuration and human-owned alignment coordinates. Keep one file per LAF;
+do not hide these contracts only in a general setup guide.
 
 Do not create another "implementation complete" or duplicate summary file. Update an existing canonical document or place historical notes under an archive location.
 

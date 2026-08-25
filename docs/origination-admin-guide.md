@@ -120,6 +120,25 @@ Do not publish the terms yet if the Origination form and PDFs are not ready. If
 you publish too early, use **Create editable next version**; published terms
 cannot be edited.
 
+#### Product policy versus entered Commercial Terms
+
+Every newly created or upgraded loan-form definition receives a **Commercial
+Terms** section automatically. Officers enter the exact values agreed for the
+application: principal, tenor/unit, currency, interest rate/method/period,
+repayment frequency, installments, totals, and policy-identified fee rows.
+
+The Product Terms version is a validation envelope. Saving a Draft preserves
+the officer's values and readiness findings; it never replaces them with a
+system quote. Submission blocks when entered totals do not add up, required
+values are invalid, fee rows do not reconcile, or policy differs without an
+exact approved exception. Money comparisons allow an inclusive KES 0.01
+difference. Arithmetic and invalid-input failures cannot be waived.
+
+For an approved one-off pricing exception, an active Superuser opens
+**Configuration → Origination commercial exceptions**, selects the exact
+editable application revision, and records a detailed reason plus the external
+approval reference. Any subsequent edit/revision invalidates that exception.
+
 ### 4. Create the Origination Product Definition and main LAF
 
 1. Open **Configuration → Origination product definitions**.
@@ -482,6 +501,9 @@ demo setup. Re-running it against the complete published demo is safe.
 
 ### Prepare the reviewed Invoice Finance LAF
 
+The complete field, validation, rendering, and signer mapping is maintained in
+[Invoice Finance LAF seed reference](origination/invoice-finance-laf-seed.md).
+
 Keep `LAFS/INVOICE FINANCE.pdf` outside Git. First create the global **Invoice
 Finance** product and its commercial terms in Django Admin. Then run the safe
 preview:
@@ -502,6 +524,49 @@ PDF to restricted Drive, and leaves it unpublished. Open the resulting draft's
 alignment builder to place the fields and signer slots, inspect the filled
 sample, and publish. The source form's **ATTACH** checklist is deliberately not
 converted into supporting-document requirements.
+
+### Prepare the reusable Generic Jawabu LAF
+
+The complete reusable-template contract is maintained in
+[Generic Jawabu LAF seed reference](origination/generic-jawabu-laf-seed.md).
+It includes every canonical field, repeatable table, manual Net Income value,
+choice-checkbox mapping, signer slot, and guarantor evidence requirement.
+
+Preview the operation:
+
+```powershell
+.\.venv\Scripts\python.exe manage.py seed_generic_jawabu_laf --actor <superuser-username>
+```
+
+Apply it only after reviewing the dry-run:
+
+```powershell
+.\.venv\Scripts\python.exe manage.py seed_generic_jawabu_laf --actor <superuser-username> --apply
+```
+
+The command uploads an unpublished reusable primary-template family. It does
+not attach or overwrite a product. Calibrate and publish the template, then
+explicitly select it from every compatible draft product definition and publish
+those product definitions separately.
+
+### Upgrade existing editable definitions to Commercial Terms
+
+Published loan-form definitions and existing application snapshots are never
+edited by the upgrade. Generate and review an exact signed manifest first:
+
+```powershell
+.\.venv\Scripts\python.exe manage.py upgrade_origination_commercial_contract --manifest-out .\commercial-upgrade.manifest
+```
+
+The report separately lists published products that need **Create editable next
+version**. Apply only unchanged Draft targets with an active Superuser:
+
+```powershell
+.\.venv\Scripts\python.exe manage.py upgrade_origination_commercial_contract --apply-manifest .\commercial-upgrade.manifest --actor <superuser-username>
+```
+
+Apply is atomic and aborts on drift, missing/published targets, or a tampered
+manifest. The manifest is a local operational artifact and must not be committed.
 
 ## Change an existing production product
 

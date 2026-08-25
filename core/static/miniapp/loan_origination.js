@@ -1092,6 +1092,15 @@
 
   function collectPayload() {
     const payload = { ...(current?.form_payload || {}) };
+    root()?.querySelectorAll('[data-main-repeatable]').forEach(container => {
+      payload[container.dataset.mainRepeatable] = [...container.querySelectorAll('[data-repeat-row]')].map(row => {
+        const item = { row_id: row.dataset.rowId || newRowId() };
+        row.querySelectorAll('[data-repeat-column]').forEach(input => {
+          item[input.dataset.repeatColumn] = input.value.trim();
+        });
+        return item;
+      });
+    });
     root()?.querySelectorAll('[data-field]').forEach(input => {
       if (input.value === '') payload[input.dataset.field] = '';
       else if (input.options && ['true', 'false'].includes(input.value)) payload[input.dataset.field] = input.value === 'true';
@@ -1212,7 +1221,14 @@
     const classes = `laf-field${field.width === 'full' || FULL_WIDTH.has(field.key) ? ' laf-field-wide' : ''}`;
     const required = field.required ? '<span class="required-mark" aria-label="required">*</span>' : '';
     let control = '';
-    if (field.type === 'branch') {
+    if (field.type === 'repeating_group') {
+      const structure = field.structure || {};
+      const columns = structure.columns || [];
+      const rows = Array.isArray(value) ? value : [];
+      const maxItems = Number(structure.max_items || 20);
+      const policyBound = field.key === 'loan_fees';
+      control = `<div class="repeatable-field" data-repeatable-field="${key}" data-main-repeatable="${key}" data-max-items="${maxItems}"><div class="repeatable-rows">${rows.map((row, index) => repeatableRowMarkup(columns, row, index, disabled, policyBound)).join('')}</div>${policyBound ? '' : `<div class="repeatable-summary"><button type="button" class="btn btn-secondary" data-repeat-add${disabled || rows.length >= maxItems ? ' disabled' : ''}>Add item</button></div>`}</div>`;
+    } else if (field.type === 'branch') {
       const branch = locationMatch(locationCatalog.branches, current?.branch);
       control = `<select data-field="${key}" data-location-type="branch" disabled><option value="">Choose</option>${locationSelectOptions(branch ? [branch] : [], value || current?.branch)}</select>`;
     } else if (field.type === 'county') {
@@ -1327,6 +1343,18 @@
     const errors = {};
     fieldsFor(sectionKey).forEach(field => {
       const value = payload[field.key];
+      if (field.type === 'repeating_group') {
+        const rows = Array.isArray(value) ? value : [];
+        const structure = field.structure || {};
+        const minimum = Number(structure.min_items || 0);
+        const maximum = Number(structure.max_items || 0);
+        if (field.required && rows.length < Math.max(1, minimum)) errors[field.key] = `Add at least ${Math.max(1, minimum)} item`;
+        if (maximum && rows.length > maximum) errors[field.key] = `Add no more than ${maximum} items`;
+        rows.forEach((row, index) => (structure.columns || []).forEach(column => {
+          if (!errors[field.key] && column.required && !String(row?.[column.key] ?? '').trim()) errors[field.key] = `Complete ${column.label || column.key} in row ${index + 1}`;
+        }));
+        return;
+      }
       if (field.required && (value === undefined || value === null || value === '')) errors[field.key] = 'Required';
       const input = root()?.querySelector(`[data-field="${CSS.escape(field.key)}"]`);
       const numericError = numericInputError(input);
@@ -1676,12 +1704,21 @@
     return `<div class="section-title"><div><h3>Supporting documents</h3><p>Required documents are selected automatically. Add optional documents now; one full-packet preview at the final check verifies everything together.</p></div></div><div class="packet-document-list">${rows || '<div class="empty-state">No supporting documents apply.</div>'}</div>`;
   }
 
-  function repeatableRowMarkup(columns, row, index, disabled) {
+  function repeatableRowMarkup(columns, row, index, disabled, lockRow = false) {
     return `<div class="repeatable-row" data-repeat-row data-row-id="${escapeHtml(row?.row_id || newRowId())}"><span class="repeatable-row-number">${index + 1}</span>${columns.map(column => {
       const columnValue = row?.[column.key] ?? '';
       const numeric = column.type === 'money' || column.type === 'number';
-      return `<label><span>${escapeHtml(column.label || column.key)}</span><input data-repeat-column="${escapeHtml(column.key)}" type="text" value="${escapeHtml(columnValue)}"${numeric ? ' inputmode="decimal"' : ''}${column.required ? ' required' : ''}${disabled ? ' disabled' : ''}></label>`;
-    }).join('')}<button type="button" class="icon-button repeatable-remove" data-repeat-remove aria-label="Remove asset"${disabled ? ' disabled' : ''}>${iconSvg('close')}</button></div>`;
+      const columnDisabled = disabled || column.editable === false;
+      if (column.type === 'choice') {
+        const options = (column.options || []).map(option => {
+          const code = option && typeof option === 'object' ? option.code : option;
+          const label = option && typeof option === 'object' ? (option.label || option.code) : option;
+          return `<option value="${escapeHtml(code)}"${columnValue === code ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+        }).join('');
+        return `<label><span>${escapeHtml(column.label || column.key)}</span><select data-repeat-column="${escapeHtml(column.key)}"${column.required ? ' required' : ''}${columnDisabled ? ' disabled' : ''}><option value="">Choose</option>${options}</select></label>`;
+      }
+      return `<label><span>${escapeHtml(column.label || column.key)}</span><input data-repeat-column="${escapeHtml(column.key)}" type="text" value="${escapeHtml(columnValue)}"${numeric ? ' inputmode="decimal"' : ''}${column.required ? ' required' : ''}${columnDisabled ? ' disabled' : ''}></label>`;
+    }).join('')}${lockRow ? '' : `<button type="button" class="icon-button repeatable-remove" data-repeat-remove aria-label="Remove item"${disabled ? ' disabled' : ''}>${iconSvg('close')}</button>`}</div>`;
   }
 
   function refreshRepeatableField(container) {
@@ -2129,25 +2166,30 @@
       refreshRepeatableField(container);
       container.querySelector('[data-repeat-add]')?.addEventListener('click', () => {
         const document = wizardSections()[step]?.document;
-        const field = (document?.schema?.fields || []).find(item => item.key === container.dataset.repeatableField);
+        const field = container.dataset.mainRepeatable
+          ? (current?.form_schema?.fields || []).find(item => item.key === container.dataset.mainRepeatable)
+          : (document?.schema?.fields || []).find(item => item.key === container.dataset.repeatableField);
         const rows = container.querySelectorAll('[data-repeat-row]');
         if (!field || rows.length >= Number(container.dataset.maxItems || 11)) return;
         container.querySelector('.repeatable-rows').insertAdjacentHTML(
           'beforeend', repeatableRowMarkup(field.structure?.columns || [], {}, rows.length, false),
         );
         refreshRepeatableField(container);
-        setSaveState('Supporting document not saved', 'dirty');
+        if (container.dataset.mainRepeatable) scheduleSave();
+        else setSaveState('Supporting document not saved', 'dirty');
       });
       container.addEventListener('click', event => {
         const remove = event.target.closest('[data-repeat-remove]');
         if (!remove) return;
         remove.closest('[data-repeat-row]')?.remove();
         refreshRepeatableField(container);
-        setSaveState('Supporting document not saved', 'dirty');
+        if (container.dataset.mainRepeatable) scheduleSave();
+        else setSaveState('Supporting document not saved', 'dirty');
       });
       container.addEventListener('input', () => {
         refreshRepeatableField(container);
-        setSaveState('Supporting document not saved', 'dirty');
+        if (container.dataset.mainRepeatable) scheduleSave();
+        else setSaveState('Supporting document not saved', 'dirty');
       });
     });
     document.getElementById('origination-packet-preview')?.addEventListener('click', openPacketPreview);

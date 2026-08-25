@@ -165,7 +165,7 @@ class LoanOriginationFrontendTests(SimpleTestCase):
             self.assertIn(control, template)
         self.assertIn('aria-labelledby="calibration-sheet-title"', template)
         self.assertIn('aria-controls="calibration-sidebar" aria-expanded="false"', template)
-        self.assertIn('origination_calibration.css\' %}?v=13', template)
+        self.assertIn('origination_calibration.css\' %}?v=15', template)
         self.assertIn('screenPointToPage', source)
         self.assertIn('screenDeltaToPage', source)
         self.assertIn('pageBoxToScreen', source)

@@ -99,14 +99,24 @@ body #content, body #content-main { max-width: none !important; }
   font-size: 12px !important;
 }
 .calibration-sidebar select option { background: #fff !important; color: #172033 !important; }
-.calibration-readiness { display: grid; gap: 5px; padding: 8px; border: 1px solid #f59e0b; border-radius: 8px; background: #fffbeb; color: #78350f; }
+.calibration-readiness { border: 1px solid #f59e0b; border-radius: 8px; background: #fffbeb; color: #78350f; }
 .calibration-readiness.is-ready { border-color: #5eead4; background: #f0fdfa; color: #115e59; }
-.calibration-readiness > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.calibration-readiness h2, .calibration-readiness p { margin: 0; }
-.calibration-readiness h2 { font-size: 12px; }
+.calibration-readiness > summary { display: flex; align-items: center; gap: 8px; padding: 8px; cursor: pointer; }
+.calibration-readiness > summary > span { display: flex; flex: 1 1 auto; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+.calibration-readiness-body { display: grid; gap: 5px; max-height: min(180px, 26vh); padding: 0 8px 8px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.calibration-readiness p { margin: 0; }
+.calibration-readiness-title { font-size: 12px; font-weight: 750; }
 .calibration-readiness strong, .calibration-readiness p, .calibration-readiness li { font-size: 10px; }
 .calibration-readiness ul { display: grid; gap: 2px; margin: 0; padding-left: 17px; }
-.calibration-navigator { display: grid; gap: 7px; min-height: 150px; }
+.calibration-field-browser { min-height: 0; border: 1px solid var(--cal-border); border-radius: 8px; background: var(--cal-sheet-surface); }
+.calibration-field-browser > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 8px; color: var(--cal-text); font-size: 11px; font-weight: 750; cursor: pointer; }
+.calibration-field-browser > summary strong { color: var(--cal-muted); font-size: 9px; white-space: nowrap; }
+.calibration-readiness > summary, .calibration-field-browser > summary { list-style: none; }
+.calibration-readiness > summary::-webkit-details-marker, .calibration-field-browser > summary::-webkit-details-marker { display: none; }
+.calibration-readiness > summary::after, .calibration-field-browser > summary::after { content: ''; flex: 0 0 6px; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); transition: transform .15s ease; }
+.calibration-readiness[open] > summary::after, .calibration-field-browser[open] > summary::after { transform: rotate(225deg); }
+.calibration-field-browser-body { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 6px; height: clamp(220px, 36vh, 420px); min-height: 0; padding: 0 7px 7px; }
+.calibration-navigator { display: grid; align-content: start; gap: 7px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .calibration-nav-group { display: grid; gap: 4px; }
 .calibration-nav-group h3 { display: flex; justify-content: space-between; margin: 0; color: var(--cal-muted); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
 .calibration-nav-group h3 span { min-width: 19px; padding: 1px 5px; border-radius: 999px; background: #e2e8f0; color: #475569; text-align: center; }
@@ -249,7 +259,7 @@ body #content, body #content-main { max-width: none !important; }
   .calibration-sidebar.mobile-mode-global .global-formatting { border: 0; background-color: var(--cal-sheet-surface) !important; }
   .calibration-sidebar.mobile-mode-global .global-formatting > summary { display: none; }
   .calibration-sidebar.mobile-mode-global .global-formatting-body { display: grid; padding: 2px 0; }
-  #calibration-fields { min-height: 32dvh !important; }
+  .calibration-field-browser-body { height: min(46dvh, 430px); }
   .calibration-mobile-backdrop { position: fixed; inset: 0; z-index: 1001; width: 100%; height: 100%; padding: 0; border: 0; background: rgba(15,23,42,.58); }
   .calibration-mobile-backdrop:not([hidden]) { display: block; }
   .calibration-mobile-dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1000; display: grid; grid-template-columns: repeat(4, 1fr); padding: 4px 6px calc(4px + env(safe-area-inset-bottom)); border-top: 1px solid var(--cal-border); background: var(--cal-surface); box-shadow: 0 -5px 18px rgba(15,23,42,.14); }

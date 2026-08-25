@@ -16,6 +16,7 @@ from core.models import (
     LoanOriginationApplication,
     OriginationApplicationDocument,
     OriginationApplicationEvent,
+    OriginationCommercialException,
     OriginationCorrectionItem,
     OriginationCorrectionRequest,
     OriginationDataField,
@@ -48,6 +49,7 @@ ORIGINATION_RESET_MODEL_GROUPS = (
         LoanOriginationApplication,
         OriginationApplicationDocument,
         OriginationApplicationEvent,
+        OriginationCommercialException,
         OriginationCorrectionRequest,
         OriginationCorrectionItem,
         OriginationRequirementEvidence,
@@ -132,6 +134,7 @@ def preview_origination_purge(record: Any) -> list[dict[str, Any]]:
             ('Application', 1),
             ('Packet documents', record.packet_documents.count()),
             ('Application events', record.events.count()),
+            ('Commercial exceptions', record.commercial_exceptions.count()),
             ('Requirement evidence records', record.requirement_evidence_files.count()),
             ('Signing packages', record.signing_packages.count()),
             ('Correction requests', record.correction_requests.count()),
@@ -185,6 +188,7 @@ def _purge_application(application_id, counts: Counter[str]) -> None:
     _delete(OriginationOtpChallenge.objects.filter(session_id__in=session_ids), counts)
     _delete(OriginationSignerSession.objects.filter(package_id__in=package_ids), counts)
     _delete(OriginationSigningPackage.objects.filter(application_id=application_id), counts)
+    _delete(OriginationCommercialException.objects.filter(application_id=application_id), counts)
     _delete(OriginationApplicationEvent.objects.filter(application_id=application_id), counts)
     _delete(OriginationReportingValue.objects.filter(application_id=application_id), counts)
     _delete(LoanOriginationApplication.objects.filter(pk=application_id), counts)
@@ -270,6 +274,7 @@ def reset_all_origination_data(*, actor, reason: str) -> dict[str, Any]:
     _delete(OriginationOtpChallenge.objects.all(), deleted)
     _delete(OriginationSignerSession.objects.all(), deleted)
     _delete(OriginationSigningPackage.objects.all(), deleted)
+    _delete(OriginationCommercialException.objects.all(), deleted)
     _delete(OriginationApplicationEvent.objects.all(), deleted)
     _delete(OriginationReportingValue.objects.all(), deleted)
     _delete(LoanOriginationApplication.objects.all(), deleted)

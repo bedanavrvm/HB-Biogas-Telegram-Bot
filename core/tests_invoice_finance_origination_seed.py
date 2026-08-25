@@ -27,6 +27,7 @@ from core.services.invoice_finance_origination_seed import (
     apply_seed,
 )
 from core.services.loan_origination import OriginationError
+from core.services.origination_commercial_terms import COMMERCIAL_KEYS
 from core.services.origination_access import DENIED, FULL, application_presentation_mode, scope_application_queryset
 from core.services.origination_esign import authorize_staff_signer, complete_staff_signatures
 from core.services.telegram_identity import user_access
@@ -105,14 +106,17 @@ class InvoiceFinanceOriginationSeedTests(TestCase):
         self.assertEqual(definition.lifecycle_status, definition.STATUS_DRAFT)
         self.assertFalse(definition.is_active)
         self.assertEqual(definition.product_version, self.terms)
+        expected_keys = {
+            item['key'] for item in FIELD_SPECS
+            if item['source'] != OriginationDataField.SOURCE_SYSTEM
+        } | set(COMMERCIAL_KEYS)
         self.assertEqual(
-            len(definition.form_schema['fields']),
-            len([item for item in FIELD_SPECS if item['source'] != OriginationDataField.SOURCE_SYSTEM]),
+            {item['key'] for item in definition.form_schema['fields']}, expected_keys,
         )
         self.assertNotIn('application_date', {item['key'] for item in definition.form_schema['fields']})
         self.assertEqual(
             [item['key'] for item in definition.form_schema['sections']],
-            ['applicant_details', 'business_details', 'banking_details', 'invoice_details', 'signer_details', 'acknowledgement'],
+            ['applicant_details', 'business_details', 'banking_details', 'invoice_details', 'signer_details', 'acknowledgement', 'commercial_terms'],
         )
         self.assertEqual(
             {item['role'] for item in definition.signer_rules},
