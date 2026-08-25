@@ -1,5 +1,5 @@
 {% for case_item in cases %}
-  <button type="button" class="case-row status-{{ case_item.status|default:'Open'|lower|cut:' ' }}" data-case-id="{{ case_item.case_id }}">
+  <button type="button" class="case-row" data-case-id="{{ case_item.case_id }}">
     <div>
       <p class="case-id"><span class="queue-number">#{{ forloop.counter0|add:start_index }}</span> {{ case_item.case_id }}</p>
       <h2>{{ case_item.customer_name|default:"Unnamed client" }}</h2>
@@ -8,8 +8,9 @@
       {% if case_item.recorded_at %}
         <p class="case-recorded">Recorded {{ case_item.recorded_at }}</p>
       {% endif %}
+      <p class="case-age">{{ case_item.age_label }}</p>
     </div>
-    <span class="status-pill">{{ case_item.status }}</span>
+    <span class="status-pill{% if case_item.status == 'Resolved' %} resolved{% endif %}">{{ case_item.status }}</span>
   </button>
 {% empty %}
   <p class="empty-state">No complaint cases match this view.</p>

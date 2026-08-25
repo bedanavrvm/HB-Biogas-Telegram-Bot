@@ -19,7 +19,12 @@
     if (utils && utils.fetchJson) return utils.fetchJson(`/api/complaints/${path}`, options);
     const response = await fetch(`/api/complaints/${path}`, options);
     const result = await response.json().catch(() => ({}));
-    if (!response.ok || !result.ok) throw new Error(result.error || 'Request failed.');
+    if (!response.ok || !result.ok) {
+      const error = new Error(result.error || 'Request failed.');
+      error.status = response.status;
+      error.payload = result;
+      throw error;
+    }
     return result;
   }
 
@@ -40,7 +45,12 @@
     if (utils && utils.fetchJson) return utils.fetchJson(`/api/complaints/${path}`, options);
     const response = await fetch(`/api/complaints/${path}`, options);
     const result = await response.json().catch(() => ({}));
-    if (!response.ok || !result.ok) throw new Error(result.error || 'Request failed.');
+    if (!response.ok || !result.ok) {
+      const error = new Error(result.error || 'Request failed.');
+      error.status = response.status;
+      error.payload = result;
+      throw error;
+    }
     return result;
   }
 

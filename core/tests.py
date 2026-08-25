@@ -33,6 +33,7 @@ from core.models import (
     RequisitionBatch,
     TatTrackerCase,
     TatTrackerEvent,
+    UserProfile,
 )
 from core.services.deduplication import generate_message_hash, is_duplicate
 from core.services.parser import (
@@ -5367,6 +5368,12 @@ class TelegramWebhookViewTest(TestCase):
         super().setUp()
         from core.services.group_config import GroupRegistry
         GroupRegistry._instance = None
+        self.batch_superuser = get_user_model().objects.create_superuser(
+            username='complaint-batch-admin', password='unused-test-password', is_active=True,
+        )
+        UserProfile.objects.create(
+            user=self.batch_superuser, telegram_id='999001', telegram_username='batch_admin',
+        )
     
     @patch('core.api.views._process_telegram_message')
     def test_webhook_receives_message(self, mock_process):
@@ -5914,7 +5921,7 @@ NATURE OF THE PROBLEM: Gas leakage"""
 
         result = _process_telegram_message({
             'message_id': 123,
-            'from': {'first_name': 'Test'},
+            'from': {'id': 999001, 'first_name': 'Test', 'username': 'batch_admin'},
             'chat': {'id': -100123, 'type': 'group'},
             'date': 1711123456,
             'text': payload_text,
@@ -5956,6 +5963,18 @@ NATURE OF THE PROBLEM: Gas leakage"""
             '23/05/2026 12:47',
         )
 
+    def test_complaint_batch_import_rejects_non_superusers_before_processing(self):
+        from core.api.views import _process_whatsapp_batch_command
+
+        result = _process_whatsapp_batch_command(
+            message_data={'from': {'id': 404001, 'first_name': 'Officer'}},
+            command_content='/batch ignored payload', sender='Officer',
+            received_at=timezone.now(), group_id='-100123', telegram_message_id='blocked-1',
+        )
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('restricted to an active Django Superuser', result['reply_text'])
+
     @override_settings(
         TELEGRAM_BOT_USERNAME='biogas_bot',
         WHATSAPP_BATCH_ASYNC_THRESHOLD=1,
@@ -5986,7 +6005,7 @@ NATURE OF THE PROBLEM: Gas leakage"""
 
         result = _process_telegram_message({
             'message_id': 123,
-            'from': {'first_name': 'Test'},
+            'from': {'id': 999001, 'first_name': 'Test', 'username': 'batch_admin'},
             'chat': {'id': -100123, 'type': 'group'},
             'date': 1711123456,
             'text': payload_text,
@@ -6006,7 +6025,7 @@ NATURE OF THE PROBLEM: Gas leakage"""
 
         result = _process_telegram_message({
             'message_id': 123,
-            'from': {'first_name': 'Test'},
+            'from': {'id': 999001, 'first_name': 'Test', 'username': 'batch_admin'},
             'chat': {'id': -100123, 'type': 'group'},
             'date': 1711123456,
             'text': '@biogas_bot /batch',
@@ -6043,7 +6062,7 @@ NATURE OF THE PROBLEM: No gas supply""",
 
         result = _process_telegram_message({
             'message_id': 123,
-            'from': {'first_name': 'Test'},
+            'from': {'id': 999001, 'first_name': 'Test', 'username': 'batch_admin'},
             'chat': {'id': -100123, 'type': 'group'},
             'date': 1711123456,
             'caption': '@biogas_bot /batch please process this export',

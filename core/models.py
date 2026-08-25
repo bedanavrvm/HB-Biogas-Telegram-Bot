@@ -535,6 +535,70 @@ class ComplaintCaseEvent(models.Model):
         raise ValidationError('Complaint case events cannot be deleted.')
 
 
+class ComplaintCaseImportBatch(models.Model):
+    """Auditable source record for one Superuser-initiated complaint import."""
+
+    STATUS_PROCESSING = 'processing'
+    STATUS_COMPLETE = 'complete'
+    STATUS_PARTIAL = 'partial'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_PROCESSING, 'Processing'),
+        (STATUS_COMPLETE, 'Complete'),
+        (STATUS_PARTIAL, 'Partial'),
+        (STATUS_FAILED, 'Failed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    group_id = models.CharField(max_length=100, db_index=True)
+    source_telegram_message_id = models.CharField(max_length=255)
+    initiated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='complaint_case_import_batches',
+    )
+    actor_label = models.CharField(max_length=255, blank=True, default='')
+    telegram_user_id_snapshot = models.CharField(max_length=64, blank=True, default='')
+    source_hash = models.CharField(max_length=64, db_index=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PROCESSING, db_index=True)
+    source_count = models.PositiveIntegerField(default=0)
+    created_count = models.PositiveIntegerField(default=0)
+    matched_count = models.PositiveIntegerField(default=0)
+    rejected_count = models.PositiveIntegerField(default=0)
+    error_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [models.UniqueConstraint(
+            fields=['group_id', 'source_telegram_message_id'],
+            name='unique_complaint_import_source_message',
+        )]
+        verbose_name = 'Complaint case import batch'
+        verbose_name_plural = 'Complaint case import batches'
+
+
+class ComplaintCaseImportItem(models.Model):
+    """Immutable attribution link from an imported complaint to its batch."""
+
+    batch = models.ForeignKey(
+        ComplaintCaseImportBatch, on_delete=models.PROTECT, related_name='items',
+    )
+    parsed_message = models.OneToOneField(
+        ParsedMessage, on_delete=models.PROTECT, related_name='complaint_import_item',
+    )
+    source_index = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['source_index']
+        constraints = [models.UniqueConstraint(
+            fields=['batch', 'source_index'], name='unique_complaint_import_source_index',
+        )]
+        verbose_name = 'Complaint case import item'
+        verbose_name_plural = 'Complaint case import items'
+
+
 class OrderApprovalUpdate(models.Model):
     """Audit trail for Telegram-driven order approval BRO updates."""
 

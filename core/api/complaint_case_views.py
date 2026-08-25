@@ -22,6 +22,8 @@ from core.services.complaint_cases import (
     evidence_access,
     is_complaint_workflow,
     list_cases_page,
+    reopen_case,
+    resolve_case,
     retry_case_sync,
     staff_actor_for_payload,
     update_case,
@@ -174,9 +176,7 @@ def complaint_cases_list(request):
     try:
         result = list_cases_page(
             group_config, actor,
-            query=str(payload.get('query') or ''), status=str(payload.get('status') or 'active'),
-            branch=str(payload.get('branch') or ''), priority=str(payload.get('priority') or ''),
-            assignment=str(payload.get('assignment') or ''), sla=str(payload.get('sla') or ''),
+            query=str(payload.get('query') or ''), status=str(payload.get('status') or 'pending'),
             cursor=str(payload.get('cursor') or ''), limit=10,
             page=payload.get('page') if 'page' in payload else None, page_size=10,
         )
@@ -204,9 +204,7 @@ def complaint_cases_list_fragment(request):
     try:
         result = list_cases_page(
             group_config, actor,
-            query=str(payload.get('query') or ''), status=str(payload.get('status') or 'active'),
-            branch=str(payload.get('branch') or ''), priority=str(payload.get('priority') or ''),
-            assignment=str(payload.get('assignment') or ''), sla=str(payload.get('sla') or ''),
+            query=str(payload.get('query') or ''), status=str(payload.get('status') or 'pending'),
             page=payload.get('page') or 1, page_size=10,
         )
     except ComplaintCaseError as exc:
@@ -231,11 +229,6 @@ def complaint_cases_create(request):
     if error:
         return error
     capability_error = _capability_error(actor, 'complaint.case.create', group_config)
-    if capability_error:
-        return capability_error
-    capability_error = _capability_error(
-        actor, 'complaint.case.create', group_config, branch=str(payload.get('branch_region') or ''),
-    )
     if capability_error:
         return capability_error
     try:
@@ -281,6 +274,7 @@ def complaint_cases_detail(request, case_id: str):
 @require_http_methods(['POST'])
 @miniapp_write_response
 def complaint_cases_update(request, case_id: str):
+    """Temporary cached-client transition endpoint."""
     payload = _request_payload(request)
     key_error = _bind_miniapp_write_request(request, payload)
     if key_error:
@@ -300,10 +294,7 @@ def complaint_cases_update(request, case_id: str):
             request.FILES.getlist('evidence'),
         )
     except ComplaintCaseConflict as exc:
-        return JsonResponse(
-            {'ok': False, 'error': str(exc), 'code': 'revision_conflict', 'current_revision': exc.current_revision},
-            status=409,
-        )
+        return _conflict_response(group_config, actor, case_id, exc)
     except ComplaintCaseError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     except Exception:
@@ -311,7 +302,77 @@ def complaint_cases_update(request, case_id: str):
         return JsonResponse({'ok': False, 'error': 'The case update could not be saved. Try again.'}, status=500)
     if not actor_can_access_case(group_config, actor, 'complaint.case.source.view', case_id):
         result.pop('raw_message', None)
-    return JsonResponse({'ok': True, 'case': result, 'message': 'Case update saved.'})
+    logger.warning(
+        'Deprecated complaint update endpoint used for case %s by user %s.',
+        case_id, actor.user.pk,
+    )
+    response = JsonResponse({'ok': True, 'case': result, 'message': 'Case transition saved.'})
+    response['Deprecation'] = 'true'
+    return response
+
+
+def _conflict_response(group_config, actor, case_id: str, exc: ComplaintCaseConflict):
+    current = case_detail(group_config, case_id, actor)
+    current.pop('raw_message', None)
+    return JsonResponse({
+        'ok': False,
+        'error': str(exc),
+        'code': 'revision_conflict',
+        'current_revision': exc.current_revision,
+        'current_case': current,
+    }, status=409)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+@miniapp_write_response
+def complaint_cases_resolve(request, case_id: str):
+    payload = _request_payload(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    capability_error = _capability_error(actor, 'complaint.case.close', group_config)
+    if capability_error:
+        return capability_error
+    try:
+        result = resolve_case(group_config, actor, case_id, payload, request.FILES.getlist('evidence'))
+    except ComplaintCaseConflict as exc:
+        return _conflict_response(group_config, actor, case_id, exc)
+    except ComplaintCaseError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('Complaint resolution failed for group %s case %s.', group_config.group_id, case_id)
+        return JsonResponse({'ok': False, 'error': 'The resolution could not be saved. Try again.'}, status=500)
+    return JsonResponse({'ok': True, 'case': result, 'message': 'Complaint resolved.'})
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+@miniapp_write_response
+def complaint_cases_reopen(request, case_id: str):
+    payload = _request_payload(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    capability_error = _capability_error(actor, 'complaint.case.reopen', group_config)
+    if capability_error:
+        return capability_error
+    try:
+        result = reopen_case(group_config, actor, case_id, payload)
+    except ComplaintCaseConflict as exc:
+        return _conflict_response(group_config, actor, case_id, exc)
+    except ComplaintCaseError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('Complaint reopen failed for group %s case %s.', group_config.group_id, case_id)
+        return JsonResponse({'ok': False, 'error': 'The complaint could not be reopened. Try again.'}, status=500)
+    return JsonResponse({'ok': True, 'case': result, 'message': 'Complaint returned to the Pending queue.'})
 
 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.

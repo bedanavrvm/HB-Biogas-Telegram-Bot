@@ -53,6 +53,8 @@ from .models import (
     ComplaintCaseEvidence,
     ComplaintCaseControl,
     ComplaintCaseEvent,
+    ComplaintCaseImportBatch,
+    ComplaintCaseImportItem,
     ComplaintCategory,
     ComplaintCategoryAlias,
     ComplaintCategoryAvailability,
@@ -3606,10 +3608,11 @@ class SuperuserComplaintConfigurationAdmin(ModelAdmin):
 
 @admin.register(ComplaintCategory)
 class ComplaintCategoryAdmin(SuperuserComplaintConfigurationAdmin):
-    list_display = ('label', 'key', 'default_priority', 'default_sla_hours', 'active', 'updated_at')
-    list_filter = ('active', 'default_priority')
+    list_display = ('label', 'key', 'active', 'updated_at')
+    list_filter = ('active',)
     search_fields = ('label', 'key', 'aliases__alias')
     readonly_fields = ('created_by', 'created_at', 'updated_at')
+    exclude = ('default_priority', 'default_sla_hours')
 
     def save_model(self, request, obj, form, change):
         if not obj.created_by_id:
@@ -3634,12 +3637,9 @@ class ComplaintCategoryAvailabilityAdmin(SuperuserComplaintConfigurationAdmin):
 
 @admin.register(ComplaintCaseControl)
 class ComplaintCaseControlAdmin(ReadOnlyAuditAdmin):
-    list_display = (
-        'parsed_message', 'category', 'branch_ref', 'assigned_to', 'priority',
-        'sla_due_at', 'revision', 'sync_status',
-    )
-    list_filter = ('priority', 'sync_status', 'customer_match_status', 'category', 'branch_ref')
-    search_fields = ('parsed_message__message_id', 'parsed_message__customer_name', 'assigned_to__username')
+    list_display = ('parsed_message', 'category', 'branch_ref', 'revision', 'sync_status')
+    list_filter = ('sync_status', 'customer_match_status', 'category', 'branch_ref')
+    search_fields = ('parsed_message__message_id', 'parsed_message__customer_name')
     readonly_fields = [field.name for field in ComplaintCaseControl._meta.fields]
 
 
@@ -3649,6 +3649,21 @@ class ComplaintCaseEventAdmin(ReadOnlyAuditAdmin):
     list_filter = ('action', 'created_at')
     search_fields = ('case__parsed_message__message_id', 'actor_label', 'request_id', 'payload_hash')
     readonly_fields = [field.name for field in ComplaintCaseEvent._meta.fields]
+
+
+@admin.register(ComplaintCaseImportBatch)
+class ComplaintCaseImportBatchAdmin(ReadOnlyAuditAdmin):
+    list_display = ('created_at', 'group_id', 'initiated_by', 'status', 'created_count', 'matched_count')
+    list_filter = ('status', 'group_id', 'created_at')
+    search_fields = ('source_telegram_message_id', 'actor_label', 'initiated_by__username')
+    readonly_fields = [field.name for field in ComplaintCaseImportBatch._meta.fields]
+
+
+@admin.register(ComplaintCaseImportItem)
+class ComplaintCaseImportItemAdmin(ReadOnlyAuditAdmin):
+    list_display = ('batch', 'source_index', 'parsed_message', 'created_at')
+    search_fields = ('batch__source_telegram_message_id', 'parsed_message__message_id')
+    readonly_fields = [field.name for field in ComplaintCaseImportItem._meta.fields]
 
 
 @admin.register(LiveSheetRecordChange)

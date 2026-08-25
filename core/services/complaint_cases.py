@@ -27,6 +27,7 @@ from core.models import (
     ComplaintCaseControl,
     ComplaintCaseEvent,
     ComplaintCaseEvidence,
+    ComplaintCaseImportItem,
     ComplaintCaseSequence,
     ComplaintCategory,
     ComplaintCategoryAlias,
@@ -44,7 +45,7 @@ from core.services.sheets import append_parsed_message_to_sheet, get_sheets_serv
 logger = logging.getLogger(__name__)
 
 
-ACTIVE_STATUSES = {'Open', 'In Progress'}
+ACTIVE_STATUSES = {'Open', 'In Progress', 'Review Needed', ''}
 STATUS_VALUES = {'Open', 'In Progress', 'Closed'}
 MANAGER_ROLE = 'MANAGER'
 ALLOWED_DOCUMENT_TYPES = {
@@ -224,83 +225,39 @@ def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
     observed_branches = list(
         cases.exclude(branch_region='').order_by('branch_region').values_list('branch_region', flat=True).distinct()
     )
-    from core.services.workflow_access import matching_capability_grants
-    scope_grants = matching_capability_grants(
-        'complaint_cases', 'complaint.queue.view', access=actor.access,
-        group_configuration=group_config,
-    ) if not getattr(actor.user, 'is_superuser', False) else []
-    scoped_branches = {
-        str(getattr(item, 'branch', '') or '').strip() for item in scope_grants
-        if str(getattr(item, 'branch', '') or '').strip()
-    }
-    has_global_branch = getattr(actor.user, 'is_superuser', False) or any(
-        not str(getattr(item, 'branch', '') or '').strip() for item in scope_grants
-    )
     branch_values = set(configured_branches) | set(observed_branches)
-    if scoped_branches and not has_global_branch:
-        branch_values = {value for value in branch_values if value.casefold() in {item.casefold() for item in scoped_branches}}
-    assignees = []
-    if 'complaint.case.assign' in actor.capabilities:
-        from core.models import AccessGrant
-        grants = AccessGrant.objects.filter(
-            workflow='complaint_cases', active=True, user__is_active=True,
-        ).filter(
-            Q(group_configuration__isnull=True) | Q(group_configuration__group_id=str(group_config.group_id)),
-        ).select_related('user').order_by('user__first_name', 'user__username')
-        seen = set()
-        for grant in grants:
-            if grant.user_id in seen or str(grant.role).upper() not in {'OFFICER', 'MANAGER'}:
-                continue
-            seen.add(grant.user_id)
-            assignees.append({
-                'id': str(grant.user_id),
-                'name': grant.user.get_full_name() or grant.user.get_username(),
-            })
+    resolved = cases.filter(complaint_status='Closed').count()
+    total = cases.count()
     return {
         'actor': {
             'name': actor.name, 'role': actor.role, 'is_manager': actor.is_manager,
             'capabilities': sorted(actor.capabilities),
         },
-        'statuses': sorted(STATUS_VALUES),
+        'statuses': ['pending', 'resolved', 'all'],
         'branches': sorted(branch_values, key=str.casefold),
         'categories': list(available_categories(group_config).values_list('label', flat=True)),
-        'assignees': assignees,
         'counts': {
-            'open': cases.filter(complaint_status='Open').count(),
-            'in_progress': cases.filter(complaint_status='In Progress').count(),
-            'closed': cases.filter(complaint_status='Closed').count(),
-            'total': cases.count(),
-            'overdue': cases.exclude(complaint_status='Closed').filter(
-                complaint_control__sla_due_at__lt=timezone.now(),
-            ).count(),
+            'pending': total - resolved,
+            'resolved': resolved,
+            'total': total,
         },
     }
 
 
 def list_cases_page(
-    group_config, actor: ComplaintCaseActor | None = None, query: str = '', status: str = 'active',
+    group_config, actor: ComplaintCaseActor | None = None, query: str = '', status: str = 'pending',
     branch: str = '', priority: str = '', assignment: str = '', sla: str = '', cursor: str = '', limit: int = 40,
     page: int | str | None = None, page_size: int = 10,
 ) -> dict[str, Any]:
     cases = _case_queryset(group_config.group_id, actor=actor)
     cases = _filter_status(cases, status)
-    cases = _filter_branch(cases, branch)
     cases = _filter_query(cases, query)
-    if priority in {'high', 'normal', 'low'}:
-        cases = cases.filter(complaint_control__priority=priority)
-    if assignment == 'mine':
-        cases = cases.filter(complaint_control__assigned_to=actor.user)
-    elif assignment == 'unassigned':
-        cases = cases.filter(complaint_control__assigned_to__isnull=True)
-    now = timezone.now()
-    if sla == 'overdue':
-        cases = cases.exclude(complaint_status='Closed').filter(complaint_control__sla_due_at__lt=now)
-    elif sla == 'due_soon':
-        cases = cases.exclude(complaint_status='Closed').filter(
-            Q(complaint_control__priority='high', complaint_control__sla_due_at__range=(now, now + timedelta(hours=6)))
-            | Q(complaint_control__priority='normal', complaint_control__sla_due_at__range=(now, now + timedelta(hours=18)))
-            | Q(complaint_control__priority='low', complaint_control__sla_due_at__range=(now, now + timedelta(hours=30)))
-        )
+    if status in {'pending', 'active'}:
+        cases = cases.exclude(complaint_status='Closed').order_by('timestamp', 'pk')
+    elif status in {'resolved', 'closed', 'Closed'}:
+        cases = cases.filter(complaint_status='Closed').order_by('-date_resolved', '-timestamp', '-pk')
+    else:
+        cases = cases.order_by('-timestamp', '-pk')
     if page not in (None, ''):
         try:
             requested_page = max(1, int(page))
@@ -361,7 +318,12 @@ def case_detail(group_config, case_id: str, actor: ComplaintCaseActor | None = N
     payload = serialize_case(case)
     payload['raw_message'] = case.raw_message
     payload['resolution_details'] = case.resolution_details
-    payload['updates'] = [serialize_update(update) for update in case.case_updates.all()]
+    updates = list(case.case_updates.all())
+    payload['updates'] = [serialize_update(update) for update in updates]
+    resolution = next((item for item in updates if item.new_status == 'Closed'), None)
+    reopen = next((item for item in updates if item.old_status == 'Closed' and item.new_status != 'Closed'), None)
+    payload['latest_resolution'] = serialize_update(resolution) if resolution else None
+    payload['latest_reopen'] = serialize_update(reopen) if reopen else None
     payload['evidence'] = [serialize_evidence(evidence) for evidence in case.complaint_evidence.all()]
     payload['location'] = location_for_case(case)
     return payload
@@ -373,29 +335,44 @@ def update_case(
     case_id: str,
     fields: dict[str, Any],
     uploaded_files: list,
+    *,
+    required_capability: str = 'complaint.case.update',
 ) -> dict[str, Any]:
     request_id = str(fields.get('client_request_id') or '').strip()
     if not request_id:
         raise ComplaintCaseError('The update request is missing its retry identifier. Refresh and try again.')
     case = _case_for_group(group_config.group_id, case_id, actor=actor)
-    if not actor_can(group_config, actor, 'complaint.case.update', case):
-        raise ComplaintCaseError('Your role does not permit updates to this case branch and group.')
-    validate_uploaded_files(uploaded_files)
-    values = validate_update_fields(group_config, case, actor, {**fields, 'has_evidence': bool(uploaded_files)})
-    payload_hash = mutation_payload_hash(values)
+    # Complaint work is a shared queue inside the configured group. The case
+    # lookup above enforces that hard boundary; branch-scoped grants must not
+    # make a visible group case impossible to resolve or reopen.
+    if not actor_can(group_config, actor, required_capability):
+        raise ComplaintCaseError('Your role does not permit this complaint transition in the configured group.')
     control = ensure_case_control(case, group_config)
     existing_event = control.events.filter(request_id=request_id).first()
     if existing_event:
-        if existing_event.payload_hash != payload_hash:
-            raise ComplaintCaseError('That retry identifier was already used for a different update.')
         existing = CaseUpdate.objects.filter(parsed_message=case, client_request_id=request_id).first()
-        if existing and uploaded_files:
+        requested_status = str(fields.get('status') or '').strip()
+        requested_note = str(
+            fields.get('resolution_text') if fields.get('resolution_text') is not None else fields.get('reason') or ''
+        ).strip()
+        if not existing or existing.new_status != requested_status or existing.resolution_text != requested_note:
+            raise ComplaintCaseError('That retry identifier was already used for a different transition.')
+        if uploaded_files:
+            validate_uploaded_files(uploaded_files)
             store_evidence(group_config, case, existing, actor, uploaded_files)
         return case_detail(group_config, case_id, actor)
     try:
         expected_revision = int(fields.get('expected_revision'))
     except (TypeError, ValueError):
         raise ComplaintCaseError('Refresh this case before saving; its revision is missing.')
+    if control.revision != expected_revision:
+        raise ComplaintCaseConflict(
+            'This complaint changed while you were editing it. Review the latest resolution and your retained draft.',
+            current_revision=control.revision,
+        )
+    validate_uploaded_files(uploaded_files)
+    values = validate_update_fields(group_config, case, actor, {**fields, 'has_evidence': bool(uploaded_files)})
+    payload_hash = mutation_payload_hash(values)
     try:
         update_record = apply_case_update(
             group_config, case, actor, values, request_id, expected_revision, payload_hash,
@@ -406,6 +383,25 @@ def update_case(
         return case_detail(group_config, case_id, actor)
     store_evidence(group_config, case, update_record, actor, uploaded_files)
     return case_detail(group_config, case_id, actor)
+
+
+def resolve_case(group_config, actor, case_id: str, fields: dict[str, Any], uploaded_files: list) -> dict[str, Any]:
+    """Resolve one pending complaint through the manager-only transition."""
+    return update_case(
+        group_config, actor, case_id,
+        {**fields, 'status': 'Closed'}, uploaded_files,
+        required_capability='complaint.case.close',
+    )
+
+
+def reopen_case(group_config, actor, case_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Return a resolved complaint to the shared queue with an audited reason."""
+    reason = fields.get('reason') if fields.get('reason') is not None else fields.get('resolution_text')
+    return update_case(
+        group_config, actor, case_id,
+        {**fields, 'status': 'Open', 'resolution_text': reason}, [],
+        required_capability='complaint.case.reopen',
+    )
 
 
 def create_complaint_case(
@@ -667,57 +663,27 @@ def sync_new_case_to_sheet(group_config, case: ParsedMessage) -> bool:
 def validate_update_fields(group_config, case: ParsedMessage, actor: ComplaintCaseActor, fields: dict[str, Any]) -> dict[str, Any]:
     control = ensure_case_control(case, group_config)
     status = str(fields.get('status') or case.complaint_status or 'Open').strip()
-    if status not in STATUS_VALUES:
-        raise ComplaintCaseError('Select a valid case status.')
-    if status == 'Closed' and case.complaint_status != 'Closed' and not actor_can(group_config, actor, 'complaint.case.close', case):
+    if status not in {'Open', 'Closed'}:
+        raise ComplaintCaseError('Complaint cases can only be Pending or Resolved.')
+    if status == 'Closed' and case.complaint_status != 'Closed' and not actor_can(group_config, actor, 'complaint.case.close'):
         raise ComplaintCaseError('Only a case manager can close a complaint.')
-    if case.complaint_status == 'Closed' and status != 'Closed' and not actor_can(group_config, actor, 'complaint.case.reopen', case):
-        raise ComplaintCaseError('Only a case manager can reopen a complaint.')
+    if case.complaint_status == 'Closed' and status != 'Closed' and not actor_can(group_config, actor, 'complaint.case.reopen'):
+        raise ComplaintCaseError('Your role cannot reopen this complaint.')
+    if case.complaint_status == 'Closed' and status == 'Closed':
+        raise ComplaintCaseError('This complaint is already resolved.')
+    if case.complaint_status != 'Closed' and status == 'Open':
+        raise ComplaintCaseError('Use Resolve when the complaint has been addressed.')
     note = str(fields.get('resolution_text') or '').strip()
     if len(note) > 5000:
         raise ComplaintCaseError('The update note must be 5,000 characters or fewer.')
-    if status == 'Closed' and case.complaint_status != 'Closed' and not note:
-        raise ComplaintCaseError('Add a resolution note before closing this complaint.')
-    if control.assigned_to_id and control.assigned_to_id != actor.user.pk and not actor_can(group_config, actor, 'complaint.case.assign', case):
-        raise ComplaintCaseError('This complaint is assigned to another officer.')
-    assignment_action = str(fields.get('assignment_action') or '').strip()
-    assigned_to = control.assigned_to
-    if assignment_action == 'claim':
-        if not actor_can(group_config, actor, 'complaint.case.claim', case):
-            raise ComplaintCaseError('Your role cannot claim complaints.')
-        if assigned_to and assigned_to.pk != actor.user.pk:
-            raise ComplaintCaseError('This complaint has already been assigned.')
-        assigned_to = actor.user
-    elif assignment_action == 'unassign':
-        if not actor_can(group_config, actor, 'complaint.case.assign', case):
-            raise ComplaintCaseError('Only a case manager can remove an assignment.')
-        assigned_to = None
-    elif fields.get('assigned_to') not in (None, ''):
-        if not actor_can(group_config, actor, 'complaint.case.assign', case):
-            raise ComplaintCaseError('Only a case manager can assign complaints.')
-        from django.contrib.auth import get_user_model
-        assigned_to = get_user_model().objects.filter(pk=fields.get('assigned_to'), is_active=True).first()
-        if not assigned_to:
-            raise ComplaintCaseError('Select an active case officer.')
-        from core.services.telegram_identity import user_access
-        from core.services.workflow_access import workflow_access_decision
-        assignee_access = user_access(assigned_to, 'complaint_cases', group_configuration=group_config)
-        if not workflow_access_decision(
-            assigned_to, 'complaint_cases', 'complaint.case.update', access=assignee_access,
-            resource=case, group_configuration=group_config,
-        ).allowed:
-            raise ComplaintCaseError('That officer is not permitted to work on this case branch and group.')
-    priority = str(fields.get('priority') or control.priority).lower()
-    if priority not in {'high', 'normal', 'low'}:
-        raise ComplaintCaseError('Select High, Normal, or Low priority.')
-    if priority != control.priority and not actor_can(group_config, actor, 'complaint.case.assign', case):
-        raise ComplaintCaseError('Only a case manager can change priority.')
+    if not note:
+        raise ComplaintCaseError(
+            'Add a resolution note.' if status == 'Closed' else 'Explain why this complaint needs to be reopened.'
+        )
     latitude, longitude, gps_link = normalize_location(fields)
-    if not note and not gps_link and not fields.get('has_evidence') and status == (case.complaint_status or 'Open') and assigned_to == control.assigned_to and priority == control.priority:
-        raise ComplaintCaseError('Add a note, location, evidence, or a status change before saving.')
     return {
         'status': status, 'note': note, 'latitude': latitude, 'longitude': longitude,
-        'gps_link': gps_link, 'assigned_to': assigned_to, 'priority': priority,
+        'gps_link': gps_link,
     }
 
 
@@ -773,27 +739,18 @@ def apply_case_update(
             sync_status='pending',
         )
         update_case_fields(case, values, resolution_details, resolved_at)
-        reopened = before['status'] == 'Closed' and values['status'] != 'Closed'
-        if reopened:
-            control.sla_started_at = timezone.now()
-        control.assigned_to = values['assigned_to']
-        control.assigned_at = timezone.now() if values['assigned_to'] else None
-        control.priority = values['priority']
-        control.sla_target_hours = {'high': 24, 'normal': 72, 'low': 120}[control.priority]
-        control.sla_due_at = control.sla_started_at + timedelta(hours=control.sla_target_hours)
+        reopened = before['status'] == 'Closed' and values['status'] == 'Open'
+        action = 'reopened' if reopened else 'resolved'
         control.revision += 1
         control.sync_status = 'pending'
         control.sync_error = ''
-        control.save(update_fields=[
-            'assigned_to', 'assigned_at', 'priority', 'sla_target_hours', 'sla_started_at',
-            'sla_due_at', 'revision', 'sync_status', 'sync_error', 'updated_at',
-        ])
+        control.save(update_fields=['revision', 'sync_status', 'sync_error', 'updated_at'])
         ComplaintCaseEvent.objects.create(
-            case=control, revision=control.revision, action='updated', actor=actor.user,
+            case=control, revision=control.revision, action=action, actor=actor.user,
             actor_label=actor.name, request_id=request_id, payload_hash=payload_hash,
             before_values=before, after_values=control_snapshot(control, case), reason=values['note'],
         )
-        record_complaint_update(update, case, actor, action='complaint.case.updated')
+        record_complaint_update(update, case, actor, action=f'complaint.case.{action}')
     try:
         synced = update_sheet_case(group_config, case, sheet_updates(values, resolution_details, resolved_at))
     except Exception:
@@ -1115,6 +1072,27 @@ def sla_payload(control: ComplaintCaseControl, case: ParsedMessage) -> dict[str,
 
 def serialize_case(case: ParsedMessage) -> dict[str, Any]:
     control = ensure_case_control(case)
+    resolved = case.complaint_status == 'Closed'
+    source = (
+        {'type': 'officer', 'label': 'Officer-created'}
+        if case.source == 'complaint_mini_app'
+        else {'type': 'telegram', 'label': 'Telegram report'}
+    )
+    try:
+        imported = case.complaint_import_item
+    except ComplaintCaseImportItem.DoesNotExist:
+        imported = None
+    if imported:
+        batch = imported.batch
+        source = {
+            'type': 'batch',
+            'label': 'Batch upload',
+            'actor': batch.actor_label or 'Uploader unavailable',
+            'created_at': format_datetime(batch.created_at),
+        }
+    elif case.source == 'whatsapp_export':
+        source = {'type': 'legacy_batch', 'label': 'Legacy batch import - uploader not recorded'}
+    age_days = max(0, int((timezone.now() - (case.timestamp or case.created_at)).total_seconds() // 86400))
     return {
         'id': str(case.id),
         'case_id': case.message_id,
@@ -1124,21 +1102,18 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
         'branch': case.branch_region,
         'category': case.complaint_category,
         'description': case.complaint_description,
-        'status': case.complaint_status or 'Open',
+        'status': 'Resolved' if resolved else 'Pending',
+        'stored_status': case.complaint_status or 'Open',
         'reported_at': format_datetime(case.timestamp),
         'recorded_at': format_datetime(case.created_at),
-        'days_open': max(0, int((timezone.now() - (case.timestamp or case.created_at)).total_seconds() // 86400)),
+        'days_open': age_days,
+        'age_label': ('Resolved' if resolved else ('Today' if age_days == 0 else f'{age_days} day' + ('s' if age_days != 1 else '') + ' pending')),
+        'source_attribution': source,
         'risk_level': case.risk_level,
         'revision': control.revision,
-        'priority': control.priority,
-        'assigned_to': {
-            'id': str(control.assigned_to_id),
-            'name': (control.assigned_to.get_full_name() or control.assigned_to.get_username()),
-        } if control.assigned_to_id else None,
         'customer_match_status': control.customer_match_status,
         'sync_status': control.sync_status,
         'sync_error': control.sync_error,
-        'sla': sla_payload(control, case),
     }
 
 
@@ -1195,12 +1170,9 @@ def _case_queryset(group_id: str, actor: ComplaintCaseActor | None = None):
         'complaint_control__category', 'complaint_control__branch_ref',
         'complaint_control__customer', 'complaint_control__assigned_to',
     ).order_by('-timestamp', '-pk')
-    if actor is not None:
-        from core.services.workflow_access import scope_workflow_queryset
-        cases = scope_workflow_queryset(
-            cases, actor.user, 'complaint_cases', 'complaint.queue.view', access=actor.access,
-            branch_field='branch_region', group_field='group_id',
-        )
+    # Complaint work is deliberately shared across branches inside one
+    # configured Telegram group. The group filter above remains the hard
+    # tenant boundary; branch-scoped AccessGrants do not hide group cases.
     return cases
 
 
@@ -1218,6 +1190,10 @@ def _filter_status(cases, status: str):
         return cases.filter(Q(complaint_status__in=ACTIVE_STATUSES) | Q(complaint_status=''))
     if status == 'closed':
         return cases.filter(complaint_status='Closed')
+    if status == 'resolved':
+        return cases.filter(complaint_status='Closed')
+    if status == 'pending':
+        return cases.exclude(complaint_status='Closed')
     return cases
 
 
