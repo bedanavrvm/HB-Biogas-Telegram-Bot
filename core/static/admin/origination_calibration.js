@@ -1248,6 +1248,8 @@
       });
       revision = data.revision; delete pendingWriteKeys['calibration-publish'];
       published = true; setOperationState('published'); refreshDirtyState();
+      const attachProduct = $('calibration-attach-product');
+      if (attachProduct) attachProduct.hidden = false;
       status(
         data.assignment_name
           ? `${data.assignment_name} was published and added to this product's document packet.`

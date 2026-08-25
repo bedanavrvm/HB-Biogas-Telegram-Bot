@@ -218,6 +218,15 @@ class WorkflowDataModeStateForm(forms.ModelForm):
 
 
 class OriginationProductDefinitionForm(forms.ModelForm):
+    LAF_SOURCE_LIBRARY = 'library'
+    LAF_SOURCE_UPLOAD = 'upload'
+    LAF_SOURCE_LATER = 'later'
+    LAF_SOURCE_CHOICES = (
+        (LAF_SOURCE_LIBRARY, 'Choose from reusable library'),
+        (LAF_SOURCE_UPLOAD, 'Upload a new PDF'),
+        (LAF_SOURCE_LATER, 'Configure later'),
+    )
+
     product_version = forms.ModelChoiceField(
         queryset=ProductVersion.objects.none(), required=False,
         help_text='Global product terms version used by this form and LAF.',
@@ -227,6 +236,17 @@ class OriginationProductDefinitionForm(forms.ModelForm):
     name = forms.CharField(required=False, widget=forms.HiddenInput)
     form_schema = forms.JSONField(widget=forms.HiddenInput)
     signer_rules = forms.JSONField(widget=forms.HiddenInput)
+    main_laf_source = forms.ChoiceField(
+        choices=LAF_SOURCE_CHOICES, required=False, initial=LAF_SOURCE_LIBRARY,
+        label='Main LAF source', widget=forms.RadioSelect,
+        help_text='Reuse an approved LAF, upload a new one, or save an incomplete draft and finish the document packet later.',
+    )
+    reusable_primary_template = forms.ModelChoiceField(
+        queryset=OriginationDocumentTemplate.objects.none(), required=False,
+        empty_label='Choose a published reusable primary LAF',
+        label='Reusable primary LAF', widget=UnfoldAdminSelectWidget,
+        help_text='The selected version is pinned to this product version. A later LAF upgrade must be selected explicitly.',
+    )
     laf_pdf = forms.FileField(
         required=False,
         label='LAF PDF template',
@@ -240,7 +260,8 @@ class OriginationProductDefinitionForm(forms.ModelForm):
     class Meta:
         model = OriginationProductDefinition
         fields = (
-            'product_version', 'laf_pdf', 'product_key', 'name',
+            'product_version', 'main_laf_source', 'reusable_primary_template',
+            'laf_pdf', 'product_key', 'name',
             'form_schema', 'signer_rules',
         )
 
@@ -253,6 +274,16 @@ class OriginationProductDefinitionForm(forms.ModelForm):
                 ProductVersion.STATUS_PUBLISHED,
             ],
         ).select_related('product').order_by('product__name', '-version')
+        self.fields['reusable_primary_template'].queryset = (
+            OriginationDocumentTemplate.objects.filter(
+                product_definition__isnull=True,
+                document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
+                status=OriginationDocumentTemplate.STATUS_ACTIVE,
+                published_configuration_revision__isnull=False,
+            )
+            .select_related('published_configuration_revision')
+            .order_by('name', '-version')
+        )
         if self.instance.pk and not self.instance._state.adding:
             # A version may change its presentation contract while it is a
             # draft, but it must not move into another product's version line.
@@ -267,6 +298,38 @@ class OriginationProductDefinitionForm(forms.ModelForm):
                     'Optional replacement PDF. The current draft template is retained '
                     'as immutable history and the new PDF starts with a fresh alignment.'
                 )
+            assigned_primary = self.instance.document_assignments.filter(
+                template__document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
+            ).select_related('template').first()
+            owned_primary = self.instance.document_templates.filter(
+                document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
+                status__in=[
+                    OriginationDocumentTemplate.STATUS_READY,
+                    OriginationDocumentTemplate.STATUS_ACTIVE,
+                ],
+            ).exists()
+            if assigned_primary and not self.fields['reusable_primary_template'].queryset.filter(
+                pk=assigned_primary.template_id,
+            ).exists():
+                self.fields['reusable_primary_template'].queryset = (
+                    OriginationDocumentTemplate.objects.filter(
+                        models.Q(pk=assigned_primary.template_id)
+                        | models.Q(
+                            product_definition__isnull=True,
+                            document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
+                            status=OriginationDocumentTemplate.STATUS_ACTIVE,
+                            published_configuration_revision__isnull=False,
+                        )
+                    ).order_by('name', '-version')
+                )
+            if not self.is_bound:
+                if assigned_primary:
+                    self.initial['main_laf_source'] = self.LAF_SOURCE_LIBRARY
+                    self.initial['reusable_primary_template'] = assigned_primary.template_id
+                elif owned_primary:
+                    self.initial['main_laf_source'] = self.LAF_SOURCE_UPLOAD
+                else:
+                    self.initial['main_laf_source'] = self.LAF_SOURCE_LATER
 
     def clean(self):
         cleaned = super().clean()
@@ -274,6 +337,12 @@ class OriginationProductDefinitionForm(forms.ModelForm):
         signer_rules = cleaned.get('signer_rules')
         product_version = cleaned.get('product_version')
         laf_pdf = cleaned.get('laf_pdf')
+        laf_source = str(cleaned.get('main_laf_source') or '').strip()
+        reusable_primary = cleaned.get('reusable_primary_template')
+        if not laf_source:
+            # Cached Admin forms from before the library picker remain safe.
+            laf_source = self.LAF_SOURCE_UPLOAD if laf_pdf else self.LAF_SOURCE_LATER
+            cleaned['main_laf_source'] = laf_source
         if product_version:
             cleaned['product_key'] = product_version.product.code
             cleaned['name'] = product_version.product.name
@@ -304,6 +373,57 @@ class OriginationProductDefinitionForm(forms.ModelForm):
                     validate_template_pdf(pdf_data)
                 except OriginationTemplateError as exc:
                     self.add_error('laf_pdf', str(exc))
+        existing_primary = None
+        owned_primary = False
+        if self.instance.pk:
+            existing_primary = self.instance.document_assignments.filter(
+                template__document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
+            ).select_related('template').first()
+            owned_primary = self.instance.document_templates.filter(
+                document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
+                status__in=[
+                    OriginationDocumentTemplate.STATUS_READY,
+                    OriginationDocumentTemplate.STATUS_ACTIVE,
+                ],
+            ).exists()
+        if laf_source == self.LAF_SOURCE_LIBRARY:
+            if not reusable_primary:
+                self.add_error('reusable_primary_template', 'Choose a published reusable primary LAF.')
+            elif owned_primary:
+                self.add_error(
+                    'reusable_primary_template',
+                    'Remove or retire the product-owned primary LAF before selecting a reusable one.',
+                )
+            elif existing_primary and existing_primary.template_id != reusable_primary.pk:
+                self.add_error(
+                    'reusable_primary_template',
+                    'Remove the primary LAF already attached to this product before selecting another.',
+                )
+            else:
+                from core.services.origination_templates import (
+                    OriginationTemplateError, _merge_shared_primary_contract,
+                )
+                self.instance.form_schema = schema or {}
+                self.instance.signer_rules = signer_rules or []
+                try:
+                    schema, signer_rules = _merge_shared_primary_contract(
+                        product=self.instance, template=reusable_primary,
+                    )
+                except OriginationTemplateError as exc:
+                    self.add_error('reusable_primary_template', str(exc))
+                else:
+                    cleaned['form_schema'] = schema
+                    cleaned['signer_rules'] = signer_rules
+        elif laf_source == self.LAF_SOURCE_UPLOAD:
+            if existing_primary:
+                self.add_error(
+                    'laf_pdf',
+                    'Remove the reusable primary LAF from the document packet before uploading a product-owned replacement.',
+                )
+            elif not laf_pdf and not owned_primary:
+                self.add_error('laf_pdf', 'Choose a PDF or select Configure later.')
+        elif laf_source != self.LAF_SOURCE_LATER:
+            self.add_error('main_laf_source', 'Choose how this product will get its main LAF.')
         if schema is None or signer_rules is None:
             return cleaned
         from core.services.loan_origination import OriginationError, validate_product_form_contract
@@ -772,6 +892,7 @@ class OriginationProductDocumentAssignmentForm(DocumentApplicabilityRuleFormMixi
             self.instance.name = template.name
             if template.document_role == template.ROLE_PRIMARY:
                 cleaned.update({
+                    'version_policy': OriginationProductDocumentAssignment.VERSION_PINNED,
                     'inclusion_mode': template.INCLUDE_REQUIRED,
                     'display_order': 0,
                     'officer_selectable': False,
@@ -779,7 +900,7 @@ class OriginationProductDocumentAssignmentForm(DocumentApplicabilityRuleFormMixi
                     'applicability_rule': {},
                 })
                 for key in (
-                    'inclusion_mode', 'display_order', 'officer_selectable',
+                    'version_policy', 'inclusion_mode', 'display_order', 'officer_selectable',
                     'default_selected', 'applicability_rule',
                 ):
                     setattr(self.instance, key, cleaned[key])
@@ -6786,6 +6907,7 @@ class OriginationProductDocumentAssignmentAdmin(OriginationGodModeAdminMixin, Co
             kwargs['queryset'] = OriginationDocumentTemplate.objects.filter(
                 product_definition__isnull=True,
                 status=OriginationDocumentTemplate.STATUS_ACTIVE,
+                published_configuration_revision__isnull=False,
             ).order_by('name', '-version')
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
@@ -6803,6 +6925,7 @@ class OriginationProductDocumentAssignmentAdmin(OriginationGodModeAdminMixin, Co
                 default_selected=obj.default_selected,
                 applicability_rule=obj.applicability_rule or {},
                 actor=request.user,
+                version_policy=obj.version_policy,
             )
             obj.pk = assignment.pk
             obj._state.adding = False
@@ -6894,6 +7017,11 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
                 '<path:object_id>/document-packet/<path:assignment_id>/remove/',
                 self.admin_site.admin_view(self.remove_shared_document_from_packet_view),
                 name='core_originationproductdefinition_packet_remove_shared',
+            ),
+            path(
+                '<path:object_id>/document-packet/<path:assignment_id>/upgrade-primary/',
+                self.admin_site.admin_view(self.upgrade_shared_primary_view),
+                name='core_originationproductdefinition_packet_upgrade_primary',
             ),
             path(
                 '<path:object_id>/supporting-document/',
@@ -7102,6 +7230,8 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
         shared_assignments = []
         shared_primary = None
         packet_readiness = []
+        available_shared_documents = []
+        shared_document_empty_reason = ''
         if product is not None:
             templates = product.document_templates.order_by('-created_at')
             template = templates.filter(status__in=[
@@ -7116,9 +7246,20 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
                     product_key=product.product_key,
                     lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
                 ).order_by('-version').first()
-            from core.services.origination_templates import resolve_assignment_template
+            from core.services.origination_templates import (
+                latest_compatible_assignment_template, resolve_assignment_template,
+            )
             shared_assignments = [
-                {'assignment': assignment, 'resolved_template': resolve_assignment_template(assignment)}
+                {
+                    'assignment': assignment,
+                    'resolved_template': resolve_assignment_template(assignment),
+                    'upgrade_template': (
+                        latest_compatible_assignment_template(assignment)
+                        if assignment.template.document_role == OriginationDocumentTemplate.ROLE_PRIMARY
+                        and assignment.version_policy == assignment.VERSION_PINNED
+                        else None
+                    ),
+                }
                 for assignment in product.document_assignments.select_related(
                     'template', 'template__published_configuration_revision',
                 ).order_by('display_order', 'document_key')
@@ -7147,6 +7288,43 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
                     if item['resolved_template'] else 'No compatible published version is available'
                 ),
             } for item in shared_assignments)
+            if product.lifecycle_status == product.STATUS_DRAFT:
+                attached_types = {
+                    item['assignment'].template.document_type for item in shared_assignments
+                }
+                available_shared_documents = list(
+                    OriginationDocumentTemplate.objects.filter(
+                        product_definition__isnull=True,
+                        status=OriginationDocumentTemplate.STATUS_ACTIVE,
+                        published_configuration_revision__isnull=False,
+                    ).exclude(document_type__in=attached_types).order_by('name', '-version')
+                )
+                if not available_shared_documents:
+                    published_global = OriginationDocumentTemplate.objects.filter(
+                        product_definition__isnull=True,
+                        status=OriginationDocumentTemplate.STATUS_ACTIVE,
+                        published_configuration_revision__isnull=False,
+                    )
+                    unpublished_global = OriginationDocumentTemplate.objects.filter(
+                        product_definition__isnull=True,
+                        status=OriginationDocumentTemplate.STATUS_READY,
+                    )
+                    if published_global.exists():
+                        shared_document_empty_reason = (
+                            'Every eligible reusable document is already attached to this product.'
+                        )
+                    elif unpublished_global.exists():
+                        shared_document_empty_reason = (
+                            'Reusable documents exist, but they must be calibrated and published before attachment.'
+                        )
+                    else:
+                        shared_document_empty_reason = (
+                            'No published reusable document is available yet. Create and publish one in the reusable library.'
+                        )
+            else:
+                shared_document_empty_reason = (
+                    'Published product versions are immutable. Create or open an editable next version to change this packet.'
+                )
         context = {
             **(extra_context or {}),
             'origination_signer_roles': [
@@ -7167,17 +7345,8 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
                 ]).order_by('display_order', 'document_key')
             ) if product else [],
             'origination_shared_document_assignments': shared_assignments,
-            'origination_available_shared_documents': list(
-                OriginationDocumentTemplate.objects.filter(
-                    product_definition__isnull=True,
-                    status=OriginationDocumentTemplate.STATUS_ACTIVE,
-                    published_configuration_revision__isnull=False,
-                ).exclude(
-                    document_type__in=[
-                        item['assignment'].template.document_type for item in shared_assignments
-                    ],
-                ).order_by('name', '-version')
-            ) if product and product.lifecycle_status == product.STATUS_DRAFT else [],
+            'origination_available_shared_documents': available_shared_documents,
+            'origination_shared_document_empty_reason': shared_document_empty_reason,
             'origination_packet_readiness': packet_readiness,
             'origination_failed_template': failed_template,
             'origination_existing_successor': existing_successor,
@@ -7303,6 +7472,27 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
         except Exception as exc:
             return self._packet_error_response(exc)
         return JsonResponse({'ok': True, 'removed': removed})
+
+    def upgrade_shared_primary_view(self, request, object_id, assignment_id):
+        if request.method != 'POST':
+            return JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
+        try:
+            product = self._draft_packet_product(request, object_id)
+            if not product:
+                return JsonResponse({'ok': False, 'error': 'Product definition not found.'}, status=404)
+            from core.services.origination_templates import upgrade_pinned_primary_assignment
+            assignment, upgraded = upgrade_pinned_primary_assignment(
+                product_definition=product, assignment_id=assignment_id, actor=request.user,
+            )
+        except PermissionDenied:
+            raise
+        except Exception as exc:
+            return self._packet_error_response(exc)
+        return JsonResponse({
+            'ok': True, 'upgraded': upgraded,
+            'assignment_id': str(assignment.pk),
+            'version': assignment.template.version,
+        })
 
     def publish_assigned_primary_view(self, request, object_id):
         if request.method != 'POST':
@@ -7459,13 +7649,18 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
                 'template', 'template__published_configuration_revision',
             ).filter(template__document_role=OriginationDocumentTemplate.ROLE_PRIMARY).first()
             template = resolve_assignment_template(assignment) if assignment else None
+            if (
+                assignment
+                and assignment.version_policy == assignment.VERSION_LATEST_COMPATIBLE
+            ):
+                return 'Review main LAF version policy'
         if not template:
             failed = obj.document_templates.filter(
                 status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
             ).exists()
             if failed:
                 return 'Upload failed'
-            return 'PDF required'
+            return 'Main LAF missing'
         if obj.is_active and template.status == template.STATUS_ACTIVE:
             return 'Published'
         if template.published_configuration_revision_id:
@@ -7507,6 +7702,27 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
             product_definition=obj, action='draft_updated' if change else 'created',
             actor=request.user, metadata={'version': obj.version},
         )
+        reusable_primary = form.cleaned_data.get('reusable_primary_template')
+        if (
+            form.cleaned_data.get('main_laf_source') == form.LAF_SOURCE_LIBRARY
+            and reusable_primary
+        ):
+            from core.services.origination_templates import attach_shared_document_template
+            assignment = attach_shared_document_template(
+                product_definition=obj,
+                template=reusable_primary,
+                inclusion_mode=OriginationDocumentTemplate.INCLUDE_REQUIRED,
+                display_order=0,
+                officer_selectable=False,
+                default_selected=False,
+                applicability_rule={},
+                actor=request.user,
+                version_policy=OriginationProductDocumentAssignment.VERSION_PINNED,
+            )
+            messages.success(
+                request,
+                f'{assignment.name} v{assignment.template.version} is pinned as this product version\'s main LAF.',
+            )
         laf_pdf = form.cleaned_data.get('laf_pdf')
         if laf_pdf:
             from core.services.origination_templates import (
@@ -7797,6 +8013,10 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                         'name': original.name,
                     })
                 )
+                context['origination_attach_to_product_url'] = (
+                    reverse('admin:core_originationproductdocumentassignment_add')
+                    + '?' + urlencode({'template': original.pk})
+                )
         return super().changeform_view(request, object_id, form_url, context)
 
     @admin.display(description='Inclusion condition')
@@ -7901,6 +8121,11 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             'calibration_back_url': reverse(
                 'admin:core_originationproductdefinition_change', args=[product.pk],
             ) if product else reverse('admin:core_originationdocumenttemplate_changelist'),
+            'calibration_attach_product_url': (
+                reverse('admin:core_originationproductdocumentassignment_add')
+                + '?' + urlencode({'template': obj.pk})
+                if obj.product_definition_id is None else ''
+            ),
         })
 
     def calibration_state_view(self, request, object_id):

@@ -735,6 +735,7 @@ def attach_shared_document_template(
     *, product_definition: OriginationProductDefinition,
     template: OriginationDocumentTemplate, inclusion_mode: str, display_order: int,
     officer_selectable: bool, default_selected: bool, applicability_rule: dict[str, Any], actor,
+    version_policy: str | None = None,
 ) -> OriginationProductDocumentAssignment:
     """Attach a published global document family to one draft product."""
     with transaction.atomic():
@@ -765,6 +766,14 @@ def attach_shared_document_template(
             officer_selectable = False
             default_selected = False
             applicability_rule = {}
+            version_policy = OriginationProductDocumentAssignment.VERSION_PINNED
+        elif version_policy is None:
+            version_policy = OriginationProductDocumentAssignment.VERSION_LATEST_COMPATIBLE
+        if version_policy not in {
+            OriginationProductDocumentAssignment.VERSION_PINNED,
+            OriginationProductDocumentAssignment.VERSION_LATEST_COMPATIBLE,
+        }:
+            raise OriginationTemplateError('Choose a supported reusable-document version policy.')
         from core.services.origination_documents import validate_applicability_rule
         product_keys = {
             str(item.get('key')) for item in (product.form_schema or {}).get('fields', [])
@@ -790,7 +799,7 @@ def attach_shared_document_template(
         assignment = OriginationProductDocumentAssignment(
             product_definition=product,
             template=template,
-            version_policy=OriginationProductDocumentAssignment.VERSION_LATEST_COMPATIBLE,
+            version_policy=version_policy,
             document_key=template.document_key,
             name=template.name,
             inclusion_mode=inclusion_mode,
@@ -1351,15 +1360,12 @@ def assignment_template_compatibility_errors(
     return errors
 
 
-def resolve_assignment_template(
+def latest_compatible_assignment_template(
     assignment: OriginationProductDocumentAssignment,
 ) -> OriginationDocumentTemplate | None:
-    """Resolve the immutable template revision a newly created application should snapshot."""
+    """Return the newest published member compatible with an assignment baseline."""
     baseline = assignment.template
-    if (
-        assignment.version_policy == assignment.VERSION_PINNED
-        or baseline.product_definition_id is not None
-    ):
+    if baseline.product_definition_id is not None:
         return baseline if (
             baseline.status in {baseline.STATUS_ACTIVE, baseline.STATUS_RETIRED}
             and baseline.published_configuration_revision_id
@@ -1381,6 +1387,73 @@ def resolve_assignment_template(
         ),
     ).order_by('-version', '-_active_rank', '-activated_at', '-created_at')
     return next((item for item in candidates if not assignment_template_compatibility_errors(baseline, item)), None)
+
+
+def resolve_assignment_template(
+    assignment: OriginationProductDocumentAssignment,
+) -> OriginationDocumentTemplate | None:
+    """Resolve the immutable template revision a newly created application should snapshot."""
+    baseline = assignment.template
+    if assignment.version_policy == assignment.VERSION_PINNED:
+        return baseline if (
+            baseline.status in {baseline.STATUS_ACTIVE, baseline.STATUS_RETIRED}
+            and baseline.published_configuration_revision_id
+        ) else None
+    return latest_compatible_assignment_template(assignment)
+
+
+def upgrade_pinned_primary_assignment(
+    *, product_definition: OriginationProductDefinition, assignment_id, actor,
+) -> tuple[OriginationProductDocumentAssignment, bool]:
+    """Explicitly move a draft product's pinned primary to the newest compatible version."""
+    with transaction.atomic():
+        product = OriginationProductDefinition.objects.select_for_update().get(
+            pk=product_definition.pk,
+        )
+        if product.lifecycle_status != product.STATUS_DRAFT:
+            raise OriginationTemplateError(
+                'Create an editable product version before upgrading its main LAF.',
+            )
+        assignment = product.document_assignments.select_for_update().select_related(
+            'template', 'template__published_configuration_revision',
+        ).filter(pk=assignment_id).first()
+        if not assignment or assignment.template.document_role != assignment.template.ROLE_PRIMARY:
+            raise OriginationTemplateError('Choose this product\'s reusable primary LAF assignment.')
+        if assignment.version_policy != assignment.VERSION_PINNED:
+            raise OriginationTemplateError('Only a pinned primary LAF uses the explicit upgrade action.')
+        candidate = latest_compatible_assignment_template(assignment)
+        if not candidate or candidate.pk == assignment.template_id:
+            return assignment, False
+        previous = assignment.template
+        assignment.template = candidate
+        assignment.name = candidate.name
+        assignment.full_clean()
+        assignment.save(update_fields=['template', 'name'])
+        merged_schema, merged_signers = _merge_shared_primary_contract(
+            product=product, template=candidate,
+        )
+        product.form_schema = merged_schema
+        product.signer_rules = merged_signers
+        product.document_type = candidate.document_type
+        product.document_template_name = candidate.name
+        product.document_template_version = candidate.version
+        product.document_template_sha256 = candidate.source_sha256
+        product.save(update_fields=[
+            'form_schema', 'signer_rules', 'document_type', 'document_template_name',
+            'document_template_version', 'document_template_sha256', 'updated_at',
+        ])
+        OriginationProductDefinitionEvent.objects.create(
+            product_definition=product, action='shared_primary_upgraded', actor=actor,
+            metadata={
+                'assignment_id': str(assignment.pk),
+                'previous_template_id': str(previous.pk),
+                'previous_version': previous.version,
+                'template_id': str(candidate.pk),
+                'version': candidate.version,
+                'version_policy': assignment.version_policy,
+            },
+        )
+        return assignment, True
 
 
 def replace_draft_template(

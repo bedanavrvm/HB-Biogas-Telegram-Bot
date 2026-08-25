@@ -28,6 +28,7 @@ const routes = [
   ['pilot-cleanup', '/admin/core/workflowdatamodestate/1/pilot-purge/?scope=spin'],
   ['tat-responsibility', '/admin/core/tatresponsibilityassignment/'],
   ['origination-list', '/admin/core/originationproductdefinition/'],
+  ['origination-add', '/admin/core/originationproductdefinition/add/'],
   ['field-list', '/admin/core/originationdatafield/'],
   ['terminology-audit', '/admin/core/originationdatafield/terminology-audit/'],
   ['origination-builder', `/admin/core/originationproductdefinition/${productId}/change/`],
@@ -38,6 +39,9 @@ const routes = [
   ['assignment-list', '/admin/core/originationproductdocumentassignment/'],
   ['assignment-change', '/admin/core/originationproductdocumentassignment/00000000-0000-0000-0000-000000000444/change/'],
 ];
+const requestedRoute = process.env.ADMIN_AUDIT_ROUTE || '';
+const selectedRoutes = requestedRoute ? routes.filter(([name]) => name === requestedRoute) : routes;
+if (requestedRoute && !selectedRoutes.length) throw new Error(`Unknown audit route: ${requestedRoute}`);
 
 function assert(condition, message) { if (!condition) throw new Error(message); }
 function assertViewportSelection() {
@@ -114,7 +118,7 @@ async function auditSharedPages(browser, viewport) {
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
   await login(page);
-  for (const [name, route] of routes) {
+  for (const [name, route] of selectedRoutes) {
     const response = await page.goto(`${base}${route}`, { waitUntil: 'domcontentloaded' });
     assert(response && response.status() < 400, `${viewport.name}/${name}: HTTP ${response?.status()}`);
     await assertContained(page, `${viewport.name}/${name}`);
@@ -124,8 +128,24 @@ async function auditSharedPages(browser, viewport) {
       assert(await page.getByText('Applicant is the standard Origination term').count(), `${viewport.name}: terminology policy missing`);
       assert(await page.locator('.terminology-shell').count(), `${viewport.name}: terminology workspace missing`);
     }
-    if (['product-add', 'user-inlines', 'origination-builder', 'template-change'].includes(name)) {
+    if (['product-add', 'user-inlines', 'origination-add', 'origination-builder', 'template-change'].includes(name)) {
       assert(await page.locator('body.change-form').count(), `${viewport.name}/${name}: change-form selector no longer matches`);
+    }
+    if (name === 'origination-add') {
+      assert(await page.locator('input[name="main_laf_source"]').count() === 3, `${viewport.name}: main-LAF source choices missing`);
+      assert(await page.locator('#id_reusable_primary_template option').count() > 1, `${viewport.name}: reusable primary library is empty`);
+      const libraryLabel = page.locator('label[for="id_reusable_primary_template"]').first();
+      const uploadLabel = page.locator('label[for="id_laf_pdf"]').first();
+      assert(await libraryLabel.isVisible(), `${viewport.name}: reusable primary selector is not the default`);
+      await page.locator('input[name="main_laf_source"][value="upload"]').check();
+      assert(await uploadLabel.isVisible(), `${viewport.name}: upload control did not open`);
+      assert(await libraryLabel.isHidden(), `${viewport.name}: library selector remained visible in upload mode`);
+      await page.locator('input[name="main_laf_source"][value="later"]').check();
+      assert(await uploadLabel.isHidden(), `${viewport.name}: upload control remained visible in configure-later mode`);
+      assert((await page.locator('#opb-laf-guidance').textContent()).includes('incomplete draft'), `${viewport.name}: configure-later guidance is unclear`);
+      await page.locator('input[name="main_laf_source"][value="library"]').check();
+      assert((await page.locator('#opb-laf-guidance').textContent()).includes('without another upload'), `${viewport.name}: reusable-library guidance is unclear`);
+      await assertContained(page, `${viewport.name}/origination-add-source`);
     }
     if (name === 'user-inlines') assert(await page.locator('.inline-group').count(), `${viewport.name}/${name}: inline selector no longer matches`);
     if (name === 'pilot-mode-switchboard') {
@@ -227,7 +247,7 @@ async function auditSharedPages(browser, viewport) {
       await page.screenshot({ path: path.join(output, `${viewport.name}-origination-field-picker.png`) });
       await picker.locator('.opb-picker-close').click();
     }
-    if (['dashboard', 'pilot-mode-switchboard', 'pilot-cleanup', 'tat-responsibility', 'origination-builder', 'version-history'].includes(name)) {
+    if (['dashboard', 'pilot-mode-switchboard', 'pilot-cleanup', 'tat-responsibility', 'origination-add', 'origination-builder', 'version-history'].includes(name)) {
       await page.screenshot({ path: path.join(output, `${viewport.name}-${name}.png`), fullPage: true });
     }
   }

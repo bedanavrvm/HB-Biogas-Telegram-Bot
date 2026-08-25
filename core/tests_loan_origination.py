@@ -1,4 +1,5 @@
 from base64 import b64decode
+import json
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -7,6 +8,7 @@ from unittest.mock import patch
 
 from pypdf import PdfReader, PdfWriter
 
+from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -1238,6 +1240,7 @@ class LoanOriginationServiceTests(TestCase):
         self.assertEqual(assignment.document_key, 'primary')
         self.assertEqual(assignment.display_order, 0)
         self.assertEqual(assignment.inclusion_mode, 'required')
+        self.assertEqual(assignment.version_policy, assignment.VERSION_PINNED)
         self.assertFalse(assignment.officer_selectable)
         self.assertEqual(self.product.document_template_sha256, template.source_sha256)
         self.assertIn(
@@ -1289,8 +1292,8 @@ class LoanOriginationServiceTests(TestCase):
             product_key=self.product.product_key, officer=self.officer,
             branch='Synthetic Branch', client_request_id='shared-primary-v2-create',
         )
-        self.assertEqual(newer.packet_documents.get(document_key='primary').template_id, successor.pk)
-        self.assertEqual(newer.template_configuration_snapshot, {'marker': 'v2'})
+        self.assertEqual(newer.packet_documents.get(document_key='primary').template_id, template.pk)
+        self.assertEqual(newer.template_configuration_snapshot, {})
         application.refresh_from_db()
         self.assertEqual(application.packet_documents.get(document_key='primary').template_id, template.pk)
 
@@ -1539,6 +1542,122 @@ class OriginationSupportingDocumentSetupAdminTests(TestCase):
         assignment = self.product.document_assignments.get()
         self.assertEqual(assignment.document_key, 'primary')
         self.assertEqual(assignment.display_order, 0)
+        self.assertEqual(assignment.version_policy, assignment.VERSION_PINNED)
         self.product.refresh_from_db()
         self.assertEqual(self.product.document_template_sha256, template.source_sha256)
         self.assertIn('applicant_name', {item['key'] for item in self.product.form_schema['fields']})
+
+    def test_product_can_be_created_from_published_reusable_primary_without_upload(self):
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='primary', document_role='primary',
+            inclusion_mode='required', display_order=0, document_type='library_primary',
+            name='Library primary', version=1, status='active',
+            source_filename='library.pdf', source_sha256='9' * 64,
+            source_byte_size=100, page_count=1, placement_config={}, created_by=self.actor,
+            form_schema={
+                'sections': [{'key': 'application', 'label': 'Application'}],
+                'fields': [{
+                    'key': 'application_note', 'type': 'text', 'required': True,
+                    'section_key': 'application',
+                }],
+            },
+            signer_rules=[],
+        )
+        revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=template, revision=1, configuration={}, is_published=True,
+            created_by=self.actor,
+        )
+        template.published_configuration_revision = revision
+        template.save(update_fields=['published_configuration_revision'])
+
+        response = self.client.post(reverse('admin:core_originationproductdefinition_add'), {
+            'product_version': '',
+            'product_key': 'library-created-product',
+            'name': 'Library-created product',
+            'main_laf_source': 'library',
+            'reusable_primary_template': str(template.pk),
+            'laf_pdf': '',
+            'form_schema': json.dumps({'sections': [], 'fields': []}),
+            'signer_rules': '[{"role":"borrower"}]',
+            '_save': 'Save',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        product = OriginationProductDefinition.objects.get(product_key='library-created-product')
+        assignment = product.document_assignments.get(document_key='primary')
+        self.assertEqual(assignment.template, template)
+        self.assertEqual(assignment.version_policy, assignment.VERSION_PINNED)
+        self.assertFalse(product.document_templates.exists())
+        self.assertIn('application_note', {item['key'] for item in product.form_schema['fields']})
+
+    def test_configure_later_draft_is_saved_and_flagged_as_missing_main_laf(self):
+        response = self.client.post(reverse('admin:core_originationproductdefinition_add'), {
+            'product_version': '',
+            'product_key': 'configure-later-product',
+            'name': 'Configure later product',
+            'main_laf_source': 'later',
+            'reusable_primary_template': '',
+            'laf_pdf': '',
+            'form_schema': json.dumps({
+                'sections': [{'key': 'application', 'label': 'Application'}],
+                'fields': [{
+                    'key': 'application_note', 'type': 'text', 'required': True,
+                    'section_key': 'application',
+                }],
+            }),
+            'signer_rules': '[{"role":"borrower"}]',
+            '_save': 'Save',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        product = OriginationProductDefinition.objects.get(product_key='configure-later-product')
+        model_admin = admin.site._registry[OriginationProductDefinition]
+        self.assertEqual(model_admin.template_readiness(product), 'Main LAF missing')
+
+    def test_pinned_primary_upgrade_is_explicit_and_audited(self):
+        baseline = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='primary', document_role='primary',
+            inclusion_mode='required', display_order=0, document_type='upgrade_primary',
+            name='Upgrade primary', version=1, status='retired',
+            source_filename='v1.pdf', source_sha256='a' * 64,
+            source_byte_size=100, page_count=1, placement_config={}, created_by=self.actor,
+            form_schema={'fields': [{'key': 'consent', 'type': 'boolean', 'required': True}]},
+            signer_rules=[],
+        )
+        baseline_revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=baseline, revision=1, configuration={}, is_published=True,
+            created_by=self.actor,
+        )
+        baseline.published_configuration_revision = baseline_revision
+        baseline.save(update_fields=['published_configuration_revision'])
+        successor = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='primary', document_role='primary',
+            inclusion_mode='required', display_order=0, document_type='upgrade_primary',
+            name='Upgrade primary', version=2, status='active',
+            source_filename='v2.pdf', source_sha256='b' * 64,
+            source_byte_size=100, page_count=1, placement_config={}, created_by=self.actor,
+            form_schema={'fields': [{'key': 'consent', 'type': 'boolean', 'required': True}]},
+            signer_rules=[],
+        )
+        successor_revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=successor, revision=1, configuration={}, is_published=True,
+            created_by=self.actor,
+        )
+        successor.published_configuration_revision = successor_revision
+        successor.save(update_fields=['published_configuration_revision'])
+        assignment = OriginationProductDocumentAssignment.objects.create(
+            product_definition=self.product, template=baseline,
+            version_policy=OriginationProductDocumentAssignment.VERSION_PINNED,
+            document_key='primary', name='Upgrade primary', inclusion_mode='required',
+            display_order=0, created_by=self.actor,
+        )
+
+        response = self.client.post(reverse(
+            'admin:core_originationproductdefinition_packet_upgrade_primary',
+            args=[self.product.pk, assignment.pk],
+        ))
+
+        self.assertEqual(response.status_code, 200)
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.template, successor)
+        self.assertTrue(self.product.events.filter(action='shared_primary_upgraded').exists())

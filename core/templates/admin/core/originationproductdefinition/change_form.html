@@ -3,7 +3,44 @@
 
 {% block extrahead %}
   {{ block.super }}
-  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=7">
+  {% if not original or original.lifecycle_status == 'draft' %}
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        const sourceInputs = document.querySelectorAll('input[name="main_laf_source"]');
+        const library = document.getElementById('id_reusable_primary_template');
+        const upload = document.getElementById('id_laf_pdf');
+        const guidance = document.getElementById('opb-laf-guidance');
+        function fieldRow(input) {
+          if (!input) return null;
+          const direct = input.closest('.form-row, [class~="field-' + input.name + '"]');
+          if (direct) return direct;
+          const label = document.querySelector('label[for="' + input.id + '"]');
+          let node = input.parentElement;
+          while (node && label && !node.contains(label)) node = node.parentElement;
+          return node || input.parentElement;
+        }
+        function updateLafSource() {
+          const source = document.querySelector('input[name="main_laf_source"]:checked')?.value || 'library';
+          const libraryRow = fieldRow(library);
+          const uploadRow = fieldRow(upload);
+          if (libraryRow) libraryRow.hidden = source !== 'library';
+          if (uploadRow) uploadRow.hidden = source !== 'upload';
+          if (guidance) guidance.textContent = {
+            library: 'Choose a published reusable primary LAF above and save. Its reviewed PDF mapping is reused without another upload.',
+            upload: 'Choose a new LAF PDF above and save. The visual alignment builder opens automatically after upload.',
+            later: 'Save this incomplete draft now. Main LAF missing will remain visible until you return and choose a reusable LAF or upload one.',
+          }[source] || '';
+        }
+        ['id_product_key', 'id_name'].forEach(function (id) {
+          const row = fieldRow(document.getElementById(id));
+          if (row) row.hidden = true;
+        });
+        sourceInputs.forEach(function (input) { input.addEventListener('change', updateLafSource); });
+        updateLafSource();
+      });
+    </script>
+  {% endif %}
+  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=8">
 {% endblock %}
 
 {% block object-tools-items %}
@@ -86,7 +123,7 @@
       {% elif origination_failed_template %}
         <p>The previous LAF upload did not reach Drive. Choose the LAF PDF template above and save again; a new auditable upload attempt will be created.</p>
       {% else %}
-        <p>Choose the <b>LAF PDF template</b> above and save this draft. The visual alignment builder will open automatically after a successful upload.</p>
+        <p id="opb-laf-guidance">Choose a reusable primary LAF, upload a new PDF, or save an incomplete draft and configure its document packet later.</p>
       {% endif %}
     </section>
     {% if original %}
@@ -97,7 +134,7 @@
             <p>Keep the main LAF first, then add required, conditional, or optional supporting PDFs with their own fields and signer slots.</p>
           </div>
           <span class="opb-packet-actions">
-            {% if origination_available_shared_documents %}
+            {% if origination_packet_add_shared_url and origination_available_shared_documents %}
               <label class="opb-packet-picker">Add reusable document
                 <select data-packet-document-select aria-label="Reusable document">
                   <option value="">Choose a document</option>
@@ -113,6 +150,9 @@
             <a class="opb-secondary-link" href="{{ origination_shared_library_url }}">Manage reusable library</a>
           </span>
         </header>
+        {% if origination_shared_document_empty_reason %}
+          <p class="opb-packet-empty">{{ origination_shared_document_empty_reason }}</p>
+        {% endif %}
         {% if origination_packet_readiness %}
           <div class="opb-packet-readiness" aria-label="Document packet readiness">
             {% for item in origination_packet_readiness %}
@@ -138,7 +178,14 @@
             {% for item in origination_shared_document_assignments %}
               <article>
                 <span><b>{{ item.assignment.name }}</b><small>{% if item.resolved_template %}{{ item.resolved_template.get_document_role_display }} &middot; {% endif %}{{ item.assignment.get_version_policy_display }}{% if item.resolved_template %} &middot; currently v{{ item.resolved_template.version }}{% else %} &middot; unavailable{% endif %} &middot; {{ item.assignment.get_inclusion_mode_display }}</small></span>
-                <span>{% if item.resolved_template %}<a href="{% url 'admin:core_originationdocumenttemplate_calibrate' item.resolved_template.pk %}">Preview PDF mapping</a>{% endif %} <a href="{% url 'admin:core_originationproductdocumentassignment_change' item.assignment.pk %}">Advanced settings</a> <button type="button" class="opb-remove-document" data-packet-remove-url="{% url 'admin:core_originationproductdefinition_packet_remove_shared' original.pk item.assignment.pk %}" data-document-name="{{ item.assignment.name }}">Remove</button></span>
+                <span>
+                  {% if item.resolved_template %}<a href="{% url 'admin:core_originationdocumenttemplate_calibrate' item.resolved_template.pk %}">Preview PDF mapping</a>{% endif %}
+                  <a href="{% url 'admin:core_originationproductdocumentassignment_change' item.assignment.pk %}">Advanced settings</a>
+                  {% if original.lifecycle_status == 'draft' and item.upgrade_template and item.upgrade_template.pk != item.assignment.template_id %}
+                    <button type="button" class="opb-upgrade-document" data-packet-upgrade-url="{% url 'admin:core_originationproductdefinition_packet_upgrade_primary' original.pk item.assignment.pk %}" data-current-version="{{ item.assignment.template.version }}" data-new-version="{{ item.upgrade_template.version }}">Use v{{ item.upgrade_template.version }}</button>
+                  {% endif %}
+                  {% if original.lifecycle_status == 'draft' %}<button type="button" class="opb-remove-document" data-packet-remove-url="{% url 'admin:core_originationproductdefinition_packet_remove_shared' original.pk item.assignment.pk %}" data-document-name="{{ item.assignment.name }}">Remove</button>{% endif %}
+                </span>
               </article>
             {% endfor %}
           </div>
@@ -179,6 +226,14 @@
             if (!window.confirm('Remove ' + name + ' from this draft product packet? The reusable template and existing applications will not be changed.')) return;
             button.disabled = true;
             try { await post(button.dataset.packetRemoveUrl, {}); window.location.reload(); }
+            catch (error) { window.alert(error.message); button.disabled = false; }
+          });
+        });
+        document.querySelectorAll('[data-packet-upgrade-url]').forEach(function (button) {
+          button.addEventListener('click', async function () {
+            if (!window.confirm('Upgrade the pinned main LAF from v' + button.dataset.currentVersion + ' to reviewed compatible v' + button.dataset.newVersion + '? Existing applications will not change.')) return;
+            button.disabled = true;
+            try { await post(button.dataset.packetUpgradeUrl, {}); window.location.reload(); }
             catch (error) { window.alert(error.message); button.disabled = false; }
           });
         });
