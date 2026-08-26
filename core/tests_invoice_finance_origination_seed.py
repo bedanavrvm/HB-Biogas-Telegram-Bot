@@ -116,8 +116,9 @@ class InvoiceFinanceOriginationSeedTests(TestCase):
         self.assertNotIn('application_date', {item['key'] for item in definition.form_schema['fields']})
         self.assertEqual(
             [item['key'] for item in definition.form_schema['sections']],
-            ['applicant_details', 'business_details', 'banking_details', 'invoice_details', 'signer_details', 'acknowledgement', 'commercial_terms'],
+            ['applicant_details', 'business_details', 'banking_details', 'invoice_details', 'signer_details', 'acknowledgement'],
         )
+        self.assertEqual(definition.form_schema['commercial_section_key'], 'invoice_details')
         self.assertEqual(
             {item['role'] for item in definition.signer_rules},
             {'borrower', 'invoice_payer_representative', 'bro_1', 'management_approver'},

@@ -47,10 +47,11 @@ def _formatted_value(value: Any, spec: dict[str, Any]) -> str:
             return f'{Decimal(text):,.2f}'
         except (InvalidOperation, ValueError):
             return text
-    if value_format in {'date_dmy', 'date_long'}:
+    if value_format in {'date_dmy', 'date_dmy_short', 'date_long'}:
         try:
             parsed = date.fromisoformat(text)
-            return parsed.strftime('%d/%m/%Y' if value_format == 'date_dmy' else '%d %b %Y')
+            formats = {'date_dmy': '%d/%m/%Y', 'date_dmy_short': '%d-%m-%y', 'date_long': '%d %b %Y'}
+            return parsed.strftime(formats[value_format])
         except ValueError:
             return text
     return text
@@ -268,6 +269,7 @@ def render_template(source: bytes, config: dict[str, Any], context: dict[str, An
     manifest = overlay_manifest.get('fields') or {}
     defaults = overlay_manifest.get('defaults') or {}
     canonical_values = context.get('_canonical_values') if isinstance(context.get('_canonical_values'), dict) else {}
+    date_fields = set(context.get('_date_fields') or [])
     for spec in manifest.values():
         if not isinstance(spec, dict):
             continue
@@ -275,7 +277,8 @@ def render_template(source: bytes, config: dict[str, Any], context: dict[str, An
         context_key = str(spec.get('context_key') or '')
         display_value = context.get(context_key)
         condition_value = canonical_values.get(context_key, display_value)
-        fields_by_page.setdefault(page_number, []).append((spec, display_value, condition_value))
+        rendered_spec = {**spec, 'value_format': spec.get('value_format') or ('date_dmy_short' if context_key in date_fields else '')}
+        fields_by_page.setdefault(page_number, []).append((rendered_spec, display_value, condition_value))
     signature_slots_by_page: dict[int, list[dict]] = {}
     if context.get('_show_signature_slots'):
         signature_manifest = (config.get('signature_overlay_manifest') or {}).get('slots') or {}

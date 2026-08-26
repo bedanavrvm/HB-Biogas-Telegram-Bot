@@ -1,0 +1,18 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=10">{% endblock %}
+{% block content %}
+<section class="opb-shell opb-god-mode">
+  <header><p class="opb-danger-kicker">ORIGINATION GOD MODE</p><h1>Permanently purge product family</h1><p><b>{{ product_key }}</b> — every Origination version and its attached Origination data</p></header>
+  <div class="opb-god-warning"><b>This cannot be undone.</b><p>The global Product catalogue, other workflows, shared reusable templates not owned by this family, and all Google Drive files remain untouched.</p></div>
+  <h2>Expected database impact</h2>
+  <div class="opb-packet-readiness">{% for item in impact %}<span class="is-blocked"><b>{{ item.count }}</b><small>{{ item.label }}</small></span>{% endfor %}</div>
+  {% if error %}<div class="opb-errors" role="alert">{{ error }}</div>{% endif %}
+  <form method="post" class="opb-god-form">
+    {% csrf_token %}<input type="hidden" name="request_id" value="{{ request_id }}">
+    <label>Reason for permanent purge<textarea name="reason" required maxlength="500">{{ request.POST.reason }}</textarea></label>
+    <label>Type this exact phrase to confirm<code>{{ confirmation_text }}</code><input name="confirmation" required autocomplete="off" spellcheck="false" value="{{ request.POST.confirmation }}"></label>
+    <div class="opb-actions"><a class="button" href="{{ back_url }}">Cancel</a><button type="submit" class="button opb-danger-button">Purge entire Origination family</button></div>
+  </form>
+</section>
+{% endblock %}

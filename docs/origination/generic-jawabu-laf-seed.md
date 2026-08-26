@@ -49,10 +49,13 @@ repeatable structures stop the operation rather than altering historical data.
 |---|---|---|
 | `applicant_details` | Applicant Details | Applicant identity, household, and contact details |
 | `enterprise_details` | Enterprise Details | Business location and manually declared monthly finances |
-| `loan_details` | Loan Details | Requested facility and existing borrowing |
+| `loan_details` | Loan Details | Requested facility, commercial terms, quote and existing borrowing in one ordered flow |
 | `security_details` | Security Details | Assets pledged for the facility |
 | `guarantor_details` | Guarantor Details | Required first guarantor and optional second guarantor |
-| `commercial_terms` | Commercial Terms | Requested amount and tenor plus a read-only ProductVersion quote |
+`commercial_terms` remains a compatibility token for older snapshots, but new
+and upgraded schemas merge those fields into `loan_details` and set
+`commercial_section_key` to that section. The officer enters the amount before
+the repayment tenor; the ProductVersion quote follows in the same step.
 
 ## Governed Commercial Terms contract
 
@@ -93,6 +96,10 @@ code. Repeatable structures use `repeating_table` and must have their columns
 calibrated in printed order. System fields do not appear in the Mini App form,
 but may be mapped onto the PDF when the application/product workflow supplies
 their values.
+
+Date controls retain canonical ISO `YYYY-MM-DD` values in Django and snapshots,
+while the Mini App native-picker control and PDF output display `dd-mm-yy` for
+Kenya. The phone still owns the native calendar UI itself.
 
 | PDF/form meaning | Canonical key | Section | Type / control | Required | Source / governance | Validation or choices | Recommended PDF render |
 |---|---|---|---|---|---|---|---|
@@ -188,6 +195,11 @@ their values.
 | `current_value` | Current value | `money` | Yes | Minimum 0 |
 
 The alignment builder creates one `repeating_table` placement per printed table.
+The product builder exposes minimum/maximum row counts and stores 1-4 Mini App
+columns in `repeatable_layout.column_widths`, requiring positive percentages
+totalling 100. The PDF builder independently
+stores the row count and each canonical table column's `width_ratio`/`x_ratio`,
+also totalling 100, so form layout and printed alignment can be tuned safely.
 Configure its columns in the same order as the corresponding structure above;
 do not map each possible row as unrelated scalar fields.
 
@@ -195,9 +207,9 @@ do not map each possible row as unrelated scalar fields.
 
 | Role | Required | Identity mapping | Slots |
 |---|---|---|---|
-| Borrower (`borrower`) | Yes | Name `applicant_first_name`; phone `applicant_phone`; ID `applicant_id_number` | `declaration_signature` (`signature`, required); `declaration_date_signed` (`date_signed`, required); `loan_agreement_signature` (`signature`, required); `loan_agreement_date_signed` (`date_signed`, required); `affidavit_signature` (`signature`, required); `acknowledgement_signature` (`signature`, required); `acknowledgement_date_signed` (`date_signed`, required) |
+| Borrower (`borrower`) | Yes | Name `applicant_first_name`; phone `applicant_phone`; ID `applicant_id_number` | One holistic verified `signature` capture is reused at `declaration_signature`, `loan_agreement_signature`, `affidavit_signature`, and `acknowledgement_signature`. The same completion fills `declaration_date_signed`, `loan_agreement_date_signed`, and `acknowledgement_date_signed` (`date_signed`). The packet cannot become fully signed until every required placement is complete. |
 | Guarantor 1 (`guarantor_1`) | Yes | Name `guarantor_1_name`; phone `guarantor_1_phone`; ID `guarantor_1_id_number` | `guarantor_1_signature` (`signature`, required) |
-| Guarantor 2 (`guarantor_2`) | No | Name `guarantor_2_name`; phone `guarantor_2_phone`; ID `guarantor_2_id_number` | `guarantor_2_signature` (`signature`, optional) |
+| Guarantor 2 (`guarantor_2`) | Conditional | Name `guarantor_2_name`; phone `guarantor_2_phone`; ID `guarantor_2_id_number` | It remains in the single Guarantor Details section but is rendered in its own labelled card. Any entered Guarantor 2 value makes the core identity, evidence, and `guarantor_2_signature` completion mandatory. |
 | Business Relationship Officer 1 (`bro_1`) | Yes | Authorized staff context | `bro_1_approval_signature` (`signature`, required); `bro_1_approval_date_signed` (`date_signed`, required) |
 | Business Relationship Officer 2 (`bro_2`) | No | Authorized staff context | `bro_2_approval_signature` (`signature`, optional); `bro_2_approval_date_signed` (`date_signed`, optional) |
 | Branch Manager (`branch_manager`) | Yes | Authorized staff context | `branch_manager_approval_signature` (`signature`, required); `branch_manager_approval_date_signed` (`date_signed`, required) |
@@ -215,11 +227,14 @@ designed explicitly before adding such a slot.
 
 These are application evidence requirements, not supporting document templates
 and not PDF placements.
+The Mini App **Take photo** action opens a live rear-camera stream through
+`getUserMedia`; **Choose file** remains the separate document/photo picker.
 
 ## Calibration, publication, and product assignment
 
 1. Open the reusable Generic Jawabu LAF template in Django Admin.
-2. Open the alignment builder and place all printable required fields.
+2. Open the alignment builder and place all printable required fields. **Snap
+   to lines** is enabled by default; hold Alt during a gesture to bypass it.
 3. Create one checkbox placement for every printed Marital Status, Residence
    Tenure, and Loan Product option, selecting the matching canonical code.
 4. Configure `external_loans` and `pledged_assets` as repeating tables.

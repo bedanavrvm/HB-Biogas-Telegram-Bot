@@ -44,6 +44,9 @@
   const HISTORY_BYTE_LIMIT = 5 * 1024 * 1024;
   const drawPointers = new Map();
   let drawGesture = null;
+  let snapEnabled = true;
+  let activeSnapGuides = { x: null, y: null };
+  const detectedSnapGuides = new Map();
 
   const fields = () => configuration?.field_overlay_manifest?.fields || {};
   const signatures = () => configuration?.signature_overlay_manifest?.slots || {};
@@ -128,6 +131,67 @@
       width, height,
     };
   };
+  const nearestGuide = (values, target, threshold) => {
+    let match = null;
+    for (const value of values || []) {
+      const distance = Math.abs(value - target);
+      if (distance <= threshold && (!match || distance < match.distance)) match = { value, distance };
+    }
+    return match?.value ?? null;
+  };
+  function snapBox(spec, box, editKind = 'move', bypass = false) {
+    activeSnapGuides = { x: null, y: null };
+    if (!snapEnabled || bypass) return box;
+    const guides = detectedSnapGuides.get(page);
+    if (!guides) return box;
+    const unit = unitsScale(spec);
+    const threshold = 7 / Math.max(renderedScale() * unit, .01);
+    const xGuides = guides.x.map(value => value / unit);
+    const yGuides = guides.y.map(value => value / unit);
+    const next = { ...box };
+    const xTarget = editKind === 'resize' ? next.x + next.width : next.x;
+    const yTarget = editKind === 'resize' ? next.y + next.height : next.y;
+    const x = nearestGuide(xGuides, xTarget, threshold);
+    const y = nearestGuide(yGuides, yTarget, threshold);
+    if (x !== null) {
+      if (editKind === 'resize') next.width = x - next.x; else next.x = x;
+      activeSnapGuides.x = x * unit;
+    }
+    if (y !== null) {
+      if (editKind === 'resize') next.height = y - next.y; else next.y = y;
+      activeSnapGuides.y = y * unit;
+    }
+    return next;
+  }
+  function detectPdfLines(image) {
+    const size = pageSize();
+    if (!size || !image.naturalWidth || detectedSnapGuides.has(page)) return;
+    const scale = Math.min(1, 1200 / image.naturalWidth);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    const dark = (x, y) => { const offset = (y * canvas.width + x) * 4; return pixels[offset] + pixels[offset + 1] + pixels[offset + 2] < 360; };
+    const consolidate = values => values.filter((value, index) => !index || value - values[index - 1] > 2);
+    const horizontal = [];
+    for (let y = 0; y < canvas.height; y += 1) {
+      let run = 0, longest = 0;
+      for (let x = 0; x < canvas.width; x += 1) { run = dark(x, y) ? run + 1 : 0; longest = Math.max(longest, run); }
+      if (longest >= canvas.width * .12) horizontal.push(y);
+    }
+    const vertical = [];
+    for (let x = 0; x < canvas.width; x += 1) {
+      let run = 0, longest = 0;
+      for (let y = 0; y < canvas.height; y += 1) { run = dark(x, y) ? run + 1 : 0; longest = Math.max(longest, run); }
+      if (longest >= canvas.height * .06) vertical.push(x);
+    }
+    detectedSnapGuides.set(page, {
+      x: consolidate(vertical).map(value => value / canvas.width * Number(size.width)),
+      y: consolidate(horizontal).map(value => Number(size.height) - value / canvas.height * Number(size.height)),
+    });
+  }
   window.__originationCalibrationGeometry = { screenPointToPage, screenDeltaToPage, pageBoxToScreen, clampBox };
   const currentCollection = () => selectedKind === 'signature' ? signatures() : fields();
   const currentSpec = () => currentCollection()[selectedKey];
@@ -411,6 +475,7 @@
     pageUrl = URL.createObjectURL(await response.blob());
     const image = $('calibration-page');
     await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = reject; image.src = pageUrl; });
+    detectPdfLines(image);
     applyZoom();
     renderOverlays();
     refreshDirtyState();
@@ -492,6 +557,19 @@
       element.addEventListener('pointerdown', beginPointerEdit);
       layer.appendChild(element);
     });
+    const scale = renderedScale();
+    if (activeSnapGuides.x !== null) {
+      const guide = document.createElement('div');
+      guide.className = 'calibration-snap-guide calibration-snap-guide-x';
+      guide.style.left = `${activeSnapGuides.x * scale}px`;
+      layer.appendChild(guide);
+    }
+    if (activeSnapGuides.y !== null) {
+      const guide = document.createElement('div');
+      guide.className = 'calibration-snap-guide calibration-snap-guide-y';
+      guide.style.top = `${(Number(size.height) - activeSnapGuides.y) * scale}px`;
+      layer.appendChild(guide);
+    }
     layer.onpointerdown = beginDraw;
     layer.classList.toggle('draw-active', drawing);
   }
@@ -541,7 +619,7 @@
       const bottom = Math.min(drawGesture.start.y, point.y);
       const next = { x: left, y: bottom, width: Math.max(3, Math.abs(point.x - drawGesture.start.x)), height: Math.max(3, Math.abs(point.y - drawGesture.start.y)) };
       drawGesture.spec.units = 'pt'; drawGesture.spec.page_number = page;
-      setBox(drawGesture.spec, next);
+      setBox(drawGesture.spec, snapBox(drawGesture.spec, next, 'draw', move.altKey));
       drawGesture.moved = true;
       markDirty(); inspect(); renderOverlays();
     };
@@ -561,6 +639,7 @@
       const gestureHash = drawGesture?.hash || '';
       drawGesture = null;
       if (completed) {
+        activeSnapGuides = { x: null, y: null };
         recordHistory('Draw field area', gestureHash);
         drawing = false;
         $('calibration-draw').classList.remove('selected');
@@ -602,7 +681,7 @@
       const next = copy(start.box);
       if (resizing) { next.width = start.box.width + delta.x; next.height = start.box.height + delta.y; }
       else { next.x = start.box.x + delta.x; next.y = start.box.y + delta.y; }
-      setBox(spec, next); markDirty(); inspect(); renderOverlays();
+      setBox(spec, snapBox(spec, next, resizing ? 'resize' : 'move', move.altKey)); markDirty(); inspect(); renderOverlays();
     };
     const cleanup = () => {
       window.removeEventListener('pointermove', moveHandler);
@@ -613,6 +692,8 @@
     const upHandler = up => {
       if (up.pointerId !== event.pointerId) return;
       cleanup();
+      activeSnapGuides = { x: null, y: null };
+      renderOverlays();
       if (start.moved) recordHistory(resizing ? 'Resize field' : 'Move field', start.hash);
       if (!start.moved && performance.now() - start.at <= TAP_DURATION) openMobileSheet('inspector', element);
     };
@@ -758,7 +839,41 @@
     $('cal-padding-x').value = padding.x || 0; $('cal-padding-y').value = padding.y || 0;
     $('cal-text-case').value = spec.text_case || 'none';
     $('cal-align').value = spec.align || 'left'; $('cal-vertical').value = spec.vertical_align || 'bottom'; $('cal-fit').value = spec.fit || 'shrink';
+    renderTableControls(spec);
     populateCheckboxControls(spec);
+  }
+
+  function renderTableControls(spec) {
+    const isTable = (spec.render_as || 'text') === 'repeating_table';
+    $('calibration-table-controls').hidden = !isTable;
+    if (!isTable) return;
+    const columns = Array.isArray(spec.columns) ? spec.columns : [];
+    $('cal-table-rows').value = Number(spec.rows || 1);
+    $('cal-table-column-count').value = columns.length;
+    const catalogue = contextKeys.find(item => item.key === spec.context_key);
+    const labels = new Map((catalogue?.structure_schema?.columns || []).map(column => [column.key, column.label || column.key]));
+    $('cal-table-columns').innerHTML = columns.map((column, index) => `
+      <label class="calibration-table-column"><strong>${escapeHtml(labels.get(column.key) || column.key)}</strong><span><input type="number" min="0.1" max="100" step="0.1" data-table-column="${index}" value="${Math.round(Number(column.width_ratio || 0) * 1000) / 10}">%</span></label>
+    `).join('');
+  }
+
+  function updateRepeatableTable() {
+    const spec = currentSpec();
+    if (!spec || selectedKind !== 'field' || spec.render_as !== 'repeating_table') return;
+    const before = configurationHash(configuration);
+    const widths = [...$('cal-table-columns').querySelectorAll('[data-table-column]')].map(input => Number(input.value));
+    const total = widths.reduce((sum, value) => sum + value, 0);
+    if (widths.some(value => !Number.isFinite(value) || value <= 0) || Math.abs(total - 100) > .1) {
+      return status('Repeatable PDF column widths must be positive and total 100%.', true);
+    }
+    spec.rows = Math.max(1, Math.min(50, Number($('cal-table-rows').value) || 1));
+    let offset = 0;
+    spec.columns.forEach((column, index) => {
+      column.width_ratio = widths[index] / 100;
+      column.x_ratio = offset / 100;
+      offset += widths[index];
+    });
+    markDirty(); renderItemList(); inspect(); recordHistory('Edit repeatable table layout', before);
   }
 
   function markDirty() {
@@ -798,6 +913,17 @@
     spec.font_size = Number($('cal-font-size').value);
     spec.min_font_size = Number($('cal-min-font-size').value);
     spec.render_as = $('cal-render-as').value;
+    if (spec.render_as === 'repeating_table' && !Array.isArray(spec.columns)) {
+      const catalogue = contextKeys.find(item => item.key === spec.context_key);
+      const columns = catalogue?.structure_schema?.columns || [];
+      spec.rows = Number(catalogue?.structure_schema?.max_items || 11);
+      spec.columns = columns.map((column, index) => ({
+        key: column.key,
+        width_ratio: 1 / Math.max(columns.length, 1),
+        x_ratio: index / Math.max(columns.length, 1),
+        value_format: column.type === 'money' ? 'money' : column.type === 'date' ? 'date_dmy_short' : '',
+      }));
+    }
     spec.padding = { x: Number($('cal-padding-x').value), y: Number($('cal-padding-y').value) };
     spec.text_case = $('cal-text-case').value;
     if (spec.render_as === 'checkbox') {
@@ -965,6 +1091,7 @@
       box: copy(box), allowed_area: copy(box),
       render_as: 'text', ...globalFieldFormatting(),
     };
+    if (catalogueField?.type === 'date') fields()[key].value_format = 'date_dmy_short';
     if (isTable) {
       fields()[key].render_as = 'repeating_table';
       const structure = catalogueField.structure_schema || {};
@@ -974,7 +1101,7 @@
         key: column.key,
         width_ratio: 1 / Math.max(columns.length, 1),
         x_ratio: index / Math.max(columns.length, 1),
-        value_format: column.type === 'money' ? 'money' : '',
+        value_format: column.type === 'money' ? 'money' : column.type === 'date' ? 'date_dmy_short' : '',
       }));
       configuration.sample_context[context] ||= [
         Object.fromEntries(columns.map(column => [column.key, column.type === 'money' ? '12,500' : column.label || column.key])),
@@ -995,6 +1122,8 @@
 
   ['cal-x', 'cal-y', 'cal-width', 'cal-height'].forEach(id => $(id).addEventListener('change', updateGeometry));
   ['cal-font', 'cal-font-size', 'cal-min-font-size', 'cal-padding-x', 'cal-padding-y', 'cal-text-case', 'cal-render-as', 'cal-checked-when', 'cal-align', 'cal-vertical', 'cal-fit'].forEach(id => $(id).addEventListener('change', updateSelectedField));
+  $('cal-table-rows').addEventListener('change', updateRepeatableTable);
+  $('cal-table-columns').addEventListener('change', updateRepeatableTable);
   $('cal-sample-value').addEventListener('change', () => {
     const spec = currentSpec();
     if (!spec || selectedKind !== 'field' || (spec.render_as || 'text') !== 'checkbox') return;
@@ -1160,6 +1289,14 @@
   $('cal-fit-width').onclick = () => setZoom('fit-width');
   $('cal-fit-page').onclick = () => setZoom('fit-page');
   $('cal-zoom-reset').onclick = () => setZoom('manual', 1);
+  $('cal-snap-toggle').onclick = event => {
+    snapEnabled = !snapEnabled;
+    activeSnapGuides = { x: null, y: null };
+    event.currentTarget.classList.toggle('selected', snapEnabled);
+    event.currentTarget.setAttribute('aria-pressed', String(snapEnabled));
+    status(snapEnabled ? 'PDF line snapping enabled. Hold Alt while dragging to bypass it.' : 'PDF line snapping disabled.');
+    renderOverlays();
+  };
   $('cal-undo').onclick = undo;
   $('cal-redo').onclick = redo;
   $('cal-source').onclick = async () => { mode = 'source'; $('cal-source').classList.add('selected'); $('cal-filled').classList.remove('selected'); await renderPage(); };

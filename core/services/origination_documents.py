@@ -265,6 +265,10 @@ def document_context(application: LoanOriginationApplication, document: Originat
     context['home_visit_completed_date'] = timezone.localdate(
         document.completed_at or timezone.now(),
     ).isoformat()
+    context['_date_fields'] = sorted(set(context.get('_date_fields') or []) | {
+        str(field.get('key') or '') for field in _document_fields(document)
+        if str(field.get('type') or '') == 'date'
+    } | {'home_visit_completed_date'})
     return context
 
 
@@ -582,4 +586,11 @@ def packet_signers(application: LoanOriginationApplication) -> list[dict[str, An
             if not resolved['dispatch_ready']:
                 resolved['dispatch_block_reason'] = 'Map a canonical signer phone field before OTP dispatch.'
             roles[role] = resolved
+    if any(value not in (None, '', []) for key, value in application.form_payload.items() if str(key).startswith('guarantor_2_')):
+        guarantor_two = roles.get('guarantor_2')
+        if guarantor_two:
+            guarantor_two['required'] = True
+            for slot in guarantor_two.get('slots') or []:
+                if isinstance(slot, dict) and str(slot.get('type') or 'signature') in {'signature', 'date_signed'}:
+                    slot['required'] = True
     return list(roles.values())

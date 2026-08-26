@@ -109,7 +109,7 @@ def _sample_value_for_field(field: dict[str, Any]) -> tuple[Any, Any | None]:
     if field_type in {'money', 'number'}:
         return '12,500', None
     if field_type == 'date':
-        return '13-Aug-2026', None
+        return '2026-08-13', None
     if field_type == 'choice':
         options = [item for item in (field.get('options') or []) if isinstance(item, dict) and item.get('code') and item.get('active', True)]
         if options:
@@ -120,6 +120,7 @@ def _sample_value_for_field(field: dict[str, Any]) -> tuple[Any, Any | None]:
         return [{
             str(column.get('key') or ''): (
                 '12,500' if str(column.get('type') or '') == 'money'
+                else '2026-08-13' if str(column.get('type') or '') == 'date'
                 else str(column.get('label') or column.get('key') or 'Sample')
             )
             for column in ((field.get('structure') or {}).get('columns') or [])
@@ -144,6 +145,10 @@ def sample_context_for_schema(schema: dict[str, Any] | None) -> dict[str, Any]:
             canonical_values[key] = canonical_value
     if canonical_values:
         sample_context['_canonical_values'] = canonical_values
+    sample_context['_date_fields'] = [
+        str(field.get('key') or '') for field in (schema or {}).get('fields', []) or []
+        if isinstance(field, dict) and str(field.get('type') or '') == 'date'
+    ]
     return sample_context
 
 
@@ -157,7 +162,7 @@ def initial_template_configuration(
         'reference_number': 'ORG-2026-SAMPLE',
         'branch_code': 'Sample Branch',
         'loan_officer_name': 'Sample Loan Officer',
-        'application_date': '13-Aug-2026',
+        'application_date': '2026-08-13',
         'product_code': 'sample_product',
         'product_name': 'Sample Loan Product',
         'borrower_full_name': 'Sample Applicant',
@@ -166,6 +171,7 @@ def initial_template_configuration(
         'repayment_frequency': 'Weekly',
         'interest_rate': '10',
     })
+    sample_context['_date_fields'] = sorted(set(sample_context.get('_date_fields') or []) | {'application_date'})
     return {
         'document_type': product.document_type if product else '',
         'version': product.version if product else 1,
@@ -362,6 +368,22 @@ def validate_template_configuration(
             maximum = int((schema_field.get('structure') or {}).get('max_items') or 0)
             if not isinstance(columns, list) or configured_columns != expected_columns or rows < 1 or (maximum and rows > maximum):
                 raise OriginationTemplateError(f'Field {key} has an invalid repeatable-table layout.')
+            try:
+                widths = [float(item.get('width_ratio')) for item in columns]
+                offsets = []
+                cursor = 0.0
+                for item, width in zip(columns, widths):
+                    offsets.append(float(item.get('x_ratio')) if item.get('x_ratio') is not None else cursor)
+                    cursor = offsets[-1] + width
+            except (TypeError, ValueError, AttributeError) as exc:
+                raise OriginationTemplateError(f'Field {key} has invalid repeatable-table column widths.') from exc
+            if (
+                any(not math.isfinite(value) or value <= 0 for value in widths)
+                or any(not math.isfinite(value) or value < 0 for value in offsets)
+                or abs(sum(widths) - 1) > .001
+                or any(abs(offsets[index] - sum(widths[:index])) > .001 for index in range(len(widths)))
+            ):
+                raise OriginationTemplateError(f'Field {key} repeatable-table column widths must total 100% without gaps or overlaps.')
         validate_box(key, spec, item_label='Field')
 
     signature_slots = (normalized.get('signature_overlay_manifest') or {}).get('slots', {})

@@ -90,6 +90,15 @@
       field.help_text ||= '';
       field.options = Array.isArray(field.options) ? field.options : [];
       field.validation = field.validation && typeof field.validation === 'object' ? field.validation : {};
+      if (field.type === 'repeating_group') {
+        const widths = Array.isArray(field.repeatable_layout?.column_widths)
+          ? field.repeatable_layout.column_widths.map(Number).filter(value => Number.isFinite(value) && value > 0)
+          : [];
+        field.repeatable_layout = { column_widths: widths.length ? widths : [50, 50] };
+        field.structure = field.structure && typeof field.structure === 'object' ? field.structure : {};
+        field.structure.min_items = Math.max(0, Number(field.structure.min_items || 0));
+        field.structure.max_items = Math.max(1, Number(field.structure.max_items || 10));
+      }
     });
     signers = signers.filter(item => item && typeof item === 'object').map(item => ({
       role: item.role || 'borrower',
@@ -125,6 +134,12 @@
       return String(option || '');
     }).filter(Boolean).join('\n');
     const validation = field.validation || {};
+    const repeatableWidths = field.type === 'repeating_group'
+      ? (field.repeatable_layout?.column_widths || [50, 50])
+      : [];
+    const repeatableMarkup = field.type === 'repeating_group'
+      ? `<label>Minimum rows<input type="number" min="0" max="50" step="1" data-repeatable-min-rows value="${Number(field.structure?.min_items || 0)}"></label><label>Maximum rows<input type="number" min="1" max="50" step="1" data-repeatable-max-rows value="${Number(field.structure?.max_items || 10)}"></label><label>Form columns<input type="number" min="1" max="4" step="1" data-repeatable-columns value="${repeatableWidths.length}"><small>Columns inside each repeated item.</small></label><label class="opb-wide">Column widths (%)<input data-repeatable-widths value="${escapeHtml(repeatableWidths.join(', '))}" placeholder="50, 50"><small>One percentage per column; total must be 100.</small></label>`
+      : '';
     const validationMarkup = ['money', 'number'].includes(field.type)
       ? `<label>Minimum<input type="number" step="any" data-validation-prop="min" value="${escapeHtml(validation.min ?? '')}"></label><label>Maximum<input type="number" step="any" data-validation-prop="max" value="${escapeHtml(validation.max ?? '')}"></label>`
       : field.type === 'date'
@@ -142,6 +157,7 @@
         <label class="opb-check opb-small"><input data-prop="required" type="checkbox"${field.required ? ' checked' : ''}> Required</label>
         <label class="opb-wide">Help text<input data-prop="help_text" value="${escapeHtml(field.help_text || '')}"></label>
         ${validationMarkup}
+        ${repeatableMarkup}
         <label class="opb-wide"${field.type === 'choice' ? '' : ' hidden'}>Product choices <small>Canonical code | display label; reorder or remove lines as needed.</small><textarea data-prop="options_text" placeholder="canonical_code | Display label">${escapeHtml(choiceOptions)}</textarea></label>
         <div class="opb-tools"><button type="button" data-action="field-up">Move up</button><button type="button" data-action="field-down">Move down</button><button type="button" data-action="remove-field">Remove</button></div>
       </div>
@@ -400,6 +416,23 @@
           return { code: code.trim(), label: label.join('|').trim() || code.trim() };
         })
         : event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+    } else if (fieldNode && ['data-repeatable-columns', 'data-repeatable-widths', 'data-repeatable-min-rows', 'data-repeatable-max-rows'].some(attribute => event.target.hasAttribute(attribute))) {
+      const field = schema.fields[Number(fieldNode.dataset.fieldIndex)];
+      field.repeatable_layout ||= { column_widths: [50, 50] };
+      field.structure ||= {};
+      if (event.target.hasAttribute('data-repeatable-columns')) {
+        const count = Math.max(1, Math.min(4, Number(event.target.value) || 1));
+        field.repeatable_layout.column_widths = Array.from({ length: count }, () => 100 / count);
+        renderSections();
+      } else {
+        if (event.target.hasAttribute('data-repeatable-widths')) {
+          field.repeatable_layout.column_widths = event.target.value.split(',').map(value => Number(value.trim())).filter(value => Number.isFinite(value));
+        } else if (event.target.hasAttribute('data-repeatable-min-rows')) {
+          field.structure.min_items = Math.max(0, Number(event.target.value) || 0);
+        } else {
+          field.structure.max_items = Math.max(1, Number(event.target.value) || 1);
+        }
+      }
     } else if (sectionNode && event.target.dataset.sectionProp) {
       const sectionIndex = Number(sectionNode.dataset.sectionIndex);
       const section = schema.sections[sectionIndex];
@@ -505,6 +538,18 @@
     if (new Set(keys).size !== keys.length) errors.push('Field variable keys must be unique.');
     const canonicalIds = schema.fields.map(field => String(field.data_field_id || '')).filter(Boolean);
     if (new Set(canonicalIds).size !== canonicalIds.length) errors.push('A canonical data field can appear only once in the application form. Duplicate its PDF box in the alignment builder when the same value must be printed twice.');
+    schema.fields.filter(field => field.type === 'repeating_group').forEach(field => {
+      const widths = field.repeatable_layout?.column_widths || [];
+      const total = widths.reduce((sum, value) => sum + Number(value || 0), 0);
+      if (!widths.length || widths.length > 4 || widths.some(value => Number(value) <= 0) || Math.abs(total - 100) > 0.1) {
+        errors.push(`${field.label || field.key} form column widths must contain 1 to 4 positive percentages totaling 100.`);
+      }
+      const minimum = Number(field.structure?.min_items || 0);
+      const maximum = Number(field.structure?.max_items || 0);
+      if (!Number.isInteger(minimum) || !Number.isInteger(maximum) || minimum < 0 || maximum < 1 || minimum > maximum || maximum > 50) {
+        errors.push(`${field.label || field.key} repeatable rows must use a minimum from 0 to 50 and a maximum from 1 to 50, with minimum not above maximum.`);
+      }
+    });
     const output = document.getElementById('opb-errors');
     output.hidden = !errors.length; output.textContent = errors.join(' ');
     if (errors.length) { event.preventDefault(); root.scrollIntoView({ behavior: 'smooth', block: 'start' }); }

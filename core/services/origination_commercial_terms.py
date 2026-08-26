@@ -181,7 +181,15 @@ def merge_commercial_contract(schema: Any, *, fields=None) -> dict[str, Any]:
     upgraded.setdefault('_revision', 0)
     upgraded['commercial_contract_version'] = COMMERCIAL_CONTRACT_VERSION
     sections = [item for item in upgraded.get('sections', []) if isinstance(item, dict)]
-    if not any(item.get('key') == COMMERCIAL_SECTION_KEY for item in sections):
+    section_keys = {str(item.get('key') or '') for item in sections}
+    target_section = str(upgraded.get('commercial_section_key') or '').strip()
+    if target_section not in section_keys:
+        target_section = next(
+            (key for key in ('loan_details', 'invoice_details', 'facility_details') if key in section_keys),
+            COMMERCIAL_SECTION_KEY,
+        )
+    upgraded['commercial_section_key'] = target_section
+    if target_section == COMMERCIAL_SECTION_KEY and COMMERCIAL_SECTION_KEY not in section_keys:
         sections.append({
             'key': COMMERCIAL_SECTION_KEY,
             'label': 'Commercial Terms',
@@ -190,6 +198,8 @@ def merge_commercial_contract(schema: Any, *, fields=None) -> dict[str, Any]:
                 'The published product policy calculates the read-only quote.'
             ),
         })
+    elif target_section != COMMERCIAL_SECTION_KEY:
+        sections = [item for item in sections if item.get('key') != COMMERCIAL_SECTION_KEY]
     upgraded['sections'] = sections
     current = [
         item for item in upgraded.get('fields', [])
@@ -197,28 +207,33 @@ def merge_commercial_contract(schema: Any, *, fields=None) -> dict[str, Any]:
     ]
     by_key = {str(item.get('key') or ''): item for item in current}
     fields = fields or {item.key: item for item in OriginationDataField.objects.filter(key__in=COMMERCIAL_KEYS)}
+    commercial_inputs = []
     for key, _label, _data_type, required, _options, validation, _reporting in FIELD_SPECS:
         if key not in COMMERCIAL_INPUT_KEYS:
             continue
         if key not in fields:
             raise ValueError(f'Canonical commercial field {key} is not available.')
         replacement = _field_schema_item(fields[key], {
-            'section_key': COMMERCIAL_SECTION_KEY,
+            'section_key': target_section,
             'required': required,
             'width': 'full' if key == 'loan_fees' else 'half',
             'validation': validation,
             'options': list(_options),
             'structure': LOAN_FEES_STRUCTURE if key == 'loan_fees' else {},
         })
-        if key in by_key:
-            index = current.index(by_key[key])
-            current[index] = {**by_key[key], **replacement}
-        else:
-            current.append(replacement)
+        commercial_inputs.append({**by_key.get(key, {}), **replacement})
     # Derived and legacy commercial variables remain in the global catalogue
     # for PDF mapping, but are not presented as officer inputs in v2 schemas.
     legacy = {'repayment_period', 'interest_rate', 'repayment_frequency', 'daily_weekly_repayment_amount'}
-    upgraded['fields'] = [item for item in current if str(item.get('key') or '') not in legacy]
+    current = [
+        item for item in current
+        if str(item.get('key') or '') not in legacy | set(COMMERCIAL_INPUT_KEYS)
+    ]
+    insertion = next(
+        (index for index, item in enumerate(current) if item.get('section_key') == target_section),
+        len(current),
+    )
+    upgraded['fields'] = current[:insertion] + commercial_inputs + current[insertion:]
     original_comparable = {key: value for key, value in original.items() if key != '_revision'}
     upgraded_comparable = {key: value for key, value in upgraded.items() if key != '_revision'}
     upgraded['_revision'] = (

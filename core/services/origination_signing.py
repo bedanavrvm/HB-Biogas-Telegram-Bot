@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import date
 from io import BytesIO
 from typing import Any
 
@@ -214,6 +215,34 @@ def simulate_slot(
         },
     )
     if action_type == OriginationSigningAction.TYPE_SIGNATURE:
+        # One signer gives one holistic signature for the complete packet. Reuse
+        # that immutable capture at every placement owned by the same role.
+        for signature_slot in _slot_catalog(package):
+            if (
+                signature_slot['role'] != signer_role
+                or signature_slot['type'] != OriginationSigningAction.TYPE_SIGNATURE
+            ):
+                continue
+            OriginationSigningAction.objects.get_or_create(
+                package=package,
+                document_key=signature_slot['document_key'],
+                slot_key=signature_slot['key'],
+                defaults={
+                    'signer_role': signer_role,
+                    'action_type': OriginationSigningAction.TYPE_SIGNATURE,
+                    'mode': OriginationSigningAction.MODE_TEST,
+                    'actor': actor,
+                    'request_id': _slot_request_id(
+                        request_id, signature_slot['document_key'], signature_slot['key'],
+                    ),
+                    'metadata': {
+                        'warning': 'TEST ONLY - no OTP or legal signature verification',
+                        'signature_capture': capture or {},
+                        'capture_sha256': capture_hash,
+                        'reused_for_packet': True,
+                    },
+                },
+            )
         signed_date = timezone.localdate().isoformat()
         for date_slot in _slot_catalog(package):
             if (
@@ -328,6 +357,10 @@ def _slot_overlay(
             )
         elif action.action_type == OriginationSigningAction.TYPE_DATE_SIGNED:
             signed_date = str((action.metadata or {}).get('signed_date') or '')
+            try:
+                signed_date = date.fromisoformat(signed_date).strftime('%d-%m-%y')
+            except ValueError:
+                pass
             pdf.setFillColorRGB(.09, .14, .12)
             try:
                 font_size = max(6, min(14, float(spec.get('font_size') or 9)))

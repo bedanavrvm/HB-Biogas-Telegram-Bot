@@ -13,6 +13,7 @@ from django.db import transaction
 from django.db.models import Q
 
 from core.models import (
+    ComplianceAuditEvent,
     LoanOriginationApplication,
     OriginationApplicationDocument,
     OriginationApplicationEvent,
@@ -160,6 +161,29 @@ def preview_origination_purge(record: Any) -> list[dict[str, Any]]:
     ]
 
 
+def preview_product_family_purge(product_key: str) -> list[dict[str, Any]]:
+    """Preview every Origination-owned row for all versions of one product key."""
+    definitions = OriginationProductDefinition.objects.filter(product_key=product_key)
+    definition_ids = list(definitions.values_list('pk', flat=True))
+    application_ids = LoanOriginationApplication.objects.filter(
+        product_definition_id__in=definition_ids,
+    ).values_list('pk', flat=True)
+    template_ids = OriginationDocumentTemplate.objects.filter(
+        product_definition_id__in=definition_ids,
+    ).values_list('pk', flat=True)
+    rows = [
+        ('Product versions', len(definition_ids)),
+        ('Applications', application_ids.count()),
+        ('Owned PDF templates', template_ids.count()),
+        ('Document assignments', OriginationProductDocumentAssignment.objects.filter(product_definition_id__in=definition_ids).count()),
+        ('Product audit events', OriginationProductDefinitionEvent.objects.filter(product_definition_id__in=definition_ids).count()),
+        ('Application events', OriginationApplicationEvent.objects.filter(application_id__in=application_ids).count()),
+        ('Signing packages', OriginationSigningPackage.objects.filter(application_id__in=application_ids).count()),
+        ('Requirement evidence records', OriginationRequirementEvidence.objects.filter(application_id__in=application_ids).count()),
+    ]
+    return [{'label': label, 'count': count} for label, count in rows if count]
+
+
 def _delete(queryset, counts: Counter[str]) -> int:
     """Delete a queryset without calling model-level immutable ``delete`` hooks."""
     count = queryset.count()
@@ -249,6 +273,58 @@ def _purge_data_field(data_field_id, counts: Counter[str]) -> None:
     )
     _delete(OriginationDataFieldEvent.objects.filter(data_field_id=data_field_id), counts)
     _delete(OriginationDataField.objects.filter(pk=data_field_id), counts)
+
+
+@transaction.atomic
+def purge_origination_product_family(
+    *, product_key: str, actor, reason: str, request_id: str,
+) -> tuple[dict[str, int], bool]:
+    """Purge every Origination version/application for one key; never touch Drive or global Product."""
+    if not getattr(actor, 'is_active', False) or not getattr(actor, 'is_superuser', False):
+        raise OriginationGodModeError('Product-family purge is available only to an active Django Superuser.')
+    key = str(product_key or '').strip()
+    normalized_reason = str(reason or '').strip()
+    stable_request_id = str(request_id or '').strip()
+    if not key or not normalized_reason:
+        raise OriginationGodModeError('Choose a product family and provide a reason for this permanent purge.')
+    if not stable_request_id:
+        raise OriginationGodModeError('A stable request ID is required for an idempotent purge.')
+    deduplication_key = f'origination:product-family-purge:{stable_request_id}'
+    existing = ComplianceAuditEvent.objects.filter(deduplication_key=deduplication_key).first()
+    if existing:
+        if existing.subject_id != key:
+            raise OriginationGodModeError('This request ID was already used for another product family.')
+        return dict((existing.after_values or {}).get('deleted') or {}), True
+
+    definitions = list(
+        OriginationProductDefinition.objects.select_for_update().filter(product_key=key).order_by('-version')
+    )
+    if not definitions:
+        existing = ComplianceAuditEvent.objects.filter(deduplication_key=deduplication_key).first()
+        if existing and existing.subject_id == key:
+            return dict((existing.after_values or {}).get('deleted') or {}), True
+        raise OriginationGodModeError('No Origination product family exists for that key.')
+    counts: Counter[str] = Counter()
+    versions = [item.version for item in definitions]
+    for definition in definitions:
+        _purge_product_definition(definition.pk, counts)
+    from core.services.compliance_audit import record_event
+    record_event(
+        workflow='loan_origination',
+        action='product_family_purged',
+        category='administration',
+        subject_type='origination_product_family',
+        subject_id=key,
+        deduplication_key=deduplication_key,
+        actor=actor,
+        authority_user=actor,
+        request_id=stable_request_id,
+        before_values={'versions': versions},
+        after_values={'deleted': dict(sorted(counts.items())), 'drive_files_untouched': True},
+        metadata={'reason': normalized_reason[:500], 'scope': 'origination_only'},
+        sensitive=True,
+    )
+    return dict(sorted(counts.items())), False
 
 
 @transaction.atomic

@@ -61,6 +61,9 @@
   {% if original and origination_god_mode_purge_url and request.user.is_superuser %}
     <li><a href="{{ origination_god_mode_purge_url }}" style="color:#b91c1c;font-weight:700">God mode purge</a></li>
   {% endif %}
+  {% if original and origination_product_family_purge_url and request.user.is_superuser %}
+    <li><a href="{{ origination_product_family_purge_url }}" style="color:#991b1b;font-weight:800">Purge entire Origination family</a></li>
+  {% endif %}
 {% endblock %}
 
 {% block field_sets %}
@@ -106,7 +109,7 @@
         </aside>
       </div>
     </section>
-    <script src="{% static 'admin/origination_product_builder.js' %}?v=8" defer></script>
+    <script src="{% static 'admin/origination_product_builder.js' %}?v=9" defer></script>
   {% elif original %}
     <section class="opb-shell opb-published">
       <h2>Published product version</h2>

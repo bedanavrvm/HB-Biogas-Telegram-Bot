@@ -293,3 +293,5 @@ body #content, body #content-main { max-width: none !important; }
 .dark #calibration-app .calibration-mobile-dock { border-color: #334155; background: #0f172a !important; }
 .dark #calibration-app .calibration-mobile-dock button { color: #cbd5e1; }
 .dark #calibration-app .calibration-mobile-dock button.is-active { background: #134e4a; color: #f0fdfa; }
+.calibration-table-controls{border:1px solid #d7dee8;border-radius:8px;padding:10px;margin:8px 0;background:#f8fafc}.calibration-table-controls h3{margin:0 0 8px}.calibration-table-column{display:grid;grid-template-columns:minmax(0,1fr) 92px;gap:8px;align-items:end;margin-top:6px}.calibration-table-column strong{font-size:12px;overflow-wrap:anywhere}
+.calibration-snap-guide{position:absolute;pointer-events:none;z-index:20;background:#16a34a;box-shadow:0 0 0 1px rgba(255,255,255,.8)}.calibration-snap-guide-x{top:0;bottom:0;width:1px}.calibration-snap-guide-y{left:0;right:0;height:1px}

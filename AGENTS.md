@@ -265,6 +265,7 @@ This is a template of variables this class of system typically needs. Treat it a
 | `ORIGINATION_MINI_APP_SHORT_NAME` | BotFather short name for the standalone Loan Origination Mini App | No |
 | `ORIGINATION_TEMPLATE_MAX_FILE_SIZE_MB` | PDF size limit for versioned Origination legal templates managed in Django Admin; templates use the existing `GOOGLE_DRIVE_MEDIA_FOLDER_ID` root | No |
 | `ORIGINATION_FULL_RESET_ENABLED` | Testing-only gate for the active-Superuser Django Admin action that empties Origination database models while leaving Drive files and other workflows untouched; defaults to disabled | No |
+| `ORIGINATION_PRODUCT_FAMILY_PURGE_ENABLED` | Gate for the active-Superuser purge of one Origination product family and its Origination-owned descendants; global Product records and Drive files remain untouched; defaults to disabled | No |
 | `INVOICE_NAME_CHANGE_TEMPLATE_MAX_FILE_SIZE_MB` | DOCX size limit for governed invoice-name-change letter templates uploaded in Django Admin | No |
 | `ORIGINATION_EVIDENCE_MAX_FILE_SIZE_MB` / `ORIGINATION_EVIDENCE_MAX_FILES_PER_REQUIREMENT` / `ORIGINATION_EVIDENCE_MAX_TOTAL_UPLOAD_MB` | File, requirement, and application limits for validated Origination requirement evidence stored under the restricted Drive media root | No |
 | `ORIGINATION_TEST_SIGNING_ENABLED` | Enables the visibly watermarked drawn/typed-signature and controlled-stamp simulator outside production only; defaults to disabled | No |

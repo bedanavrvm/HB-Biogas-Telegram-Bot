@@ -174,6 +174,21 @@ def validate_product_form_contract(
             maximum = int(structure.get('max_items', 0) or 0)
             if minimum < 0 or maximum < 1 or minimum > maximum or maximum > 50:
                 raise OriginationError(f'Repeatable field {field.get("key")} has invalid item limits.')
+            layout = field.get('repeatable_layout') or {}
+            widths = layout.get('column_widths') if isinstance(layout, dict) else None
+            if widths is not None:
+                try:
+                    normalized_widths = [Decimal(str(value)) for value in widths]
+                except (InvalidOperation, TypeError, ValueError):
+                    normalized_widths = []
+                if (
+                    not 1 <= len(normalized_widths) <= 4
+                    or any(not value.is_finite() or value <= 0 for value in normalized_widths)
+                    or abs(sum(normalized_widths) - Decimal('100')) > Decimal('0.1')
+                ):
+                    raise OriginationError(
+                        f'Repeatable field {field.get("key")} requires 1 to 4 positive form column widths totaling 100%.',
+                    )
         validation = field.get('validation') or {}
         if not isinstance(validation, dict):
             raise OriginationError(f'Field {field.get("key")} has invalid validation rules.')
@@ -591,6 +606,17 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
                         errors[key] = 'Applicant date of birth cannot be in the future.'
                     elif parsed_date < today - timedelta(days=366 * 120):
                         errors[key] = 'Applicant date of birth is outside the supported range.'
+    if require_complete:
+        guarantor_two_keys = [key for key in known if key.startswith('guarantor_2_')]
+        if guarantor_two_keys and any(payload.get(key) not in (None, '', []) for key in guarantor_two_keys):
+            required_identity_suffixes = {
+                'name', 'full_name', 'national_id', 'id_number', 'phone',
+                'phone_number', 'relationship', 'residence_location',
+            }
+            for key in guarantor_two_keys:
+                suffix = key.removeprefix('guarantor_2_')
+                if suffix in required_identity_suffixes and payload.get(key) in (None, '', []):
+                    errors.setdefault(key, 'Complete Guarantor 2 identity details or clear the optional guarantor.')
     return ValidationResult(not errors, errors)
 
 
@@ -852,6 +878,10 @@ def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
         for key, value in derived.items():
             if value not in (None, '', []):
                 context.setdefault(key, value)
+    context['_date_fields'] = [
+        str(field.get('key') or '') for field in _schema_fields(application.schema_snapshot)
+        if str(field.get('type') or '') == 'date'
+    ] + ['application_date']
     return apply_choice_display_values(context, application.schema_snapshot)
 
 

@@ -306,11 +306,14 @@ def build_form_schema(fields: dict[str, OriginationDataField]) -> dict[str, Any]
     for spec in FIELD_SPECS:
         if spec['source'] == OriginationDataField.SOURCE_SYSTEM:
             continue
-        schema['fields'].append(_field_schema_item(fields[spec['key']], {
+        item = _field_schema_item(fields[spec['key']], {
             'section_key': spec['section'], 'required': spec['required'],
             'width': spec['width'], 'validation': spec['validation'],
             'options': spec['options'], 'structure': spec['structure'],
-        }))
+        })
+        if spec['type'] == 'repeating_group':
+            item['repeatable_layout'] = {'column_widths': [50, 50]}
+        schema['fields'].append(item)
     from core.services.origination_commercial_terms import merge_commercial_contract
     return merge_commercial_contract(schema, fields=fields)
 

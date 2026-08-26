@@ -7069,10 +7069,28 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
         'created_by', 'published_by', 'published_at', 'created_at', 'updated_at',
     )
 
+    def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
+        context = dict(extra_context or {})
+        obj = self.get_object(request, object_id) if object_id else None
+        if (
+            obj and request.user.is_active and request.user.is_superuser
+            and getattr(settings, 'ORIGINATION_PRODUCT_FAMILY_PURGE_ENABLED', False)
+        ):
+            context['origination_product_family_purge_url'] = reverse(
+                'admin:core_originationproductdefinition_family_purge',
+                args=[obj.product_key],
+            )
+        return super().changeform_view(request, object_id, form_url, context)
+
 
     def get_urls(self):
         urls = super().get_urls()
         custom = [
+            path(
+                'product-family/<path:product_key>/god-mode-purge/',
+                self.admin_site.admin_view(self.product_family_purge_view),
+                name='core_originationproductdefinition_family_purge',
+            ),
             path(
                 'canonical-field/create/',
                 self.admin_site.admin_view(self.create_canonical_field_view),
@@ -7125,6 +7143,71 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
             ),
         ]
         return custom + urls
+
+    def product_family_purge_view(self, request, product_key):
+        if (
+            not getattr(settings, 'ORIGINATION_PRODUCT_FAMILY_PURGE_ENABLED', False)
+            or not request.user.is_active
+            or not request.user.is_superuser
+        ):
+            raise PermissionDenied
+        from core.services.origination_god_mode import (
+            OriginationGodModeError,
+            preview_product_family_purge,
+            purge_origination_product_family,
+        )
+        family = OriginationProductDefinition.objects.filter(product_key=product_key).order_by('-version')
+        latest = family.first()
+        if not latest and request.method != 'POST':
+            return HttpResponse(status=404)
+        confirmation_text = f'PURGE PRODUCT FAMILY {product_key}'
+        error = ''
+        request_id = str(request.POST.get('request_id') or uuid.uuid4())
+        if request.method == 'POST':
+            if str(request.POST.get('confirmation') or '').strip() != confirmation_text:
+                error = f'Type exactly: {confirmation_text}'
+            elif not str(request.POST.get('reason') or '').strip():
+                error = 'Provide a reason for this permanent purge.'
+            else:
+                try:
+                    counts, replayed = purge_origination_product_family(
+                        product_key=product_key,
+                        actor=request.user,
+                        reason=request.POST.get('reason') or '',
+                        request_id=request_id,
+                    )
+                except OriginationGodModeError as exc:
+                    error = str(exc)
+                except Exception:
+                    logger.exception('Origination product-family purge failed: key=%s actor_id=%s', product_key, request.user.pk)
+                    error = 'The product-family purge failed. No database changes were committed.'
+                else:
+                    summary = ', '.join(f'{count} {label}' for label, count in counts.items()) or 'the product family'
+                    self.message_user(
+                        request,
+                        f'{"Replayed" if replayed else "Completed"} Origination family purge: {summary}. Global Product records and Drive files were untouched.',
+                        messages.WARNING,
+                    )
+                    return HttpResponseRedirect(reverse('admin:core_originationproductdefinition_changelist'))
+        elif request.method != 'GET':
+            response = HttpResponse(status=405)
+            response['Allow'] = 'GET, POST'
+            return response
+        return TemplateResponse(request, 'admin/core/origination_god_mode/family_purge.html', {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': f'Purge Origination product family: {product_key}',
+            'original': latest,
+            'product_key': product_key,
+            'confirmation_text': confirmation_text,
+            'impact': preview_product_family_purge(product_key),
+            'error': error,
+            'request_id': request_id,
+            'back_url': (
+                reverse('admin:core_originationproductdefinition_change', args=[latest.pk])
+                if latest else reverse('admin:core_originationproductdefinition_changelist')
+            ),
+        })
 
     def create_canonical_field_view(self, request):
         """Create one governed input field without leaving an unsaved builder."""

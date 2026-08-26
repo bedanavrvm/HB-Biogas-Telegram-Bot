@@ -99,6 +99,44 @@ class LoanOriginationServiceTests(TestCase):
         self.audit_patch.start()
         self.addCleanup(self.audit_patch.stop)
 
+    def test_optional_second_guarantor_is_complete_or_empty(self):
+        schema = {'fields': [
+            {'key': 'guarantor_2_name', 'type': 'text', 'required': False},
+            {'key': 'guarantor_2_id_number', 'type': 'national_id', 'required': False},
+            {'key': 'guarantor_2_phone', 'type': 'phone', 'required': False},
+            {'key': 'guarantor_2_relationship', 'type': 'text', 'required': False},
+            {'key': 'guarantor_2_residence_location', 'type': 'text', 'required': False},
+        ]}
+        empty = validate_form_payload(schema, {}, require_complete=True)
+        partial = validate_form_payload(schema, {'guarantor_2_phone': '0712345678'}, require_complete=True)
+        complete = validate_form_payload(schema, {
+            'guarantor_2_name': 'Synthetic Guarantor',
+            'guarantor_2_id_number': '12345678',
+            'guarantor_2_phone': '0712345678',
+            'guarantor_2_relationship': 'Friend',
+            'guarantor_2_residence_location': 'Synthetic Place',
+        }, require_complete=True)
+        self.assertTrue(empty.valid)
+        self.assertFalse(partial.valid)
+        self.assertIn('guarantor_2_name', partial.errors)
+        self.assertTrue(complete.valid)
+
+    def test_repeatable_form_column_widths_require_one_hundred_percent(self):
+        from core.services.loan_origination import validate_product_form_contract
+        schema = {'fields': [{
+            'key': 'loans', 'type': 'repeating_group',
+            'structure': {'min_items': 0, 'max_items': 3, 'columns': [{'key': 'institution'}]},
+            'repeatable_layout': {'column_widths': [40, 40]},
+        }]}
+        with self.assertRaisesRegex(OriginationError, 'totaling 100%'):
+            validate_product_form_contract(schema, [], require_signers=False)
+        schema['fields'][0]['repeatable_layout']['column_widths'] = [35, 65]
+        validate_product_form_contract(schema, [], require_signers=False)
+
+    def test_pdf_dates_use_kenyan_short_format(self):
+        from core.services.partnership_laf_preview import _formatted_value
+        self.assertEqual(_formatted_value('2026-08-26', {'value_format': 'date_dmy_short'}), '26-08-26')
+
     def _freeze_for_review(self, application, *, reviewer=None, request_id='preview-frozen-packet'):
         package = OriginationSigningPackage.objects.create(
             application=application,
@@ -581,6 +619,16 @@ class LoanOriginationServiceTests(TestCase):
                     'document_key': 'primary',
                     'type': 'signature',
                     'required': True,
+                }, {
+                    'key': 'agreement_signature',
+                    'document_key': 'primary',
+                    'type': 'signature',
+                    'required': True,
+                }, {
+                    'key': 'signed_date',
+                    'document_key': 'primary',
+                    'type': 'date_signed',
+                    'required': True,
                 }],
             }],
             test_mode=True,
@@ -657,12 +705,19 @@ class LoanOriginationServiceTests(TestCase):
         self.assertIsNotNone(package.test_completed_at)
         self.assertEqual(package.status, OriginationSigningPackage.STATUS_IN_PROGRESS)
         self.assertEqual(application.status, LoanOriginationApplication.STATUS_SIGNING_PENDING)
-        self.assertEqual(OriginationSigningAction.objects.filter(package=package).count(), 1)
-        action = OriginationSigningAction.objects.get(package=package)
-        self.assertEqual(action.metadata['signature_capture'], capture)
-        self.assertEqual(len(action.metadata['capture_sha256']), 64)
+        self.assertEqual(OriginationSigningAction.objects.filter(package=package).count(), 3)
+        signature_actions = OriginationSigningAction.objects.filter(
+            package=package, action_type=OriginationSigningAction.TYPE_SIGNATURE,
+        )
+        self.assertEqual(signature_actions.count(), 2)
+        self.assertEqual(
+            {action.metadata['signature_capture']['name'] for action in signature_actions},
+            {'Synthetic Test Signer'},
+        )
+        self.assertTrue(all(len(action.metadata['capture_sha256']) == 64 for action in signature_actions))
         serialized = serialize_test_signing(package)
         self.assertEqual(serialized['slots'][0]['capture_method'], 'typed')
+        self.assertEqual(serialized['slots'][1]['capture_method'], 'typed')
         self.assertNotIn('signature_capture', serialized['slots'][0])
 
     def test_drawn_test_signature_capture_is_normalized_and_bounded(self):
@@ -1340,6 +1395,69 @@ class LoanOriginationServiceTests(TestCase):
         self.assertFalse(
             OriginationProductDocumentAssignment.objects.filter(template=first['template']).exists(),
         )
+        schema = first['template'].form_schema
+        field_keys = [item['key'] for item in schema['fields']]
+        self.assertEqual(schema['commercial_section_key'], 'loan_details')
+        self.assertNotIn('commercial_terms', [item['key'] for item in schema['sections']])
+        self.assertEqual(len(field_keys), len(set(field_keys)))
+        self.assertLess(field_keys.index('loan_amount'), field_keys.index('repayment_tenor'))
+        repeatables = {item['key']: item for item in schema['fields'] if item['type'] == 'repeating_group'}
+        self.assertEqual(repeatables['external_loans']['repeatable_layout']['column_widths'], [50, 50])
+
+
+class OriginationProductFamilyPurgeTests(TestCase):
+    def test_family_purge_is_scoped_audited_and_idempotent(self):
+        from core.models import ComplianceAuditChainState, ComplianceAuditEvent
+        from core.services.origination_god_mode import purge_origination_product_family
+
+        actor = get_user_model().objects.create_superuser(
+            username='family-purge-admin', email='family-purge@example.test', password='password',
+        )
+        officer = get_user_model().objects.create_user(username='family-purge-officer')
+        v1 = OriginationProductDefinition.objects.create(
+            product_key='purge-family', name='Purge family', version=1,
+            form_schema={'fields': []}, signer_rules=[], document_type='purge-family',
+            document_template_name='Purge.pdf', document_template_version=1,
+            document_template_sha256='1' * 64, is_active=False,
+        )
+        OriginationProductDefinition.objects.create(
+            product_key='purge-family', name='Purge family', version=2, supersedes=v1,
+            form_schema={'fields': []}, signer_rules=[], document_type='purge-family',
+            document_template_name='Purge.pdf', document_template_version=2,
+            document_template_sha256='2' * 64, is_active=True,
+        )
+        other = OriginationProductDefinition.objects.create(
+            product_key='keep-family', name='Keep family', version=1,
+            form_schema={'fields': []}, signer_rules=[], document_type='keep-family',
+            document_template_name='Keep.pdf', document_template_version=1,
+            document_template_sha256='3' * 64, is_active=True,
+        )
+        application = LoanOriginationApplication.objects.create(
+            reference_number='ORG-PURGE-FAMILY-1',
+            product_definition=OriginationProductDefinition.objects.get(product_key='purge-family', version=2),
+            officer=officer, branch='Synthetic Branch', client_request_id='family-purge-application',
+            schema_snapshot={'fields': []}, signer_rules_snapshot=[],
+        )
+        ComplianceAuditChainState.objects.get_or_create(singleton=1)
+
+        counts, replayed = purge_origination_product_family(
+            product_key='purge-family', actor=actor, reason='Synthetic family cleanup',
+            request_id='purge-family-request-1',
+        )
+        replay_counts, replayed_again = purge_origination_product_family(
+            product_key='purge-family', actor=actor, reason='Synthetic family cleanup',
+            request_id='purge-family-request-1',
+        )
+
+        self.assertFalse(replayed)
+        self.assertTrue(replayed_again)
+        self.assertEqual(counts, replay_counts)
+        self.assertFalse(OriginationProductDefinition.objects.filter(product_key='purge-family').exists())
+        self.assertFalse(LoanOriginationApplication.objects.filter(pk=application.pk).exists())
+        self.assertTrue(OriginationProductDefinition.objects.filter(pk=other.pk).exists())
+        event = ComplianceAuditEvent.objects.get(deduplication_key='origination:product-family-purge:purge-family-request-1')
+        self.assertEqual(event.subject_id, 'purge-family')
+        self.assertTrue(event.after_values['drive_files_untouched'])
 
 
 class OriginationDocumentTemplateUploadAdminTests(TestCase):

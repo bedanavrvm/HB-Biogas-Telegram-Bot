@@ -63,6 +63,7 @@
   let testSignatureActiveStroke = null;
   let testSignatureResizeObserver = null;
   let activeCustomSelect = null;
+  let activeCameraStream = null;
   let customSelectReturnFocus = null;
   let mainButtonHandler = null;
   let primaryBusy = false;
@@ -122,6 +123,35 @@
   function newRowId() {
     if (window.crypto?.randomUUID) return window.crypto.randomUUID();
     return `row-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function formatKenyanDate(value) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+    return match ? `${match[3]}-${match[2]}-${match[1].slice(-2)}` : '';
+  }
+
+  function nativeDateControl(attributes, value, disabled, rules = '') {
+    const display = formatKenyanDate(value) || 'dd-mm-yy';
+    return `<span class="native-date-control${disabled ? ' is-disabled' : ''}"><span class="native-date-display${value ? '' : ' is-placeholder'}" aria-hidden="true">${escapeHtml(display)}${iconSvg('calendar')}</span><input type="date" lang="en-KE" ${attributes} value="${escapeHtml(value || '')}"${rules}${disabled ? ' disabled' : ''} aria-label="Choose date; displayed as day-month-year"></span>`;
+  }
+
+  function syncNativeDateDisplays(scope = document) {
+    scope.querySelectorAll?.('.native-date-control input[type="date"]').forEach(input => {
+      const display = input.closest('.native-date-control')?.querySelector('.native-date-display');
+      if (!display) return;
+      display.textContent = formatKenyanDate(input.value) || 'dd-mm-yy';
+      display.classList.toggle('is-placeholder', !input.value);
+    });
+  }
+
+  function repeatableGridStyle(field) {
+    const configured = field?.repeatable_layout?.column_widths;
+    const widths = Array.isArray(configured)
+      ? configured.map(Number).filter(value => Number.isFinite(value) && value > 0)
+      : [];
+    const total = widths.reduce((sum, value) => sum + value, 0);
+    const safe = widths.length && Math.abs(total - 100) <= 0.1 ? widths : [50, 50];
+    return `grid-template-columns:${safe.map(value => `minmax(0, ${value}fr)`).join(' ')}`;
   }
 
   async function apiFetch(path, options) {
@@ -615,6 +645,8 @@
     testSignatureResizeObserver = null;
     testSignatureStrokes = [];
     testSignatureActiveStroke = null;
+    activeCameraStream?.getTracks?.().forEach(track => track.stop());
+    activeCameraStream = null;
     sheetMode = '';
     sheetReturnFocus = null;
     document.body.classList.remove('origination-modal-open');
@@ -683,7 +715,7 @@
     const requestId = requestKey(verified ? 'staff-signature' : 'test-signature');
     openSheet({
       mode: 'test-signature', eyebrow: verified ? 'Authenticated staff signing' : 'Non-production simulator', title: verified ? 'Capture staff signature' : 'Capture TEST signature',
-      hint: verified ? 'Review the complete packet. This signature will be applied to all slots assigned to your staff role.' : 'Use a synthetic mark only. Do not enter or draw a real signature.', trigger: button,
+      hint: verified ? 'Review the complete packet. This signature will be applied to all slots assigned to your staff role.' : 'Use one synthetic mark for this signer. It will be reused at every signature placement in the TEST packet. Do not enter or draw a real signature.', trigger: button,
       body: `${verified ? '<aside class="notice" role="note"><strong>Verified staff action</strong><span>Your Telegram identity, role and application scope will be recorded with this signature.</span></aside>' : '<aside class="test-signature-warning" role="note"><strong>TEST ONLY</strong><span>No OTP or identity verification is performed. The output remains watermarked and is not legally signed.</span></aside>'}
         <div class="test-signature-tabs" role="tablist" aria-label="Signature entry method"><button type="button" role="tab" aria-selected="true" data-test-signature-mode="drawn">Draw</button><button type="button" role="tab" aria-selected="false" data-test-signature-mode="typed">Type</button></div>
         <section class="test-signature-panel" role="tabpanel" data-test-signature-draw><canvas data-test-signature-canvas aria-label="Draw a synthetic test signature" tabindex="0"></canvas><div class="test-signature-tools"><small>Draw inside the box using a finger, mouse or stylus.</small><button type="button" class="btn btn-secondary" data-test-signature-clear>Clear</button></div></section>
@@ -916,9 +948,16 @@
 
   function wizardSections() {
     const configured = current?.form_schema?.sections;
-    const sections = Array.isArray(configured) && configured.length
+    let sections = Array.isArray(configured) && configured.length
       ? configured.map(item => ({ key: item.key, label: item.label || item.key, hint: item.help_text || '' }))
       : LEGACY_SECTIONS;
+    const facilityKey = current?.form_schema?.commercial_section_key
+      || (sections.some(item => item.key === 'loan_details') ? 'loan_details' : '')
+      || (sections.some(item => item.key === 'invoice_details') ? 'invoice_details' : '')
+      || 'commercial_terms';
+    if (facilityKey !== 'commercial_terms' && sections.some(item => item.key === 'commercial_terms')) {
+      sections = sections.filter(item => item.key !== 'commercial_terms');
+    }
     const terms = current?.product_terms || {};
     const requirements = (terms.requirements || []).filter(item => !item.workflow || item.workflow === 'loan_origination');
     const attributes = (terms.custom_attributes || []).filter(item => !(item.workflows || []).length || item.workflows.includes('loan_origination'));
@@ -946,7 +985,15 @@
   }
 
   function fieldsFor(sectionKey) {
-    return (current?.form_schema?.fields || []).filter(field => (field.section_key || sectionFor(field.key)) === sectionKey);
+    const sections = current?.form_schema?.sections || [];
+    const facilityKey = current?.form_schema?.commercial_section_key
+      || (sections.some(item => item.key === 'loan_details') ? 'loan_details' : '')
+      || (sections.some(item => item.key === 'invoice_details') ? 'invoice_details' : '')
+      || 'commercial_terms';
+    return (current?.form_schema?.fields || []).filter(field => {
+      const key = field.section_key || sectionFor(field.key);
+      return key === sectionKey || (sectionKey === facilityKey && key === 'commercial_terms');
+    });
   }
 
   function correctionAllows(targetType, targetKey) {
@@ -1029,7 +1076,7 @@
       if (item.type === 'document') {
         const evidence = (current?.requirement_evidence || []).filter(file => file.requirement_key === item.key && file.status !== 'removed');
         const itemEditable = evidenceEditable && correctionAllows('requirement', item.key);
-        const upload = itemEditable ? `<div class="evidence-upload-actions"><label class="evidence-upload evidence-camera"><input type="file" accept="image/*" capture="environment" data-evidence-upload="${escapeHtml(item.key)}"><span>Take photo</span></label><label class="evidence-upload"><input type="file" accept="application/pdf,image/jpeg,image/png" data-evidence-upload="${escapeHtml(item.key)}"><span>Choose file</span></label></div>` : '';
+        const upload = itemEditable ? `<div class="evidence-upload-actions"><button type="button" class="evidence-upload evidence-camera" data-evidence-camera="${escapeHtml(item.key)}"><span>Take photo</span></button><label class="evidence-upload"><input type="file" accept="application/pdf,image/jpeg,image/png" data-evidence-upload="${escapeHtml(item.key)}"><span>Choose file</span></label></div>` : '';
         const fileRows = evidence.map(file => `<span class="evidence-row status-${escapeHtml(file.status)}"><span><strong>${escapeHtml(file.filename)}</strong><small>${escapeHtml(file.status === 'failed' ? file.error || 'Upload failed' : `${Math.max(1, Math.round(file.byte_size / 1024))} KB · ${file.status}`)}</small></span><span class="evidence-actions">${file.download_url ? `<button type="button" data-evidence-open="${escapeHtml(file.id)}" data-evidence-name="${escapeHtml(file.filename)}" data-evidence-mime="${escapeHtml(file.mime_type || '')}">View</button>` : ''}${itemEditable && file.status === 'uploaded' ? `<button type="button" data-evidence-remove="${escapeHtml(file.id)}">Remove</button>` : ''}</span></span>`).join('');
         return `<div class="laf-field laf-field-wide evidence-field" data-product-wrap="requirement:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}${required}</span><small class="field-error" aria-live="polite"></small>${item.description ? `<small class="field-help">${escapeHtml(item.description)}</small>` : ''}${stage}${correction}${fileRows || '<small class="field-help">No evidence uploaded.</small>'}${upload}</div>`;
       }
@@ -1066,6 +1113,31 @@
       ? `<p class="commercial-quote-warning">${escapeHtml(findings.map(item => item.message).join(' '))}</p>`
       : '<p class="commercial-quote-ready">Within the published product policy.</p>';
     return `<details class="commercial-quote" id="commercial-quote"><summary><span><strong>Calculated product terms</strong><small>${escapeHtml(terms.interest_rate || '')}% ${escapeHtml(String(terms.interest_method || '').replaceAll('_', ' '))} · ${escapeHtml(String(terms.repayment_frequency || '').replaceAll('_', ' '))}</small></span><strong>${escapeHtml(currency)} ${escapeHtml(quote.installment_amount)} × ${escapeHtml(quote.installment_count)}</strong></summary><div class="commercial-quote-body" aria-live="polite"><dl><div><dt>Financed principal</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.financed_principal)}</dd></div><div><dt>Total interest</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.interest)}</dd></div><div><dt>Total repayment</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.total_repayment)}</dd></div><div><dt>Final installment</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.final_installment_amount)}</dd></div><div><dt>Upfront fees</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.upfront_fees)}</dd></div></dl>${feeRows ? `<ul class="commercial-quote-fees">${feeRows}</ul>` : ''}${warning}</div></details>`;
+  }
+
+  function facilitySectionKey() {
+    const sections = current?.form_schema?.sections || [];
+    return current?.form_schema?.commercial_section_key
+      || (sections.some(item => item.key === 'loan_details') ? 'loan_details' : '')
+      || (sections.some(item => item.key === 'invoice_details') ? 'invoice_details' : '')
+      || 'commercial_terms';
+  }
+
+  function sectionFieldsMarkup(sectionKey, values, editable) {
+    const fields = fieldsFor(sectionKey);
+    const rendered = field => fieldInput(
+      field,
+      values[field.key],
+      !editable || field.editable === false || !correctionAllows('field', field.key),
+    );
+    const first = fields.filter(field => String(field.key || '').startsWith('guarantor_1_'));
+    const second = fields.filter(field => String(field.key || '').startsWith('guarantor_2_'));
+    if (!first.length && !second.length) return `<div class="laf-grid">${fields.map(rendered).join('')}</div>`;
+    const other = fields.filter(field => !first.includes(field) && !second.includes(field));
+    const card = (title, hint, items, optional) => items.length
+      ? `<fieldset class="guarantor-card${optional ? ' is-optional' : ''}"><legend><strong>${title}</strong><small>${hint}</small></legend><div class="laf-grid">${items.map(rendered).join('')}</div></fieldset>`
+      : '';
+    return `<div class="guarantor-groups">${card('Guarantor 1', 'Required guarantor', first, false)}${card('Guarantor 2', 'Optional unless any details are entered', second, true)}${other.length ? `<div class="laf-grid">${other.map(rendered).join('')}</div>` : ''}</div>`;
   }
 
   function updateCommercialQuoteDisplay() {
@@ -1166,7 +1238,7 @@
       const maxItems = Number(structure.max_items || 20);
       const policyBound = field.key === 'loan_fees';
       const itemLabel = repeatableItemLabel(field);
-      control = `<div class="repeatable-field" data-repeatable-field="${key}" data-main-repeatable="${key}" data-max-items="${maxItems}" data-item-label="${escapeHtml(itemLabel)}"><div class="repeatable-rows">${rows.map((row, index) => repeatableRowMarkup(columns, row, index, disabled, policyBound, itemLabel)).join('')}</div>${policyBound ? '' : `<div class="repeatable-summary"><button type="button" class="btn btn-secondary" data-repeat-add${disabled || rows.length >= maxItems ? ' disabled' : ''}>Add ${escapeHtml(itemLabel.toLowerCase())}</button></div>`}</div>`;
+      control = `<div class="repeatable-field" data-repeatable-field="${key}" data-main-repeatable="${key}" data-repeatable-grid="${escapeHtml(repeatableGridStyle(field))}" data-max-items="${maxItems}" data-item-label="${escapeHtml(itemLabel)}"><div class="repeatable-rows">${rows.map((row, index) => repeatableRowMarkup(columns, row, index, disabled, policyBound, itemLabel, repeatableGridStyle(field))).join('')}</div>${policyBound ? '' : `<div class="repeatable-summary"><button type="button" class="btn btn-secondary" data-repeat-add${disabled || rows.length >= maxItems ? ' disabled' : ''}>Add ${escapeHtml(itemLabel.toLowerCase())}</button></div>`}</div>`;
     } else if (field.type === 'branch') {
       const branch = locationMatch(locationCatalog.branches, current?.branch);
       control = `<select data-field="${key}" data-location-type="branch" disabled><option value="">Choose</option>${locationSelectOptions(branch ? [branch] : [], value || current?.branch)}</select>`;
@@ -1202,7 +1274,10 @@
       const dobMin = field.key === 'applicant_dob' ? isoDate(new Date(new Date().getFullYear() - 120, 0, 1)) : '';
       const dobMax = field.key === 'applicant_dob' ? isoDate(new Date()) : '';
       const dateRules = field.type === 'date' ? `${validation.min_date || dobMin ? ` min="${escapeHtml(validation.min_date || dobMin)}"` : ''}${validation.max_date || dobMax ? ` max="${escapeHtml(validation.max_date || dobMax)}"` : ''}` : '';
-      control = `<div class="input-wrap${prefix ? ' has-prefix' : ''}">${prefix}<input data-field="${key}" type="${type}" value="${escapeHtml(value ?? '')}"${field.required ? ' required' : ''}${numeric}${textRules}${dateRules}${field.type === 'national_id' ? ' inputmode="numeric"' : ''}${disabled ? ' disabled' : ''}></div>`;
+      const input = field.type === 'date'
+        ? nativeDateControl(`data-field="${key}"${field.required ? ' required' : ''}`, value, disabled, dateRules)
+        : `<input data-field="${key}" type="${type}" value="${escapeHtml(value ?? '')}"${field.required ? ' required' : ''}${numeric}${textRules}${field.type === 'national_id' ? ' inputmode="numeric"' : ''}${disabled ? ' disabled' : ''}>`;
+      control = `<div class="input-wrap${prefix ? ' has-prefix' : ''}">${prefix}${input}</div>`;
     }
     const help = field.help_text ? `<small class="field-help">${escapeHtml(field.help_text)}</small>` : '';
     const correction = current.status === 'ready_for_review' ? correctionToggle('field', field.key, normalizeLabel(field)) : '';
@@ -1347,7 +1422,7 @@
     const heading = document.createElement('strong');
     heading.textContent = entries.length === 1 ? 'Fix this field before continuing' : `Fix ${entries.length} fields before continuing`;
     summary.append(heading);
-    entries.forEach(([key, message]) => {
+    entries.slice(0, 1).forEach(([key, message]) => {
       const button = document.createElement('button');
       button.type = 'button';
       const wrapper = [...(root()?.querySelectorAll('[data-field-wrap], [data-product-wrap]') || [])].find(item => (
@@ -1361,6 +1436,11 @@
       };
       summary.append(button);
     });
+    if (entries.length > 1) {
+      const remaining = document.createElement('small');
+      remaining.textContent = `${entries.length - 1} more field${entries.length === 2 ? '' : 's'} highlighted below.`;
+      summary.append(remaining);
+    }
     root()?.querySelector('.wizard-card')?.before(summary);
   }
 
@@ -1615,18 +1695,36 @@
       return `<section class="signing-verified-panel"><p class="eyebrow">Verified packet signing</p><h3>${signingComplete ? 'Signing complete' : 'Send each signer their secure link'}</h3><p>${signingComplete ? 'Every required signature and stamp has been applied to the immutable packet.' : 'Remote signing works from any location. Each external signer reviews the immutable packet and verifies their own OTP.'}</p>${participants || '<div class="empty-state">No signing participants were configured.</div>'}${signedPacket}${archive}</section>`;
     }
     const stamps = packageData.test_stamps || [];
-    const rows = (test.slots || []).map(slot => {
+    const slots = test.slots || [];
+    const signatureRoles = new Map();
+    slots.filter(slot => slot.type === 'signature').forEach(slot => {
+      const grouped = signatureRoles.get(slot.role) || [];
+      grouped.push(slot);
+      signatureRoles.set(slot.role, grouped);
+    });
+    const signatureRows = [...signatureRoles.entries()].map(([role, roleSlots]) => {
+      const complete = roleSlots.every(slot => slot.completed);
+      const first = roleSlots.find(slot => !slot.completed) || roleSlots[0];
+      const label = String(role || 'signer').replaceAll('_', ' ').replace(/\b\w/g, value => value.toUpperCase());
+      const method = roleSlots.find(slot => slot.capture_method)?.capture_method || '';
+      return `<div class="signing-test-slot${complete ? ' is-complete' : ''}"><span><strong>${escapeHtml(label)} holistic signature</strong><small>${roleSlots.length} placement${roleSlots.length === 1 ? '' : 's'} across the complete packet${method ? ` · ${escapeHtml(method)}` : ''}</small></span>${complete ? '<span class="status-chip">TEST complete</span>' : `<button type="button" class="btn btn-secondary" data-test-sign-slot data-package-id="${escapeHtml(packageData.id)}" data-document-key="${escapeHtml(first.document_key)}" data-slot-key="${escapeHtml(first.key)}" data-signer-role="${escapeHtml(role)}" data-slot-type="signature">Capture one TEST signature</button>`}</div>`;
+    }).join('');
+    const otherRows = slots.filter(slot => slot.type !== 'signature').map(slot => {
       const label = slot.label || `${slot.role} ${slot.key}`.replaceAll('_', ' ');
       if (slot.completed) {
         const method = slot.type === 'signature' && slot.capture_method ? ` · ${slot.capture_method}` : '';
         return `<div class="signing-test-slot is-complete"><span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(slot.type)}${escapeHtml(method)} · completed by ${escapeHtml(slot.actor_name || 'authorized tester')}</small></span><span class="status-chip">TEST complete</span></div>`;
+      }
+      if (slot.type === 'date_signed') {
+        return `<div class="signing-test-slot"><span><strong>${escapeHtml(label)}</strong><small>Filled automatically with the signer's holistic signature</small></span><span class="status-chip">Awaiting signer</span></div>`;
       }
       const stampSelect = slot.type === 'stamp'
         ? `<select data-test-stamp-select><option value="">Choose test stamp</option>${stamps.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)} v${escapeHtml(item.version)} · ${escapeHtml(item.scope)}</option>`).join('')}</select>`
         : '';
       return `<div class="signing-test-slot"><span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(slot.role.replaceAll('_', ' '))} · ${escapeHtml(slot.document_key)}</small></span>${stampSelect}<button type="button" class="btn btn-secondary" data-test-sign-slot data-package-id="${escapeHtml(packageData.id)}" data-document-key="${escapeHtml(slot.document_key)}" data-slot-key="${escapeHtml(slot.key)}" data-signer-role="${escapeHtml(slot.role)}" data-slot-type="${escapeHtml(slot.type)}">${slot.type === 'stamp' ? 'Apply TEST stamp' : 'Capture TEST signature'}</button></div>`;
     }).join('');
-    return `<section class="signing-test-panel"><p class="eyebrow">Non-production simulator</p><h3>Test signer and stamp placement</h3><p>These actions do not use OTP and cannot create a legally signed application. Every page remains watermarked.</p>${rows || '<div class="empty-state">No signing slots were configured.</div>'}<button type="button" class="btn btn-primary" id="origination-test-signing-preview">Preview TEST signed packet</button></section>`;
+    const rows = signatureRows + otherRows;
+    return `<section class="signing-test-panel"><p class="eyebrow">Non-production simulator</p><h3>Test holistic signing and stamp placement</h3><p>Each signer supplies one capture for the complete packet. These actions do not use OTP and cannot create a legally signed application. Every page remains watermarked.</p>${rows || '<div class="empty-state">No signing slots were configured.</div>'}<button type="button" class="btn btn-primary" id="origination-test-signing-preview">Preview TEST signed packet</button></section>`;
   }
 
   function actionMarkup(editable) {
@@ -1697,8 +1795,8 @@
     else {
       const fields = section.key === 'product_requirements'
         ? productConfigurationMarkup(sectionEditable)
-        : `<div class="laf-grid">${fieldsFor(section.key).map(field => fieldInput(field, values[field.key], !sectionEditable || field.editable === false || !correctionAllows('field', field.key))).join('')}</div>`;
-      const quote = section.key === 'commercial_terms' && Number(application.form_schema?.commercial_contract_version || 0) >= 2
+        : sectionFieldsMarkup(section.key, values, sectionEditable);
+      const quote = section.key === facilitySectionKey() && Number(application.form_schema?.commercial_contract_version || 0) >= 2
         ? commercialQuoteMarkup() : '';
       content = `<div class="section-title"><div><h3>${escapeHtml(section.label)}</h3><p>${escapeHtml(section.hint || '')}</p></div><button type="button" class="preview-link" id="origination-preview-early">${latestPreviewLabel('Preview PDF')}</button></div>${fields}${quote}`;
     }
@@ -1711,6 +1809,7 @@
       ? `<footer class="wizard-actions">${editable ? `<span id="origination-save-status" data-state="${recoveryState[1]}">${recoveryState[0]}</span>` : '<span></span>'}<div>${actions}</div></footer>`
       : '';
     root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small><small class="editor-status-text">${escapeHtml(application.status_text || applicationStatusLabel(application))}</small></div><span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(applicationStatusLabel(application))}</span></div>${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${progressMarkup()}<section class="wizard-card">${content}</section>${actionFooter}`;
+    syncNativeDateDisplays(root());
     bindEditor(sectionEditable);
     syncTelegramControls();
     window.requestAnimationFrame(() => window.scrollTo(0, 0));
@@ -1736,8 +1835,8 @@
     return 'Item';
   }
 
-  function repeatableRowMarkup(columns, row, index, disabled, lockRow = false, itemLabel = 'Item') {
-    return `<fieldset class="repeatable-row" data-repeat-row data-row-id="${escapeHtml(row?.row_id || newRowId())}"><legend><span>${escapeHtml(itemLabel)} ${index + 1}</span>${lockRow ? '' : `<button type="button" class="icon-button repeatable-remove" data-repeat-remove aria-label="Remove ${escapeHtml(itemLabel.toLowerCase())} ${index + 1}"${disabled ? ' disabled' : ''}>${iconSvg('close')}</button>`}</legend><span class="repeatable-row-number" aria-hidden="true">${index + 1}</span><div class="repeatable-row-fields">${columns.map(column => {
+  function repeatableRowMarkup(columns, row, index, disabled, lockRow = false, itemLabel = 'Item', gridStyle = 'grid-template-columns:minmax(0, 50fr) minmax(0, 50fr)') {
+    return `<fieldset class="repeatable-row" data-repeat-row data-row-id="${escapeHtml(row?.row_id || newRowId())}"><legend><span>${escapeHtml(itemLabel)} ${index + 1}</span>${lockRow ? '' : `<button type="button" class="icon-button repeatable-remove" data-repeat-remove aria-label="Remove ${escapeHtml(itemLabel.toLowerCase())} ${index + 1}"${disabled ? ' disabled' : ''}>${iconSvg('close')}</button>`}</legend><span class="repeatable-row-number" aria-hidden="true">${index + 1}</span><div class="repeatable-row-fields" style="${escapeHtml(gridStyle)}">${columns.map(column => {
       const columnValue = row?.[column.key] ?? '';
       const numeric = column.type === 'money' || column.type === 'number';
       const columnDisabled = disabled || column.editable === false;
@@ -1748,6 +1847,9 @@
           return `<option value="${escapeHtml(code)}"${columnValue === code ? ' selected' : ''}>${escapeHtml(label)}</option>`;
         }).join('');
         return `<label><span>${escapeHtml(column.label || column.key)}</span><select data-repeat-column="${escapeHtml(column.key)}"${column.required ? ' required' : ''}${columnDisabled ? ' disabled' : ''}><option value="">Choose</option>${options}</select></label>`;
+      }
+      if (column.type === 'date') {
+        return `<label><span>${escapeHtml(column.label || column.key)}</span>${nativeDateControl(`data-repeat-column="${escapeHtml(column.key)}"${column.required ? ' required' : ''}`, columnValue, columnDisabled)}</label>`;
       }
       return `<label><span>${escapeHtml(column.label || column.key)}</span><input data-repeat-column="${escapeHtml(column.key)}" type="text" value="${escapeHtml(columnValue)}"${numeric ? ' inputmode="decimal"' : ''}${column.required ? ' required' : ''}${columnDisabled ? ' disabled' : ''}></label>`;
     }).join('')}</div></fieldset>`;
@@ -1793,7 +1895,7 @@
       const rows = Array.isArray(value) ? value : [];
       const maxItems = Number(structure.max_items || 11);
       const itemLabel = repeatableItemLabel(field);
-      control = `<div class="repeatable-field" data-repeatable-field="${key}" data-max-items="${maxItems}" data-item-label="${escapeHtml(itemLabel)}"><div class="repeatable-rows">${rows.map((row, index) => repeatableRowMarkup(columns, row, index, disabled, false, itemLabel)).join('')}</div><div class="repeatable-summary"><button type="button" class="btn btn-secondary" data-repeat-add${disabled || rows.length >= maxItems ? ' disabled' : ''}>Add ${escapeHtml(itemLabel.toLowerCase())}</button><strong>Total: KES <span data-repeat-total>0.00</span></strong></div></div>`;
+      control = `<div class="repeatable-field" data-repeatable-field="${key}" data-repeatable-grid="${escapeHtml(repeatableGridStyle(field))}" data-max-items="${maxItems}" data-item-label="${escapeHtml(itemLabel)}"><div class="repeatable-rows">${rows.map((row, index) => repeatableRowMarkup(columns, row, index, disabled, false, itemLabel, repeatableGridStyle(field))).join('')}</div><div class="repeatable-summary"><button type="button" class="btn btn-secondary" data-repeat-add${disabled || rows.length >= maxItems ? ' disabled' : ''}>Add ${escapeHtml(itemLabel.toLowerCase())}</button><strong>Total: KES <span data-repeat-total>0.00</span></strong></div></div>`;
     } else if (field.type === 'choice') {
       const options = (field.options || []).map(option => {
         const code = option && typeof option === 'object' ? option.code : option;
@@ -1806,8 +1908,10 @@
     } else if (field.type === 'textarea') {
       control = `<textarea data-document-field="${key}"${disabled ? ' disabled' : ''}>${escapeHtml(value)}</textarea>`;
     } else {
-      const type = field.type === 'date' ? 'date' : field.type === 'datetime' ? 'datetime-local' : 'text';
-      control = `<input type="${type}" data-document-field="${key}" value="${escapeHtml(value)}"${field.required ? ' required' : ''}${disabled ? ' disabled' : ''}>`;
+      const type = field.type === 'datetime' ? 'datetime-local' : 'text';
+      control = field.type === 'date'
+        ? nativeDateControl(`data-document-field="${key}"${field.required ? ' required' : ''}`, value, disabled)
+        : `<input type="${type}" data-document-field="${key}" value="${escapeHtml(value)}"${field.required ? ' required' : ''}${disabled ? ' disabled' : ''}>`;
     }
     const correction = current.status === 'ready_for_review'
       ? correctionToggle('document_field', `${document.key}.${field.key}`, `${document.name}: ${field.label || field.key}`)
@@ -2005,20 +2109,19 @@
     return true;
   }
 
-  async function uploadEvidence(input) {
-    if (!(await saveDraft(true))) { input.value = ''; return; }
-    const file = input.files?.[0];
+  async function uploadEvidenceFile(file, requirementKey, control = null) {
+    if (!(await saveDraft(true))) return;
     if (!file) return;
     const requestId = requestKey('evidence');
     const formData = new FormData();
     formData.append('revision', String(current.revision));
     formData.append('request_id', requestId);
     formData.append('file', file);
-    input.disabled = true;
+    if (control) control.disabled = true;
     setSaveState('Uploading evidence…', 'saving');
     const result = await new Promise(resolve => {
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', `/api/origination/api/applications/${current.id}/requirements/${encodeURIComponent(input.dataset.evidenceUpload)}/evidence/`);
+      xhr.open('POST', `/api/origination/api/applications/${current.id}/requirements/${encodeURIComponent(requirementKey)}/evidence/`);
       xhr.timeout = 60000;
       if (tg?.initData) xhr.setRequestHeader('X-Telegram-Init-Data', tg.initData);
       xhr.setRequestHeader('Idempotency-Key', requestId);
@@ -2035,8 +2138,7 @@
       xhr.ontimeout = () => resolve({ ok: false, status: 0, data: { error: 'The upload timed out. Select the file again to retry.' } });
       xhr.send(formData);
     });
-    input.disabled = false;
-    input.value = '';
+    if (control) control.disabled = false;
     if (result.data?.application) current = result.data.application;
     if (!result.ok) {
       renderEditor(current, step);
@@ -2044,6 +2146,53 @@
     }
     renderEditor(current, step);
     showToast('Evidence uploaded securely.');
+  }
+
+  async function uploadEvidence(input) {
+    const file = input.files?.[0];
+    const requirementKey = input.dataset.evidenceUpload;
+    input.value = '';
+    return uploadEvidenceFile(file, requirementKey, input);
+  }
+
+  async function openEvidenceCamera(requirementKey, trigger) {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      return showToast('This Telegram WebView cannot open the camera directly. Use Choose file instead.', true);
+    }
+    openSheet({
+      mode: 'camera', eyebrow: 'Requirement evidence', title: 'Take photo',
+      hint: 'Keep the document inside the frame. Nothing is uploaded until you use this photo.', trigger,
+      body: '<div class="evidence-camera-stage"><video id="evidence-camera-video" autoplay playsinline muted></video><canvas id="evidence-camera-canvas" hidden></canvas></div>',
+      footer: '<button type="button" class="btn btn-secondary" data-sheet-cancel>Cancel</button><button type="button" class="btn btn-primary" id="evidence-camera-capture">Use photo</button>',
+    });
+    document.querySelector('[data-sheet-cancel]').onclick = () => closeSheet();
+    const capture = document.getElementById('evidence-camera-capture');
+    const video = document.getElementById('evidence-camera-video');
+    try {
+      activeCameraStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } }, audio: false,
+      });
+      video.srcObject = activeCameraStream;
+      await video.play();
+    } catch (_) {
+      closeSheet();
+      return showToast('Camera access was unavailable. Allow camera permission or use Choose file.', true);
+    }
+    capture.onclick = async () => {
+      if (!video.videoWidth || !video.videoHeight) return showToast('The camera is still starting. Try again.', true);
+      capture.disabled = true;
+      const canvas = document.getElementById('evidence-camera-canvas');
+      const maximum = 2000;
+      const scale = Math.min(1, maximum / Math.max(video.videoWidth, video.videoHeight));
+      canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+      canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+      canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.88));
+      if (!blob) { capture.disabled = false; return showToast('The photo could not be captured. Try again.', true); }
+      const file = new File([blob], `evidence-${Date.now()}.jpg`, { type: 'image/jpeg' });
+      closeSheet({ restoreFocus: false });
+      await uploadEvidenceFile(file, requirementKey, trigger);
+    };
   }
 
   async function removeEvidence(evidenceId) {
@@ -2222,6 +2371,7 @@
       if (item) item.instruction = input.value;
     });
     root().querySelectorAll('[data-evidence-upload]').forEach(input => input.onchange = () => uploadEvidence(input));
+    root().querySelectorAll('[data-evidence-camera]').forEach(button => button.onclick = () => openEvidenceCamera(button.dataset.evidenceCamera, button));
     root().querySelectorAll('[data-evidence-remove]').forEach(button => button.onclick = () => removeEvidence(button.dataset.evidenceRemove));
     root().querySelectorAll('[data-evidence-open]').forEach(button => button.onclick = () => openEvidence(button.dataset.evidenceOpen, button.dataset.evidenceName, button.dataset.evidenceMime));
     root().querySelectorAll('[data-support-preview]').forEach(button => button.onclick = async () => {
@@ -2242,8 +2392,9 @@
         const rows = container.querySelectorAll('[data-repeat-row]');
         if (!field || rows.length >= Number(container.dataset.maxItems || 11)) return;
         container.querySelector('.repeatable-rows').insertAdjacentHTML(
-          'beforeend', repeatableRowMarkup(field.structure?.columns || [], {}, rows.length, false, false, container.dataset.itemLabel || repeatableItemLabel(field)),
+          'beforeend', repeatableRowMarkup(field.structure?.columns || [], {}, rows.length, false, false, container.dataset.itemLabel || repeatableItemLabel(field), container.dataset.repeatableGrid || repeatableGridStyle(field)),
         );
+        syncNativeDateDisplays(container);
         refreshRepeatableField(container);
         if (container.dataset.mainRepeatable) scheduleSave();
         else setSaveState('Supporting document not saved', 'dirty');
@@ -2265,7 +2416,7 @@
     document.getElementById('origination-packet-preview')?.addEventListener('click', openPacketPreview);
     if (editable && !wizardSections()[step]?.key?.startsWith('document:')) {
       root().querySelector('.laf-grid')?.addEventListener('input', scheduleSave);
-      if (wizardSections()[step]?.key === 'commercial_terms') {
+      if (wizardSections()[step]?.key === facilitySectionKey()) {
         root().querySelector('.laf-grid')?.addEventListener('input', scheduleCommercialQuotePreview);
       }
     }
@@ -2276,6 +2427,11 @@
         setSaveState('Signing requirements not saved', 'dirty');
       });
     }
+    root().querySelectorAll('.native-date-control input[type="date"]').forEach(input => input.addEventListener('change', () => {
+      syncNativeDateDisplays(input.closest('.native-date-control'));
+      if (input.dataset.field) scheduleSave();
+      if (wizardSections()[step]?.key === facilitySectionKey()) scheduleCommercialQuotePreview();
+    }));
     root().querySelector('[data-location-type="county"]')?.addEventListener('change', syncOriginationSubCountySelect);
     document.getElementById('wizard-previous')?.addEventListener('click', async () => {
       if (current.status === 'draft' && !editable) return renderEditor(current, step - 1);
