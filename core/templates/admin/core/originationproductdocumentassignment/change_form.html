@@ -3,13 +3,29 @@
 
 {% block extrahead %}
   {{ block.super }}
-  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=6">
+  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=11">
 {% endblock %}
 
 {% block object-tools-items %}
   {{ block.super }}
   {% if original and origination_god_mode_purge_url and request.user.is_superuser %}
     <li><a href="{{ origination_god_mode_purge_url }}" style="color:#b91c1c;font-weight:700">God mode purge</a></li>
+  {% endif %}
+{% endblock %}
+
+{% block form_top %}
+  {{ block.super }}
+  {% if add %}
+    <section class="opb-setup-card" aria-labelledby="document-assignment-workflow-title">
+      <h2 id="document-assignment-workflow-title">Attach a published document to a draft product</h2>
+      <ol>
+        <li>Publish and calibrate the reusable PDF first.</li>
+        <li>Choose the editable Draft product below.</li>
+        <li>Save this assignment. A newer version of the same Main LAF upgrades the existing assignment; a different Main LAF must first be removed from the product's Document packet.</li>
+        <li>Review the product's Document packet and publish the product when it is ready.</li>
+      </ol>
+      <p>Supporting documents use their configured latest-compatible policy. Existing applications keep their frozen document snapshots.</p>
+    </section>
   {% endif %}
 {% endblock %}
 

@@ -880,11 +880,21 @@ class OriginationProductDocumentAssignmentForm(DocumentApplicabilityRuleFormMixi
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._configure_condition_editor()
+        self.fields['product_definition'].help_text = (
+            'Choose an editable Draft product. Published products must first be opened as an '
+            'editable product version.'
+        )
+        self.fields['template'].help_text = (
+            'The document must already be published. Selecting a newer version of the same '
+            'Main LAF family upgrades the draft; a different Main LAF must first be removed '
+            'from the product Document packet.'
+        )
 
     def clean(self):
         cleaned = super().clean()
         cleaned['applicability_rule'] = self._clean_condition_rule(cleaned)
         template = cleaned.get('template')
+        product = cleaned.get('product_definition')
         if template:
             # A product assignment chooses a governed document family. It must
             # not create another, typo-prone key and name for that same form.
@@ -904,6 +914,43 @@ class OriginationProductDocumentAssignmentForm(DocumentApplicabilityRuleFormMixi
                     'default_selected', 'applicability_rule',
                 ):
                     setattr(self.instance, key, cleaned[key])
+                if product and self.instance._state.adding:
+                    owned_primary = product.document_templates.filter(
+                        document_role=template.ROLE_PRIMARY,
+                        status__in=[template.STATUS_READY, template.STATUS_ACTIVE],
+                    ).exists()
+                    assigned_primary = product.document_assignments.filter(
+                        template__document_role=template.ROLE_PRIMARY,
+                    ).select_related('template').first()
+                    if owned_primary:
+                        self.add_error(
+                            'template',
+                            'This draft already has a product-owned Main LAF. Remove or retire '
+                            'it from the product Document packet before selecting a reusable LAF.',
+                        )
+                    elif assigned_primary and assigned_primary.template_id != template.pk:
+                        baseline = assigned_primary.template
+                        if baseline.document_type != template.document_type:
+                            self.add_error(
+                                'template',
+                                f'This draft already uses {baseline.name} as its Main LAF. '
+                                'Remove it from the product Document packet before selecting a '
+                                'different LAF family.',
+                            )
+                        else:
+                            from core.services.origination_templates import (
+                                assignment_template_compatibility_errors,
+                            )
+                            compatibility_errors = assignment_template_compatibility_errors(
+                                baseline, template,
+                            )
+                            if compatibility_errors:
+                                self.add_error(
+                                    'template',
+                                    'This version cannot upgrade the current Main LAF because '
+                                    + '; '.join(compatibility_errors)
+                                    + '.',
+                                )
         return cleaned
 
 
@@ -6887,7 +6934,21 @@ class OriginationProductDocumentAssignmentAdmin(OriginationGodModeAdminMixin, Co
                 )
             },
         }
-        return super().changeform_view(request, object_id, form_url, context)
+        try:
+            return super().changeform_view(request, object_id, form_url, context)
+        except Exception as exc:
+            # Form.clean handles normal conflicts. This catches a packet change
+            # racing with the final save so a recoverable configuration issue
+            # is still shown as an Admin message rather than a server error.
+            from core.services.origination_templates import OriginationTemplateError
+            if not isinstance(exc, (OriginationTemplateError, ValidationError)):
+                raise
+            logger.warning(
+                'Origination document assignment was rejected: %s', exc,
+                extra={'user_id': request.user.pk, 'object_id': object_id},
+            )
+            self.message_user(request, str(exc), level=messages.ERROR)
+            return HttpResponseRedirect(request.get_full_path())
 
     @admin.display(description='Currently resolves to')
     def resolved_template_version(self, obj):
@@ -6942,6 +7003,20 @@ class OriginationProductDocumentAssignmentAdmin(OriginationGodModeAdminMixin, Co
                 'version_policy': obj.version_policy,
             },
         )
+
+    def response_add(self, request, obj, post_url_continue=None):
+        if request.GET.get('template') and obj.product_definition_id:
+            self.message_user(
+                request,
+                'Document assignment saved. Review the product Document packet, then publish '
+                'the product when its readiness checks are clear.',
+                level=messages.SUCCESS,
+            )
+            return HttpResponseRedirect(reverse(
+                'admin:core_originationproductdefinition_change',
+                args=[obj.product_definition_id],
+            ))
+        return super().response_add(request, obj, post_url_continue)
 
     def delete_model(self, request, obj):
         product = obj.product_definition

@@ -729,6 +729,8 @@ class MultiProductOriginationTemplateTests(TestCase):
             {'product_definition': str(self.product.pk)},
         )
         self.assertContains(response, 'Only include this document when')
+        self.assertContains(response, 'Attach a published document to a draft product')
+        self.assertContains(response, 'A newer version of the same Main LAF upgrades')
         self.assertContains(response, 'origination_document_conditions.js')
 
     def test_shared_assignment_admin_stores_simple_rule_from_form_controls(self):
@@ -759,6 +761,133 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertEqual(assignment.applicability_rule, {
             'field': 'farmer_name', 'operator': 'truthy',
         })
+
+    def test_assignment_admin_upgrades_existing_primary_when_published_family_version_is_selected(self):
+        baseline = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='primary', document_role='primary',
+            inclusion_mode='required', display_order=0, document_type='shared_primary_family',
+            name='Shared Primary LAF', version=1, status='retired',
+            source_filename='shared-v1.pdf', source_sha256='1' * 64,
+            source_byte_size=100, page_count=1, placement_config={},
+            form_schema={'fields': [{'key': 'farmer_name', 'type': 'text', 'required': True}]},
+            signer_rules=[], created_by=self.user,
+        )
+        baseline_revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=baseline, revision=1, configuration={}, is_published=True,
+            created_by=self.user, published_at=timezone.now(),
+        )
+        baseline.published_configuration_revision = baseline_revision
+        baseline.save(update_fields=['published_configuration_revision'])
+        successor = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='primary', document_role='primary',
+            inclusion_mode='required', display_order=0, document_type='shared_primary_family',
+            name='Shared Primary LAF', version=2, status='active',
+            source_filename='shared-v2.pdf', source_sha256='2' * 64,
+            source_byte_size=100, page_count=1, placement_config={},
+            form_schema={'fields': [{'key': 'farmer_name', 'type': 'text', 'required': True}]},
+            signer_rules=[], created_by=self.user,
+        )
+        successor_revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=successor, revision=1, configuration={}, is_published=True,
+            created_by=self.user, published_at=timezone.now(),
+        )
+        successor.published_configuration_revision = successor_revision
+        successor.save(update_fields=['published_configuration_revision'])
+        assignment = OriginationProductDocumentAssignment.objects.create(
+            product_definition=self.product, template=baseline,
+            version_policy=OriginationProductDocumentAssignment.VERSION_PINNED,
+            document_key='primary', name=baseline.name, inclusion_mode='required',
+            display_order=0, created_by=self.user,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse('admin:core_originationproductdocumentassignment_add')
+            + f'?template={successor.pk}',
+            {
+                'product_definition': str(self.product.pk),
+                'template': str(successor.pk),
+                'version_policy': OriginationProductDocumentAssignment.VERSION_PINNED,
+                'inclusion_mode': OriginationDocumentTemplate.INCLUDE_REQUIRED,
+                'display_order': 0,
+                'applicability_rule': '{}',
+                '_save': 'Save',
+            },
+        )
+
+        self.assertEqual(response.status_code, 302, response.content.decode())
+        self.assertEqual(
+            response.url,
+            reverse('admin:core_originationproductdefinition_change', args=[self.product.pk]),
+        )
+        assignment.refresh_from_db()
+        self.product.refresh_from_db()
+        self.assertEqual(assignment.template, successor)
+        self.assertEqual(self.product.document_template_version, 2)
+        self.assertEqual(
+            self.product.document_assignments.filter(
+                template__document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
+            ).count(),
+            1,
+        )
+        self.assertTrue(self.product.events.filter(action='shared_primary_upgraded').exists())
+
+    def test_assignment_admin_explains_different_primary_family_without_server_error(self):
+        baseline = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='primary', document_role='primary',
+            inclusion_mode='required', display_order=0, document_type='existing_primary_family',
+            name='Existing Main LAF', version=1, status='retired',
+            source_filename='existing.pdf', source_sha256='3' * 64,
+            source_byte_size=100, page_count=1, placement_config={},
+            form_schema={}, signer_rules=[], created_by=self.user,
+        )
+        baseline_revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=baseline, revision=1, configuration={}, is_published=True,
+            created_by=self.user, published_at=timezone.now(),
+        )
+        baseline.published_configuration_revision = baseline_revision
+        baseline.save(update_fields=['published_configuration_revision'])
+        replacement = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='primary', document_role='primary',
+            inclusion_mode='required', display_order=0, document_type='different_primary_family',
+            name='Different Main LAF', version=1, status='active',
+            source_filename='different.pdf', source_sha256='4' * 64,
+            source_byte_size=100, page_count=1, placement_config={},
+            form_schema={}, signer_rules=[], created_by=self.user,
+        )
+        replacement_revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=replacement, revision=1, configuration={}, is_published=True,
+            created_by=self.user, published_at=timezone.now(),
+        )
+        replacement.published_configuration_revision = replacement_revision
+        replacement.save(update_fields=['published_configuration_revision'])
+        OriginationProductDocumentAssignment.objects.create(
+            product_definition=self.product, template=baseline,
+            version_policy=OriginationProductDocumentAssignment.VERSION_PINNED,
+            document_key='primary', name=baseline.name, inclusion_mode='required',
+            display_order=0, created_by=self.user,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse('admin:core_originationproductdocumentassignment_add'),
+            {
+                'product_definition': str(self.product.pk),
+                'template': str(replacement.pk),
+                'version_policy': OriginationProductDocumentAssignment.VERSION_PINNED,
+                'inclusion_mode': OriginationDocumentTemplate.INCLUDE_REQUIRED,
+                'display_order': 0,
+                'applicability_rule': '{}',
+                '_save': 'Save',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            'Remove it from the product Document packet before selecting a different LAF family.',
+        )
+        self.assertEqual(self.product.document_assignments.count(), 1)
 
     def test_global_formatting_applies_to_current_and_future_fields_with_preview(self):
         source = (

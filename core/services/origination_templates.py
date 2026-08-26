@@ -749,18 +749,81 @@ def attach_shared_document_template(
             or not template.published_configuration_revision_id
         ):
             raise OriginationTemplateError('Choose a published reusable document.')
+        existing = product.document_assignments.select_for_update().filter(
+            template=template,
+        ).first()
+        if existing:
+            # Admin/browser retries are common on slow connections. The
+            # assignment is already the durable result of this exact family
+            # attachment, so make the retry harmless rather than creating a
+            # second route-specific failure.
+            return existing
         if template.document_role == template.ROLE_PRIMARY:
             owned_primary = product.document_templates.filter(
                 document_role=template.ROLE_PRIMARY,
                 status__in=[template.STATUS_READY, template.STATUS_ACTIVE],
             ).exists()
-            assigned_primary = product.document_assignments.filter(
+            assigned_primary = product.document_assignments.select_for_update().filter(
                 template__document_role=template.ROLE_PRIMARY,
-            ).exclude(template=template).exists()
-            if owned_primary or assigned_primary:
+            ).first()
+            if owned_primary:
                 raise OriginationTemplateError(
-                    'This product already has a primary LAF. Remove or retire it before assigning another.',
+                    'This draft already has a product-owned primary LAF. Remove or retire it '
+                    'from the Document packet before assigning a reusable Main LAF.',
                 )
+            if assigned_primary:
+                baseline = OriginationDocumentTemplate.objects.get(
+                    pk=assigned_primary.template_id,
+                )
+                if baseline.document_type != template.document_type:
+                    raise OriginationTemplateError(
+                        f'This draft already uses {baseline.name} as its Main LAF. '
+                        'Remove it from the Document packet before choosing a different LAF family.',
+                    )
+                compatibility_errors = assignment_template_compatibility_errors(
+                    baseline, template,
+                )
+                if compatibility_errors:
+                    raise OriginationTemplateError(
+                        'This published version cannot replace the current Main LAF because '
+                        + '; '.join(compatibility_errors)
+                        + '. Remove the current Main LAF first only if this contract change is intentional.',
+                    )
+
+                previous = baseline
+                assigned_primary.template = template
+                assigned_primary.name = template.name
+                assigned_primary.version_policy = (
+                    OriginationProductDocumentAssignment.VERSION_PINNED
+                )
+                assigned_primary.full_clean()
+                assigned_primary.save(update_fields=['template', 'name', 'version_policy'])
+                merged_schema, merged_signers = _merge_shared_primary_contract(
+                    product=product, template=template,
+                )
+                product.form_schema = merged_schema
+                product.signer_rules = merged_signers
+                product.document_type = template.document_type
+                product.document_template_name = template.name
+                product.document_template_version = template.version
+                product.document_template_sha256 = template.source_sha256
+                product.save(update_fields=[
+                    'form_schema', 'signer_rules', 'document_type', 'document_template_name',
+                    'document_template_version', 'document_template_sha256', 'updated_at',
+                ])
+                OriginationProductDefinitionEvent.objects.create(
+                    product_definition=product, action='shared_primary_upgraded', actor=actor,
+                    metadata={
+                        'assignment_id': str(assigned_primary.pk),
+                        'previous_template_id': str(previous.pk),
+                        'previous_version': previous.version,
+                        'template_id': str(template.pk),
+                        'version': template.version,
+                        'version_policy': assigned_primary.version_policy,
+                        'origin': 'shared_document_assignment_admin',
+                    },
+                )
+                return assigned_primary
             inclusion_mode = template.INCLUDE_REQUIRED
             display_order = 0
             officer_selectable = False
@@ -787,13 +850,6 @@ def attach_shared_document_template(
             validate_applicability_rule(applicability_rule or {}, allowed_fields=product_keys | document_keys)
         except ValueError as exc:
             raise OriginationTemplateError(str(exc)) from exc
-        existing = product.document_assignments.filter(template=template).first()
-        if existing:
-            # Admin/browser retries are common on slow connections.  The
-            # assignment is already the durable result of this exact family
-            # attachment, so make the retry harmless rather than creating a
-            # second route-specific failure.
-            return existing
         if product.document_assignments.filter(document_key=template.document_key).exists():
             raise OriginationTemplateError('This product already has a document with that key.')
         assignment = OriginationProductDocumentAssignment(
