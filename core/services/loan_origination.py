@@ -826,10 +826,10 @@ def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
         ),
         'bro_1_name': application.officer.get_full_name() or application.officer.get_username(),
         'bro_2_name': '',
-        'branch_manager_name': (
-            application.reviewed_by.get_full_name() or application.reviewed_by.get_username()
-            if application.reviewed_by_id else ''
-        ),
+        # Reviewers and Branch Manager signers are separate workflow roles.
+        # The real Branch Manager identity is bound by the staff-signing action,
+        # never inferred from the checker who approved the packet.
+        'branch_manager_name': '',
     }
     approved_amount = (
         application.form_payload.get('approval_amount')
@@ -1686,6 +1686,7 @@ def prepare_review_package(
         requirement_evidence_snapshot=evidence_manifest(application),
         document_manifest_snapshot=document_manifest,
         combined_document_hash=packet_hash,
+        frozen_unsigned_document=packet_pdf,
         unsigned_document_hash=packet_hash,
         prepared_by=actor,
         prepared_at=timezone.now(),
@@ -1705,16 +1706,143 @@ def prepare_review_package(
 
 
 def render_review_package(package: OriginationSigningPackage) -> bytes:
-    """Re-render and verify the exact unsigned packet awaiting checker review."""
-    from core.services.origination_documents import render_packet
-    content, manifest = render_packet(package.application)
-    if hashlib.sha256(content).hexdigest() != package.unsigned_document_hash:
-        raise OriginationConflict('The application no longer matches its frozen review packet.')
-    if manifest != (package.document_manifest_snapshot or []):
-        raise OriginationConflict('The document manifest no longer matches its frozen review packet.')
+    """Return the exact unsigned bytes awaiting checker review."""
+    content = frozen_unsigned_package_content(package)
     if _package_review_scope_hash(package) != package.review_scope_sha256:
         raise OriginationConflict('The frozen review scope failed its integrity check.')
     return content
+
+
+def frozen_unsigned_package_content(package: OriginationSigningPackage) -> bytes:
+    """Return locally frozen unsigned bytes after verifying their immutable hash."""
+    content = bytes(package.frozen_unsigned_document or b'')
+    if not content:
+        raise OriginationConflict(
+            'This legacy review packet has no frozen PDF. Run the verified packet recovery before continuing.'
+        )
+    digest = hashlib.sha256(content).hexdigest()
+    if digest != package.unsigned_document_hash or (
+        package.combined_document_hash and digest != package.combined_document_hash
+    ):
+        raise OriginationConflict('The frozen unsigned packet failed its integrity check.')
+    return content
+
+
+@transaction.atomic
+def recover_legacy_frozen_package(
+    *, package_id, actor=None, request_id: str, apply: bool = False,
+) -> dict[str, Any]:
+    """Reconstruct legacy bytes only when every original frozen hash still matches."""
+    request_id = _require_request_id(request_id)
+    package = OriginationSigningPackage.objects.select_for_update().select_related(
+        'application', 'application__product_definition', 'application__officer',
+    ).get(pk=package_id)
+    existing = bytes(package.frozen_unsigned_document or b'')
+    if existing:
+        digest = hashlib.sha256(existing).hexdigest()
+        valid = digest == package.unsigned_document_hash and (
+            not package.combined_document_hash or digest == package.combined_document_hash
+        )
+        return {
+            'package_id': str(package.pk), 'status': 'already_frozen',
+            'recoverable': valid, 'applied': False, 'sha256': digest,
+        }
+
+    from core.services.origination_documents import render_packet
+    content, manifest = render_packet(
+        package.application, context_snapshot=package.context_snapshot or {},
+    )
+    digest = hashlib.sha256(content).hexdigest()
+    hash_matches = digest == package.unsigned_document_hash and (
+        not package.combined_document_hash or digest == package.combined_document_hash
+    )
+    manifest_matches = manifest == (package.document_manifest_snapshot or [])
+    recoverable = hash_matches and manifest_matches
+    report = {
+        'package_id': str(package.pk), 'status': 'recoverable' if recoverable else 'mismatch',
+        'recoverable': recoverable, 'applied': False, 'sha256': digest,
+        'hash_matches': hash_matches, 'manifest_matches': manifest_matches,
+    }
+    if not apply or not recoverable:
+        return report
+
+    package.frozen_unsigned_document = content
+    package.save(update_fields=['frozen_unsigned_document', 'updated_at'])
+    _record_event(
+        package.application, 'frozen_packet_recovered', actor=actor, request_id=request_id,
+        after={
+            'package_id': str(package.pk), 'unsigned_document_hash': package.unsigned_document_hash,
+            'recovery': 'verified_legacy_reconstruction',
+        },
+    )
+    report['status'] = 'recovered'
+    report['applied'] = True
+    return report
+
+
+@transaction.atomic
+def reset_unrecoverable_package_for_review(
+    *, package_id, actor=None, request_id: str,
+) -> LoanOriginationApplication:
+    """Cancel an unusable legacy package and require a new checker review."""
+    request_id = _require_request_id(request_id)
+    package = OriginationSigningPackage.objects.select_for_update().select_related(
+        'application',
+    ).get(pk=package_id)
+    application = LoanOriginationApplication.objects.select_for_update().get(pk=package.application_id)
+    if package.frozen_unsigned_document:
+        raise OriginationError('This package already has frozen PDF bytes and cannot use legacy reset.')
+    if package.status != OriginationSigningPackage.STATUS_PENDING:
+        raise OriginationError('Only a pending legacy package can be reset for review.')
+    if package.actions.exists() or package.signer_sessions.exists():
+        raise OriginationError('A package with signing activity cannot be reset automatically.')
+    if application.status not in {
+        LoanOriginationApplication.STATUS_REVIEWED,
+        LoanOriginationApplication.STATUS_SIGNING_PENDING,
+    }:
+        raise OriginationError('This application is not in an approved pre-signing state.')
+
+    # Recheck under the same row locks so a recoverable package cannot be reset
+    # because of stale command output or a concurrent repair.
+    recoverable = False
+    try:
+        from core.services.origination_documents import render_packet
+        reconstructed, manifest = render_packet(
+            application, context_snapshot=package.context_snapshot or {},
+        )
+        digest = hashlib.sha256(reconstructed).hexdigest()
+        recoverable = (
+            digest == package.unsigned_document_hash
+            and (not package.combined_document_hash or digest == package.combined_document_hash)
+            and manifest == (package.document_manifest_snapshot or [])
+        )
+    except Exception:
+        # An explicitly requested reset is the safe fallback when immutable
+        # source assets can no longer reconstruct the originally approved PDF.
+        recoverable = False
+    if recoverable:
+        raise OriginationError(
+            'This package is exactly recoverable. Recover its frozen bytes instead of resetting approval.'
+        )
+
+    before = {'status': application.status, 'revision': application.revision}
+    package.status = OriginationSigningPackage.STATUS_CANCELLED
+    package.save(update_fields=['status', 'updated_at'])
+    application.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
+    application.revision += 1
+    application.reviewed_by = None
+    application.reviewed_at = None
+    application.save(update_fields=[
+        'status', 'revision', 'reviewed_by', 'reviewed_at', 'updated_at',
+    ])
+    _record_event(
+        application, 'legacy_packet_reset_for_review', actor=actor, request_id=request_id,
+        before=before, after={
+            'status': application.status, 'revision': application.revision,
+            'cancelled_package_id': str(package.pk),
+        },
+    )
+    return application
 
 
 @transaction.atomic
@@ -1747,6 +1875,7 @@ def start_signing_package(
         or _package_review_scope_hash(package) != package.review_scope_sha256
     ):
         raise OriginationConflict('The approved packet hash no longer matches. Prepare it for final review again.')
+    frozen_unsigned_package_content(package)
     from core.services.origination_fields import project_reporting_values
     project_reporting_values(application)
     application.status = LoanOriginationApplication.STATUS_SIGNING_PENDING

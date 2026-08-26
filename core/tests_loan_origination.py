@@ -1,6 +1,7 @@
 from base64 import b64decode
+import hashlib
 import json
-from io import BytesIO
+from io import BytesIO, StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -10,6 +11,8 @@ from pypdf import PdfReader, PdfWriter
 
 from django.contrib import admin
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
@@ -38,10 +41,15 @@ from core.services.loan_origination import (
     _package_review_scope_hash,
     applicant_identity_snapshot,
     create_application,
+    frozen_unsigned_package_content,
     prepare_review_package,
     prepare_signing_package,
+    preview_context,
+    recover_legacy_frozen_package,
     recall_application,
     review_application,
+    render_review_package,
+    reset_unrecoverable_package_for_review,
     render_application_preview,
     require_applicant_identity_fields,
     save_application_fields,
@@ -138,6 +146,8 @@ class LoanOriginationServiceTests(TestCase):
         self.assertEqual(_formatted_value('2026-08-26', {'value_format': 'date_dmy_short'}), '26-08-26')
 
     def _freeze_for_review(self, application, *, reviewer=None, request_id='preview-frozen-packet'):
+        content = b'%PDF-synthetic-frozen-review'
+        content_hash = hashlib.sha256(content).hexdigest()
         package = OriginationSigningPackage.objects.create(
             application=application,
             application_revision=application.revision,
@@ -150,8 +160,9 @@ class LoanOriginationServiceTests(TestCase):
             requirement_evidence_snapshot=[],
             document_manifest_snapshot=[],
             template_configuration_snapshot={},
-            combined_document_hash='b' * 64,
-            unsigned_document_hash='b' * 64,
+            combined_document_hash=content_hash,
+            frozen_unsigned_document=content,
+            unsigned_document_hash=content_hash,
             prepared_by=self.officer,
             prepared_at=timezone.now(),
         )
@@ -368,7 +379,139 @@ class LoanOriginationServiceTests(TestCase):
         self.assertEqual(package.prepared_by, self.reviewer)
         self.assertEqual(len(package.unsigned_document_hash), 64)
         self.assertEqual(len(package.review_scope_sha256), 64)
+        self.assertEqual(bytes(package.frozen_unsigned_document), b'%PDF-frozen-review')
         self.assertTrue(application.events.filter(action='review_packet_prepared').exists())
+
+    @patch('core.services.origination_documents.render_packet')
+    def test_approved_review_packet_uses_exact_frozen_bytes(self, render_packet_mock):
+        frozen = b'%PDF-exact-checker-review'
+        render_packet_mock.return_value = (frozen, [{'key': 'primary', 'page_count': 1}])
+        OriginationDocumentTemplate.objects.create(
+            product_definition=self.product,
+            document_key='primary', document_role='primary', inclusion_mode='required',
+            document_type=self.product.document_type, name='Primary LAF', version=1,
+            status='active', source_filename='primary.pdf', source_sha256='c' * 64,
+            source_byte_size=100, page_count=1, placement_config={}, created_by=self.officer,
+        )
+        application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='immutable-review-bytes',
+        )
+        application.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
+        application.save(update_fields=['status'])
+        package, _ = prepare_review_package(
+            application_id=application.pk, actor=self.reviewer,
+            expected_revision=application.revision, request_id='immutable-review-prepare',
+        )
+        application.reviewed_by = self.reviewer
+        application.reviewed_at = timezone.now()
+        application.save(update_fields=['reviewed_by', 'reviewed_at'])
+
+        render_packet_mock.side_effect = AssertionError('live application must not be rendered')
+        self.assertEqual(render_review_package(package), frozen)
+
+    def test_checker_identity_is_not_projected_as_branch_manager(self):
+        application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='separate-checker-branch-manager',
+        )
+        application.reviewed_by = self.reviewer
+        application.save(update_fields=['reviewed_by'])
+        self.assertEqual(preview_context(application)['branch_manager_name'], '')
+
+    def test_frozen_packet_integrity_rejects_corrupted_bytes(self):
+        application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='corrupted-frozen-bytes',
+        )
+        package = self._freeze_for_review(application)
+        package.frozen_unsigned_document = b'tampered'
+        with self.assertRaisesRegex(OriginationConflict, 'integrity check'):
+            frozen_unsigned_package_content(package)
+
+    @patch('core.services.origination_documents.render_packet')
+    def test_legacy_packet_recovery_requires_exact_original_hashes(self, render_packet_mock):
+        application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='legacy-review-recovery',
+        )
+        content = b'%PDF-legacy-frozen'
+        manifest = [{'key': 'primary', 'page_count': 1}]
+        digest = hashlib.sha256(content).hexdigest()
+        package = OriginationSigningPackage.objects.create(
+            application=application, application_revision=application.revision,
+            external_reference='LEGACY-RECOVERY-PACKAGE', document_type='synthetic',
+            context_snapshot={'branch_manager_name': ''}, document_manifest_snapshot=manifest,
+            unsigned_document_hash=digest, combined_document_hash=digest,
+        )
+        render_packet_mock.return_value = (content, manifest)
+
+        dry_run = recover_legacy_frozen_package(
+            package_id=package.pk, request_id='legacy-recover-dry-run', apply=False,
+        )
+        self.assertTrue(dry_run['recoverable'])
+        package.refresh_from_db()
+        self.assertFalse(package.frozen_unsigned_document)
+
+        applied = recover_legacy_frozen_package(
+            package_id=package.pk, request_id='legacy-recover-apply', apply=True,
+        )
+        self.assertTrue(applied['applied'])
+        package.refresh_from_db()
+        self.assertEqual(bytes(package.frozen_unsigned_document), content)
+        self.assertTrue(application.events.filter(action='frozen_packet_recovered').exists())
+
+    def test_unrecoverable_untouched_package_returns_application_to_review(self):
+        application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='legacy-review-reset',
+        )
+        application.status = LoanOriginationApplication.STATUS_REVIEWED
+        application.reviewed_by = self.reviewer
+        application.reviewed_at = timezone.now()
+        application.save(update_fields=['status', 'reviewed_by', 'reviewed_at'])
+        package = OriginationSigningPackage.objects.create(
+            application=application, application_revision=application.revision,
+            external_reference='LEGACY-RESET-PACKAGE', document_type='synthetic',
+            unsigned_document_hash='d' * 64, combined_document_hash='d' * 64,
+        )
+
+        reset = reset_unrecoverable_package_for_review(
+            package_id=package.pk, request_id='legacy-reset-apply',
+        )
+        package.refresh_from_db()
+        self.assertEqual(package.status, OriginationSigningPackage.STATUS_CANCELLED)
+        self.assertEqual(reset.status, LoanOriginationApplication.STATUS_READY_FOR_REVIEW)
+        self.assertIsNone(reset.reviewed_by)
+        self.assertTrue(reset.events.filter(action='legacy_packet_reset_for_review').exists())
+
+    def test_legacy_packet_repair_command_is_dry_run_by_default(self):
+        application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='legacy-command-dry-run',
+        )
+        content = b'%PDF-command-recovery'
+        digest = hashlib.sha256(content).hexdigest()
+        package = OriginationSigningPackage.objects.create(
+            application=application, application_revision=application.revision,
+            external_reference='LEGACY-COMMAND-PACKAGE', document_type='synthetic',
+            unsigned_document_hash=digest, combined_document_hash=digest,
+        )
+        output = StringIO()
+        with patch(
+            'core.services.origination_documents.render_packet', return_value=(content, []),
+        ):
+            call_command(
+                'repair_origination_frozen_packet', package_id=str(package.pk), stdout=output,
+            )
+        package.refresh_from_db()
+        self.assertFalse(package.frozen_unsigned_document)
+        self.assertIn('DRY-RUN', output.getvalue())
+        with self.assertRaises(CommandError):
+            call_command(
+                'repair_origination_frozen_packet', package_id=str(package.pk),
+                reset_for_review=True, stdout=StringIO(), stderr=StringIO(),
+            )
 
     def test_checker_must_preview_frozen_packet_and_approved_recall_is_explicit(self):
         application, _ = create_application(

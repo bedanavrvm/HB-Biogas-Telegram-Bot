@@ -1,6 +1,9 @@
 from datetime import timedelta
 import hashlib
+from io import BytesIO
 from unittest.mock import patch
+
+from pypdf import PdfReader, PdfWriter
 
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase, override_settings
@@ -31,7 +34,7 @@ from core.services.origination_esign import (
     signing_url,
     verify_otp,
 )
-from core.services.origination_signing import serialize_test_signing
+from core.services.origination_signing import render_verified_package, serialize_test_signing
 from core.api.origination_views import portal_origination_signed_packet
 
 
@@ -60,10 +63,18 @@ class OriginationVerifiedSigningTests(TestCase):
             reference_number='ORG-ESIGN-SYNTHETIC', product_definition=self.product,
             officer=self.actor, branch='Synthetic Branch', status='signing_pending', revision=1,
         )
+        writer = PdfWriter()
+        writer.add_blank_page(width=595, height=842)
+        writer.add_blank_page(width=595, height=842)
+        frozen_output = BytesIO()
+        writer.write(frozen_output)
+        frozen = frozen_output.getvalue()
+        frozen_hash = hashlib.sha256(frozen).hexdigest()
         self.package = OriginationSigningPackage.objects.create(
             application=self.application, application_revision=1,
             external_reference='ESIGN-SYNTHETIC', document_type='synthetic',
-            unsigned_document_hash='b' * 64, combined_document_hash='b' * 64,
+            frozen_unsigned_document=frozen,
+            unsigned_document_hash=frozen_hash, combined_document_hash=frozen_hash,
             document_manifest_snapshot=[
                 {'key': 'main', 'name': 'Main LAF', 'page_count': 1},
                 {'key': 'support', 'name': 'Supporting form', 'page_count': 1},
@@ -92,6 +103,15 @@ class OriginationVerifiedSigningTests(TestCase):
         self.audit = patch('core.services.compliance_audit.record_event')
         self.audit.start()
         self.addCleanup(self.audit.stop)
+
+    def test_verified_render_uses_frozen_unsigned_bytes(self):
+        with patch(
+            'core.services.origination_documents.render_packet',
+            side_effect=AssertionError('live application must not be rendered'),
+        ):
+            rendered = render_verified_package(self.package)
+        self.assertTrue(rendered.startswith(b'%PDF'))
+        self.assertEqual(len(PdfReader(BytesIO(rendered)).pages), 2)
 
     def _session(self, request_id='session-1'):
         return create_signer_session(

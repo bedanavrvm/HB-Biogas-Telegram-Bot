@@ -1,4 +1,5 @@
 from decimal import Decimal
+import hashlib
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -429,11 +430,14 @@ class OriginationDataFieldCatalogueTests(TestCase):
             schema_snapshot=snapshot_form_schema(product.form_schema),
             signer_rules_snapshot=product.signer_rules,
         )
+        frozen = b'%PDF-reporting-projection'
+        frozen_hash = hashlib.sha256(frozen).hexdigest()
         approved_package = OriginationSigningPackage.objects.create(
             application=application, application_revision=2,
             external_reference='REPORTING-PROJECTION-PACKAGE',
             document_type=product.document_type,
-            unsigned_document_hash='f' * 64, combined_document_hash='f' * 64,
+            frozen_unsigned_document=frozen,
+            unsigned_document_hash=frozen_hash, combined_document_hash=frozen_hash,
             context_snapshot={}, participants_snapshot=[],
             requirement_evidence_snapshot=[], document_manifest_snapshot=[],
             template_configuration_snapshot={}, prepared_by=self.superuser,

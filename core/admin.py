@@ -9050,7 +9050,7 @@ class OriginationSigningPackageAdmin(_AppendOnlyOriginationAdmin):
     list_display = ('external_reference', 'application', 'application_revision', 'status', 'archive_status', 'updated_at')
     list_filter = ('status', 'archive_status', 'document_type')
     search_fields = ('external_reference', 'application__reference_number')
-    exclude = ('pending_signed_document',)
+    exclude = ('frozen_unsigned_document', 'pending_signed_document')
 
 
 @admin.register(OriginationSignerSession)

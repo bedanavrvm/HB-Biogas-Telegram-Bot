@@ -5410,6 +5410,7 @@ class OriginationSigningPackage(models.Model):
     document_manifest_snapshot = models.JSONField(default=list, blank=True)
     combined_document_hash = models.CharField(max_length=64, blank=True, default='')
     status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    frozen_unsigned_document = models.BinaryField(blank=True, default=bytes, editable=False)
     unsigned_document_hash = models.CharField(max_length=64, blank=True, default='')
     review_scope_sha256 = models.CharField(max_length=64, blank=True, default='', db_index=True)
     approved_unsigned_document_hash = models.CharField(max_length=64, blank=True, default='')

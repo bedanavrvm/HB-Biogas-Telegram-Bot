@@ -26,6 +26,7 @@ from core.services.loan_origination import (
     _record_event,
     _require_request_id,
     _slot_request_id,
+    frozen_unsigned_package_content,
 )
 
 
@@ -460,8 +461,8 @@ def _test_overlay(width: float, height: float, items: list[tuple[dict, Originati
 def render_test_package(package: OriginationSigningPackage) -> bytes:
     if not package.test_mode or not test_signing_enabled():
         raise OriginationError('A test signing preview is not available for this package.')
-    from core.services.origination_documents import render_packet
-    content, manifest = render_packet(package.application)
+    content = frozen_unsigned_package_content(package)
+    manifest = package.document_manifest_snapshot or []
     actions = list(package.actions.select_related('stamp_asset').all())
     actions_by_document: dict[str, list[OriginationSigningAction]] = {}
     for action in actions:
@@ -492,13 +493,8 @@ def render_verified_package(package: OriginationSigningPackage) -> bytes:
     """Render verified actions over the exact frozen packet configuration."""
     if package.test_mode:
         raise OriginationError('A test package cannot produce a verified signed document.')
-    from core.services.origination_documents import render_packet
-    content, manifest = render_packet(package.application)
-    digest = hashlib.sha256(content).hexdigest()
-    if digest != package.unsigned_document_hash or digest != package.combined_document_hash:
-        raise OriginationError('The unsigned signing packet no longer matches its frozen hash.')
-    if manifest != (package.document_manifest_snapshot or []):
-        raise OriginationError('The signing packet manifest no longer matches its frozen snapshot.')
+    content = frozen_unsigned_package_content(package)
+    manifest = package.document_manifest_snapshot or []
     actions = list(package.actions.filter(
         mode=OriginationSigningAction.MODE_VERIFIED,
     ).select_related('stamp_asset'))

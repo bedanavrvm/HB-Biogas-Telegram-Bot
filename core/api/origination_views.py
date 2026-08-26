@@ -35,6 +35,7 @@ from core.services.loan_origination import (
     OriginationError,
     OriginationRecallConfirmationRequired,
     create_application,
+    frozen_unsigned_package_content,
     prepare_review_package,
     prepare_signing_package,
     recall_application,
@@ -961,10 +962,7 @@ def origination_signer_packet_preview(request):
     from core.services.origination_esign import resolve_session
     try:
         session = resolve_session(_public_signing_token(request))
-        content, _manifest = render_packet(session.package.application)
-        import hashlib
-        if hashlib.sha256(content).hexdigest() != session.package.unsigned_document_hash:
-            raise OriginationError('The document packet no longer matches its frozen signing hash.')
+        content = frozen_unsigned_package_content(session.package)
         from core.services.partnership_laf_preview import render_pdf_page
         image, page_count = render_pdf_page(content, page_number=int(request.GET.get('page') or 1))
     except OriginationError as exc:

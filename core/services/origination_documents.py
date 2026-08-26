@@ -452,21 +452,46 @@ def save_document_fields(*, application_id, document_key: str, actor, payload: A
     return application
 
 
-def render_document(application: LoanOriginationApplication, document_key: str) -> bytes:
+def _frozen_document_context(
+    document: OriginationApplicationDocument, context_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    """Rebuild one document context without consulting mutable application values."""
+    from core.services.loan_origination import apply_choice_display_values
+
+    context = dict(context_snapshot or {})
+    apply_choice_display_values(context, document.schema_snapshot)
+    context['home_visit_completed_date'] = timezone.localdate(
+        document.completed_at or document.application.submitted_at or document.application.created_at,
+    ).isoformat()
+    context['_date_fields'] = sorted(set(context.get('_date_fields') or []) | {
+        str(field.get('key') or '') for field in _document_fields(document)
+        if str(field.get('type') or '') == 'date'
+    } | {'home_visit_completed_date'})
+    return context
+
+
+def render_document(
+    application: LoanOriginationApplication, document_key: str, *,
+    context_snapshot: dict[str, Any] | None = None,
+) -> bytes:
     from core.services.loan_origination import OriginationError, render_application_preview
     document = application.packet_documents.select_related('template').filter(document_key=document_key).first()
-    if document_key == 'primary' and not document:
+    if document_key == 'primary' and not document and context_snapshot is None:
         return render_application_preview(application)
     if not document or not document.selected:
         raise OriginationError('This document is not selected for the application.')
-    if document.document_role == OriginationDocumentTemplate.ROLE_PRIMARY:
+    if document.document_role == OriginationDocumentTemplate.ROLE_PRIMARY and context_snapshot is None:
         return render_application_preview(application)
     if not document.template_id:
         raise OriginationError('The supporting document template is unavailable.')
     from core.services.origination_templates import load_template_source
     from core.services.partnership_laf_preview import render_template
     configuration = (document.template_snapshot or {}).get('configuration') or {}
-    return render_template(load_template_source(document.template), configuration, document_context(application, document))
+    context = (
+        _frozen_document_context(document, context_snapshot)
+        if context_snapshot is not None else document_context(application, document)
+    )
+    return render_template(load_template_source(document.template), configuration, context)
 
 
 def mark_document_previewed(application: LoanOriginationApplication, document_key: str) -> None:
@@ -520,11 +545,15 @@ def mark_packet_previewed(application: LoanOriginationApplication) -> None:
     )
 
 
-def render_packet(application: LoanOriginationApplication) -> tuple[bytes, list[dict[str, Any]]]:
+def render_packet(
+    application: LoanOriginationApplication, *, context_snapshot: dict[str, Any] | None = None,
+) -> tuple[bytes, list[dict[str, Any]]]:
     writer = PdfWriter()
     manifest = []
     for document in application.packet_documents.filter(selected=True).order_by('display_order', 'document_key'):
-        content = render_document(application, document.document_key)
+        content = render_document(
+            application, document.document_key, context_snapshot=context_snapshot,
+        )
         digest = hashlib.sha256(content).hexdigest()
         reader = PdfReader(BytesIO(content))
         for page in reader.pages:
@@ -538,7 +567,7 @@ def render_packet(application: LoanOriginationApplication) -> tuple[bytes, list[
             'page_count': len(reader.pages),
         })
     if not manifest:
-        content = render_document(application, 'primary')
+        content = render_document(application, 'primary', context_snapshot=context_snapshot)
         return content, []
     output = BytesIO()
     writer.write(output)
