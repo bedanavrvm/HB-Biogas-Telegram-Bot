@@ -311,7 +311,7 @@
       setStatus(`Committed ${result.committed} row(s). All rows are complete.${syncText}`, 'ok');
       clearDraft();
       utils.haptic?.('success');
-      if (tg) setTimeout(() => tg.close(), 900);
+      if (tg) setTimeout(() => window.MiniAppDiagnostics.intentionalClose('completed_batch'), 900);
     } catch (err) {
       saveDraft();
       setStatus('Could not commit rows. Review edits remain open; reconnect to save the secure draft and retry.', 'error');

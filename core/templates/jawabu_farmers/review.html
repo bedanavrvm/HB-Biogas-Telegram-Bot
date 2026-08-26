@@ -61,6 +61,7 @@
 </main>
 <script id="batch-data" type="application/json">{{ batch_json|safe }}</script>
 <script src="{% static 'miniapp/telegram.js' %}"></script>
+{% include "miniapp_diagnostics.html" %}
 <script src="{% static 'miniapp/utils.js' %}?v=3"></script>
 {% if batch.import_kind == 'system_export' %}
 <script src="{% static 'miniapp/system_export_review.js' %}?v=4"></script>

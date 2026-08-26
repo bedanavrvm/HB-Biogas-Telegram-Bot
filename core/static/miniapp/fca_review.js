@@ -183,7 +183,7 @@
       setStatus(`Committed ${result.committed || 0} row(s). MD updated: ${sync.updated || 0}, created: ${sync.created || 0}. ${rows.length} row(s) remain.`, 'ok');
       clearDraft();
       utils.haptic?.('success');
-      if (!rows.length && tg) setTimeout(() => tg.close(), 900);
+      if (!rows.length && tg) setTimeout(() => window.MiniAppDiagnostics.intentionalClose('empty_queue'), 900);
     } catch (err) {
       saveDraft();
       setStatus('Could not commit rows. Review edits remain open; reconnect to save the secure draft and retry.', 'error');

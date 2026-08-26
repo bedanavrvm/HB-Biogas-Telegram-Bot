@@ -3,6 +3,10 @@ URL routing for the core API.
 """
 from django.urls import path
 from .auth_views import telegram_session_login
+from .miniapp_diagnostic_views import (
+    miniapp_diagnostic_session_start,
+    miniapp_diagnostic_signals,
+)
 from .views import (
     telegram_webhook,
     health_check,
@@ -211,6 +215,16 @@ from .origination_views import (
 )
 
 urlpatterns = [
+    path(
+        'miniapp-diagnostics/sessions/start/',
+        miniapp_diagnostic_session_start,
+        name='miniapp_diagnostic_session_start',
+    ),
+    path(
+        'miniapp-diagnostics/sessions/<uuid:session_uuid>/signals/',
+        miniapp_diagnostic_signals,
+        name='miniapp_diagnostic_signals',
+    ),
     path('origination/', origination_app, name='loan_origination_app'),
     path('s/', origination_signing_app, name='loan_origination_signing_short_app'),
     path('origination/sign/', origination_signing_app, name='loan_origination_signing_app'),

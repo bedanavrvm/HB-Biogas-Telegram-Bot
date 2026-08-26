@@ -9,7 +9,7 @@ from django.core.management import call_command
 from django.test import SimpleTestCase, override_settings
 
 from core.production import production_readiness_issues
-from core.sentry_monitoring import scrub_event, sentry_init_options
+from core.sentry_monitoring import scrub_event, scrub_transaction, sentry_init_options
 
 
 class ProductionReadinessTests(SimpleTestCase):
@@ -155,3 +155,31 @@ class ProductionReadinessTests(SimpleTestCase):
         self.assertFalse(options['send_default_pii'])
         self.assertEqual(options['traces_sample_rate'], 0.0)
         self.assertIs(options['before_send'], scrub_event)
+        self.assertIs(options['before_send_transaction'], scrub_transaction)
+
+    def test_sentry_transaction_keeps_only_safe_trace_and_request_correlation(self):
+        cleaned = scrub_transaction({
+            'transaction': '/api/portal/farmers/customer-id/',
+            'request': {
+                'method': 'get',
+                'url': 'https://portal.example.test/api/portal/farmers/customer-id/?national_id=123',
+                'headers': {
+                    'X-Request-ID': 'request-12345678',
+                    'X-Telegram-Init-Data': 'signed-secret',
+                },
+            },
+            'spans': [{
+                'span_id': 'abc', 'trace_id': 'trace', 'op': 'http.client',
+                'description': '/api/portal/farmers/customer-id/',
+                'data': {'http.request.body': 'customer data'},
+            }],
+        })
+
+        self.assertEqual(cleaned['transaction'], 'miniapp.portal')
+        self.assertEqual(cleaned['tags'], {
+            'request_id': 'request-12345678', 'miniapp_surface': 'portal',
+        })
+        self.assertEqual(cleaned['spans'], [{
+            'span_id': 'abc', 'trace_id': 'trace', 'op': 'http.client',
+        }])
+        self.assertNotIn('headers', cleaned['request'])

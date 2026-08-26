@@ -179,6 +179,9 @@ from .models import (
     ComplianceAuditEvent,
     IntegrationCircuitState,
     IntegrationOperation,
+    MiniAppDiagnosticSession,
+    MiniAppDiagnosticEvent,
+    MiniAppDiagnosticDailyAggregate,
 )
 
 logger = logging.getLogger(__name__)
@@ -9103,6 +9106,41 @@ class OriginationReportingValueAdmin(_AppendOnlyOriginationAdmin):
     list_display = ('application', 'field_key', 'value_type', 'sensitivity', 'projected_at')
     list_filter = ('value_type', 'sensitivity', 'reporting_use', 'export_allowed')
     search_fields = ('application__reference_number', 'field_key', 'data_field__key')
+
+
+@admin.register(MiniAppDiagnosticSession)
+class MiniAppDiagnosticSessionAdmin(ReadOnlyAuditAdmin):
+    list_display = (
+        'surface', 'workflow', 'platform', 'classification', 'release',
+        'network_bucket', 'last_signal_at', 'started_at',
+    )
+    list_filter = (
+        'workflow', 'surface', 'platform', 'classification',
+        'network_bucket', 'release', 'recovered_on_later_launch',
+    )
+    search_fields = ('client_session_uuid', 'events__request_id')
+    date_hierarchy = 'started_at'
+
+
+@admin.register(MiniAppDiagnosticEvent)
+class MiniAppDiagnosticEventAdmin(ReadOnlyAuditAdmin):
+    list_display = (
+        'session', 'event_type', 'action', 'visibility', 'online',
+        'status_bucket', 'elapsed_ms', 'recorded_at',
+    )
+    list_filter = ('event_type', 'visibility', 'online', 'network_bucket', 'status_bucket')
+    search_fields = ('client_event_uuid', 'session__client_session_uuid', 'request_id')
+    date_hierarchy = 'recorded_at'
+
+
+@admin.register(MiniAppDiagnosticDailyAggregate)
+class MiniAppDiagnosticDailyAggregateAdmin(ReadOnlyAuditAdmin):
+    list_display = (
+        'date', 'surface', 'platform', 'classification', 'network_bucket',
+        'release', 'session_count',
+    )
+    list_filter = ('workflow', 'surface', 'platform', 'classification', 'network_bucket', 'release')
+    date_hierarchy = 'date'
 
 
 try:

@@ -1013,6 +1013,7 @@
   </main>
 
   {{ location_catalog|json_script:"location-catalog-data" }}
+  {% include "miniapp_diagnostics.html" %}
   <script src="{% static 'miniapp/order_approval_api.js' %}?v=1"></script>
   <script>
     const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
@@ -2168,7 +2169,7 @@
         setRecordMeta('New entry.');
         if (tg) {
           tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success');
-          setTimeout(() => tg.close(), 1200);
+          setTimeout(() => window.MiniAppDiagnostics.intentionalClose('submit_success'), 1200);
         } else {
           setBusy(false);
           syncSubmitControls();

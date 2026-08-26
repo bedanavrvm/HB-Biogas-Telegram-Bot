@@ -7768,3 +7768,131 @@ class IntegrationCircuitState(models.Model):
 
     def __str__(self):
         return f'{self.integration} ({self.status})'
+
+
+class MiniAppDiagnosticSession(models.Model):
+    """Privacy-safe lifecycle evidence for one staff Mini App launch."""
+
+    CLASSIFICATION_ACTIVE = 'active_visible'
+    CLASSIFICATION_BACKGROUNDED = 'backgrounded'
+    CLASSIFICATION_BACKGROUND_NOT_RESUMED = 'backgrounded_not_resumed'
+    CLASSIFICATION_INTENTIONAL_CLOSE = 'intentional_close'
+    CLASSIFICATION_CLIENT_ERROR = 'client_error_suspected'
+    CLASSIFICATION_STARTUP_FAILURE = 'startup_failure'
+    CLASSIFICATION_NAVIGATION = 'navigation_or_native_dismissal'
+    CLASSIFICATION_STALE = 'stale_unconfirmed'
+    CLASSIFICATION_ABRUPT = 'abrupt_unknown_confirmed'
+    CLASSIFICATION_CHOICES = [
+        (CLASSIFICATION_ACTIVE, 'Active and visible'),
+        (CLASSIFICATION_BACKGROUNDED, 'Backgrounded'),
+        (CLASSIFICATION_BACKGROUND_NOT_RESUMED, 'Backgrounded and not resumed'),
+        (CLASSIFICATION_INTENTIONAL_CLOSE, 'Intentional close'),
+        (CLASSIFICATION_CLIENT_ERROR, 'Client error suspected'),
+        (CLASSIFICATION_STARTUP_FAILURE, 'Startup failure'),
+        (CLASSIFICATION_NAVIGATION, 'Navigation or native dismissal'),
+        (CLASSIFICATION_STALE, 'Stale and unconfirmed'),
+        (CLASSIFICATION_ABRUPT, 'Abrupt unknown, confirmed on later launch'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    client_session_uuid = models.UUIDField(unique=True, db_index=True)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='miniapp_diagnostic_sessions',
+    )
+    workflow = models.CharField(max_length=40, choices=AccessGrant.WORKFLOW_CHOICES, db_index=True)
+    surface = models.CharField(max_length=40, db_index=True)
+    release = models.CharField(max_length=80, blank=True, default='', db_index=True)
+    platform = models.CharField(max_length=16, default='other', db_index=True)
+    network_bucket = models.CharField(max_length=16, default='unknown', db_index=True)
+    device_memory_bucket = models.CharField(max_length=16, default='unknown', db_index=True)
+    classification = models.CharField(
+        max_length=40, choices=CLASSIFICATION_CHOICES,
+        default=CLASSIFICATION_ACTIVE, db_index=True,
+    )
+    last_visibility = models.CharField(max_length=12, default='visible')
+    recovered_on_later_launch = models.BooleanField(default=False, db_index=True)
+    started_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    last_signal_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    ended_at = models.DateTimeField(null=True, blank=True, db_index=True)
+
+    class Meta:
+        ordering = ['-started_at']
+        indexes = [
+            models.Index(fields=['workflow', 'platform', 'started_at']),
+            models.Index(fields=['classification', 'started_at']),
+        ]
+        verbose_name = 'Mini App diagnostic session'
+        verbose_name_plural = 'Mini App diagnostic sessions'
+
+    def __str__(self):
+        return f'{self.surface} {self.client_session_uuid} ({self.classification})'
+
+
+class MiniAppDiagnosticEvent(models.Model):
+    """Append-oriented, allowlisted signal; arbitrary client payloads are rejected."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(
+        MiniAppDiagnosticSession, on_delete=models.CASCADE, related_name='events',
+    )
+    client_event_uuid = models.UUIDField()
+    event_type = models.CharField(max_length=40, db_index=True)
+    elapsed_ms = models.PositiveIntegerField(default=0)
+    route = models.CharField(max_length=80, blank=True, default='')
+    action = models.CharField(max_length=80, blank=True, default='')
+    visibility = models.CharField(max_length=12, default='visible')
+    online = models.BooleanField(default=True)
+    network_bucket = models.CharField(max_length=16, default='unknown')
+    status_bucket = models.CharField(max_length=24, blank=True, default='')
+    request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    recorded_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['session', 'elapsed_ms', 'recorded_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['session', 'client_event_uuid'],
+                name='unique_miniapp_diagnostic_client_event',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['session', 'recorded_at']),
+            models.Index(fields=['event_type', 'recorded_at']),
+        ]
+        verbose_name = 'Mini App diagnostic event'
+        verbose_name_plural = 'Mini App diagnostic events'
+
+    def __str__(self):
+        return f'{self.session.surface}: {self.event_type}'
+
+
+class MiniAppDiagnosticDailyAggregate(models.Model):
+    """Longer-lived anonymous counts rolled up before raw diagnostics expire."""
+
+    date = models.DateField(db_index=True)
+    workflow = models.CharField(max_length=40, db_index=True)
+    surface = models.CharField(max_length=40, db_index=True)
+    platform = models.CharField(max_length=16, db_index=True)
+    release = models.CharField(max_length=80, blank=True, default='', db_index=True)
+    classification = models.CharField(max_length=40, db_index=True)
+    network_bucket = models.CharField(max_length=16, default='unknown', db_index=True)
+    session_count = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date', 'workflow', 'platform', 'classification']
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    'date', 'workflow', 'surface', 'platform', 'release',
+                    'classification', 'network_bucket',
+                ],
+                name='unique_miniapp_diagnostic_daily_rollup',
+            ),
+        ]
+        verbose_name = 'Mini App diagnostic daily aggregate'
+        verbose_name_plural = 'Mini App diagnostic daily aggregates'
+
+    def __str__(self):
+        return f'{self.date} {self.surface}/{self.platform}: {self.classification}'

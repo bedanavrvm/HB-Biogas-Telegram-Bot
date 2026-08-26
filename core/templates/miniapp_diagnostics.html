@@ -1,0 +1,16 @@
+{% load static %}
+<script>
+  window.MINIAPP_DIAGNOSTICS_CONFIG = {
+    enabled: {% if miniapp_diagnostics_enabled %}true{% else %}false{% endif %},
+    heartbeatSeconds: {{ miniapp_diagnostics_heartbeat_seconds|default:60 }},
+    sentryDsn: '{{ miniapp_sentry_browser_dsn|escapejs }}',
+    environment: '{{ miniapp_sentry_environment|escapejs }}',
+    release: '{{ miniapp_sentry_release|escapejs }}',
+    tracesSampleRate: {{ miniapp_sentry_traces_sample_rate|default:0.05 }}
+  };
+</script>
+{% if miniapp_sentry_browser_dsn %}
+<!-- Pinned local asset: Sentry Browser 10.55.0 performance bundle; Replay is not included. -->
+<script src="{% static 'miniapp/vendor-sentry-browser-10.55.0.bundle.tracing.min.js' %}?v=10.55.0"></script>
+{% endif %}
+<script src="{% static 'miniapp/diagnostics.js' %}?v=1"></script>

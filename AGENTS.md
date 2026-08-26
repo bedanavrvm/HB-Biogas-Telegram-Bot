@@ -169,6 +169,7 @@ Key modules:
 - `workflow_capabilities.py` — centrally defined Mini App capabilities and role policy resolution
 - `miniapp_requests.py` — shared Mini App retry-key compatibility and strict-mode policy
 - `miniapp_settings.py` — typed personal preferences and maker-checker TAT configuration proposals
+- `miniapp_diagnostics.py` — privacy-safe Mini App lifecycle telemetry, idempotent signal ingestion, recovery classification, and aggregate retention
 - `external_resilience.py` — bounded synchronous retry, durable external-operation register, and circuit state
 - `portal_publication.py` — durable, request-assisted Portal register publication for free Render; local workflow commits never wait for Google Sheets
 - `access_control.py` — maker-checker access changes, emergency grants, notifications, and policy versioning
@@ -244,6 +245,10 @@ This is a template of variables this class of system typically needs. Treat it a
 | `API_AUTH_TOKEN` | Token protecting manual/admin/script-facing endpoints | Yes |
 | `SENTRY_DSN` | Production error-monitoring endpoint; configure only in Render secrets | Yes |
 | `SENTRY_ENVIRONMENT` / `SENTRY_TRACES_SAMPLE_RATE` | Sentry environment label and approved performance-sampling rate | No |
+| `SENTRY_BROWSER_DSN` / `SENTRY_BROWSER_TRACES_SAMPLE_RATE` | Separate public Browser Sentry project DSN and approved trace rate for staff Mini Apps; Replay is not enabled | Treat the DSN as deployment configuration |
+| `MINIAPP_DIAGNOSTICS_ENABLED` / `MINIAPP_DIAGNOSTICS_HEARTBEAT_SECONDS` | Enables first-party Mini App lifecycle telemetry and controls visible-only heartbeat frequency | No |
+| `MINIAPP_DIAGNOSTICS_RAW_RETENTION_DAYS` / `MINIAPP_DIAGNOSTICS_AGGREGATE_RETENTION_DAYS` | Raw diagnostics and anonymous daily-rollup retention windows | No |
+| `MINIAPP_DIAGNOSTICS_TOKEN_MAX_AGE_SECONDS` / `MINIAPP_DIAGNOSTICS_MAX_PAYLOAD_BYTES` | Bounds signed signal-token lifetime and diagnostic ingestion payload size | No |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` / `GOOGLE_APPLICATION_CREDENTIALS` | Service-account credentials for Sheets/Drive API access | Yes |
 | Sheet/Drive IDs (e.g. `*_SHEET_ID`, `*_FOLDER_ID`) | Identify target spreadsheets/folders per workflow | Treat as sensitive unless confirmed non-sensitive |
 | `TAT_TRACKER_SIGNATURES_ENABLED` | Enables external TAT e-signature dispatch and stage gating | No |

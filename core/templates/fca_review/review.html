@@ -62,6 +62,7 @@
 </main>
 <script id="batch-data" type="application/json">{{ batch_json|safe }}</script>
 <script src="{% static 'miniapp/telegram.js' %}"></script>
+{% include "miniapp_diagnostics.html" %}
 <script src="{% static 'miniapp/utils.js' %}?v=3"></script>
 <script src="{% static 'miniapp/fca_review.js' %}?v=4"></script>
 </body>

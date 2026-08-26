@@ -127,6 +127,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'core.context_processors.miniapp_diagnostics',
             ],
         },
     },
@@ -260,6 +261,14 @@ APP_RELEASE = config('APP_RELEASE', default='').strip()
 SENTRY_DSN = config('SENTRY_DSN', default='').strip()
 SENTRY_ENVIRONMENT = config('SENTRY_ENVIRONMENT', default='production' if not DEBUG else 'development')
 SENTRY_TRACES_SAMPLE_RATE = config('SENTRY_TRACES_SAMPLE_RATE', default=0.0, cast=float)
+SENTRY_BROWSER_DSN = config('SENTRY_BROWSER_DSN', default='').strip()
+SENTRY_BROWSER_TRACES_SAMPLE_RATE = config('SENTRY_BROWSER_TRACES_SAMPLE_RATE', default=0.05, cast=float)
+MINIAPP_DIAGNOSTICS_ENABLED = config('MINIAPP_DIAGNOSTICS_ENABLED', default=True, cast=bool)
+MINIAPP_DIAGNOSTICS_HEARTBEAT_SECONDS = config('MINIAPP_DIAGNOSTICS_HEARTBEAT_SECONDS', default=60, cast=int)
+MINIAPP_DIAGNOSTICS_RAW_RETENTION_DAYS = config('MINIAPP_DIAGNOSTICS_RAW_RETENTION_DAYS', default=14, cast=int)
+MINIAPP_DIAGNOSTICS_AGGREGATE_RETENTION_DAYS = config('MINIAPP_DIAGNOSTICS_AGGREGATE_RETENTION_DAYS', default=180, cast=int)
+MINIAPP_DIAGNOSTICS_TOKEN_MAX_AGE_SECONDS = config('MINIAPP_DIAGNOSTICS_TOKEN_MAX_AGE_SECONDS', default=172800, cast=int)
+MINIAPP_DIAGNOSTICS_MAX_PAYLOAD_BYTES = config('MINIAPP_DIAGNOSTICS_MAX_PAYLOAD_BYTES', default=8192, cast=int)
 
 # API protection for manual endpoints
 API_AUTH_TOKEN = config('API_AUTH_TOKEN', default='')

@@ -313,6 +313,9 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("core.TatResponsibilityEvent", "TAT responsibility audit", "history"),
         _model_item("core.OriginationDataFieldEvent", "Origination field audit", "history"),
         _model_item("core.LocationConfigurationEvent", "Location configuration audit", "history"),
+        _model_item("core.MiniAppDiagnosticSession", "Mini App diagnostic sessions", "monitor_heart"),
+        _model_item("core.MiniAppDiagnosticEvent", "Mini App diagnostic events", "timeline"),
+        _model_item("core.MiniAppDiagnosticDailyAggregate", "Mini App diagnostic trends", "query_stats"),
     ]
 
     configured_workflows = _configured_workflow_groups()
