@@ -1375,6 +1375,62 @@ class OriginationDocumentTemplateUploadAdminTests(TestCase):
         self.assertContains(response, 'Generic Jawabu LAF - reviewed two-page field set')
         self.assertContains(response, 'No JSON or code entry is required')
 
+    def test_published_reusable_document_prominently_creates_an_editable_version(self):
+        configuration = {
+            'document_type': 'admin_editable_family',
+            'version': 1,
+            'field_overlay_manifest': {'fields': {
+                'consent': {
+                    'context_key': 'consent', 'page_number': 1, 'units': 'pt',
+                    'box': {'x': 20, 'y': 700, 'width': 120, 'height': 16},
+                },
+            }},
+            'signature_overlay_manifest': {'slots': {}},
+        }
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='primary', document_role='primary',
+            inclusion_mode='required', display_order=0, document_type='admin_editable_family',
+            name='Admin editable family', version=1, status='active',
+            source_filename='admin-editable.pdf', source_sha256='d' * 64,
+            source_byte_size=100, page_count=1, placement_config=configuration,
+            drive_file_id='drive-admin-editable',
+            form_schema={'fields': [{'key': 'consent', 'type': 'boolean', 'required': True}]},
+            signer_rules=[], created_by=self.actor,
+        )
+        published = OriginationTemplateConfigurationRevision.objects.create(
+            template=template, revision=1, configuration=configuration,
+            is_published=True, created_by=self.actor, published_at=timezone.now(),
+        )
+        template.published_configuration_revision = published
+        template.save(update_fields=['published_configuration_revision'])
+        change_url = reverse(
+            'admin:core_originationdocumenttemplate_change', args=[template.pk],
+        )
+
+        page = self.client.get(change_url)
+
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, 'Published reusable document')
+        self.assertContains(page, 'Create editable version')
+        self.assertContains(page, 'Upload replacement PDF instead')
+        self.assertContains(page, 'Preview published mapping')
+
+        response = self.client.post(reverse(
+            'admin:core_originationdocumenttemplate_create_editable_version',
+            args=[template.pk],
+        ))
+
+        successor = OriginationDocumentTemplate.objects.get(
+            document_type=template.document_type, version=2,
+        )
+        self.assertRedirects(
+            response,
+            reverse('admin:core_originationdocumenttemplate_calibrate', args=[successor.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(successor.status, successor.STATUS_READY)
+        self.assertEqual(successor.drive_file_id, template.drive_file_id)
+
     @patch('core.services.origination_templates.upload_template_record')
     def test_admin_upload_applies_generic_laf_contract_and_versions_its_family(self, upload_mock):
         upload_mock.side_effect = self._mark_uploaded

@@ -886,6 +886,92 @@ def remove_shared_supporting_template(**kwargs) -> bool:
     return remove_shared_document_template(**kwargs)
 
 
+@transaction.atomic
+def clone_reusable_template_version(
+    template: OriginationDocumentTemplate, *, actor,
+) -> tuple[OriginationDocumentTemplate, bool]:
+    """Create or reuse an editable successor without duplicating Drive bytes.
+
+    The immutable source PDF, governed form/signers, and published placement
+    configuration are copied into a new database version. A later activation
+    retires the old family version; existing applications and pinned product
+    assignments remain unchanged.
+    """
+    if not getattr(actor, 'is_superuser', False):
+        raise OriginationTemplateError('Only a Django Superuser may version legal templates.')
+    source = OriginationDocumentTemplate.objects.select_for_update().select_related(
+        'published_configuration_revision',
+    ).get(pk=template.pk)
+    if source.product_definition_id:
+        raise OriginationTemplateError(
+            'Create an editable product version to change a product-owned document.',
+        )
+    if source.status != source.STATUS_ACTIVE or not source.published_configuration_revision_id:
+        raise OriginationTemplateError(
+            'Create an editable version from the current published family version.',
+        )
+    existing = OriginationDocumentTemplate.objects.select_for_update().filter(
+        product_definition__isnull=True,
+        document_type=source.document_type,
+        status=OriginationDocumentTemplate.STATUS_READY,
+        version__gt=source.version,
+    ).order_by('-version').first()
+    if existing:
+        return existing, True
+    next_version = (
+        OriginationDocumentTemplate.objects.filter(
+            document_type=source.document_type,
+        ).aggregate(models.Max('version'))['version__max'] or 0
+    ) + 1
+    configuration = json.loads(json.dumps(
+        source.published_configuration_revision.configuration,
+    ))
+    configuration['document_type'] = source.document_type
+    configuration['version'] = next_version
+    successor = OriginationDocumentTemplate.objects.create(
+        product_definition=None,
+        document_key=source.document_key,
+        document_role=source.document_role,
+        inclusion_mode=source.inclusion_mode,
+        display_order=source.display_order,
+        officer_selectable=source.officer_selectable,
+        default_selected=source.default_selected,
+        applicability_rule=json.loads(json.dumps(source.applicability_rule or {})),
+        form_schema=json.loads(json.dumps(source.form_schema or {})),
+        signer_rules=json.loads(json.dumps(source.signer_rules or [])),
+        document_type=source.document_type,
+        name=source.name,
+        version=next_version,
+        status=OriginationDocumentTemplate.STATUS_READY,
+        source_filename=source.source_filename,
+        source_sha256=source.source_sha256,
+        source_byte_size=source.source_byte_size,
+        page_count=source.page_count,
+        placement_config=configuration,
+        drive_file_id=source.drive_file_id,
+        drive_url=source.drive_url,
+        created_by=actor,
+    )
+    OriginationTemplateConfigurationRevision.objects.create(
+        template=successor,
+        revision=1,
+        configuration=configuration,
+        created_by=actor,
+    )
+    OriginationDocumentTemplateEvent.objects.create(
+        template=successor,
+        action='editable_version_created',
+        actor=actor,
+        metadata={
+            'source_template_id': str(source.pk),
+            'source_version': source.version,
+            'source_sha256': source.source_sha256,
+            'reused_drive_file': True,
+        },
+    )
+    return successor, False
+
+
 def publish_and_attach_shared_supporting_template(
     *, product_definition: OriginationProductDefinition,
     template: OriginationDocumentTemplate, revision: int, actor,

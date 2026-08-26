@@ -8029,6 +8029,24 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         else:
             original = self.get_object(request, object_id)
             if original and original.product_definition_id is None:
+                editable = OriginationDocumentTemplate.objects.filter(
+                    product_definition__isnull=True,
+                    document_type=original.document_type,
+                    status=OriginationDocumentTemplate.STATUS_READY,
+                    version__gt=original.version,
+                ).order_by('-version').first()
+                current = OriginationDocumentTemplate.objects.filter(
+                    product_definition__isnull=True,
+                    document_type=original.document_type,
+                    status=OriginationDocumentTemplate.STATUS_ACTIVE,
+                ).order_by('-version').first()
+                context['origination_existing_editable_template'] = editable
+                context['origination_current_family_template'] = current
+                if original.status == original.STATUS_ACTIVE:
+                    context['origination_create_editable_template_url'] = reverse(
+                        'admin:core_originationdocumenttemplate_create_editable_version',
+                        args=[original.pk],
+                    )
                 context['origination_next_family_version_url'] = (
                     reverse('admin:core_originationdocumenttemplate_add') + '?' + urlencode({
                         'reusable_family': original.document_type,
@@ -8039,6 +8057,13 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                     reverse('admin:core_originationproductdocumentassignment_add')
                     + '?' + urlencode({'template': original.pk})
                 )
+            elif original and original.product_definition_id:
+                product = original.product_definition
+                if product.lifecycle_status == product.STATUS_PUBLISHED:
+                    context['origination_create_editable_product_url'] = reverse(
+                        'admin:core_originationproductdefinition_create_next_version',
+                        args=[product.pk],
+                    )
         return super().changeform_view(request, object_id, form_url, context)
 
     @admin.display(description='Inclusion condition')
@@ -8068,6 +8093,11 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
     def get_urls(self):
         urls = super().get_urls()
         custom = [
+            path(
+                '<path:object_id>/create-editable-version/',
+                self.admin_site.admin_view(self.create_editable_version_view),
+                name='core_originationdocumenttemplate_create_editable_version',
+            ),
             path('<path:object_id>/calibrate/', self.admin_site.admin_view(self.calibrate_view), name='core_originationdocumenttemplate_calibrate'),
             path('<path:object_id>/calibration-state/', self.admin_site.admin_view(self.calibration_state_view), name='core_originationdocumenttemplate_calibration_state'),
             path('<path:object_id>/calibration-page/', self.admin_site.admin_view(self.calibration_page_view), name='core_originationdocumenttemplate_calibration_page'),
@@ -8077,6 +8107,41 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             path('<path:object_id>/calibration-publish/', self.admin_site.admin_view(self.calibration_publish_view), name='core_originationdocumenttemplate_calibration_publish'),
         ]
         return custom + urls
+
+    def create_editable_version_view(self, request, object_id):
+        if not request.user.is_active or not request.user.is_superuser:
+            raise PermissionDenied
+        if request.method != 'POST':
+            response = HttpResponse(status=405)
+            response['Allow'] = 'POST'
+            return response
+        source = OriginationDocumentTemplate.objects.filter(pk=object_id).first()
+        if not source:
+            return HttpResponse(status=404)
+        from core.services.origination_templates import (
+            OriginationTemplateError, clone_reusable_template_version,
+        )
+        try:
+            successor, replayed = clone_reusable_template_version(
+                source, actor=request.user,
+            )
+        except OriginationTemplateError as exc:
+            self.message_user(request, str(exc), level=messages.ERROR)
+            return HttpResponseRedirect(reverse(
+                'admin:core_originationdocumenttemplate_change', args=[source.pk],
+            ))
+        self.message_user(
+            request,
+            (
+                f'Opened existing editable version {successor.version}.'
+                if replayed else
+                f'Editable version {successor.version} is ready with the existing PDF, fields, and alignment.'
+            ),
+            level=messages.SUCCESS,
+        )
+        return HttpResponseRedirect(reverse(
+            'admin:core_originationdocumenttemplate_calibrate', args=[successor.pk],
+        ))
 
     def _calibration_template(self, request, object_id):
         if not request.user.is_superuser:

@@ -40,7 +40,7 @@
       });
     </script>
   {% endif %}
-  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=9">
+  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=10">
 {% endblock %}
 
 {% block object-tools-items %}
@@ -104,7 +104,15 @@
   {% elif original %}
     <section class="opb-shell opb-published">
       <h2>Published product version</h2>
-      <p>This contract is immutable. Use <b>Create editable next version</b> above to copy its fields, PDF, and alignment into a safe draft without altering existing applications.</p>
+      <p>This contract is immutable. Create a safe editable copy of its fields, document packet, PDF, and alignment without altering existing applications.</p>
+      {% if origination_create_next_version_url %}
+        <form method="post" action="{{ origination_create_next_version_url }}" class="opb-actions">
+          {% csrf_token %}
+          <button type="submit" class="button opb-primary-action">
+            {% if origination_existing_successor %}Open editable v{{ origination_existing_successor.version }}{% else %}Create editable next version{% endif %}
+          </button>
+        </form>
+      {% endif %}
     </section>
   {% endif %}
 {% endblock %}

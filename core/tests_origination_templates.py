@@ -28,6 +28,7 @@ from core.services.origination_templates import (
     OriginationTemplateError,
     activate_template,
     assignment_template_compatibility_errors,
+    clone_reusable_template_version,
     clone_product_version,
     create_template,
     initial_template_configuration,
@@ -262,6 +263,60 @@ class OriginationTemplateLifecycleTests(TestCase):
         self.assertEqual(
             list(OriginationDocumentTemplateEvent.objects.filter(template=template).values_list('action', flat=True)),
             ['created', 'uploaded', 'calibration_published', 'activated'],
+        )
+
+    def test_create_editable_reusable_version_reuses_pdf_contract_and_mapping_idempotently(self):
+        configuration = {
+            'document_type': 'editable_family',
+            'version': 1,
+            'field_overlay_manifest': {'fields': {
+                'applicant_name': {
+                    'context_key': 'applicant_name', 'page_number': 1, 'units': 'pt',
+                    'box': {'x': 20, 'y': 700, 'width': 180, 'height': 16},
+                },
+            }},
+            'signature_overlay_manifest': {'slots': {}},
+        }
+        source = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='primary', document_role='primary',
+            inclusion_mode='required', display_order=0, document_type='editable_family',
+            name='Editable family LAF', version=1, status='active',
+            source_filename='editable.pdf', source_sha256=hashlib.sha256(self.pdf).hexdigest(),
+            source_byte_size=len(self.pdf), page_count=1,
+            placement_config=configuration, drive_file_id='drive-editable-family',
+            drive_url='https://drive.test/editable-family',
+            form_schema={'fields': [{'key': 'applicant_name', 'type': 'text', 'required': True}]},
+            signer_rules=[], created_by=self.maker,
+        )
+        published = OriginationTemplateConfigurationRevision.objects.create(
+            template=source, revision=1, configuration=configuration,
+            is_published=True, created_by=self.maker, published_at=timezone.now(),
+        )
+        source.published_configuration_revision = published
+        source.save(update_fields=['published_configuration_revision', 'updated_at'])
+
+        successor, replayed = clone_reusable_template_version(source, actor=self.maker)
+        replay, was_replayed = clone_reusable_template_version(source, actor=self.maker)
+
+        self.assertFalse(replayed)
+        self.assertTrue(was_replayed)
+        self.assertEqual(replay, successor)
+        self.assertEqual(successor.version, 2)
+        self.assertEqual(successor.status, successor.STATUS_READY)
+        self.assertEqual(successor.drive_file_id, source.drive_file_id)
+        self.assertEqual(successor.source_sha256, source.source_sha256)
+        self.assertEqual(successor.form_schema, source.form_schema)
+        self.assertEqual(successor.signer_rules, source.signer_rules)
+        self.assertIsNone(successor.published_configuration_revision_id)
+        draft = successor.configuration_revisions.get(revision=1)
+        self.assertFalse(draft.is_published)
+        self.assertEqual(draft.configuration['version'], 2)
+        self.assertEqual(
+            draft.configuration['field_overlay_manifest'],
+            configuration['field_overlay_manifest'],
+        )
+        self.assertEqual(
+            successor.events.filter(action='editable_version_created').count(), 1,
         )
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
@@ -1527,6 +1582,8 @@ class MultiProductOriginationTemplateTests(TestCase):
             'admin:core_originationproductdefinition_change', args=[self.product.pk],
         ))
         self.assertEqual(historical.status_code, 200)
+        self.assertContains(historical, 'Open editable v2')
+        self.assertContains(historical, 'Published product version')
 
     def test_direct_successor_action_is_post_only_and_opens_inherited_alignment(self):
         config = self.calibrated_configuration()

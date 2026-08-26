@@ -3,7 +3,7 @@
 
 {% block extrahead %}
   {{ block.super }}
-  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=8">
+  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=10">
 {% endblock %}
 
 {% block form_before %}
@@ -21,6 +21,37 @@
         <a class="button" href="{{ create_product_definition_url }}">Create loan form definition</a>
         <a class="opb-secondary-link" href="{{ manage_product_definitions_url }}">Manage loan form definitions</a>
       </div>
+    </section>
+  {% elif request.user.is_superuser %}
+    <section class="opb-shell opb-next-step">
+      {% if origination_create_editable_product_url %}
+        <h2>Published product document</h2>
+        <p>This PDF belongs to an immutable published product. Create an editable product version to copy its form, document packet, PDF, and alignment safely.</p>
+        <form method="post" action="{{ origination_create_editable_product_url }}" class="opb-actions">
+          {% csrf_token %}
+          <button type="submit" class="button opb-primary-action">Create editable product version</button>
+        </form>
+      {% elif origination_create_editable_template_url %}
+        <h2>Published reusable document</h2>
+        <p>This version is immutable. Create an editable version using the same approved PDF, fields, signer contract, and alignment. Existing applications and pinned products will not change.</p>
+        <div class="opb-actions">
+          <form method="post" action="{{ origination_create_editable_template_url }}">
+            {% csrf_token %}
+            <button type="submit" class="button opb-primary-action">
+              {% if origination_existing_editable_template %}Open editable v{{ origination_existing_editable_template.version }}{% else %}Create editable version{% endif %}
+            </button>
+          </form>
+          {% if origination_next_family_version_url %}<a class="opb-secondary-link" href="{{ origination_next_family_version_url }}">Upload replacement PDF instead</a>{% endif %}
+        </div>
+      {% elif original.status == 'ready' %}
+        <h2>Editable document version</h2>
+        <p>This is the safe draft. Open the visual builder to change fields and alignment, then publish it when ready.</p>
+        {% if original.drive_file_id %}<a class="button opb-primary-action" href="{% url 'admin:core_originationdocumenttemplate_calibrate' original.pk %}">Continue editing</a>{% endif %}
+      {% elif origination_current_family_template and origination_current_family_template.pk != original.pk %}
+        <h2>Historical document version</h2>
+        <p>This retired version remains available for audit and existing applications. Start changes from the current published family version.</p>
+        <a class="button opb-primary-action" href="{% url 'admin:core_originationdocumenttemplate_change' origination_current_family_template.pk %}">Open current published v{{ origination_current_family_template.version }}</a>
+      {% endif %}
     </section>
   {% endif %}
 {% endblock %}
@@ -71,11 +102,21 @@
     <li>
       <a href="{% url 'admin:core_originationdocumenttemplate_calibrate' original.pk %}"
          style="display:inline-flex;align-items:center;min-height:38px;padding:0 14px;border-radius:7px;background:#2563eb;color:#fff;font-weight:700">
-        Open visual calibration
+        {% if original.status == 'ready' %}Edit visual mapping{% else %}Preview published mapping{% endif %}
       </a>
     </li>
+    {% if origination_create_editable_template_url %}
+      <li>
+        <form method="post" action="{{ origination_create_editable_template_url }}" style="display:inline">
+          {% csrf_token %}
+          <button type="submit" class="button">
+            {% if origination_existing_editable_template %}Open editable v{{ origination_existing_editable_template.version }}{% else %}Create editable version{% endif %}
+          </button>
+        </form>
+      </li>
+    {% endif %}
     {% if origination_next_family_version_url %}
-      <li><a href="{{ origination_next_family_version_url }}">Upload next family version</a></li>
+      <li><a href="{{ origination_next_family_version_url }}">Upload replacement PDF</a></li>
     {% endif %}
     {% if origination_attach_to_product_url and original.status == 'active' %}
       <li><a href="{{ origination_attach_to_product_url }}">Attach to product</a></li>

@@ -178,6 +178,13 @@ explicit upgrade merges the compatible contract into the draft and records an
 audit event. Published product definitions remain immutable; use **Create
 editable next version** before changing their document packet.
 
+To change a published reusable LAF or supporting document, open its template
+record and use the prominent **Create editable version** action. This creates a
+safe draft using the same approved PDF, field/signing contract, and current
+alignment, then opens the visual builder. Use **Upload replacement PDF instead**
+only when the actual source PDF changed. Retired versions direct administrators
+back to the current published family version before a successor is created.
+
 ### 5. Create and govern canonical fields
 
 Use **Configuration → Origination data fields**, the builder's **Create

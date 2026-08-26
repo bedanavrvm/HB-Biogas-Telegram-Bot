@@ -200,6 +200,14 @@ which merges the compatible contract and records an append-only product event.
 Supporting assignments retain latest-compatible resolution so new application
 snapshots can adopt compatible published supporting revisions automatically.
 
+`clone_reusable_template_version` is the idempotent Admin path for editing an
+active global template without uploading duplicate bytes. It creates at most one
+ready successor, reuses the immutable Drive source/hash, deep-copies the governed
+schema, signer rules, applicability and published placement configuration, and
+records `editable_version_created`. Activation still retires the previous family
+version through the normal publication service. Product-owned documents must use
+the product successor workflow instead.
+
 A primary LAF has document key `primary`, role `primary`, and required inclusion.
 A reusable supporting template has no product-definition owner, role
 `supporting`, a stable document family/type, and an active published calibration.
