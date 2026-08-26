@@ -3008,6 +3008,37 @@ class StorageServiceTest(TestCase):
         self.assertEqual(getattr(parsed, '_processing_status'), 'success')
         mock_sheet.assert_not_called()
 
+    @patch('core.services.sheets.append_parsed_message_to_sheet')
+    def test_complete_headerless_complaint_is_not_marked_partial(self, mock_sheet):
+        """The CUSTOMER COMPLAINT heading is optional when required fields are clear."""
+        parsed = process_and_store_message(
+            telegram_message_id='headerless_complete_complaint',
+            content=(
+                'NAME: Jane Doe\n'
+                'TEL: 0712345678\n'
+                'ID: A12345\n'
+                'NATURE OF THE PROBLEM: No gas supply'
+            ),
+            sender='Agent',
+            received_at=timezone.now(),
+            group_id='-100123',
+            sheet_id='sheet_123',
+            sheet_name='Cases',
+            defer_sheet_sync=True,
+        )
+
+        self.assertEqual(parsed.customer_name, 'Jane Doe')
+        self.assertEqual(parsed.customer_phone, '254712345678')
+        self.assertEqual(parsed.customer_id, 'A12345')
+        self.assertEqual(parsed.complaint_description, 'No gas supply')
+        self.assertNotIn(
+            'CUSTOMER COMPLAINT',
+            parsed.processed_message.raw_message.content.upper(),
+        )
+        self.assertEqual(getattr(parsed, '_processing_status'), 'success')
+        self.assertEqual(getattr(parsed, '_processing_warnings'), [])
+        mock_sheet.assert_not_called()
+
     @patch('core.services.storage.append_parsed_message_to_sheet')
     def test_duplicate_case_with_failed_sync_can_be_repaired(self, mock_sheet):
         """A duplicate import should be able to retry sync for the existing case."""
@@ -5963,6 +5994,46 @@ NATURE OF THE PROBLEM: Gas leakage"""
             '23/05/2026 12:47',
         )
 
+    @override_settings(
+        TELEGRAM_BOT_USERNAME='biogas_bot',
+        WHATSAPP_BATCH_MAX_MESSAGES=50,
+    )
+    @patch('core.api.views._sync_case_sheet_for_batch')
+    @patch('core.api.views._process_single_message')
+    def test_complaint_batch_accepts_entry_without_customer_complaint_header(
+        self, mock_process, mock_sync,
+    ):
+        """Structured complaint fields identify a case without the optional heading."""
+        from core.api.views import _process_telegram_message
+
+        mock_process.return_value = {'status': 'success', 'message_id': 'MSG_HEADERLESS'}
+        mock_sync.side_effect = [
+            {'status': 'success', 'row_count': 0, 'backend_count': 0, 'errors': []},
+            {'status': 'success', 'row_count': 1, 'backend_count': 1, 'errors': []},
+        ]
+        payload_text = """@biogas_bot /batch
+23/05/2026, 12:47 - Alice Agent: NAME: Jane Doe
+TEL: 0712345678
+ID: A12345
+NATURE OF THE PROBLEM: No gas supply"""
+
+        result = _process_telegram_message({
+            'message_id': 124,
+            'from': {'id': 999001, 'first_name': 'Test', 'username': 'batch_admin'},
+            'chat': {'id': -100123, 'type': 'group'},
+            'date': 1711123456,
+            'text': payload_text,
+        })
+
+        self.assertEqual(result['status'], 'batch_processed')
+        self.assertEqual(result['total'], 1)
+        self.assertEqual(result['skipped_non_complaint'], 0)
+        mock_process.assert_called_once()
+        self.assertNotIn(
+            'CUSTOMER COMPLAINT',
+            mock_process.call_args.kwargs['content'].upper(),
+        )
+
     def test_complaint_batch_import_rejects_non_superusers_before_processing(self):
         from core.api.views import _process_whatsapp_batch_command
 
@@ -6143,7 +6214,8 @@ NATURE OF THE PROBLEM: No gas supply""",
         )
 
         text = mock_post.call_args.kwargs['data']['text']
-        self.assertIn('Warning: Message partially processed', text)
+        self.assertIn('Warning: Message saved with review notes.', text)
+        self.assertNotIn('some fields were not recognised', text)
         self.assertIn('Warnings:\n', text)
         self.assertIn('Customer ID / Account', text)
         self.assertIn('Case ID: MSG_REPLY_PARTIAL', text)
@@ -6263,7 +6335,7 @@ NATURE OF THE PROBLEM: No gas supply""",
         self.assertIn('Skipped non-complaint chat messages: 2', text)
         self.assertIn('Skipped WhatsApp system lines: 1', text)
         self.assertIn('Duplicates skipped: 1', text)
-        self.assertIn('Saved with sync warnings: 1', text)
+        self.assertIn('Saved with review or sync warnings: 1', text)
         self.assertIn('Sheet sync before import: success (10 sheet rows, 10 backend cases)', text)
         self.assertIn('Sheet sync after import: success (12 sheet rows, 12 backend cases)', text)
 

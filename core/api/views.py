@@ -4090,6 +4090,11 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
                 f'register at this time. It will be retried automatically.'
                 f'{case_id_line}{fields_summary}{warning_lines}'
             )
+        elif warnings:
+            text = (
+                f'Warning: Message saved with review notes.'
+                f'{case_id_line}{fields_summary}{warning_lines}'
+            )
         else:
             text = (
                 f'Warning: Message partially processed (some fields were not '
@@ -4176,7 +4181,7 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
         if duplicates:
             lines.append(f'Duplicates skipped: {duplicates}')
         if partial:
-            lines.append(f'Saved with sync warnings: {partial}')
+            lines.append(f'Saved with review or sync warnings: {partial}')
         if errors:
             lines.append(f'Errors: {errors}')
 

@@ -259,8 +259,16 @@ def process_and_store_message(
                 )
 
         # ── 7. Determine final status ─────────────────────────────────
+        intent_value = getattr(parsed_result, 'intent', '')
+        parsed_intent = getattr(intent_value, 'value', intent_value)
         final_status = 'success'
-        if parsed_result.confidence < 1.0 or parsed_result.warnings:
+        # Complaint acceptance is governed by explicit mandatory-field
+        # validation above. Its confidence score also tracks useful optional
+        # fields (for example county), so a score below 1.0 alone must not turn
+        # an otherwise complete complaint into a misleading partial result.
+        if parsed_result.warnings or (
+            parsed_intent != 'complaint' and parsed_result.confidence < 1.0
+        ):
             final_status = 'partial'
         if not sync_success:
             final_status = 'partial'
