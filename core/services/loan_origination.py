@@ -764,6 +764,10 @@ def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
     )
     from core.services.origination_commercial_terms import commercial_contract_enabled
     governed_commercial = commercial_contract_enabled(application.schema_snapshot)
+    quote = application.product_quote_snapshot or {}
+    quote_inputs = quote.get('inputs') or {}
+    quote_terms = quote.get('terms') or terms
+    quote_fees = quote.get('fees') or []
     context = {
         **application.form_payload,
         'reference_number': application.reference_number,
@@ -780,17 +784,18 @@ def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
         'repayment_frequency': str(
             application.form_payload.get('contract_repayment_frequency')
             or application.form_payload.get('repayment_frequency')
+            or quote_terms.get('repayment_frequency')
             or terms.get('repayment_frequency') or ''
         ).replace('_', ' ').title(),
         'interest_rate': str(
             application.form_payload.get('contract_interest_rate_percent')
             or application.form_payload.get('interest_rate')
-            or terms.get('interest_rate') or ''
+            or quote_terms.get('interest_rate') or terms.get('interest_rate') or ''
         ),
         'installment_amount': str(
             application.form_payload.get('installment_amount')
             or application.form_payload.get('daily_weekly_repayment_amount')
-            or (application.product_quote_snapshot or {}).get('installment_amount')
+            or quote.get('installment_amount')
             or ''
         ),
         'bro_1_name': application.officer.get_full_name() or application.officer.get_username(),
@@ -818,15 +823,35 @@ def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
                 continue
         context['secured_assets_total'] = format(total, 'f')
     if governed_commercial:
-        context.update({
-            'repayment_period': ' '.join(filter(None, [
-                str(application.form_payload.get('repayment_tenor') or ''),
-                str(application.form_payload.get('repayment_tenor_unit') or ''),
-            ])).strip(),
-            'daily_weekly_repayment_amount': str(
-                application.form_payload.get('installment_amount') or ''
-            ),
-        })
+        tenor = application.form_payload.get('repayment_tenor') or quote_inputs.get('tenor') or ''
+        tenor_unit = (
+            application.form_payload.get('repayment_tenor_unit')
+            or quote_inputs.get('tenor_unit') or quote_terms.get('tenor_unit') or ''
+        )
+        derived = {
+            'repayment_tenor_unit': tenor_unit,
+            'contract_currency': quote.get('currency') or quote_terms.get('currency') or '',
+            'contract_interest_rate_percent': quote_terms.get('interest_rate') or '',
+            'contract_interest_method': quote_terms.get('interest_method') or '',
+            'contract_interest_rate_period': quote_terms.get('interest_rate_period') or '',
+            'contract_repayment_frequency': quote_terms.get('repayment_frequency') or '',
+            'installment_count': quote.get('installment_count') or '',
+            'installment_amount': quote.get('installment_amount') or '',
+            'final_installment_amount': quote.get('final_installment_amount') or '',
+            'financed_principal_amount': quote.get('financed_principal') or '',
+            'total_interest_amount': quote.get('interest') or '',
+            'total_repayment_amount': quote.get('total_repayment') or '',
+            'financed_fee_total': quote.get('financed_fees') or '',
+            'upfront_fee_total': quote.get('upfront_fees') or '',
+            'loan_fees': quote_fees,
+            'repayment_period': ' '.join(filter(None, [str(tenor), str(tenor_unit)])).strip(),
+            'daily_weekly_repayment_amount': quote.get('installment_amount') or '',
+        }
+        # Frozen v1 applications retain entered values. Policy-derived v2
+        # values fill keys that the application payload no longer owns.
+        for key, value in derived.items():
+            if value not in (None, '', []):
+                context.setdefault(key, value)
     return apply_choice_display_values(context, application.schema_snapshot)
 
 
@@ -942,11 +967,15 @@ def create_application(*, product_key: str, officer, branch: str, client_request
         with transaction.atomic():
             from core.services.origination_fields import snapshot_form_schema
             from core.services.origination_commercial_terms import (
-                commercial_contract_enabled, initial_fee_rows,
+                commercial_contract_enabled, commercial_contract_version,
+                initial_fee_rows,
             )
             schema_snapshot = snapshot_form_schema(definition.form_schema)
             initial_payload = {}
-            if commercial_contract_enabled(schema_snapshot):
+            if (
+                commercial_contract_enabled(schema_snapshot)
+                and commercial_contract_version(schema_snapshot) < 2
+            ):
                 initial_payload['loan_fees'] = initial_fee_rows(definition.product_version)
             application = LoanOriginationApplication.objects.create(
                 id=application_id,
@@ -1065,6 +1094,11 @@ def save_application_fields(
         list(dict.fromkeys(str(value).strip() for value in selected_fee_keys if str(value).strip()))
         if selected_fee_keys is not None else application.product_selected_fee_keys
     )
+    from core.services.origination_commercial_terms import commercial_contract_version
+    if commercial_contract_version(application.schema_snapshot) >= 2:
+        # Contract v2 applies mandatory policy fees automatically and does not
+        # permit per-application optional fee selection.
+        selected_fee_keys = []
     if application.product_version_id:
         allowed_fee_keys = set(application.product_version.fees.filter(mandatory=False).values_list('key', flat=True))
         if set(selected_fee_keys) - allowed_fee_keys:

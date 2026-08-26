@@ -53,41 +53,38 @@ instead of silently reinterpreting existing applications.
 | `invoice_details` | Invoice Details | Surrendered invoice and requested advance |
 | `signer_details` | Signer Details | Representatives and internal approvers |
 | `acknowledgement` | Acknowledgement | Applicant receipt acknowledgement |
-| `commercial_terms` | Commercial Terms | Exact officer-entered facility terms validated against ProductVersion policy |
+| `commercial_terms` | Commercial Terms | Requested amount and tenor plus a read-only ProductVersion quote |
 
 ## Governed Commercial Terms contract
 
-The Invoice Finance seed appends the same shared Commercial Terms contract used
-by other new Origination products. The LAF records what the officer entered;
-the ProductVersion quote is retained separately as the validation expectation.
+The Invoice Finance seed appends Commercial Terms contract v2. The officer
+enters only amount and tenor; ProductVersion policy supplies every other value
+for the read-only quote and PDF mapping context.
 
 | Canonical key | Type | Required | Validation / rendering |
 |---|---|---|---|
 | `loan_amount` | `money` | Yes | Product min/max envelope; `text` overlay where printed |
 | `repayment_tenor` | `number` | Yes | Positive whole number within policy unless explicitly excepted |
-| `repayment_tenor_unit` | `choice` | Yes | `week` or `month` |
-| `contract_currency` | `choice` | Yes | Stored code `kes`, displayed as `KES` |
-| `contract_interest_rate_percent` | `number` | Yes | Compared to policy at six-decimal precision |
-| `contract_interest_method` | `choice` | Yes | `flat` or `reducing` |
-| `contract_interest_rate_period` | `choice` | Yes | `monthly` or `annual` |
-| `contract_repayment_frequency` | `choice` | Yes | `weekly`, `fortnightly`, or `monthly` |
-| `installment_count` | `number` | Yes | Positive whole number |
-| `installment_amount` | `money` | Yes | Officer-entered regular installment |
-| `final_installment_amount` | `money` | Yes | Schedule reconciliation |
-| `financed_principal_amount` | `money` | Yes | Loan amount plus financed fees |
-| `total_interest_amount` | `money` | Yes | Officer-entered total interest |
-| `total_repayment_amount` | `money` | Yes | Financed principal plus interest |
-| `financed_fee_total` | `money` | Yes | Sum of financed fee rows |
-| `upfront_fee_total` | `money` | Yes | Sum of upfront fee rows |
-| `loan_fees` | `repeating_group` | When policy has fees | Locked policy identity/collection mode; officer enters amount |
+| `repayment_tenor_unit` | `choice` | Derived | Policy `week` or `month` |
+| `contract_currency` | `choice` | Derived | Published policy currency (`kes` / `KES`) |
+| `contract_interest_rate_percent` | `number` | Derived | Published policy rate |
+| `contract_interest_method` | `choice` | Derived | Policy `flat` or `reducing` |
+| `contract_interest_rate_period` | `choice` | Derived | Policy `monthly` or `annual` |
+| `contract_repayment_frequency` | `choice` | Derived | Policy `weekly`, `fortnightly`, or `monthly` |
+| `installment_count` | `number` | Derived | Decimal quote schedule |
+| `installment_amount` | `money` | Derived | Regular installment |
+| `final_installment_amount` | `money` | Derived | Rounded final schedule amount |
+| `financed_principal_amount` | `money` | Derived | Amount plus mandatory financed fees |
+| `total_interest_amount` | `money` | Derived | Calculated policy interest |
+| `total_repayment_amount` | `money` | Derived | Financed principal plus interest |
+| `financed_fee_total` | `money` | Derived | Mandatory financed fees |
+| `upfront_fee_total` | `money` | Derived | Mandatory upfront fees |
+| `loan_fees` | `repeating_group` | Derived | Mandatory policy fee rows; optional fees are excluded |
 
-Each `loan_fees` row stores `fee_key`, `fee_label`, `collection_mode`, and
-`amount`; only the amount is editable.
-
-Money comparisons use an inclusive KES 0.01 tolerance. Internal arithmetic,
-missing values, and invalid types are never exception-eligible. A Superuser
-exception is bound to one exact revision and requires a reason and approval
-reference.
+Each derived `loan_fees` row stores the policy-owned `fee_key`, `fee_label`,
+`collection_mode`, and calculated `amount`. Only amount/tenor range exceptions
+are supported per exact application revision; pricing and fee changes require
+a new ProductVersion.
 
 ## Canonical field mapping
 
@@ -130,9 +127,8 @@ must not be printed on this LAF.
 | Amount acknowledged as received | `acknowledgement_amount` | Acknowledgement | `money` | Yes | User input; financial, partial masking; reporting metric; **Existing shared field** | Decimal money | `text` |
 
 The seed does not calculate the advance percentage, approved amount, or
-acknowledgement amount from other fields. Commercial values are also entered by
-the officer; the independent policy quote is used for readiness and audit, not
-as a silent replacement.
+acknowledgement amount from other fields. Those LAF-specific inputs remain
+manual. The shared commercial quote is policy-derived from amount and tenor.
 
 ## Signers and slots
 

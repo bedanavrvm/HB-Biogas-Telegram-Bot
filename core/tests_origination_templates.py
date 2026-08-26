@@ -1704,6 +1704,88 @@ class MultiProductOriginationTemplateTests(TestCase):
             ['version_inherited'],
         )
 
+    def test_clone_separates_owned_template_family_when_reusable_version_collides(self):
+        config = self.calibrated_configuration()
+        source = OriginationDocumentTemplate.objects.create(
+            product_definition=self.product,
+            document_type='jawabu_generic_laf', name='Owned Jawabu LAF', version=1,
+            status=OriginationDocumentTemplate.STATUS_ACTIVE,
+            source_filename='jawabu-v1.pdf', source_sha256='1' * 64,
+            source_byte_size=len(self.pdf), page_count=1,
+            placement_config=config, drive_file_id='drive-owned-v1',
+            drive_url='https://drive.test/owned-v1', created_by=self.user,
+        )
+        revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=source, revision=1, configuration=config, is_published=True,
+            created_by=self.user, published_at=timezone.now(),
+        )
+        source.published_configuration_revision = revision
+        source.save(update_fields=['published_configuration_revision'])
+        OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_type='jawabu_generic_laf',
+            name='Reusable Jawabu LAF', version=2,
+            status=OriginationDocumentTemplate.STATUS_READY,
+            source_filename='jawabu-v2.pdf', source_sha256='2' * 64,
+            source_byte_size=len(self.pdf), page_count=1,
+            placement_config={**config, 'version': 2}, drive_file_id='drive-library-v2',
+            drive_url='https://drive.test/library-v2', created_by=self.user,
+        )
+        self.product.document_type = 'jawabu_generic_laf'
+        self.product.lifecycle_status = self.product.STATUS_PUBLISHED
+        self.product.is_active = True
+        self.product.save(update_fields=['document_type', 'lifecycle_status', 'is_active'])
+
+        successor = clone_product_version(self.product, actor=self.user)
+
+        inherited = successor.document_templates.get()
+        self.assertEqual(successor.version, 2)
+        self.assertNotEqual(inherited.document_type, 'jawabu_generic_laf')
+        self.assertEqual(inherited.version, 1)
+        self.assertEqual(inherited.placement_config['version'], 1)
+        self.assertTrue(inherited.document_type.endswith('-primary-owned'))
+
+    def test_published_assignment_change_page_is_read_only_without_form_key_error(self):
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='guarantor_form',
+            document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
+            inclusion_mode=OriginationDocumentTemplate.INCLUDE_REQUIRED,
+            document_type='guarantor_form', name='Guarantor Form', version=1,
+            status=OriginationDocumentTemplate.STATUS_ACTIVE,
+            source_filename='guarantor.pdf', source_sha256='8' * 64,
+            source_byte_size=100, page_count=1, placement_config={},
+            created_by=self.user,
+        )
+        assignment = OriginationProductDocumentAssignment.objects.create(
+            product_definition=self.product, template=template,
+            document_key=template.document_key, name=template.name,
+            created_by=self.user,
+        )
+        self.product.lifecycle_status = self.product.STATUS_PUBLISHED
+        self.product.save(update_fields=['lifecycle_status', 'updated_at'])
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse(
+            'admin:core_originationproductdocumentassignment_change', args=[assignment.pk],
+        ))
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_published_product_stale_form_post_redirects_instead_of_raising_permission_denied(self):
+        self.product.lifecycle_status = self.product.STATUS_PUBLISHED
+        self.product.is_active = True
+        self.product.save(update_fields=['lifecycle_status', 'is_active', 'updated_at'])
+        self.client.force_login(self.user)
+        url = reverse(
+            'admin:core_originationproductdefinition_change', args=[self.product.pk],
+        )
+
+        response = self.client.post(url, {'name': 'Attempted stale edit'})
+
+        self.assertRedirects(response, url)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.name, 'Dairy Working Capital')
+        self.assertEqual(self.product.lifecycle_status, self.product.STATUS_PUBLISHED)
+
     def test_compact_admin_list_and_history_keep_old_versions_accessible(self):
         self.product.lifecycle_status = self.product.STATUS_PUBLISHED
         self.product.is_active = True

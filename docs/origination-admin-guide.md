@@ -123,18 +123,18 @@ cannot be edited.
 #### Product policy versus entered Commercial Terms
 
 Every newly created or upgraded loan-form definition receives a **Commercial
-Terms** section automatically. Officers enter the exact values agreed for the
-application: principal, tenor/unit, currency, interest rate/method/period,
-repayment frequency, installments, totals, and policy-identified fee rows.
+Terms** section automatically. Officers enter only **Loan amount** and
+**Repayment tenor**. The Mini App immediately shows a read-only quote calculated
+from the linked Product Terms version.
 
-The Product Terms version is a validation envelope. Saving a Draft preserves
-the officer's values and readiness findings; it never replaces them with a
-system quote. Submission blocks when entered totals do not add up, required
-values are invalid, fee rows do not reconcile, or policy differs without an
-exact approved exception. Money comparisons allow an inclusive KES 0.01
-difference. Arithmetic and invalid-input failures cannot be waived.
+Currency, tenor unit, interest rate/method/period, repayment frequency,
+installments, mandatory fees, and totals are managed only in Product policy.
+Optional fees are excluded from Origination unless an administrator publishes
+them as mandatory. Do not create duplicate form inputs for these values merely
+to place them on a PDF; their system-derived canonical fields remain available
+inside the alignment builder.
 
-For an approved one-off pricing exception, an active Superuser opens
+For an approved one-off amount or tenor range exception, an active Superuser opens
 **Configuration → Origination commercial exceptions**, selects the exact
 editable application revision, and records a detailed reason plus the external
 approval reference. Any subsequent edit/revision invalidates that exception.
@@ -587,7 +587,8 @@ edited by the upgrade. Generate and review an exact signed manifest first:
 ```
 
 The report separately lists published products that need **Create editable next
-version**. Apply only unchanged Draft targets with an active Superuser:
+version**. Apply only unchanged Draft targets with an active Superuser. Generate
+a fresh v2 manifest; v1 manifests are deliberately rejected:
 
 ```powershell
 .\.venv\Scripts\python.exe manage.py upgrade_origination_commercial_contract --apply-manifest .\commercial-upgrade.manifest --actor <superuser-username>

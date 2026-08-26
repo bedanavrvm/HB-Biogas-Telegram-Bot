@@ -1129,8 +1129,31 @@ def _inherit_template_for_product_version(
             if source_template.document_role == source_template.ROLE_PRIMARY
             else f'{successor.product_key}-{source_template.document_key}'[:80]
         )
+        template_version = successor.version
+        collision = OriginationDocumentTemplate.objects.filter(
+            document_type=document_type,
+            version=template_version,
+            status__in=[
+                OriginationDocumentTemplate.STATUS_READY,
+                OriginationDocumentTemplate.STATUS_ACTIVE,
+            ],
+        ).exists()
+        if collision:
+            # Product versions and PDF-family versions are independent. A
+            # reusable family may already own (document_type, version), and a
+            # product successor must never retire or collide with that family.
+            suffix = (
+                'primary' if source_template.document_role == source_template.ROLE_PRIMARY
+                else source_template.document_key
+            )
+            document_type = f'{successor.product_key[:55]}-{suffix[:15]}-owned'[:80]
+            template_version = (
+                OriginationDocumentTemplate.objects.filter(
+                    document_type=document_type,
+                ).aggregate(models.Max('version'))['version__max'] or 0
+            ) + 1
         configuration['document_type'] = document_type
-        configuration['version'] = successor.version
+        configuration['version'] = template_version
         inherited = OriginationDocumentTemplate.objects.create(
             product_definition=successor,
             document_key=source_template.document_key,
@@ -1156,7 +1179,7 @@ def _inherit_template_for_product_version(
                 if source_template.document_role == source_template.ROLE_PRIMARY
                 else source_template.name
             ),
-            version=successor.version,
+            version=template_version,
             status=OriginationDocumentTemplate.STATUS_READY,
             source_filename=source_template.source_filename,
             source_sha256=source_template.source_sha256,
@@ -1176,6 +1199,8 @@ def _inherit_template_for_product_version(
                 'source_template_id': str(source_template.pk),
                 'source_product_definition_id': str(source.pk),
                 'source_product_version': source.version,
+                'product_successor_version': successor.version,
+                'template_version': template_version,
                 'sha256': source_template.source_sha256,
             },
         )

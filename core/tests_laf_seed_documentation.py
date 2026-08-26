@@ -19,7 +19,9 @@ from core.services.invoice_finance_origination_seed import (
     SIGNER_RULES as INVOICE_SIGNER_RULES,
 )
 from core.services.origination_commercial_terms import (
+    COMMERCIAL_DERIVED_KEYS,
     FIELD_SPECS as COMMERCIAL_FIELD_SPECS,
+    COMMERCIAL_INPUT_KEYS,
     LOAN_FEES_STRUCTURE,
 )
 
@@ -61,6 +63,13 @@ class LafSeedDocumentationContractTests(SimpleTestCase):
 
     def _assert_commercial_contract(self, document):
         self._assert_token(document, 'commercial_terms', contract='Commercial Terms section')
+        normalized = ' '.join(document.lower().split())
+        self.assertIn('officer enters only amount', normalized)
+        self.assertIn('system-derived', normalized)
+        for key in COMMERCIAL_INPUT_KEYS:
+            self._assert_token(document, key, contract='Commercial Terms officer input')
+        for key in COMMERCIAL_DERIVED_KEYS:
+            self._assert_token(document, key, contract='Commercial Terms derived field')
         for key, _label, data_type, _required, options, _validation, _reporting in COMMERCIAL_FIELD_SPECS:
             self._assert_token(document, key, contract='Commercial Terms field')
             self._assert_token(document, data_type, contract=f'Commercial Terms type for {key}')

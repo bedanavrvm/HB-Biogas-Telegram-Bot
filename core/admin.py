@@ -880,15 +880,17 @@ class OriginationProductDocumentAssignmentForm(DocumentApplicabilityRuleFormMixi
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._configure_condition_editor()
-        self.fields['product_definition'].help_text = (
-            'Choose an editable Draft product. Published products must first be opened as an '
-            'editable product version.'
-        )
-        self.fields['template'].help_text = (
-            'The document must already be published. Selecting a newer version of the same '
-            'Main LAF family upgrades the draft; a different Main LAF must first be removed '
-            'from the product Document packet.'
-        )
+        if 'product_definition' in self.fields:
+            self.fields['product_definition'].help_text = (
+                'Choose an editable Draft product. Published products must first be opened as an '
+                'editable product version.'
+            )
+        if 'template' in self.fields:
+            self.fields['template'].help_text = (
+                'The document must already be published. Selecting a newer version of the same '
+                'Main LAF family upgrades the draft; a different Main LAF must first be removed '
+                'from the product Document packet.'
+            )
 
     def clean(self):
         cleaned = super().clean()
@@ -7299,6 +7301,19 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
         from core.services.loan_origination import SIGNER_ROLE_CATALOG
         from core.services.origination_fields import catalogue_for_product
         product = self.get_object(request, object_id) if object_id else None
+        if (
+            product is not None
+            and product.lifecycle_status != product.STATUS_DRAFT
+            and request.method == 'POST'
+        ):
+            self.message_user(
+                request,
+                'Published product versions are read-only. Create or open the editable next version.',
+                level=messages.ERROR,
+            )
+            return HttpResponseRedirect(reverse(
+                'admin:core_originationproductdefinition_change', args=[product.pk],
+            ))
         template = None
         failed_template = None
         existing_successor = None
@@ -7402,6 +7417,12 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
                 )
         context = {
             **(extra_context or {}),
+            **({
+                'show_save': False,
+                'show_save_and_continue': False,
+                'show_save_and_add_another': False,
+                'show_delete': False,
+            } if product and product.lifecycle_status != product.STATUS_DRAFT else {}),
             'origination_signer_roles': [
                 {'key': key, 'label': label} for key, label in SIGNER_ROLE_CATALOG
             ],
@@ -7873,8 +7894,22 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
         if queryset.count() != 1:
             self.message_user(request, 'Select exactly one product.', level=messages.ERROR)
             return None
-        from core.services.origination_templates import clone_product_version
-        clone = clone_product_version(queryset.first(), actor=request.user)
+        from core.services.origination_templates import (
+            OriginationTemplateError, clone_product_version,
+        )
+        try:
+            clone = clone_product_version(queryset.first(), actor=request.user)
+        except (OriginationTemplateError, ValidationError) as exc:
+            self.message_user(request, str(exc), level=messages.ERROR)
+            return None
+        except DatabaseError:
+            logger.exception('Origination product successor creation failed.')
+            self.message_user(
+                request,
+                'The editable version could not be created safely. Reload and try again.',
+                level=messages.ERROR,
+            )
+            return None
         self.message_user(request, f'Product version {clone.version} is ready to edit.', level=messages.SUCCESS)
         return self._successor_response(clone)
 
@@ -7909,8 +7944,29 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
             return HttpResponseRedirect(reverse(
                 'admin:core_originationproductdefinition_change', args=[source.pk],
             ))
-        from core.services.origination_templates import clone_product_version
-        successor = clone_product_version(source, actor=request.user)
+        from core.services.origination_templates import (
+            OriginationTemplateError, clone_product_version,
+        )
+        try:
+            successor = clone_product_version(source, actor=request.user)
+        except (OriginationTemplateError, ValidationError) as exc:
+            self.message_user(request, str(exc), level=messages.ERROR)
+            return HttpResponseRedirect(reverse(
+                'admin:core_originationproductdefinition_change', args=[source.pk],
+            ))
+        except DatabaseError:
+            logger.exception(
+                'Origination product successor creation failed.',
+                extra={'product_definition_id': str(source.pk), 'user_id': request.user.pk},
+            )
+            self.message_user(
+                request,
+                'The editable version could not be created safely. Reload and try again.',
+                level=messages.ERROR,
+            )
+            return HttpResponseRedirect(reverse(
+                'admin:core_originationproductdefinition_change', args=[source.pk],
+            ))
         self.message_user(
             request,
             f'Editable version {successor.version} is ready with the existing PDF and alignment.',

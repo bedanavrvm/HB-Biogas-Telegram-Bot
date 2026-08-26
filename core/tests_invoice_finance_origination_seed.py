@@ -27,7 +27,7 @@ from core.services.invoice_finance_origination_seed import (
     apply_seed,
 )
 from core.services.loan_origination import OriginationError
-from core.services.origination_commercial_terms import COMMERCIAL_KEYS
+from core.services.origination_commercial_terms import COMMERCIAL_INPUT_KEYS
 from core.services.origination_access import DENIED, FULL, application_presentation_mode, scope_application_queryset
 from core.services.origination_esign import authorize_staff_signer, complete_staff_signatures
 from core.services.telegram_identity import user_access
@@ -109,7 +109,7 @@ class InvoiceFinanceOriginationSeedTests(TestCase):
         expected_keys = {
             item['key'] for item in FIELD_SPECS
             if item['source'] != OriginationDataField.SOURCE_SYSTEM
-        } | set(COMMERCIAL_KEYS)
+        } | set(COMMERCIAL_INPUT_KEYS)
         self.assertEqual(
             {item['key'] for item in definition.form_schema['fields']}, expected_keys,
         )

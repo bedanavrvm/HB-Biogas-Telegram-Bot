@@ -110,24 +110,29 @@ version resolver in a view or Mini App.
 The Origination definition may reference a Product Version. When linked, its
 `product_key` and `name` must equal the Global Product code and name.
 
-### Officer-entered Commercial Terms
+### Governed Commercial Terms v2
 
 `origination_commercial_terms.py` owns the shared versioned field contract and
 the comparison boundary. New/cloned definitions and both reviewed LAF seeds
 merge this contract idempotently. `create_application()` snapshots it; no
 existing application is rewritten when a definition later changes.
 
-On every Draft save, the service stores the latest expected ProductVersion
-quote in `product_quote_snapshot` and appends the entered terms, expected quote,
-findings, and stable hashes to `OriginationApplicationEvent.metadata`. Policy
-mismatches remain editable readiness findings. Submission recomputes from the
-current revision and blocks unresolved findings.
+The officer enters only `loan_amount` and `repayment_tenor`. Currency, tenor
+unit, interest configuration, repayment frequency, installment schedule,
+mandatory fees, financed principal, interest, and totals are system-derived
+from the frozen ProductVersion. Derived canonical fields remain active for PDF
+mapping but are not attached to the Mini App form schema.
+
+The non-mutating quote-preview endpoint calculates the same Decimal quote used
+by save and submission. On every Draft save, the service stores that quote in
+`product_quote_snapshot` and appends the two entered values, expected quote,
+findings, and stable hashes to `OriginationApplicationEvent.metadata`.
 
 `OriginationCommercialException` is append-only and matches only the exact
 application revision, ProductVersion, entered-terms hash, expected-quote hash,
-and named mismatch codes. A revision/hash change makes it inapplicable without
-mutating the historical approval. Missing/invalid input and internal arithmetic
-findings are marked non-waivable. The frozen `product_quote_snapshot` carries
+and named amount/tenor bound mismatch codes. A revision/hash change makes it
+inapplicable without mutating the historical approval. Pricing, interest,
+frequency, and fee exceptions require a new ProductVersion. The frozen `product_quote_snapshot` carries
 the consumed exception into review/signing package context.
 
 The dry-run-first `upgrade_origination_commercial_contract` command signs its

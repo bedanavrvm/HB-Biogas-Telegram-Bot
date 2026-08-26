@@ -21,7 +21,7 @@ CENT = Decimal('0.01')
 MONEY_MAX = Decimal('999999999999.99')
 RATE_MAX = Decimal('999.999999')
 COMMERCIAL_SECTION_KEY = 'commercial_terms'
-COMMERCIAL_CONTRACT_VERSION = 1
+COMMERCIAL_CONTRACT_VERSION = 2
 
 TENOR_OPTIONS = ({'code': 'week', 'label': 'Weeks'}, {'code': 'month', 'label': 'Months'})
 INTEREST_METHOD_OPTIONS = (
@@ -75,6 +75,10 @@ FIELD_SPECS = (
 )
 
 COMMERCIAL_KEYS = tuple(item[0] for item in FIELD_SPECS)
+COMMERCIAL_INPUT_KEYS = ('loan_amount', 'repayment_tenor')
+COMMERCIAL_DERIVED_KEYS = tuple(
+    key for key in COMMERCIAL_KEYS if key not in COMMERCIAL_INPUT_KEYS
+)
 MONEY_KEYS = {
     'loan_amount', 'installment_amount', 'final_installment_amount',
     'financed_principal_amount', 'total_interest_amount',
@@ -96,20 +100,37 @@ def commercial_contract_enabled(schema: Any) -> bool:
     )
 
 
+def commercial_contract_version(schema: Any) -> int:
+    if not commercial_contract_enabled(schema):
+        return 0
+    try:
+        return int(schema.get('commercial_contract_version') or 1)
+    except (TypeError, ValueError):
+        return 1
+
+
 def ensure_commercial_catalogue(*, actor=None) -> dict[str, OriginationDataField]:
     """Idempotently ensure the future-input catalogue; never rewrites key/type."""
     resolved = {}
     for key, label, data_type, _required, options, _validation, reporting in FIELD_SPECS:
+        is_input = key in COMMERCIAL_INPUT_KEYS
         defaults = {
             'label': label,
             'category': 'Commercial Terms',
             'data_type': data_type,
-            'source_type': OriginationDataField.SOURCE_USER_INPUT,
+            'source_type': (
+                OriginationDataField.SOURCE_USER_INPUT
+                if is_input else OriginationDataField.SOURCE_SYSTEM
+            ),
             'sensitivity': OriginationDataField.SENSITIVITY_FINANCIAL,
             'masking_policy': OriginationDataField.MASK_PARTIAL,
             'reporting_use': reporting,
             'export_allowed': False,
-            'help_text': 'Enter the exact commercial value agreed for this application.',
+            'help_text': (
+                'Enter the exact commercial value requested for this application.'
+                if is_input else
+                'Calculated from the immutable product policy and application amount and tenor.'
+            ),
             'choice_options': list(options),
             'structure_schema': LOAN_FEES_STRUCTURE if key == 'loan_fees' else {},
             'active': True,
@@ -164,13 +185,21 @@ def merge_commercial_contract(schema: Any, *, fields=None) -> dict[str, Any]:
         sections.append({
             'key': COMMERCIAL_SECTION_KEY,
             'label': 'Commercial Terms',
-            'help_text': 'Enter the exact terms agreed with the Applicant. Product policy validates them at submission.',
+            'help_text': (
+                'Enter the requested loan amount and repayment tenor. '
+                'The published product policy calculates the read-only quote.'
+            ),
         })
     upgraded['sections'] = sections
-    current = [item for item in upgraded.get('fields', []) if isinstance(item, dict)]
+    current = [
+        item for item in upgraded.get('fields', [])
+        if isinstance(item, dict) and str(item.get('key') or '') not in COMMERCIAL_KEYS
+    ]
     by_key = {str(item.get('key') or ''): item for item in current}
     fields = fields or {item.key: item for item in OriginationDataField.objects.filter(key__in=COMMERCIAL_KEYS)}
     for key, _label, _data_type, required, _options, validation, _reporting in FIELD_SPECS:
+        if key not in COMMERCIAL_INPUT_KEYS:
+            continue
         if key not in fields:
             raise ValueError(f'Canonical commercial field {key} is not available.')
         replacement = _field_schema_item(fields[key], {
@@ -186,8 +215,8 @@ def merge_commercial_contract(schema: Any, *, fields=None) -> dict[str, Any]:
             current[index] = {**by_key[key], **replacement}
         else:
             current.append(replacement)
-    # Legacy commercial variables remain available to frozen schemas and PDF
-    # mappings, but are not presented as new officer inputs.
+    # Derived and legacy commercial variables remain in the global catalogue
+    # for PDF mapping, but are not presented as officer inputs in v2 schemas.
     legacy = {'repayment_period', 'interest_rate', 'repayment_frequency', 'daily_weekly_repayment_amount'}
     upgraded['fields'] = [item for item in current if str(item.get('key') or '') not in legacy]
     original_comparable = {key: value for key, value in original.items() if key != '_revision'}
@@ -243,9 +272,137 @@ def _entered_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: payload.get(key) for key in COMMERCIAL_KEYS}
 
 
+def _validate_policy_derived_terms(application, payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate v2 inputs and derive every other commercial value from policy."""
+    entered = {key: payload.get(key) for key in COMMERCIAL_INPUT_KEYS}
+    entered_hash = _stable_hash(entered)
+    findings = []
+    expected_quote = {}
+
+    for key in COMMERCIAL_INPUT_KEYS:
+        if payload.get(key) in (None, ''):
+            findings.append(_finding(
+                f'{key}_required',
+                f'{key.replace("_", " ").title()} is required.',
+                (key,), category='input', waivable=False,
+            ))
+
+    loan_amount = _decimal(payload, 'loan_amount')
+    tenor = _decimal(payload, 'repayment_tenor')
+    if payload.get('loan_amount') not in (None, ''):
+        if loan_amount is None:
+            findings.append(_finding(
+                'loan_amount_invalid', 'Loan Amount must be a valid number.',
+                ('loan_amount',), category='input', waivable=False,
+                entered=payload.get('loan_amount'),
+            ))
+        elif loan_amount < 0:
+            findings.append(_finding(
+                'loan_amount_negative', 'Loan Amount cannot be negative.',
+                ('loan_amount',), category='input', waivable=False, entered=loan_amount,
+            ))
+        elif loan_amount > MONEY_MAX:
+            findings.append(_finding(
+                'loan_amount_too_large', 'Loan Amount is too large.',
+                ('loan_amount',), category='input', waivable=False, entered=loan_amount,
+            ))
+
+    tenor_is_valid = (
+        tenor is not None and tenor == tenor.to_integral_value() and tenor >= 1
+    )
+    if payload.get('repayment_tenor') not in (None, '') and not tenor_is_valid:
+        findings.append(_finding(
+            'repayment_tenor_invalid',
+            'Repayment Tenor must be a positive whole number.',
+            ('repayment_tenor',), category='input', waivable=False,
+            entered=payload.get('repayment_tenor'),
+        ))
+
+    version = application.product_version
+    if version:
+        from core.models import ProductVersion
+        version = ProductVersion.objects.prefetch_related('fees').get(pk=version.pk)
+    else:
+        findings.append(_finding(
+            'commercial_policy_unavailable',
+            'This application has no governed product policy for calculating its quote.',
+            COMMERCIAL_INPUT_KEYS, category='input', waivable=False,
+        ))
+
+    if version and loan_amount is not None and loan_amount >= 0:
+        amount_within = loan_amount >= version.min_amount and (
+            version.max_amount is None or loan_amount <= version.max_amount
+        )
+        if not amount_within:
+            findings.append(_finding(
+                'loan_amount_policy_mismatch',
+                'Loan amount is outside the product policy range.',
+                ('loan_amount',),
+                expected=f'{version.min_amount} - {version.max_amount or "unlimited"}',
+                entered=loan_amount,
+            ))
+    if version and tenor_is_valid:
+        if not (version.min_tenor <= tenor <= version.max_tenor):
+            findings.append(_finding(
+                'repayment_tenor_policy_mismatch',
+                'Repayment tenor is outside the product policy range.',
+                ('repayment_tenor',),
+                expected=f'{version.min_tenor} - {version.max_tenor}', entered=tenor,
+            ))
+
+    if version and loan_amount is not None and loan_amount >= 0 and tenor_is_valid:
+        from core.services.product_catalog import ProductCatalogError
+        from core.services.product_quotes import calculate_product_quote
+        try:
+            expected_quote = calculate_product_quote(
+                version, amount=loan_amount, tenor=int(tenor),
+                optional_fee_keys=[], enforce_policy_bounds=False,
+            )
+        except (ProductCatalogError, DecimalException, OverflowError, ValueError) as exc:
+            findings.append(_finding(
+                'commercial_quote_calculation_invalid',
+                'The amount and tenor cannot produce a safe product quote.',
+                COMMERCIAL_INPUT_KEYS, category='input', waivable=False,
+                entered=str(exc),
+            ))
+
+    expected_hash = _stable_hash(expected_quote)
+    policy_codes = [item['code'] for item in findings if item['category'] == 'policy']
+    exception = None
+    if policy_codes:
+        from core.models import OriginationCommercialException
+        exception = OriginationCommercialException.objects.filter(
+            application=application,
+            application_revision=application.revision,
+            product_version=application.product_version,
+            entered_terms_sha256=entered_hash,
+            expected_quote_sha256=expected_hash,
+        ).order_by('-approved_at').first()
+    covered = set(exception.covered_mismatch_codes if exception else [])
+    blocking = [
+        item for item in findings
+        if not item['waivable'] or item['code'] not in covered
+    ]
+    return {
+        'enabled': True, 'ready': not blocking, 'findings': findings,
+        'blocking_findings': blocking, 'policy_mismatch_codes': policy_codes,
+        'entered_terms': entered, 'entered_terms_sha256': entered_hash,
+        'expected_quote': expected_quote,
+        'expected_quote_sha256': expected_hash,
+        'exception': ({
+            'id': str(exception.pk),
+            'covered_mismatch_codes': list(exception.covered_mismatch_codes),
+            'approval_reference': exception.approval_reference,
+            'approved_at': exception.approved_at.isoformat(),
+        } if exception else None),
+    }
+
+
 def validate_commercial_terms(application, *, payload=None, selected_fee_keys=None) -> dict[str, Any]:
     """Compare entered contract terms with arithmetic and the frozen policy."""
     payload = payload if isinstance(payload, dict) else application.form_payload or {}
+    if commercial_contract_version(application.schema_snapshot) >= 2:
+        return _validate_policy_derived_terms(application, payload)
     selected_fee_keys = list(selected_fee_keys if selected_fee_keys is not None else application.product_selected_fee_keys or [])
     entered = _entered_snapshot(payload)
     entered_hash = _stable_hash(entered)

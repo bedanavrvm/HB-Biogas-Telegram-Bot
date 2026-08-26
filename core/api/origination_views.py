@@ -774,6 +774,57 @@ def portal_origination_signing_requirements(request, application_id: str):
 
 @csrf_exempt
 @require_http_methods(['POST'])
+def portal_origination_quote_preview(request, application_id: str):
+    """Calculate a policy quote without mutating the application revision."""
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if (error := _capability_error(request, 'portal.origination.create', application)):
+        return error
+    if (access_error := _application_access_error(request, application, require_full=True)):
+        return access_error
+    user = request.portal_user
+    if application.officer_id != user.pk and not user.is_superuser:
+        return JsonResponse({
+            'ok': False, 'error': 'Only the assigned officer may preview this quote.',
+        }, status=403)
+    try:
+        body = _body(request)
+        if int(body.get('revision')) != application.revision:
+            raise OriginationConflict(
+                'This application changed on another device. Refresh before recalculating.'
+            )
+        payload = {
+            **(application.form_payload or {}),
+            'loan_amount': body.get('loan_amount'),
+            'repayment_tenor': body.get('repayment_tenor'),
+        }
+        from core.services.origination_commercial_terms import (
+            commercial_contract_version,
+            validate_commercial_terms,
+        )
+        if commercial_contract_version(application.schema_snapshot) < 2:
+            raise OriginationError('Live policy preview is available for Commercial Terms v2.')
+        validation = validate_commercial_terms(application, payload=payload)
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    return JsonResponse({
+        'ok': True,
+        'revision': application.revision,
+        'product_version_id': str(application.product_version_id or ''),
+        'quote': validation['expected_quote'],
+        'readiness': {
+            'ready': validation['ready'],
+            'findings': validation['findings'],
+            'blocking_findings': validation['blocking_findings'],
+        },
+    })
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
 def portal_origination_evidence_upload(request, application_id: str, requirement_key: str):
     application = _application(application_id)
     if not application:

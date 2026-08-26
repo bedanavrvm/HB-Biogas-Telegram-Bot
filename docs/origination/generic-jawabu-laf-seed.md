@@ -52,43 +52,38 @@ repeatable structures stop the operation rather than altering historical data.
 | `loan_details` | Loan Details | Requested facility and existing borrowing |
 | `security_details` | Security Details | Assets pledged for the facility |
 | `guarantor_details` | Guarantor Details | Required first guarantor and optional second guarantor |
-| `commercial_terms` | Commercial Terms | Exact officer-entered facility terms validated against the linked ProductVersion |
+| `commercial_terms` | Commercial Terms | Requested amount and tenor plus a read-only ProductVersion quote |
 
 ## Governed Commercial Terms contract
 
-The seed now appends the shared Commercial Terms contract used by every new or
-upgraded Origination product definition. The officer-entered values are the
-legal-form values. Product policy produces an independent expected quote and
-submission readiness result; it never silently replaces the entered values.
+The seed appends Commercial Terms contract v2. The officer enters only amount
+and tenor. Every other commercial value is calculated from the immutable
+ProductVersion, shown read-only in the Mini App, and remains available for PDF
+mapping through a system-derived canonical field.
 
 | Canonical key | Type | Required | Validation / PDF use |
 |---|---|---|---|
 | `loan_amount` | `money` | Yes | Product min/max envelope; normal `text` placement |
 | `repayment_tenor` | `number` | Yes | Positive whole number; ProductVersion min/max |
-| `repayment_tenor_unit` | `choice` | Yes | `week` or `month` |
-| `contract_currency` | `choice` | Yes | Stored code `kes`, displayed as `KES`; must match policy unless excepted |
-| `contract_interest_rate_percent` | `number` | Yes | Non-negative rate; compared at six-decimal precision |
-| `contract_interest_method` | `choice` | Yes | `flat` or `reducing` |
-| `contract_interest_rate_period` | `choice` | Yes | `monthly` or `annual` |
-| `contract_repayment_frequency` | `choice` | Yes | `weekly`, `fortnightly`, or `monthly` |
-| `installment_count` | `number` | Yes | Positive whole number; reconciled with tenor/frequency |
-| `installment_amount` | `money` | Yes | Officer-entered regular installment; `text` placement |
-| `final_installment_amount` | `money` | Yes | Reconciles the rounded schedule |
-| `financed_principal_amount` | `money` | Yes | Must equal loan amount plus financed fees |
-| `total_interest_amount` | `money` | Yes | Officer-entered total interest |
-| `total_repayment_amount` | `money` | Yes | Must equal financed principal plus total interest |
-| `financed_fee_total` | `money` | Yes | Must equal financed `loan_fees` rows |
-| `upfront_fee_total` | `money` | Yes | Must equal upfront `loan_fees` rows |
-| `loan_fees` | `repeating_group` | When policy has fees | Policy-locked key/label/collection mode plus officer-entered amount |
+| `repayment_tenor_unit` | `choice` | Derived | Policy `week` or `month` |
+| `contract_currency` | `choice` | Derived | Policy currency; `kes`/`KES` remains mappable |
+| `contract_interest_rate_percent` | `number` | Derived | Published policy rate |
+| `contract_interest_method` | `choice` | Derived | Policy `flat` or `reducing` |
+| `contract_interest_rate_period` | `choice` | Derived | Policy `monthly` or `annual` |
+| `contract_repayment_frequency` | `choice` | Derived | Policy `weekly`, `fortnightly`, or `monthly` |
+| `installment_count` | `number` | Derived | Decimal quote schedule |
+| `installment_amount` | `money` | Derived | Regular installment; `text` placement |
+| `final_installment_amount` | `money` | Derived | Rounded final schedule amount |
+| `financed_principal_amount` | `money` | Derived | Loan amount plus mandatory financed fees |
+| `total_interest_amount` | `money` | Derived | Calculated policy interest |
+| `total_repayment_amount` | `money` | Derived | Financed principal plus interest |
+| `financed_fee_total` | `money` | Derived | Mandatory financed fees |
+| `upfront_fee_total` | `money` | Derived | Mandatory upfront fees |
+| `loan_fees` | `repeating_group` | Derived | Mandatory policy fee rows; optional fees are excluded |
 
-Each `loan_fees` row uses `fee_key`, `fee_label`, `collection_mode`, and
-`amount`. Only `amount` is editable; the remaining values preserve policy fee
-identity.
-
-Money comparisons allow an inclusive KES 0.01 rounding difference. Missing or
-invalid input and internal arithmetic failures can never be waived. An active
-Django Superuser may approve only the named policy mismatches for one exact
-application revision, with a reason and external approval reference.
+Each derived `loan_fees` row contains policy-owned `fee_key`, `fee_label`,
+`collection_mode`, and calculated `amount`. Amount/tenor range exceptions are
+revision-bound; pricing or fee changes require a new ProductVersion.
 
 ## Canonical field mapping
 
@@ -163,7 +158,7 @@ their values.
 | Approved amount | `approval_amount` | Loan Details | `money` (not an input) | No | System-derived; financial | Decimal money from approved terms/application | `text` |
 | Amount advanced | `amount_advanced` | Loan Details | `money` (not an input) | No | System-derived; financial | Decimal money | `text` |
 | Acknowledgement amount | `acknowledgement_amount` | Loan Details | `money` (not an input) | No | System-derived; financial | Decimal money | `text` |
-| Installment amount | `installment_amount` | Commercial Terms | `money` | Yes | Officer-entered; financial | Decimal money and schedule reconciliation | `text` |
+| Installment amount | `installment_amount` | Commercial Terms | `money` | No input | System-derived from ProductVersion; financial | Decimal quote schedule | `text` |
 | Interest rate | `interest_rate` | Legacy PDF compatibility | `text` (not a new input) | No | Rendered from `contract_interest_rate_percent`; frozen old schemas remain supported | `text` |
 | Repayment frequency | `repayment_frequency` | Legacy PDF compatibility | `text` (not a new input) | No | Rendered from `contract_repayment_frequency`; frozen old schemas remain supported | `text` |
 | Penalty rate | `penalty_rate` | Loan Details | `text` (not an input) | No | System-derived; financial | Product/application display value | `text` |

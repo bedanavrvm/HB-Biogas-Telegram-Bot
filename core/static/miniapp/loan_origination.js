@@ -24,6 +24,9 @@
   let listScrollY = 0;
   let listRequestGeneration = 0;
   let listSearchTimer = null;
+  let commercialQuoteTimer = null;
+  let commercialQuoteGeneration = 0;
+  let commercialQuoteState = null;
   let capabilities = { can_create: false, can_review: false, can_start_signing: false, can_staff_sign: false };
   let listState = { queue: '', status: '', productKey: '', query: '', page: 1, pages: 1 };
   let current = null;
@@ -1022,6 +1025,11 @@
   }
 
   async function openEditor(application, requestedStep) {
+    if (String(current?.id || '') !== String(application.id)) {
+      window.clearTimeout(commercialQuoteTimer);
+      commercialQuoteState = null;
+      commercialQuoteGeneration += 1;
+    }
     current = application;
     if (draftSectionApplicationId !== String(application.id)) {
       completedDraftSections.clear();
@@ -1149,7 +1157,10 @@
     const terms = current?.product_terms || {};
     const requirements = (terms.requirements || []).filter(item => !item.workflow || item.workflow === 'loan_origination');
     const attributes = (terms.custom_attributes || []).filter(item => !(item.workflows || []).length || item.workflows.includes('loan_origination'));
-    const optionalFees = (terms.fees || []).filter(item => !item.mandatory);
+    const commercialV2 = Number(current?.form_schema?.commercial_contract_version || 0) >= 2;
+    const optionalFees = commercialV2
+      ? []
+      : (terms.fees || []).filter(item => !item.mandatory);
     const evidenceEditable = editable || (current?.status === 'reviewed' && capabilities.can_start_signing);
     const selected = new Set(current?.product_selected_fee_keys || []);
     const requirementRows = requirements.map(item => {
@@ -1176,6 +1187,74 @@
     const quote = current?.product_quote || {};
     const quoteMarkup = quote.installment_amount ? `<aside class="notice"><strong>Current quote</strong><span>${escapeHtml(quote.currency)} ${escapeHtml(quote.installment_amount)} × ${escapeHtml(quote.installment_count)}; total repayment ${escapeHtml(quote.currency)} ${escapeHtml(quote.total_repayment)}${quote.upfront_fees !== '0.00' ? `; upfront fees ${escapeHtml(quote.currency)} ${escapeHtml(quote.upfront_fees)}` : ''}</span></aside>` : '';
     return `${quoteMarkup}<div class="laf-grid">${requirementRows}${attributeRows}${feeRows}</div>`;
+  }
+
+  function commercialQuoteMarkup() {
+    const state = commercialQuoteState;
+    const quote = state?.quote || current?.product_quote || {};
+    const findings = state?.findings || [];
+    if (state?.loading) {
+      return '<aside class="commercial-quote" id="commercial-quote" aria-live="polite"><strong>Calculating product quote…</strong></aside>';
+    }
+    if (!quote.installment_amount) {
+      const message = findings[0]?.message || 'Enter the loan amount and repayment tenor to calculate the governed product quote.';
+      return `<aside class="commercial-quote" id="commercial-quote" aria-live="polite"><strong>Product-policy quote</strong><span>${escapeHtml(message)}</span></aside>`;
+    }
+    const terms = quote.terms || current?.product_terms || {};
+    const currency = quote.currency || terms.currency || 'KES';
+    const feeRows = (quote.fees || []).map(item => `<li><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(currency)} ${escapeHtml(item.amount)}</strong></li>`).join('');
+    const warning = findings.length
+      ? `<p class="commercial-quote-warning">${escapeHtml(findings.map(item => item.message).join(' '))}</p>`
+      : '<p class="commercial-quote-ready">Within the published product policy.</p>';
+    return `<aside class="commercial-quote" id="commercial-quote" aria-live="polite"><div class="commercial-quote-heading"><span><strong>Calculated product terms</strong><small>${escapeHtml(terms.interest_rate || '')}% ${escapeHtml(String(terms.interest_method || '').replaceAll('_', ' '))} · ${escapeHtml(String(terms.repayment_frequency || '').replaceAll('_', ' '))}</small></span><strong>${escapeHtml(currency)} ${escapeHtml(quote.installment_amount)} × ${escapeHtml(quote.installment_count)}</strong></div><dl><div><dt>Financed principal</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.financed_principal)}</dd></div><div><dt>Total interest</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.interest)}</dd></div><div><dt>Total repayment</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.total_repayment)}</dd></div><div><dt>Final installment</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.final_installment_amount)}</dd></div><div><dt>Upfront fees</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.upfront_fees)}</dd></div></dl>${feeRows ? `<ul class="commercial-quote-fees">${feeRows}</ul>` : ''}${warning}</aside>`;
+  }
+
+  function updateCommercialQuoteDisplay() {
+    const container = document.getElementById('commercial-quote');
+    if (!container) return;
+    const holder = document.createElement('div');
+    holder.innerHTML = commercialQuoteMarkup();
+    container.replaceWith(holder.firstElementChild);
+  }
+
+  function scheduleCommercialQuotePreview() {
+    if (Number(current?.form_schema?.commercial_contract_version || 0) < 2) return;
+    window.clearTimeout(commercialQuoteTimer);
+    const payload = collectPayload();
+    const amount = String(payload.loan_amount ?? '').trim();
+    const tenor = String(payload.repayment_tenor ?? '').trim();
+    if (!amount || !tenor) {
+      commercialQuoteState = null;
+      updateCommercialQuoteDisplay();
+      return;
+    }
+    commercialQuoteState = { loading: true, quote: null, findings: [] };
+    updateCommercialQuoteDisplay();
+    const generation = ++commercialQuoteGeneration;
+    commercialQuoteTimer = window.setTimeout(async () => {
+      const result = await apiFetch(`/applications/${current.id}/quote-preview/`, {
+        method: 'POST',
+        body: JSON.stringify({
+          revision: current.revision,
+          loan_amount: amount,
+          repayment_tenor: tenor,
+        }),
+      });
+      if (generation !== commercialQuoteGeneration) return;
+      if (!result.ok) {
+        commercialQuoteState = {
+          loading: false, quote: null,
+          findings: [{ message: result.data?.error || 'The quote could not be calculated.' }],
+        };
+      } else {
+        commercialQuoteState = {
+          loading: false,
+          quote: result.data.quote || {},
+          findings: result.data.readiness?.blocking_findings || [],
+        };
+      }
+      updateCommercialQuoteDisplay();
+    }, 350);
   }
 
   function correctionToggle(targetType, targetKey, targetLabel) {
@@ -1678,7 +1757,9 @@
       const fields = section.key === 'product_requirements'
         ? productConfigurationMarkup(sectionEditable)
         : `<div class="laf-grid">${fieldsFor(section.key).map(field => fieldInput(field, values[field.key], !sectionEditable || field.editable === false || !correctionAllows('field', field.key))).join('')}</div>`;
-      content = `<div class="section-title"><div><h3>${escapeHtml(section.label)}</h3><p>${escapeHtml(section.hint || '')}</p></div><button type="button" class="preview-link" id="origination-preview-early">${latestPreviewLabel('Preview PDF')}</button></div>${fields}`;
+      const quote = section.key === 'commercial_terms' && Number(application.form_schema?.commercial_contract_version || 0) >= 2
+        ? commercialQuoteMarkup() : '';
+      content = `<div class="section-title"><div><h3>${escapeHtml(section.label)}</h3><p>${escapeHtml(section.hint || '')}</p></div><button type="button" class="preview-link" id="origination-preview-early">${latestPreviewLabel('Preview PDF')}</button></div>${fields}${quote}`;
     }
     if (sectionLocked) {
       content = `<aside class="completed-section-lock"><span><strong>Section saved</strong><small>Values are locked while you continue. Unlock only when you need to change this section.</small></span><button type="button" class="btn btn-secondary" id="origination-edit-section">Edit section</button></aside>${content}`;
@@ -2193,7 +2274,12 @@
       });
     });
     document.getElementById('origination-packet-preview')?.addEventListener('click', openPacketPreview);
-    if (editable && !wizardSections()[step]?.key?.startsWith('document:')) root().querySelector('.laf-grid')?.addEventListener('input', scheduleSave);
+    if (editable && !wizardSections()[step]?.key?.startsWith('document:')) {
+      root().querySelector('.laf-grid')?.addEventListener('input', scheduleSave);
+      if (wizardSections()[step]?.key === 'commercial_terms') {
+        root().querySelector('.laf-grid')?.addEventListener('input', scheduleCommercialQuotePreview);
+      }
+    }
     else if (current.status === 'reviewed' && capabilities.can_start_signing) {
       root().querySelector('.laf-grid')?.addEventListener('input', () => {
         const configuration = collectProductConfiguration();

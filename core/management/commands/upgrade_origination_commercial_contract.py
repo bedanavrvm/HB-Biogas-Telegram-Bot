@@ -19,7 +19,7 @@ from core.services.origination_commercial_terms import (
 )
 
 
-SALT = 'core.origination.commercial-contract-upgrade.v1'
+SALT = 'core.origination.commercial-contract-upgrade.v2'
 
 
 def _fingerprint(product):
@@ -83,7 +83,7 @@ class Command(BaseCommand):
             'id', 'product_key', 'version',
         ))
         payload = {
-            'contract_version': 1,
+            'contract_version': 2,
             'records': records,
             'published_requiring_successor': [
                 {**item, 'id': str(item['id'])} for item in successor_required
@@ -119,7 +119,7 @@ class Command(BaseCommand):
         except signing.BadSignature as exc:
             raise CommandError('The commercial-contract manifest is invalid or has been altered.') from exc
         records = payload.get('records') if isinstance(payload, dict) else None
-        if payload.get('contract_version') != 1 or not isinstance(records, list):
+        if payload.get('contract_version') != 2 or not isinstance(records, list):
             raise CommandError('The manifest has an unsupported contract version.')
         with transaction.atomic():
             locked = {
@@ -156,7 +156,7 @@ class Command(BaseCommand):
                     action='commercial_contract_upgraded', actor=actor,
                     metadata={
                         'manifest_fingerprint': record['fingerprint'],
-                        'contract_version': 1,
+                        'contract_version': 2,
                     },
                 )
         self.stdout.write(self.style.SUCCESS(
