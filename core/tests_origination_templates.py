@@ -295,7 +295,8 @@ class OriginationTemplateLifecycleTests(TestCase):
         source.published_configuration_revision = published
         source.save(update_fields=['published_configuration_revision', 'updated_at'])
 
-        successor, replayed = clone_reusable_template_version(source, actor=self.maker)
+        with CaptureQueriesContext(connection) as queries:
+            successor, replayed = clone_reusable_template_version(source, actor=self.maker)
         replay, was_replayed = clone_reusable_template_version(source, actor=self.maker)
 
         self.assertFalse(replayed)
@@ -318,6 +319,27 @@ class OriginationTemplateLifecycleTests(TestCase):
         self.assertEqual(
             successor.events.filter(action='editable_version_created').count(), 1,
         )
+        locked_template_reads = [
+            item['sql'] for item in queries.captured_queries
+            if 'FROM "core_originationdocumenttemplate"' in item['sql']
+            and 'FOR UPDATE' in item['sql'].upper()
+        ]
+        # SQLite omits the FOR UPDATE token. The base template SELECT must still
+        # remain join-free so the generated PostgreSQL query is legal.
+        template_reads = [
+            item['sql'] for item in queries.captured_queries
+            if 'FROM "core_originationdocumenttemplate"' in item['sql']
+        ]
+        self.assertTrue(template_reads)
+        self.assertNotIn(
+            'JOIN "core_originationtemplateconfigurationrevision"',
+            template_reads[0],
+        )
+        if locked_template_reads:
+            self.assertNotIn(
+                'JOIN "core_originationtemplateconfigurationrevision"',
+                locked_template_reads[0],
+            )
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_activation_rejects_changed_drive_content(self, storage_class):

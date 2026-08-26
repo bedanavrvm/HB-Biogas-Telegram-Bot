@@ -8130,6 +8130,16 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             return HttpResponseRedirect(reverse(
                 'admin:core_originationdocumenttemplate_change', args=[source.pk],
             ))
+        except Exception:
+            logger.exception('Creating an editable Origination template version failed.')
+            self.message_user(
+                request,
+                'The editable version could not be created. No partial version was retained.',
+                level=messages.ERROR,
+            )
+            return HttpResponseRedirect(reverse(
+                'admin:core_originationdocumenttemplate_change', args=[source.pk],
+            ))
         self.message_user(
             request,
             (

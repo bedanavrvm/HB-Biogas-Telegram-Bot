@@ -899,9 +899,10 @@ def clone_reusable_template_version(
     """
     if not getattr(actor, 'is_superuser', False):
         raise OriginationTemplateError('Only a Django Superuser may version legal templates.')
-    source = OriginationDocumentTemplate.objects.select_for_update().select_related(
-        'published_configuration_revision',
-    ).get(pk=template.pk)
+    # Lock only the concrete template row. ``published_configuration_revision``
+    # is nullable, and PostgreSQL rejects FOR UPDATE when a select_related()
+    # LEFT OUTER JOIN tries to lock the nullable side as well.
+    source = OriginationDocumentTemplate.objects.select_for_update().get(pk=template.pk)
     if source.product_definition_id:
         raise OriginationTemplateError(
             'Create an editable product version to change a product-owned document.',
@@ -923,9 +924,10 @@ def clone_reusable_template_version(
             document_type=source.document_type,
         ).aggregate(models.Max('version'))['version__max'] or 0
     ) + 1
-    configuration = json.loads(json.dumps(
-        source.published_configuration_revision.configuration,
-    ))
+    published_revision = OriginationTemplateConfigurationRevision.objects.get(
+        pk=source.published_configuration_revision_id,
+    )
+    configuration = json.loads(json.dumps(published_revision.configuration))
     configuration['document_type'] = source.document_type
     configuration['version'] = next_version
     successor = OriginationDocumentTemplate.objects.create(
@@ -1500,11 +1502,20 @@ def upgrade_pinned_primary_assignment(
             raise OriginationTemplateError(
                 'Create an editable product version before upgrading its main LAF.',
             )
-        assignment = product.document_assignments.select_for_update().select_related(
-            'template', 'template__published_configuration_revision',
-        ).filter(pk=assignment_id).first()
-        if not assignment or assignment.template.document_role != assignment.template.ROLE_PRIMARY:
+        # Lock the assignment row without joining the template's nullable
+        # published revision; PostgreSQL cannot apply FOR UPDATE to that outer join.
+        assignment = product.document_assignments.select_for_update().filter(
+            pk=assignment_id,
+        ).first()
+        baseline = (
+            OriginationDocumentTemplate.objects.select_related(
+                'published_configuration_revision',
+            ).filter(pk=assignment.template_id).first()
+            if assignment else None
+        )
+        if not assignment or not baseline or baseline.document_role != baseline.ROLE_PRIMARY:
             raise OriginationTemplateError('Choose this product\'s reusable primary LAF assignment.')
+        assignment.template = baseline
         if assignment.version_policy != assignment.VERSION_PINNED:
             raise OriginationTemplateError('Only a pinned primary LAF uses the explicit upgrade action.')
         candidate = latest_compatible_assignment_template(assignment)

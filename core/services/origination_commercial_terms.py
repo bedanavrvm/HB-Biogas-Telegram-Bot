@@ -546,7 +546,9 @@ def approve_commercial_exception(*, application, actor, reason: str, approval_re
     approval_reference = str(approval_reference or '').strip()
     if not reason or not approval_reference:
         raise ValueError('A reason and external approval reference are required.')
-    application = LoanOriginationApplication.objects.select_for_update().select_related('product_version').get(pk=application.pk)
+    # ``product_version`` is nullable for legacy applications. Lock only the
+    # application row so PostgreSQL does not apply FOR UPDATE to an outer join.
+    application = LoanOriginationApplication.objects.select_for_update().get(pk=application.pk)
     if application.status not in {application.STATUS_DRAFT, application.STATUS_CORRECTION_REQUIRED}:
         raise ValueError('Commercial exceptions can only be approved for an editable application revision.')
     validation = validate_commercial_terms(application)
