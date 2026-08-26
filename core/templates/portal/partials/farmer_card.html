@@ -15,8 +15,8 @@
     <div class="fc-name">{% if farmer.display_number %}<span class="farmer-card-number" aria-label="Queue position {{ farmer.display_number }}">{{ farmer.display_number }}</span>{% endif %}{{ farmer.customer_name|default:farmer.national_id|default:farmer.primary_phone|default:"Unknown" }}</div>
     <div class="fc-sub">{{ farmer.location_label|default:"-" }}</div>
     <div class="fc-sub">{{ farmer.primary_phone|default:"" }}</div>
-    {% if queue_key == "jbl" and farmer.sign_date %}
-      <div class="fc-sub fc-visit-date">HB visit: {{ farmer.sign_date }}</div>
+    {% if queue_key == "jbl" and farmer.hbg_visit_date_label %}
+      <div class="fc-sub fc-visit-date">HB visit: {{ farmer.hbg_visit_date_label }}</div>
     {% endif %}
     {% if queue_key == "my_visits" and farmer.jbl_visit_date %}
       <div class="fc-sub fc-visit-date">JBL visit: {{ farmer.jbl_visit_date_label }}</div>

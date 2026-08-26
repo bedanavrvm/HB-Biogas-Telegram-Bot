@@ -3,6 +3,7 @@
 
   const api = window.PortalMiniAppApi || {};
   const utils = window.MiniAppUtils || {};
+  const helpers = window.PortalMiniAppHelpers || {};
   const tg = window.Telegram?.WebApp;
   let importState = { batches: [], loaded: false };
   let activeReviewBatchId = '';
@@ -18,6 +19,7 @@
 
   function formatDateTime(value) {
     if (!value) return '—';
+    if (helpers.fmtDate) return helpers.fmtDate(value);
     if (utils.formatDateTime) return utils.formatDateTime(value);
     return String(value).replace('T', ' ').slice(0, 16);
   }

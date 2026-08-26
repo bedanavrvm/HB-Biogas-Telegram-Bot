@@ -39,6 +39,7 @@
     metaBranches: [],
     metaCounties: [],
     metaLocationCatalog: {},
+    businessDate: '',
     jblVisitMediaMaxBytes: 20 * 1024 * 1024,
     jblVisitMediaMaxFiles: 6,
     jblVisitMediaMaxTotalBytes: 40 * 1024 * 1024,
@@ -377,14 +378,14 @@
     }
     if (isNaN(d.getTime())) return String(v);
     const day = String(d.getDate()).padStart(2, '0');
-    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-    const month = months[d.getMonth()];
-    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = String(d.getFullYear()).slice(-2);
     return `${day}-${month}-${year}`;
   }
 
   function fmtDateTime(v) {
     if (!v) return '-';
+    if (portalHelpers.fmtDate) return portalHelpers.fmtDate(v);
     if (utils.formatDateTime) return utils.formatDateTime(v);
     const text = String(v);
     const match = text.match(/(?:T|\s)(\d{1,2}):(\d{2})/);
@@ -496,8 +497,6 @@
     setBadge('tab-badge-req', c.requisition_queue);
     el('dash-counts').style.display = 'grid';
     const dashboard = state.dashboard || {};
-    const scope = el('dash-scope');
-    if (scope) scope.textContent = `${dashboard.scope?.label || 'Your authorized workload'} · Updated ${fmtDate(dashboard.as_of)}`;
     const attention = dashboard.attention || [];
     const attentionSection = el('dashboard-attention');
     const attentionList = el('dashboard-attention-list');
@@ -1065,7 +1064,7 @@
           <div class="fc-name">${f.display_number ? `<span class="farmer-card-number" aria-label="Queue position ${escapeHtml(String(f.display_number))}">${escapeHtml(String(f.display_number))}</span>` : ''}${escapeHtml(f.customer_name || f.national_id || f.primary_phone || 'Unknown')}</div>
           <div class="fc-sub">${escapeHtml(locationText(f))}</div>
           <div class="fc-sub">${escapeHtml(f.primary_phone || '')}</div>
-          ${qKey === 'jbl' && f.sign_date ? `<div class="fc-sub fc-visit-date">HB visit: ${escapeHtml(fmtDate(f.sign_date))}</div>` : ''}
+          ${qKey === 'jbl' && f.hbg_visit_date ? `<div class="fc-sub fc-visit-date">HB visit: ${escapeHtml(f.hbg_visit_date_label || fmtDate(f.hbg_visit_date))}</div>` : ''}
           <div class="fc-badges">
             ${stageBadge(f)}
             ${jblBadge(f)}
@@ -1122,15 +1121,18 @@
   function renderPagination(qKey, pg) {
     const pgEl = el('pg-' + qKey);
     if (!pgEl || !pg || pg.pages <= 1) { if (pgEl) pgEl.innerHTML = ''; return; }
-    const prev = pg.page > 1;
-    const next = pg.page < pg.pages;
+    const links = Array.isArray(pg.page_links) && pg.page_links.length
+      ? pg.page_links
+      : Array.from({ length: Math.min(pg.pages, 5) }, (_, index) => index + 1);
     pgEl.innerHTML = `
-      <button id="pg-prev-${qKey}" ${prev ? '' : 'disabled'}>Prev</button>
-      <span class="pg-info">Page ${pg.page} of ${pg.pages} (${pg.total} total)</span>
-      <button id="pg-next-${qKey}" ${next ? '' : 'disabled'}>Next</button>
+      <button type="button" class="pagination-icon" data-queue-page="${pg.page - 1}" data-queue-key="${qKey}" aria-label="Previous page" ${pg.page > 1 ? '' : 'disabled'}><i data-lucide="chevron-left" aria-hidden="true"></i></button>
+      <div class="pagination-pages">${links.map(page => page
+        ? `<button type="button" class="pagination-page${page === pg.page ? ' is-current' : ''}" data-queue-page="${page}" data-queue-key="${qKey}" aria-label="Page ${page}" ${page === pg.page ? 'aria-current="page" disabled' : ''}>${page}</button>`
+        : '<span class="pagination-ellipsis" aria-hidden="true">…</span>').join('')}</div>
+      <button type="button" class="pagination-icon" data-queue-page="${pg.page + 1}" data-queue-key="${qKey}" aria-label="Next page" ${pg.page < pg.pages ? '' : 'disabled'}><i data-lucide="chevron-right" aria-hidden="true"></i></button>
+      <span class="pagination-total">${pg.total} entries</span>
     `;
-    if (prev) pgEl.querySelector('#pg-prev-' + qKey).addEventListener('click', () => loadQueue(qKey, pg.page - 1));
-    if (next) pgEl.querySelector('#pg-next-' + qKey).addEventListener('click', () => loadQueue(qKey, pg.page + 1));
+    if (window.lucide) window.lucide.createIcons();
   }
   // Detail sheet
   function openFarmerSheet(farmer, mode) {
@@ -1196,6 +1198,7 @@
     state.metaBranches = data.branches || [];
     state.metaCounties = data.counties || [];
     state.metaLocationCatalog = data.location_catalog || {};
+    state.businessDate = data.business_date || state.businessDate;
     state.jblVisitMediaMaxBytes = Number(data.jbl_visit_media_max_bytes || state.jblVisitMediaMaxBytes);
     state.jblVisitMediaMaxFiles = Number(data.jbl_visit_media_max_files || state.jblVisitMediaMaxFiles);
     state.jblVisitMediaMaxTotalBytes = Number(data.jbl_visit_media_max_total_bytes || state.jblVisitMediaMaxTotalBytes);
@@ -2091,6 +2094,15 @@
     jblSearchTimer = setTimeout(() => loadQueue('jbl', 1), 350);
   });
   document.addEventListener('click', event => {
+    const pageButton = event.target.closest('[data-queue-page][data-queue-key]');
+    if (pageButton) {
+      event.preventDefault();
+      if (pageButton.disabled) return;
+      const page = Number.parseInt(pageButton.dataset.queuePage || '1', 10);
+      const queueKey = pageButton.dataset.queueKey || '';
+      if (queueConfig[queueKey] && Number.isInteger(page) && page > 0) loadQueue(queueKey, page);
+      return;
+    }
     if (!event.target.closest('#jbl-search-clear')) return;
     event.preventDefault();
     state.jblSearch = '';

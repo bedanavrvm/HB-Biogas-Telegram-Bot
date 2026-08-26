@@ -206,6 +206,7 @@ class JblPipelineServiceTestCase(TestCase):
     def test_farmer_card_exposes_hb_visit_date_source(self):
         card = farmer_to_card(self.farmer_stage1)
         self.assertEqual(card['sign_date'], '24-June-2026')
+        self.assertEqual(card['hbg_visit_date_label'], '24-06-26')
 
     def test_farmer_card_strips_legacy_hb_date_marker(self):
         self.farmer_stage1.sign_date = "'15-May-2026"
@@ -215,6 +216,7 @@ class JblPipelineServiceTestCase(TestCase):
 
         self.assertEqual(card['sign_date'], '15-May-2026')
         self.assertEqual(card['hbg_visit_date'], '2026-05-15')
+        self.assertEqual(card['hbg_visit_date_label'], '15-05-26')
 
     def test_farmer_card_location_excludes_branch_and_collapses_repeated_places(self):
         self.farmer_stage1.county = 'Kiambu'
@@ -305,6 +307,21 @@ class JblPipelineServiceTestCase(TestCase):
         )
         self.assertFalse(ok)
         self.assertIn('cannot be earlier than the HBG visit date', error)
+        mock_sync.assert_not_called()
+        mock_order_sync.assert_not_called()
+
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
+    def test_log_jbl_visit_rejects_future_date(self, mock_order_sync, mock_sync):
+        ok, error = log_jbl_visit(
+            self.farmer_stage1,
+            visit_date=timezone.localdate() + timedelta(days=1),
+            officer='Officer Joe',
+            visit_status='Awaiting Analysis',
+        )
+
+        self.assertFalse(ok)
+        self.assertIn('cannot be later than today', error)
         mock_sync.assert_not_called()
         mock_order_sync.assert_not_called()
 
@@ -784,6 +801,26 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertNotIn('portal-workspace-save-view-form', source)
         self.assertNotIn('Saved views', source)
         self.assertIn('const PORTAL_WORKSPACE_UI_ENABLED = false;', script)
+
+    def test_portal_dashboard_cards_have_one_navigation_owner_and_icon_controls(self):
+        template = Path(__file__).resolve().parent / 'templates' / 'portal' / 'portal.html'
+        source = template.read_text(encoding='utf-8')
+        card_start = source.index('id="card-jbl"')
+        card_markup = source[card_start:source.index('</a>', card_start)]
+
+        self.assertNotIn('hx-get=', card_markup)
+        self.assertIn('id="dashboard-refresh" aria-label="Refresh dashboard"', source)
+        self.assertIn('id="jbl-search-clear" aria-label="Clear JBL queue search"', source)
+        self.assertNotIn('id="dash-scope"', source)
+
+    def test_jbl_visit_form_uses_hybrid_numeric_date_and_native_picker(self):
+        script = (Path(__file__).resolve().parent / 'static' / 'miniapp' / 'portal_farmer_sheet.js').read_text(encoding='utf-8')
+
+        self.assertIn('id="jbl-date-display"', script)
+        self.assertIn('placeholder="dd-mm-yy"', script)
+        self.assertIn('id="jbl-date-picker"', script)
+        self.assertIn('max="${deps.escapeHtml(today)}"', script)
+        self.assertIn("formData.set('visit_date', el('jbl-date')?.value || '');", script)
 
     def grant_portal_access(self, role='JBL_OFFICER', branches=None):
         user = get_user_model().objects.create_user(
@@ -1688,7 +1725,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertContains(response, 'Kiambu | Kieni | Mweiga')
         self.assertNotContains(response, 'Kiambu | Kieni | Mweiga | Ruiru')
         self.assertContains(response, 'htmx-farmer-card')
-        self.assertContains(response, 'HB visit: 24-June-2026')
+        self.assertContains(response, 'HB visit: 24-06-26')
         self.assertContains(response, 'aria-label="Queue position 1"')
 
     def test_portal_jbl_queue_exposes_ephemeral_page_relative_card_numbers(self):
@@ -1701,8 +1738,25 @@ class JblPipelineApiTestCase(TestCase):
         first_page = self.client.get(reverse('portal_jbl_queue'), {'page': 1}).json()
         second_page = self.client.get(reverse('portal_jbl_queue'), {'page': 2}).json()
 
+        self.assertEqual(first_page['pagination']['page_size'], 10)
+        self.assertEqual(len(first_page['farmers']), 10)
         self.assertEqual(first_page['farmers'][0]['display_number'], 1)
-        self.assertEqual(second_page['farmers'][0]['display_number'], 31)
+        self.assertEqual(second_page['farmers'][0]['display_number'], 11)
+
+        fragment = self.client.get(reverse('portal_jbl_queue_fragment'), {'page': 2})
+        self.assertEqual(fragment.content.decode().count('htmx-farmer-card'), 10)
+        self.assertContains(fragment, 'data-queue-page="3" data-queue-key="jbl" aria-label="Next page"')
+        self.assertContains(fragment, 'aria-current="page" disabled>2</button>')
+
+        clamped = self.client.get(reverse('portal_jbl_queue'), {'page': 999}).json()
+        self.assertEqual(clamped['pagination']['page'], clamped['pagination']['pages'])
+        self.assertEqual(clamped['farmers'][0]['display_number'], 31)
+
+    def test_portal_meta_exposes_nairobi_business_date(self):
+        response = self.client.get(reverse('portal_meta'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['business_date'], timezone.localdate().isoformat())
 
     def test_portal_farmer_detail_reads_latest_location_values(self):
         """A detail request must reflect location edits made after a queue load."""

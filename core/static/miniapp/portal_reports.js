@@ -4,6 +4,7 @@
 
   const EDITOR_STEPS = ['fields', 'filters', 'review'];
   const DRAFT_STORAGE_PREFIX = 'portal-report-draft:v1:';
+  const helpers = window.PortalMiniAppHelpers || {};
   const state = {
     catalogue: null,
     catalogueSearch: '',
@@ -200,6 +201,7 @@
   function valueToInput(value) { return Array.isArray(value) ? value.join(' | ') : String(value ?? ''); }
   function formatDateTime(value) {
     if (!value) return 'Not recorded';
+    if (helpers.fmtDate) return helpers.fmtDate(value);
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString('en-GB', {
       day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
@@ -208,6 +210,7 @@
   function formatValue(value, type) {
     if (value === null || value === undefined || value === '') return '—';
     if (type === 'date') {
+      if (helpers.fmtDate) return helpers.fmtDate(value);
       const parsed = new Date(value);
       return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
     }

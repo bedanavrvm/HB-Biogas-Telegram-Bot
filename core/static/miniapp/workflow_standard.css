@@ -663,14 +663,16 @@
 }
 
 .workflow-standard.portal-app .count-card {
-  min-height: 92px;
-  padding: 12px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 64px;
+  padding: 9px 10px;
   border: 1px solid var(--workflow-line);
   border-radius: 8px;
   box-shadow: none;
   color: var(--workflow-text);
   text-align: left;
-  align-items: stretch;
+  align-items: center;
   justify-content: space-between;
 }
 
@@ -736,7 +738,7 @@
 .workflow-standard.portal-app .count-card .count-num,
 .workflow-standard.portal-app .dashboard-total .count-num {
   color: var(--workflow-text);
-  font-size: 24px;
+  font-size: 21px;
   font-weight: 800;
   line-height: 1;
 }
@@ -1008,6 +1010,11 @@
   .workflow-standard.spin-app .draft-state {
     display: none;
   }
+}
+
+@media (max-width: 440px) {
+  .workflow-standard.portal-app .count-grid { grid-template-columns: 1fr; }
+  .workflow-standard.portal-app .count-card { min-height: 58px; }
 }
 
 .workflow-standard.portal-app .tab-bar {

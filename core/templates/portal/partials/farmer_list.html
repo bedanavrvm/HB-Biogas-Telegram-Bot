@@ -3,27 +3,20 @@
     {% include "portal/partials/farmer_card.html" with farmer=farmer queue_key=queue_key mode=mode %}
   {% endfor %}
   {% if pagination.pages > 1 %}
-    <div class="pagination htmx-pagination">
-      {% if pagination.page > 1 %}
-        <button
-          type="button"
-          class="btn btn-secondary"
-          hx-get="/api/portal/queues/{{ queue_key }}/fragment/?page={{ pagination.page|add:'-1' }}{% if search %}&search={{ search|urlencode }}{% endif %}{% if county %}&county={{ county|urlencode }}{% endif %}{% if branch %}&branch={{ branch|urlencode }}{% endif %}{% if queue_key == 'final' and review_stage %}&stage={{ review_stage|urlencode }}{% endif %}"
-          hx-target="#{{ queue_list_id }}"
-          hx-swap="innerHTML"
-        >Previous</button>
-      {% endif %}
-      <span>Page {{ pagination.page }} of {{ pagination.pages }}</span>
-      {% if pagination.page < pagination.pages %}
-        <button
-          type="button"
-          class="btn btn-secondary"
-          hx-get="/api/portal/queues/{{ queue_key }}/fragment/?page={{ pagination.page|add:'1' }}{% if search %}&search={{ search|urlencode }}{% endif %}{% if county %}&county={{ county|urlencode }}{% endif %}{% if branch %}&branch={{ branch|urlencode }}{% endif %}{% if queue_key == 'final' and review_stage %}&stage={{ review_stage|urlencode }}{% endif %}"
-          hx-target="#{{ queue_list_id }}"
-          hx-swap="innerHTML"
-        >Next</button>
-      {% endif %}
-    </div>
+    <nav class="pagination queue-pagination" aria-label="{{ queue_key|title }} queue pages">
+      <button type="button" class="pagination-icon" data-queue-page="{{ pagination.page|add:'-1' }}" data-queue-key="{{ queue_key }}" aria-label="Previous page"{% if pagination.page <= 1 %} disabled{% endif %}><i data-lucide="chevron-left" aria-hidden="true"></i></button>
+      <div class="pagination-pages">
+        {% for page_number in pagination.page_links %}
+          {% if page_number %}
+            <button type="button" class="pagination-page{% if page_number == pagination.page %} is-current{% endif %}" data-queue-page="{{ page_number }}" data-queue-key="{{ queue_key }}" aria-label="Page {{ page_number }}"{% if page_number == pagination.page %} aria-current="page" disabled{% endif %}>{{ page_number }}</button>
+          {% else %}
+            <span class="pagination-ellipsis" aria-hidden="true">…</span>
+          {% endif %}
+        {% endfor %}
+      </div>
+      <button type="button" class="pagination-icon" data-queue-page="{{ pagination.page|add:'1' }}" data-queue-key="{{ queue_key }}" aria-label="Next page"{% if pagination.page >= pagination.pages %} disabled{% endif %}><i data-lucide="chevron-right" aria-hidden="true"></i></button>
+      <span class="pagination-total">{{ pagination.total }} entries</span>
+    </nav>
   {% endif %}
 {% else %}
   <div class="empty-state queue-empty-state">

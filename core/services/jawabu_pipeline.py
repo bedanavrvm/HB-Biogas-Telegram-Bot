@@ -429,6 +429,8 @@ def log_jbl_visit(
         return False, 'JBL visit date cannot be earlier than the HBG visit date.'
     if jbl_visit_date is None:
         return False, 'A valid JBL visit date is required.'
+    if jbl_visit_date > timezone.localdate():
+        return False, 'JBL visit date cannot be later than today.'
     visit_date = jbl_visit_date
 
     from core.services.location_catalog import LocationCatalogError, validate_location_selection
@@ -641,6 +643,8 @@ def preflight_jbl_visit_completion(
         return False, 'A valid JBL visit date is required.', False
     if hbg_visit_date and normalized_date < hbg_visit_date:
         return False, 'JBL visit date cannot be earlier than the HBG visit date.', False
+    if normalized_date > timezone.localdate():
+        return False, 'JBL visit date cannot be later than today.', False
     if visit_status in JBL_FORWARD_STATUSES:
         has_location = latitude is not None and longitude is not None
         if not has_location and not str(location_unavailable_reason or '').strip():
@@ -1781,9 +1785,10 @@ def farmer_to_card(
         # spreadsheet text marker such as ``'15-May-2026`` to the Mini App.
         'sign_date': normalize_date_text(farmer.sign_date),
         'hbg_visit_date': hbg_visit_date.isoformat() if hbg_visit_date else None,
+        'hbg_visit_date_label': hbg_visit_date.strftime('%d-%m-%y') if hbg_visit_date else None,
         # Stage 2
         'jbl_visit_date': farmer.jbl_visit_date.isoformat() if farmer.jbl_visit_date else None,
-        'jbl_visit_date_label': farmer.jbl_visit_date.strftime('%d-%B-%Y') if farmer.jbl_visit_date else None,
+        'jbl_visit_date_label': farmer.jbl_visit_date.strftime('%d-%m-%y') if farmer.jbl_visit_date else None,
         'jbl_officer': farmer.jbl_officer,
         'jbl_visit_status': farmer.jbl_visit_status,
         'jbl_visit_comment': farmer.jbl_visit_comment,

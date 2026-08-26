@@ -32,7 +32,6 @@
   }
 
   function fmtDate(value) {
-    if (utils.formatDateTime) return utils.formatDateTime(value);
     if (!value) return '-';
     let date;
     if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) {
@@ -43,8 +42,10 @@
     }
     if (Number.isNaN(date.getTime())) return String(value);
     const day = String(date.getDate()).padStart(2, '0');
-    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-    return `${day}-${months[date.getMonth()]}-${date.getFullYear()}`;
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = String(date.getFullYear()).slice(-2);
+    const time = String(value).match(/(?:T|\s)(\d{1,2}):(\d{2})/);
+    return `${day}-${month}-${year}${time ? ` ${String(time[1]).padStart(2, '0')}:${time[2]}` : ''}`;
   }
 
   function stageBadge(farmer) {

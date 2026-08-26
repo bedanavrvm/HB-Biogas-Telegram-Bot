@@ -304,15 +304,29 @@ def _pagination_window(request, total: int, page_size: int = 30):
         page = max(1, int(request.GET.get('page', 1)))
     except (ValueError, TypeError):
         page = 1
+    pages = max(1, (total + page_size - 1) // page_size)
+    page = min(page, pages)
     start = (page - 1) * page_size
     end = start + page_size
     pagination = {
         'page': page,
         'page_size': page_size,
         'total': total,
-        'pages': max(1, (total + page_size - 1) // page_size),
+        'pages': pages,
+        'page_links': _pagination_page_links(page, pages),
     }
     return start, end, pagination
+
+
+def _pagination_page_links(page: int, pages: int) -> list[int | None]:
+    """Return no more than five page buttons with ``None`` as an ellipsis."""
+    if pages <= 5:
+        return list(range(1, pages + 1))
+    if page <= 3:
+        return [1, 2, 3, 4, None, pages]
+    if page >= pages - 2:
+        return [1, None, pages - 3, pages - 2, pages - 1, pages]
+    return [1, None, page - 1, page, page + 1, None, pages]
 
 
 def _paginate_qs(qs, request, page_size: int = 30):
@@ -2027,6 +2041,7 @@ def portal_meta(request):
     }
     return JsonResponse({
         'ok': True,
+        'business_date': timezone.localdate().isoformat(),
         'branches': branches,
         'counties': [item['name'] for item in location_catalog['counties']],
         'location_catalog': location_catalog,
@@ -2675,7 +2690,7 @@ def portal_jbl_queue(request):
         ),
         params=request.GET,
     )
-    items, pagination = _paginate_qs(qs, request)
+    items, pagination = _paginate_qs(qs, request, page_size=10)
     return JsonResponse({
         'ok': True,
         'queue': 'jbl_visit',
@@ -2724,7 +2739,7 @@ def portal_queue_fragment(request, queue_key: str):
     if qs is None:
         return HttpResponse('Unknown portal queue.', status=404)
 
-    items, pagination = _paginate_qs(qs, request)
+    items, pagination = _paginate_qs(qs, request, page_size=10 if queue_key == 'jbl' else 30)
     review_stage = _portal_review_stage(request) if queue_key == 'final' else ''
     review_map = _pending_payment_review_map(request) if review_stage == 'payment' else {}
     fragment_mode = config['mode']
@@ -3138,7 +3153,7 @@ def portal_complete_jbl_visit(request, farmer_id: str):
         return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     visit_date_raw = str(body.get('visit_date') or '').strip()
     try:
-        visit_date = _date.fromisoformat(visit_date_raw) if visit_date_raw else _date.today()
+        visit_date = _date.fromisoformat(visit_date_raw) if visit_date_raw else timezone.localdate()
     except ValueError:
         return JsonResponse({'ok': False, 'error': 'Visit date must use YYYY-MM-DD.'}, status=400)
     latitude = body.get('capture_latitude') or body.get('latitude')

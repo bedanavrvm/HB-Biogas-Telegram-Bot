@@ -34,7 +34,7 @@
             <div class="fc-name">${deps.escapeHtml(farmer.customer_name || farmer.national_id || farmer.primary_phone || 'Unknown')}</div>
             <div class="fc-sub">${deps.escapeHtml(deps.locationText(farmer))}</div>
             <div class="fc-sub">${deps.escapeHtml(farmer.primary_phone || '')}</div>
-            ${qKey === 'jbl' && farmer.sign_date ? `<div class="fc-sub fc-visit-date">HB visit: ${deps.escapeHtml(deps.fmtDate(farmer.sign_date))}</div>` : ''}
+            ${qKey === 'jbl' && farmer.hbg_visit_date ? `<div class="fc-sub fc-visit-date">HB visit: ${deps.escapeHtml(farmer.hbg_visit_date_label || deps.fmtDate(farmer.hbg_visit_date))}</div>` : ''}
             ${qKey === 'my_visits' && farmer.jbl_visit_date ? `<div class="fc-sub fc-visit-date">JBL visit: ${deps.escapeHtml(farmer.jbl_visit_date_label || deps.fmtDate(farmer.jbl_visit_date))}</div>` : ''}
             <div class="fc-badges">
               ${farmer.reappraisal_required ? `<span class="badge badge-red">Reappraisal required since ${deps.escapeHtml(farmer.deferred_until || '')}</span>` : ''}
