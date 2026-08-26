@@ -1547,6 +1547,103 @@ class OriginationSupportingDocumentSetupAdminTests(TestCase):
         self.assertEqual(self.product.document_template_sha256, template.source_sha256)
         self.assertIn('applicant_name', {item['key'] for item in self.product.form_schema['fields']})
 
+    def test_ajax_publish_returns_the_real_validation_error_instead_of_hiding_it(self):
+        from core.services.origination_templates import OriginationTemplateError
+
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='primary', document_role='primary',
+            inclusion_mode='required', display_order=0, document_type='publish_error_primary',
+            name='Publish error primary', version=1, status='active',
+            source_filename='publish-error.pdf', source_sha256='8' * 64,
+            source_byte_size=100, page_count=1, placement_config={}, created_by=self.actor,
+            form_schema=self.product.form_schema, signer_rules=self.product.signer_rules,
+        )
+        revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=template, revision=1, configuration={}, is_published=True,
+            created_by=self.actor,
+        )
+        template.published_configuration_revision = revision
+        template.save(update_fields=['published_configuration_revision'])
+        OriginationProductDocumentAssignment.objects.create(
+            product_definition=self.product, template=template,
+            version_policy=OriginationProductDocumentAssignment.VERSION_PINNED,
+            document_key='primary', name=template.name, inclusion_mode='required',
+            display_order=0, created_by=self.actor,
+        )
+        url = reverse(
+            'admin:core_originationproductdefinition_publish_assigned_primary',
+            args=[self.product.pk],
+        )
+
+        with patch(
+            'core.services.origination_templates.publish_product_template',
+            side_effect=OriginationTemplateError('Required field loan_amount is not calibrated.'),
+        ):
+            response = self.client.post(
+                url, {'request_id': 'publish-validation-error'},
+                HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {'ok': False, 'error': 'Required field loan_amount is not calibrated.'},
+        )
+        self.product.refresh_from_db()
+        self.assertFalse(self.product.is_active)
+        self.assertEqual(self.product.lifecycle_status, self.product.STATUS_DRAFT)
+
+    def test_ajax_publish_confirms_active_state_and_redirects_to_product_list(self):
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='primary', document_role='primary',
+            inclusion_mode='required', display_order=0, document_type='publish_success_primary',
+            name='Publish success primary', version=1, status='active',
+            source_filename='publish-success.pdf', source_sha256='7' * 64,
+            source_byte_size=100, page_count=1, placement_config={}, created_by=self.actor,
+            form_schema=self.product.form_schema, signer_rules=self.product.signer_rules,
+        )
+        revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=template, revision=1, configuration={}, is_published=True,
+            created_by=self.actor,
+        )
+        template.published_configuration_revision = revision
+        template.save(update_fields=['published_configuration_revision'])
+        OriginationProductDocumentAssignment.objects.create(
+            product_definition=self.product, template=template,
+            version_policy=OriginationProductDocumentAssignment.VERSION_PINNED,
+            document_key='primary', name=template.name, inclusion_mode='required',
+            display_order=0, created_by=self.actor,
+        )
+        url = reverse(
+            'admin:core_originationproductdefinition_publish_assigned_primary',
+            args=[self.product.pk],
+        )
+
+        def publish_success(**_kwargs):
+            self.product.is_active = True
+            self.product.lifecycle_status = self.product.STATUS_PUBLISHED
+            self.product.save(update_fields=['is_active', 'lifecycle_status', 'updated_at'])
+            return self.product, template, revision
+
+        with patch(
+            'core.services.origination_templates.publish_product_template',
+            side_effect=publish_success,
+        ):
+            response = self.client.post(
+                url, {'request_id': 'publish-success'},
+                HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['ok'])
+        self.assertTrue(payload['is_active'])
+        self.assertEqual(payload['lifecycle_status'], self.product.STATUS_PUBLISHED)
+        self.assertEqual(
+            payload['redirect_url'],
+            reverse('admin:core_originationproductdefinition_changelist'),
+        )
+
     def test_product_can_be_created_from_published_reusable_primary_without_upload(self):
         template = OriginationDocumentTemplate.objects.create(
             product_definition=None, document_key='primary', document_role='primary',

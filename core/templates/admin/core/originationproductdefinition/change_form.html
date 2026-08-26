@@ -40,7 +40,7 @@
       });
     </script>
   {% endif %}
-  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=8">
+  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=9">
 {% endblock %}
 
 {% block object-tools-items %}
@@ -150,6 +150,7 @@
             <a class="opb-secondary-link" href="{{ origination_shared_library_url }}">Manage reusable library</a>
           </span>
         </header>
+        <p class="opb-publish-feedback" data-packet-publish-feedback role="status" aria-live="polite"></p>
         {% if origination_shared_document_empty_reason %}
           <p class="opb-packet-empty">{{ origination_shared_document_empty_reason }}</p>
         {% endif %}
@@ -198,6 +199,7 @@
       document.addEventListener('DOMContentLoaded', function () {
         const addButton = document.querySelector('[data-packet-add-url]');
         const publishButton = document.querySelector('[data-packet-publish-url]');
+        const publishFeedback = document.querySelector('[data-packet-publish-feedback]');
         const picker = document.querySelector('[data-packet-document-select]');
         const csrf = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value;
         async function post(url, values) {
@@ -215,10 +217,29 @@
         publishButton?.addEventListener('click', async function () {
           if (!window.confirm('Publish this product using its resolved reusable primary LAF? Existing applications will not change.')) return;
           publishButton.disabled = true;
+          publishButton.textContent = 'Publishing...';
+          if (publishFeedback) {
+            publishFeedback.textContent = 'Validating the complete product and document packet...';
+            publishFeedback.className = 'opb-publish-feedback is-working';
+          }
           try {
-            const response = await fetch(publishButton.dataset.packetPublishUrl, {method: 'POST', headers: {'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest'}, body: new URLSearchParams({request_id: 'publish-' + Date.now()})});
-            window.location.assign(response.url || window.location.href);
-          } catch (error) { window.alert('The product could not be published.'); publishButton.disabled = false; }
+            const data = await post(publishButton.dataset.packetPublishUrl, {request_id: 'publish-' + Date.now()});
+            if (publishFeedback) {
+              publishFeedback.textContent = data.message || 'Product published and activated.';
+              publishFeedback.className = 'opb-publish-feedback is-success';
+            }
+            window.location.assign(data.redirect_url || window.location.href);
+          } catch (error) {
+            if (publishFeedback) {
+              publishFeedback.textContent = error.message;
+              publishFeedback.className = 'opb-publish-feedback is-error';
+              publishFeedback.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+            } else {
+              window.alert(error.message);
+            }
+            publishButton.textContent = 'Publish product';
+            publishButton.disabled = false;
+          }
         });
         document.querySelectorAll('[data-packet-remove-url]').forEach(function (button) {
           button.addEventListener('click', async function () {

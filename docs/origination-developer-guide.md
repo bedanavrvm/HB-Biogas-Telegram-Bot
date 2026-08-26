@@ -63,7 +63,7 @@ rendered.
 | `OriginationDataField` | Global typed semantic variable used across forms and PDFs. | Key is immutable. Type correction is limited to draft-only usage and rewrites editable schemas atomically; frozen contracts block it. Repeating structure and existing choice codes remain immutable. |
 | `OriginationProductDefinition` | Versioned Origination form, signer contract, and document packet owner. | Draft editable; published version immutable. |
 | `OriginationDocumentTemplate` | Drive-backed PDF plus versioned placement configuration and document schema. | Draft calibration revisions; activated publication becomes governed. |
-| `OriginationProductDocumentAssignment` | Attaches a reusable supporting family to one draft product and controls applicability/order. | Editable only while the product definition is draft. |
+| `OriginationProductDocumentAssignment` | Attaches a reusable primary or supporting family to one draft product and controls applicability/order. | Primary assignments are version-pinned; supporting assignments may resolve the latest compatible publication. Editable only while the product definition is draft. |
 | `LoanOriginationApplication` | Canonical application state, payloads, status, revision, and frozen product/schema terms. | Changed only through services and validated transitions. |
 | `OriginationApplicationDocument` | Per-application primary/supporting template, schema, mapping, field payload, selection, and preview snapshot. | Bound to the application revision/workflow. |
 | Evidence, correction, signing, reporting, and event records | Supporting workflow state and audit evidence. | Append-oriented or state-transition controlled. |
@@ -189,6 +189,16 @@ Placement configuration uses PDF page coordinates. Browser pointer/touch deltas
 must be converted through the current pan/zoom transform before updating these
 canonical coordinates. Rendering must use the published configuration revision,
 not an unapproved calibration draft.
+
+Product-definition creation supports three explicit main-LAF sources: attach an
+eligible reusable global primary template, upload a new primary PDF, or configure
+the draft later. Configure-later drafts remain unpublishable until exactly one
+ready primary exists. A reusable primary assignment pins the exact published
+template version selected at attachment time. It never follows a later
+publication silently; a Superuser must explicitly upgrade the editable draft,
+which merges the compatible contract and records an append-only product event.
+Supporting assignments retain latest-compatible resolution so new application
+snapshots can adopt compatible published supporting revisions automatically.
 
 A primary LAF has document key `primary`, role `primary`, and required inclusion.
 A reusable supporting template has no product-definition owner, role

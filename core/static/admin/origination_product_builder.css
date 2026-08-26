@@ -117,6 +117,11 @@
 .opb-upgrade-document { border: 0; padding: 0; background: transparent; color: #0369a1; font: inherit; font-weight: 700; cursor: pointer; }
 .opb-upgrade-document:hover { color: #075985; text-decoration: underline; }
 .opb-packet-empty { margin: .75rem 0 0; padding: .6rem .7rem; border: 1px solid #dbe3ec; border-radius: .5rem; background: #f8fafc; color: #64748b; font-size: .8rem; }
+.opb-publish-feedback { display: none; margin: .75rem 0 0; padding: .6rem .7rem; border: 1px solid transparent; border-radius: .5rem; font-size: .8rem; line-height: 1.4; }
+.opb-publish-feedback.is-working, .opb-publish-feedback.is-success, .opb-publish-feedback.is-error { display: block; }
+.opb-publish-feedback.is-working { border-color: #bae6fd; background: #f0f9ff; color: #075985; }
+.opb-publish-feedback.is-success { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+.opb-publish-feedback.is-error { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
 .opb-supporting-setup { max-width: 1120px; }
 .opb-setup-card { margin-top: 14px; padding: 14px; border: 1px solid #dbe3ec; border-radius: 9px; background: #f8fafc; }
 .opb-setup-card > h2 { margin-bottom: 12px; }
@@ -137,6 +142,9 @@
 .dark .opb-remove-document { color: #fca5a5; }
 .dark .opb-upgrade-document { color: #7dd3fc; }
 .dark .opb-packet-empty { border-color: rgb(var(--color-base-700)); background: rgb(var(--color-base-900)); color: rgb(var(--color-base-400)); }
+.dark .opb-publish-feedback.is-working { border-color: #075985; background: rgb(7 89 133 / .2); color: #bae6fd; }
+.dark .opb-publish-feedback.is-success { border-color: #166534; background: rgb(22 101 52 / .2); color: #bbf7d0; }
+.dark .opb-publish-feedback.is-error { border-color: #991b1b; background: rgb(153 27 27 / .2); color: #fecaca; }
 .dark .opb-setup-card ul label, .dark .opb-form-grid label { color: rgb(var(--color-base-300)); }
 .dark .opb-form-grid input:not([type="checkbox"]), .dark .opb-form-grid select { border-color: rgb(var(--color-base-700)); background: rgb(var(--color-base-900)); color: rgb(var(--color-base-200)); color-scheme: dark; }
 @media (max-width: 640px) { .opb-setup-card { padding: 10px; } .opb-form-grid { grid-template-columns: 1fr; } .opb-form-grid-full { grid-column: auto; } }

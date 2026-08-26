@@ -1270,6 +1270,67 @@ class MultiProductOriginationTemplateTests(TestCase):
 
     @patch('core.services.compliance_audit.record_event')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_published_reusable_primary_activates_assigned_product(self, storage_class, audit):
+        storage_class.return_value.download.return_value = self.pdf
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=None,
+            document_key='primary',
+            document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
+            inclusion_mode=OriginationDocumentTemplate.INCLUDE_REQUIRED,
+            display_order=0,
+            document_type=self.product.document_type,
+            name='Reusable Dairy LAF',
+            version=1,
+            status=OriginationDocumentTemplate.STATUS_ACTIVE,
+            source_filename='reusable-dairy.pdf',
+            source_sha256=hashlib.sha256(self.pdf).hexdigest(),
+            source_byte_size=len(self.pdf),
+            page_count=1,
+            drive_file_id='drive-reusable-dairy',
+            form_schema=self.product.form_schema,
+            signer_rules=self.product.signer_rules,
+            created_by=self.user,
+        )
+        revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=template,
+            revision=1,
+            configuration=self.calibrated_configuration(),
+            is_published=True,
+            created_by=self.user,
+            published_at=timezone.now(),
+        )
+        template.published_configuration_revision = revision
+        template.save(update_fields=['published_configuration_revision', 'updated_at'])
+        OriginationProductDocumentAssignment.objects.create(
+            product_definition=self.product,
+            template=template,
+            version_policy=OriginationProductDocumentAssignment.VERSION_PINNED,
+            document_key='primary',
+            name=template.name,
+            inclusion_mode=OriginationDocumentTemplate.INCLUDE_REQUIRED,
+            display_order=0,
+            created_by=self.user,
+        )
+
+        product, resolved_template, published = publish_product_template(
+            template=template,
+            revision=revision.revision,
+            product_definition=self.product,
+            actor=self.user,
+        )
+
+        product.refresh_from_db()
+        self.assertTrue(product.is_active)
+        self.assertEqual(product.lifecycle_status, product.STATUS_PUBLISHED)
+        self.assertEqual(product.document_template_name, template.name)
+        self.assertEqual(product.document_template_sha256, template.source_sha256)
+        self.assertEqual(resolved_template, template)
+        self.assertEqual(published, revision)
+        self.assertTrue(product.events.filter(action='published').exists())
+        audit.assert_called_once()
+
+    @patch('core.services.compliance_audit.record_event')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_publish_uses_configured_borrower_identity_field_mappings(self, storage_class, audit):
         storage = storage_class.return_value
         storage.upload.return_value = ('drive-mapped-identity', 'https://drive.test/mapped-identity')

@@ -7496,10 +7496,12 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
 
     def publish_assigned_primary_view(self, request, object_id):
         if request.method != 'POST':
-            response = HttpResponse(status=405)
+            response = JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
             response['Allow'] = 'POST'
             return response
         product_url = reverse('admin:core_originationproductdefinition_change', args=[object_id])
+        is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest'
+        from core.services.origination_templates import OriginationTemplateError
         try:
             product = self._draft_packet_product(request, object_id)
             if not product:
@@ -7522,24 +7524,44 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
                 actor=request.user,
                 client_request_id=str(request.POST.get('request_id') or ''),
             )
+            published_product.refresh_from_db()
+            if not (
+                published_product.is_active
+                and published_product.lifecycle_status == published_product.STATUS_PUBLISHED
+            ):
+                raise OriginationTemplateError(
+                    'Publication did not activate the product. No success was reported; retry or inspect the audit log.',
+                )
         except PermissionDenied:
             raise
         except Exception as exc:
-            from core.services.origination_templates import OriginationTemplateError
-            if isinstance(exc, (OriginationTemplateError, ValidationError)):
-                self.message_user(request, str(exc), level=messages.ERROR)
+            is_validation_error = isinstance(exc, (OriginationTemplateError, ValidationError))
+            if is_validation_error:
+                error = ' '.join(exc.messages) if isinstance(exc, ValidationError) else str(exc)
             else:
                 logger.exception('Publishing product with assigned primary LAF failed.')
-                self.message_user(
-                    request, 'The product could not be published. No partial publication was committed.',
-                    level=messages.ERROR,
+                error = 'The product could not be published. No partial publication was committed.'
+            if is_ajax:
+                return JsonResponse(
+                    {'ok': False, 'error': error},
+                    status=400 if is_validation_error else 500,
                 )
+            self.message_user(request, error, level=messages.ERROR)
             return HttpResponseRedirect(product_url)
-        self.message_user(
-            request,
-            f'{published_product.name} version {published_product.version} is published for new applications.',
-            level=messages.SUCCESS,
+        success = (
+            f'{published_product.name} version {published_product.version} '
+            'is published and active for new applications.'
         )
+        self.message_user(request, success, level=messages.SUCCESS)
+        if is_ajax:
+            return JsonResponse({
+                'ok': True,
+                'message': success,
+                'redirect_url': reverse('admin:core_originationproductdefinition_changelist'),
+                'product_id': str(published_product.pk),
+                'is_active': bool(published_product.is_active),
+                'lifecycle_status': published_product.lifecycle_status,
+            })
         return HttpResponseRedirect(product_url)
 
     def supporting_document_setup_view(self, request, object_id):

@@ -1,6 +1,6 @@
 # Loan Origination Mini App: Django Admin Guide
 
-Last verified against the repository on **20 August 2026**.
+Last verified against the repository on **26 August 2026**.
 
 This guide is for Django Superusers and staff responsible for configuring loan
 products, LAFs, supporting documents, and Mini App access. It describes the
@@ -145,17 +145,38 @@ approval reference. Any subsequent edit/revision invalidates that exception.
 2. Select **Add Origination product definition**.
 3. Choose the draft **Product definition** / product terms version. The
    Origination product key and name must match its Global Product code and name.
-4. Upload the approved primary LAF PDF.
-5. Use the visual form builder to:
+4. Choose one **Main LAF source**:
+   - **Choose from reusable library** (default): select an active global primary
+     LAF with a published calibration. The product references that governed
+     template; do not upload the PDF again.
+   - **Upload a new PDF**: use this only when the product needs a primary LAF
+     that is not already in the reusable library.
+   - **Configure later**: save the product-form draft without a main LAF. The
+     draft cannot be published until a main LAF is attached and ready.
+5. Save the draft. A reusable selection is attached to this product as its one
+   primary document and pinned to the selected published version.
+6. Use the visual form builder to:
    - add sections in the order officers should complete them;
    - select canonical fields for each section;
    - set product-specific labels, help text, width, required state, and permitted
      choice presentation; and
    - add every required signer role.
-6. Save. A successfully uploaded LAF opens the alignment builder.
+7. Save. A newly uploaded LAF opens the alignment builder.
 
 The primary document always uses the key `primary`, is always required, and
 cannot be officer-selectable.
+
+A reusable main LAF may serve several products. **Already attached** means
+attached to the current product, not unavailable to every other product. The
+selector excludes inactive, non-global, supporting, or unpublished templates
+and explains why no eligible template is available.
+
+Reusable main LAFs are version-pinned: publishing a newer compatible revision
+does not silently change an existing product draft. When a newer revision is
+available, open the product's **Document packet** and select **Use vN**. That
+explicit upgrade merges the compatible contract into the draft and records an
+audit event. Published product definitions remain immutable; use **Create
+editable next version** before changing their document packet.
 
 ### 5. Create and govern canonical fields
 
