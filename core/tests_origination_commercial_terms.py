@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import RequestFactory, TestCase
+from django.urls import reverse
 from django.utils import timezone
 
 from core.models import (
@@ -282,6 +283,53 @@ class OriginationCommercialTermsTests(TestCase):
         application.refresh_from_db()
         self.assertEqual(application.schema_snapshot, legacy_schema)
         self.assertFalse(commercial_contract_enabled(application.schema_snapshot))
+
+    def test_admin_can_upgrade_one_linked_draft_commercial_contract(self):
+        definition, legacy_schema = self._legacy_linked_definition('admin')
+        self.client.force_login(self.superuser)
+        change_url = reverse(
+            'admin:core_originationproductdefinition_change', args=[definition.pk],
+        )
+
+        page = self.client.get(change_url)
+
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, 'Commercial Terms contract v1')
+        self.assertContains(page, 'Upgrade Commercial Terms')
+
+        response = self.client.post(reverse(
+            'admin:core_originationproductdefinition_upgrade_commercial_terms',
+            args=[definition.pk],
+        ))
+
+        self.assertRedirects(response, change_url)
+        definition.refresh_from_db()
+        self.assertNotEqual(definition.form_schema, legacy_schema)
+        self.assertTrue(commercial_contract_enabled(definition.form_schema))
+        self.assertEqual(definition.form_schema['commercial_contract_version'], 2)
+        event = definition.events.get(action='commercial_contract_upgraded')
+        self.assertEqual(event.metadata['from_version'], 1)
+        self.assertEqual(event.metadata['contract_version'], 2)
+        self.assertEqual(event.metadata['source'], 'django_admin')
+
+    def test_admin_commercial_upgrade_does_not_mutate_published_definition(self):
+        definition, legacy_schema = self._legacy_linked_definition('published')
+        definition.lifecycle_status = definition.STATUS_PUBLISHED
+        definition.is_active = True
+        definition.save(update_fields=['lifecycle_status', 'is_active', 'updated_at'])
+        self.client.force_login(self.superuser)
+
+        response = self.client.post(reverse(
+            'admin:core_originationproductdefinition_upgrade_commercial_terms',
+            args=[definition.pk],
+        ))
+
+        self.assertRedirects(response, reverse(
+            'admin:core_originationproductdefinition_change', args=[definition.pk],
+        ))
+        definition.refresh_from_db()
+        self.assertEqual(definition.form_schema, legacy_schema)
+        self.assertFalse(definition.events.filter(action='commercial_contract_upgraded').exists())
 
     def _legacy_linked_definition(self, suffix):
         product = Product.objects.create(

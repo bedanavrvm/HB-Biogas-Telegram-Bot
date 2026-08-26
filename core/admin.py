@@ -7091,6 +7091,11 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
                 name='core_originationproductdefinition_publish_assigned_primary',
             ),
             path(
+                '<path:object_id>/upgrade-commercial-terms/',
+                self.admin_site.admin_view(self.upgrade_commercial_terms_view),
+                name='core_originationproductdefinition_upgrade_commercial_terms',
+            ),
+            path(
                 '<path:object_id>/document-packet/<path:assignment_id>/remove/',
                 self.admin_site.admin_view(self.remove_shared_document_from_packet_view),
                 name='core_originationproductdefinition_packet_remove_shared',
@@ -7415,6 +7420,12 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
                 shared_document_empty_reason = (
                     'Published product versions are immutable. Create or open an editable next version to change this packet.'
                 )
+        commercial_contract_version = 0
+        if product and product.product_version_id:
+            from core.services.origination_commercial_terms import (
+                commercial_contract_version as schema_commercial_contract_version,
+            )
+            commercial_contract_version = schema_commercial_contract_version(product.form_schema) or 1
         context = {
             **(extra_context or {}),
             **({
@@ -7494,6 +7505,17 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
                     args=[product.pk],
                 ) if product and product.lifecycle_status == product.STATUS_DRAFT and shared_primary else ''
             ),
+            'origination_commercial_contract_version': commercial_contract_version,
+            'origination_upgrade_commercial_terms_url': (
+                reverse(
+                    'admin:core_originationproductdefinition_upgrade_commercial_terms',
+                    args=[product.pk],
+                )
+                if product and product.product_version_id
+                and product.lifecycle_status == product.STATUS_DRAFT
+                and commercial_contract_version < 2
+                else ''
+            ),
             'origination_assignment_add_url': (
                 reverse('admin:core_originationproductdocumentassignment_add')
                 + f'?product_definition={product.pk}' if product and product.lifecycle_status == product.STATUS_DRAFT else ''
@@ -7501,6 +7523,56 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
             'origination_shared_library_url': reverse('admin:core_originationdocumenttemplate_changelist') + '?product_definition__isnull=True',
         }
         return super().changeform_view(request, object_id, form_url, context)
+
+    def upgrade_commercial_terms_view(self, request, object_id):
+        if request.method != 'POST':
+            response = HttpResponse(status=405)
+            response['Allow'] = 'POST'
+            return response
+        if not request.user.is_active or not request.user.is_superuser:
+            raise PermissionDenied
+        product_url = reverse('admin:core_originationproductdefinition_change', args=[object_id])
+        try:
+            with transaction.atomic():
+                product = OriginationProductDefinition.objects.select_for_update().filter(pk=object_id).first()
+                if not product:
+                    return HttpResponse(status=404)
+                if product.lifecycle_status != product.STATUS_DRAFT:
+                    raise ValidationError('Published product versions require an editable successor before Commercial Terms can change.')
+                if not product.product_version_id:
+                    raise ValidationError('This product is not linked to a governed ProductVersion.')
+                from core.services.origination_commercial_terms import (
+                    COMMERCIAL_CONTRACT_VERSION, ensure_commercial_catalogue,
+                    commercial_contract_version, merge_commercial_contract,
+                )
+                previous = commercial_contract_version(product.form_schema) or 1
+                fields = ensure_commercial_catalogue(actor=request.user)
+                upgraded = merge_commercial_contract(product.form_schema, fields=fields)
+                if upgraded != product.form_schema:
+                    product.form_schema = upgraded
+                    product.save(update_fields=['form_schema', 'updated_at'])
+                    product.document_templates.filter(
+                        document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
+                        status__in=[OriginationDocumentTemplate.STATUS_READY, OriginationDocumentTemplate.STATUS_UPLOAD_FAILED],
+                    ).update(form_schema=upgraded)
+                    OriginationProductDefinitionEvent.objects.create(
+                        product_definition=product, action='commercial_contract_upgraded',
+                        actor=request.user, metadata={
+                            'from_version': previous,
+                            'contract_version': COMMERCIAL_CONTRACT_VERSION,
+                            'source': 'django_admin',
+                        },
+                    )
+        except (ValidationError, ValueError) as exc:
+            error_message = ' '.join(exc.messages) if isinstance(exc, ValidationError) else str(exc)
+            self.message_user(request, error_message, level=messages.ERROR)
+        else:
+            self.message_user(
+                request,
+                'Commercial Terms upgraded. Officers now enter only loan amount and repayment tenor; policy values remain calculated.',
+                level=messages.SUCCESS,
+            )
+        return HttpResponseRedirect(product_url)
 
     def _draft_packet_product(self, request, object_id):
         if not request.user.is_superuser:

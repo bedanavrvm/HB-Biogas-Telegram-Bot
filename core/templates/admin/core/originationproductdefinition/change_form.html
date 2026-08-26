@@ -64,6 +64,12 @@
 {% endblock %}
 
 {% block field_sets %}
+  {% if original and origination_commercial_contract_version %}
+    <section class="opb-shell opb-contract-status{% if origination_commercial_contract_version < 2 %} is-warning{% endif %}">
+      <div><h2>Commercial Terms contract v{{ origination_commercial_contract_version }}</h2>{% if origination_commercial_contract_version < 2 %}<p>This legacy draft exposes policy-controlled fields. Upgrade it before publishing so officers enter only loan amount and repayment tenor.</p>{% else %}<p>Officer inputs are limited to loan amount and repayment tenor. Interest, installments, fees, and totals are calculated from the published product policy.</p>{% endif %}</div>
+      {% if origination_upgrade_commercial_terms_url %}<form method="post" action="{{ origination_upgrade_commercial_terms_url }}">{% csrf_token %}<button type="submit" class="button opb-primary-action">Upgrade Commercial Terms</button></form>{% endif %}
+    </section>
+  {% endif %}
   {% if not original or original.lifecycle_status == 'draft' %}
     <nav class="opb-workflow" aria-label="Loan form setup steps">
       <span class="is-active"><b>1</b> Product and LAF</span>

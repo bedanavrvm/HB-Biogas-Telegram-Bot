@@ -33,6 +33,7 @@
   let step = 0;
   let saveTimer = null;
   let previewUrl = '';
+  let evidencePreviewUrl = '';
   let previewReturnFocus = null;
   let previewPage = 1;
   let previewZoom = 100;
@@ -63,9 +64,6 @@
   let testSignatureResizeObserver = null;
   let activeCustomSelect = null;
   let customSelectReturnFocus = null;
-  let activeDateInput = null;
-  let dateReturnFocus = null;
-  let dateDisplayMonth = null;
   let mainButtonHandler = null;
   let primaryBusy = false;
   let createInFlight = false;
@@ -289,7 +287,7 @@
       return;
     }
     if (!tg?.MainButton) return;
-    const blockedByOverlay = Boolean(activeDateInput || activeCustomSelect)
+    const blockedByOverlay = Boolean(activeCustomSelect)
       || !document.getElementById('document-preview-overlay')?.hidden
       || !document.getElementById('origination-review-overlay')?.hidden
       || (sheetMode && sheetMode !== 'create');
@@ -352,7 +350,7 @@
     if (tg?.BackButton) {
       const previewOpen = !document.getElementById('document-preview-overlay')?.hidden;
       try {
-        if (activeDateInput || activeCustomSelect || sheetMode || reviewDialogMode || previewOpen || current) tg.BackButton.show?.();
+        if (activeCustomSelect || sheetMode || reviewDialogMode || previewOpen || current) tg.BackButton.show?.();
         else tg.BackButton.hide?.();
       } catch (_) { /* The in-DOM navigation remains usable if Telegram's bridge fails. */ }
     }
@@ -462,146 +460,8 @@
     container.querySelectorAll?.('select').forEach(enhanceSelect);
   }
 
-  function parseIsoDate(value) {
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
-    if (!match) return null;
-    const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-    return date.getFullYear() === Number(match[1]) && date.getMonth() === Number(match[2]) - 1 && date.getDate() === Number(match[3]) ? date : null;
-  }
-
   function isoDate(date) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  }
-
-  function displayDate(value) {
-    const date = parseIsoDate(value);
-    return date ? `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}` : '';
-  }
-
-  function dateInputLabel(input) {
-    return input.closest('label')?.querySelector(':scope > span')?.textContent?.replace('*', '').trim()
-      || input.getAttribute('aria-label') || 'Date';
-  }
-
-  function syncDateInput(input) {
-    const trigger = input._originationDateTrigger;
-    if (!trigger) return;
-    const formatted = displayDate(input.value);
-    const label = trigger.querySelector('span');
-    label.textContent = formatted || 'Choose date';
-    label.classList.toggle('is-placeholder', !formatted);
-    trigger.disabled = input.disabled;
-    trigger.setAttribute('aria-label', `${dateInputLabel(input)}: ${formatted || 'not selected'}`);
-  }
-
-  function renderCalendar() {
-    if (!activeDateInput || !dateDisplayMonth) return;
-    const year = dateDisplayMonth.getFullYear();
-    const month = dateDisplayMonth.getMonth();
-    const monthSelect = document.getElementById('origination-date-month');
-    const yearSelect = document.getElementById('origination-date-year');
-    const monthNames = Array.from({ length: 12 }, (_, index) => new Intl.DateTimeFormat('en-KE', { month: 'long' }).format(new Date(2020, index, 1)));
-    monthSelect.innerHTML = monthNames.map((label, index) => `<option value="${index}"${index === month ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
-    const minDate = parseIsoDate(activeDateInput.getAttribute('min'));
-    const maxDate = parseIsoDate(activeDateInput.getAttribute('max'));
-    const todayYear = new Date().getFullYear();
-    const firstYear = minDate?.getFullYear() ?? (todayYear - 120);
-    const lastYear = maxDate?.getFullYear() ?? (todayYear + 10);
-    yearSelect.innerHTML = Array.from(
-      { length: Math.max(1, lastYear - firstYear + 1) },
-      (_, index) => firstYear + index,
-    ).reverse().map(value => `<option value="${value}"${value === year ? ' selected' : ''}>${value}</option>`).join('');
-    const days = document.getElementById('origination-date-days');
-    days.replaceChildren();
-    const mondayOffset = (new Date(year, month, 1).getDay() + 6) % 7;
-    for (let index = 0; index < mondayOffset; index += 1) {
-      const blank = document.createElement('span');
-      blank.className = 'origination-calendar-blank';
-      blank.setAttribute('aria-hidden', 'true');
-      days.append(blank);
-    }
-    const count = new Date(year, month + 1, 0).getDate();
-    const selected = activeDateInput.value;
-    const today = isoDate(new Date());
-    const min = activeDateInput.getAttribute('min') || '';
-    const max = activeDateInput.getAttribute('max') || '';
-    for (let day = 1; day <= count; day += 1) {
-      const value = isoDate(new Date(year, month, day));
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = `origination-calendar-day${value === today ? ' is-today' : ''}`;
-      button.textContent = String(day);
-      button.dataset.dateValue = value;
-      button.setAttribute('role', 'gridcell');
-      button.setAttribute('aria-label', new Intl.DateTimeFormat('en-KE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(year, month, day)));
-      button.setAttribute('aria-selected', value === selected ? 'true' : 'false');
-      button.disabled = Boolean((min && value < min) || (max && value > max));
-      button.onclick = () => chooseDate(value);
-      days.append(button);
-    }
-  }
-
-  function closeDatePicker({ restoreFocus = true } = {}) {
-    if (!activeDateInput) return;
-    const overlay = document.getElementById('origination-date-overlay');
-    overlay.hidden = true;
-    overlay.setAttribute('aria-hidden', 'true');
-    activeDateInput = null;
-    dateDisplayMonth = null;
-    const returnFocus = dateReturnFocus;
-    dateReturnFocus = null;
-    syncTelegramControls();
-    if (restoreFocus) window.requestAnimationFrame(() => returnFocus?.focus?.());
-  }
-
-  function chooseDate(value) {
-    if (!activeDateInput) return;
-    activeDateInput.value = value;
-    syncDateInput(activeDateInput);
-    activeDateInput.dispatchEvent(new Event('input', { bubbles: true }));
-    activeDateInput.dispatchEvent(new Event('change', { bubbles: true }));
-    closeDatePicker();
-  }
-
-  function openDatePicker(input, trigger) {
-    if (input.disabled) return;
-    if (activeCustomSelect) closeCustomSelect({ restoreFocus: false });
-    activeDateInput = input;
-    dateReturnFocus = trigger;
-    const selected = parseIsoDate(input.value);
-    const fallback = selected || new Date();
-    dateDisplayMonth = new Date(fallback.getFullYear(), fallback.getMonth(), 1);
-    document.getElementById('origination-date-title').textContent = dateInputLabel(input);
-    document.getElementById('origination-date-clear').hidden = Boolean(input.required);
-    renderCalendar();
-    const overlay = document.getElementById('origination-date-overlay');
-    overlay.hidden = false;
-    overlay.setAttribute('aria-hidden', 'false');
-    syncTelegramControls();
-    window.requestAnimationFrame(() => document.querySelector('.origination-calendar-day[aria-selected="true"]')?.focus()
-      || document.querySelector('.origination-calendar-day.is-today:not([disabled])')?.focus()
-      || document.querySelector('.origination-calendar-day:not([disabled])')?.focus());
-  }
-
-  function enhanceDateInput(input) {
-    if (input._originationDateTrigger) return syncDateInput(input);
-    input.setAttribute('aria-hidden', 'true');
-    input.tabIndex = -1;
-    const trigger = document.createElement('button');
-    trigger.type = 'button';
-    trigger.className = 'origination-date-trigger';
-    trigger.setAttribute('aria-haspopup', 'dialog');
-    trigger.innerHTML = `<span></span>${iconSvg('calendar')}`;
-    trigger.onclick = () => openDatePicker(input, trigger);
-    input.insertAdjacentElement('afterend', trigger);
-    input._originationDateTrigger = trigger;
-    input.addEventListener('change', () => syncDateInput(input));
-    syncDateInput(input);
-  }
-
-  function enhanceDateInputs(container = document) {
-    if (container.matches?.('[data-date-input]')) enhanceDateInput(container);
-    container.querySelectorAll?.('[data-date-input]').forEach(enhanceDateInput);
   }
 
   const RECOVERY_DB = 'jbl-origination-recovery-v1';
@@ -738,7 +598,6 @@
     overlay.setAttribute('aria-hidden', 'false');
     document.body.classList.add('origination-modal-open');
     enhanceSelects(document.getElementById('origination-sheet'));
-    enhanceDateInputs(document.getElementById('origination-sheet'));
     syncTelegramControls();
     window.requestAnimationFrame(() => {
       focusableElements(document.getElementById('origination-sheet'))[0]?.focus()
@@ -1144,13 +1003,13 @@
       const options = (item.options || []).map(option => `<option value="${escapeHtml(option)}"${value === option ? ' selected' : ''}>${escapeHtml(option)}</option>`).join('');
       return `<select ${data}${locked}><option value="">Choose</option>${options}</select>`;
     }
-    const inputType = 'text';
+    const inputType = item.type === 'date' ? 'date' : item.type === 'datetime' ? 'datetime-local' : 'text';
     const validation = item.validation || {};
     const numeric = ['number', 'money', 'amount'].includes(item.type) ? ` inputmode="decimal" data-numeric-input data-min="${escapeHtml(validation.min ?? '')}" data-max="${escapeHtml(validation.max ?? '')}"` : '';
     const dateRules = item.type === 'date' ? `${validation.min_date || validation.min ? ` min="${escapeHtml(validation.min_date || validation.min)}"` : ''}${validation.max_date || validation.max ? ` max="${escapeHtml(validation.max_date || validation.max)}"` : ''}` : '';
     const pattern = inputType === 'text' && validation.pattern ? ` pattern="${escapeHtml(validation.pattern)}"` : '';
     const placeholder = item.type === 'document' ? 'Document reference or evidence note' : '';
-    return `<input type="${inputType}" ${data} value="${escapeHtml(value ?? '')}"${item.type === 'date' ? ` data-date-input inputmode="none" readonly${item.required ? ' required' : ''}` : ''}${numeric}${dateRules}${pattern}${placeholder ? ` placeholder="${placeholder}"` : ''}${locked}>`;
+    return `<input type="${inputType}" ${data} value="${escapeHtml(value ?? '')}"${item.required ? ' required' : ''}${numeric}${dateRules}${pattern}${placeholder ? ` placeholder="${placeholder}"` : ''}${locked}>`;
   }
 
   function productConfigurationMarkup(editable) {
@@ -1170,20 +1029,20 @@
       if (item.type === 'document') {
         const evidence = (current?.requirement_evidence || []).filter(file => file.requirement_key === item.key && file.status !== 'removed');
         const itemEditable = evidenceEditable && correctionAllows('requirement', item.key);
-        const upload = itemEditable ? `<label class="evidence-upload"><input type="file" accept="application/pdf,image/jpeg,image/png" data-evidence-upload="${escapeHtml(item.key)}"><span>Choose PDF, JPG or PNG</span></label>` : '';
-        const fileRows = evidence.map(file => `<span class="evidence-row status-${escapeHtml(file.status)}"><span><strong>${escapeHtml(file.filename)}</strong><small>${escapeHtml(file.status === 'failed' ? file.error || 'Upload failed' : `${Math.max(1, Math.round(file.byte_size / 1024))} KB · ${file.status}`)}</small></span><span class="evidence-actions">${file.download_url ? `<button type="button" data-evidence-open="${escapeHtml(file.id)}">Open</button>` : ''}${itemEditable && file.status === 'uploaded' ? `<button type="button" data-evidence-remove="${escapeHtml(file.id)}">Remove</button>` : ''}</span></span>`).join('');
-        return `<div class="laf-field laf-field-wide evidence-field" data-product-wrap="requirement:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}${required}</span>${item.description ? `<small class="field-help">${escapeHtml(item.description)}</small>` : ''}${stage}${correction}${fileRows || '<small class="field-help">No evidence uploaded.</small>'}${upload}<small class="field-error" aria-live="polite"></small></div>`;
+        const upload = itemEditable ? `<div class="evidence-upload-actions"><label class="evidence-upload evidence-camera"><input type="file" accept="image/*" capture="environment" data-evidence-upload="${escapeHtml(item.key)}"><span>Take photo</span></label><label class="evidence-upload"><input type="file" accept="application/pdf,image/jpeg,image/png" data-evidence-upload="${escapeHtml(item.key)}"><span>Choose file</span></label></div>` : '';
+        const fileRows = evidence.map(file => `<span class="evidence-row status-${escapeHtml(file.status)}"><span><strong>${escapeHtml(file.filename)}</strong><small>${escapeHtml(file.status === 'failed' ? file.error || 'Upload failed' : `${Math.max(1, Math.round(file.byte_size / 1024))} KB · ${file.status}`)}</small></span><span class="evidence-actions">${file.download_url ? `<button type="button" data-evidence-open="${escapeHtml(file.id)}" data-evidence-name="${escapeHtml(file.filename)}" data-evidence-mime="${escapeHtml(file.mime_type || '')}">View</button>` : ''}${itemEditable && file.status === 'uploaded' ? `<button type="button" data-evidence-remove="${escapeHtml(file.id)}">Remove</button>` : ''}</span></span>`).join('');
+        return `<div class="laf-field laf-field-wide evidence-field" data-product-wrap="requirement:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}${required}</span><small class="field-error" aria-live="polite"></small>${item.description ? `<small class="field-help">${escapeHtml(item.description)}</small>` : ''}${stage}${correction}${fileRows || '<small class="field-help">No evidence uploaded.</small>'}${upload}</div>`;
       }
       const signingEditable = current?.status === 'reviewed'
         && capabilities.can_start_signing && item.enforcement_stage === 'signing';
       const itemEditable = (editable && correctionAllows('requirement', item.key)) || signingEditable;
-      return `<label class="laf-field" data-product-wrap="requirement:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}${required}</span>${item.description ? `<small class="field-help">${escapeHtml(item.description)}</small>` : ''}${stage}${correction}${configurationControl(item, current?.product_requirements?.[item.key], 'data-product-requirement', !itemEditable)}<small class="field-error" aria-live="polite"></small></label>`;
+      return `<label class="laf-field" data-product-wrap="requirement:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}${required}</span><small class="field-error" aria-live="polite"></small>${item.description ? `<small class="field-help">${escapeHtml(item.description)}</small>` : ''}${stage}${correction}${configurationControl(item, current?.product_requirements?.[item.key], 'data-product-requirement', !itemEditable)}</label>`;
     }).join('');
     const attributeRows = attributes.map(item => {
       const required = item.required ? '<span class="required-mark" aria-label="required">*</span>' : '';
-      return `<label class="laf-field" data-product-wrap="custom:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}${required}</span>${item.help_text ? `<small class="field-help">${escapeHtml(item.help_text)}</small>` : ''}${configurationControl(item, current?.product_custom_values?.[item.key] ?? item.default, 'data-product-custom', !editable || current?.status === 'correction_required')}<small class="field-error" aria-live="polite"></small></label>`;
+      return `<label class="laf-field" data-product-wrap="custom:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}${required}</span><small class="field-error" aria-live="polite"></small>${item.help_text ? `<small class="field-help">${escapeHtml(item.help_text)}</small>` : ''}${configurationControl(item, current?.product_custom_values?.[item.key] ?? item.default, 'data-product-custom', !editable || current?.status === 'correction_required')}</label>`;
     }).join('');
-    const feeRows = optionalFees.map(item => `<label class="laf-field configuration-fee" data-product-wrap="fee:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}</span><small class="field-help">Optional ${escapeHtml(item.collection_mode)} fee</small><label class="configuration-check"><input type="checkbox" data-product-fee="${escapeHtml(item.key)}"${selected.has(item.key) ? ' checked' : ''}${editable && current?.status !== 'correction_required' ? '' : ' disabled'}><span>Include in quote</span></label><small class="field-error" aria-live="polite"></small></label>`).join('');
+    const feeRows = optionalFees.map(item => `<label class="laf-field configuration-fee" data-product-wrap="fee:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}</span><small class="field-error" aria-live="polite"></small><small class="field-help">Optional ${escapeHtml(item.collection_mode)} fee</small><label class="configuration-check"><input type="checkbox" data-product-fee="${escapeHtml(item.key)}"${selected.has(item.key) ? ' checked' : ''}${editable && current?.status !== 'correction_required' ? '' : ' disabled'}><span>Include in quote</span></label></label>`).join('');
     const quote = current?.product_quote || {};
     const quoteMarkup = quote.installment_amount ? `<aside class="notice"><strong>Current quote</strong><span>${escapeHtml(quote.currency)} ${escapeHtml(quote.installment_amount)} × ${escapeHtml(quote.installment_count)}; total repayment ${escapeHtml(quote.currency)} ${escapeHtml(quote.total_repayment)}${quote.upfront_fees !== '0.00' ? `; upfront fees ${escapeHtml(quote.currency)} ${escapeHtml(quote.upfront_fees)}` : ''}</span></aside>` : '';
     return `${quoteMarkup}<div class="laf-grid">${requirementRows}${attributeRows}${feeRows}</div>`;
@@ -1206,7 +1065,7 @@
     const warning = findings.length
       ? `<p class="commercial-quote-warning">${escapeHtml(findings.map(item => item.message).join(' '))}</p>`
       : '<p class="commercial-quote-ready">Within the published product policy.</p>';
-    return `<aside class="commercial-quote" id="commercial-quote" aria-live="polite"><div class="commercial-quote-heading"><span><strong>Calculated product terms</strong><small>${escapeHtml(terms.interest_rate || '')}% ${escapeHtml(String(terms.interest_method || '').replaceAll('_', ' '))} · ${escapeHtml(String(terms.repayment_frequency || '').replaceAll('_', ' '))}</small></span><strong>${escapeHtml(currency)} ${escapeHtml(quote.installment_amount)} × ${escapeHtml(quote.installment_count)}</strong></div><dl><div><dt>Financed principal</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.financed_principal)}</dd></div><div><dt>Total interest</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.interest)}</dd></div><div><dt>Total repayment</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.total_repayment)}</dd></div><div><dt>Final installment</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.final_installment_amount)}</dd></div><div><dt>Upfront fees</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.upfront_fees)}</dd></div></dl>${feeRows ? `<ul class="commercial-quote-fees">${feeRows}</ul>` : ''}${warning}</aside>`;
+    return `<details class="commercial-quote" id="commercial-quote"><summary><span><strong>Calculated product terms</strong><small>${escapeHtml(terms.interest_rate || '')}% ${escapeHtml(String(terms.interest_method || '').replaceAll('_', ' '))} · ${escapeHtml(String(terms.repayment_frequency || '').replaceAll('_', ' '))}</small></span><strong>${escapeHtml(currency)} ${escapeHtml(quote.installment_amount)} × ${escapeHtml(quote.installment_count)}</strong></summary><div class="commercial-quote-body" aria-live="polite"><dl><div><dt>Financed principal</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.financed_principal)}</dd></div><div><dt>Total interest</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.interest)}</dd></div><div><dt>Total repayment</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.total_repayment)}</dd></div><div><dt>Final installment</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.final_installment_amount)}</dd></div><div><dt>Upfront fees</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.upfront_fees)}</dd></div></dl>${feeRows ? `<ul class="commercial-quote-fees">${feeRows}</ul>` : ''}${warning}</div></details>`;
   }
 
   function updateCommercialQuoteDisplay() {
@@ -1306,7 +1165,8 @@
       const rows = Array.isArray(value) ? value : [];
       const maxItems = Number(structure.max_items || 20);
       const policyBound = field.key === 'loan_fees';
-      control = `<div class="repeatable-field" data-repeatable-field="${key}" data-main-repeatable="${key}" data-max-items="${maxItems}"><div class="repeatable-rows">${rows.map((row, index) => repeatableRowMarkup(columns, row, index, disabled, policyBound)).join('')}</div>${policyBound ? '' : `<div class="repeatable-summary"><button type="button" class="btn btn-secondary" data-repeat-add${disabled || rows.length >= maxItems ? ' disabled' : ''}>Add item</button></div>`}</div>`;
+      const itemLabel = repeatableItemLabel(field);
+      control = `<div class="repeatable-field" data-repeatable-field="${key}" data-main-repeatable="${key}" data-max-items="${maxItems}" data-item-label="${escapeHtml(itemLabel)}"><div class="repeatable-rows">${rows.map((row, index) => repeatableRowMarkup(columns, row, index, disabled, policyBound, itemLabel)).join('')}</div>${policyBound ? '' : `<div class="repeatable-summary"><button type="button" class="btn btn-secondary" data-repeat-add${disabled || rows.length >= maxItems ? ' disabled' : ''}>Add ${escapeHtml(itemLabel.toLowerCase())}</button></div>`}</div>`;
     } else if (field.type === 'branch') {
       const branch = locationMatch(locationCatalog.branches, current?.branch);
       control = `<select data-field="${key}" data-location-type="branch" disabled><option value="">Choose</option>${locationSelectOptions(branch ? [branch] : [], value || current?.branch)}</select>`;
@@ -1334,7 +1194,7 @@
       const validation = field.validation || {};
       control = `<textarea data-field="${key}"${validation.min_length != null ? ` minlength="${escapeHtml(validation.min_length)}"` : ''}${validation.max_length != null ? ` maxlength="${escapeHtml(validation.max_length)}"` : ''}${validation.pattern ? ` pattern="${escapeHtml(validation.pattern)}"` : ''}${disabled ? ' disabled' : ''}>${escapeHtml(value ?? '')}</textarea>`;
     } else {
-      const type = field.type === 'phone' ? 'tel' : 'text';
+      const type = field.type === 'phone' ? 'tel' : field.type === 'date' ? 'date' : field.type === 'datetime' ? 'datetime-local' : 'text';
       const prefix = field.type === 'money' ? '<span class="input-prefix">KES</span>' : '';
       const validation = field.validation || {};
       const numeric = field.type === 'money' ? ` inputmode="decimal" data-numeric-input data-min="${escapeHtml(validation.min ?? 0)}" data-max="${escapeHtml(validation.max ?? '')}"` : field.type === 'number' ? ` inputmode="decimal" data-numeric-input data-min="${escapeHtml(validation.min ?? '')}" data-max="${escapeHtml(validation.max ?? '')}"` : '';
@@ -1342,11 +1202,12 @@
       const dobMin = field.key === 'applicant_dob' ? isoDate(new Date(new Date().getFullYear() - 120, 0, 1)) : '';
       const dobMax = field.key === 'applicant_dob' ? isoDate(new Date()) : '';
       const dateRules = field.type === 'date' ? `${validation.min_date || dobMin ? ` min="${escapeHtml(validation.min_date || dobMin)}"` : ''}${validation.max_date || dobMax ? ` max="${escapeHtml(validation.max_date || dobMax)}"` : ''}` : '';
-      control = `<div class="input-wrap${prefix ? ' has-prefix' : ''}">${prefix}<input data-field="${key}" type="${type}" value="${escapeHtml(value ?? '')}"${field.type === 'date' ? ` data-date-input inputmode="none" readonly${field.required ? ' required' : ''}` : ''}${numeric}${textRules}${dateRules}${field.type === 'national_id' ? ' inputmode="numeric"' : ''}${disabled ? ' disabled' : ''}></div>`;
+      control = `<div class="input-wrap${prefix ? ' has-prefix' : ''}">${prefix}<input data-field="${key}" type="${type}" value="${escapeHtml(value ?? '')}"${field.required ? ' required' : ''}${numeric}${textRules}${dateRules}${field.type === 'national_id' ? ' inputmode="numeric"' : ''}${disabled ? ' disabled' : ''}></div>`;
     }
     const help = field.help_text ? `<small class="field-help">${escapeHtml(field.help_text)}</small>` : '';
     const correction = current.status === 'ready_for_review' ? correctionToggle('field', field.key, normalizeLabel(field)) : '';
-    return `<label class="${classes}" data-field-wrap="${key}"><span>${label}${required}</span>${help}${correction}${control}<small class="field-error" aria-live="polite"></small></label>`;
+    const wrapperTag = field.type === 'repeating_group' ? 'div' : 'label';
+    return `<${wrapperTag} class="${classes}" data-field-wrap="${key}"><span>${label}${required}</span><small class="field-error" aria-live="polite"></small>${help}${correction}${control}</${wrapperTag}>`;
   }
 
   function numericInputError(input) {
@@ -1446,18 +1307,61 @@
   }
 
   function showErrors(errors) {
+    root()?.querySelector('.field-validation-summary')?.remove();
+    const entries = Object.entries(errors || {}).filter(([, message]) => Boolean(message));
+    const messageFor = key => errors[key] || Object.entries(errors).find(([candidate]) => candidate.startsWith(`${key}.`))?.[1] || '';
     root()?.querySelectorAll('[data-field-wrap]').forEach(wrapper => {
-      const message = errors[wrapper.dataset.fieldWrap] || '';
+      const message = messageFor(wrapper.dataset.fieldWrap);
       wrapper.classList.toggle('invalid', Boolean(message));
       const output = wrapper.querySelector('.field-error');
-      if (output) output.textContent = message;
+      if (output) {
+        output.textContent = message;
+        output.id ||= `field-error-${String(wrapper.dataset.fieldWrap).replace(/[^a-z0-9_-]/gi, '-')}`;
+        const control = wrapper.querySelector('input, select, textarea');
+        if (control) {
+          if (message) control.setAttribute('aria-describedby', output.id);
+          else if (control.getAttribute('aria-describedby') === output.id) control.removeAttribute('aria-describedby');
+          control.setAttribute('aria-invalid', message ? 'true' : 'false');
+        }
+      }
     });
     root()?.querySelectorAll('[data-product-wrap]').forEach(wrapper => {
       const message = errors[wrapper.dataset.productWrap] || '';
       wrapper.classList.toggle('invalid', Boolean(message));
       const output = wrapper.querySelector('.field-error');
-      if (output) output.textContent = message;
+      if (output) {
+        output.textContent = message;
+        output.id ||= `product-error-${String(wrapper.dataset.productWrap).replace(/[^a-z0-9_-]/gi, '-')}`;
+        const control = wrapper.querySelector('input, select, textarea');
+        if (control) {
+          if (message) control.setAttribute('aria-describedby', output.id);
+          else if (control.getAttribute('aria-describedby') === output.id) control.removeAttribute('aria-describedby');
+          control.setAttribute('aria-invalid', message ? 'true' : 'false');
+        }
+      }
     });
+    if (!entries.length) return;
+    const summary = document.createElement('aside');
+    summary.className = 'field-validation-summary';
+    summary.setAttribute('role', 'alert');
+    const heading = document.createElement('strong');
+    heading.textContent = entries.length === 1 ? 'Fix this field before continuing' : `Fix ${entries.length} fields before continuing`;
+    summary.append(heading);
+    entries.forEach(([key, message]) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      const wrapper = [...(root()?.querySelectorAll('[data-field-wrap], [data-product-wrap]') || [])].find(item => (
+        item.dataset.fieldWrap === key || key.startsWith(`${item.dataset.fieldWrap}.`) || item.dataset.productWrap === key
+      ));
+      const label = wrapper?.firstElementChild?.textContent?.trim() || key.replaceAll('_', ' ');
+      button.textContent = `${label}: ${message}`;
+      button.onclick = () => {
+        wrapper?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+        window.setTimeout(() => wrapper?.querySelector('input, select, textarea, button')?.focus?.(), 250);
+      };
+      summary.append(button);
+    });
+    root()?.querySelector('.wizard-card')?.before(summary);
   }
 
   function showServerErrors(errors) {
@@ -1567,6 +1471,43 @@
     }).then(saved => {
       if (!saved && dirty) setSaveState('Server-only draft', 'offline');
     });
+  }
+
+  function preserveDraftOnExit(sendToServer = true) {
+    if (!current || !dirty || syncConflict || !['draft', 'correction_required'].includes(current.status)) return;
+    window.clearTimeout(saveTimer);
+    pendingSaveRequestId ||= requestKey('save');
+    const payload = collectPayload();
+    const configuration = collectProductConfiguration();
+    const key = pendingSaveRequestId;
+    void persistRecoveryDraft(current.id, {
+      revision: current.revision,
+      payload,
+      configuration,
+      requestId: key,
+      generation: editGeneration,
+      savedAt: Date.now(),
+    });
+    setSaveState('Saved on device', 'offline');
+    if (!sendToServer || !navigator.onLine || saveInFlight) return;
+    const body = JSON.stringify({
+      revision: current.revision,
+      form_payload: payload,
+      product_requirement_evidence: configuration.requirements,
+      product_custom_values: configuration.customValues,
+      product_selected_fee_keys: configuration.selectedFeeKeys,
+      request_id: key,
+    });
+    if (new Blob([body]).size > 60000) return;
+    void fetch(`/api/origination/api/applications/${current.id}/`, {
+      method: 'PATCH', keepalive: true, body,
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': key,
+        'X-Request-ID': key,
+        ...(tg?.initData ? { 'X-Telegram-Init-Data': tg.initData } : {}),
+      },
+    }).catch(() => {});
   }
 
   function progressMarkup() {
@@ -1785,8 +1726,18 @@
     return `<div class="section-title"><div><h3>Supporting documents</h3><p>Required documents are selected automatically. Add optional documents now; one full-packet preview at the final check verifies everything together.</p></div></div><div class="packet-document-list">${rows || '<div class="empty-state">No supporting documents apply.</div>'}</div>`;
   }
 
-  function repeatableRowMarkup(columns, row, index, disabled, lockRow = false) {
-    return `<div class="repeatable-row" data-repeat-row data-row-id="${escapeHtml(row?.row_id || newRowId())}"><span class="repeatable-row-number">${index + 1}</span>${columns.map(column => {
+  function repeatableItemLabel(field) {
+    const configured = String(field?.structure?.item_label || '').trim();
+    if (configured) return configured;
+    const identity = `${field?.key || ''} ${field?.label || ''}`.toLowerCase();
+    if (identity.includes('loan')) return 'Loan';
+    if (identity.includes('security') || identity.includes('securit') || identity.includes('pledged') || identity.includes('asset')) return 'Security';
+    if (identity.includes('fee')) return 'Fee';
+    return 'Item';
+  }
+
+  function repeatableRowMarkup(columns, row, index, disabled, lockRow = false, itemLabel = 'Item') {
+    return `<fieldset class="repeatable-row" data-repeat-row data-row-id="${escapeHtml(row?.row_id || newRowId())}"><legend><span>${escapeHtml(itemLabel)} ${index + 1}</span>${lockRow ? '' : `<button type="button" class="icon-button repeatable-remove" data-repeat-remove aria-label="Remove ${escapeHtml(itemLabel.toLowerCase())} ${index + 1}"${disabled ? ' disabled' : ''}>${iconSvg('close')}</button>`}</legend><span class="repeatable-row-number" aria-hidden="true">${index + 1}</span><div class="repeatable-row-fields">${columns.map(column => {
       const columnValue = row?.[column.key] ?? '';
       const numeric = column.type === 'money' || column.type === 'number';
       const columnDisabled = disabled || column.editable === false;
@@ -1799,12 +1750,19 @@
         return `<label><span>${escapeHtml(column.label || column.key)}</span><select data-repeat-column="${escapeHtml(column.key)}"${column.required ? ' required' : ''}${columnDisabled ? ' disabled' : ''}><option value="">Choose</option>${options}</select></label>`;
       }
       return `<label><span>${escapeHtml(column.label || column.key)}</span><input data-repeat-column="${escapeHtml(column.key)}" type="text" value="${escapeHtml(columnValue)}"${numeric ? ' inputmode="decimal"' : ''}${column.required ? ' required' : ''}${columnDisabled ? ' disabled' : ''}></label>`;
-    }).join('')}${lockRow ? '' : `<button type="button" class="icon-button repeatable-remove" data-repeat-remove aria-label="Remove item"${disabled ? ' disabled' : ''}>${iconSvg('close')}</button>`}</div>`;
+    }).join('')}</div></fieldset>`;
   }
 
   function refreshRepeatableField(container) {
     const rows = [...container.querySelectorAll('[data-repeat-row]')];
-    rows.forEach((row, index) => { row.querySelector('.repeatable-row-number').textContent = String(index + 1); });
+    const itemLabel = container.dataset.itemLabel || 'Item';
+    rows.forEach((row, index) => {
+      row.querySelector('.repeatable-row-number').textContent = String(index + 1);
+      const legend = row.querySelector('legend > span');
+      if (legend) legend.textContent = `${itemLabel} ${index + 1}`;
+      const remove = row.querySelector('[data-repeat-remove]');
+      if (remove) remove.setAttribute('aria-label', `Remove ${itemLabel.toLowerCase()} ${index + 1}`);
+    });
     let total = 0;
     rows.forEach(row => {
       const input = row.querySelector('[data-repeat-column="estimated_value"]');
@@ -1834,7 +1792,8 @@
       const columns = structure.columns || [];
       const rows = Array.isArray(value) ? value : [];
       const maxItems = Number(structure.max_items || 11);
-      control = `<div class="repeatable-field" data-repeatable-field="${key}" data-max-items="${maxItems}"><div class="repeatable-rows">${rows.map((row, index) => repeatableRowMarkup(columns, row, index, disabled)).join('')}</div><div class="repeatable-summary"><button type="button" class="btn btn-secondary" data-repeat-add${disabled || rows.length >= maxItems ? ' disabled' : ''}>Add asset</button><strong>Total: KES <span data-repeat-total>0.00</span></strong></div></div>`;
+      const itemLabel = repeatableItemLabel(field);
+      control = `<div class="repeatable-field" data-repeatable-field="${key}" data-max-items="${maxItems}" data-item-label="${escapeHtml(itemLabel)}"><div class="repeatable-rows">${rows.map((row, index) => repeatableRowMarkup(columns, row, index, disabled, false, itemLabel)).join('')}</div><div class="repeatable-summary"><button type="button" class="btn btn-secondary" data-repeat-add${disabled || rows.length >= maxItems ? ' disabled' : ''}>Add ${escapeHtml(itemLabel.toLowerCase())}</button><strong>Total: KES <span data-repeat-total>0.00</span></strong></div></div>`;
     } else if (field.type === 'choice') {
       const options = (field.options || []).map(option => {
         const code = option && typeof option === 'object' ? option.code : option;
@@ -1847,12 +1806,14 @@
     } else if (field.type === 'textarea') {
       control = `<textarea data-document-field="${key}"${disabled ? ' disabled' : ''}>${escapeHtml(value)}</textarea>`;
     } else {
-      control = `<input type="text" data-document-field="${key}" value="${escapeHtml(value)}"${field.type === 'date' ? ' data-date-input inputmode="none" readonly' : ''}${disabled ? ' disabled' : ''}>`;
+      const type = field.type === 'date' ? 'date' : field.type === 'datetime' ? 'datetime-local' : 'text';
+      control = `<input type="${type}" data-document-field="${key}" value="${escapeHtml(value)}"${field.required ? ' required' : ''}${disabled ? ' disabled' : ''}>`;
     }
     const correction = current.status === 'ready_for_review'
       ? correctionToggle('document_field', `${document.key}.${field.key}`, `${document.name}: ${field.label || field.key}`)
       : '';
-    return `<label class="laf-field" data-field-wrap="${key}"><span>${escapeHtml(field.label || field.key)}${required}</span>${correction}${locked ? '<small class="field-help">Filled from the main LAF</small>' : field.help_text ? `<small class="field-help">${escapeHtml(field.help_text)}</small>` : ''}${control}<small class="field-error" aria-live="polite"></small></label>`;
+    const wrapperTag = field.type === 'repeating_group' ? 'div' : 'label';
+    return `<${wrapperTag} class="laf-field" data-field-wrap="${key}"><span>${escapeHtml(field.label || field.key)}${required}</span><small class="field-error" aria-live="polite"></small>${correction}${locked ? '<small class="field-help">Filled from the main LAF</small>' : field.help_text ? `<small class="field-help">${escapeHtml(field.help_text)}</small>` : ''}${control}</${wrapperTag}>`;
   }
 
   function supportingDocumentMarkup(document, editable) {
@@ -2094,15 +2055,43 @@
     showToast('Evidence removed from the active requirement.');
   }
 
-  async function openEvidence(evidenceId) {
+  async function openEvidence(evidenceId, filename = 'Evidence', mimeType = '') {
+    const pdfViewer = mimeType === 'application/pdf' ? window.open('', '_blank', 'noopener') : null;
+    if (pdfViewer) {
+      try { pdfViewer.document.title = 'Loading evidence'; pdfViewer.document.body.textContent = 'Loading evidence…'; } catch (_) { /* Cross-window access may be restricted. */ }
+    }
     const key = requestKey('evidence-read');
     const result = await apiFetch(`/evidence/${evidenceId}/download/`, {
       headers: { 'X-Request-ID': key },
     });
-    if (!result.ok || !result.blob) return showToast(result.data?.error || 'Could not open the evidence.', true);
+    if (!result.ok || !result.blob) {
+      pdfViewer?.close?.();
+      return showToast(result.data?.error || 'Could not open the evidence.', true);
+    }
     const url = URL.createObjectURL(result.blob);
-    window.open(url, '_blank', 'noopener');
-    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    if (result.blob.type.startsWith('image/')) {
+      const overlay = document.getElementById('document-preview-overlay');
+      previewReturnFocus = document.activeElement;
+      document.getElementById('preview-title').textContent = filename || 'Evidence image';
+      document.getElementById('preview-page').textContent = 'Uploaded evidence';
+      document.getElementById('document-preview-image').src = url;
+      document.querySelector('.preview-toolbar').hidden = true;
+      previewUrl = url;
+      evidencePreviewUrl = url;
+      overlay.hidden = false;
+      overlay.setAttribute('aria-hidden', 'false');
+      document.body.classList.add('origination-modal-open');
+      syncTelegramControls();
+      return;
+    }
+    const viewer = pdfViewer || window.open('', '_blank', 'noopener');
+    if (viewer) viewer.location.replace(url);
+    else {
+      const link = document.createElement('a');
+      link.href = url; link.target = '_blank'; link.rel = 'noopener'; link.download = filename || 'evidence.pdf';
+      document.body.append(link); link.click(); link.remove();
+    }
+    window.setTimeout(() => URL.revokeObjectURL(url), 120000);
   }
 
   async function saveSigningRequirements() {
@@ -2234,7 +2223,7 @@
     });
     root().querySelectorAll('[data-evidence-upload]').forEach(input => input.onchange = () => uploadEvidence(input));
     root().querySelectorAll('[data-evidence-remove]').forEach(button => button.onclick = () => removeEvidence(button.dataset.evidenceRemove));
-    root().querySelectorAll('[data-evidence-open]').forEach(button => button.onclick = () => openEvidence(button.dataset.evidenceOpen));
+    root().querySelectorAll('[data-evidence-open]').forEach(button => button.onclick = () => openEvidence(button.dataset.evidenceOpen, button.dataset.evidenceName, button.dataset.evidenceMime));
     root().querySelectorAll('[data-support-preview]').forEach(button => button.onclick = async () => {
       if (hasFinalSignedPacket()) return openPreview('__signed_packet__');
       const sectionKey = wizardSections()[step]?.key || '';
@@ -2253,7 +2242,7 @@
         const rows = container.querySelectorAll('[data-repeat-row]');
         if (!field || rows.length >= Number(container.dataset.maxItems || 11)) return;
         container.querySelector('.repeatable-rows').insertAdjacentHTML(
-          'beforeend', repeatableRowMarkup(field.structure?.columns || [], {}, rows.length, false),
+          'beforeend', repeatableRowMarkup(field.structure?.columns || [], {}, rows.length, false, false, container.dataset.itemLabel || repeatableItemLabel(field)),
         );
         refreshRepeatableField(container);
         if (container.dataset.mainRepeatable) scheduleSave();
@@ -2505,6 +2494,7 @@
     clearPreviewPageCache();
     previewPage = 1; previewZoom = 100; previewPageCount = 1;
     previewRequestId = requestKey('preview');
+    document.querySelector('.preview-toolbar').hidden = false;
     const overlay = document.getElementById('document-preview-overlay');
     const title = document.getElementById('preview-title');
     if (title) title.textContent = documentKey === '__signed_packet__'
@@ -2709,6 +2699,9 @@
     const overlay = document.getElementById('document-preview-overlay');
     if (overlay) { overlay.hidden = true; overlay.setAttribute('aria-hidden', 'true'); }
     const image = document.getElementById('document-preview-image'); if (image) image.removeAttribute('src');
+    if (evidencePreviewUrl) URL.revokeObjectURL(evidencePreviewUrl);
+    evidencePreviewUrl = '';
+    document.querySelector('.preview-toolbar').hidden = false;
     clearPreviewPageCache();
     previewRequestId = '';
     previewPinch = null;
@@ -2893,44 +2886,14 @@
   document.getElementById('origination-select-overlay').addEventListener('click', event => {
     if (event.target === event.currentTarget) closeCustomSelect();
   });
-  document.getElementById('origination-date-dialog').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
-  document.getElementById('origination-date-close').onclick = () => closeDatePicker();
-  document.getElementById('origination-date-overlay').addEventListener('click', event => {
-    if (event.target === event.currentTarget) closeDatePicker();
-  });
-  document.getElementById('origination-date-previous').onclick = () => {
-    if (!dateDisplayMonth) return;
-    dateDisplayMonth = new Date(dateDisplayMonth.getFullYear(), dateDisplayMonth.getMonth() - 1, 1);
-    renderCalendar();
-  };
-  document.getElementById('origination-date-next').onclick = () => {
-    if (!dateDisplayMonth) return;
-    dateDisplayMonth = new Date(dateDisplayMonth.getFullYear(), dateDisplayMonth.getMonth() + 1, 1);
-    renderCalendar();
-  };
-  document.getElementById('origination-date-month').onchange = event => {
-    if (!dateDisplayMonth) return;
-    dateDisplayMonth = new Date(dateDisplayMonth.getFullYear(), Number(event.target.value), 1);
-    renderCalendar();
-  };
-  document.getElementById('origination-date-year').onchange = event => {
-    if (!dateDisplayMonth) return;
-    dateDisplayMonth = new Date(Number(event.target.value), dateDisplayMonth.getMonth(), 1);
-    renderCalendar();
-  };
-  document.getElementById('origination-date-clear').onclick = () => chooseDate('');
-  document.getElementById('origination-date-today').onclick = () => {
-    if (!activeDateInput) return;
-    const today = isoDate(new Date());
-    const min = activeDateInput.getAttribute('min') || '';
-    const max = activeDateInput.getAttribute('max') || '';
-    if ((min && today < min) || (max && today > max)) return showToast('Today is outside the allowed date range.', true);
-    chooseDate(today);
-  };
   document.getElementById('origination-review-dialog').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
   document.getElementById('document-preview-overlay').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
   bindPreviewPinch();
-  window.addEventListener('beforeunload', closePreview);
+  window.addEventListener('beforeunload', () => { preserveDraftOnExit(true); closePreview(); });
+  window.addEventListener('pagehide', () => preserveDraftOnExit(true));
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') preserveDraftOnExit(false);
+  });
   window.addEventListener('online', () => { if (current && dirty && !syncConflict) void saveDraft(false); else if (!current) void loadApplications(); });
   window.addEventListener('resize', syncViewport);
   window.visualViewport?.addEventListener('resize', syncViewport);
@@ -2948,8 +2911,7 @@
   });
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
-    if (activeDateInput) closeDatePicker();
-    else if (activeCustomSelect) closeCustomSelect();
+    if (activeCustomSelect) closeCustomSelect();
     else if (sheetMode) closeSheet();
     else if (reviewDialogMode) closeReviewDialog();
     else if (!document.getElementById('document-preview-overlay').hidden) closePreview();
@@ -2963,7 +2925,6 @@
   syncViewport();
   try {
     tg?.BackButton?.onClick?.(async () => {
-      if (activeDateInput) return closeDatePicker();
       if (activeCustomSelect) return closeCustomSelect();
       if (sheetMode) return closeSheet();
       if (reviewDialogMode) return closeReviewDialog();
@@ -2976,13 +2937,10 @@
       mutation.addedNodes.forEach(node => {
         if (node.nodeType !== Node.ELEMENT_NODE) return;
         enhanceSelects(node);
-        enhanceDateInputs(node);
       });
       if (mutation.target?.matches?.('select')) syncCustomSelect(mutation.target);
-      if (mutation.target?.matches?.('[data-date-input]')) syncDateInput(mutation.target);
     });
   }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled'] });
   enhanceSelects();
-  enhanceDateInputs();
   load();
 })();
