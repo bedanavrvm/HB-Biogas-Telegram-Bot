@@ -122,12 +122,25 @@
 
   function newRowId() {
     if (window.crypto?.randomUUID) return window.crypto.randomUUID();
-    return `row-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const bytes = new Uint8Array(16);
+    if (window.crypto?.getRandomValues) window.crypto.getRandomValues(bytes);
+    else for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = [...bytes].map(value => value.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
   }
 
   function formatKenyanDate(value) {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
     return match ? `${match[3]}-${match[2]}-${match[1].slice(-2)}` : '';
+  }
+
+  function formatWholeKes(value) {
+    const amount = Number(String(value ?? '').replaceAll(',', ''));
+    return Number.isFinite(amount)
+      ? amount.toLocaleString('en-KE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+      : String(value ?? '');
   }
 
   function nativeDateControl(attributes, value, disabled, rules = '') {
@@ -200,6 +213,8 @@
     if (application?.status === 'ready_for_review') {
       return application.review_packet_ready ? 'Final review' : 'Prepare packet';
     }
+    if (application?.status === 'signed_pending_approval') return 'Signed - pending JBL approval';
+    if (application?.status === 'approved') return 'Approved and locked';
     return String(application?.status || '').replaceAll('_', ' ');
   }
 
@@ -818,7 +833,7 @@
   }
 
   function filterStatusOptions() {
-    return ['draft', 'ready_for_review', 'correction_required', 'reviewed', 'signing_pending', 'partially_signed', 'fully_signed', 'declined', 'expired', 'cancelled']
+    return ['draft', 'ready_for_review', 'correction_required', 'reviewed', 'signing_pending', 'partially_signed', 'fully_signed', 'signed_pending_approval', 'approved', 'declined', 'expired', 'cancelled']
       .map(status => `<option value="${status}"${listState.status === status ? ' selected' : ''}>${status.replaceAll('_', ' ')}</option>`).join('');
   }
 
@@ -931,7 +946,7 @@
     syncConflict = false;
     conflictDraft = null;
     await recoverDraft(application);
-    if (['ready_for_review', 'reviewed', 'signing_pending', 'partially_signed', 'fully_signed'].includes(application.status)) {
+    if (['ready_for_review', 'reviewed', 'signing_pending', 'partially_signed', 'fully_signed', 'signed_pending_approval', 'approved'].includes(application.status)) {
       requestedStep = wizardSections().length - 1;
     }
     renderEditor(current, requestedStep);
@@ -1052,7 +1067,7 @@
     }
     const inputType = item.type === 'date' ? 'date' : item.type === 'datetime' ? 'datetime-local' : 'text';
     const validation = item.validation || {};
-    const numeric = ['number', 'money', 'amount'].includes(item.type) ? ` inputmode="decimal" data-numeric-input data-min="${escapeHtml(validation.min ?? '')}" data-max="${escapeHtml(validation.max ?? '')}"` : '';
+    const numeric = ['number', 'money', 'amount'].includes(item.type) ? ` inputmode="${['money', 'amount'].includes(item.type) ? 'numeric' : 'decimal'}" data-numeric-input${['money', 'amount'].includes(item.type) ? ' data-money-input' : ''} data-min="${escapeHtml(validation.min ?? '')}" data-max="${escapeHtml(validation.max ?? '')}"` : '';
     const dateRules = item.type === 'date' ? `${validation.min_date || validation.min ? ` min="${escapeHtml(validation.min_date || validation.min)}"` : ''}${validation.max_date || validation.max ? ` max="${escapeHtml(validation.max_date || validation.max)}"` : ''}` : '';
     const pattern = inputType === 'text' && validation.pattern ? ` pattern="${escapeHtml(validation.pattern)}"` : '';
     const placeholder = item.type === 'document' ? 'Document reference or evidence note' : '';
@@ -1072,7 +1087,7 @@
     const requirementRows = requirements.map(item => {
       const required = item.required ? '<span class="required-mark" aria-label="required">*</span>' : '';
       const stage = item.enforcement_stage ? `<small class="field-help">Required before ${escapeHtml(item.enforcement_stage.replaceAll('_', ' '))}</small>` : '';
-      const correction = current.status === 'ready_for_review' ? correctionToggle('requirement', item.key, item.label) : '';
+      const correction = ['ready_for_review', 'signed_pending_approval'].includes(current.status) ? correctionToggle('requirement', item.key, item.label) : '';
       if (item.type === 'document') {
         const evidence = (current?.requirement_evidence || []).filter(file => file.requirement_key === item.key && file.status !== 'removed');
         const itemEditable = evidenceEditable && correctionAllows('requirement', item.key);
@@ -1091,7 +1106,7 @@
     }).join('');
     const feeRows = optionalFees.map(item => `<label class="laf-field configuration-fee" data-product-wrap="fee:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}</span><small class="field-error" aria-live="polite"></small><small class="field-help">Optional ${escapeHtml(item.collection_mode)} fee</small><label class="configuration-check"><input type="checkbox" data-product-fee="${escapeHtml(item.key)}"${selected.has(item.key) ? ' checked' : ''}${editable && current?.status !== 'correction_required' ? '' : ' disabled'}><span>Include in quote</span></label></label>`).join('');
     const quote = current?.product_quote || {};
-    const quoteMarkup = quote.installment_amount ? `<aside class="notice"><strong>Current quote</strong><span>${escapeHtml(quote.currency)} ${escapeHtml(quote.installment_amount)} × ${escapeHtml(quote.installment_count)}; total repayment ${escapeHtml(quote.currency)} ${escapeHtml(quote.total_repayment)}${quote.upfront_fees !== '0.00' ? `; upfront fees ${escapeHtml(quote.currency)} ${escapeHtml(quote.upfront_fees)}` : ''}</span></aside>` : '';
+    const quoteMarkup = quote.installment_amount ? `<aside class="notice"><strong>Current quote</strong><span>${escapeHtml(quote.currency)} ${escapeHtml(formatWholeKes(quote.installment_amount))} × ${escapeHtml(quote.installment_count)}; total repayment ${escapeHtml(quote.currency)} ${escapeHtml(formatWholeKes(quote.total_repayment))}${Number(quote.upfront_fees || 0) ? `; upfront fees ${escapeHtml(quote.currency)} ${escapeHtml(formatWholeKes(quote.upfront_fees))}` : ''}</span></aside>` : '';
     return `${quoteMarkup}<div class="laf-grid">${requirementRows}${attributeRows}${feeRows}</div>`;
   }
 
@@ -1108,11 +1123,11 @@
     }
     const terms = quote.terms || current?.product_terms || {};
     const currency = quote.currency || terms.currency || 'KES';
-    const feeRows = (quote.fees || []).map(item => `<li><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(currency)} ${escapeHtml(item.amount)}</strong></li>`).join('');
+    const feeRows = (quote.fees || []).map(item => `<li><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(currency)} ${escapeHtml(formatWholeKes(item.amount))}</strong></li>`).join('');
     const warning = findings.length
       ? `<p class="commercial-quote-warning">${escapeHtml(findings.map(item => item.message).join(' '))}</p>`
       : '<p class="commercial-quote-ready">Within the published product policy.</p>';
-    return `<details class="commercial-quote" id="commercial-quote"><summary><span><strong>Calculated product terms</strong><small>${escapeHtml(terms.interest_rate || '')}% ${escapeHtml(String(terms.interest_method || '').replaceAll('_', ' '))} · ${escapeHtml(String(terms.repayment_frequency || '').replaceAll('_', ' '))}</small></span><strong>${escapeHtml(currency)} ${escapeHtml(quote.installment_amount)} × ${escapeHtml(quote.installment_count)}</strong></summary><div class="commercial-quote-body" aria-live="polite"><dl><div><dt>Financed principal</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.financed_principal)}</dd></div><div><dt>Total interest</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.interest)}</dd></div><div><dt>Total repayment</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.total_repayment)}</dd></div><div><dt>Final installment</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.final_installment_amount)}</dd></div><div><dt>Upfront fees</dt><dd>${escapeHtml(currency)} ${escapeHtml(quote.upfront_fees)}</dd></div></dl>${feeRows ? `<ul class="commercial-quote-fees">${feeRows}</ul>` : ''}${warning}</div></details>`;
+    return `<details class="commercial-quote" id="commercial-quote"><summary><span><strong>Calculated product terms</strong><small>${escapeHtml(terms.interest_rate || '')}% ${escapeHtml(String(terms.interest_method || '').replaceAll('_', ' '))} · ${escapeHtml(String(terms.repayment_frequency || '').replaceAll('_', ' '))}</small></span><strong>${escapeHtml(currency)} ${escapeHtml(formatWholeKes(quote.installment_amount))} × ${escapeHtml(quote.installment_count)}</strong></summary><div class="commercial-quote-body" aria-live="polite"><dl><div><dt>Financed principal</dt><dd>${escapeHtml(currency)} ${escapeHtml(formatWholeKes(quote.financed_principal))}</dd></div><div><dt>Total interest</dt><dd>${escapeHtml(currency)} ${escapeHtml(formatWholeKes(quote.interest))}</dd></div><div><dt>Total repayment</dt><dd>${escapeHtml(currency)} ${escapeHtml(formatWholeKes(quote.total_repayment))}</dd></div><div><dt>Final installment</dt><dd>${escapeHtml(currency)} ${escapeHtml(formatWholeKes(quote.final_installment_amount))}</dd></div><div><dt>Upfront fees</dt><dd>${escapeHtml(currency)} ${escapeHtml(formatWholeKes(quote.upfront_fees))}</dd></div></dl>${feeRows ? `<ul class="commercial-quote-fees">${feeRows}</ul>` : ''}${warning}</div></details>`;
   }
 
   function facilitySectionKey() {
@@ -1135,7 +1150,7 @@
     if (!first.length && !second.length) return `<div class="laf-grid">${fields.map(rendered).join('')}</div>`;
     const other = fields.filter(field => !first.includes(field) && !second.includes(field));
     const card = (title, hint, items, optional) => items.length
-      ? `<fieldset class="guarantor-card${optional ? ' is-optional' : ''}"><legend><strong>${title}</strong><small>${hint}</small></legend><div class="laf-grid">${items.map(rendered).join('')}</div></fieldset>`
+      ? `<fieldset class="guarantor-card${optional ? ' is-optional' : ''}"${optional ? ' data-guarantor-two-card' : ''}><legend><span><strong>${title}</strong><small>${hint}</small></span>${optional && editable ? '<button type="button" class="btn btn-secondary" data-clear-guarantor-two>Clear Guarantor 2</button>' : ''}</legend><div class="laf-grid">${items.map(rendered).join('')}</div></fieldset>`
       : '';
     return `<div class="guarantor-groups">${card('Guarantor 1', 'Required guarantor', first, false)}${card('Guarantor 2', 'Optional unless any details are entered', second, true)}${other.length ? `<div class="laf-grid">${other.map(rendered).join('')}</div>` : ''}</div>`;
   }
@@ -1269,7 +1284,7 @@
       const type = field.type === 'phone' ? 'tel' : field.type === 'date' ? 'date' : field.type === 'datetime' ? 'datetime-local' : 'text';
       const prefix = field.type === 'money' ? '<span class="input-prefix">KES</span>' : '';
       const validation = field.validation || {};
-      const numeric = field.type === 'money' ? ` inputmode="decimal" data-numeric-input data-min="${escapeHtml(validation.min ?? 0)}" data-max="${escapeHtml(validation.max ?? '')}"` : field.type === 'number' ? ` inputmode="decimal" data-numeric-input data-min="${escapeHtml(validation.min ?? '')}" data-max="${escapeHtml(validation.max ?? '')}"` : '';
+      const numeric = field.type === 'money' ? ` inputmode="numeric" data-numeric-input${field.source_type === 'system' ? '' : ' data-money-input'} data-min="${escapeHtml(validation.min ?? 0)}" data-max="${escapeHtml(validation.max ?? '')}"` : field.type === 'number' ? ` inputmode="decimal" data-numeric-input data-min="${escapeHtml(validation.min ?? '')}" data-max="${escapeHtml(validation.max ?? '')}"` : '';
       const textRules = ['text', 'textarea', 'phone', 'national_id'].includes(field.type) ? `${validation.min_length != null ? ` minlength="${escapeHtml(validation.min_length)}"` : ''}${validation.max_length != null ? ` maxlength="${escapeHtml(validation.max_length)}"` : ''}${validation.pattern ? ` pattern="${escapeHtml(validation.pattern)}"` : ''}` : '';
       const dobMin = field.key === 'applicant_dob' ? isoDate(new Date(new Date().getFullYear() - 120, 0, 1)) : '';
       const dobMax = field.key === 'applicant_dob' ? isoDate(new Date()) : '';
@@ -1280,7 +1295,7 @@
       control = `<div class="input-wrap${prefix ? ' has-prefix' : ''}">${prefix}${input}</div>`;
     }
     const help = field.help_text ? `<small class="field-help">${escapeHtml(field.help_text)}</small>` : '';
-    const correction = current.status === 'ready_for_review' ? correctionToggle('field', field.key, normalizeLabel(field)) : '';
+    const correction = ['ready_for_review', 'signed_pending_approval'].includes(current.status) ? correctionToggle('field', field.key, normalizeLabel(field)) : '';
     const wrapperTag = field.type === 'repeating_group' ? 'div' : 'label';
     return `<${wrapperTag} class="${classes}" data-field-wrap="${key}"><span>${label}${required}</span><small class="field-error" aria-live="polite"></small>${help}${correction}${control}</${wrapperTag}>`;
   }
@@ -1289,6 +1304,7 @@
     if (!input?.matches?.('[data-numeric-input]') || input.value === '') return '';
     const normalized = input.value.trim();
     if (!/^-?(?:\d+|\d*\.\d+)$/.test(normalized)) return 'Enter a valid number.';
+    if (input.hasAttribute('data-money-input') && !/^-?\d+$/.test(normalized)) return 'Enter a whole KES amount without decimal places.';
     const value = Number(normalized);
     const min = input.dataset.min === '' ? null : Number(input.dataset.min);
     const max = input.dataset.max === '' ? null : Number(input.dataset.max);
@@ -1314,7 +1330,7 @@
           if (maximum && rows.length > maximum) errors[field.key] = `Add no more than ${maximum} assets`;
           rows.forEach((row, index) => row.querySelectorAll('[data-repeat-column]').forEach(input => {
             if (!errors[field.key] && input.required && !input.value.trim()) errors[field.key] = `Complete row ${index + 1}`;
-            if (!errors[field.key] && input.inputMode === 'decimal' && input.value && !/^\d+(?:\.\d{1,4})?$/.test(input.value.trim())) errors[field.key] = `Enter a valid value in row ${index + 1}`;
+            if (!errors[field.key] && numericInputError(input)) errors[field.key] = `${numericInputError(input)} Row ${index + 1}.`;
           }));
           return;
         }
@@ -1368,6 +1384,10 @@
         rows.forEach((row, index) => (structure.columns || []).forEach(column => {
           if (!errors[field.key] && column.required && !String(row?.[column.key] ?? '').trim()) errors[field.key] = `Complete ${column.label || column.key} in row ${index + 1}`;
         }));
+        const container = root()?.querySelector(`[data-main-repeatable="${CSS.escape(field.key)}"]`);
+        [...(container?.querySelectorAll('[data-repeat-column]') || [])].forEach((input, index) => {
+          if (!errors[field.key] && numericInputError(input)) errors[field.key] = `${numericInputError(input)} Row ${Math.floor(index / Math.max((structure.columns || []).length, 1)) + 1}.`;
+        });
         return;
       }
       if (field.required && (value === undefined || value === null || value === '')) errors[field.key] = 'Required';
@@ -1599,7 +1619,7 @@
 
   function hasFinalSignedPacket() {
     const packageData = current?.signing_package;
-    return current?.status === 'fully_signed'
+    return ['fully_signed', 'signed_pending_approval', 'approved'].includes(current?.status)
       && Boolean(packageData?.id)
       && Boolean(packageData?.verified_signing?.signed_packet_available);
   }
@@ -1634,8 +1654,8 @@
 
   function reviewMarkup(values) {
     const hasPacket = (current?.document_packet?.documents || []).filter(item => item.selected).length > 1;
-    const signed = current?.status === 'fully_signed';
-    const reviewCards = current?.status === 'fully_signed' ? '' : `<div class="review-sections">${wizardSections().slice(0, -1).map((section, index) => {
+    const signed = ['fully_signed', 'signed_pending_approval', 'approved'].includes(current?.status);
+    const reviewCards = ['fully_signed', 'approved'].includes(current?.status) ? '' : `<div class="review-sections">${wizardSections().slice(0, -1).map((section, index) => {
       if (section.key === 'document_selection') {
         const selected = (current?.document_packet?.documents || []).filter(item => item.role === 'supporting' && item.selected);
         return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>Supporting documents</strong><small>${selected.length} selected</small></span><span>Edit ${iconSvg('arrowRight')}</span></button>`;
@@ -1661,7 +1681,7 @@
 
   function signingTestMarkup() {
     const packageData = current?.signing_package;
-    if (!packageData || !['signing_pending', 'partially_signed', 'fully_signed'].includes(current?.status)) return '';
+    if (!packageData || !['signing_pending', 'partially_signed', 'fully_signed', 'signed_pending_approval', 'approved'].includes(current?.status)) return '';
     const test = packageData.test_signing || {};
     if (!test.enabled || !test.test_mode) {
       const verified = packageData.verified_signing || {};
@@ -1682,7 +1702,10 @@
           : participant.session_status
             ? `<div class="signing-session-actions"><span class="signing-mode-chip ${escapeHtml(accessMode)}">${escapeHtml(modeLabel)}</span><span class="status-chip">${escapeHtml(participant.session_status.replaceAll('_', ' '))}</span>${participant.session_status === 'verified' ? '' : `<button type="button" class="btn btn-secondary" data-reset-signer-session data-session-id="${escapeHtml(participant.session_id)}" data-access-mode="${escapeHtml(accessMode)}" data-target-access-mode="${escapeHtml(accessMode)}">Reset / reissue</button>${accessMode === 'assisted' ? `<button type="button" class="btn btn-primary" data-reset-signer-session data-switch-mode="true" data-session-id="${escapeHtml(participant.session_id)}" data-access-mode="assisted" data-target-access-mode="self_service">Send remotely instead</button>` : `<details class="assisted-signing-fallback"><summary>Need in-person assistance?</summary><button type="button" class="btn btn-secondary" data-reset-signer-session data-switch-mode="true" data-session-id="${escapeHtml(participant.session_id)}" data-access-mode="self_service" data-target-access-mode="assisted">Switch to officer device</button></details>`}`}</div>`
             : `<div class="signing-primary-actions"><button type="button" class="btn btn-primary" data-create-signer-session data-access-mode="self_service" data-package-id="${escapeHtml(packageData.id)}" data-signer-role="${escapeHtml(participant.role)}">Send to signer's phone</button><small>The signer can review, sign and enter their OTP from any location.</small>${assistedFallback}</div>`;
-        const signatureRow = signatures.length ? `<div class="signing-test-slot ${signaturesComplete ? 'is-complete' : ''}"><span><strong>${escapeHtml(participant.label)}</strong><small>${signatures.length} signature box(es) across the packet${participant.phone_mapped || participant.staff ? '' : ' · phone mapping missing'}</small></span>${signaturesComplete ? '<span class="status-chip">Complete</span>' : externalAction}</div>` : '';
+        const signatureCorrections = current.status === 'signed_pending_approval'
+          ? signatures.filter(slot => slot.completed).map(slot => correctionToggle('signature_slot', `${slot.document_key}.${slot.key}`, slot.label || `${participant.label}: ${slot.key}`)).join('')
+          : '';
+        const signatureRow = signatures.length ? `<div class="signing-test-slot ${signaturesComplete ? 'is-complete' : ''}"><span><strong>${escapeHtml(participant.label)}</strong><small>${signatures.length} signature box(es) across the packet${participant.phone_mapped || participant.staff ? '' : ' · phone mapping missing'}</small>${signatureCorrections}</span>${signaturesComplete ? '<span class="status-chip">Complete</span>' : externalAction}</div>` : '';
         const stampRows = stamps.map(slot => `<div class="signing-test-slot ${slot.completed ? 'is-complete' : ''}"><span><strong>${escapeHtml(slot.label || slot.key)}</strong><small>${escapeHtml(participant.label)} · ${escapeHtml(slot.document_key)}</small></span>${slot.completed ? '<span class="status-chip">Stamped</span>' : `<select data-production-stamp-select><option value="">Choose production stamp</option>${stampOptions}</select><button type="button" class="btn btn-secondary" data-production-stamp data-package-id="${escapeHtml(packageData.id)}" data-document-key="${escapeHtml(slot.document_key)}" data-slot-key="${escapeHtml(slot.key)}" data-signer-role="${escapeHtml(participant.role)}">Apply stamp</button>`}</div>`).join('');
         return signatureRow + stampRows;
       }).join('');
@@ -1691,8 +1714,14 @@
       const signedPacket = verified.signed_packet_available
         ? `<aside class="signed-packet-access"><div><strong>${verified.archive_status === 'uploaded' ? 'Archived signed packet' : 'Final signed packet'}</strong><span>${verified.archive_status === 'uploaded' ? 'Stored in restricted Drive and verified against its immutable hash.' : 'Ready to view while automatic archival completes.'}</span></div><div><button type="button" class="btn btn-secondary" id="origination-view-signed" data-package-id="${escapeHtml(packageData.id)}">View signed LAF</button><button type="button" class="btn btn-primary" id="origination-open-signed-pdf" data-package-id="${escapeHtml(packageData.id)}">Open PDF</button></div></aside>`
         : '';
-      const signingComplete = current.status === 'fully_signed';
-      return `<section class="signing-verified-panel"><p class="eyebrow">Verified packet signing</p><h3>${signingComplete ? 'Signing complete' : 'Send each signer their secure link'}</h3><p>${signingComplete ? 'Every required signature and stamp has been applied to the immutable packet.' : 'Remote signing works from any location. Each external signer reviews the immutable packet and verifies their own OTP.'}</p>${participants || '<div class="empty-state">No signing participants were configured.</div>'}${signedPacket}${archive}</section>`;
+      const signingComplete = ['fully_signed', 'signed_pending_approval', 'approved'].includes(current.status);
+      const signingHeading = current.status === 'signed_pending_approval' ? 'Signed — pending JBL approval' : current.status === 'approved' ? 'Approved and locked' : signingComplete ? 'Signing complete' : 'Send each signer their secure link';
+      const signingDetail = current.status === 'signed_pending_approval'
+        ? 'Every required signature is present. An independent checker must approve these exact signed bytes before the application is final.'
+        : current.status === 'approved'
+          ? 'Independent final review approved this immutable signed packet.'
+          : signingComplete ? 'Every required signature and stamp has been applied to the immutable packet.' : 'Remote signing works from any location. Each external signer reviews the immutable packet and verifies their own OTP.';
+      return `<section class="signing-verified-panel"><p class="eyebrow">Verified packet signing</p><h3>${signingHeading}</h3><p>${signingDetail}</p>${participants || '<div class="empty-state">No signing participants were configured.</div>'}${signedPacket}${archive}</section>`;
     }
     const stamps = packageData.test_stamps || [];
     const slots = test.slots || [];
@@ -1733,6 +1762,15 @@
         && String(current.officer_id) === String(capabilities.user_id);
       const recall = current.can_recall && officerOwnsApplication
         ? '<button class="btn btn-secondary" id="origination-recall">Edit application</button>' : '';
+      if (current.status === 'signed_pending_approval' && capabilities.can_review) {
+        const assignedElsewhere = current.recheck_assigned_to_id
+          && String(current.recheck_assigned_to_id) !== String(capabilities.user_id);
+        if (assignedElsewhere) return '<button class="btn btn-secondary" id="origination-takeover-review">Take over re-check</button>';
+        return '<button class="btn btn-secondary" data-final-review="request_correction">Request correction</button><button class="btn btn-danger" data-final-review="decline">Decline</button><button class="btn btn-primary" data-final-review="approve">Approve and lock</button>';
+      }
+      if (capabilities.can_confirm_signing && officerOwnsApplication && ['ready_for_review', 'reviewed'].includes(current.status)) {
+        return `${recall}<button class="btn btn-primary" id="origination-confirm-signing">Continue to signing</button>`;
+      }
       if (current.status === 'ready_for_review' && !current.review_packet_ready) {
         const prepare = capabilities.can_start_signing
           ? '<button class="btn btn-primary" id="origination-prepare-review" data-primary-action="Prepare review packet">Prepare review packet</button>' : '';
@@ -1747,7 +1785,10 @@
       if (current.status === 'reviewed' && capabilities.can_start_signing) return `${recall}<button class="btn btn-primary" id="origination-start-signing" data-primary-action="Start signing">Start signing</button>`;
       return recall;
     }
-    return `${step > 0 ? `<button class="btn btn-secondary" id="wizard-previous">${iconSvg('arrowLeft')} Previous</button>` : '<span></span>'}${step < wizardSections().length - 1 ? '<button class="btn btn-primary" id="wizard-next" data-primary-action="Save & continue">Save & continue</button>' : '<button class="btn btn-primary" id="origination-submit" data-primary-action="Submit for packet preparation">Submit for packet preparation</button>'}`;
+    const finalAction = capabilities.can_confirm_signing
+      ? '<button class="btn btn-primary" id="origination-confirm-signing" data-primary-action="Confirm and start signing">Confirm and start signing</button>'
+      : '<button class="btn btn-primary" id="origination-submit" data-primary-action="Submit for packet preparation">Submit for packet preparation</button>';
+    return `${step > 0 ? `<button class="btn btn-secondary" id="wizard-previous">${iconSvg('arrowLeft')} Previous</button>` : '<span></span>'}${step < wizardSections().length - 1 ? '<button class="btn btn-primary" id="wizard-next" data-primary-action="Save & continue">Save & continue</button>' : finalAction}`;
   }
 
   function correctionChecklistMarkup() {
@@ -1761,7 +1802,7 @@
   }
 
   function recheckAssignmentMarkup() {
-    if (current?.status !== 'ready_for_review' || !current?.recheck_assigned_to_name) return '';
+    if (!['ready_for_review', 'signed_pending_approval'].includes(current?.status) || !current?.recheck_assigned_to_name) return '';
     const assignedHere = String(current.recheck_assigned_to_id) === String(capabilities.user_id);
     const detail = assignedHere
       ? 'You are the original checker responsible for this re-check.'
@@ -1851,7 +1892,9 @@
       if (column.type === 'date') {
         return `<label><span>${escapeHtml(column.label || column.key)}</span>${nativeDateControl(`data-repeat-column="${escapeHtml(column.key)}"${column.required ? ' required' : ''}`, columnValue, columnDisabled)}</label>`;
       }
-      return `<label><span>${escapeHtml(column.label || column.key)}</span><input data-repeat-column="${escapeHtml(column.key)}" type="text" value="${escapeHtml(columnValue)}"${numeric ? ' inputmode="decimal"' : ''}${column.required ? ' required' : ''}${columnDisabled ? ' disabled' : ''}></label>`;
+      const validation = column.validation || {};
+      const numericRules = numeric ? ` inputmode="${column.type === 'money' ? 'numeric' : 'decimal'}" data-numeric-input${column.type === 'money' && !lockRow ? ' data-money-input' : ''} data-min="${escapeHtml(validation.min ?? '')}" data-max="${escapeHtml(validation.max ?? '')}"` : '';
+      return `<label><span>${escapeHtml(column.label || column.key)}</span><input data-repeat-column="${escapeHtml(column.key)}" type="text" value="${escapeHtml(columnValue)}"${numericRules}${column.required ? ' required' : ''}${columnDisabled ? ' disabled' : ''}></label>`;
     }).join('')}</div></fieldset>`;
   }
 
@@ -1872,7 +1915,7 @@
       if (Number.isFinite(value)) total += value;
     });
     const output = container.querySelector('[data-repeat-total]');
-    if (output) output.textContent = total.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (output) output.textContent = total.toLocaleString('en-KE', { maximumFractionDigits: 0 });
     const add = container.querySelector('[data-repeat-add]');
     if (add) add.disabled = rows.length >= Number(container.dataset.maxItems || 11);
   }
@@ -1895,7 +1938,7 @@
       const rows = Array.isArray(value) ? value : [];
       const maxItems = Number(structure.max_items || 11);
       const itemLabel = repeatableItemLabel(field);
-      control = `<div class="repeatable-field" data-repeatable-field="${key}" data-repeatable-grid="${escapeHtml(repeatableGridStyle(field))}" data-max-items="${maxItems}" data-item-label="${escapeHtml(itemLabel)}"><div class="repeatable-rows">${rows.map((row, index) => repeatableRowMarkup(columns, row, index, disabled, false, itemLabel, repeatableGridStyle(field))).join('')}</div><div class="repeatable-summary"><button type="button" class="btn btn-secondary" data-repeat-add${disabled || rows.length >= maxItems ? ' disabled' : ''}>Add ${escapeHtml(itemLabel.toLowerCase())}</button><strong>Total: KES <span data-repeat-total>0.00</span></strong></div></div>`;
+      control = `<div class="repeatable-field" data-repeatable-field="${key}" data-repeatable-grid="${escapeHtml(repeatableGridStyle(field))}" data-max-items="${maxItems}" data-item-label="${escapeHtml(itemLabel)}"><div class="repeatable-rows">${rows.map((row, index) => repeatableRowMarkup(columns, row, index, disabled, false, itemLabel, repeatableGridStyle(field))).join('')}</div><div class="repeatable-summary"><button type="button" class="btn btn-secondary" data-repeat-add${disabled || rows.length >= maxItems ? ' disabled' : ''}>Add ${escapeHtml(itemLabel.toLowerCase())}</button><strong>Total: KES <span data-repeat-total>0</span></strong></div></div>`;
     } else if (field.type === 'choice') {
       const options = (field.options || []).map(option => {
         const code = option && typeof option === 'object' ? option.code : option;
@@ -1913,7 +1956,7 @@
         ? nativeDateControl(`data-document-field="${key}"${field.required ? ' required' : ''}`, value, disabled)
         : `<input type="${type}" data-document-field="${key}" value="${escapeHtml(value)}"${field.required ? ' required' : ''}${disabled ? ' disabled' : ''}>`;
     }
-    const correction = current.status === 'ready_for_review'
+    const correction = ['ready_for_review', 'signed_pending_approval'].includes(current.status)
       ? correctionToggle('document_field', `${document.key}.${field.key}`, `${document.name}: ${field.label || field.key}`)
       : '';
     const wrapperTag = field.type === 'repeating_group' ? 'div' : 'label';
@@ -2031,8 +2074,9 @@
     const correctionItems = decision === 'request_correction' ? [...reviewTargets.values()] : undefined;
     const button = document.getElementById('review-dialog-submit');
     button.disabled = true;
-    const result = await postJson(`/applications/${current.id}/review/`, {
-      ...reviewPacketPayload(),
+    const finalReview = current.status === 'signed_pending_approval';
+    const result = await postJson(`/applications/${current.id}/${finalReview ? 'final-review' : 'review'}/`, {
+      ...(finalReview ? finalReviewPayload() : reviewPacketPayload()),
       decision,
       reason,
       ...(correctionItems ? { correction_items: correctionItems } : {}),
@@ -2053,6 +2097,15 @@
     };
   }
 
+  function finalReviewPayload() {
+    const packageData = current?.signing_package || {};
+    return {
+      revision: current?.revision,
+      package_id: packageData.id,
+      signed_document_hash: packageData.signed_document_hash,
+    };
+  }
+
   async function submitInlineCorrections() {
     if (!reviewTargets.size) return showToast('Flag at least one field or requirement.', true);
     const items = [...reviewTargets.values()];
@@ -2060,8 +2113,10 @@
       return showToast('Add a clear instruction beside every flagged item.', true);
     }
     await runPrimaryAction('Returning...', async () => {
-      const result = await postJson(`/applications/${current.id}/review/`, {
-        ...reviewPacketPayload(), decision: 'request_correction', reason: '', correction_items: items,
+      const finalReview = current.status === 'signed_pending_approval';
+      const result = await postJson(`/applications/${current.id}/${finalReview ? 'final-review' : 'review'}/`, {
+        ...(finalReview ? finalReviewPayload() : reviewPacketPayload()), decision: 'request_correction',
+        reason: finalReview ? 'Correct the flagged signed-packet items.' : '', correction_items: items,
       });
       if (!result.ok) return showToast(result.data?.error || 'Could not request the corrections.', true);
       reviewTargets.clear();
@@ -2412,12 +2467,17 @@
         if (container.dataset.mainRepeatable) scheduleSave();
         else setSaveState('Supporting document not saved', 'dirty');
       });
+      container.addEventListener('change', event => {
+        if (event.target.matches?.('.native-date-control input[type="date"]')) {
+          syncNativeDateDisplays(event.target.closest('.native-date-control'));
+        }
+      });
     });
     document.getElementById('origination-packet-preview')?.addEventListener('click', openPacketPreview);
     if (editable && !wizardSections()[step]?.key?.startsWith('document:')) {
-      root().querySelector('.laf-grid')?.addEventListener('input', scheduleSave);
+      root().querySelectorAll('.laf-grid').forEach(grid => grid.addEventListener('input', scheduleSave));
       if (wizardSections()[step]?.key === facilitySectionKey()) {
-        root().querySelector('.laf-grid')?.addEventListener('input', scheduleCommercialQuotePreview);
+        root().querySelectorAll('.laf-grid').forEach(grid => grid.addEventListener('input', scheduleCommercialQuotePreview));
       }
     }
     else if (current.status === 'reviewed' && capabilities.can_start_signing) {
@@ -2432,6 +2492,18 @@
       if (input.dataset.field) scheduleSave();
       if (wizardSections()[step]?.key === facilitySectionKey()) scheduleCommercialQuotePreview();
     }));
+    root().querySelector('[data-clear-guarantor-two]')?.addEventListener('click', () => {
+      const card = root().querySelector('[data-guarantor-two-card]');
+      card?.querySelectorAll('input, select, textarea').forEach(input => {
+        if (input.type === 'checkbox' || input.type === 'radio') input.checked = false;
+        else input.value = '';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      syncNativeDateDisplays(card);
+      scheduleSave();
+      showToast('Guarantor 2 cleared. Save this section to omit the second guarantor.');
+    });
     root().querySelector('[data-location-type="county"]')?.addEventListener('change', syncOriginationSubCountySelect);
     document.getElementById('wizard-previous')?.addEventListener('click', async () => {
       if (current.status === 'draft' && !editable) return renderEditor(current, step - 1);
@@ -2463,6 +2535,20 @@
       return openPreview();
     });
     document.getElementById('origination-preview-early')?.addEventListener('click', () => openPreview());
+    document.getElementById('origination-confirm-signing')?.addEventListener('click', () => runPrimaryAction('Confirming and freezing...', async () => {
+      if (['draft', 'correction_required'].includes(current.status) && !(await saveDraft(true))) return;
+      if (['draft', 'correction_required'].includes(current.status) && previewedRevision !== current.revision) {
+        return showToast('Preview the complete packet for this saved revision before confirming.', true);
+      }
+      const result = await postJson(`/applications/${current.id}/confirm-signing/`, { revision: current.revision });
+      if (!result.ok) {
+        if (result.data?.errors) showServerErrors(result.data.errors);
+        return showToast(result.data?.error || 'Could not confirm and freeze the signing packet.', true);
+      }
+      current = result.data.application;
+      showToast('Packet frozen. Signing can begin.');
+      renderEditor(current, wizardSections().length - 1);
+    }));
     document.getElementById('origination-submit')?.addEventListener('click', () => runPrimaryAction('Submitting...', async () => {
       if (!(await saveDraft(true))) return;
       if (previewedRevision !== current.revision) return showToast('Preview the filled document for this saved revision before submitting.', true);
@@ -2483,6 +2569,19 @@
         });
         if (!result.ok) return showToast(result.data?.error || 'Could not record the review.', true);
         showToast('Frozen packet approved. Operations can now start signing.');
+        await load();
+      });
+    });
+    root().querySelectorAll('[data-final-review]').forEach(button => button.onclick = async () => {
+      const decision = button.dataset.finalReview;
+      if (decision === 'request_correction') return submitInlineCorrections();
+      if (decision === 'decline') return openReviewDialog('decline');
+      await runPrimaryAction('Approving...', async () => {
+        const result = await postJson(`/applications/${current.id}/final-review/`, {
+          ...finalReviewPayload(), decision: 'approve', reason: '', correction_items: [],
+        });
+        if (!result.ok) return showToast(result.data?.error || 'Could not approve the signed packet.', true);
+        showToast('Signed packet approved and locked.');
         await load();
       });
     });
@@ -2902,6 +3001,8 @@
       if (key === 'prepare') return listCounts.packet_preparation || 0;
       if (key === 'review') return listCounts.final_review || 0;
       if (key === 'signing') return (listCounts.reviewed || 0) + (listCounts.signing_pending || 0) + (listCounts.partially_signed || 0);
+      if (key === 'my_signatures') return listCounts.my_signatures || 0;
+      if (key === 'final_review') return listCounts.signed_final_review || 0;
       return '';
     };
     const cards = applications.map(item => {
@@ -2914,8 +3015,10 @@
     const queueTabs = [
       ...(capabilities.can_create ? [['mine', 'My applications'], ['corrections', 'Corrections']] : []),
       ...(capabilities.can_review ? [['review', 'Review']] : []),
+      ...(capabilities.can_review && capabilities.conditional_approval_enabled ? [['final_review', 'Final review']] : []),
       ...(capabilities.can_start_signing ? [['prepare', 'Prepare packet']] : []),
       ...(capabilities.can_start_signing || capabilities.can_staff_sign ? [['signing', 'Signing']] : []),
+      ...(capabilities.can_staff_sign ? [['my_signatures', 'My signatures']] : []),
     ].map(([key, label]) => {
       const count = queueCount(key);
       return `<button type="button" data-queue="${key}" class="queue-tab${listState.queue === key ? ' active' : ''}"><span>${label}</span>${count !== '' ? `<strong>${count}</strong>` : ''}</button>`;

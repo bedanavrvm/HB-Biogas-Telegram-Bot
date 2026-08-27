@@ -4595,6 +4595,17 @@ class OriginationDocumentTemplate(models.Model):
         'OriginationTemplateConfigurationRevision', null=True, blank=True,
         on_delete=models.PROTECT, related_name='+',
     )
+    native_consent_policy = models.ForeignKey(
+        'OriginationConsentPolicyVersion', null=True, blank=True,
+        on_delete=models.PROTECT, related_name='native_document_templates',
+        help_text='Approved consent wording embedded directly in this immutable source PDF.',
+    )
+    native_consent_attestation_reference = models.CharField(max_length=160, blank=True, default='')
+    native_consent_attested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='attested_native_origination_consent_templates',
+    )
+    native_consent_attested_at = models.DateTimeField(null=True, blank=True)
     drive_file_id = models.CharField(max_length=255, blank=True, default='')
     drive_url = models.URLField(max_length=1000, blank=True, default='')
     upload_error = models.TextField(blank=True, default='')
@@ -4822,6 +4833,8 @@ class LoanOriginationApplication(models.Model):
     STATUS_SIGNING_PENDING = 'signing_pending'
     STATUS_PARTIALLY_SIGNED = 'partially_signed'
     STATUS_FULLY_SIGNED = 'fully_signed'
+    STATUS_SIGNED_PENDING_APPROVAL = 'signed_pending_approval'
+    STATUS_APPROVED = 'approved'
     STATUS_CORRECTION_REQUIRED = 'correction_required'
     STATUS_DECLINED = 'declined'
     STATUS_EXPIRED = 'expired'
@@ -4833,6 +4846,8 @@ class LoanOriginationApplication(models.Model):
         (STATUS_SIGNING_PENDING, 'Signing pending'),
         (STATUS_PARTIALLY_SIGNED, 'Partially signed'),
         (STATUS_FULLY_SIGNED, 'Fully signed'),
+        (STATUS_SIGNED_PENDING_APPROVAL, 'Signed — pending JBL approval'),
+        (STATUS_APPROVED, 'Approved and locked'),
         (STATUS_CORRECTION_REQUIRED, 'Correction required'),
         (STATUS_DECLINED, 'Declined'),
         (STATUS_EXPIRED, 'Expired'),
@@ -4896,6 +4911,11 @@ class LoanOriginationApplication(models.Model):
         help_text='Checker responsible for verifying the current correction cycle.',
     )
     reviewed_at = models.DateTimeField(null=True, blank=True)
+    final_reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='final_reviewed_loan_origination_applications',
+    )
+    final_reviewed_at = models.DateTimeField(null=True, blank=True)
     submitted_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -5222,10 +5242,12 @@ class OriginationCorrectionItem(models.Model):
     TARGET_FIELD = 'field'
     TARGET_REQUIREMENT = 'requirement'
     TARGET_DOCUMENT_FIELD = 'document_field'
+    TARGET_SIGNATURE_SLOT = 'signature_slot'
     TARGET_CHOICES = [
         (TARGET_FIELD, 'Application field'),
         (TARGET_REQUIREMENT, 'Product requirement'),
         (TARGET_DOCUMENT_FIELD, 'Supporting-document field'),
+        (TARGET_SIGNATURE_SLOT, 'Signature slot'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -5374,6 +5396,84 @@ class OriginationApplicationDocument(models.Model):
         return f'{self.application.reference_number}: {self.name}'
 
 
+class OriginationConsentPolicyVersion(models.Model):
+    """Immutable approved wording bound to a conditional signing packet."""
+
+    STATUS_DRAFT = 'draft'
+    STATUS_ACTIVE = 'active'
+    STATUS_RETIRED = 'retired'
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, 'Draft'), (STATUS_ACTIVE, 'Active'), (STATUS_RETIRED, 'Retired'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    version = models.CharField(max_length=32, unique=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_DRAFT, db_index=True)
+    packet_clause = models.TextField()
+    signer_consent_text = models.TextField()
+    signer_completion_text = models.TextField()
+    resigning_text = models.TextField()
+    content_sha256 = models.CharField(max_length=64, unique=True, editable=False)
+    approval_reference = models.CharField(max_length=160)
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='approved_origination_consent_policies',
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    retired_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='retired_origination_consent_policies',
+    )
+    retired_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='created_origination_consent_policies',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [models.UniqueConstraint(
+            fields=['status'], condition=models.Q(status='active'),
+            name='one_active_origination_consent_policy',
+        )]
+
+    def _content_hash(self):
+        import hashlib
+        import json
+        content = {
+            'version': self.version,
+            'packet_clause': self.packet_clause,
+            'signer_consent_text': self.signer_consent_text,
+            'signer_completion_text': self.signer_completion_text,
+            'resigning_text': self.resigning_text,
+        }
+        return hashlib.sha256(json.dumps(
+            content, sort_keys=True, separators=(',', ':'), ensure_ascii=False,
+        ).encode('utf-8')).hexdigest()
+
+    def clean(self):
+        super().clean()
+        if self.status == self.STATUS_ACTIVE and not (
+            self.approval_reference.strip() and self.approved_by_id and self.approved_at
+        ):
+            raise ValidationError('An active consent policy requires recorded compliance approval.')
+        if self.status == self.STATUS_RETIRED and not (self.retired_by_id and self.retired_at):
+            raise ValidationError('A retired consent policy requires retirement audit details.')
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError('Origination consent policy versions are immutable.')
+        self.content_sha256 = self._content_hash()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Origination consent policy versions cannot be deleted.')
+
+    def __str__(self):
+        return f'{self.version} ({self.status})'
+
+
 class OriginationSigningPackage(models.Model):
     """Stable cross-system link from one frozen revision to e-signatures."""
 
@@ -5413,6 +5513,12 @@ class OriginationSigningPackage(models.Model):
     frozen_unsigned_document = models.BinaryField(blank=True, default=bytes, editable=False)
     unsigned_document_hash = models.CharField(max_length=64, blank=True, default='')
     review_scope_sha256 = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    conditional_approval = models.BooleanField(default=False, db_index=True)
+    consent_policy = models.ForeignKey(
+        OriginationConsentPolicyVersion, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='signing_packages',
+    )
+    consent_policy_snapshot = models.JSONField(default=dict, blank=True)
     approved_unsigned_document_hash = models.CharField(max_length=64, blank=True, default='')
     approved_review_scope_sha256 = models.CharField(max_length=64, blank=True, default='')
     prepared_by = models.ForeignKey(
@@ -5425,6 +5531,14 @@ class OriginationSigningPackage(models.Model):
         related_name='reviewed_origination_signing_packages',
     )
     reviewed_at = models.DateTimeField(null=True, blank=True)
+    final_reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='final_reviewed_origination_signing_packages',
+    )
+    final_reviewed_at = models.DateTimeField(null=True, blank=True)
+    final_decision = models.CharField(max_length=24, blank=True, default='')
+    final_review_reason = models.TextField(blank=True, default='')
+    final_approved_signed_document_hash = models.CharField(max_length=64, blank=True, default='')
     signed_document_hash = models.CharField(max_length=64, blank=True, default='')
     final_document_reference = models.TextField(blank=True, default='')
     final_drive_file_id = models.CharField(max_length=255, blank=True, default='')
@@ -5719,6 +5833,10 @@ class OriginationSigningAction(models.Model):
         OriginationSignerSession, null=True, blank=True, on_delete=models.PROTECT,
         related_name='actions',
     )
+    supersedes = models.OneToOneField(
+        'self', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='superseded_by',
+    )
     request_id = models.CharField(max_length=128, db_index=True)
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
@@ -5726,10 +5844,6 @@ class OriginationSigningAction(models.Model):
     class Meta:
         ordering = ['created_at', 'id']
         constraints = [
-            models.UniqueConstraint(
-                fields=['package', 'document_key', 'slot_key'],
-                name='unique_origination_signing_slot_action',
-            ),
             models.UniqueConstraint(
                 fields=['package', 'request_id'],
                 name='unique_origination_signing_action_request',
@@ -5743,6 +5857,30 @@ class OriginationSigningAction(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ValidationError('Origination signing actions cannot be deleted.')
+
+
+class OriginationSigningActionInvalidation(models.Model):
+    """Append-only checker evidence invalidating one otherwise immutable action."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    action = models.OneToOneField(
+        OriginationSigningAction, on_delete=models.PROTECT, related_name='invalidation',
+    )
+    reason = models.CharField(max_length=1000)
+    invalidated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='invalidated_origination_signing_actions',
+    )
+    request_id = models.CharField(max_length=128, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError('Origination signature invalidations are append-only.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Origination signature invalidations cannot be deleted.')
 
 
 class PortalVoiceTranscriptionAttempt(models.Model):

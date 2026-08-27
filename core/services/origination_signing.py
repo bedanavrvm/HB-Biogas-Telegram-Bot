@@ -359,7 +359,7 @@ def _slot_overlay(
         elif action.action_type == OriginationSigningAction.TYPE_DATE_SIGNED:
             signed_date = str((action.metadata or {}).get('signed_date') or '')
             try:
-                signed_date = date.fromisoformat(signed_date).strftime('%d-%m-%y')
+                signed_date = date.fromisoformat(signed_date).strftime('%d/%m/%Y')
             except ValueError:
                 pass
             pdf.setFillColorRGB(.09, .14, .12)
@@ -496,7 +496,7 @@ def render_verified_package(package: OriginationSigningPackage) -> bytes:
     content = frozen_unsigned_package_content(package)
     manifest = package.document_manifest_snapshot or []
     actions = list(package.actions.filter(
-        mode=OriginationSigningAction.MODE_VERIFIED,
+        mode=OriginationSigningAction.MODE_VERIFIED, invalidation__isnull=True,
     ).select_related('stamp_asset'))
     actions_by_document: dict[str, list[OriginationSigningAction]] = {}
     for action in actions:

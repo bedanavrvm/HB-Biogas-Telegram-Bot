@@ -46,6 +46,7 @@
   let drawGesture = null;
   let snapEnabled = true;
   let activeSnapGuides = { x: null, y: null };
+  let manualGuideAxis = '';
   const detectedSnapGuides = new Map();
 
   const fields = () => configuration?.field_overlay_manifest?.fields || {};
@@ -139,11 +140,22 @@
     }
     return match?.value ?? null;
   };
+  const manualGuides = () => {
+    configuration.calibration_guides ||= { pages: {} };
+    configuration.calibration_guides.pages ||= {};
+    const key = String(page);
+    configuration.calibration_guides.pages[key] ||= { x: [], y: [] };
+    return configuration.calibration_guides.pages[key];
+  };
   function snapBox(spec, box, editKind = 'move', bypass = false) {
     activeSnapGuides = { x: null, y: null };
     if (!snapEnabled || bypass) return box;
-    const guides = detectedSnapGuides.get(page);
-    if (!guides) return box;
+    const detected = detectedSnapGuides.get(page) || { x: [], y: [] };
+    const manual = manualGuides();
+    const guides = {
+      x: [...(detected.x || []), ...(manual.x || [])],
+      y: [...(detected.y || []), ...(manual.y || [])],
+    };
     const unit = unitsScale(spec);
     const threshold = 7 / Math.max(renderedScale() * unit, .01);
     const xGuides = guides.x.map(value => value / unit);
@@ -173,19 +185,43 @@
     const context = canvas.getContext('2d', { willReadFrequently: true });
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
     const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-    const dark = (x, y) => { const offset = (y * canvas.width + x) * 4; return pixels[offset] + pixels[offset + 1] + pixels[offset + 2] < 360; };
-    const consolidate = values => values.filter((value, index) => !index || value - values[index - 1] > 2);
+    const dark = (x, y) => {
+      const offset = (y * canvas.width + x) * 4;
+      const r = pixels[offset], g = pixels[offset + 1], b = pixels[offset + 2];
+      const luminance = .2126 * r + .7152 * g + .0722 * b;
+      const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+      return luminance < 205 || (chroma > 42 && luminance < 230);
+    };
+    const consolidate = values => {
+      const groups = [];
+      values.forEach(value => {
+        const current = groups[groups.length - 1];
+        if (!current || value - current[current.length - 1] > 3) groups.push([value]);
+        else current.push(value);
+      });
+      return groups.map(group => group.reduce((sum, value) => sum + value, 0) / group.length);
+    };
     const horizontal = [];
     for (let y = 0; y < canvas.height; y += 1) {
-      let run = 0, longest = 0;
-      for (let x = 0; x < canvas.width; x += 1) { run = dark(x, y) ? run + 1 : 0; longest = Math.max(longest, run); }
-      if (longest >= canvas.width * .12) horizontal.push(y);
+      let run = 0, longest = 0, count = 0, gap = 0;
+      for (let x = 0; x < canvas.width; x += 1) {
+        if (dark(x, y)) { run += gap + 1; gap = 0; count += 1; }
+        else if (run && gap < 2) gap += 1;
+        else { run = 0; gap = 0; }
+        longest = Math.max(longest, run);
+      }
+      if (longest >= canvas.width * .07 || count >= canvas.width * .18) horizontal.push(y);
     }
     const vertical = [];
     for (let x = 0; x < canvas.width; x += 1) {
-      let run = 0, longest = 0;
-      for (let y = 0; y < canvas.height; y += 1) { run = dark(x, y) ? run + 1 : 0; longest = Math.max(longest, run); }
-      if (longest >= canvas.height * .06) vertical.push(x);
+      let run = 0, longest = 0, count = 0, gap = 0;
+      for (let y = 0; y < canvas.height; y += 1) {
+        if (dark(x, y)) { run += gap + 1; gap = 0; count += 1; }
+        else if (run && gap < 2) gap += 1;
+        else { run = 0; gap = 0; }
+        longest = Math.max(longest, run);
+      }
+      if (longest >= canvas.height * .04 || count >= canvas.height * .1) vertical.push(x);
     }
     detectedSnapGuides.set(page, {
       x: consolidate(vertical).map(value => value / canvas.width * Number(size.width)),
@@ -570,12 +606,39 @@
       guide.style.top = `${(Number(size.height) - activeSnapGuides.y) * scale}px`;
       layer.appendChild(guide);
     }
+    const persistent = manualGuides();
+    (persistent.x || []).forEach(value => {
+      const guide = document.createElement('div');
+      guide.className = 'calibration-manual-guide calibration-manual-guide-x';
+      guide.style.left = `${Number(value) * scale}px`;
+      layer.appendChild(guide);
+    });
+    (persistent.y || []).forEach(value => {
+      const guide = document.createElement('div');
+      guide.className = 'calibration-manual-guide calibration-manual-guide-y';
+      guide.style.top = `${(Number(size.height) - Number(value)) * scale}px`;
+      layer.appendChild(guide);
+    });
     layer.onpointerdown = beginDraw;
     layer.classList.toggle('draw-active', drawing);
   }
 
   function beginDraw(event) {
-    if (operationState === 'publishing' || published || !drawing || event.target !== event.currentTarget || !currentSpec()) return;
+    if (operationState === 'publishing' || published || event.target !== event.currentTarget) return;
+    if (manualGuideAxis) {
+      event.preventDefault();
+      const before = configurationHash(configuration);
+      const point = screenPointToPage(event.clientX, event.clientY);
+      const guides = manualGuides();
+      const value = Math.round(Number(point[manualGuideAxis]) * 100) / 100;
+      guides[manualGuideAxis] = [...new Set([...(guides[manualGuideAxis] || []), value])].sort((a, b) => a - b);
+      const label = manualGuideAxis === 'x' ? 'vertical' : 'horizontal';
+      manualGuideAxis = '';
+      markDirty(); recordHistory(`Add ${label} manual guide`, before); renderOverlays();
+      status(`Added ${label} guide. Placements now snap to it.`);
+      return;
+    }
+    if (!drawing || !currentSpec()) return;
     event.preventDefault();
     const layer = event.currentTarget;
     layer.setPointerCapture?.(event.pointerId);
@@ -1296,6 +1359,23 @@
     event.currentTarget.setAttribute('aria-pressed', String(snapEnabled));
     status(snapEnabled ? 'PDF line snapping enabled. Hold Alt while dragging to bypass it.' : 'PDF line snapping disabled.');
     renderOverlays();
+  };
+  $('cal-guide-horizontal').onclick = () => {
+    manualGuideAxis = 'y'; drawing = false; renderOverlays();
+    status('Tap the exact horizontal form line to add a persistent snapping guide.', false, true);
+  };
+  $('cal-guide-vertical').onclick = () => {
+    manualGuideAxis = 'x'; drawing = false; renderOverlays();
+    status('Tap the exact vertical form line to add a persistent snapping guide.', false, true);
+  };
+  $('cal-guide-clear').onclick = () => {
+    const guides = manualGuides();
+    if (!(guides.x || []).length && !(guides.y || []).length) return status('This page has no manual guides.');
+    const before = configurationHash(configuration);
+    configuration.calibration_guides.pages[String(page)] = { x: [], y: [] };
+    manualGuideAxis = '';
+    markDirty(); recordHistory('Clear manual guides', before); renderOverlays();
+    status('Manual guides cleared from this page.');
   };
   $('cal-undo').onclick = undo;
   $('cal-redo').onclick = redo;

@@ -62,7 +62,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **Portal** | The aggregated staff-facing view across pipeline/workflow data, served by `core/api/portal_views.py`. |
 | **Portal report** | An IT-only, catalogue-constrained live report over canonical Portal cases. It is not a generic SQL/ORM builder and has no cross-workflow identity join. |
 | **Complaint case import batch** | The auditable record of one Superuser-authorized WhatsApp complaint export import. It attributes imported cases to the uploader and source message without making the spreadsheet or Telegram message a second workflow database. |
-| **Loan origination application** | A revision-controlled, product-schema snapshot captured by a field officer, independently reviewed, and frozen into a local signing package before any e-sign dispatch. |
+| **Loan origination application** | A revision-controlled, product-schema snapshot captured by a field officer and frozen into a local signing package. Legacy packets retain pre-sign review; governed conditional packets receive independent final approval after all provisional signatures and before archival/finality. |
 | **Origination applicant** | The person or entity applying for a loan. Use Applicant in Origination forms and operational UI; Customer is the matched global identity, Borrower is the contractual/signing role, and Party is the collective document-participant term. |
 | **Origination data field** | A global canonical variable shared by product forms and LAF templates. Its key and type are immutable; product versions may customize presentation while applications retain governed schema snapshots. |
 | **Origination document packet** | The ordered generated-document set for one origination application: exactly one primary LAF plus any required, rule-triggered, or officer-selected supporting templates. Every selected document retains its own immutable template, mapping, field, signer, preview, and signing snapshot. |
@@ -163,6 +163,8 @@ Key modules:
 - `portal_reporting.py` — IT-only, catalogue-constrained live Portal reports, chart aggregates, XLSX exports, and reporting audit events
 - `loan_origination.py` — product-neutral origination schemas, revision-aware drafts, maker-checker review, append-only events, and local signing-package preparation
 - `origination_esign.py` — verified packet signing sessions, immutable consent/signature binding, Africa's Talking OTP delivery, throttling, and signed-PDF archival
+- `origination_consent.py` — immutable compliance-approved conditional-consent versions and deterministic signed-packet notice pages
+- `origination_final_review.py` — independent post-sign approval, exact-hash review, targeted signature invalidation, and correction routing
 - `invoice_finance_origination_seed.py` — reviewed, idempotent Invoice Finance canonical-field/schema/signer contract used by the dry-run-first LAF setup command; it never publishes PDF coordinates
 - `generic_jawabu_laf_seed.py` — reviewed reusable Jawabu LAF canonical-field, repeating-table, evidence, and signer contract; product assignment and PDF coordinates remain explicit Admin actions
 - `reporting_relationships.py` — read-only model-relationship inventory used to govern future report-source expansion; it never creates cross-workflow customer joins
@@ -270,6 +272,7 @@ This is a template of variables this class of system typically needs. Treat it a
 | `ORIGINATION_EVIDENCE_MAX_FILE_SIZE_MB` / `ORIGINATION_EVIDENCE_MAX_FILES_PER_REQUIREMENT` / `ORIGINATION_EVIDENCE_MAX_TOTAL_UPLOAD_MB` | File, requirement, and application limits for validated Origination requirement evidence stored under the restricted Drive media root | No |
 | `ORIGINATION_TEST_SIGNING_ENABLED` | Enables the visibly watermarked drawn/typed-signature and controlled-stamp simulator outside production only; defaults to disabled | No |
 | `ORIGINATION_ESIGN_ENABLED` | Explicit master gate for verified Origination e-signing; defaults to disabled | No |
+| `ORIGINATION_CONDITIONAL_APPROVAL_ENABLED` | Enables the officer-confirmed, post-sign checker flow only when an immutable approved consent policy is active; defaults to disabled | No |
 | `AFRICASTALKING_SMS_ENVIRONMENT` | Africa's Talking mode (`sandbox` or `production`); must agree with the application environment | No |
 | `AFRICASTALKING_USERNAME` / `AFRICASTALKING_API_KEY` | Server-only Africa's Talking credentials for signing invitations and OTP delivery | Yes |
 | `AFRICASTALKING_SENDER_ID` | Optional approved Africa's Talking production Sender ID | Treat as sensitive operational configuration |

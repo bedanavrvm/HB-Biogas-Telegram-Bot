@@ -156,6 +156,7 @@ def queue_capabilities(*, user, access: dict | None) -> dict:
             signer_role for signer_role, allowed_roles in STAFF_SIGNER_ACCESS_ROLES.items()
             if allowed_roles.intersection(access_roles)
         )
+    from core.services.origination_consent import conditional_approval_enabled
     return {
         'user_id': getattr(user, 'pk', None),
         'is_superuser': bool(getattr(user, 'is_superuser', False)),
@@ -163,5 +164,9 @@ def queue_capabilities(*, user, access: dict | None) -> dict:
         'can_review': 'portal.origination.review' in capabilities,
         'can_start_signing': 'portal.origination.signing.start' in capabilities,
         'can_staff_sign': 'portal.origination.signing.staff' in capabilities,
+        'conditional_approval_enabled': conditional_approval_enabled(),
+        'can_confirm_signing': (
+            conditional_approval_enabled() and 'portal.origination.create' in capabilities
+        ),
         'staff_signer_roles': staff_signer_roles,
     }

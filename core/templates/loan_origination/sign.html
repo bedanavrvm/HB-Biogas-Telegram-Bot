@@ -29,7 +29,7 @@
         <div class="signature-tabs" role="tablist"><button class="active" id="mode-drawn" type="button">Draw</button><button id="mode-typed" type="button">Type</button></div>
         <div id="draw-panel"><canvas id="signature-pad" width="800" height="260" aria-label="Draw your signature"></canvas><button id="signature-clear" class="link-button" type="button">Clear signature</button></div>
         <label id="type-panel" hidden><span>Type your full legal name</span><input id="typed-name" autocomplete="name" maxlength="120"></label>
-        <label class="consent"><input id="packet-consent" type="checkbox"><span>I have reviewed every document shown in this packet. I agree to sign the packet as one atomic loan application and understand that I cannot accept only some documents.</span></label>
+        <label class="consent"><input id="packet-consent" type="checkbox"><span id="packet-consent-text">I have reviewed every document shown in this packet. I agree to sign the packet as one atomic loan application and understand that I cannot accept only some documents.</span></label>
         <label id="assisted-confirmation" class="consent" hidden><input id="assisted-consent" type="checkbox"><span>I am personally signing on a JBL officer’s device and will enter the OTP sent to my phone.</span></label>
         <button id="save-signature" class="primary" type="button">Accept packet and save signature</button>
       </section>
@@ -41,6 +41,6 @@
       </section>
     </section>
   </main>
-  <script src="{% static 'miniapp/origination_signing.js' %}?v=20260821-2"></script>
+  <script src="{% static 'miniapp/origination_signing.js' %}?v=20260827-1"></script>
 </body>
 </html>

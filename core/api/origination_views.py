@@ -34,6 +34,7 @@ from core.services.loan_origination import (
     OriginationConflict,
     OriginationError,
     OriginationRecallConfirmationRequired,
+    confirm_and_start_conditional_signing,
     create_application,
     frozen_unsigned_package_content,
     prepare_review_package,
@@ -60,6 +61,49 @@ from core.services.origination_signing import render_test_package, simulate_slot
 
 
 logger = logging.getLogger(__name__)
+
+
+def _pending_staff_signature_application_ids(scoped, signer_roles: list[str]) -> list[str]:
+    """Return case IDs, not slot counts, awaiting one of this actor's exact roles."""
+    roles = {str(item or '') for item in signer_roles}
+    if not roles:
+        return []
+    packages = OriginationSigningPackage.objects.filter(
+        application__in=scoped,
+        status__in=[
+            OriginationSigningPackage.STATUS_PENDING,
+            OriginationSigningPackage.STATUS_IN_PROGRESS,
+        ],
+    ).prefetch_related('actions__invalidation').order_by('application_id', '-created_at')
+    result = []
+    seen = set()
+    for package in packages:
+        if package.application_id in seen:
+            continue
+        complete = {
+            (item.document_key, item.slot_key)
+            for item in package.actions.all()
+            if item.mode == item.MODE_VERIFIED and not hasattr(item, 'invalidation')
+        }
+        pending = False
+        for participant in package.participants_snapshot or []:
+            if not isinstance(participant, dict) or participant.get('role') not in roles:
+                continue
+            if not participant.get('applicable', True):
+                continue
+            for slot in participant.get('slots') or []:
+                if not isinstance(slot, dict) or not slot.get('required'):
+                    continue
+                identity = (str(slot.get('document_key') or ''), str(slot.get('key') or ''))
+                if identity not in complete:
+                    pending = True
+                    break
+            if pending:
+                break
+        if pending:
+            seen.add(package.application_id)
+            result.append(str(package.application_id))
+    return result
 
 
 def _public_signing_token(request) -> str:
@@ -303,6 +347,13 @@ def portal_origination_applications(request):
         status_counts['final_review'] = scoped.filter(
             status=LoanOriginationApplication.STATUS_READY_FOR_REVIEW,
         ).filter(prepared_review_filter).distinct().count()
+        my_signature_ids = _pending_staff_signature_application_ids(
+            scoped, capabilities.get('staff_signer_roles') or [],
+        )
+        status_counts['my_signatures'] = len(my_signature_ids)
+        status_counts['signed_final_review'] = scoped.filter(
+            status=LoanOriginationApplication.STATUS_SIGNED_PENDING_APPROVAL,
+        ).count()
         queue_name = str(request.GET.get('queue') or '').strip()
         if queue_name == 'mine':
             queryset = queryset.filter(officer=user)
@@ -333,6 +384,18 @@ def portal_origination_applications(request):
                     LoanOriginationApplication.STATUS_SIGNING_PENDING,
                     LoanOriginationApplication.STATUS_PARTIALLY_SIGNED,
                 ])
+        elif queue_name == 'my_signatures':
+            if not capabilities['can_staff_sign']:
+                queryset = queryset.none()
+            else:
+                queryset = queryset.filter(pk__in=my_signature_ids)
+        elif queue_name == 'final_review':
+            if not capabilities['can_review']:
+                queryset = queryset.none()
+            else:
+                queryset = queryset.filter(
+                    status=LoanOriginationApplication.STATUS_SIGNED_PENDING_APPROVAL,
+                )
         status_filter = str(request.GET.get('status') or '').strip()
         if status_filter:
             allowed_statuses = {key for key, _label in LoanOriginationApplication.STATUS_CHOICES}
@@ -483,6 +546,33 @@ def portal_origination_submit(request, application_id: str):
 
 @csrf_exempt
 @require_http_methods(['POST'])
+def portal_origination_confirm_signing(request, application_id: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if (error := _capability_error(request, 'portal.origination.create', application)):
+        return error
+    if (error := _application_access_error(request, application)):
+        return error
+    try:
+        body = _body(request)
+        package, replayed = confirm_and_start_conditional_signing(
+            application_id=application.pk, actor=request.portal_user,
+            expected_revision=int(body.get('revision')),
+            request_id=_request_id(request, body),
+        )
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    return JsonResponse({
+        'ok': True, 'replayed': replayed,
+        'application': serialize_application(package.application),
+    })
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
 def portal_origination_recall(request, application_id: str):
     application = _application(application_id)
     if not application:
@@ -584,6 +674,34 @@ def portal_origination_review(request, application_id: str):
             package_id=body.get('package_id'),
             expected_unsigned_hash=str(body.get('unsigned_document_hash') or ''),
             expected_review_scope_hash=str(body.get('review_scope_sha256') or ''),
+        )
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    return JsonResponse({'ok': True, 'application': serialize_application(reviewed)})
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_origination_final_review(request, application_id: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if (error := _capability_error(request, 'portal.origination.review', application)):
+        return error
+    if (error := _application_access_error(request, application)):
+        return error
+    try:
+        from core.services.origination_final_review import final_review_signed_packet
+        body = _body(request)
+        reviewed = final_review_signed_packet(
+            application_id=application.pk, package_id=body.get('package_id'),
+            actor=request.portal_user, expected_revision=int(body.get('revision')),
+            expected_signed_hash=str(body.get('signed_document_hash') or ''),
+            decision=str(body.get('decision') or ''), reason=str(body.get('reason') or ''),
+            correction_items=body.get('correction_items'),
+            request_id=_request_id(request, body),
         )
     except OriginationConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
@@ -1070,8 +1188,6 @@ def portal_origination_signer_session(request, application_id: str):
     application = _application(application_id)
     if not application:
         return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
-    if (error := _capability_error(request, 'portal.origination.signing.start', application)):
-        return error
     if (error := _application_access_error(request, application)):
         return error
     try:
@@ -1079,6 +1195,17 @@ def portal_origination_signer_session(request, application_id: str):
         from core.services.origination_esign import create_signer_session, send_signing_invitation, signing_url
         body = _body(request)
         package = application.signing_packages.get(pk=body.get('package_id'))
+        capability = (
+            'portal.origination.create' if package.conditional_approval
+            else 'portal.origination.signing.start'
+        )
+        if (error := _capability_error(request, capability, application)):
+            return error
+        if package.conditional_approval and (
+            application.officer_id != request.portal_user.pk
+            and not getattr(request.portal_user, 'is_superuser', False)
+        ):
+            return JsonResponse({'ok': False, 'error': 'Only the assigned officer may dispatch this packet.'}, status=403)
         session, raw_token, replayed = create_signer_session(
             package_id=package.pk, signer_role=str(body.get('signer_role') or ''),
             actor=request.portal_user, request_id=_request_id(request, body),
@@ -1111,8 +1238,6 @@ def portal_origination_reset_signer_session(request, application_id: str):
     application = _application(application_id)
     if not application:
         return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
-    if (error := _capability_error(request, 'portal.origination.signing.start', application)):
-        return error
     if (error := _application_access_error(request, application)):
         return error
     try:
@@ -1124,6 +1249,17 @@ def portal_origination_reset_signer_session(request, application_id: str):
         ).first()
         if not old_session:
             return JsonResponse({'ok': False, 'error': 'Signer session not found.'}, status=404)
+        capability = (
+            'portal.origination.create' if old_session.package.conditional_approval
+            else 'portal.origination.signing.start'
+        )
+        if (error := _capability_error(request, capability, application)):
+            return error
+        if old_session.package.conditional_approval and (
+            application.officer_id != request.portal_user.pk
+            and not getattr(request.portal_user, 'is_superuser', False)
+        ):
+            return JsonResponse({'ok': False, 'error': 'Only the assigned officer may reset this packet.'}, status=403)
         session, raw_token = reset_signer_session(
             session_id=old_session.pk, actor=request.portal_user,
             reason=str(body.get('reason') or ''), request_id=_request_id(request, body),

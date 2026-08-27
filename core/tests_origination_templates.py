@@ -207,7 +207,8 @@ class OriginationTemplateValidationTests(SimpleTestCase):
         ]})
         text = PdfReader(BytesIO(rendered)).pages[0].extract_text()
         self.assertIn('Synthetic cooker', text)
-        self.assertIn('12,500.00', text)
+        self.assertIn('12,500', text)
+        self.assertNotIn('12,500.00', text)
         self.assertIn('Synthetic television', text)
 
     def test_latest_family_compatibility_rejects_removed_required_signer_slot(self):

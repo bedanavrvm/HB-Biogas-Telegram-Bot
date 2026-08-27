@@ -239,14 +239,20 @@ optional related records after acquiring the base-row lock.
 The principal states are:
 
 ```text
-draft -> ready_for_review -> reviewed -> signing_pending
-   ^            |
-   |            v
-   +--- correction_required
+Legacy:      draft -> ready_for_review -> reviewed -> signing_pending -> fully_signed
+Conditional: draft -> ready_for_review -> signing_pending -> partially_signed
+                                                        -> signed_pending_approval
+                                                        -> approved
+                                                        -> correction_required / declined
 
-Terminal/other outcomes: declined, expired, cancelled, partially_signed,
-fully_signed.
+Other outcomes: expired and cancelled.
 ```
+
+The conditional path is disabled by default. It is available only when
+`ORIGINATION_CONDITIONAL_APPROVAL_ENABLED=True` and exactly one immutable,
+compliance-approved `OriginationConsentPolicyVersion` is active. Existing
+partially or fully signed legacy packets retain their original consent and
+pre-sign review path; they are never silently converted.
 
 Preserve these behaviors:
 
@@ -274,6 +280,15 @@ Preserve these behaviors:
 10. Requirements/evidence must satisfy their configured enforcement stage.
 11. `prepare-signing` is a compatibility alias that starts signing only for an
    already approved frozen package. It never renders or replaces a package.
+12. In the conditional path, the assigned officer confirms the latest preview,
+   the server freezes the packet, and the approved clause is placed inside the
+   exact PDF bytes before hashing. A source PDF may skip the prepended notice
+   page only when its exact SHA-256 has a recorded native-clause attestation.
+13. Conditional signatures are provisional until an independent checker opens
+   and approves the exact signed hash. Approval moves the case to `approved`
+   and only then schedules permanent archival. Data/evidence corrections cancel
+   and supersede the packet; signature-only corrections append an invalidation
+   and require only the selected slot to sign again.
 
 All transitions record actor, timestamp, request ID, revision, and safe before/
 after metadata. Original application and document snapshots remain available for
@@ -324,10 +339,12 @@ The browser uses the canonical `/api/origination/api` prefix:
 | `POST /applications/<id>/documents/<key>/preview/` | Validate and render one selected document. |
 | `POST /applications/<id>/packet/preview/` | Validate and render the selected packet. |
 | `POST /applications/<id>/submit/` | Submit a complete, previewed revision. |
+| `POST /applications/<id>/confirm-signing/` | Assigned officer validates, freezes, and starts a governed conditional packet. |
 | `POST /applications/<id>/recall/` | Officer recall to Draft; prepared/approved packets require explicit package/hash confirmation. |
 | `POST /applications/<id>/prepare-review-packet/` | Operations freezes the complete unsigned review scope. |
 | `POST /applications/<id>/review-packet/preview/` | Hash-verifies and records checker inspection of the frozen packet. |
 | `POST /applications/<id>/review/` | Decide the exact frozen package; package ID and both hashes are mandatory. |
+| `POST /applications/<id>/final-review/` | Independently approve, correct, or decline the exact fully signed conditional packet. |
 | `POST /applications/<id>/correction/takeover/` | Reassign a correction re-check with an audited reason. |
 | `POST /reviewer-notices/<id>/seen/` | Mark an approval-invalidation alert seen by its recipient. |
 | `POST /applications/<id>/signing-requirements/` | Save signing requirements for the current revision. |
@@ -431,6 +448,7 @@ that approval is retained when Operations reissues the same signer session.
 | `ORIGINATION_EVIDENCE_MAX_TOTAL_UPLOAD_MB` | Default 30 MB per application. |
 | `ORIGINATION_TEST_SIGNING_ENABLED` | Watermarked simulator outside production only; default `False`. |
 | `ORIGINATION_ESIGN_ENABLED` | Explicit master gate for verified signing; default `False`. |
+| `ORIGINATION_CONDITIONAL_APPROVAL_ENABLED` | Enables post-sign independent approval only after an approved consent policy is active; default `False`. |
 | `AFRICASTALKING_SMS_ENVIRONMENT` | `sandbox` or `production`; must agree with the application environment. |
 | `AFRICASTALKING_USERNAME`, `AFRICASTALKING_API_KEY` | Server-only provider credentials. Sandbox requires username `sandbox`. |
 | `AFRICASTALKING_SENDER_ID` | Optional approved production Sender ID. |

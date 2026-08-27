@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from io import BytesIO
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
 from pypdf import PdfReader, PdfWriter
@@ -44,7 +44,7 @@ def _formatted_value(value: Any, spec: dict[str, Any]) -> str:
     value_format = str(spec.get('value_format') or '')
     if value_format == 'money':
         try:
-            return f'{Decimal(text):,.2f}'
+            return f'{Decimal(text).quantize(Decimal("1"), rounding=ROUND_HALF_UP):,.0f}'
         except (InvalidOperation, ValueError):
             return text
     if value_format in {'date_dmy', 'date_dmy_short', 'date_long'}:
@@ -277,7 +277,13 @@ def render_template(source: bytes, config: dict[str, Any], context: dict[str, An
         context_key = str(spec.get('context_key') or '')
         display_value = context.get(context_key)
         condition_value = canonical_values.get(context_key, display_value)
-        rendered_spec = {**spec, 'value_format': spec.get('value_format') or ('date_dmy_short' if context_key in date_fields else '')}
+        rendered_spec = {
+            **spec,
+            'value_format': (
+                'date_dmy' if context_key in date_fields
+                else spec.get('value_format') or ''
+            ),
+        }
         fields_by_page.setdefault(page_number, []).append((rendered_spec, display_value, condition_value))
     signature_slots_by_page: dict[int, list[dict]] = {}
     if context.get('_show_signature_slots'):

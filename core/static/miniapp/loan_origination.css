@@ -280,7 +280,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 .guarantor-groups { display: grid; gap: 12px; }
 .guarantor-card { min-width: 0; margin: 0; padding: 10px; border: 1px solid color-mix(in srgb, var(--laf-green) 35%, var(--laf-line)); border-radius: 11px; background: color-mix(in srgb, var(--laf-green) 4%, var(--laf-surface)); }
 .guarantor-card.is-optional { border-color: var(--laf-line); background: var(--laf-surface); }
-.guarantor-card > legend { display: grid; gap: 1px; padding: 0 6px; }
+.guarantor-card > legend { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: calc(100% - 12px); padding: 0 6px; }
+.guarantor-card > legend > span { display: grid; gap: 1px; }
+.guarantor-card > legend .btn { min-height: 30px; padding: 4px 8px; font-size: .62rem; }
 .guarantor-card > legend strong { color: var(--laf-dark); font-size: .78rem; }
 .guarantor-card > legend small { color: var(--laf-muted); font-size: .6rem; font-weight: 600; }
 .evidence-camera-stage { overflow: hidden; border-radius: 11px; background: #07100c; aspect-ratio: 3 / 4; }

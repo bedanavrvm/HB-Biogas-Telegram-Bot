@@ -83,9 +83,18 @@ def _require_approved_package(package: OriginationSigningPackage) -> None:
         LoanOriginationApplication.STATUS_SIGNING_PENDING,
         LoanOriginationApplication.STATUS_PARTIALLY_SIGNED,
         LoanOriginationApplication.STATUS_FULLY_SIGNED,
+        LoanOriginationApplication.STATUS_SIGNED_PENDING_APPROVAL,
     }:
         raise OriginationError('Operations must start the approved signing package first.')
-    if (
+    if package.conditional_approval:
+        snapshot = package.consent_policy_snapshot or {}
+        if (
+            not package.consent_policy_id
+            or snapshot.get('content_sha256') != package.consent_policy.content_sha256
+            or snapshot.get('version') != package.consent_policy.version
+        ):
+            raise OriginationError('The conditional packet consent policy failed its integrity check.')
+    elif (
         not package.reviewed_at
         or package.approved_unsigned_document_hash != package.unsigned_document_hash
         or package.approved_review_scope_sha256 != package.review_scope_sha256
@@ -157,8 +166,40 @@ def _binding(session: OriginationSignerSession) -> str:
         'signer_role': session.signer_role,
         'identity': session.identity_snapshot,
         'consent_version': session.consent_version,
+        'consent_policy_sha256': str(
+            (session.package.consent_policy_snapshot or {}).get('content_sha256') or ''
+        ),
         'signature_capture_sha256': session.signature_capture_sha256,
     }, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def _package_consent_version(package: OriginationSigningPackage) -> str:
+    if package.conditional_approval:
+        return str((package.consent_policy_snapshot or {}).get('version') or '')
+    return CONSENT_VERSION
+
+
+def _create_or_get_active_action(
+    *, package: OriginationSigningPackage, document_key: str, slot_key: str,
+    defaults: dict[str, Any],
+) -> tuple[OriginationSigningAction, bool]:
+    request_id = str(defaults.get('request_id') or '')
+    replay = package.actions.filter(request_id=request_id).first() if request_id else None
+    if replay:
+        return replay, False
+    active = package.actions.filter(
+        document_key=document_key, slot_key=slot_key, invalidation__isnull=True,
+    ).order_by('-created_at').first()
+    if active:
+        return active, False
+    previous = package.actions.filter(
+        document_key=document_key, slot_key=slot_key,
+        invalidation__isnull=False, superseded_by__isnull=True,
+    ).order_by('-created_at').first()
+    return OriginationSigningAction.objects.create(
+        package=package, document_key=document_key, slot_key=slot_key,
+        supersedes=previous, **defaults,
+    ), True
 
 
 def _participant(package: OriginationSigningPackage, signer_role: str) -> dict[str, Any]:
@@ -434,8 +475,11 @@ def record_consent_and_signature(
     ):
         return session
     capture_hash = hashlib.sha256(json.dumps(capture, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-    changed = capture_hash != session.signature_capture_sha256 or session.consent_version != CONSENT_VERSION
-    session.consent_version = CONSENT_VERSION
+    consent_version = _package_consent_version(session.package)
+    if not consent_version:
+        raise OriginationError('This packet does not have a valid consent version.')
+    changed = capture_hash != session.signature_capture_sha256 or session.consent_version != consent_version
+    session.consent_version = consent_version
     session.consented_at = timezone.now()
     session.reviewed_pages = reviewed
     session.signature_capture = capture
@@ -554,7 +598,10 @@ def _update_package_status(package: OriginationSigningPackage) -> None:
     required = {
         (item['document_key'], item['key']) for item in _slot_catalog(package) if item['required']
     }
-    complete = set(package.actions.filter(mode=OriginationSigningAction.MODE_VERIFIED).values_list('document_key', 'slot_key'))
+    active_actions = package.actions.filter(
+        mode=OriginationSigningAction.MODE_VERIFIED, invalidation__isnull=True,
+    )
+    complete = set(active_actions.values_list('document_key', 'slot_key'))
     application = package.application
     schedule_archive = False
     if required and required <= complete:
@@ -562,11 +609,23 @@ def _update_package_status(package: OriginationSigningPackage) -> None:
             signed = render_verified_package(package)
             package.signed_document_hash = hashlib.sha256(signed).hexdigest()
             package.pending_signed_document = signed
-            package.archive_status = 'pending'
+            package.archive_status = 'not_ready' if package.conditional_approval else 'pending'
             package.finalized_at = timezone.now()
-            schedule_archive = True
+            schedule_archive = not package.conditional_approval
         package.status = package.STATUS_FULLY_SIGNED
-        application.status = LoanOriginationApplication.STATUS_FULLY_SIGNED
+        application.status = (
+            LoanOriginationApplication.STATUS_SIGNED_PENDING_APPROVAL
+            if package.conditional_approval
+            else LoanOriginationApplication.STATUS_FULLY_SIGNED
+        )
+        if package.conditional_approval:
+            for correction in application.correction_requests.filter(status='open').prefetch_related('items'):
+                if correction.items.exists() and all(
+                    item.target_type == item.TARGET_SIGNATURE_SLOT for item in correction.items.all()
+                ):
+                    correction.status = correction.STATUS_ADDRESSED
+                    correction.addressed_at = timezone.now()
+                    correction.save(update_fields=['status', 'addressed_at'])
     elif complete:
         package.status = package.STATUS_IN_PROGRESS
         application.status = LoanOriginationApplication.STATUS_PARTIALLY_SIGNED
@@ -661,7 +720,7 @@ def verify_otp(*, raw_token: str, code: str, request_id: str, ip_hash: str) -> O
                         if slot['type'] == OriginationSigningAction.TYPE_DATE_SIGNED
                         else OriginationSigningAction.TYPE_SIGNATURE
                     )
-                    OriginationSigningAction.objects.get_or_create(
+                    _create_or_get_active_action(
                         package=package, document_key=slot['document_key'], slot_key=slot['key'],
                         defaults={
                             'signer_role': session.signer_role,
@@ -752,6 +811,7 @@ def serialize_public_session(session: OriginationSignerSession) -> dict[str, Any
         for item in session.package.document_manifest_snapshot or []
     ]
     latest = session.otp_challenges.order_by('-created_at').first()
+    policy = session.package.consent_policy_snapshot or {}
     return {
         'reference': session.package.external_reference,
         'signer_role': session.signer_role,
@@ -765,6 +825,10 @@ def serialize_public_session(session: OriginationSignerSession) -> dict[str, Any
         'capture_method': str((session.signature_capture or {}).get('method') or ''),
         'shared_phone_override': bool(session.shared_phone_approved_by_id),
         'documents': documents,
+        'conditional_approval': bool(session.package.conditional_approval),
+        'consent_version': _package_consent_version(session.package),
+        'consent_text': str(policy.get('signer_consent_text') or ''),
+        'completion_text': str(policy.get('signer_completion_text') or ''),
         'otp': {
             'delivery_status': latest.delivery_status if latest else '',
             'expires_at': latest.expires_at.isoformat() if latest else '',
@@ -777,7 +841,9 @@ def serialize_public_session(session: OriginationSignerSession) -> dict[str, Any
 def serialize_verified_signing(package: OriginationSigningPackage) -> dict[str, Any]:
     actions = {
         (item.document_key, item.slot_key): item
-        for item in package.actions.filter(mode=OriginationSigningAction.MODE_VERIFIED)
+        for item in package.actions.filter(
+            mode=OriginationSigningAction.MODE_VERIFIED, invalidation__isnull=True,
+        )
     }
     sessions = {
         item.signer_role: item
@@ -793,6 +859,8 @@ def serialize_verified_signing(package: OriginationSigningPackage) -> dict[str, 
         participants.append({
             'role': role,
             'label': role.replace('_', ' ').title(),
+            'applicable': bool(raw.get('applicable', True)),
+            'required': bool(raw.get('required')),
             'staff': role in STAFF_SIGNER_ROLES,
             'phone_mapped': (
                 True if role in STAFF_SIGNER_ROLES
@@ -854,7 +922,7 @@ def complete_staff_signatures(
             if slot['type'] == OriginationSigningAction.TYPE_DATE_SIGNED
             else OriginationSigningAction.TYPE_SIGNATURE
         )
-        action, created = OriginationSigningAction.objects.get_or_create(
+        action, created = _create_or_get_active_action(
             package=package, document_key=slot['document_key'], slot_key=slot['key'],
             defaults={
                 'signer_role': signer_role, 'action_type': action_type,
@@ -862,7 +930,11 @@ def complete_staff_signatures(
                 'request_id': _slot_request_id(request_id, slot['document_key'], slot['key']),
                 'metadata': {
                     'signature_capture': capture, 'capture_sha256': capture_hash,
-                    'consent_version': CONSENT_VERSION, 'consented_at': timezone.now().isoformat(),
+                    'consent_version': _package_consent_version(package),
+                    'consent_policy_sha256': str(
+                        (package.consent_policy_snapshot or {}).get('content_sha256') or ''
+                    ),
+                    'consented_at': timezone.now().isoformat(),
                     'staff_authenticated': True,
                     **({'signed_date': timezone.localdate(signed_at).isoformat()}
                        if action_type == OriginationSigningAction.TYPE_DATE_SIGNED else {}),
@@ -906,7 +978,7 @@ def apply_production_stamp(
         raise OriginationError('Choose an active production stamp.')
     if stamp.branch_id and stamp.branch_id != package.application.branch_ref_id:
         raise OriginationError('This stamp is not approved for the application branch.')
-    action, created = OriginationSigningAction.objects.get_or_create(
+    action, created = _create_or_get_active_action(
         package=package, document_key=document_key, slot_key=slot_key,
         defaults={
             'signer_role': signer_role, 'action_type': OriginationSigningAction.TYPE_STAMP,

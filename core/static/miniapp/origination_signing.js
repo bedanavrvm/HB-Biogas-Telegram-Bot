@@ -1,7 +1,12 @@
 (() => {
   'use strict';
-  const token = decodeURIComponent(location.hash.slice(1));
-  if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+  const fragmentToken = decodeURIComponent(location.hash.slice(1));
+  let storedToken = '';
+  try { storedToken = window.sessionStorage.getItem('jbl-origination-signing-token') || ''; } catch (_) { /* restricted WebView */ }
+  const token = fragmentToken || storedToken;
+  if (fragmentToken) {
+    try { window.sessionStorage.setItem('jbl-origination-signing-token', fragmentToken); } catch (_) { /* restricted WebView */ }
+  }
   const shell = document.querySelector('.sign-shell');
   const sessionUrl = String(shell?.dataset.sessionUrl || '/origination/sign/api/session/');
   const base = sessionUrl.replace(/session\/?$/, '').replace(/\/$/, '');
@@ -33,11 +38,18 @@
       ? 'You are signing in person on a JBL officer’s device. Keep control of the device while entering your OTP.'
       : 'You can review and sign this packet securely from your own phone, wherever you are.';
     document.getElementById('document-list').innerHTML = session.documents.map(item => `<span>${escapeHtml(item.name || item.key)} · ${item.page_count || 0} page(s)</span>`).join('');
+    const consentText = document.getElementById('packet-consent-text');
+    if (consentText && session.consent_text) consentText.textContent = session.consent_text;
     const allReviewed = pages > 0 && reviewedPages.size >= pages;
     document.getElementById('packet-consent').disabled = !allReviewed && !session.consented;
     document.getElementById('send-otp').disabled = !session.consented || session.status === 'verified';
     document.getElementById('otp-panel').hidden = !session.otp?.expires_at || session.status === 'verified';
-    if (session.status === 'verified') { show('Signing complete. Your verified signature has been applied to every signature box assigned to you.', 'success'); document.querySelectorAll('button,input').forEach(el => el.disabled = true); }
+    if (session.status === 'verified') {
+      show(session.completion_text || 'Signing complete. Your verified signature has been applied to every signature box assigned to you.', 'success');
+      document.querySelectorAll('button,input').forEach(el => el.disabled = true);
+      if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+      try { window.sessionStorage.removeItem('jbl-origination-signing-token'); } catch (_) { /* restricted WebView */ }
+    }
   }
   const escapeHtml = value => { const node=document.createElement('div');node.textContent=String(value??'');return node.innerHTML; };
   async function loadPage() {

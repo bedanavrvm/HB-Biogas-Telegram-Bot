@@ -610,7 +610,10 @@ def packet_signers(application: LoanOriginationApplication) -> list[dict[str, An
                 identity.setdefault('phone', context.get('applicant_phone') or context.get('applicant_primary_phone') or context.get('primary_phone') or '')
                 identity.setdefault('national_id', context.get('applicant_national_id') or context.get('applicant_id_number') or context.get('national_id') or '')
             resolved['identity'] = identity
-            staff_roles = {'bro_1', 'bro_2', 'loan_officer', 'officer', 'branch_manager'}
+            staff_roles = {
+                'bro_1', 'bro_2', 'loan_officer', 'officer',
+                'branch_manager', 'management_approver',
+            }
             resolved['dispatch_ready'] = True if role in staff_roles else bool(resolved['identity'].get('phone'))
             if not resolved['dispatch_ready']:
                 resolved['dispatch_block_reason'] = 'Map a canonical signer phone field before OTP dispatch.'
@@ -622,4 +625,15 @@ def packet_signers(application: LoanOriginationApplication) -> list[dict[str, An
             for slot in guarantor_two.get('slots') or []:
                 if isinstance(slot, dict) and str(slot.get('type') or 'signature') in {'signature', 'date_signed'}:
                     slot['required'] = True
-    return list(roles.values())
+    participants = []
+    for participant in roles.values():
+        slots = [item for item in (participant.get('slots') or []) if isinstance(item, dict)]
+        applicable = bool(
+            participant.get('required')
+            or participant.get('identity')
+            or any(item.get('required') for item in slots)
+        )
+        participant['applicable'] = applicable
+        if applicable:
+            participants.append(participant)
+    return participants

@@ -508,6 +508,12 @@ ORIGINATION_TEST_SIGNING_ENABLED = config(
 # provider readiness check is complete. Sandbox is intentionally configured
 # separately from the watermarked no-OTP simulator above.
 ORIGINATION_ESIGN_ENABLED = config('ORIGINATION_ESIGN_ENABLED', default=False, cast=bool)
+# Post-sign conditional approval is separately gated until compliance has
+# published an approved consent policy. Enabling this setting alone is not
+# sufficient: the service also requires one active governed policy row.
+ORIGINATION_CONDITIONAL_APPROVAL_ENABLED = config(
+    'ORIGINATION_CONDITIONAL_APPROVAL_ENABLED', default=False, cast=bool,
+)
 AFRICASTALKING_SMS_ENVIRONMENT = config(
     'AFRICASTALKING_SMS_ENVIRONMENT', default='sandbox',
 ).strip().casefold()

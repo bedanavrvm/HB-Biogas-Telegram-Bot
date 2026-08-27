@@ -259,7 +259,7 @@ class OriginationGodModeTests(TestCase):
             or model is LoanOriginationApplication
         }
         self.assertEqual(set(ORIGINATION_RESET_MODELS), discovered)
-        self.assertEqual(len(ORIGINATION_RESET_MODELS), 24)
+        self.assertEqual(len(ORIGINATION_RESET_MODELS), 26)
 
     def test_full_reset_service_rejects_non_superuser(self):
         before = preview_full_origination_reset()['counts']

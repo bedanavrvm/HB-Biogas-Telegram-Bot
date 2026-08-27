@@ -25,12 +25,14 @@ from core.admin import OriginationProductDefinitionForm
 from core.models import (
     LoanOriginationApplication,
     OriginationApplicationEvent,
+    OriginationConsentPolicyVersion,
     OriginationReviewerNotice,
     OriginationDataField,
     OriginationDocumentTemplate,
     OriginationProductDocumentAssignment,
     OriginationProductDefinition,
     OriginationSigningAction,
+    OriginationSigningActionInvalidation,
     OriginationSigningPackage,
     OriginationTemplateConfigurationRevision,
 )
@@ -69,6 +71,8 @@ from core.services.origination_documents import (
     render_packet,
     validate_applicability_rule,
 )
+from core.services.origination_consent import apply_consent_notice
+from core.services.origination_final_review import final_review_signed_packet
 from core.services.origination_templates import (
     attach_shared_document_template,
     attach_shared_supporting_template,
@@ -1227,11 +1231,15 @@ class LoanOriginationServiceTests(TestCase):
             },
         }]}
         normalized = normalize_form_payload(schema, {'secured_assets': [
-            {'description': 'Synthetic asset', 'estimated_value': '12500.50'},
+            {'description': 'Synthetic asset', 'estimated_value': '12500'},
         ]})
-        self.assertEqual(normalized['secured_assets'][0]['estimated_value'], '12500.50')
+        self.assertEqual(normalized['secured_assets'][0]['estimated_value'], '12500')
         self.assertEqual(len(normalized['secured_assets'][0]['row_id']), 36)
         self.assertTrue(validate_form_payload(schema, normalized, require_complete=True).valid)
+        fractional = normalize_form_payload(schema, {'secured_assets': [
+            {'description': 'Synthetic asset', 'estimated_value': '12500.50'},
+        ]})
+        self.assertFalse(validate_form_payload(schema, fractional, require_complete=True).valid)
         too_many = {'secured_assets': normalized['secured_assets'] * 12}
         result = validate_form_payload(schema, too_many, require_complete=True)
         self.assertFalse(result.valid)
@@ -1240,6 +1248,206 @@ class LoanOriginationServiceTests(TestCase):
         result = validate_form_payload(schema, duplicate, require_complete=True)
         self.assertFalse(result.valid)
         self.assertIn('duplicate identity', result.errors['secured_assets'])
+
+    @staticmethod
+    def _blank_pdf() -> bytes:
+        writer = PdfWriter()
+        writer.add_blank_page(width=595, height=842)
+        output = BytesIO()
+        writer.write(output)
+        return output.getvalue()
+
+    def _active_consent_policy(self):
+        return OriginationConsentPolicyVersion.objects.create(
+            version='conditional-v1', status=OriginationConsentPolicyVersion.STATUS_ACTIVE,
+            packet_clause=(
+                'The signatures in this packet record provisional consent. The application and '
+                'packet remain subject to JBL verification and independent final approval.'
+            ),
+            signer_consent_text='I provisionally consent to these exact packet bytes.',
+            signer_completion_text='Signing is complete and JBL final approval is pending.',
+            resigning_text='The corrected packet differs from the prior packet and requires fresh consent.',
+            approval_reference='COMPLIANCE-SYNTHETIC-001', approved_by=self.reviewer,
+            approved_at=timezone.now(), created_by=self.reviewer,
+        )
+
+    @override_settings(ORIGINATION_CONDITIONAL_APPROVAL_ENABLED=True)
+    def test_conditional_clause_is_inside_the_exact_packet_bytes(self):
+        policy = self._active_consent_policy()
+        application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='conditional-notice-application',
+        )
+
+        original = self._blank_pdf()
+        content, manifest, delivery = apply_consent_notice(
+            application=application, packet_pdf=original,
+            document_manifest=[{'key': 'primary', 'page_count': 1}], policy=policy,
+        )
+
+        reader = PdfReader(BytesIO(content))
+        self.assertEqual(len(reader.pages), 2)
+        notice_text = ' '.join(reader.pages[0].extract_text().split())
+        self.assertIn('subject to JBL verification', notice_text)
+        self.assertEqual(delivery, 'notice_page')
+        self.assertEqual(manifest[0]['consent_policy_sha256'], policy.content_sha256)
+        self.assertNotEqual(hashlib.sha256(content).hexdigest(), hashlib.sha256(original).hexdigest())
+
+    def _signed_conditional_package(self, *, with_signature=False):
+        policy = self._active_consent_policy()
+        application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id=f'conditional-signed-{with_signature}',
+        )
+        application.status = LoanOriginationApplication.STATUS_SIGNED_PENDING_APPROVAL
+        application.save(update_fields=['status'])
+        content = self._blank_pdf()
+        digest = hashlib.sha256(content).hexdigest()
+        participants = []
+        if with_signature:
+            participants = [{
+                'role': 'branch_manager', 'required': True, 'applicable': True,
+                'slots': [{
+                    'key': 'approval_signature', 'document_key': 'primary',
+                    'type': 'signature', 'required': True,
+                }],
+            }]
+        package = OriginationSigningPackage.objects.create(
+            application=application, application_revision=application.revision,
+            external_reference=f'CONDITIONAL-{str(application.pk)[:12]}',
+            document_type=self.product.document_type,
+            template_version=1, template_sha256=self.product.document_template_sha256,
+            context_snapshot={}, participants_snapshot=participants,
+            requirement_evidence_snapshot=[], document_manifest_snapshot=[],
+            template_configuration_snapshot={}, combined_document_hash=digest,
+            frozen_unsigned_document=content, unsigned_document_hash=digest,
+            status=OriginationSigningPackage.STATUS_FULLY_SIGNED,
+            conditional_approval=True, consent_policy=policy,
+            consent_policy_snapshot={
+                'id': str(policy.pk), 'version': policy.version,
+                'content_sha256': policy.content_sha256,
+            },
+            signed_document_hash=digest, pending_signed_document=content,
+            finalized_at=timezone.now(), archive_status='not_ready',
+            prepared_by=self.officer, prepared_at=timezone.now(),
+        )
+        action = None
+        if with_signature:
+            action = OriginationSigningAction.objects.create(
+                package=package, document_key='primary', slot_key='approval_signature',
+                signer_role='branch_manager', action_type=OriginationSigningAction.TYPE_SIGNATURE,
+                mode=OriginationSigningAction.MODE_VERIFIED, actor=self.reviewer,
+                request_id='conditional-original-signature', metadata={},
+            )
+        OriginationApplicationEvent.objects.create(
+            application=application, action='signed_packet_accessed',
+            revision=application.revision, actor=self.reviewer,
+            request_id=f'conditional-packet-open-{with_signature}',
+            after_values={
+                'package_id': str(package.pk), 'signed_document_hash': digest,
+            },
+        )
+        return application, package, action
+
+    @patch('core.services.origination_esign._archive_signed_package_after_commit')
+    def test_independent_final_review_approves_exact_opened_hash(self, archive_mock):
+        application, package, _action = self._signed_conditional_package()
+
+        reviewed = final_review_signed_packet(
+            application_id=application.pk, package_id=package.pk, actor=self.reviewer,
+            expected_revision=application.revision,
+            expected_signed_hash=package.signed_document_hash,
+            decision='approve', reason='', correction_items=[],
+            request_id='conditional-final-approve',
+        )
+
+        package.refresh_from_db()
+        self.assertEqual(reviewed.status, LoanOriginationApplication.STATUS_APPROVED)
+        self.assertEqual(package.final_approved_signed_document_hash, package.signed_document_hash)
+        self.assertEqual(package.archive_status, 'pending')
+        event = reviewed.events.get(action='final_review_approve')
+        self.assertIsNotNone(event.after_values['signed_to_review_seconds'])
+        archive_mock.assert_not_called()
+
+    def test_signature_only_correction_invalidates_and_supersedes_exact_action(self):
+        application, package, action = self._signed_conditional_package(with_signature=True)
+
+        reviewed = final_review_signed_packet(
+            application_id=application.pk, package_id=package.pk, actor=self.reviewer,
+            expected_revision=application.revision,
+            expected_signed_hash=package.signed_document_hash,
+            decision='request_correction', reason='Capture the management signature again.',
+            correction_items=[{
+                'target_type': 'signature_slot',
+                'target_key': 'primary.approval_signature',
+                'instruction': 'The prior signature is incomplete.',
+            }], request_id='conditional-signature-correction',
+        )
+
+        package.refresh_from_db()
+        self.assertEqual(reviewed.status, LoanOriginationApplication.STATUS_PARTIALLY_SIGNED)
+        self.assertTrue(OriginationSigningActionInvalidation.objects.filter(action=action).exists())
+        self.assertEqual(package.signed_document_hash, '')
+        from core.services.origination_esign import _create_or_get_active_action
+        replacement, created = _create_or_get_active_action(
+            package=package, document_key='primary', slot_key='approval_signature',
+            defaults={
+                'signer_role': 'branch_manager',
+                'action_type': OriginationSigningAction.TYPE_SIGNATURE,
+                'mode': OriginationSigningAction.MODE_VERIFIED,
+                'actor': self.reviewer, 'request_id': 'conditional-replacement-signature',
+                'metadata': {},
+            },
+        )
+        self.assertTrue(created)
+        self.assertEqual(replacement.supersedes_id, action.pk)
+
+    @patch('core.services.origination_esign._archive_signed_package_after_commit')
+    def test_corrected_final_review_requires_reasoned_checker_takeover(self, archive_mock):
+        alternate_reviewer = get_user_model().objects.create_user(
+            username='conditional-alternate-reviewer',
+        )
+        application, package, _action = self._signed_conditional_package()
+        application.recheck_assigned_to = self.reviewer
+        application.save(update_fields=['recheck_assigned_to'])
+
+        with self.assertRaisesRegex(OriginationError, 'original checker'):
+            final_review_signed_packet(
+                application_id=application.pk, package_id=package.pk,
+                actor=alternate_reviewer, expected_revision=application.revision,
+                expected_signed_hash=package.signed_document_hash,
+                decision='approve', reason='', correction_items=[],
+                request_id='conditional-unrecorded-takeover',
+            )
+
+        application = take_over_correction_review(
+            application_id=application.pk, actor=alternate_reviewer,
+            expected_revision=application.revision,
+            request_id='conditional-recorded-takeover',
+            reason='The original checker is unavailable.',
+        )
+        takeover_event = application.events.get(action='correction_review_taken_over')
+        self.assertEqual(takeover_event.after_values['review_stage'], 'post_sign_final_review')
+        OriginationApplicationEvent.objects.create(
+            application=application, action='signed_packet_accessed',
+            revision=application.revision, actor=alternate_reviewer,
+            request_id='conditional-alternate-packet-open',
+            after_values={
+                'package_id': str(package.pk),
+                'signed_document_hash': package.signed_document_hash,
+            },
+        )
+        reviewed = final_review_signed_packet(
+            application_id=application.pk, package_id=package.pk,
+            actor=alternate_reviewer, expected_revision=application.revision,
+            expected_signed_hash=package.signed_document_hash,
+            decision='approve', reason='', correction_items=[],
+            request_id='conditional-approved-after-takeover',
+        )
+
+        self.assertEqual(reviewed.status, LoanOriginationApplication.STATUS_APPROVED)
+        self.assertEqual(reviewed.final_reviewed_by, alternate_reviewer)
+        archive_mock.assert_not_called()
 
     def test_shared_supporting_assignment_is_snapshotted_and_pinned(self):
         template = OriginationDocumentTemplate.objects.create(

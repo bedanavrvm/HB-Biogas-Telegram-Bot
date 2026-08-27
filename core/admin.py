@@ -126,8 +126,10 @@ from .models import (
     OriginationRequirementEvidence,
     OriginationApplicationDocument,
     OriginationProductDocumentAssignment,
+    OriginationConsentPolicyVersion,
     OriginationSigningPackage,
     OriginationSigningAction,
+    OriginationSigningActionInvalidation,
     OriginationSignerSession,
     OriginationOtpChallenge,
     OriginationSigningRequestEvent,
@@ -601,6 +603,19 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
         help_text='Approved PDF. It is stored in the configured restricted Drive folder.',
         widget=UnfoldAdminFileFieldWidget,
     )
+    native_consent_policy = forms.ModelChoiceField(
+        queryset=OriginationConsentPolicyVersion.objects.none(), required=False,
+        label='Consent clause embedded in this PDF',
+        help_text=(
+            'Select only when compliance has verified that this exact source PDF visibly contains '
+            'the complete clause. Otherwise the governed notice page is prepended automatically.'
+        ),
+        widget=UnfoldAdminSelectWidget,
+    )
+    native_consent_attestation_reference = forms.CharField(
+        required=False, max_length=160, label='Native-clause attestation reference',
+        help_text='Required when an embedded consent policy is selected.',
+    )
 
     class Meta:
         model = OriginationDocumentTemplate
@@ -609,7 +624,8 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
             'document_key', 'name', 'document_role',
             'inclusion_mode', 'display_order', 'officer_selectable',
             'default_selected', 'applicability_rule', 'form_schema',
-            'signer_rules', 'pdf_file',
+            'signer_rules', 'pdf_file', 'native_consent_policy',
+            'native_consent_attestation_reference',
         )
         widgets = {
             # These remain the audited storage format, but are authored through
@@ -631,6 +647,9 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['product_definition'].queryset = self.eligible_product_definitions()
+        self.fields['native_consent_policy'].queryset = OriginationConsentPolicyVersion.objects.filter(
+            status=OriginationConsentPolicyVersion.STATUS_ACTIVE,
+        ).order_by('-approved_at')
         reusable_families = []
         seen_families = set()
         family_templates = OriginationDocumentTemplate.objects.filter(
@@ -693,6 +712,13 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
         cleaned['applicability_rule'] = self._clean_condition_rule(cleaned)
         cleaned['form_schema'] = cleaned.get('form_schema') or {}
         cleaned['signer_rules'] = cleaned.get('signer_rules') or []
+        native_policy = cleaned.get('native_consent_policy')
+        native_reference = str(cleaned.get('native_consent_attestation_reference') or '').strip()
+        if bool(native_policy) != bool(native_reference):
+            self.add_error(
+                'native_consent_attestation_reference',
+                'Select the embedded consent policy and provide its attestation reference together.',
+            )
         if not str(pdf_file.name).lower().endswith('.pdf'):
             self.add_error('pdf_file', 'Upload a PDF file.')
             return cleaned
@@ -8220,6 +8246,8 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         'display_order', 'officer_selectable', 'default_selected', 'applicability_summary',
         'configuration_summary', 'document_type', 'version', 'status', 'source_filename', 'source_sha256',
         'source_byte_size', 'page_count', 'calibration_link', 'drive_link',
+        'native_consent_policy', 'native_consent_attestation_reference',
+        'native_consent_attested_by', 'native_consent_attested_at',
         'published_configuration_revision', 'upload_error', 'created_by', 'activated_by',
         'activated_at', 'created_at', 'updated_at',
     )
@@ -8249,6 +8277,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                         ('officer_selectable', 'default_selected'),
                         ('condition_field', 'condition_operator'), 'condition_value',
                         'applicability_rule', 'form_schema', 'signer_rules', 'pdf_file',
+                        'native_consent_policy', 'native_consent_attestation_reference',
                     ),
                 },
             ),)
@@ -8272,6 +8301,17 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             ('Published calibration', {
                 'description': 'Field positions, formatting, and signer slots are managed in the visual calibration builder.',
                 'fields': ('published_configuration_revision',),
+                'classes': ('collapse',),
+            }),
+            ('Consent clause', {
+                'description': (
+                    'If compliance attested that the governed clause is embedded in this exact source PDF, '
+                    'conditional packets use it directly. Otherwise a governed first page is added before hashing.'
+                ),
+                'fields': (
+                    'native_consent_policy', 'native_consent_attestation_reference',
+                    ('native_consent_attested_by', 'native_consent_attested_at'),
+                ),
                 'classes': ('collapse',),
             }),
             ('Audit', {
@@ -8752,6 +8792,9 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             return
         obj.created_by = request.user
         obj.status = OriginationDocumentTemplate.STATUS_READY
+        if obj.native_consent_policy_id:
+            obj.native_consent_attested_by = request.user
+            obj.native_consent_attested_at = timezone.now()
         schema_preset = str(form.cleaned_data.get('schema_preset') or '').strip()
         if schema_preset == OriginationDocumentTemplateForm.SCHEMA_PRESET_GENERIC_JAWABU_LAF:
             from core.services.generic_jawabu_laf_seed import (
@@ -9051,6 +9094,95 @@ class OriginationSigningPackageAdmin(_AppendOnlyOriginationAdmin):
     list_filter = ('status', 'archive_status', 'document_type')
     search_fields = ('external_reference', 'application__reference_number')
     exclude = ('frozen_unsigned_document', 'pending_signed_document')
+
+
+@admin.register(OriginationConsentPolicyVersion)
+class OriginationConsentPolicyVersionAdmin(OriginationGodModeAdminMixin, ModelAdmin):
+    list_display = (
+        'version', 'status', 'approval_reference', 'approved_by', 'approved_at',
+        'retired_by', 'retired_at', 'created_at',
+    )
+    list_filter = ('status', 'approved_at')
+    search_fields = ('version', 'approval_reference', 'content_sha256')
+    readonly_fields = (
+        'status', 'content_sha256', 'created_by', 'approved_by', 'approved_at',
+        'retired_by', 'retired_at', 'created_at',
+    )
+    actions = ('activate_selected_policy', 'retire_selected_policy')
+
+    def has_module_permission(self, request):
+        return request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_add_permission(self, request):
+        return request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        return False if obj else request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def save_model(self, request, obj, form, change):
+        obj.created_by = request.user
+        obj.status = obj.STATUS_DRAFT
+        obj.full_clean()
+        return super().save_model(request, obj, form, change)
+
+    @admin.action(description='Activate selected compliance-approved consent policy')
+    def activate_selected_policy(self, request, queryset):
+        if queryset.count() != 1:
+            self.message_user(request, 'Select exactly one consent policy.', level=messages.ERROR)
+            return
+        policy_id = queryset.values_list('pk', flat=True).first()
+        with transaction.atomic():
+            policy = OriginationConsentPolicyVersion.objects.select_for_update().get(pk=policy_id)
+            if policy.status != policy.STATUS_DRAFT:
+                self.message_user(request, 'Only a draft consent policy can be activated.', level=messages.ERROR)
+                return
+            now = timezone.now()
+            policy.status = policy.STATUS_ACTIVE
+            policy.approved_by = request.user
+            policy.approved_at = now
+            OriginationConsentPolicyVersion.objects.select_for_update().filter(
+                status=policy.STATUS_ACTIVE,
+            ).exclude(pk=policy.pk).update(
+                status=policy.STATUS_RETIRED, retired_by=request.user, retired_at=now,
+            )
+            policy.full_clean()
+            OriginationConsentPolicyVersion.objects.filter(pk=policy.pk).update(
+                status=policy.STATUS_ACTIVE, approved_by=request.user, approved_at=now,
+            )
+        self.message_user(
+            request,
+            f'Consent policy {policy.version} activated with approval reference {policy.approval_reference}.',
+            level=messages.SUCCESS,
+        )
+
+    @admin.action(description='Retire selected active consent policy')
+    def retire_selected_policy(self, request, queryset):
+        if queryset.count() != 1:
+            self.message_user(request, 'Select exactly one consent policy.', level=messages.ERROR)
+            return
+        policy_id = queryset.values_list('pk', flat=True).first()
+        with transaction.atomic():
+            policy = OriginationConsentPolicyVersion.objects.select_for_update().get(pk=policy_id)
+            if policy.status != policy.STATUS_ACTIVE:
+                self.message_user(request, 'Only the active consent policy can be retired.', level=messages.ERROR)
+                return
+            now = timezone.now()
+            OriginationConsentPolicyVersion.objects.filter(pk=policy.pk).update(
+                status=policy.STATUS_RETIRED, retired_by=request.user, retired_at=now,
+            )
+        self.message_user(request, f'Consent policy {policy.version} retired.', level=messages.SUCCESS)
+
+
+@admin.register(OriginationSigningActionInvalidation)
+class OriginationSigningActionInvalidationAdmin(_AppendOnlyOriginationAdmin):
+    list_display = ('action', 'invalidated_by', 'reason', 'created_at')
+    search_fields = ('action__package__external_reference', 'reason', 'request_id')
 
 
 @admin.register(OriginationSignerSession)

@@ -518,10 +518,32 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
                             if not decimal_value.is_finite():
                                 raise InvalidOperation
                             minimum_value = (column.get('validation') or {}).get('min')
+                            maximum_value = (column.get('validation') or {}).get('max')
                             if minimum_value not in (None, '') and decimal_value < Decimal(str(minimum_value)):
                                 raise InvalidOperation
+                            if maximum_value not in (None, '') and decimal_value > Decimal(str(maximum_value)):
+                                raise InvalidOperation
+                            if (
+                                str(column.get('type') or '') == 'money'
+                                and key != 'loan_fees'
+                                and decimal_value != decimal_value.to_integral_value()
+                            ):
+                                errors[key] = f'Enter a whole KES amount in row {index + 1}.'
+                                break
                         except (InvalidOperation, TypeError, ValueError):
                             errors[key] = f'Enter a valid value in row {index + 1}.'
+                            break
+                    elif str(column.get('type') or '') == 'date':
+                        from datetime import date
+                        try:
+                            date.fromisoformat(str(cell))
+                        except ValueError:
+                            errors[key] = f'Enter a valid date in row {index + 1}.'
+                            break
+                    elif isinstance(cell, str):
+                        maximum_length = (column.get('validation') or {}).get('max_length')
+                        if maximum_length not in (None, '') and len(cell) > int(maximum_length):
+                            errors[key] = f'Enter no more than {maximum_length} characters in row {index + 1}.'
                             break
                 if key in errors:
                     break
@@ -538,6 +560,12 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
             else:
                 if not decimal_value.is_finite():
                     errors[key] = 'Enter a valid amount.'
+                elif (
+                    field_type == 'money'
+                    and str(field.get('source_type') or 'user_input') != 'system'
+                    and decimal_value != decimal_value.to_integral_value()
+                ):
+                    errors[key] = 'Enter a whole KES amount without decimal places.'
                 elif str(field.get('reporting_use') or 'unavailable') != 'unavailable':
                     digits = len(decimal_value.as_tuple().digits)
                     exponent = decimal_value.as_tuple().exponent
@@ -1574,7 +1602,10 @@ def take_over_correction_review(
         return application
     if int(expected_revision) != application.revision:
         raise OriginationConflict('This application changed. Refresh before taking over its review.')
-    if application.status != LoanOriginationApplication.STATUS_READY_FOR_REVIEW or not application.recheck_assigned_to_id:
+    if application.status not in {
+        LoanOriginationApplication.STATUS_READY_FOR_REVIEW,
+        LoanOriginationApplication.STATUS_SIGNED_PENDING_APPROVAL,
+    } or not application.recheck_assigned_to_id:
         raise OriginationError('This application is not waiting for an assigned correction re-check.')
     if application.officer_id == actor.pk and not getattr(actor, 'is_superuser', False):
         raise OriginationError('The submitting officer cannot take over their own application review.')
@@ -1590,7 +1621,14 @@ def take_over_correction_review(
     _record_event(
         application, 'correction_review_taken_over', actor=actor, request_id=request_id,
         before={'reviewer_id': previous_id},
-        after={'reviewer_id': actor.pk, 'reason': reason[:1000]},
+        after={
+            'reviewer_id': actor.pk, 'reason': reason[:1000],
+            'review_stage': (
+                'post_sign_final_review'
+                if application.status == LoanOriginationApplication.STATUS_SIGNED_PENDING_APPROVAL
+                else 'pre_sign_review'
+            ),
+        },
     )
     return application
 
@@ -1603,6 +1641,8 @@ def _package_review_scope_payload(package: OriginationSigningPackage) -> dict[st
         'requirement_evidence_snapshot': package.requirement_evidence_snapshot,
         'document_manifest_snapshot': package.document_manifest_snapshot,
         'template_configuration_snapshot': package.template_configuration_snapshot,
+        'conditional_approval': package.conditional_approval,
+        'consent_policy_snapshot': package.consent_policy_snapshot,
     }
 
 
@@ -1617,6 +1657,7 @@ def _package_review_scope_hash(package: OriginationSigningPackage) -> str:
 @transaction.atomic
 def prepare_review_package(
     *, application_id, actor, expected_revision: int, request_id: str,
+    conditional_approval: bool = False,
 ) -> tuple[OriginationSigningPackage, bool]:
     """Freeze the complete packet scope for the final pre-signing review."""
     request_id = _require_request_id(request_id)
@@ -1637,8 +1678,13 @@ def prepare_review_package(
         application_revision=application.revision,
         status=OriginationSigningPackage.STATUS_PENDING,
     ).first()
-    if existing:
+    if existing and existing.conditional_approval == bool(conditional_approval):
         return existing, True
+    if existing:
+        if existing.actions.exists():
+            raise OriginationError('A signed packet cannot be converted to the conditional-approval flow.')
+        existing.status = OriginationSigningPackage.STATUS_CANCELLED
+        existing.save(update_fields=['status', 'updated_at'])
     missing = _missing_application_requirements(application, stage='signing')
     if missing:
         raise OriginationError(
@@ -1654,6 +1700,23 @@ def prepare_review_package(
     )
     if not packet_pdf:
         raise OriginationError('The final review packet could not be rendered.')
+    consent_policy = None
+    consent_snapshot = {}
+    consent_delivery = ''
+    if conditional_approval:
+        from core.services.origination_consent import (
+            OriginationConsentError, active_consent_policy, apply_consent_notice,
+            policy_snapshot,
+        )
+        try:
+            consent_policy = active_consent_policy()
+            packet_pdf, document_manifest, consent_delivery = apply_consent_notice(
+                application=application, packet_pdf=packet_pdf,
+                document_manifest=document_manifest, policy=consent_policy,
+            )
+        except OriginationConsentError as exc:
+            raise OriginationError(str(exc)) from exc
+        consent_snapshot = {**policy_snapshot(consent_policy), 'delivery': consent_delivery}
     packet_hash = hashlib.sha256(packet_pdf).hexdigest()
     from core.services.origination_signing import test_signing_enabled
     from core.services.origination_esign import esign_enabled
@@ -1688,6 +1751,9 @@ def prepare_review_package(
         combined_document_hash=packet_hash,
         frozen_unsigned_document=packet_pdf,
         unsigned_document_hash=packet_hash,
+        conditional_approval=bool(conditional_approval),
+        consent_policy=consent_policy,
+        consent_policy_snapshot=consent_snapshot,
         prepared_by=actor,
         prepared_at=timezone.now(),
         test_mode=bool(test_signing_enabled() and not esign_enabled()),
@@ -1700,6 +1766,9 @@ def prepare_review_package(
             'package_id': str(package.pk),
             'unsigned_document_hash': package.unsigned_document_hash,
             'review_scope_sha256': package.review_scope_sha256,
+            'conditional_approval': package.conditional_approval,
+            'consent_policy_version': consent_snapshot.get('version', ''),
+            'consent_delivery': consent_delivery,
         },
     )
     return package, False
@@ -1711,6 +1780,69 @@ def render_review_package(package: OriginationSigningPackage) -> bytes:
     if _package_review_scope_hash(package) != package.review_scope_sha256:
         raise OriginationConflict('The frozen review scope failed its integrity check.')
     return content
+
+
+@transaction.atomic
+def confirm_and_start_conditional_signing(
+    *, application_id, actor, expected_revision: int, request_id: str,
+) -> tuple[OriginationSigningPackage, bool]:
+    """Officer-confirm, freeze and open a governed conditional packet for signing."""
+    request_id = _require_request_id(request_id)
+    application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
+    replay = application.events.filter(
+        action='conditional_signing_started', request_id=request_id,
+    ).first()
+    if replay:
+        package = application.signing_packages.filter(
+            pk=(replay.after_values or {}).get('package_id'),
+        ).first()
+        if package:
+            return package, True
+    if application.officer_id != actor.pk and not getattr(actor, 'is_superuser', False):
+        raise OriginationError('Only the assigned officer may confirm and start this application.')
+    if int(expected_revision) != application.revision:
+        raise OriginationConflict('This application changed. Refresh before confirming it.')
+
+    # Pre-approved, unsigned legacy packets retain their original consent model.
+    if application.status == LoanOriginationApplication.STATUS_REVIEWED:
+        package, replayed = start_signing_package(
+            application_id=application.pk, actor=actor,
+            expected_revision=application.revision,
+            request_id=_slot_request_id(request_id, 'legacy-start'),
+        )
+        return package, replayed
+
+    if application.status in {
+        LoanOriginationApplication.STATUS_DRAFT,
+        LoanOriginationApplication.STATUS_CORRECTION_REQUIRED,
+    }:
+        application = submit_for_review(
+            application_id=application.pk, actor=actor,
+            expected_revision=application.revision,
+            request_id=_slot_request_id(request_id, 'validate'),
+        )
+    if application.status != LoanOriginationApplication.STATUS_READY_FOR_REVIEW:
+        raise OriginationError('This application cannot enter signing from its current state.')
+    package, _ = prepare_review_package(
+        application_id=application.pk, actor=actor,
+        expected_revision=application.revision,
+        request_id=_slot_request_id(request_id, 'freeze'),
+        conditional_approval=True,
+    )
+    frozen_unsigned_package_content(package)
+    application.status = LoanOriginationApplication.STATUS_SIGNING_PENDING
+    application.revision += 1
+    application.save(update_fields=['status', 'revision', 'updated_at'])
+    _record_event(
+        application, 'conditional_signing_started', actor=actor, request_id=request_id,
+        after={
+            'package_id': str(package.pk),
+            'unsigned_document_hash': package.unsigned_document_hash,
+            'review_scope_sha256': package.review_scope_sha256,
+            'consent_policy_version': package.consent_policy_snapshot.get('version', ''),
+        },
+    )
+    return package, False
 
 
 def frozen_unsigned_package_content(package: OriginationSigningPackage) -> bytes:
@@ -2050,6 +2182,8 @@ def serialize_application(
         LoanOriginationApplication.STATUS_SIGNING_PENDING: 'Signing invitations can be dispatched',
         LoanOriginationApplication.STATUS_PARTIALLY_SIGNED: 'Some required signing actions remain',
         LoanOriginationApplication.STATUS_FULLY_SIGNED: 'Final signed packet complete',
+        LoanOriginationApplication.STATUS_SIGNED_PENDING_APPROVAL: 'Signed — pending independent JBL approval',
+        LoanOriginationApplication.STATUS_APPROVED: 'Approved and locked',
     }.get(application.status, application.get_status_display())
     if application.status == LoanOriginationApplication.STATUS_READY_FOR_REVIEW:
         status_text = (
@@ -2079,7 +2213,9 @@ def serialize_application(
         'workflow_owner': (
             'officer' if application.status in {
                 application.STATUS_DRAFT, application.STATUS_CORRECTION_REQUIRED,
-            } else 'checker' if application.status == application.STATUS_READY_FOR_REVIEW and review_packet_ready
+            } else 'checker' if application.status in {
+                application.STATUS_SIGNED_PENDING_APPROVAL,
+            } or application.status == application.STATUS_READY_FOR_REVIEW and review_packet_ready
             else 'operations'
         ),
         'can_recall': application.status in {
@@ -2137,6 +2273,18 @@ def serialize_application(
                 'application_revision': package.application_revision,
                 'unsigned_document_hash': package.unsigned_document_hash,
                 'review_scope_sha256': package.review_scope_sha256,
+                'signed_document_hash': package.signed_document_hash,
+                'conditional_approval': package.conditional_approval,
+                'consent_policy_version': str(
+                    (package.consent_policy_snapshot or {}).get('version') or ''
+                ),
+                'consent_delivery': str(
+                    (package.consent_policy_snapshot or {}).get('delivery') or ''
+                ),
+                'final_decision': package.final_decision,
+                'final_reviewed_at': (
+                    package.final_reviewed_at.isoformat() if package.final_reviewed_at else None
+                ),
                 'reviewed': bool(package.reviewed_at),
                 'reviewed_at': package.reviewed_at.isoformat() if package.reviewed_at else None,
                 'reviewed_by_name': (
