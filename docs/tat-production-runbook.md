@@ -63,8 +63,14 @@ python manage.py check_tat_production_readiness --json
 
 The readiness command is read-only and makes no Telegram or Google request. It
 checks migrations, Mini App authentication configuration, Production mode,
-groups, Sheet contracts, access coverage, routing ambiguity, primary private
-connections, scheduler freshness, and expired locks.
+groups, Sheet contracts, access coverage, scheduler freshness, and expired
+locks. Delivery-specific checks follow each group's configured mode:
+
+- `group` requires operational access but does not require private rosters or
+  Telegram connections;
+- `shadow` additionally requires valid responsibility routing, but does not
+  require private Telegram connections; and
+- `hybrid` requires valid routing and connected primary private alerts.
 
 Do not invoke `process_tat_notifications` manually against production merely as
 a health probe: outside shadow mode it may send due Telegram alerts. Use the

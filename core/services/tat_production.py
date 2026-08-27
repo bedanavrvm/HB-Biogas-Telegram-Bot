@@ -95,15 +95,19 @@ def _group_scope_issues(group) -> list[ReadinessIssue]:
             f'{group_label}: enable a governed TAT Sheet register contract before production.',
         ))
 
-    assignments = TatResponsibilityAssignment.objects.filter(
-        group_configuration=group,
-    ).select_related('group_configuration', 'primary_user')
-    for category, rows in configuration_issues(assignments).items():
-        for assignment, message in rows:
-            issues.append(ReadinessIssue(
-                'error', f'tat-responsibility-{category}',
-                f'{group_label}: responsibility {assignment.pk} is invalid. {message}',
-            ))
+    routing_enabled = mode in {'shadow', 'hybrid'}
+    private_delivery_enabled = mode == 'hybrid'
+    assignments = TatResponsibilityAssignment.objects.none()
+    if routing_enabled:
+        assignments = TatResponsibilityAssignment.objects.filter(
+            group_configuration=group,
+        ).select_related('group_configuration', 'primary_user')
+        for category, rows in configuration_issues(assignments).items():
+            for assignment, message in rows:
+                issues.append(ReadinessIssue(
+                    'error', f'tat-responsibility-{category}',
+                    f'{group_label}: responsibility {assignment.pk} is invalid. {message}',
+                ))
 
     checked = set()
     for row in catalog:
@@ -122,6 +126,8 @@ def _group_scope_issues(group) -> list[ReadinessIssue]:
                 issues.append(ReadinessIssue(
                     'error', 'tat-access-coverage', f'{prefix} has no active AccessGrant coverage.',
                 ))
+            if not routing_enabled:
+                continue
             winners = _active_assignment_candidates(
                 group=group, branch=branch, product_key=product_key,
                 stage_key=stage_key, role=role,
@@ -146,14 +152,15 @@ def _group_scope_issues(group) -> list[ReadinessIssue]:
                     'error', 'tat-primary-access',
                     f'{prefix} primary owner lacks matching active access.',
                 ))
-            connection = TatPrivateAlertConnection.objects.filter(
-                user_id=assignment.primary_user_id,
-            ).first()
-            if not connection or connection.status != TatPrivateAlertConnection.STATUS_CONNECTED:
-                issues.append(ReadinessIssue(
-                    'error', 'tat-private-alert-connection',
-                    f'{prefix} primary owner has not connected private Telegram alerts.',
-                ))
+            if private_delivery_enabled:
+                connection = TatPrivateAlertConnection.objects.filter(
+                    user_id=assignment.primary_user_id,
+                ).first()
+                if not connection or connection.status != TatPrivateAlertConnection.STATUS_CONNECTED:
+                    issues.append(ReadinessIssue(
+                        'error', 'tat-private-alert-connection',
+                        f'{prefix} primary owner has not connected private Telegram alerts.',
+                    ))
     return issues
 
 

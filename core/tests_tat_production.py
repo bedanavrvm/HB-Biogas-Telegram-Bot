@@ -47,6 +47,38 @@ class TatProductionReadinessTests(TestCase):
         self.assertIn('tat-access-coverage', codes)
         self.assertIn('tat-responsibility-missing', codes)
 
+    def test_group_delivery_does_not_require_private_routing_rosters(self):
+        GroupSheetConfiguration.objects.create(
+            group_id='-100-group-readiness', display_name='TAT group delivery',
+            sheet_id='sheet-test', sheet_name='TRACKER-Business',
+            workflow={
+                'type': 'tat_tracker', 'tat_notification_mode': 'group',
+                'branches': ['Nakuru'], 'products': ['business'],
+            },
+        )
+
+        codes = {issue.code for issue in tat_production_readiness_issues(settings)}
+
+        self.assertIn('tat-access-coverage', codes)
+        self.assertNotIn('tat-responsibility-missing', codes)
+        self.assertNotIn('tat-private-alert-connection', codes)
+
+    def test_shadow_delivery_requires_routing_but_not_private_connections(self):
+        GroupSheetConfiguration.objects.create(
+            group_id='-100-shadow-readiness', display_name='TAT shadow delivery',
+            sheet_id='sheet-test', sheet_name='TRACKER-Business',
+            workflow={
+                'type': 'tat_tracker', 'tat_notification_mode': 'shadow',
+                'branches': ['Nakuru'], 'products': ['business'],
+            },
+        )
+
+        codes = {issue.code for issue in tat_production_readiness_issues(settings)}
+
+        self.assertIn('tat-access-coverage', codes)
+        self.assertIn('tat-responsibility-missing', codes)
+        self.assertNotIn('tat-private-alert-connection', codes)
+
     @override_settings(TAT_TRACKER_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
     def test_telegram_auth_cannot_be_disabled(self):
         codes = {issue.code for issue in tat_production_readiness_issues(settings)}

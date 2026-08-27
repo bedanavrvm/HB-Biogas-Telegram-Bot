@@ -23,6 +23,10 @@ canonical when Google publication fails.
 - Raw deep-link locators are never stored; only SHA-256 hashes are retained.
 - The scheduled processor has a database-backed lease and append-oriented,
   aggregate health records. It must never include client or case data.
+- Production readiness is delivery-mode aware: group mode does not require
+  unused private rosters, shadow validates would-be routing without Telegram
+  connections, and hybrid/private delivery requires both routing and connected
+  primary recipients.
 
 ## Safe extension and validation
 
