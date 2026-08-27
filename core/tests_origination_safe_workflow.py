@@ -300,6 +300,42 @@ class OriginationSafeWorkflowTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    @patch('core.api.origination_views._capability_error', return_value=None)
+    def test_stale_draft_patch_returns_structured_revision_conflict(self, _capability_error):
+        from core.api.origination_views import portal_origination_application_detail
+
+        self.application.form_payload = {
+            'applicant_name': 'Server Applicant', 'loan_amount': '2000',
+        }
+        self.application.revision = 2
+        self.application.save(update_fields=['form_payload', 'revision'])
+        request = RequestFactory().patch(
+            f'/api/origination/api/applications/{self.application.pk}/',
+            data=json.dumps({
+                'revision': 1,
+                'form_payload': {
+                    'applicant_name': 'Phone Applicant', 'loan_amount': '2500',
+                },
+                'request_id': 'stale-phone-save',
+            }),
+            content_type='application/json',
+            HTTP_IDEMPOTENCY_KEY='stale-phone-save',
+        )
+        request.portal_user = self.officer
+        request.portal_access = None
+
+        response = portal_origination_application_detail(
+            request, str(self.application.pk),
+        )
+        payload = json.loads(response.content)
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(payload['code'], 'revision_conflict')
+        self.assertTrue(payload['conflict'])
+        self.assertEqual(payload['expected_revision'], 1)
+        self.assertEqual(payload['current_revision'], 2)
+        self.assertNotIn('application', payload)
+
     def test_correction_targets_are_validated_and_closed_on_resubmission(self):
         self.application.form_payload = {'applicant_name': 'Applicant', 'loan_amount': '2000'}
         self.application.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW

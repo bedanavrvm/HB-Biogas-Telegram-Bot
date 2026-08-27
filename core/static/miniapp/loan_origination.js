@@ -48,6 +48,8 @@
   let pendingSaveRequestId = '';
   let syncConflict = false;
   let conflictDraft = null;
+  let conflictServerLoaded = false;
+  let conflictRefreshInFlight = null;
   let recoveryAvailable = Boolean(window.crypto?.subtle && window.indexedDB);
   const recoveredApplications = new Set();
   const reviewTargets = new Map();
@@ -601,6 +603,77 @@
     storageRemove(draftKey(applicationId));
   }
 
+  function canonicalJson(value) {
+    const normalize = item => {
+      if (Array.isArray(item)) return item.map(normalize);
+      if (item && typeof item === 'object') {
+        return Object.keys(item).sort().reduce((result, key) => {
+          result[key] = normalize(item[key]);
+          return result;
+        }, {});
+      }
+      return item;
+    };
+    return JSON.stringify(normalize(value));
+  }
+
+  function draftMatchesApplication(draft, application) {
+    if (!draft || !application) return false;
+    const configuration = draft.configuration || {};
+    return canonicalJson(draft.payload || {}) === canonicalJson(application.form_payload || {})
+      && canonicalJson(configuration.requirements || {}) === canonicalJson(application.product_requirements || {})
+      && canonicalJson(configuration.customValues || {}) === canonicalJson(application.product_custom_values || {})
+      && canonicalJson(configuration.selectedFeeKeys || []) === canonicalJson(application.product_selected_fee_keys || []);
+  }
+
+  function renderFreshEditor(application, requestedStep = step) {
+    root()?.replaceChildren();
+    renderEditor(application, requestedStep);
+  }
+
+  async function reconcileSavedDraftConflict(draft, showError = true) {
+    if (!draft?.applicationId || !current || String(current.id) !== String(draft.applicationId)) return false;
+    syncConflict = true;
+    conflictDraft = draft;
+    conflictServerLoaded = false;
+    dirty = false;
+    window.clearTimeout(saveTimer);
+    setSaveState(recoveryAvailable ? 'Encrypted on phone' : 'Conflict', 'offline');
+    renderFreshEditor(current, step);
+
+    if (conflictRefreshInFlight) return conflictRefreshInFlight;
+    conflictRefreshInFlight = (async () => {
+      const result = await apiFetch(`/applications/${draft.applicationId}/`, {});
+      if (!result.ok || !result.data?.ok || !result.data?.application) {
+        conflictServerLoaded = false;
+        renderFreshEditor(current, step);
+        if (showError) showToast(result.data?.error || 'Could not refresh the server draft. Your encrypted phone copy is safe.', true);
+        return false;
+      }
+      if (!current || String(current.id) !== String(draft.applicationId)) return false;
+      current = result.data.application;
+      conflictServerLoaded = true;
+      if (draftMatchesApplication(draft, current)) {
+        syncConflict = false;
+        conflictDraft = null;
+        conflictServerLoaded = false;
+        pendingSaveRequestId = '';
+        await removeRecoveryDraft(current.id);
+        renderFreshEditor(current, step);
+        setSaveState('Saved', 'saved');
+        return true;
+      }
+      renderFreshEditor(current, step);
+      showToast('The server and encrypted phone drafts differ. Choose which one to keep.', true);
+      return false;
+    })();
+    try {
+      return await conflictRefreshInFlight;
+    } finally {
+      conflictRefreshInFlight = null;
+    }
+  }
+
   async function recoverDraft(application) {
     if (recoveredApplications.has(application.id)) return;
     recoveredApplications.add(application.id);
@@ -612,10 +685,18 @@
       storageRemove(draftKey(application.id));
     }
     if (!local) return;
+    if (draftMatchesApplication(local, application)) {
+      await removeRecoveryDraft(application.id);
+      dirty = false;
+      pendingSaveRequestId = '';
+      return;
+    }
     if (Number(local.revision) !== Number(application.revision)) {
       syncConflict = true;
       conflictDraft = local;
-      showToast('A phone recovery draft and the server revision differ. Your phone copy was kept; refresh before editing.', true);
+      conflictDraft.applicationId = application.id;
+      conflictServerLoaded = true;
+      showToast('A phone recovery draft and the server revision differ. Your phone copy was kept; choose which version to continue with.', true);
       return;
     }
     current.form_payload = local.payload || current.form_payload;
@@ -945,6 +1026,7 @@
     reviewTargets.clear();
     syncConflict = false;
     conflictDraft = null;
+    conflictServerLoaded = false;
     await recoverDraft(application);
     if (['ready_for_review', 'reviewed', 'signing_pending', 'partially_signed', 'fully_signed', 'signed_pending_approval', 'approved'].includes(application.status)) {
       requestedStep = wizardSections().length - 1;
@@ -1496,10 +1578,12 @@
     const configuration = collectProductConfiguration();
     pendingSaveRequestId ||= requestKey('save');
     const key = pendingSaveRequestId;
-    await persistRecoveryDraft(applicationId, {
+    const attemptedDraft = {
+      applicationId,
       revision, payload, configuration, requestId: key,
       generation, savedAt: Date.now(),
-    });
+    };
+    await persistRecoveryDraft(applicationId, attemptedDraft);
     setSaveState('Saving…', 'saving');
     saveInFlight = apiFetch(`/applications/${applicationId}/`, {
       method: 'PATCH', headers: { 'Idempotency-Key': key, 'X-Request-ID': key },
@@ -1515,7 +1599,24 @@
     const result = await saveInFlight;
     saveInFlight = null;
     if (!result.ok || !result.data?.ok) {
-      if (result.status === 409 || result.data?.conflict) syncConflict = true;
+      if (result.status === 409 || result.data?.code === 'revision_conflict' || result.data?.conflict) {
+        let phoneDraft = attemptedDraft;
+        if (editGeneration !== generation) {
+          pendingSaveRequestId = requestKey('save');
+          phoneDraft = {
+            applicationId,
+            revision,
+            payload: collectPayload(),
+            configuration: collectProductConfiguration(),
+            requestId: pendingSaveRequestId,
+            generation: editGeneration,
+            savedAt: Date.now(),
+            attemptedSnapshot: attemptedDraft,
+          };
+          await persistRecoveryDraft(applicationId, phoneDraft);
+        }
+        return reconcileSavedDraftConflict(phoneDraft, showError);
+      }
       setSaveState(recoveryAvailable ? 'Encrypted on phone' : 'Not saved offline', 'offline');
       if (result.data?.errors) showServerErrors(result.data.errors);
       if (showError) showToast(
@@ -1555,7 +1656,8 @@
   function scheduleSave() {
     dirty = true;
     editGeneration += 1;
-    pendingSaveRequestId ||= requestKey('save');
+    if (saveInFlight) pendingSaveRequestId = requestKey('save');
+    else pendingSaveRequestId ||= requestKey('save');
     setSaveState('Unsaved changes', 'dirty');
     window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(() => saveDraft(false), 900);
@@ -1573,7 +1675,7 @@
     });
   }
 
-  function preserveDraftOnExit(sendToServer = true) {
+  function preserveDraftOnExit() {
     if (!current || !dirty || syncConflict || !['draft', 'correction_required'].includes(current.status)) return;
     window.clearTimeout(saveTimer);
     pendingSaveRequestId ||= requestKey('save');
@@ -1589,25 +1691,16 @@
       savedAt: Date.now(),
     });
     setSaveState('Saved on device', 'offline');
-    if (!sendToServer || !navigator.onLine || saveInFlight) return;
-    const body = JSON.stringify({
-      revision: current.revision,
-      form_payload: payload,
-      product_requirement_evidence: configuration.requirements,
-      product_custom_values: configuration.customValues,
-      product_selected_fee_keys: configuration.selectedFeeKeys,
-      request_id: key,
-    });
-    if (new Blob([body]).size > 60000) return;
-    void fetch(`/api/origination/api/applications/${current.id}/`, {
-      method: 'PATCH', keepalive: true, body,
-      headers: {
-        'Content-Type': 'application/json',
-        'Idempotency-Key': key,
-        'X-Request-ID': key,
-        ...(tg?.initData ? { 'X-Telegram-Init-Data': tg.initData } : {}),
-      },
-    }).catch(() => {});
+  }
+
+  async function resumeDraftSynchronization() {
+    if (document.visibilityState === 'hidden') return false;
+    if (!current) {
+      await loadApplications();
+      return true;
+    }
+    if (!dirty || syncConflict || !['draft', 'correction_required'].includes(current.status)) return true;
+    return saveDraft(false);
   }
 
   function progressMarkup() {
@@ -1812,6 +1905,9 @@
 
   function recoveryConflictMarkup() {
     if (!syncConflict || !conflictDraft) return '';
+    if (!conflictServerLoaded) {
+      return '<aside class="notice recovery-conflict"><strong>Refreshing the saved draft</strong><span>Your encrypted phone copy is safe. The latest server revision must load before either copy can be selected.</span><div><button type="button" class="btn btn-secondary" id="recovery-retry-refresh">Retry refresh</button></div></aside>';
+    }
     return `<aside class="notice recovery-conflict"><strong>Two draft revisions need your choice</strong><span>The encrypted phone draft was based on revision ${escapeHtml(conflictDraft.revision)}; the server is now revision ${escapeHtml(current.revision)}. Nothing has been overwritten.</span><div><button type="button" class="btn btn-secondary" id="recovery-use-server">Use server version</button><button type="button" class="btn btn-primary" id="recovery-restore-phone">Restore phone draft</button></div></aside>`;
   }
 
@@ -1828,7 +1924,7 @@
       && section.key !== 'review'
       && completedDraftSections.has(section.key)
       && !unlockedDraftSections.has(section.key);
-    const sectionEditable = editable && !sectionLocked;
+    const sectionEditable = editable && !sectionLocked && !syncConflict;
     let content;
     if (section.key === 'review') content = reviewMarkup(values);
     else if (section.key === 'document_selection') content = documentSelectionMarkup(sectionEditable && application.status !== 'correction_required');
@@ -2374,20 +2470,26 @@
   }
 
   function bindEditor(editable) {
+    document.getElementById('recovery-retry-refresh')?.addEventListener('click', () => {
+      if (conflictDraft) void reconcileSavedDraftConflict(conflictDraft, true);
+    });
     document.getElementById('recovery-use-server')?.addEventListener('click', async () => {
+      if (!conflictServerLoaded) return;
       await removeRecoveryDraft(current.id);
-      syncConflict = false; conflictDraft = null; dirty = false; pendingSaveRequestId = '';
-      renderEditor(current, step);
+      syncConflict = false; conflictDraft = null; conflictServerLoaded = false; dirty = false; pendingSaveRequestId = '';
+      renderFreshEditor(current, step);
     });
     document.getElementById('recovery-restore-phone')?.addEventListener('click', () => {
-      current.form_payload = conflictDraft.payload || current.form_payload;
-      current.product_requirements = conflictDraft.configuration?.requirements || current.product_requirements;
-      current.product_custom_values = conflictDraft.configuration?.customValues || current.product_custom_values;
-      current.product_selected_fee_keys = conflictDraft.configuration?.selectedFeeKeys || current.product_selected_fee_keys;
-      syncConflict = false; conflictDraft = null; dirty = true; editGeneration += 1;
+      if (!conflictServerLoaded || !conflictDraft) return;
+      const phoneDraft = conflictDraft;
+      current.form_payload = phoneDraft.payload || current.form_payload;
+      current.product_requirements = phoneDraft.configuration?.requirements || current.product_requirements;
+      current.product_custom_values = phoneDraft.configuration?.customValues || current.product_custom_values;
+      current.product_selected_fee_keys = phoneDraft.configuration?.selectedFeeKeys || current.product_selected_fee_keys;
+      syncConflict = false; conflictDraft = null; conflictServerLoaded = false; dirty = true; editGeneration += 1;
       pendingSaveRequestId = requestKey('save');
-      renderEditor(current, step);
-      scheduleSave();
+      renderFreshEditor(current, step);
+      void saveDraft(true);
     });
     document.getElementById('origination-back').onclick = exitEditor;
     document.getElementById('origination-section-picker')?.addEventListener('click', event => openSectionSheet(event.currentTarget));
@@ -3148,12 +3250,14 @@
   document.getElementById('origination-review-dialog').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
   document.getElementById('document-preview-overlay').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
   bindPreviewPinch();
-  window.addEventListener('beforeunload', () => { preserveDraftOnExit(true); closePreview(); });
-  window.addEventListener('pagehide', () => preserveDraftOnExit(true));
+  window.addEventListener('beforeunload', () => { preserveDraftOnExit(); closePreview(); });
+  window.addEventListener('pagehide', () => preserveDraftOnExit());
+  window.addEventListener('pageshow', () => { void resumeDraftSynchronization(); });
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') preserveDraftOnExit(false);
+    if (document.visibilityState === 'hidden') preserveDraftOnExit();
+    else void resumeDraftSynchronization();
   });
-  window.addEventListener('online', () => { if (current && dirty && !syncConflict) void saveDraft(false); else if (!current) void loadApplications(); });
+  window.addEventListener('online', () => { void resumeDraftSynchronization(); });
   window.addEventListener('resize', syncViewport);
   window.visualViewport?.addEventListener('resize', syncViewport);
   document.addEventListener('focusin', event => {

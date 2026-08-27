@@ -512,7 +512,17 @@ def portal_origination_application_detail(request, application_id: str):
             selected_fee_keys=body.get('product_selected_fee_keys'),
         )
     except OriginationConflict as exc:
-        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+        current_revision = LoanOriginationApplication.objects.filter(
+            pk=application.pk,
+        ).values_list('revision', flat=True).first()
+        return JsonResponse({
+            'ok': False,
+            'error': str(exc),
+            'code': 'revision_conflict',
+            'conflict': True,
+            'expected_revision': body.get('revision'),
+            'current_revision': current_revision,
+        }, status=409)
     except (OriginationError, TypeError, ValueError) as exc:
         return JsonResponse(_safe_error(exc), status=400)
     return JsonResponse({'ok': True, 'application': serialize_application(saved)})

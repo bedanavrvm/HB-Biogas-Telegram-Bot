@@ -106,6 +106,25 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("const baseUrl = settings.baseUrl ||", utilities)
         self.assertIn("result['X-Request-ID'] = settings.requestId();", utilities)
 
+    def test_origination_draft_saves_are_serialized_and_conflicts_are_recoverable(self):
+        source = Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
+        template = Path('core/templates/loan_origination/app.html').read_text(encoding='utf-8')
+
+        self.assertIn('if (saveInFlight)', source)
+        self.assertIn("if (saveInFlight) pendingSaveRequestId = requestKey('save');", source)
+        self.assertIn('reconcileSavedDraftConflict(phoneDraft, showError)', source)
+        self.assertIn('attemptedSnapshot: attemptedDraft', source)
+        self.assertIn('draftMatchesApplication(local, application)', source)
+        self.assertIn('renderFreshEditor(current, step)', source)
+        self.assertIn('id="recovery-retry-refresh"', source)
+        self.assertIn("window.addEventListener('pageshow'", source)
+        self.assertIn('else void resumeDraftSynchronization()', source)
+        self.assertIn("window.addEventListener('online'", source)
+        self.assertNotIn('keepalive: true', source)
+        self.assertNotIn('fetch(`/api/origination/api/applications/${current.id}/`', source)
+        self.assertIn('data-ui-version="20260827-2"', template)
+        self.assertIn('loan_origination.js\' %}?v=20260827-2', template)
+
     def test_portal_import_review_uses_only_the_retained_source_table_columns(self):
         source = Path('core/static/miniapp/portal_imports.js').read_text(encoding='utf-8')
 
