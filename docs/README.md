@@ -10,6 +10,12 @@ migrations, tests, settings, and these operational documents take precedence.
 | [Loan Origination Admin Guide](origination-admin-guide.md) | Superuser setup of products, fields, main/supporting PDFs, access, publication, testing, and troubleshooting. |
 | [Loan Origination Developer Guide](origination-developer-guide.md) | Origination architecture, models, APIs, security, versioning, local development, verification, and safe extension rules. |
 | [SPIN and TAT Pilot Modes](spin-tat-pilot-modes.md) | Superuser mode switches, protected Pilot cycles, Mini App behavior, verified Sheet cleanup, recovery, and developer scoping rules. |
+| [TAT Staff Guide](tat-staff-guide.md) | Day-one queue, case, conflict, connectivity, and alert instructions for TAT users. |
+| [TAT Access and Responsibilities](tat-access-and-responsibilities.md) | Canonical administrator guide for AccessGrant authorization and separate responsibility routing. |
+| [TAT Private Tasks](tat-private-tasks.md) | Private inbox, deep-link, delivery, retry, backup, and privacy behavior. |
+| [TAT Developer Guide](tat-developer-guide.md) | Current service boundaries, authority model, write contracts, and safe extension rules. |
+| [TAT Production Runbook](tat-production-runbook.md) | TAT scheduler, readiness, staging acceptance, monitoring, recovery, and rollback. |
+| [TAT Logic](../TAT_TRACKER_TAT_LOGIC.md) | Canonical stage calculation, target, status, and display rules. |
 | [ADR 0001](adr/0001-server-owned-miniapp-recovery-drafts.md) | Decision and release safety record for server-owned Mini App recovery drafts. |
 | [ADR 0007](adr/0007-sheet-register-governance-and-verified-tat-repair.md) | Publication-only Sheet contracts, drift evidence, and verified TAT duplicate-row repair. |
 | [../CHANGELOG.md](../CHANGELOG.md) | Dated visible/operational changes. |

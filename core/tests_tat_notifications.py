@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -19,6 +21,7 @@ from core.models import (
     TatActionTaskRecipient,
     TatEscalationRule,
     TatGroupExceptionStatus,
+    TatNotificationProcessorRun,
     TatPrivateAlertConnection,
     TatResponsibilityAssignment,
     TatResponsibilityBackup,
@@ -27,11 +30,13 @@ from core.models import (
     UserProfile,
 )
 from core.services.tat_notifications import (
+    begin_notification_processor_run,
     connect_private_alerts,
     dispatch_task,
     inbox_payload,
     issue_locator,
     process_due_tasks,
+    finish_notification_processor_run,
     refresh_group_exception,
     resolve_locator,
     resolve_assignment,
@@ -387,6 +392,65 @@ class TatPrivateTaskTests(TestCase):
         self.assertEqual(recipient.delivery_state, TatActionTaskRecipient.DELIVERY_DELIVERED)
         self.assertEqual(recipient.delivery_attempts, 1)
         self.assertEqual(telegram.call_count, 1)
+
+    def test_notification_processor_records_success_and_releases_lock(self):
+        task = synchronize_case_task(self.group, self.case)
+        TatPrivateAlertConnection.objects.create(
+            user=self.primary, status=TatPrivateAlertConnection.STATUS_CONNECTED,
+        )
+
+        with patch('core.services.tat_notifications._telegram_request', return_value={'message_id': 782}):
+            call_command('process_tat_notifications', '--limit', '100')
+
+        run = TatNotificationProcessorRun.objects.get(status=TatNotificationProcessorRun.STATUS_SUCCEEDED)
+        self.assertIsNone(run.active_lock_key)
+        self.assertEqual(run.processed_task_count, 1)
+        self.assertEqual(run.overdue_recipient_count, 0)
+        self.assertEqual(
+            task.recipients.get(user=self.primary).delivery_state,
+            TatActionTaskRecipient.DELIVERY_DELIVERED,
+        )
+
+    def test_notification_processor_skips_an_overlapping_run(self):
+        active, acquired = begin_notification_processor_run()
+
+        second, second_acquired = begin_notification_processor_run()
+
+        self.assertTrue(acquired)
+        self.assertFalse(second_acquired)
+        self.assertEqual(second.status, TatNotificationProcessorRun.STATUS_SKIPPED_OVERLAP)
+        finish_notification_processor_run(active)
+        active.refresh_from_db()
+        self.assertIsNone(active.active_lock_key)
+
+    @patch(
+        'core.management.commands.process_tat_notifications.process_due_tasks',
+        side_effect=RuntimeError('synthetic runner failure'),
+    )
+    def test_notification_processor_records_a_privacy_safe_failure(self, _process):
+        with self.assertRaises(CommandError):
+            call_command('process_tat_notifications')
+
+        run = TatNotificationProcessorRun.objects.get(status=TatNotificationProcessorRun.STATUS_FAILED)
+        self.assertIsNone(run.active_lock_key)
+        self.assertEqual(run.error_code, 'RuntimeError')
+        self.assertNotIn('synthetic runner failure', run.error_message)
+
+    @override_settings(TAT_NOTIFICATION_PROCESSOR_LOCK_SECONDS=60)
+    def test_notification_processor_recovers_an_expired_lock(self):
+        stale = TatNotificationProcessorRun.objects.create(
+            status=TatNotificationProcessorRun.STATUS_RUNNING,
+            active_lock_key=TatNotificationProcessorRun.LOCK_KEY,
+            started_at=timezone.now() - timedelta(minutes=2),
+        )
+
+        current, acquired = begin_notification_processor_run()
+
+        self.assertTrue(acquired)
+        stale.refresh_from_db()
+        self.assertEqual(stale.status, TatNotificationProcessorRun.STATUS_FAILED)
+        self.assertEqual(stale.error_code, 'stale-lock-recovered')
+        finish_notification_processor_run(current)
 
     @patch('core.services.tat_notifications._telegram_request', return_value={'message_id': 79})
     def test_connect_private_alerts_replays_same_request_without_second_message(self, telegram):

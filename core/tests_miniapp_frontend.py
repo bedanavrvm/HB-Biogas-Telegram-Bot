@@ -46,20 +46,20 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_requisitions.js'), html.index('miniapp/portal_payments.js'))
         self.assertLess(html.index('miniapp/portal_payments.js'), html.index('miniapp/portal.js'))
         self.assertLess(html.index('miniapp/portal_imports.js'), html.index('miniapp/portal.js'))
-        self.assertIn('miniapp/portal_queues.js?v=8', html)
-        self.assertIn('miniapp/portal_farmer_sheet.js?v=44', html)
+        self.assertIn('miniapp/portal_queues.js?v=9', html)
+        self.assertIn('miniapp/portal_farmer_sheet.js?v=45', html)
         self.assertIn('miniapp/utils.js?v=4', html)
-        self.assertIn('miniapp/portal_helpers.js?v=5', html)
-        self.assertIn('miniapp/portal.css?v=76', html)
-        self.assertIn('miniapp/portal_filters.js?v=8', html)
-        self.assertIn('miniapp/portal_imports.js?v=6', html)
+        self.assertIn('miniapp/portal_helpers.js?v=6', html)
+        self.assertIn('miniapp/portal.css?v=77', html)
+        self.assertIn('miniapp/portal_filters.js?v=9', html)
+        self.assertIn('miniapp/portal_imports.js?v=7', html)
         self.assertNotIn('portal-import-group', html)
         self.assertIn('miniapp/portal_requisitions.js?v=33', html)
         self.assertIn('miniapp/portal_api.js?v=6', html)
         self.assertIn('miniapp/portal_invoices.js?v=16', html)
         self.assertIn('miniapp/portal_payments.js?v=7', html)
-        self.assertIn('miniapp/portal_reports.js?v=13', html)
-        self.assertIn('miniapp/portal.js?v=66', html)
+        self.assertIn('miniapp/portal_reports.js?v=14', html)
+        self.assertIn('miniapp/portal.js?v=67', html)
         self.assertIn('miniapp/portal_case_history.js?v=1', html)
         self.assertLess(html.index('miniapp/portal_case_history.js'), html.index('miniapp/portal.js'))
 
@@ -205,7 +205,9 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('IntersectionObserver', reports_source)
         self.assertIn('interaction: { mode: \'nearest\', intersect: false }', reports_source)
         self.assertIn('themePalette(primary)', reports_source)
-        self.assertIn('renderMobileResultCards', reports_source)
+        self.assertIn('portal-report-table-wrap', reports_source)
+        self.assertIn('@media (max-width: 600px)', portal_css)
+        self.assertIn('overflow-x: auto', portal_css)
         self.assertIn('portal-report-wizard-actions', reports_source)
         self.assertIn('portal-report-field-category', reports_source)
         self.assertIn('data-report-field-search-empty', reports_source)
@@ -516,7 +518,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('data-final-review-stage="payment"', portal_template)
         self.assertNotIn('id="final-review-stage"', portal_template)
         self.assertNotIn("el('final-review-stage')", filter_source)
-        self.assertIn("&stage={{ review_stage|urlencode }}", list_template)
+        self.assertIn('data-queue-key="{{ queue_key }}"', list_template)
 
     def test_portal_farmer_sheet_exposes_detail_primitives(self):
         source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
@@ -685,16 +687,16 @@ class MiniAppFrontendSmokeTests(TestCase):
     def test_queue_apps_keep_fragment_fallback_paths(self):
         expectations = {
             'core/static/miniapp/complaint_cases.js': (
-                'await renderCasesFragment()',
-                "api('cases/'",
+                "await json('cases/'",
+                'renderCases(response.cases || [], response.start_index || 0)',
                 'window.ComplaintCasesMiniAppApi',
-                'complaintApi.postJson',
-                'complaintApi.postForm',
-                'complaintApi.postFragment',
+                'apiClient.postJson',
+                'apiClient.postForm',
             ),
             'core/static/miniapp/tat_tracker.js': (
                 "renderList('queueList'",
-                "renderList('recentList'",
+                'state.lastSuccessfulHome = snapshotHome()',
+                'renderHome(state.lastSuccessfulHome)',
                 'await renderTatSearchFragment(query)',
                 'window.TatMiniAppApi',
                 'tatApi.postJson',
@@ -743,7 +745,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         response = self.client.get(reverse('portal_home'))
         html = response.content.decode('utf-8')
 
-        self.assertIn('miniapp/workflow_standard.css?v=16', html)
+        self.assertIn('miniapp/workflow_standard.css?v=17', html)
         self.assertIn('.workflow-standard.portal-app .tab-bar', stylesheet)
         self.assertIn('flex-wrap: nowrap', stylesheet)
         self.assertIn('overflow-x: auto', stylesheet)

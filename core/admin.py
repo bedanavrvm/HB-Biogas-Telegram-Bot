@@ -156,6 +156,7 @@ from .models import (
     TatActionTaskRecipient,
     TatActionTaskLocator,
     TatGroupExceptionStatus,
+    TatNotificationProcessorRun,
     TatRepairJob,
     WorkflowDataModeEvent,
     WorkflowDataModeState,
@@ -2566,6 +2567,23 @@ class TatGroupExceptionStatusAdmin(GovernedConfigurationAuditAdmin):
     list_filter = ('active', 'responsible_role', 'group_configuration')
     search_fields = ('group_configuration__display_name', 'group_configuration__group_id', 'responsible_role')
     readonly_fields = [field.name for field in TatGroupExceptionStatus._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(TatNotificationProcessorRun)
+class TatNotificationProcessorRunAdmin(GovernedConfigurationAuditAdmin):
+    list_display = (
+        'started_at', 'status', 'completed_at', 'processed_task_count',
+        'retry_recipient_count', 'overdue_recipient_count',
+        'unreachable_recipient_count', 'error_code',
+    )
+    list_filter = ('status', 'started_at', 'completed_at')
+    readonly_fields = [field.name for field in TatNotificationProcessorRun._meta.fields]
 
     def has_add_permission(self, request):
         return False

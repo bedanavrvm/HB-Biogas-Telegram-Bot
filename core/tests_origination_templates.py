@@ -905,7 +905,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertIn("mode = 'filled'", source)
         self.assertIn('await renderPage()', source)
         self.assertIn('default for fields added later', template)
-        self.assertIn('origination_calibration.js\' %}?v=15', template)
+        self.assertIn('origination_calibration.js\' %}?v=19', template)
 
     def test_checkbox_builder_uses_canonical_selectors_and_sample_control(self):
         source = (
@@ -1321,18 +1321,19 @@ class MultiProductOriginationTemplateTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Upload a primary LAF or shared supporting form')
+        self.assertContains(response, 'Upload a product PDF or reusable document')
         self.assertContains(response, 'Loan form definition')
         self.assertContains(response, 'Dairy Working Capital - loan form v1')
         self.assertContains(response, f'value="{self.product.pk}" selected')
         self.assertEqual(
             tuple(response.context['adminform'].form.fields),
             (
-                'product_definition', 'document_key', 'name', 'document_role',
+                'product_definition', 'reusable_family', 'schema_preset', 'name', 'document_role',
                 'inclusion_mode', 'display_order', 'officer_selectable',
                 'default_selected', 'condition_field', 'condition_operator',
                 'condition_value', 'applicability_rule', 'form_schema',
-                'signer_rules', 'pdf_file',
+                'signer_rules', 'pdf_file', 'native_consent_policy',
+                'native_consent_attestation_reference',
             ),
         )
         self.assertEqual(response.context['adminform'].readonly_fields, ())
@@ -1345,7 +1346,7 @@ class MultiProductOriginationTemplateTests(TestCase):
             UnfoldAdminFileFieldWidget,
         )
         self.assertContains(response, 'file_upload')
-        self.assertContains(response, 'Supporting document form builder')
+        self.assertContains(response, 'Document form builder')
         self.assertContains(response, 'Create canonical field')
         self.assertContains(response, 'type="hidden" name="form_schema"')
         self.assertContains(response, 'type="hidden" name="signer_rules"')
@@ -1358,8 +1359,8 @@ class MultiProductOriginationTemplateTests(TestCase):
         response = self.client.get(reverse('admin:core_originationdocumenttemplate_add'))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'No draft loan form is ready for a primary LAF')
-        self.assertContains(response, 'You may still upload a global supporting form')
+        self.assertContains(response, 'Upload to the reusable document library')
+        self.assertContains(response, 'No draft product is currently available')
         self.assertContains(response, reverse('admin:core_originationproductdefinition_add'))
         self.assertFalse(
             response.context['adminform'].form.fields['product_definition'].queryset.exists(),
@@ -1425,17 +1426,18 @@ class MultiProductOriginationTemplateTests(TestCase):
             '_save': 'Save',
         })
 
-        template = OriginationDocumentTemplate.objects.get(document_key='shared_guarantor')
+        template = OriginationDocumentTemplate.objects.get(drive_file_id='drive-shared-guarantor')
         self.assertEqual(response.status_code, 302)
         self.assertIsNone(template.product_definition_id)
-        self.assertEqual(template.document_type, 'shared_guarantor')
+        self.assertEqual(template.document_key, 'shared-guarantor-form')
+        self.assertEqual(template.document_type, 'shared-guarantor-form')
         self.assertEqual(template.document_role, template.ROLE_SUPPORTING)
         self.assertEqual(template.form_schema, {'_revision': 0, 'sections': [], 'fields': []})
         change_response = self.client.get(reverse(
             'admin:core_originationdocumenttemplate_change', args=[template.pk],
         ))
-        self.assertContains(change_response, 'Upload next family version')
-        self.assertContains(change_response, 'document_key=shared_guarantor')
+        replacement_url = change_response.context['origination_next_family_version_url']
+        self.assertIn('reusable_family=shared-guarantor-form', replacement_url)
 
     @patch('core.services.compliance_audit.record_event')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')

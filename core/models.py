@@ -1513,6 +1513,45 @@ class TatGroupExceptionStatus(models.Model):
         verbose_name_plural = 'TAT group delivery exceptions'
 
 
+class TatNotificationProcessorRun(models.Model):
+    """Privacy-safe, append-oriented health evidence for the TAT alert runner."""
+
+    STATUS_RUNNING = 'running'
+    STATUS_SUCCEEDED = 'succeeded'
+    STATUS_FAILED = 'failed'
+    STATUS_SKIPPED_OVERLAP = 'skipped_overlap'
+    STATUS_CHOICES = [
+        (STATUS_RUNNING, 'Running'),
+        (STATUS_SUCCEEDED, 'Succeeded'),
+        (STATUS_FAILED, 'Failed'),
+        (STATUS_SKIPPED_OVERLAP, 'Skipped because another run was active'),
+    ]
+    LOCK_KEY = 'tat-notification-processor'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    status = models.CharField(max_length=24, choices=STATUS_CHOICES, db_index=True)
+    # The unique non-null value is the cross-process lock. Completed runs set
+    # it back to NULL while retaining immutable operational evidence.
+    active_lock_key = models.CharField(max_length=64, null=True, blank=True, unique=True, editable=False)
+    started_at = models.DateTimeField(default=timezone.now, db_index=True)
+    completed_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    processed_task_count = models.PositiveIntegerField(default=0)
+    retry_recipient_count = models.PositiveIntegerField(default=0)
+    overdue_recipient_count = models.PositiveIntegerField(default=0)
+    unreachable_recipient_count = models.PositiveIntegerField(default=0)
+    error_code = models.CharField(max_length=80, blank=True, default='')
+    error_message = models.CharField(max_length=500, blank=True, default='')
+
+    class Meta:
+        ordering = ['-started_at']
+        indexes = [models.Index(fields=['status', 'started_at'], name='tat_notify_run_status_idx')]
+        verbose_name = 'TAT notification processor run'
+        verbose_name_plural = 'TAT notification processor runs'
+
+    def __str__(self):
+        return f'{self.get_status_display()} at {self.started_at}'
+
+
 class TatRepairJob(models.Model):
     """Persistent progress for an asynchronous TAT Sheet repair."""
 

@@ -8,6 +8,9 @@ or retry rule; code coverage alone is not sufficient evidence.
 |---|---|---|
 | Mini App retry key compatibility | `core.tests_reliability.MiniAppRequestIdentityTests.test_header_key_is_bound` | `test_strict_mode_rejects_missing_key` |
 | TAT state update replay identity | `core.tests_reliability.MiniAppWritePolicyTests.test_tat_update_accepts_header_retry_key` | `test_tat_update_rejects_invalid_retry_key` |
+| TAT private delivery is idempotent | `core.tests_tat_notifications.TatPrivateTaskTests.test_concurrent_safe_dispatch_does_not_repeat_a_delivered_prompt` | `test_revoked_primary_scope_hides_task_and_soft_escalates_delivery` |
+| TAT notification runner overlap lease | `core.tests_tat_notifications.TatPrivateTaskTests.test_notification_processor_records_success_and_releases_lock` | `test_notification_processor_skips_an_overlapping_run`, `test_notification_processor_recovers_an_expired_lock` |
+| TAT production gate | `core.tests_tat_production.TatProductionReadinessTests.test_readiness_command_supports_json_success` | `test_group_requires_sheet_contract_access_and_responsibility_coverage`, `test_telegram_auth_cannot_be_disabled` |
 | Complaint/SPIN retry compatibility | `core.tests_reliability.MiniAppWritePolicyTests.test_complaint_and_spin_accept_legacy_clients` | `test_strict_mode_rejects_legacy_client_for_each_workflow` |
 | Bounded external retry/circuit | `core.tests_reliability.ExternalResilienceTests.test_transient_failure_retries_then_succeeds` | `test_circuit_opens_and_blocks_calls` |
 | No false external success | `core.tests_reliability.ExternalResilienceTests.test_terminal_failure_is_dead_lettered` | `test_non_transient_error_is_not_retried` |

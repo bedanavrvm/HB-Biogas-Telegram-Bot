@@ -131,43 +131,36 @@ The generated workflow should look like this:
   "products": ["logbook", "mjengo", "kilimo", "micro_asset", "sme"],
   "branches": ["Biogas Unit", "Embu", "Nakuru", "West Nairobi"],
   "allow_unconfigured_users": false,
-  "default_roles": ["BRO"],
-  "staff": []
+  "default_roles": ["BRO"]
 }
 ```
 
-## Staff Configuration GUI
+## Staff access and responsibility configuration
 
-Staff access is now configured through Django Admin forms, not by manually editing `workflow.staff` JSON.
+Do not put staff identities or permissions in `workflow.staff`. The canonical
+authorization source is Django `User` plus active `AccessGrant` rows for the
+`tat_tracker` workflow. A grant defines the user's role and optional group,
+branch, and product scope. Telegram `initData` proves identity but never grants
+workflow authority.
 
-Open the saved TAT Tracker group configuration:
+Responsibility assignment is separate. Open **TAT responsibility assignments**
+in Django Admin to nominate the primary recipient and ranked backups for a
+governed group/branch/product/stage scope. An assignment routes work; it cannot
+grant permission. The nominated user must already hold a matching active
+`AccessGrant`.
 
-```text
-/admin/core/groupsheetconfiguration/
+Private Telegram delivery is a third, independent state. Each nominated user
+must open the TAT Mini App and select **Settings -> Connect private alerts**.
+Review **TAT private alert connections** in Admin before enabling hybrid mode.
+
+Use [TAT access and responsibilities](docs/tat-access-and-responsibilities.md)
+for the complete administrator procedure and run:
+
+```powershell
+python manage.py check_tat_production_readiness --strict
 ```
 
-If the group uses `Workflow preset = TAT Tracker`, the group edit page shows a section named `TAT tracker staff GUI`.
-
-For each staff member, fill:
-
-- `Active`: uncheck to disable access without deleting the row.
-- `Name`: display name shown inside the Mini App.
-- `Telegram user ID`: preferred. Numeric Telegram user ID is stable even if username changes.
-- `Telegram username`: optional fallback, without `@`.
-- `Roles`: checkbox list of stages the person can update.
-- `Branches`: choose one or more branches, or `All branches`.
-- `Products`: choose one or more products, or `All products`.
-- `Notes`: optional admin-only note.
-
-Save the group configuration after adding/editing staff. The app automatically converts these GUI rows into the internal `workflow.staff` structure used by Mini App authorization.
-
-There is also a standalone admin list:
-
-```text
-/admin/core/tattrackerstaffmember/
-```
-
-Use it to search/edit staff across all TAT Tracker groups.
+before production activation.
 
 Supported roles:
 
@@ -453,7 +446,10 @@ Check:
 
 ### Staff sees unauthorized error
 
-Add the staff member in the `TAT tracker staff GUI` inline on the group configuration, or in `/admin/core/tattrackerstaffmember/`. Prefer Telegram numeric user ID.
+Verify that the Telegram identity resolves to an active Django user and that
+the user has an active `tat_tracker` `AccessGrant` matching the requested group,
+role, branch, and product. Do not add the user to `workflow.staff`. Responsibility
+assignment and private-alert connection do not grant access.
 
 ### Sheet sync fails
 

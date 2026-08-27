@@ -17,6 +17,7 @@ from django.utils import timezone
 from pypdf import PdfReader
 
 from core.models import (
+    OriginationDataField,
     OriginationDocumentTemplate,
     OriginationDocumentTemplateEvent,
     OriginationProductDefinition,
@@ -234,9 +235,16 @@ def validate_template_files(pdf_data: bytes, config_data: bytes) -> tuple[dict[s
 def _template_product(template: OriginationDocumentTemplate) -> OriginationProductDefinition | None:
     if template.product_definition_id:
         return template.product_definition
-    return OriginationProductDefinition.objects.filter(
-        document_type=template.document_type, is_active=True,
-    ).order_by('-version').first()
+    # Reusable template families can serve several products. A coincidentally
+    # matching document_type must never bind their calibration to one active
+    # product's required-field contract. Only an explicit product owner or one
+    # unambiguous governed assignment supplies product context.
+    product_ids = list(
+        template.product_assignments.values_list('product_definition_id', flat=True).distinct()[:2]
+    ) if template.pk else []
+    if len(product_ids) == 1:
+        return OriginationProductDefinition.objects.filter(pk=product_ids[0]).first()
+    return None
 
 
 def _expected_signature_slots(
@@ -303,6 +311,13 @@ def validate_template_configuration(
             if item.get('key')
         )
     known_context_keys.update(key for key, _label in SYSTEM_CONTEXT_KEYS)
+    # Reusable families are product-neutral but still map only governed
+    # canonical variables. Their vocabulary comes from the global catalogue,
+    # not from an unrelated product that happens to share a document type.
+    if template.product_definition_id is None:
+        known_context_keys.update(
+            OriginationDataField.objects.values_list('key', flat=True)
+        )
     configured_context_keys = {
         str(spec.get('context_key') or '').strip() for spec in fields.values() if isinstance(spec, dict)
     }

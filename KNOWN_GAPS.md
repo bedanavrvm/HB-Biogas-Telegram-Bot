@@ -147,8 +147,12 @@ an approved release, run `python manage.py migrate core 0084_integrationcircuits
 
 ## Mini App notification preferences
 
-TAT now stores an individual user's immediate/daily-digest/quiet preference
-for non-critical alerts. Existing TAT stage alerts are still posted to the
+TAT stores an individual user's immediate/daily-digest/quiet preference for
+non-critical alerts. Durable TAT action tasks now support shadow evaluation,
+existing group alerts, and private delivery with retry and ranked backup
+escalation. Production private delivery still requires the approved one-minute
+platform scheduler and must pass `check_tat_production_readiness --strict`.
+Legacy non-task TAT stage alerts may still be posted to the
 configured shared Telegram group, not to individual recipients, so this
 preference does not suppress, digest, or reroute those group alerts yet. A
 recipient-level notification delivery ledger and scheduled business-day digest
@@ -174,7 +178,7 @@ are verified in real Telegram clients. Do not set
 `REQUIRE_MINIAPP_IDEMPOTENCY_KEY=True` during a production release without
 that explicit verification and approval.
 
-Last reviewed: 30-July-2026
+Last reviewed: 27-August-2026
 
 ## Compliance audit evidence
 

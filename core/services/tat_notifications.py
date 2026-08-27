@@ -9,7 +9,7 @@ from typing import Iterable
 
 import requests
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -20,6 +20,7 @@ from core.models import (
     TatActionTaskLocator,
     TatActionTaskRecipient,
     TatGroupExceptionStatus,
+    TatNotificationProcessorRun,
     TatPrivateAlertConnection,
     TatResponsibilityAssignment,
     TatTrackerCase,
@@ -35,6 +36,121 @@ VALID_MODES = {MODE_GROUP, MODE_SHADOW, MODE_HYBRID}
 LOCATOR_PREFIX = 'tt_'
 LOCATOR_TTL = timedelta(hours=72)
 TRANSIENT_DELIVERY_GRACE = timedelta(minutes=5)
+
+
+def begin_notification_processor_run() -> tuple[TatNotificationProcessorRun, bool]:
+    """Acquire the database-backed runner lock and retain one health row.
+
+    The unique non-null lock key works across web and scheduler processes. A
+    crashed process is failed closed after the configured lease and the next
+    invocation can recover it without deleting its evidence.
+    """
+    now = timezone.now()
+    lock_seconds = max(60, int(getattr(settings, 'TAT_NOTIFICATION_PROCESSOR_LOCK_SECONDS', 240)))
+    stale_before = now - timedelta(seconds=lock_seconds)
+    try:
+        with transaction.atomic():
+            active = TatNotificationProcessorRun.objects.select_for_update().filter(
+                active_lock_key=TatNotificationProcessorRun.LOCK_KEY,
+            ).first()
+            if active and active.started_at >= stale_before:
+                skipped = TatNotificationProcessorRun.objects.create(
+                    status=TatNotificationProcessorRun.STATUS_SKIPPED_OVERLAP,
+                    started_at=now,
+                    completed_at=now,
+                    error_code='active-run',
+                    error_message='Another notification processor run still owns the lease.',
+                )
+                return skipped, False
+            if active:
+                active.status = TatNotificationProcessorRun.STATUS_FAILED
+                active.active_lock_key = None
+                active.completed_at = now
+                active.error_code = 'stale-lock-recovered'
+                active.error_message = 'The previous processor lease expired before completion.'
+                active.save(update_fields=[
+                    'status', 'active_lock_key', 'completed_at', 'error_code', 'error_message',
+                ])
+            run = TatNotificationProcessorRun.objects.create(
+                status=TatNotificationProcessorRun.STATUS_RUNNING,
+                active_lock_key=TatNotificationProcessorRun.LOCK_KEY,
+                started_at=now,
+            )
+            return run, True
+    except IntegrityError:
+        # Two workers can both observe no row before one wins the unique-key
+        # insert. The loser records a harmless overlap rather than retrying.
+        skipped = TatNotificationProcessorRun.objects.create(
+            status=TatNotificationProcessorRun.STATUS_SKIPPED_OVERLAP,
+            started_at=now,
+            completed_at=now,
+            error_code='lock-race',
+            error_message='Another notification processor acquired the lease first.',
+        )
+        return skipped, False
+
+
+def _notification_delivery_counts() -> dict[str, int]:
+    pending_tasks = TatActionTaskRecipient.objects.filter(task__status=TatActionTask.STATUS_PENDING)
+    now = timezone.now()
+    return {
+        'retry_recipient_count': pending_tasks.filter(
+            delivery_state=TatActionTaskRecipient.DELIVERY_RETRY,
+        ).count(),
+        'overdue_recipient_count': pending_tasks.filter(
+            delivery_state__in=[
+                TatActionTaskRecipient.DELIVERY_PENDING,
+                TatActionTaskRecipient.DELIVERY_RETRY,
+            ],
+            deliver_after__isnull=False,
+            deliver_after__lte=now,
+        ).count(),
+        'unreachable_recipient_count': pending_tasks.filter(
+            delivery_state=TatActionTaskRecipient.DELIVERY_UNREACHABLE,
+        ).count(),
+    }
+
+
+def finish_notification_processor_run(
+    run: TatNotificationProcessorRun,
+    *,
+    processed_task_count: int = 0,
+    error: Exception | None = None,
+) -> TatNotificationProcessorRun:
+    """Release the runner lock and persist privacy-safe aggregate health."""
+    counts = _notification_delivery_counts()
+    now = timezone.now()
+    with transaction.atomic():
+        locked = TatNotificationProcessorRun.objects.select_for_update().get(pk=run.pk)
+        locked.status = (
+            TatNotificationProcessorRun.STATUS_FAILED
+            if error else TatNotificationProcessorRun.STATUS_SUCCEEDED
+        )
+        locked.active_lock_key = None
+        locked.completed_at = now
+        locked.processed_task_count = max(0, int(processed_task_count))
+        locked.retry_recipient_count = counts['retry_recipient_count']
+        locked.overdue_recipient_count = counts['overdue_recipient_count']
+        locked.unreachable_recipient_count = counts['unreachable_recipient_count']
+        if error:
+            locked.error_code = type(error).__name__[:80]
+            locked.error_message = 'Notification processor failed; inspect server error monitoring.'
+        locked.save(update_fields=[
+            'status', 'active_lock_key', 'completed_at', 'processed_task_count',
+            'retry_recipient_count', 'overdue_recipient_count',
+            'unreachable_recipient_count', 'error_code', 'error_message',
+        ])
+    retention_days = max(1, int(getattr(settings, 'TAT_NOTIFICATION_RUN_RETENTION_DAYS', 90)))
+    try:
+        TatNotificationProcessorRun.objects.filter(
+            active_lock_key__isnull=True,
+            completed_at__lt=now - timedelta(days=retention_days),
+        ).exclude(pk=locked.pk).delete()
+    except Exception:
+        # Retention is maintenance, not delivery correctness. Preserve the
+        # successful run and let monitoring surface the pruning fault.
+        logger.exception('Pruning old TAT notification processor runs failed.')
+    return locked
 
 
 def notification_mode(group_config) -> str:

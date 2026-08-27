@@ -94,11 +94,13 @@ Only after explicit approval for read-only external calls, run:
 python manage.py probe_integrations --execute
 ```
 
-The retry/circuit tables are an operator-visible register, not a background
-queue. There is no Celery/Redis worker or scheduler. Review retryable/dead-
-letter records in Django Admin and retry through the owning workflow after the
-external dependency is healthy. Do not delete a local case/document or claim a
-sync succeeded because an external call failed.
+The retry/circuit tables are an operator-visible register, not a general
+background queue. There is no Celery/Redis worker. TAT private notifications
+are the one approved scheduled exception: a durable platform scheduler runs
+`process_tat_notifications` once per minute, with a database lease and
+privacy-safe health evidence. See `docs/tat-production-runbook.md`. Other
+retryable/dead-letter records remain operator-controlled. Do not delete a local
+case/document or claim a sync succeeded because an external call failed.
 
 Before enabling `REQUIRE_MINIAPP_IDEMPOTENCY_KEY=True`, verify current Portal,
 Complaint Cases, TAT, and SPIN Mini Apps in real Telegram clients and obtain

@@ -15,12 +15,17 @@ the completed record in the approved private operations location, not in Git.
 ## Pre-deploy evidence
 
 - `check_production_readiness --strict`:
+- `check_tat_production_readiness --strict` and JSON evidence:
+- Latest successful TAT notification processor run / scheduler alert owner:
+- First successful scheduler run observed while all enabled TAT groups were in shadow mode:
+- TAT mode, group, Sheet-contract, access, responsibility, and private-connection review:
 - `check_business_admin_cutover --strict`:
 - `verify_compliance_audit --strict`:
 - `sample_compliance_audit --strict`:
 - CI run URL / full test result:
 - Staging migration result:
 - Telegram staging smoke test (JBL Officer, Credit Analyst, Business Admin):
+- TAT staging modes: shadow / group / private / backup escalation:
 - Read-only Sheets/register and Drive-link smoke test:
 
 ## Production verification
@@ -31,6 +36,7 @@ the completed record in the approved private operations location, not in Git.
 - Protected readiness result:
 - Authorized Portal read-only case flow:
 - Private workspace action:
+- TAT queue, search, pagination, update, private link, and group fallback result:
 - Read-only existing register/document-link result:
 - Opened to all authorized staff at:
 

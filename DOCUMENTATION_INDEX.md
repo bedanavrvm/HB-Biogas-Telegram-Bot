@@ -1,5 +1,7 @@
 # 📚 Complete Documentation Index
 
+> This root index includes historical documents and is not the production-readiness source of truth. Start with [docs/README.md](docs/README.md). For TAT production, use [the staff guide](docs/tat-staff-guide.md), [developer guide](docs/tat-developer-guide.md), and [production runbook](docs/tat-production-runbook.md).
+
 ## 🎯 Start Here
 
 ### For Immediate Deployment

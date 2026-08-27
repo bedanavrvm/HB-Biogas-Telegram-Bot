@@ -102,7 +102,8 @@ class MiniAppWritePolicyTests(TestCase):
         complaint_request = self._json_request('/api/complaints/cases/create/', {'group_id': 'group-1'}, key='')
         with patch('core.api.complaint_case_views._context', return_value=(type('Group', (), {'group_id': 'group-1'})(), type('Actor', (), {'capabilities': {'complaint.case.create'}, 'name': 'Officer'})(), None)), \
                 patch('core.api.complaint_case_views._capability_error', return_value=None), \
-                patch('core.api.complaint_case_views.create_complaint_case', return_value={'case': {}, 'created': True, 'synced_to_sheet': True}):
+                patch('core.api.complaint_case_views.create_complaint_case', return_value={'case': {'case_id': 'CMP-SYNTHETIC-1'}, 'created': True, 'synced_to_sheet': True}), \
+                patch('core.api.complaint_case_views.actor_can_access_case', return_value=True):
             complaint_response = complaint_cases_create(complaint_request)
         self.assertEqual(complaint_response.status_code, 201)
         self.assertEqual(complaint_response['X-Idempotency-Status'], 'legacy-client')

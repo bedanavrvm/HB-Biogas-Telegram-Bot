@@ -254,6 +254,8 @@ This is a template of variables this class of system typically needs. Treat it a
 | `GOOGLE_SERVICE_ACCOUNT_JSON` / `GOOGLE_APPLICATION_CREDENTIALS` | Service-account credentials for Sheets/Drive API access | Yes |
 | Sheet/Drive IDs (e.g. `*_SHEET_ID`, `*_FOLDER_ID`) | Identify target spreadsheets/folders per workflow | Treat as sensitive unless confirmed non-sensitive |
 | `TAT_TRACKER_SIGNATURES_ENABLED` | Enables external TAT e-signature dispatch and stage gating | No |
+| `TAT_NOTIFICATION_SCHEDULER_REQUIRED` / `TAT_NOTIFICATION_PROCESSOR_LOCK_SECONDS` | Requires the production private-alert runner and bounds its database-backed overlap lease | No |
+| `TAT_NOTIFICATION_SCHEDULER_MAX_SILENCE_SECONDS` / `TAT_NOTIFICATION_RUN_RETENTION_DAYS` | Controls the missed-run readiness threshold and privacy-safe processor-health retention | No |
 | `DOCUMENT_SIGNOFF_MAX_FILE_SIZE_MB` | Maximum accepted PDF/JPG/PNG physical sign-off scan; real scan files remain in approved Drive storage | No |
 | `COMPLIANCE_AUDIT_CHECKPOINT_DELIVERY_ENABLED` | Enables explicitly requested daily checkpoint delivery; defaults to disabled | No |
 | `COMPLIANCE_AUDIT_CHECKPOINT_RECIPIENT` | Controlled compliance mailbox for approved checkpoint delivery | Treat as sensitive operational contact data |
