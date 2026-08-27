@@ -1249,6 +1249,73 @@ class LoanOriginationServiceTests(TestCase):
         self.assertFalse(result.valid)
         self.assertIn('duplicate identity', result.errors['secured_assets'])
 
+    def test_saved_repeatable_security_repairs_blank_containers_and_grouped_amounts(self):
+        schema = {'fields': [{
+            'key': 'pledged_assets', 'type': 'repeating_group', 'required': True,
+            'structure': {
+                'min_items': 1, 'max_items': 4,
+                'columns': [
+                    {'key': 'description', 'label': 'Description', 'type': 'text', 'required': True},
+                    {'key': 'year_of_purchase', 'label': 'Year of purchase', 'type': 'number', 'required': True},
+                    {'key': 'serial_number', 'label': 'Serial number', 'type': 'text', 'required': False},
+                    {'key': 'current_value', 'label': 'Current value', 'type': 'money', 'required': True},
+                ],
+            },
+        }]}
+        normalized = normalize_form_payload(schema, {'pledged_assets': [{
+            'description': 'Synthetic asset',
+            'year_of_purchase': [],
+            'serial_number': {},
+            'current_value': '12,500',
+        }]})
+
+        row = normalized['pledged_assets'][0]
+        self.assertEqual(row['year_of_purchase'], '')
+        self.assertEqual(row['serial_number'], '')
+        self.assertEqual(row['current_value'], '12500')
+        self.assertTrue(validate_form_payload(schema, normalized, require_complete=False).valid)
+        complete = validate_form_payload(schema, normalized, require_complete=True)
+        self.assertFalse(complete.valid)
+        self.assertEqual(
+            complete.errors['pledged_assets'],
+            'Complete Year of purchase in row 1.',
+        )
+
+        invalid = normalize_form_payload(schema, {'pledged_assets': [{
+            'description': 'Synthetic asset',
+            'year_of_purchase': 'not-a-year',
+            'serial_number': '',
+            'current_value': '12500',
+        }]})
+        invalid_result = validate_form_payload(schema, invalid, require_complete=False)
+        self.assertEqual(
+            invalid_result.errors['pledged_assets'],
+            'Enter a valid Year of purchase in row 1.',
+        )
+
+        self.product.form_schema = schema
+        self.product.save(update_fields=['form_schema'])
+        application, _ = create_application(
+            product_key=self.product.product_key,
+            officer=self.officer,
+            branch='Synthetic Branch',
+            client_request_id='saved-security-repair-create',
+        )
+        saved = save_application_fields(
+            application_id=application.pk,
+            actor=self.officer,
+            payload={'pledged_assets': [{
+                'description': 'Synthetic asset',
+                'year_of_purchase': [],
+                'serial_number': {},
+                'current_value': '12,500',
+            }]},
+            expected_revision=application.revision,
+            request_id='saved-security-repair-save',
+        )
+        self.assertEqual(saved.form_payload['pledged_assets'][0]['year_of_purchase'], '')
+        self.assertEqual(saved.form_payload['pledged_assets'][0]['current_value'], '12500')
+
     @staticmethod
     def _blank_pdf() -> bytes:
         writer = PdfWriter()

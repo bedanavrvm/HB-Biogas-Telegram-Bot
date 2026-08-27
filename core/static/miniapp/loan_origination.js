@@ -1104,10 +1104,16 @@
   function collectPayload() {
     const payload = { ...(current?.form_payload || {}) };
     root()?.querySelectorAll('[data-main-repeatable]').forEach(container => {
+      const field = (current?.form_schema?.fields || []).find(item => item.key === container.dataset.mainRepeatable);
+      const columnTypes = new Map((field?.structure?.columns || []).map(column => [column.key, column.type]));
       payload[container.dataset.mainRepeatable] = [...container.querySelectorAll('[data-repeat-row]')].map(row => {
         const item = { row_id: row.dataset.rowId || newRowId() };
         row.querySelectorAll('[data-repeat-column]').forEach(input => {
-          item[input.dataset.repeatColumn] = input.value.trim();
+          let value = input.value.trim();
+          if (['money', 'number'].includes(columnTypes.get(input.dataset.repeatColumn))) {
+            value = value.replaceAll(',', '');
+          }
+          item[input.dataset.repeatColumn] = value;
         });
         return item;
       });
@@ -1384,7 +1390,7 @@
 
   function numericInputError(input) {
     if (!input?.matches?.('[data-numeric-input]') || input.value === '') return '';
-    const normalized = input.value.trim();
+    const normalized = input.value.trim().replaceAll(',', '');
     if (!/^-?(?:\d+|\d*\.\d+)$/.test(normalized)) return 'Enter a valid number.';
     if (input.hasAttribute('data-money-input') && !/^-?\d+$/.test(normalized)) return 'Enter a whole KES amount without decimal places.';
     const value = Number(normalized);
@@ -1983,14 +1989,14 @@
           const label = option && typeof option === 'object' ? (option.label || option.code) : option;
           return `<option value="${escapeHtml(code)}"${columnValue === code ? ' selected' : ''}>${escapeHtml(label)}</option>`;
         }).join('');
-        return `<label><span>${escapeHtml(column.label || column.key)}</span><select data-repeat-column="${escapeHtml(column.key)}"${column.required ? ' required' : ''}${columnDisabled ? ' disabled' : ''}><option value="">Choose</option>${options}</select></label>`;
+        return `<label><span>${escapeHtml(column.label || column.key)}${column.required ? '<span class="required-mark" aria-label="required">*</span>' : ''}</span><select data-repeat-column="${escapeHtml(column.key)}"${column.required ? ' required' : ''}${columnDisabled ? ' disabled' : ''}><option value="">Choose</option>${options}</select></label>`;
       }
       if (column.type === 'date') {
-        return `<label><span>${escapeHtml(column.label || column.key)}</span>${nativeDateControl(`data-repeat-column="${escapeHtml(column.key)}"${column.required ? ' required' : ''}`, columnValue, columnDisabled)}</label>`;
+        return `<label><span>${escapeHtml(column.label || column.key)}${column.required ? '<span class="required-mark" aria-label="required">*</span>' : ''}</span>${nativeDateControl(`data-repeat-column="${escapeHtml(column.key)}"${column.required ? ' required' : ''}`, columnValue, columnDisabled)}</label>`;
       }
       const validation = column.validation || {};
       const numericRules = numeric ? ` inputmode="${column.type === 'money' ? 'numeric' : 'decimal'}" data-numeric-input${column.type === 'money' && !lockRow ? ' data-money-input' : ''} data-min="${escapeHtml(validation.min ?? '')}" data-max="${escapeHtml(validation.max ?? '')}"` : '';
-      return `<label><span>${escapeHtml(column.label || column.key)}</span><input data-repeat-column="${escapeHtml(column.key)}" type="text" value="${escapeHtml(columnValue)}"${numericRules}${column.required ? ' required' : ''}${columnDisabled ? ' disabled' : ''}></label>`;
+      return `<label><span>${escapeHtml(column.label || column.key)}${column.required ? '<span class="required-mark" aria-label="required">*</span>' : ''}</span><input data-repeat-column="${escapeHtml(column.key)}" type="text" value="${escapeHtml(columnValue)}"${numericRules}${column.required ? ' required' : ''}${columnDisabled ? ' disabled' : ''}></label>`;
     }).join('')}</div></fieldset>`;
   }
 

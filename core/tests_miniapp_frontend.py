@@ -122,8 +122,15 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("window.addEventListener('online'", source)
         self.assertNotIn('keepalive: true', source)
         self.assertNotIn('fetch(`/api/origination/api/applications/${current.id}/`', source)
-        self.assertIn('data-ui-version="20260827-2"', template)
-        self.assertIn('loan_origination.js\' %}?v=20260827-2', template)
+        self.assertIn('data-ui-version="20260827-3"', template)
+        self.assertIn('loan_origination.js\' %}?v=20260827-3', template)
+
+    def test_origination_repeatable_security_normalizes_numeric_entry_and_marks_required_columns(self):
+        source = Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
+
+        self.assertIn("value = value.replaceAll(',', '');", source)
+        self.assertIn("input.value.trim().replaceAll(',', '')", source)
+        self.assertIn("column.required ? '<span class=\"required-mark\"", source)
 
     def test_portal_import_review_uses_only_the_retained_source_table_columns(self):
         source = Path('core/static/miniapp/portal_imports.js').read_text(encoding='utf-8')

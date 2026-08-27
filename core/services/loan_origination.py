@@ -507,14 +507,15 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
                 for column in columns:
                     column_key = str(column.get('key') or '')
                     cell = row.get(column_key)
-                    if require_complete and column.get('required') and cell in (None, ''):
+                    blank_cell = cell in (None, '', [], {})
+                    if require_complete and column.get('required') and blank_cell:
                         errors[key] = f'Complete {column.get("label") or column_key} in row {index + 1}.'
                         break
-                    if cell in (None, ''):
+                    if blank_cell:
                         continue
                     if str(column.get('type') or '') in {'money', 'number'}:
                         try:
-                            decimal_value = Decimal(str(cell))
+                            decimal_value = Decimal(str(cell).replace(',', '').strip())
                             if not decimal_value.is_finite():
                                 raise InvalidOperation
                             minimum_value = (column.get('validation') or {}).get('min')
@@ -531,7 +532,10 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
                                 errors[key] = f'Enter a whole KES amount in row {index + 1}.'
                                 break
                         except (InvalidOperation, TypeError, ValueError):
-                            errors[key] = f'Enter a valid value in row {index + 1}.'
+                            errors[key] = (
+                                f'Enter a valid {column.get("label") or column_key} '
+                                f'in row {index + 1}.'
+                            )
                             break
                     elif str(column.get('type') or '') == 'date':
                         from datetime import date
@@ -676,9 +680,16 @@ def normalize_form_payload(schema: dict[str, Any], payload: Any) -> dict[str, An
             except (TypeError, ValueError, AttributeError):
                 row['row_id'] = str(uuid.uuid4())
             for column_key, column_type in columns.items():
-                if column_type in {'money', 'number'} and row.get(column_key) not in (None, ''):
+                cell = row.get(column_key)
+                if cell in (None, '', [], {}):
+                    row[column_key] = ''
+                    continue
+                if isinstance(cell, str):
+                    row[column_key] = cell.strip()
+                if column_type in {'money', 'number'}:
                     try:
-                        row[column_key] = format(Decimal(str(row[column_key])), 'f')
+                        numeric_cell = str(row[column_key]).replace(',', '').strip()
+                        row[column_key] = format(Decimal(numeric_cell), 'f')
                     except (InvalidOperation, TypeError, ValueError):
                         pass
             cleaned.append(row)
