@@ -1656,7 +1656,6 @@
     const latestConfiguration = changedWhileSaving ? collectProductConfiguration() : null;
     current = result.data.application;
     previewedRevision = null;
-    syncPreviewStaleFeedback();
     lastFailedSaveRequestId = '';
     if (serverValidationErrorsVisible) {
       showErrors({});
@@ -1689,7 +1688,6 @@
     if (saveInFlight) pendingSaveRequestId = requestKey('save');
     else pendingSaveRequestId ||= requestKey('save');
     setSaveState('Unsaved changes', 'dirty');
-    syncPreviewStaleFeedback();
     window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(() => saveDraft(false), 900);
     const payload = collectPayload();
@@ -1955,26 +1953,11 @@
     return `<aside class="notice recovery-conflict"><strong>Two draft revisions need your choice</strong><span>The encrypted phone draft was based on revision ${escapeHtml(conflictDraft.revision)}; the server is now revision ${escapeHtml(current.revision)}. Nothing has been overwritten.</span><div><button type="button" class="btn btn-secondary" id="recovery-use-server">Use server version</button><button type="button" class="btn btn-primary" id="recovery-restore-phone">Restore phone draft</button></div></aside>`;
   }
 
-  function previewIsStale() {
-    return ['draft', 'correction_required'].includes(current?.status)
-      && (dirty || previewedRevision !== current?.revision);
-  }
-
   function persistentStateFeedbackMarkup() {
     if (current?.status === 'signed_pending_approval') {
       return '<aside class="notice feedback-banner success" role="status"><strong>Signed — pending JBL approval</strong><span>All required signatures are present. The packet becomes final only after independent checker approval.</span></aside>';
     }
-    if (!['draft', 'correction_required'].includes(current?.status)) return '';
-    return `<aside id="origination-preview-stale" class="notice feedback-banner warning" role="status"${previewIsStale() ? '' : ' hidden'}><strong>Preview outdated</strong><span>Preview the complete packet again after saving before confirmation.</span></aside>`;
-  }
-
-  function syncPreviewStaleFeedback() {
-    const stale = previewIsStale();
-    const notice = document.getElementById('origination-preview-stale');
-    if (notice) notice.hidden = !stale;
-    document.querySelectorAll('#origination-preview, #origination-preview-early').forEach(button => {
-      button.classList.toggle('preview-stale', stale);
-    });
+    return '';
   }
 
   function renderEditor(application, requestedStep) {
@@ -2990,12 +2973,10 @@
       if (!previewDocumentKey && pageNumber === 1) {
         previewedRevision = current.revision;
         previewSucceeded = true;
-        syncPreviewStaleFeedback();
       }
       if (previewDocumentKey === '__packet__' && pageNumber === 1) {
         previewedRevision = current.revision;
         previewSucceeded = true;
-        syncPreviewStaleFeedback();
         (current?.document_packet?.documents || []).filter(item => item.selected).forEach(item => {
           item.previewed = true;
         });
