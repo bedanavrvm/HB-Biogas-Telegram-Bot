@@ -1,0 +1,23 @@
+/* The setup workspace is an operational canvas, so it should use the desktop
+   area left by the Admin sidebar instead of inheriting Unfold's prose width. */
+body.osw-admin-page #content,
+body.osw-admin-page #content-main {
+  box-sizing: border-box;
+  max-width: none !important;
+  width: 100% !important;
+}
+
+body.osw-admin-page .osw-page {
+  box-sizing: border-box;
+  margin-left: 0;
+  margin-right: 0;
+  max-width: none;
+  width: 100%;
+}
+
+@media (min-width: 1100px) {
+  body.osw-admin-page .opb-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 30%);
+    gap: 18px;
+  }
+}

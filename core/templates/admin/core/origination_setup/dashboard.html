@@ -1,7 +1,9 @@
 {% extends "admin/base_site.html" %}
 {% load static %}
 
-{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_setup.css' %}?v=1">{% endblock %}
+{% block bodyclass %}{{ block.super }} osw-admin-page{% endblock %}
+
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_setup.css' %}?v=2"><link rel="stylesheet" href="{% static 'admin/origination_setup_layout.css' %}?v=1">{% endblock %}
 
 {% block content %}
 <main class="osw-page">

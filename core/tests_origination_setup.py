@@ -48,6 +48,8 @@ class OriginationSetupWorkspaceTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Product setup workspace')
         self.assertContains(response, 'Start a product')
+        self.assertContains(response, 'osw-admin-page')
+        self.assertContains(response, 'admin/origination_setup_layout.css')
 
     def test_start_is_idempotent_and_creates_durable_draft(self):
         self.client.force_login(self.superuser)
