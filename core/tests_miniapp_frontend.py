@@ -111,6 +111,12 @@ class MiniAppFrontendSmokeTests(TestCase):
         template = Path('core/templates/loan_origination/app.html').read_text(encoding='utf-8')
 
         self.assertIn('if (saveInFlight)', source)
+        self.assertIn('const waitingForRequestId = saveInFlightRequestId;', source)
+        self.assertIn('lastFailedSaveRequestId === waitingForRequestId', source)
+        self.assertIn('lastFailedSaveRequestId = key;', source)
+        self.assertIn("pendingSaveRequestId = requestKey('save');", source)
+        self.assertIn('visibleDraftNumericErrors()', source)
+        self.assertIn("showErrors({});", source)
         self.assertIn("if (saveInFlight) pendingSaveRequestId = requestKey('save');", source)
         self.assertIn('reconcileSavedDraftConflict(phoneDraft, showError)', source)
         self.assertIn('attemptedSnapshot: attemptedDraft', source)
@@ -122,14 +128,15 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("window.addEventListener('online'", source)
         self.assertNotIn('keepalive: true', source)
         self.assertNotIn('fetch(`/api/origination/api/applications/${current.id}/`', source)
-        self.assertIn('data-ui-version="20260827-3"', template)
-        self.assertIn('loan_origination.js\' %}?v=20260827-3', template)
+        self.assertIn('data-ui-version="20260827-4"', template)
+        self.assertIn('loan_origination.js\' %}?v=20260827-4', template)
 
     def test_origination_repeatable_security_normalizes_numeric_entry_and_marks_required_columns(self):
         source = Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
 
-        self.assertIn("value = value.replaceAll(',', '');", source)
-        self.assertIn("input.value.trim().replaceAll(',', '')", source)
+        self.assertIn('function normalizeNumericText(value)', source)
+        self.assertIn('value = normalizeNumericText(value);', source)
+        self.assertIn('const normalized = normalizeNumericText(input.value);', source)
         self.assertIn("column.required ? '<span class=\"required-mark\"", source)
 
     def test_portal_import_review_uses_only_the_retained_source_table_columns(self):

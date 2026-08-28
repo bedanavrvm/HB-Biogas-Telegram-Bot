@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -441,6 +442,13 @@ def _payload_has_value(payload: Any) -> bool:
     return any(value not in (None, '', [], {}) for value in payload.values())
 
 
+def _normalized_numeric_text(value: Any) -> str:
+    """Normalize mobile-keyboard grouping without changing numeric meaning."""
+    text = unicodedata.normalize('NFKC', str(value)).strip()
+    text = re.sub(r'^KES\s*', '', text, flags=re.IGNORECASE)
+    return re.sub(r'[,\s\u00a0\u202f]', '', text)
+
+
 def correction_targets(application: LoanOriginationApplication) -> dict[str, set[str]]:
     correction = application.correction_requests.filter(status='open').prefetch_related('items').first()
     targets = {'field': set(), 'requirement': set(), 'document_field': set()}
@@ -515,7 +523,7 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
                         continue
                     if str(column.get('type') or '') in {'money', 'number'}:
                         try:
-                            decimal_value = Decimal(str(cell).replace(',', '').strip())
+                            decimal_value = Decimal(_normalized_numeric_text(cell))
                             if not decimal_value.is_finite():
                                 raise InvalidOperation
                             minimum_value = (column.get('validation') or {}).get('min')
@@ -688,7 +696,7 @@ def normalize_form_payload(schema: dict[str, Any], payload: Any) -> dict[str, An
                     row[column_key] = cell.strip()
                 if column_type in {'money', 'number'}:
                     try:
-                        numeric_cell = str(row[column_key]).replace(',', '').strip()
+                        numeric_cell = _normalized_numeric_text(row[column_key])
                         row[column_key] = format(Decimal(numeric_cell), 'f')
                     except (InvalidOperation, TypeError, ValueError):
                         pass

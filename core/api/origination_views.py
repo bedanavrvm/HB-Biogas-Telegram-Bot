@@ -501,6 +501,7 @@ def portal_origination_application_detail(request, application_id: str):
             'ok': True,
             'application': serialize_application(application, presentation=mode),
         })
+    body = {}
     try:
         body = _body(request)
         saved = save_application_fields(
@@ -524,7 +525,18 @@ def portal_origination_application_detail(request, application_id: str):
             'current_revision': current_revision,
         }, status=409)
     except (OriginationError, TypeError, ValueError) as exc:
-        return JsonResponse(_safe_error(exc), status=400)
+        errors = getattr(exc, 'errors', {}) or {}
+        error_messages = [str(errors[key]) for key in sorted(errors)]
+        logger.warning(
+            'Origination draft save rejected: application_id=%s request_id=%s '
+            'expected_revision=%s current_revision=%s error_fields=%s error_messages=%s '
+            'exception_type=%s',
+            application.pk, _request_id(request, body), body.get('revision'),
+            application.revision, sorted(errors), error_messages, type(exc).__name__,
+        )
+        payload = _safe_error(exc)
+        payload['code'] = 'invalid_application_fields' if errors else 'invalid_draft'
+        return JsonResponse(payload, status=400)
     return JsonResponse({'ok': True, 'application': serialize_application(saved)})
 
 

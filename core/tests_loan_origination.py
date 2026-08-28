@@ -1266,7 +1266,7 @@ class LoanOriginationServiceTests(TestCase):
             'description': 'Synthetic asset',
             'year_of_purchase': [],
             'serial_number': {},
-            'current_value': '12,500',
+            'current_value': 'KES 12\u202f500',
         }]})
 
         row = normalized['pledged_assets'][0]
@@ -1308,7 +1308,7 @@ class LoanOriginationServiceTests(TestCase):
                 'description': 'Synthetic asset',
                 'year_of_purchase': [],
                 'serial_number': {},
-                'current_value': '12,500',
+                'current_value': 'KES 12\u202f500',
             }]},
             expected_revision=application.revision,
             request_id='saved-security-repair-save',

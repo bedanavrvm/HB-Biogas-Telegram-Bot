@@ -45,10 +45,13 @@
   let dirty = false;
   let editGeneration = 0;
   let saveInFlight = null;
+  let saveInFlightRequestId = '';
+  let lastFailedSaveRequestId = '';
   let pendingSaveRequestId = '';
   let syncConflict = false;
   let conflictDraft = null;
   let conflictServerLoaded = false;
+  let serverValidationErrorsVisible = false;
   let conflictRefreshInFlight = null;
   let recoveryAvailable = Boolean(window.crypto?.subtle && window.indexedDB);
   const recoveredApplications = new Set();
@@ -143,6 +146,13 @@
     return Number.isFinite(amount)
       ? amount.toLocaleString('en-KE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
       : String(value ?? '');
+  }
+
+  function normalizeNumericText(value) {
+    return String(value ?? '')
+      .trim()
+      .replace(/^KES\s*/i, '')
+      .replace(/[,\s\u00a0\u202f]/g, '');
   }
 
   function nativeDateControl(attributes, value, disabled, rules = '') {
@@ -1111,7 +1121,7 @@
         row.querySelectorAll('[data-repeat-column]').forEach(input => {
           let value = input.value.trim();
           if (['money', 'number'].includes(columnTypes.get(input.dataset.repeatColumn))) {
-            value = value.replaceAll(',', '');
+            value = normalizeNumericText(value);
           }
           item[input.dataset.repeatColumn] = value;
         });
@@ -1390,7 +1400,7 @@
 
   function numericInputError(input) {
     if (!input?.matches?.('[data-numeric-input]') || input.value === '') return '';
-    const normalized = input.value.trim().replaceAll(',', '');
+    const normalized = normalizeNumericText(input.value);
     if (!/^-?(?:\d+|\d*\.\d+)$/.test(normalized)) return 'Enter a valid number.';
     if (input.hasAttribute('data-money-input') && !/^-?\d+$/.test(normalized)) return 'Enter a whole KES amount without decimal places.';
     const value = Number(normalized);
@@ -1399,6 +1409,22 @@
     if (min != null && value < min) return `Enter ${min} or more.`;
     if (max != null && value > max) return `Enter ${max} or less.`;
     return '';
+  }
+
+  function visibleDraftNumericErrors() {
+    const errors = {};
+    root()?.querySelectorAll('[data-numeric-input]').forEach(input => {
+      const message = numericInputError(input);
+      if (!message) return;
+      const wrapper = input.closest('[data-field-wrap], [data-product-wrap]');
+      const key = wrapper?.dataset.fieldWrap || wrapper?.dataset.productWrap;
+      if (!key || errors[key]) return;
+      const row = input.closest('[data-repeat-row]');
+      const rows = row ? [...row.parentElement.querySelectorAll(':scope > [data-repeat-row]')] : [];
+      const rowNumber = row ? rows.indexOf(row) + 1 : 0;
+      errors[key] = rowNumber > 0 ? `${message} Row ${rowNumber}.` : message;
+    });
+    return errors;
   }
 
   function sectionErrors(sectionKey) {
@@ -1556,6 +1582,7 @@
     if (!errors || typeof errors !== 'object') return;
     const firstKey = Object.keys(errors)[0];
     if (!firstKey) return;
+    serverValidationErrorsVisible = true;
     const sections = wizardSections();
     let targetStep = sections.findIndex(section => fieldsFor(section.key).some(field => field.key === firstKey));
     if (firstKey.startsWith('requirement:') || firstKey.startsWith('custom:')) {
@@ -1574,7 +1601,9 @@
       return false;
     }
     if (saveInFlight) {
+      const waitingForRequestId = saveInFlightRequestId;
       await saveInFlight;
+      if (waitingForRequestId && lastFailedSaveRequestId === waitingForRequestId) return false;
       return dirty ? saveDraft(showError) : true;
     }
     const applicationId = current.id;
@@ -1582,6 +1611,12 @@
     const generation = editGeneration;
     const payload = collectPayload();
     const configuration = collectProductConfiguration();
+    const numericErrors = visibleDraftNumericErrors();
+    if (Object.keys(numericErrors).length) {
+      setSaveState(recoveryAvailable ? 'Waiting for a valid value - encrypted on phone' : 'Waiting for a valid value', 'dirty');
+      if (showError) showErrors(numericErrors);
+      return false;
+    }
     pendingSaveRequestId ||= requestKey('save');
     const key = pendingSaveRequestId;
     const attemptedDraft = {
@@ -1591,6 +1626,7 @@
     };
     await persistRecoveryDraft(applicationId, attemptedDraft);
     setSaveState('Saving…', 'saving');
+    saveInFlightRequestId = key;
     saveInFlight = apiFetch(`/applications/${applicationId}/`, {
       method: 'PATCH', headers: { 'Idempotency-Key': key, 'X-Request-ID': key },
       body: JSON.stringify({
@@ -1604,6 +1640,7 @@
     });
     const result = await saveInFlight;
     saveInFlight = null;
+    saveInFlightRequestId = '';
     if (!result.ok || !result.data?.ok) {
       if (result.status === 409 || result.data?.code === 'revision_conflict' || result.data?.conflict) {
         let phoneDraft = attemptedDraft;
@@ -1623,6 +1660,8 @@
         }
         return reconcileSavedDraftConflict(phoneDraft, showError);
       }
+      lastFailedSaveRequestId = key;
+      pendingSaveRequestId = requestKey('save');
       setSaveState(recoveryAvailable ? 'Encrypted on phone' : 'Not saved offline', 'offline');
       if (result.data?.errors) showServerErrors(result.data.errors);
       if (showError) showToast(
@@ -1638,7 +1677,11 @@
     const latestConfiguration = changedWhileSaving ? collectProductConfiguration() : null;
     current = result.data.application;
     previewedRevision = null;
-    pendingSaveRequestId = '';
+    lastFailedSaveRequestId = '';
+    if (serverValidationErrorsVisible) {
+      showErrors({});
+      serverValidationErrorsVisible = false;
+    }
     if (changedWhileSaving) {
       current.form_payload = latestPayload;
       current.product_requirements = latestConfiguration.requirements;
@@ -1648,6 +1691,7 @@
       setSaveState('Saving newer changes…', 'saving');
       return saveDraft(showError);
     }
+    pendingSaveRequestId = '';
     dirty = false;
     await removeRecoveryDraft(applicationId);
     setSaveState('Saved', 'saved');

@@ -336,6 +336,43 @@ class OriginationSafeWorkflowTests(TestCase):
         self.assertEqual(payload['current_revision'], 2)
         self.assertNotIn('application', payload)
 
+    @patch('core.api.origination_views._capability_error', return_value=None)
+    def test_invalid_draft_patch_identifies_field_without_logging_submitted_value(
+        self, _capability_error,
+    ):
+        from core.api.origination_views import portal_origination_application_detail
+
+        request = RequestFactory().patch(
+            f'/api/origination/api/applications/{self.application.pk}/',
+            data=json.dumps({
+                'revision': self.application.revision,
+                'form_payload': {
+                    'applicant_name': 'Synthetic Applicant',
+                    'loan_amount': 'private-invalid-value',
+                },
+                'request_id': 'invalid-draft-save',
+            }),
+            content_type='application/json',
+            HTTP_IDEMPOTENCY_KEY='invalid-draft-save',
+        )
+        request.portal_user = self.officer
+        request.portal_access = None
+
+        with self.assertLogs('core.api.origination_views', level='WARNING') as captured:
+            response = portal_origination_application_detail(
+                request, str(self.application.pk),
+            )
+        payload = json.loads(response.content)
+        log_output = '\n'.join(captured.output)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(payload['code'], 'invalid_application_fields')
+        self.assertEqual(payload['errors'], {'loan_amount': 'Enter a valid amount.'})
+        self.assertIn("error_fields=['loan_amount']", log_output)
+        self.assertIn("error_messages=['Enter a valid amount.']", log_output)
+        self.assertIn('request_id=invalid-draft-save', log_output)
+        self.assertNotIn('private-invalid-value', log_output)
+
     def test_correction_targets_are_validated_and_closed_on_resubmission(self):
         self.application.form_payload = {'applicant_name': 'Applicant', 'loan_amount': '2000'}
         self.application.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
