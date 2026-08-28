@@ -1,0 +1,38 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Activate JBL staff access</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
+  <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=17">
+  <style>
+    body{background:#f4f5f6;margin:0;padding:1rem;font-family:system-ui,sans-serif}.activation{max-width:440px;margin:8vh auto;background:white;border:1px solid #d9dde2;border-radius:14px;padding:1.25rem}.activation input,.activation button{width:100%;min-height:48px;box-sizing:border-box;border-radius:9px}.activation input{border:1px solid #b8c0c8;padding:.75rem;font-size:1.2rem;letter-spacing:.2rem}.activation button{border:0;background:#279bd7;color:white;font-weight:700;margin-top:1rem}.activation button:disabled{opacity:.65}.activation-status{margin-top:1rem;padding:.7rem;border-radius:8px}.activation-status[hidden]{display:none}.activation-status.error{background:#fff1f1;color:#9b1c1c}.activation-status.success{background:#ecfdf5;color:#086c4b}
+  </style>
+</head>
+<body>
+  <main class="activation">
+    <small>JBL FIELD WORKFLOW</small>
+    <h1>Activate staff access</h1>
+    <p>Enter the eight-digit code your administrator gave you. It expires after 15 minutes and works once.</p>
+    <form id="activation-form">
+      <label for="activation-code"><strong>Activation code</strong></label>
+      <input id="activation-code" name="activation_code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" pattern="[0-9]{8}" required>
+      <button id="activate-button" type="submit">Verify identity</button>
+    </form>
+    <div id="activation-status" class="activation-status" role="status" aria-live="polite" hidden></div>
+  </main>
+  <script>
+  (function(){
+    const tg=window.Telegram&&window.Telegram.WebApp; if(tg){tg.ready();tg.expand();}
+    const form=document.getElementById('activation-form'),button=document.getElementById('activate-button'),status=document.getElementById('activation-status');
+    form.addEventListener('submit',async function(event){event.preventDefault();button.disabled=true;button.textContent='Verifying…';status.hidden=true;
+      try{const response=await fetch('{% url "staff_telegram_activation_submit" %}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({init_data:tg?tg.initData:'',activation_code:document.getElementById('activation-code').value})});const body=await response.json();status.textContent=body.message||'Activation could not be completed.';status.className='activation-status '+(response.ok?'success':'error');status.hidden=false;if(response.ok){button.textContent='Verified';return;}}
+      catch(_){status.textContent='The connection failed. Check your network and try again.';status.className='activation-status error';status.hidden=false;}button.disabled=false;button.textContent='Verify identity';
+    });
+  })();
+  </script>
+</body>
+</html>

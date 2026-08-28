@@ -1,0 +1,9 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div style="max-width:720px">
+  <h1>Telegram activation</h1>
+  <p>The intended staff member must open <code>{% url 'staff_telegram_activation_page' %}</code> inside Telegram and provide the enrolled username, signed Telegram identity, and this single-use code.</p>
+  {% if activation_code %}<div class="rounded border border-amber-500 bg-amber-50 p-5"><small>Shown once · expires in 15 minutes</small><div style="font-size:2rem;font-weight:700;letter-spacing:.35rem">{{ activation_code }}</div></div>{% endif %}
+  <form method="post" class="mt-4">{% csrf_token %}<button class="rounded bg-primary-600 px-4 py-3 text-white">{% if activation_code %}Generate replacement code{% else %}Generate activation code{% endif %}</button></form>
+</div>
+{% endblock %}

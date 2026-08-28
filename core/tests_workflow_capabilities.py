@@ -287,7 +287,7 @@ class WorkflowCapabilityPolicyTests(TestCase):
             workflow='jawabu_portal', role='JBL_OFFICER', capability_key='portal.jbl_visit.write',
         ).enabled)
 
-    def test_sole_superuser_bootstrap_override_requires_a_reason_then_is_audited(self):
+    def test_sole_superuser_cannot_bootstrap_approve_operational_access(self):
         root = get_user_model().objects.create_superuser(
             username='sole-root', email='sole-root@example.test', password='password',
         )
@@ -299,23 +299,14 @@ class WorkflowCapabilityPolicyTests(TestCase):
             reason='Establish initial least-privilege baseline.',
         )
 
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(PermissionDenied):
             approve_request(request_id=request.pk, approver=root)
         request.refresh_from_db()
         self.assertEqual(request.status, AccessControlChangeRequest.STATUS_PENDING)
 
-        approve_request(
-            request_id=request.pk,
-            approver=root,
-            review_comment='Bootstrap override: no independent checker is active.',
-        )
-        request.refresh_from_db()
-        self.assertEqual(request.status, AccessControlChangeRequest.STATUS_APPLIED)
-        event = ComplianceAuditEvent.objects.get(source_event_id=f'{request.pk}:applied')
-        self.assertEqual(event.action, 'access_control.change.bootstrap_override_applied')
-        self.assertEqual(event.metadata['decision_mode'], 'bootstrap_override')
+        self.assertFalse(ComplianceAuditEvent.objects.filter(source_event_id=f'{request.pk}:applied').exists())
 
-    def test_superuser_can_directly_apply_and_remove_staff_grants_with_audit_evidence(self):
+    def test_superuser_direct_grant_override_is_retired(self):
         root = get_user_model().objects.create_superuser(
             username='grant-root', email='grant-root@example.test', password='password',
         )
@@ -323,54 +314,14 @@ class WorkflowCapabilityPolicyTests(TestCase):
             username='grant-other-root', email='grant-other-root@example.test', password='password',
         )
         target = get_user_model().objects.create_user(username='grant-target', is_active=True)
-        initial_version = policy_version()
-
-        created = apply_superuser_grant_override(
-            actor=root,
-            user=target,
-            workflow='jawabu_portal',
-            role='JBL_OFFICER',
-        )
-        grant = AccessGrant.objects.get(user=target, workflow='jawabu_portal', role='JBL_OFFICER')
-        self.assertEqual(created.status, AccessControlChangeRequest.STATUS_APPLIED)
-        self.assertEqual(created.reviewed_by, root)
-        self.assertEqual(grant.source, 'django_superuser_override')
-        self.assertEqual(policy_version(), initial_version + 1)
-        event = ComplianceAuditEvent.objects.get(source_event_id=f'{created.pk}:applied')
-        self.assertEqual(event.action, 'access_control.change.superuser_override_applied')
-        self.assertEqual(event.metadata['decision_mode'], 'django_superuser_override')
-
-        updated = apply_superuser_grant_override(
-            actor=other_root,
-            user=target,
-            workflow='jawabu_portal',
-            role='JBL_OFFICER',
-            active=False,
-            grant=grant,
-        )
-        grant.refresh_from_db()
-        self.assertFalse(grant.active)
-        self.assertEqual(updated.reviewed_by, other_root)
-
-        removed = apply_superuser_grant_override(
-            actor=root,
-            user=target,
-            grant=grant,
-            operation='delete',
-        )
-        self.assertEqual(removed.status, AccessControlChangeRequest.STATUS_APPLIED)
-        grant.refresh_from_db()
-        self.assertFalse(grant.active)
-        self.assertEqual(grant.source, 'retired_access_request')
-        self.assertEqual(policy_version(), initial_version + 3)
-
         with self.assertRaises(PermissionDenied):
             apply_superuser_grant_override(
-                actor=self.user,
+                actor=root,
                 user=target,
                 workflow='jawabu_portal',
                 role='JBL_OFFICER',
             )
+        self.assertFalse(AccessGrant.objects.filter(user=target).exists())
 
     def test_superuser_can_appoint_and_revoke_an_independent_checker(self):
         root = get_user_model().objects.create_superuser(
@@ -386,6 +337,7 @@ class WorkflowCapabilityPolicyTests(TestCase):
             actor=root,
             user=checker,
             reason='Establish the first independent access-control checker.',
+            confirmation_phrase='APPOINT FIRST CHECKER',
         )
 
         self.assertTrue(created)
@@ -453,6 +405,7 @@ class WorkflowCapabilityPolicyTests(TestCase):
             actor=root,
             user=checker,
             reason='Provide the independent reviewer with the dedicated queue only.',
+            confirmation_phrase='APPOINT FIRST CHECKER',
         )
         request = create_capability_request(
             requester=self.user,
@@ -623,7 +576,10 @@ class PortalAccessHardeningTests(TestCase):
         checker = get_user_model().objects.create_user(
             username='conflicted-checker', is_active=True, is_staff=True,
         )
-        appoint_access_control_checker(actor=root, user=checker, reason='Independent reviewer.')
+        appoint_access_control_checker(
+            actor=root, user=checker, reason='Independent reviewer.',
+            confirmation_phrase='APPOINT FIRST CHECKER',
+        )
         change = create_grant_request(
             requester=root, user=checker, workflow='jawabu_portal', role='IT',
             reason='Requested support access.',

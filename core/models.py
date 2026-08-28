@@ -3776,6 +3776,32 @@ class PortalReportChart(models.Model):
         return self.title or f'{self.definition}: {self.get_chart_type_display()}'
 
 
+class AccessGrantQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        from core.services.access_grant_governance import require_access_grant_mutation
+
+        require_access_grant_mutation()
+        return super().update(**kwargs)
+
+    def delete(self):
+        from core.services.access_grant_governance import require_access_grant_mutation
+
+        require_access_grant_mutation()
+        return super().delete()
+
+    def bulk_create(self, objs, *args, **kwargs):
+        from core.services.access_grant_governance import require_access_grant_mutation
+
+        require_access_grant_mutation()
+        return super().bulk_create(objs, *args, **kwargs)
+
+    def bulk_update(self, objs, fields, *args, **kwargs):
+        from core.services.access_grant_governance import require_access_grant_mutation
+
+        require_access_grant_mutation()
+        return super().bulk_update(objs, fields, *args, **kwargs)
+
+
 class AccessGrant(models.Model):
     """Workflow-specific scope supplementing Django Groups/Permissions."""
 
@@ -3787,6 +3813,7 @@ class AccessGrant(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    objects = AccessGrantQuerySet.as_manager()
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='access_grants',
     )
@@ -3837,7 +3864,10 @@ class AccessGrant(models.Model):
         those combinations; saving one grant must never silently deactivate a
         different grant created for the same user.
         """
+        from core.services.access_grant_governance import require_access_grant_mutation
         from core.services.access_policies import canonical_access_role
+
+        require_access_grant_mutation()
 
         if self.workflow:
             self.role = canonical_access_role(self.workflow, self.role)
@@ -3859,6 +3889,12 @@ class AccessGrant(models.Model):
             self.branch_ref = branch_record
         with transaction.atomic():
             super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        from core.services.access_grant_governance import require_access_grant_mutation
+
+        require_access_grant_mutation()
+        return super().delete(*args, **kwargs)
 
     def clean(self):
         super().clean()
@@ -4214,6 +4250,126 @@ class EmergencyAccessGrant(models.Model):
             from core.services.product_catalog import resolve_product
             self.product_ref = resolve_product(self.product)
         return super().save(*args, **kwargs)
+
+
+class StaffLifecycleChangePlan(models.Model):
+    """One atomic maker-checker change to a staff member's authority."""
+
+    ACTION_ONBOARD = 'onboard'
+    ACTION_ACCESS = 'access_change'
+    ACTION_TRANSFER = 'transfer'
+    ACTION_LEAVE = 'leave'
+    ACTION_RETURN = 'return'
+    ACTION_OFFBOARD = 'offboard'
+    ACTION_IDENTITY_RESET = 'telegram_identity_reset'
+    ACTION_CHOICES = [
+        (ACTION_ONBOARD, 'Onboard staff'),
+        (ACTION_ACCESS, 'Change role or scope'),
+        (ACTION_TRANSFER, 'Transfer staff'),
+        (ACTION_LEAVE, 'Temporary leave'),
+        (ACTION_RETURN, 'Return from leave'),
+        (ACTION_OFFBOARD, 'Immediate offboarding'),
+        (ACTION_IDENTITY_RESET, 'Reset Telegram identity'),
+    ]
+
+    STATUS_DRAFT = 'draft'
+    STATUS_PENDING = 'pending'
+    STATUS_SCHEDULED = 'scheduled'
+    STATUS_APPLIED = 'applied'
+    STATUS_REJECTED = 'rejected'
+    STATUS_STALE = 'stale'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, 'Draft'),
+        (STATUS_PENDING, 'Pending independent approval'),
+        (STATUS_SCHEDULED, 'Approved and scheduled'),
+        (STATUS_APPLIED, 'Applied'),
+        (STATUS_REJECTED, 'Rejected'),
+        (STATUS_STALE, 'Stale'),
+        (STATUS_CANCELLED, 'Cancelled'),
+        (STATUS_FAILED, 'Failed'),
+    ]
+    OPEN_STATUSES = (STATUS_DRAFT, STATUS_PENDING, STATUS_SCHEDULED)
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    action = models.CharField(max_length=32, choices=ACTION_CHOICES, db_index=True)
+    target_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='staff_lifecycle_plans',
+    )
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_DRAFT, db_index=True)
+    before_snapshot = models.JSONField(default=dict, blank=True)
+    proposed_snapshot = models.JSONField(default=dict, blank=True)
+    impact = models.JSONField(default=dict, blank=True)
+    expected_policy_version = models.PositiveIntegerField(default=1)
+    reason = models.TextField()
+    request_key = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='requested_staff_lifecycle_plans',
+    )
+    requested_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    effective_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='reviewed_staff_lifecycle_plans',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_comment = models.TextField(blank=True, default='')
+    applied_at = models.DateTimeField(null=True, blank=True)
+    error = models.CharField(max_length=500, blank=True, default='')
+
+    class Meta:
+        ordering = ['-requested_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['target_user'],
+                condition=models.Q(status__in=['draft', 'pending', 'scheduled']),
+                name='unique_open_staff_lifecycle_plan',
+            ),
+            models.UniqueConstraint(
+                fields=['requested_by', 'request_key'],
+                condition=~models.Q(request_key=''),
+                name='unique_staff_lifecycle_request_key',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.get_action_display()}: {self.target_user} ({self.get_status_display()})'
+
+
+class TelegramStaffActivation(models.Model):
+    """Hashed, short-lived proof for the first Telegram staff binding."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='telegram_staff_activations',
+    )
+    code_digest = models.CharField(max_length=128)
+    expires_at = models.DateTimeField(db_index=True)
+    failed_attempts = models.PositiveSmallIntegerField(default=0)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    invalidated_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='created_telegram_staff_activations',
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['user', 'expires_at'])]
+
+    @property
+    def usable(self):
+        return bool(
+            self.consumed_at is None
+            and self.invalidated_at is None
+            and self.failed_attempts < 5
+            and self.expires_at > timezone.now()
+        )
 
 
 class AccessControlNotification(models.Model):

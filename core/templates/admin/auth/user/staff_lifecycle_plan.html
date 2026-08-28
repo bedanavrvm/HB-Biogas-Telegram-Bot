@@ -1,0 +1,22 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div style="max-width:1200px;margin:0 auto">
+  <p><a href="{% url 'admin:auth_user_staff_lifecycle' %}">← Staff lifecycle workspace</a></p>
+  <h1>{{ plan.get_action_display }} · {{ plan.target_user }}</h1>
+  <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.75rem;margin:1rem 0">
+    <section class="rounded border p-4"><small>Status</small><strong style="display:block">{{ plan.get_status_display }}</strong></section>
+    <section class="rounded border p-4"><small>Maker</small><strong style="display:block">{{ plan.requested_by }}</strong></section>
+    <section class="rounded border p-4"><small>Checker</small><strong style="display:block">{{ plan.reviewed_by|default:'Pending' }}</strong></section>
+    <section class="rounded border p-4"><small>Policy version</small><strong style="display:block">{{ plan.expected_policy_version }}</strong></section>
+  </div>
+  <section class="rounded border p-4"><h2>Business reason</h2><p>{{ plan.reason }}</p></section>
+  <section class="rounded border p-4 mt-4"><h2>Impact</h2><dl>{% for key,value in plan.impact.items %}<dt><strong>{{ key|capfirst }}</strong></dt><dd>{{ value }}</dd>{% endfor %}</dl></section>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem">
+    <section class="rounded border p-4"><h2>Before</h2><pre style="white-space:pre-wrap;overflow-wrap:anywhere">{{ plan.before_snapshot }}</pre></section>
+    <section class="rounded border p-4"><h2>Proposed</h2><pre style="white-space:pre-wrap;overflow-wrap:anywhere">{{ plan.proposed_snapshot }}</pre></section>
+  </div>
+  {% if can_review %}
+  <form method="post" class="rounded border p-4 mt-4">{% csrf_token %}<label for="review_comment"><strong>Checker note</strong></label><textarea id="review_comment" name="review_comment" rows="3" style="width:100%"></textarea><div style="display:flex;gap:.75rem;justify-content:flex-end;margin-top:1rem"><button name="reject_plan" value="1" class="rounded border border-red-500 px-4 py-3 text-red-700">Reject</button><button name="approve_plan" value="1" class="rounded bg-primary-600 px-4 py-3 text-white">Approve and apply atomically</button></div></form>
+  {% endif %}
+</div>
+{% endblock %}

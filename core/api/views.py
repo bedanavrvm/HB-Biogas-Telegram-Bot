@@ -50,6 +50,44 @@ from .validators import (
 logger = logging.getLogger(__name__)
 
 
+@require_http_methods(["GET"])
+def staff_telegram_activation_page(request):
+    """Minimal Telegram Web App surface for first staff identity binding."""
+    return render(request, 'staff_telegram_activation.html')
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def staff_telegram_activation_submit(request):
+    """Bind an enrolled staff identity with signed initData and one-time proof."""
+    from core.services.telegram_identity import (
+        TelegramAuthenticationError,
+        resolve_or_bind_telegram_user,
+        validate_telegram_init_data,
+    )
+
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JsonResponse({'ok': False, 'message': 'Enter the activation code again.'}, status=400)
+    try:
+        _, identity = validate_telegram_init_data(str(payload.get('init_data') or ''))
+    except TelegramAuthenticationError:
+        return JsonResponse({
+            'ok': False,
+            'message': 'Open this activation page inside Telegram and try again.',
+        }, status=403)
+    user = resolve_or_bind_telegram_user(
+        identity, activation_code=str(payload.get('activation_code') or ''),
+    )
+    if user is None:
+        return JsonResponse({
+            'ok': False,
+            'message': 'The username or activation code did not match. Ask the administrator for a new code.',
+        }, status=403)
+    return JsonResponse({'ok': True, 'message': 'Telegram identity verified. You can now open your JBL Mini App.'})
+
+
 # ---------------------------------------------------------------------------
 # Health check
 # ---------------------------------------------------------------------------

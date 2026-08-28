@@ -1,25 +1,27 @@
 {% extends "admin/change_list.html" %}
 
 {% block content %}
-  {% if request.user.is_superuser %}
+  {% if request.user.is_superuser or can_review_lifecycle %}
     <section class="mb-6 rounded border border-base-200 bg-white p-5 shadow-sm dark:border-base-800 dark:bg-base-900" data-testid="user-actions-panel">
       <div class="mb-4">
-        <h2 class="font-semibold text-font-important-light text-lg dark:text-font-important-dark">User actions</h2>
+        <h2 class="font-semibold text-font-important-light text-lg dark:text-font-important-dark">{% if request.user.is_superuser %}User actions{% else %}Independent access reviews{% endif %}</h2>
         <p class="mt-1 text-font-subtle-light text-sm dark:text-font-subtle-dark">
-          Create a staff account and assign its initial workflow role tag and access scope in one guided form.
+          {% if request.user.is_superuser %}Onboard, transfer, cover leave, change access, and offboard staff through one independently reviewed workspace.{% else %}Review pending staff lifecycle plans without receiving authority to create or modify them.{% endif %}
         </p>
       </div>
-      <div class="grid gap-3 md:grid-cols-2">
-        <a href="{% url 'admin:auth_user_add_staff' %}"
+      <div class="grid gap-3 {% if request.user.is_superuser %}md:grid-cols-2{% endif %}">
+        <a href="{% url 'admin:auth_user_staff_lifecycle' %}"
            class="flex min-h-20 flex-col justify-center rounded bg-primary-600 px-5 py-4 text-white shadow-sm transition hover:bg-primary-700">
-          <strong>Add staff user</strong>
-          <span class="mt-1 text-sm opacity-90">Choose Telegram or Django Admin login, then assign a workflow role tag and scope.</span>
+          <strong>{% if request.user.is_superuser %}Open staff lifecycle workspace{% else %}Open pending review queue{% endif %}</strong>
+          <span class="mt-1 text-sm opacity-90">{% if request.user.is_superuser %}Create one atomic plan for onboarding, access, routing, leave, transfer, or offboarding.{% else %}Inspect exact before/proposed state and approve or reject eligible plans.{% endif %}</span>
         </a>
+        {% if request.user.is_superuser %}
         <a href="{% url 'admin:core_workflowrolecapability_matrix' %}"
            class="flex min-h-20 flex-col justify-center rounded border border-base-300 bg-base-50 px-5 py-4 shadow-sm transition hover:bg-base-100 dark:border-base-700 dark:bg-base-800 dark:hover:bg-base-700">
           <strong>Manage Mini App access matrix</strong>
           <span class="mt-1 text-sm text-font-subtle-light dark:text-font-subtle-dark">Choose which existing workflow role can see and use each Portal, Complaint, TAT, and SPIN capability.</span>
         </a>
+        {% endif %}
       </div>
     </section>
   {% endif %}

@@ -49,6 +49,10 @@ from core.services.tat_responsibilities import (
     stage_catalog,
 )
 from core.services.telegram_launchers import MINI_APP_LAUNCHER_CHOICES, default_launcher_keys
+from core.services.access_policies import (
+    branch_choices, product_choices, role_choices, role_workflow_map,
+    validate_access_scope,
+)
 
 from .models import (
     ComplaintCaseEvidence,
@@ -176,6 +180,8 @@ from .models import (
     WorkflowConfigurationChangeRequest,
     AccessControlPolicySnapshot,
     EmergencyAccessGrant,
+    StaffLifecycleChangePlan,
+    TelegramStaffActivation,
     AccessControlNotification,
     CapabilityUsageDaily,
     DocumentSignoffPolicy,
@@ -6178,13 +6184,13 @@ class AccessGrantInline(StackedInline):
     readonly_fields = ('source',)
 
     def has_add_permission(self, request, obj=None):
-        return bool(request.user.is_active and request.user.is_superuser)
+        return False
 
     def has_change_permission(self, request, obj=None):
-        return bool(request.user.is_active and request.user.is_superuser)
+        return False
 
     def has_delete_permission(self, request, obj=None):
-        return bool(request.user.is_active and request.user.is_superuser)
+        return False
 
 
 @admin.register(WorkflowTatDailyMetric)
@@ -6506,6 +6512,10 @@ class EmergencyAccessGrantAdmin(CompactModelAdmin):
         'activated_at', 'expires_at', 'revoked_at', 'revoked_by',
         'revocation_reason',
     )
+    confirmation_phrase = forms.CharField(
+        required=False,
+        help_text='When establishing the first checker, type APPOINT FIRST CHECKER.',
+    )
     actions = ('revoke_selected_emergency_access',)
 
     def has_add_permission(self, request): return False
@@ -6644,23 +6654,160 @@ class StaffUserCreationForm(forms.Form):
         js = ('admin/js/access_grant_inline.js',)
 
 
+class StaffLifecycleForm(forms.Form):
+    action = forms.ChoiceField(choices=StaffLifecycleChangePlan.ACTION_CHOICES)
+    target_user = forms.ModelChoiceField(
+        queryset=get_user_model().objects.none(), required=False,
+        help_text='Required for every action except onboarding.',
+    )
+    display_name = forms.CharField(max_length=255, required=False)
+    login_method = forms.ChoiceField(
+        choices=StaffUserCreationForm.base_fields['login_method'].choices,
+        required=False,
+    )
+    telegram_username = forms.CharField(max_length=100, required=False)
+    django_username = forms.CharField(max_length=150, required=False)
+    email = forms.EmailField(required=False)
+    password = forms.CharField(required=False, widget=forms.PasswordInput(render_value=False))
+    replacement_user = forms.ModelChoiceField(
+        queryset=get_user_model().objects.none(), required=False,
+        help_text='Required when active TAT responsibilities must move to another staff member.',
+    )
+    leave_until = forms.DateTimeField(
+        required=False,
+        widget=forms.DateTimeInput(attrs={'type': 'datetime-local'}),
+        help_text='Temporary leave may cover at most 14 days.',
+    )
+    leave_from = forms.DateTimeField(
+        required=False,
+        widget=forms.DateTimeInput(attrs={'type': 'datetime-local'}),
+        help_text='Leave starts immediately when blank, or at this future Nairobi time.',
+    )
+    delegation_gates = forms.MultipleChoiceField(
+        required=False, choices=JawabuApprovalDelegation.GATE_CHOICES,
+        widget=forms.CheckboxSelectMultiple,
+    )
+    retire_grants = forms.ModelMultipleChoiceField(
+        queryset=AccessGrant.objects.none(), required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text='Selected permanent grants will be retired only after checker approval.',
+    )
+    reason = forms.CharField(widget=forms.Textarea(attrs={'rows': 3}))
+    request_key = forms.CharField(widget=forms.HiddenInput, required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        users = get_user_model().objects.filter(is_superuser=False).order_by('first_name', 'last_name', 'username')
+        self.fields['target_user'].queryset = users
+        self.fields['replacement_user'].queryset = users.filter(is_active=True)
+        target_id = self.data.get('target_user') or self.initial.get('target_user')
+        self.fields['retire_grants'].queryset = AccessGrant.objects.filter(user_id=target_id, active=True) if target_id else AccessGrant.objects.none()
+        if not self.initial.get('request_key'):
+            self.initial['request_key'] = f'lifecycle-{uuid.uuid4()}'
+
+    def clean(self):
+        cleaned = super().clean()
+        action = cleaned.get('action')
+        target = cleaned.get('target_user')
+        if action == StaffLifecycleChangePlan.ACTION_ONBOARD:
+            if not str(cleaned.get('display_name') or '').strip():
+                self.add_error('display_name', 'Enter the staff member’s full name.')
+            method = cleaned.get('login_method')
+            if method == StaffUserCreationForm.LOGIN_TELEGRAM:
+                username = str(cleaned.get('telegram_username') or '').strip().lstrip('@').lower()
+                cleaned['telegram_username'] = username
+                if not username:
+                    self.add_error('telegram_username', 'Enter the enrolled Telegram username.')
+                elif UserProfile.objects.filter(telegram_username__iexact=username).exists():
+                    self.add_error('telegram_username', 'That Telegram username is already enrolled.')
+            elif method == StaffUserCreationForm.LOGIN_DJANGO:
+                username = str(cleaned.get('django_username') or '').strip()
+                if not username:
+                    self.add_error('django_username', 'Enter a Django username.')
+                elif get_user_model().objects.filter(username__iexact=username).exists():
+                    self.add_error('django_username', 'That Django username already exists.')
+                if not cleaned.get('password'):
+                    self.add_error('password', 'Enter a password for this Django Admin account.')
+            else:
+                self.add_error('login_method', 'Choose how this staff member signs in.')
+        elif target is None:
+            self.add_error('target_user', 'Choose the staff member this plan changes.')
+        if target and target.is_superuser:
+            self.add_error('target_user', 'God-mode Superuser accounts are outside this workspace.')
+        return cleaned
+
+
+class StaffLifecycleGrantForm(forms.Form):
+    include = forms.BooleanField(required=False, initial=False, label='Add this access scope')
+    workflow = forms.ChoiceField(choices=AccessGrant.WORKFLOW_CHOICES, required=False)
+    role = forms.ChoiceField(
+        choices=role_choices(), required=False,
+        widget=WorkflowScopedSelect(workflow_map=role_workflow_map()),
+    )
+    branch = forms.ChoiceField(choices=(('', 'All branches'),), required=False)
+    product = forms.ChoiceField(choices=(('', 'All products'),), required=False)
+    group_configuration = GroupConfigurationAccessField(
+        queryset=GroupSheetConfiguration.objects.none(), required=False,
+        empty_label='All compatible groups',
+        widget=GroupConfigurationAccessSelect,
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _configure_access_scope_fields(self)
+
+    def clean(self):
+        cleaned = super().clean()
+        if not cleaned.get('include'):
+            return cleaned
+        try:
+            cleaned['role'] = validate_access_scope(
+                workflow=cleaned.get('workflow'), role=cleaned.get('role'),
+                branch=cleaned.get('branch', ''), product=cleaned.get('product', ''),
+                group_configuration=cleaned.get('group_configuration'),
+            )
+        except ValidationError as exc:
+            self.add_error(None, '; '.join(exc.messages))
+        return cleaned
+
+    class Media:
+        js = ('admin/js/access_grant_inline.js',)
+
+
+StaffLifecycleGrantFormSet = forms.formset_factory(StaffLifecycleGrantForm, extra=3, max_num=8)
+
+
 class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
     compressed_fields = True
     list_filter_submit = True
     list_fullwidth = True
     list_display = ('username', 'email', 'first_name', 'last_name', 'role_tags', 'is_staff', 'is_active')
-    inlines = (UserProfileInline, AccessGrantInline)
+    inlines = (UserProfileInline,)
     change_list_template = 'admin/auth/user/change_list.html'
     change_form_template = 'admin/auth/user/change_form.html'
 
     def get_queryset(self, request):
         return super().get_queryset(request).prefetch_related('access_grants')
 
+    def changelist_view(self, request, extra_context=None):
+        from core.services.access_control import can_approve_access_change
+
+        return super().changelist_view(request, extra_context={
+            **(extra_context or {}),
+            'can_review_lifecycle': can_approve_access_change(request.user),
+        })
+
     def save_model(self, request, obj, form, change):
         # The lifecycle signal uses this transient actor for compliance
         # attribution and retires all effective access on active -> inactive.
         obj._access_retirement_actor = request.user
         return super().save_model(request, obj, form, change)
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly = list(super().get_readonly_fields(request, obj))
+        if obj:
+            readonly.extend(['is_active', 'is_staff', 'is_superuser'])
+        return tuple(dict.fromkeys(readonly))
 
     def save_formset(self, request, form, formset, change):
         """Route technical-root grant edits through the audited override service.
@@ -6801,14 +6948,26 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
 
     def add_view(self, request, form_url='', extra_context=None):
         """Use one guided flow for identity and initial workflow access."""
-        return HttpResponseRedirect(reverse('admin:auth_user_add_staff'))
+        return HttpResponseRedirect(reverse('admin:auth_user_staff_lifecycle'))
 
     def get_urls(self):
         custom_urls = [
             path(
                 'add-staff/',
-                self.admin_site.admin_view(self.add_staff_view),
+                self.admin_site.admin_view(self.staff_lifecycle_view),
                 name='auth_user_add_staff',
+            ),
+            path(
+                'staff-lifecycle/', self.admin_site.admin_view(self.staff_lifecycle_view),
+                name='auth_user_staff_lifecycle',
+            ),
+            path(
+                'staff-lifecycle/<uuid:plan_id>/', self.admin_site.admin_view(self.staff_lifecycle_plan_view),
+                name='auth_user_staff_lifecycle_plan',
+            ),
+            path(
+                '<int:object_id>/telegram-activation/', self.admin_site.admin_view(self.telegram_activation_view),
+                name='auth_user_telegram_activation',
             ),
             path('<int:object_id>/request-access/', self.admin_site.admin_view(self.request_access_view), name='auth_user_request_access'),
             path('<int:object_id>/emergency-access/', self.admin_site.admin_view(self.emergency_access_view), name='auth_user_emergency_access'),
@@ -6817,6 +6976,173 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             path('<int:object_id>/revoke-access-checker/', self.admin_site.admin_view(self.revoke_access_checker_view), name='auth_user_revoke_access_checker'),
         ]
         return custom_urls + super().get_urls()
+
+    def staff_lifecycle_view(self, request):
+        """Create one durable, independently reviewed staff lifecycle plan."""
+        from core.services.access_control import approver_users, can_approve_access_change
+        from core.services.staff_lifecycle import create_lifecycle_plan
+
+        is_superuser = bool(request.user.is_active and request.user.is_superuser)
+        is_checker = can_approve_access_change(request.user)
+        if not request.user.is_active or not (is_superuser or is_checker):
+            raise PermissionDenied
+        if request.method == 'POST' and not is_superuser:
+            raise PermissionDenied
+        form = StaffLifecycleForm(
+            request.POST or None, initial=request.GET.dict() if request.method == 'GET' else None,
+        ) if is_superuser else None
+        grant_formset = StaffLifecycleGrantFormSet(
+            request.POST or None, prefix='grants',
+        ) if is_superuser else None
+        if request.method == 'POST' and form.is_valid() and grant_formset.is_valid():
+            if not approver_users().exclude(pk=request.user.pk).exists():
+                form.add_error(None, 'Appoint an independent Access Control Checker before submitting lifecycle changes.')
+            else:
+                data = form.cleaned_data
+                target = data.get('target_user')
+                new_grants = [
+                    grant_form.cleaned_data for grant_form in grant_formset
+                    if grant_form.cleaned_data and grant_form.cleaned_data.get('include')
+                ]
+                identity = {}
+                try:
+                    with transaction.atomic():
+                        if data['action'] == StaffLifecycleChangePlan.ACTION_ONBOARD:
+                            target, identity = self._create_pending_staff_shell(data)
+                        retired_ids = {str(pk) for pk in data.get('retire_grants', []).values_list('pk', flat=True)}
+                        desired = [
+                            {
+                                'workflow': row.workflow, 'role': row.role,
+                                'branch': row.branch, 'product': row.product,
+                                'group_configuration_id': row.group_configuration_id,
+                            }
+                            for row in AccessGrant.objects.filter(user=target, active=True)
+                            if str(row.pk) not in retired_ids
+                        ]
+                        desired.extend(new_grants)
+                        plan = create_lifecycle_plan(
+                            requester=request.user, target_user=target, action=data['action'],
+                            reason=data['reason'], desired_grants=desired,
+                            replacement_user=data.get('replacement_user'), leave_until=data.get('leave_until'),
+                            leave_from=data.get('leave_from'),
+                            delegation_gates=data.get('delegation_gates'), request_key=data.get('request_key'),
+                            identity=identity,
+                        )
+                except (PermissionDenied, ValidationError, IntegrityError) as exc:
+                    form.add_error(None, '; '.join(getattr(exc, 'messages', [str(exc)])))
+                else:
+                    messages.success(request, 'Lifecycle plan submitted for independent checker approval.')
+                    return HttpResponseRedirect(reverse('admin:auth_user_staff_lifecycle_plan', args=[plan.pk]))
+        plans = StaffLifecycleChangePlan.objects.select_related('target_user', 'requested_by', 'reviewed_by')
+        if not is_superuser:
+            plans = plans.filter(status=StaffLifecycleChangePlan.STATUS_PENDING).exclude(
+                models.Q(requested_by=request.user) | models.Q(target_user=request.user)
+            )
+        plans = plans[:50]
+        return TemplateResponse(request, 'admin/auth/user/staff_lifecycle.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta,
+            'title': 'Staff lifecycle workspace', 'form': form,
+            'grant_formset': grant_formset, 'plans': plans,
+            'has_independent_checker': approver_users().exclude(pk=request.user.pk).exists(),
+            'is_superuser_workspace': is_superuser,
+        })
+
+    @staticmethod
+    def _create_pending_staff_shell(data):
+        User = get_user_model()
+        telegram_username = str(data.get('telegram_username') or '')
+        login_method = data.get('login_method')
+        if login_method == StaffUserCreationForm.LOGIN_TELEGRAM:
+            safe_username = re.sub(r'[^a-z0-9_]', '_', telegram_username)[:100]
+            username = f'tg_pending_{safe_username}'
+            if User.objects.filter(username=username).exists():
+                username = f'{username}_{uuid.uuid4().hex[:8]}'
+        else:
+            username = str(data.get('django_username') or '').strip()
+        name_parts = str(data.get('display_name') or '').strip().split(None, 1)
+        user = User(
+            username=username, first_name=name_parts[0] if name_parts else '',
+            last_name=name_parts[1] if len(name_parts) > 1 else '',
+            email=data.get('email', ''), is_active=False, is_staff=False,
+        )
+        if login_method == StaffUserCreationForm.LOGIN_DJANGO:
+            user.set_password(data['password'])
+        else:
+            user.set_unusable_password()
+        user.save()
+        UserProfile.objects.create(user=user, telegram_username=telegram_username)
+        return user, {
+            'login_method': login_method,
+            'django_admin_login': login_method == StaffUserCreationForm.LOGIN_DJANGO,
+            'telegram_username': telegram_username,
+        }
+
+    def staff_lifecycle_plan_view(self, request, plan_id):
+        from core.services.access_control import can_approve_access_change
+        from core.services.staff_lifecycle import approve_lifecycle_plan, reject_lifecycle_plan
+
+        plan = StaffLifecycleChangePlan.objects.select_related(
+            'target_user', 'requested_by', 'reviewed_by',
+        ).filter(pk=plan_id).first()
+        if plan is None or not (
+            request.user.is_active and (request.user.is_superuser or can_approve_access_change(request.user))
+        ):
+            raise PermissionDenied
+        if request.method == 'POST':
+            try:
+                if 'approve_plan' in request.POST:
+                    plan = approve_lifecycle_plan(
+                        plan_id=plan.pk, approver=request.user,
+                        review_comment=str(request.POST.get('review_comment') or ''),
+                    )
+                    if plan.status == plan.STATUS_STALE:
+                        messages.warning(request, 'The plan is stale because access or routing changed. Create a fresh plan.')
+                    elif plan.status == plan.STATUS_SCHEDULED:
+                        messages.success(request, 'The complete plan was approved and will apply at its scheduled start time after revalidation.')
+                    else:
+                        messages.success(request, 'The complete lifecycle plan was approved and applied atomically.')
+                elif 'reject_plan' in request.POST:
+                    plan = reject_lifecycle_plan(
+                        plan_id=plan.pk, approver=request.user,
+                        review_comment=str(request.POST.get('review_comment') or ''),
+                    )
+                    messages.info(request, 'The lifecycle plan was rejected without changing live access.')
+            except (PermissionDenied, ValidationError, ValueError) as exc:
+                messages.error(request, '; '.join(getattr(exc, 'messages', [str(exc)])))
+            return HttpResponseRedirect(reverse('admin:auth_user_staff_lifecycle_plan', args=[plan.pk]))
+        can_review = bool(
+            plan.status == plan.STATUS_PENDING
+            and can_approve_access_change(request.user)
+            and plan.requested_by_id != request.user.pk
+            and plan.target_user_id != request.user.pk
+        )
+        return TemplateResponse(request, 'admin/auth/user/staff_lifecycle_plan.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta,
+            'title': f'{plan.get_action_display()}: {plan.target_user}',
+            'plan': plan, 'can_review': can_review,
+        })
+
+    def telegram_activation_view(self, request, object_id):
+        from core.services.staff_lifecycle import generate_telegram_activation
+
+        if not request.user.is_active or not request.user.is_superuser:
+            raise PermissionDenied
+        user = self.get_object(request, object_id)
+        if user is None:
+            raise PermissionDenied
+        activation_code = ''
+        if request.method == 'POST':
+            try:
+                _challenge, activation_code = generate_telegram_activation(user=user, actor=request.user)
+            except (PermissionDenied, ValidationError) as exc:
+                messages.error(request, '; '.join(getattr(exc, 'messages', [str(exc)])))
+            else:
+                messages.warning(request, 'The activation code is shown once. Give it only to the intended staff member.')
+        return TemplateResponse(request, 'admin/auth/user/telegram_activation.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta,
+            'title': f'Telegram activation: {user}', 'target_user': user,
+            'activation_code': activation_code,
+        })
 
     def add_staff_view(self, request):
         """Create a canonical user and initial workflow grant in one operation."""
@@ -6909,6 +7235,7 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                     actor=request.user,
                     user=user,
                     reason=form.cleaned_data['reason'],
+                    confirmation_phrase=form.cleaned_data.get('confirmation_phrase', ''),
                 )
             except (PermissionDenied, ValidationError) as exc:
                 form.add_error(None, '; '.join(getattr(exc, 'messages', [str(exc)])))

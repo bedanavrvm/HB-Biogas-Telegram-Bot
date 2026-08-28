@@ -14,8 +14,11 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
 from core.models import (
-    AccessControlChangeRequest, AccessGrant, GroupSheetConfiguration, UserProfile,
+    AccessControlChangeRequest, AccessGrant, GroupSheetConfiguration,
+    StaffLifecycleChangePlan, UserProfile,
 )
+from core.services.access_control import appoint_access_control_checker
+from core.services.staff_lifecycle import approve_lifecycle_plan
 
 
 def signed_init_data(telegram_id='12345', token='test-token', username='unified_user'):
@@ -66,12 +69,12 @@ class CanonicalStaffAdminTests(TestCase):
         url = reverse('admin:auth_user_add_staff')
 
         user_list = self.client.get(reverse('admin:auth_user_changelist'))
-        self.assertContains(user_list, 'Add staff user')
+        self.assertContains(user_list, 'Open staff lifecycle workspace')
         self.assertNotContains(user_list, 'Migrate existing staff')
 
         creation = self.client.get(url)
         self.assertEqual(creation.status_code, 200)
-        self.assertContains(creation, 'Create user and grant access')
+        self.assertContains(creation, 'Submit complete plan for checker approval')
         self.assertContains(creation, 'name="login_method"')
         self.assertNotContains(creation, 'Dry-run preview')
 
@@ -92,7 +95,7 @@ class CanonicalStaffAdminTests(TestCase):
         response = self.client.get(reverse('admin:auth_user_add'))
         self.assertRedirects(
             response,
-            reverse('admin:auth_user_add_staff'),
+            reverse('admin:auth_user_staff_lifecycle'),
             fetch_redirect_response=False,
         )
 
@@ -110,65 +113,80 @@ class CanonicalStaffAdminTests(TestCase):
             username='enrollment-admin', email='admin@example.test', password='test-password',
         )
         self.client.force_login(superuser)
+        checker = get_user_model().objects.create_user('enrollment-checker', is_active=True, is_staff=True)
+        appoint_access_control_checker(
+            actor=superuser, user=checker, reason='Independent enrollment reviewer.',
+            confirmation_phrase='APPOINT FIRST CHECKER',
+        )
 
         response = self.client.post(reverse('admin:auth_user_add_staff'), {
+            'action': 'onboard',
             'login_method': 'telegram',
             'display_name': 'Pending Telegram User',
             'telegram_username': '@pending_user',
-            'workflow': 'jawabu_portal',
-            'role': 'JBL_OFFICER',
-            'branch': 'Nakuru',
-            'product': '',
-            'group_configuration': '',
+            'reason': 'Onboard the approved Telegram field officer.',
+            'request_key': 'identity-onboard-telegram',
+            'grants-TOTAL_FORMS': '3', 'grants-INITIAL_FORMS': '0',
+            'grants-MIN_NUM_FORMS': '0', 'grants-MAX_NUM_FORMS': '8',
+            'grants-0-include': 'on', 'grants-0-workflow': 'jawabu_portal',
+            'grants-0-role': 'JBL_OFFICER', 'grants-0-branch': 'Nakuru',
         })
 
         self.assertEqual(response.status_code, 302)
         profile = UserProfile.objects.get(telegram_username='pending_user')
         self.assertEqual(profile.telegram_id, '')
-        self.assertTrue(profile.user.is_active)
+        self.assertFalse(profile.user.is_active)
         self.assertFalse(profile.user.is_staff)
         self.assertFalse(profile.user.has_usable_password())
-        self.assertTrue(AccessGrant.objects.filter(
-            user=profile.user, role='JBL_OFFICER', source='django_superuser_override',
-        ).exists())
-        self.assertTrue(AccessControlChangeRequest.objects.filter(
-            target_user=profile.user, workflow='jawabu_portal', role='JBL_OFFICER', status='applied',
-            requested_by=superuser, reviewed_by=superuser,
-        ).exists())
+        self.assertFalse(AccessGrant.objects.filter(user=profile.user).exists())
+        plan = StaffLifecycleChangePlan.objects.get(target_user=profile.user)
+        self.assertEqual(plan.status, plan.STATUS_PENDING)
+        approve_lifecycle_plan(plan_id=plan.pk, approver=checker)
+        profile.user.refresh_from_db()
+        self.assertTrue(profile.user.is_active)
+        self.assertTrue(AccessGrant.objects.filter(user=profile.user, role='JBL_OFFICER').exists())
 
     def test_superuser_can_create_password_user_with_initial_access(self):
         superuser = get_user_model().objects.create_superuser(
             username='password-admin', email='admin@example.test', password='test-password',
         )
         self.client.force_login(superuser)
+        checker = get_user_model().objects.create_user('password-checker', is_active=True, is_staff=True)
+        appoint_access_control_checker(
+            actor=superuser, user=checker, reason='Independent account reviewer.',
+            confirmation_phrase='APPOINT FIRST CHECKER',
+        )
 
         response = self.client.post(reverse('admin:auth_user_add_staff'), {
+            'action': 'onboard',
             'login_method': 'django', 'display_name': 'Portal Administrator',
             'telegram_username': '', 'django_username': 'portal-admin',
             'email': 'portal-admin@example.test', 'password': 'secure-test-password',
-            'workflow': 'jawabu_portal', 'role': 'BUSINESS_ADMIN',
-            'branch': '', 'product': '', 'group_configuration': '',
+            'reason': 'Onboard the approved Portal administrator.',
+            'request_key': 'identity-onboard-django',
+            'grants-TOTAL_FORMS': '3', 'grants-INITIAL_FORMS': '0',
+            'grants-MIN_NUM_FORMS': '0', 'grants-MAX_NUM_FORMS': '8',
+            'grants-0-include': 'on', 'grants-0-workflow': 'jawabu_portal',
+            'grants-0-role': 'BUSINESS_ADMIN',
         })
 
         self.assertEqual(response.status_code, 302)
         user = get_user_model().objects.get(username='portal-admin')
-        self.assertTrue(user.is_staff)
+        self.assertFalse(user.is_staff)
         self.assertTrue(user.check_password('secure-test-password'))
-        self.assertTrue(AccessGrant.objects.filter(
-            user=user, workflow='jawabu_portal', role='BUSINESS_ADMIN', source='django_superuser_override',
-        ).exists())
-        self.assertTrue(AccessControlChangeRequest.objects.filter(
-            target_user=user, workflow='jawabu_portal', role='BUSINESS_ADMIN', status='applied',
-            requested_by=superuser, reviewed_by=superuser,
-        ).exists())
+        plan = StaffLifecycleChangePlan.objects.get(target_user=user)
+        approve_lifecycle_plan(plan_id=plan.pk, approver=checker)
+        user.refresh_from_db()
+        self.assertTrue(user.is_staff)
+        self.assertTrue(AccessGrant.objects.filter(user=user, role='BUSINESS_ADMIN').exists())
 
         # The redirect target must render the canonical User form, including
         # dynamic AccessGrant choices, immediately after creation.
         change = self.client.get(reverse('admin:auth_user_change', args=(user.pk,)))
         self.assertEqual(change.status_code, 200)
-        self.assertContains(change, 'Access grants')
+        self.assertContains(change, 'Mini App access and lifecycle')
 
-    def test_superuser_access_grant_inline_applies_through_the_override_ledger(self):
+    def test_access_grant_inline_is_read_only_for_every_actor(self):
         from core.admin import AccessGrantInline, UnfoldUserAdmin
 
         root = get_user_model().objects.create_superuser(
@@ -183,46 +201,16 @@ class CanonicalStaffAdminTests(TestCase):
         request._messages = FallbackStorage(request)
         request.user = root
         inline = AccessGrantInline(get_user_model(), admin.site)
-        self.assertTrue(inline.has_add_permission(request, target))
-        self.assertTrue(inline.has_change_permission(request, target))
-        self.assertTrue(inline.has_delete_permission(request, target))
+        self.assertFalse(inline.has_add_permission(request, target))
+        self.assertFalse(inline.has_change_permission(request, target))
+        self.assertFalse(inline.has_delete_permission(request, target))
 
         request.user = ordinary_staff
         self.assertFalse(inline.has_add_permission(request, target))
         self.assertFalse(inline.has_change_permission(request, target))
         self.assertFalse(inline.has_delete_permission(request, target))
 
-        request.user = root
-        formset_class = inline.get_formset(request, target)
-        prefix = formset_class.get_default_prefix()
-        formset = formset_class(
-            data={
-                f'{prefix}-TOTAL_FORMS': '1',
-                f'{prefix}-INITIAL_FORMS': '0',
-                f'{prefix}-MIN_NUM_FORMS': '0',
-                f'{prefix}-MAX_NUM_FORMS': '1000',
-                f'{prefix}-0-active': 'on',
-                f'{prefix}-0-workflow': 'jawabu_portal',
-                f'{prefix}-0-role': 'JBL_OFFICER',
-                f'{prefix}-0-branch': '',
-                f'{prefix}-0-product': '',
-                f'{prefix}-0-group_configuration': '',
-            },
-            instance=target,
-            prefix=prefix,
-        )
-        self.assertTrue(formset.is_valid(), formset.errors)
-        user_admin = UnfoldUserAdmin(get_user_model(), admin.site)
-        user_admin.save_formset(request, None, formset, change=True)
-
-        grant = AccessGrant.objects.get(user=target, workflow='jawabu_portal', role='JBL_OFFICER')
-        self.assertEqual(grant.source, 'django_superuser_override')
-        self.assertTrue(AccessControlChangeRequest.objects.filter(
-            target_user=target,
-            status=AccessControlChangeRequest.STATUS_APPLIED,
-            requested_by=root,
-            reviewed_by=root,
-        ).exists())
+        self.assertFalse(AccessGrant.objects.filter(user=target).exists())
 
     def test_user_change_view_recovers_an_unusable_persistent_connection(self):
         superuser = get_user_model().objects.create_superuser(

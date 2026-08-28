@@ -173,6 +173,9 @@ COMPLIANCE_AUDIT_CHECKPOINT_RECIPIENT = config(
 REQUIRE_MINIAPP_IDEMPOTENCY_KEY = config(
     'REQUIRE_MINIAPP_IDEMPOTENCY_KEY', default=False, cast=bool,
 )
+ACCESS_GRANT_GOVERNANCE_ENFORCED = config(
+    'ACCESS_GRANT_GOVERNANCE_ENFORCED', default=not RUNNING_TESTS, cast=bool,
+)
 
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = '/static/'

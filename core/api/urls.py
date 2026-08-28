@@ -11,6 +11,8 @@ from .views import (
     telegram_webhook,
     health_check,
     readiness_check,
+    staff_telegram_activation_page,
+    staff_telegram_activation_submit,
     jawabu_farmers_review,
     jawabu_farmers_review_commit,
     miniapp_draft,
@@ -218,6 +220,8 @@ from .origination_views import (
 )
 
 urlpatterns = [
+    path('staff/activate/', staff_telegram_activation_page, name='staff_telegram_activation_page'),
+    path('staff/activate/submit/', staff_telegram_activation_submit, name='staff_telegram_activation_submit'),
     path(
         'miniapp-diagnostics/sessions/start/',
         miniapp_diagnostic_session_start,

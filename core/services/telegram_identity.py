@@ -83,8 +83,13 @@ def resolve_user_by_telegram_id(telegram_id: str):
 
 
 @transaction.atomic
-def resolve_or_bind_telegram_user(identity: TelegramIdentity):
-    """Resolve by immutable ID, or bind one pre-enrolled username exactly once."""
+def resolve_or_bind_telegram_user(identity: TelegramIdentity, *, activation_code: str = ''):
+    """Resolve by immutable ID, or bind an enrolled user with activation proof.
+
+    Legacy enrolled profiles without an activation challenge retain their
+    existing username-matched binding path.  Newly onboarded staff receive a
+    challenge and therefore cannot bind until the single-use code is supplied.
+    """
     from core.models import UserProfile
     user = resolve_user_by_telegram_id(identity.telegram_id)
     if user:
@@ -98,6 +103,12 @@ def resolve_or_bind_telegram_user(identity: TelegramIdentity):
         return None
     if UserProfile.objects.filter(telegram_id=identity.telegram_id).exclude(pk=profile.pk).exists():
         return None
+    activation_required = bool((profile.telegram_metadata or {}).get('activation_required'))
+    if activation_required or profile.user.telegram_staff_activations.exists():
+        from core.services.staff_lifecycle import consume_telegram_activation
+
+        if not consume_telegram_activation(user=profile.user, code=activation_code):
+            return None
     profile.telegram_id = identity.telegram_id
     profile.telegram_username = identity.username
     profile.telegram_metadata = {
@@ -105,6 +116,7 @@ def resolve_or_bind_telegram_user(identity: TelegramIdentity):
         'first_name': identity.first_name,
         'last_name': identity.last_name,
         'bound_from_signed_init_data': True,
+        'activation_required': False,
     }
     profile.save(update_fields=['telegram_id', 'telegram_username', 'telegram_metadata', 'updated_at'])
     return profile.user

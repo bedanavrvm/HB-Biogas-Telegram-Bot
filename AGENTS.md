@@ -77,6 +77,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **Django Superuser** | Active `is_superuser` is the explicitly approved technical break-glass override across Mini App capabilities and scopes. It is auditable and is not the same staff business role as Head of Rural or Operations Administrator. |
 | **IT** | A scoped support role available in every access-controlled Mini App workflow. It is assigned through `AccessGrant`, never inferred from Django technical-admin flags. |
 | **Access Control Checker** | A Django Admin staff user appointed by a technical Superuser to independently review Mini App access-policy requests. It is not a Mini App workflow role. |
+| **Staff lifecycle plan** | One durable, revision-checked maker-checker proposal that atomically coordinates staff activation, permanent AccessGrants, TAT routing, temporary delegations, or offboarding. It never manages Django Superuser status. |
 
 If new domain terms are introduced by a change, add them here rather than only in a service docstring — this table is the first place agents and new contributors look.
 
@@ -179,6 +180,8 @@ Key modules:
 - `external_resilience.py` — bounded synchronous retry, durable external-operation register, and circuit state
 - `portal_publication.py` — durable, request-assisted Portal register publication for free Render; local workflow commits never wait for Google Sheets
 - `access_control.py` — maker-checker access changes, emergency grants, notifications, and policy versioning
+- `staff_lifecycle.py` — atomic checker-approved onboarding, access, routing, leave, return, offboarding, and Telegram activation controls
+- `access_grant_governance.py` — runtime context guard preventing permanent AccessGrant mutations outside approved services
 - `access_control_reporting.py` — access-control evidence exports, parity, and least-privilege diagnostics
 - `document_signoffs.py` — immutable source/workbook binding and physically signed/stamped scan retention for requisitions and payments
 - `compliance_audit.py` — cross-workflow immutable audit ledger, integrity verification, evidence exports, and supervised checkpoints
@@ -225,6 +228,7 @@ The Mini Apps use Django templates and mostly vanilla JavaScript. Preserve Teleg
 - `core/tests_portal_reporting.py`
 - `core/tests_loan_origination.py`
 - `core/tests_laf_seed_documentation.py`
+- `core/tests_staff_lifecycle.py`
 
 - `core/tests_portal_imports.py`
 
@@ -264,6 +268,7 @@ This is a template of variables this class of system typically needs. Treat it a
 | `COMPLIANCE_AUDIT_CHECKPOINT_DELIVERY_ENABLED` | Enables explicitly requested daily checkpoint delivery; defaults to disabled | No |
 | `COMPLIANCE_AUDIT_CHECKPOINT_RECIPIENT` | Controlled compliance mailbox for approved checkpoint delivery | Treat as sensitive operational contact data |
 | `REQUIRE_MINIAPP_IDEMPOTENCY_KEY` | Enables strict rejection of Mini App writes without a retry key after cached-client verification | No |
+| `ACCESS_GRANT_GOVERNANCE_ENFORCED` | Rejects permanent AccessGrant writes outside approved access-control and staff-lifecycle service contexts; enabled in production | No |
 | `GOOGLE_SHEETS_MAX_RETRIES` | Maximum bounded synchronous Google Sheets write attempts (default 4) | No |
 | `SYSUP_MAX_FILE_SIZE_MB` / `SYSUP_MAX_ROWS_PER_UPLOAD` | Maximum `/sysup` input size and non-blank rows parsed in a Render web request | No |
 | `SYSUP_COMMIT_MAX_ROWS_PER_REQUEST` | Approved `/sysup` rows committed per request; remaining rows stay staged for the next commit | No |
