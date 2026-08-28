@@ -161,7 +161,7 @@ def final_review_signed_packet(
         )
         correction_kind = 'signature_only' if signature_only else 'data_or_evidence'
         if signature_only:
-            affected_roles = set()
+            affected_role_instructions = {}
             for item in items:
                 document_key, slot_key = item['target_key'].split('.', 1)
                 action = package.actions.filter(
@@ -171,11 +171,25 @@ def final_review_signed_packet(
                 ).order_by('-created_at').first()
                 if not action:
                     raise OriginationConflict('A flagged signature changed. Refresh the final review.')
-                affected_roles.add(action.signer_role)
-                OriginationSigningActionInvalidation.objects.create(
-                    action=action, reason=item['instruction'], invalidated_by=actor,
-                    request_id=_slot_request_id(request_id, 'invalidate', str(action.pk)),
-                )
+                affected_role_instructions.setdefault(action.signer_role, item['instruction'])
+            for signer_role, instruction in affected_role_instructions.items():
+                role_actions = package.actions.filter(
+                    signer_role=signer_role,
+                    action_type__in=[
+                        OriginationSigningAction.TYPE_SIGNATURE,
+                        OriginationSigningAction.TYPE_DATE_SIGNED,
+                    ],
+                    mode=OriginationSigningAction.MODE_VERIFIED,
+                    invalidation__isnull=True,
+                ).order_by('created_at', 'id')
+                if not role_actions.exists():
+                    raise OriginationConflict('A flagged signature changed. Refresh the final review.')
+                for action in role_actions:
+                    OriginationSigningActionInvalidation.objects.create(
+                        action=action, reason=instruction, invalidated_by=actor,
+                        request_id=_slot_request_id(request_id, 'invalidate', str(action.pk)),
+                    )
+            affected_roles = set(affected_role_instructions)
             if affected_roles:
                 package.signer_sessions.filter(
                     signer_role__in=affected_roles, is_active=True,

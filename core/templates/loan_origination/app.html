@@ -9,9 +9,9 @@
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
   <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=16">
-  <link rel="stylesheet" href="{% static 'miniapp/loan_origination.css' %}?v=20260828-2">
+  <link rel="stylesheet" href="{% static 'miniapp/loan_origination.css' %}?v=20260828-3">
 </head>
-<body class="workflow-standard origination-app" data-miniapp="loan-origination" data-ui-version="20260828-2">
+<body class="workflow-standard origination-app" data-miniapp="loan-origination" data-ui-version="20260828-3">
   <main class="origination-shell">
     <header class="origination-header">
       <img class="workflow-brand" src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu">
@@ -27,8 +27,10 @@
   </main>
   <div id="document-preview-overlay" class="preview-overlay" role="dialog" aria-modal="true" aria-hidden="true" hidden>
     <header class="preview-header"><div><strong id="preview-title">Filled loan document</strong><small id="preview-page">Loading preview...</small></div><button id="preview-close" class="icon-button" type="button" aria-label="Close preview"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
-    <div id="preview-update-notice" class="feedback-banner warning" role="status" hidden><span>A newer signature is available.</span><button id="preview-update-now" type="button">Refresh packet</button></div>
-    <div class="preview-toolbar"><button id="preview-previous" type="button">Previous page</button><button id="preview-next" type="button">Next page</button><button id="preview-regenerate" type="button" class="preview-icon-action" aria-label="Regenerate preview" title="Regenerate preview"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg></button><button id="preview-zoom-out" type="button" aria-label="Zoom out">-</button><span id="preview-zoom">100%</span><button id="preview-zoom-in" type="button" aria-label="Zoom in">+</button></div>
+    <div class="preview-controls">
+      <div id="preview-update-notice" class="feedback-banner warning" role="status" hidden><span>A newer signature is available.</span><button id="preview-update-now" type="button">Refresh packet</button></div>
+      <div class="preview-toolbar"><button id="preview-previous" type="button">Previous page</button><button id="preview-next" type="button">Next page</button><button id="preview-regenerate" type="button" class="preview-icon-action" aria-label="Regenerate preview" title="Regenerate preview"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg></button><button id="preview-zoom-out" type="button" aria-label="Zoom out">-</button><span id="preview-zoom">100%</span><button id="preview-zoom-in" type="button" aria-label="Zoom in">+</button></div>
+    </div>
     <div id="document-preview-stage" class="preview-stage"><img id="document-preview-image" alt="Filled loan application preview"></div>
   </div>
   <div id="origination-review-overlay" class="review-overlay" role="dialog" aria-modal="true" aria-hidden="true" hidden>
@@ -53,6 +55,6 @@
   <div id="origination-toast" class="origination-toast" role="status" aria-live="polite" hidden></div>
   {% include "miniapp_diagnostics.html" %}
   <script src="{% static 'miniapp/utils.js' %}?v=6"></script>
-  <script src="{% static 'miniapp/loan_origination.js' %}?v=20260828-2"></script>
+  <script src="{% static 'miniapp/loan_origination.js' %}?v=20260828-3"></script>
 </body>
 </html>

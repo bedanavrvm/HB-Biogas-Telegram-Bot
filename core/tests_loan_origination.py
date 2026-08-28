@@ -1469,6 +1469,59 @@ class LoanOriginationServiceTests(TestCase):
         self.assertTrue(created)
         self.assertEqual(replacement.supersedes_id, action.pk)
 
+    def test_one_signature_correction_invalidates_all_holistic_role_placements(self):
+        application, package, primary_action = self._signed_conditional_package(
+            with_signature=True,
+        )
+        participants = package.participants_snapshot
+        participants[0]['slots'].extend([
+            {
+                'key': 'approval_signature_copy', 'document_key': 'supporting',
+                'type': 'signature', 'required': True,
+            },
+            {
+                'key': 'approval_date', 'document_key': 'supporting',
+                'type': 'date_signed', 'required': True,
+            },
+        ])
+        package.participants_snapshot = participants
+        package.save(update_fields=['participants_snapshot'])
+        copied_action = OriginationSigningAction.objects.create(
+            package=package, document_key='supporting', slot_key='approval_signature_copy',
+            signer_role='branch_manager', action_type=OriginationSigningAction.TYPE_SIGNATURE,
+            mode=OriginationSigningAction.MODE_VERIFIED, actor=self.reviewer,
+            request_id='conditional-copied-signature', metadata={},
+        )
+        date_action = OriginationSigningAction.objects.create(
+            package=package, document_key='supporting', slot_key='approval_date',
+            signer_role='branch_manager', action_type=OriginationSigningAction.TYPE_DATE_SIGNED,
+            mode=OriginationSigningAction.MODE_VERIFIED, actor=self.reviewer,
+            request_id='conditional-copied-signature-date', metadata={},
+        )
+
+        reviewed = final_review_signed_packet(
+            application_id=application.pk, package_id=package.pk, actor=self.reviewer,
+            expected_revision=application.revision,
+            expected_signed_hash=package.signed_document_hash,
+            decision='request_correction', reason='Capture the management signature again.',
+            correction_items=[{
+                'target_type': 'signature_slot',
+                'target_key': 'primary.approval_signature',
+                'instruction': 'The holistic signature is incomplete.',
+            }], request_id='conditional-holistic-signature-correction',
+        )
+
+        invalidated_action_ids = set(
+            OriginationSigningActionInvalidation.objects.filter(
+                action__package=package,
+            ).values_list('action_id', flat=True)
+        )
+        self.assertEqual(
+            invalidated_action_ids,
+            {primary_action.pk, copied_action.pk, date_action.pk},
+        )
+        self.assertEqual(reviewed.status, LoanOriginationApplication.STATUS_PARTIALLY_SIGNED)
+
     @patch('core.services.origination_esign._archive_signed_package_after_commit')
     def test_corrected_final_review_requires_reasoned_checker_takeover(self, archive_mock):
         alternate_reviewer = get_user_model().objects.create_user(

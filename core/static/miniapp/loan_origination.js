@@ -1280,11 +1280,11 @@
     }, 350);
   }
 
-  function correctionToggle(targetType, targetKey, targetLabel) {
+  function correctionToggle(targetType, targetKey, targetLabel, actionLabel = 'Flag for correction') {
     if (!capabilities.can_review) return '';
     const identity = `${targetType}:${targetKey}`;
     const selected = reviewTargets.get(identity);
-    return `<span class="correction-control"><span class="correction-toggle"><input type="checkbox" data-correction-target="${escapeHtml(identity)}" data-target-type="${escapeHtml(targetType)}" data-target-key="${escapeHtml(targetKey)}" data-target-label="${escapeHtml(targetLabel)}"${selected ? ' checked' : ''}><span>Flag for correction</span></span><input class="correction-inline-note" data-correction-instruction="${escapeHtml(identity)}" maxlength="1000" value="${escapeHtml(selected?.instruction || '')}" placeholder="Tell the officer exactly what to correct"${selected ? '' : ' hidden disabled'}></span>`;
+    return `<span class="correction-control"><span class="correction-toggle"><input type="checkbox" data-correction-target="${escapeHtml(identity)}" data-target-type="${escapeHtml(targetType)}" data-target-key="${escapeHtml(targetKey)}" data-target-label="${escapeHtml(targetLabel)}"${selected ? ' checked' : ''}><span>${escapeHtml(actionLabel)}</span></span><input class="correction-inline-note" data-correction-instruction="${escapeHtml(identity)}" maxlength="1000" value="${escapeHtml(selected?.instruction || '')}" placeholder="Tell the officer exactly what to correct"${selected ? '' : ' hidden disabled'}></span>`;
   }
 
   function locationMatch(items, value) {
@@ -1835,8 +1835,12 @@
           : participant.session_status
             ? `<div class="signing-session-actions"><span class="signing-mode-chip ${escapeHtml(accessMode)}">${escapeHtml(modeLabel)}</span><span class="status-chip">${escapeHtml(participant.session_status.replaceAll('_', ' '))}</span>${participant.session_status === 'verified' ? '' : `<button type="button" class="btn btn-secondary" data-reset-signer-session data-session-id="${escapeHtml(participant.session_id)}" data-access-mode="${escapeHtml(accessMode)}" data-target-access-mode="${escapeHtml(accessMode)}">Reset / reissue</button>${accessMode === 'assisted' ? `<button type="button" class="btn btn-primary" data-reset-signer-session data-switch-mode="true" data-session-id="${escapeHtml(participant.session_id)}" data-access-mode="assisted" data-target-access-mode="self_service">Send remotely instead</button>` : `<details class="assisted-signing-fallback"><summary>Need in-person assistance?</summary><button type="button" class="btn btn-secondary" data-reset-signer-session data-switch-mode="true" data-session-id="${escapeHtml(participant.session_id)}" data-access-mode="self_service" data-target-access-mode="assisted">Switch to officer device</button></details>`}`}</div>`
             : `<div class="signing-primary-actions"><button type="button" class="btn btn-primary" data-create-signer-session data-access-mode="self_service" data-package-id="${escapeHtml(packageData.id)}" data-signer-role="${escapeHtml(participant.role)}">Send to signer's phone</button><small>The signer can review, sign and enter their OTP from any location.</small>${assistedFallback}</div>`;
-        const signatureCorrections = current.status === 'signed_pending_approval'
-          ? signatures.filter(slot => slot.completed).map(slot => correctionToggle('signature_slot', `${slot.document_key}.${slot.key}`, slot.label || `${participant.label}: ${slot.key}`)).join('')
+        const correctionSlot = signatures.find(slot => slot.completed);
+        const signatureCorrections = current.status === 'signed_pending_approval' && correctionSlot
+          ? correctionToggle(
+            'signature_slot', `${correctionSlot.document_key}.${correctionSlot.key}`,
+            `${participant.label} holistic signature`, 'Flag signature for correction',
+          )
           : '';
         const signatureRow = signatures.length ? `<div class="signing-test-slot ${signaturesComplete ? 'is-complete' : ''}"><span><strong>${escapeHtml(participant.label)}</strong><small>${signatures.length} signature box(es) across the packet${participant.phone_mapped || participant.staff ? '' : ' · phone mapping missing'}</small>${signatureCorrections}</span>${signaturesComplete ? '<span class="status-chip">Complete</span>' : externalAction}</div>` : '';
         const stampRows = stamps.map(slot => `<div class="signing-test-slot ${slot.completed ? 'is-complete' : ''}"><span><strong>${escapeHtml(slot.label || slot.key)}</strong><small>${escapeHtml(participant.label)} · ${escapeHtml(slot.document_key)}</small></span>${slot.completed ? '<span class="status-chip">Stamped</span>' : `<select data-production-stamp-select><option value="">Choose production stamp</option>${stampOptions}</select><button type="button" class="btn btn-secondary" data-production-stamp data-package-id="${escapeHtml(packageData.id)}" data-document-key="${escapeHtml(slot.document_key)}" data-slot-key="${escapeHtml(slot.key)}" data-signer-role="${escapeHtml(participant.role)}">Apply stamp</button>`}</div>`).join('');
@@ -2007,7 +2011,12 @@
     const actionFooter = editable || actions
       ? `<footer class="wizard-actions">${editable ? `<span id="origination-save-status" data-state="${recoveryState[1]}">${recoveryState[0]}</span>` : '<span></span>'}<div>${actions}</div></footer>`
       : '';
-    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small><small class="editor-status-text">${escapeHtml(application.status_text || applicationStatusLabel(application))}</small></div><span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(applicationStatusLabel(application))}</span></div>${persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${progressMarkup()}<section class="wizard-card">${content}</section>${actionFooter}`;
+    const statusHasPersistentBanner = application.status === 'signed_pending_approval';
+    const contextStatus = statusHasPersistentBanner
+      ? '' : `<small class="editor-status-text">${escapeHtml(application.status_text || applicationStatusLabel(application))}</small>`;
+    const contextChip = statusHasPersistentBanner
+      ? '' : `<span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(applicationStatusLabel(application))}</span>`;
+    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small>${contextStatus}</div>${contextChip}</div>${persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${progressMarkup()}<section class="wizard-card">${content}</section>${actionFooter}`;
     syncNativeDateDisplays(root());
     bindEditor(sectionEditable);
     syncTelegramControls();
