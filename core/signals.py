@@ -1,11 +1,18 @@
 """Security lifecycle hooks for canonical staff accounts."""
 
 from django.contrib.auth import get_user_model
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import post_save, pre_delete, pre_save
 from django.dispatch import receiver
 
 
 User = get_user_model()
+
+
+@receiver(pre_delete, sender=User, dispatch_uid='core.require_governed_user_hard_delete')
+def require_governed_user_hard_delete(sender, instance, **kwargs):
+    from core.services.user_hard_delete import require_governed_user_hard_delete as require_authority
+
+    require_authority()
 
 
 @receiver(pre_save, sender=User, dispatch_uid='core.capture_user_access_deactivation')

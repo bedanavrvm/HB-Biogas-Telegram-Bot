@@ -6,6 +6,7 @@ import uuid
 from django import forms
 from django.contrib import admin
 from django.contrib import messages
+from django.contrib.admin import helpers
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import GroupAdmin as DjangoGroupAdmin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
@@ -15,7 +16,7 @@ from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.template.response import TemplateResponse
 from django.core import signing
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import DatabaseError, connections, models, transaction
+from django.db import DatabaseError, IntegrityError, connections, models, transaction
 from django.urls import path, reverse
 from django.utils.html import format_html
 from django.utils import timezone
@@ -183,6 +184,8 @@ from .models import (
     StaffLifecycleChangePlan,
     TelegramStaffActivation,
     AccessControlNotification,
+    UserHardDeletionBatch,
+    DeletedUserIdentity,
     CapabilityUsageDaily,
     DocumentSignoffPolicy,
     DocumentPhysicalSignoff,
@@ -3115,7 +3118,9 @@ class ReadOnlyAuditAdmin(ModelAdmin):
     list_fullwidth = True
 
     def get_readonly_fields(self, request, obj=None):
-        return [field.name for field in self.model._meta.fields]
+        model_fields = [field.name for field in self.model._meta.fields]
+        configured = list(super().get_readonly_fields(request, obj))
+        return list(dict.fromkeys(model_fields + configured))
 
     def has_add_permission(self, request):
         return False
@@ -5863,6 +5868,29 @@ class DocumentPhysicalSignoffEventAdmin(ReadOnlyAuditAdmin):
     readonly_fields = [field.name for field in DocumentPhysicalSignoffEvent._meta.fields]
 
 
+@admin.register(UserHardDeletionBatch)
+class UserHardDeletionBatchAdmin(ReadOnlyAuditAdmin):
+    list_display = ('created_at', 'id', 'actor_label', 'reason_category', 'target_count')
+    list_filter = ('reason_category', 'created_at')
+    search_fields = ('id', 'request_id', 'actor_label', 'reason_note')
+    exclude = ('actor',)
+    readonly_fields = [
+        field.name for field in UserHardDeletionBatch._meta.fields if field.name != 'actor'
+    ] + ['actor_reference']
+
+    @admin.display(description='Actor')
+    def actor_reference(self, obj):
+        return f'{obj.actor_label} (historical user ID {obj.actor_id or "system"})'
+
+
+@admin.register(DeletedUserIdentity)
+class DeletedUserIdentityAdmin(ReadOnlyAuditAdmin):
+    list_display = ('deleted_at', 'username', 'display_name', 'original_user_id', 'was_superuser', 'batch')
+    list_filter = ('was_active', 'was_staff', 'was_superuser', 'deleted_at')
+    search_fields = ('username', 'display_name', 'original_user_id', 'batch__request_id')
+    readonly_fields = [field.name for field in DeletedUserIdentity._meta.fields]
+
+
 @admin.register(ComplianceAuditEvent)
 class ComplianceAuditEventAdmin(ReadOnlyAuditAdmin):
     """Investigator-facing read/export interface for immutable evidence."""
@@ -5873,9 +5901,21 @@ class ComplianceAuditEventAdmin(ReadOnlyAuditAdmin):
     )
     list_filter = ('workflow', 'category', 'origin', 'sensitive', 'retention_class', 'occurred_at')
     search_fields = ('subject_id', 'customer_reference', 'actor_label', 'authority_label', 'request_id', 'action')
-    readonly_fields = [field.name for field in ComplianceAuditEvent._meta.fields]
+    exclude = ('actor', 'authority_user')
+    readonly_fields = [
+        field.name for field in ComplianceAuditEvent._meta.fields
+        if field.name not in {'actor', 'authority_user'}
+    ] + ['actor_reference', 'authority_reference']
     list_select_related = ('actor', 'authority_user')
     date_hierarchy = 'occurred_at'
+
+    @admin.display(description='Actor')
+    def actor_reference(self, obj):
+        return f'{obj.actor_label or "System"} (historical user ID {obj.actor_id or "system"})'
+
+    @admin.display(description='Authority')
+    def authority_reference(self, obj):
+        return f'{obj.authority_label or "None"} (historical user ID {obj.authority_user_id or "none"})'
 
     def has_change_permission(self, request, obj=None):
         # Read-only fields are useful for legacy audit models, but this ledger
@@ -6697,7 +6737,9 @@ class StaffLifecycleForm(forms.Form):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        users = get_user_model().objects.filter(is_superuser=False).order_by('first_name', 'last_name', 'username')
+        users = get_user_model().objects.filter(is_superuser=False).exclude(
+            username__startswith='__deleted_user_',
+        ).order_by('first_name', 'last_name', 'username')
         self.fields['target_user'].queryset = users
         self.fields['replacement_user'].queryset = users.filter(is_active=True)
         target_id = self.data.get('target_user') or self.initial.get('target_user')
@@ -6777,6 +6819,24 @@ class StaffLifecycleGrantForm(forms.Form):
 StaffLifecycleGrantFormSet = forms.formset_factory(StaffLifecycleGrantForm, extra=3, max_num=8)
 
 
+class UserHardDeleteForm(forms.Form):
+    reason_category = forms.ChoiceField(choices=UserHardDeletionBatch.REASON_CHOICES)
+    reason_note = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={'rows': 3}),
+        help_text='Optional context that will remain in the immutable deletion evidence.',
+    )
+    password = forms.CharField(
+        widget=forms.PasswordInput(render_value=False),
+        help_text='Re-enter your own Django Admin password.',
+    )
+    confirmation = forms.CharField(
+        help_text='Type the exact confirmation phrase shown below.',
+    )
+    request_id = forms.CharField(widget=forms.HiddenInput)
+    preview_fingerprint = forms.CharField(widget=forms.HiddenInput)
+
+
 class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
     compressed_fields = True
     list_filter_submit = True
@@ -6786,8 +6846,92 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
     change_list_template = 'admin/auth/user/change_list.html'
     change_form_template = 'admin/auth/user/change_form.html'
 
+    def has_delete_permission(self, request, obj=None):
+        if not (request.user.is_active and request.user.is_superuser):
+            return False
+        if obj is not None and (obj.pk == request.user.pk or obj.username.startswith('__deleted_user_')):
+            return False
+        return True
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        actions.pop('delete_selected', None)
+        if request.user.is_active and request.user.is_superuser:
+            actions['hard_delete_selected'] = self.get_action('hard_delete_selected')
+        return actions
+
+    @admin.action(description='Hard delete selected users (audit preserved)')
+    def hard_delete_selected(self, request, queryset):
+        return self._hard_delete_confirmation(request, queryset=queryset, bulk=True)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        target = self.get_object(request, object_id)
+        if target is None:
+            return HttpResponseRedirect(reverse('admin:auth_user_changelist'))
+        return self._hard_delete_confirmation(request, queryset=self.model.objects.filter(pk=target.pk), bulk=False)
+
+    def _hard_delete_confirmation(self, request, *, queryset, bulk: bool):
+        from core.services.user_hard_delete import execute_user_hard_delete, preview_user_hard_delete
+
+        if not (request.user.is_active and request.user.is_superuser):
+            raise PermissionDenied
+        targets = list(queryset.order_by('pk'))
+        try:
+            preview = preview_user_hard_delete(actor=request.user, users=targets)
+        except ValidationError as exc:
+            messages.error(request, '; '.join(exc.messages))
+            return HttpResponseRedirect(reverse('admin:auth_user_changelist'))
+
+        expected_phrase = (
+            f'HARD DELETE {len(targets)} USERS'
+            if bulk else f'HARD DELETE {targets[0].get_username()}'
+        )
+        submitted = request.method == 'POST' and bool(request.POST.get('hard_delete_confirm'))
+        initial = {
+            'request_id': f'user-hard-delete-{uuid.uuid4()}',
+            'preview_fingerprint': preview.fingerprint,
+        }
+        form = UserHardDeleteForm(request.POST if submitted else None, initial=initial)
+        if submitted and form.is_valid():
+            if not request.user.check_password(form.cleaned_data['password']):
+                form.add_error('password', 'Your Django Admin password is incorrect.')
+            if form.cleaned_data['confirmation'].strip() != expected_phrase:
+                form.add_error('confirmation', f'Type exactly: {expected_phrase}')
+            if form.is_valid():
+                try:
+                    batch = execute_user_hard_delete(
+                        actor=request.user,
+                        users=targets,
+                        reason_category=form.cleaned_data['reason_category'],
+                        reason_note=form.cleaned_data['reason_note'],
+                        request_id=form.cleaned_data['request_id'],
+                        expected_fingerprint=form.cleaned_data['preview_fingerprint'],
+                    )
+                except (PermissionDenied, ValidationError, IntegrityError) as exc:
+                    form.add_error(None, '; '.join(getattr(exc, 'messages', [str(exc)])))
+                else:
+                    messages.success(
+                        request,
+                        f'Hard-deleted {batch.target_count} user account(s). Audit evidence is retained in batch {batch.pk}.',
+                    )
+                    return HttpResponseRedirect(reverse('admin:auth_user_changelist'))
+
+        return TemplateResponse(request, 'admin/auth/user/hard_delete.html', {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': 'Hard delete user accounts',
+            'form': form,
+            'targets': targets,
+            'preview': preview,
+            'expected_phrase': expected_phrase,
+            'is_bulk': bulk,
+            'action_checkbox_name': helpers.ACTION_CHECKBOX_NAME,
+        })
+
     def get_queryset(self, request):
-        return super().get_queryset(request).prefetch_related('access_grants')
+        return super().get_queryset(request).exclude(
+            username__startswith='__deleted_user_',
+        ).prefetch_related('access_grants')
 
     def changelist_view(self, request, extra_context=None):
         from core.services.access_control import can_approve_access_change

@@ -6,7 +6,7 @@
       <div class="mb-4">
         <h2 class="font-semibold text-font-important-light text-lg dark:text-font-important-dark">{% if request.user.is_superuser %}User actions{% else %}Independent access reviews{% endif %}</h2>
         <p class="mt-1 text-font-subtle-light text-sm dark:text-font-subtle-dark">
-          {% if request.user.is_superuser %}Onboard, transfer, cover leave, change access, and offboard staff through one independently reviewed workspace.{% else %}Review pending staff lifecycle plans without receiving authority to create or modify them.{% endif %}
+          {% if request.user.is_superuser %}Onboard, transfer, cover leave, change access, and offboard staff through the lifecycle workspace. For physical removal, select users below and choose “Hard delete selected users”; no checker is required.{% else %}Review pending staff lifecycle plans without receiving authority to create or modify them.{% endif %}
         </p>
       </div>
       <div class="grid gap-3 {% if request.user.is_superuser %}md:grid-cols-2{% endif %}">

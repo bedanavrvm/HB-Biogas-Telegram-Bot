@@ -4389,6 +4389,90 @@ class AccessControlNotification(models.Model):
     delivered_at = models.DateTimeField(null=True, blank=True)
 
 
+class UserHardDeletionBatch(models.Model):
+    """Immutable evidence for one Superuser-authorised physical user deletion."""
+
+    REASON_DEPARTED = 'departed_staff'
+    REASON_DUPLICATE = 'duplicate_account'
+    REASON_SECURITY = 'security_incident'
+    REASON_LEGAL = 'legal_request'
+    REASON_TEST = 'test_data_cleanup'
+    REASON_OTHER = 'other'
+    REASON_CHOICES = [
+        (REASON_DEPARTED, 'Departed staff'),
+        (REASON_DUPLICATE, 'Duplicate account'),
+        (REASON_SECURITY, 'Security incident'),
+        (REASON_LEGAL, 'Legal request'),
+        (REASON_TEST, 'Test-data cleanup'),
+        (REASON_OTHER, 'Other'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    request_id = models.CharField(max_length=128, unique=True, db_index=True)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.DO_NOTHING,
+        db_constraint=False,
+        related_name='+',
+    )
+    actor_label = models.CharField(max_length=255)
+    reason_category = models.CharField(max_length=32, choices=REASON_CHOICES)
+    reason_note = models.TextField(blank=True, default='')
+    target_count = models.PositiveIntegerField()
+    preview_fingerprint = models.CharField(max_length=64)
+    result_counts = models.JSONField(default=dict)
+    coverage_gaps = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'user hard-deletion batch'
+        verbose_name_plural = 'user hard-deletion batches'
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError('User hard-deletion batches are immutable.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('User hard-deletion batches cannot be deleted.')
+
+
+class DeletedUserIdentity(models.Model):
+    """Minimal identity and relationship manifest retained after hard deletion."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    batch = models.ForeignKey(
+        UserHardDeletionBatch, on_delete=models.PROTECT, related_name='deleted_identities',
+    )
+    original_user_id = models.PositiveBigIntegerField(db_index=True)
+    username = models.CharField(max_length=150)
+    display_name = models.CharField(max_length=255, blank=True, default='')
+    was_active = models.BooleanField(default=False)
+    was_staff = models.BooleanField(default=False)
+    was_superuser = models.BooleanField(default=False)
+    relationship_manifest = models.JSONField(default=list)
+    deleted_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-deleted_at']
+        constraints = [models.UniqueConstraint(
+            fields=['batch', 'original_user_id'], name='unique_deleted_user_per_batch',
+        )]
+        verbose_name = 'deleted user identity'
+        verbose_name_plural = 'deleted user identities'
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError('Deleted user identities are immutable.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Deleted user identities cannot be deleted.')
+
+
 class CapabilityUsageDaily(models.Model):
     """Small daily aggregate used for least-privilege drift reports."""
 
@@ -8074,11 +8158,13 @@ class ComplianceAuditEvent(models.Model):
     subject_id = models.CharField(max_length=128, db_index=True)
     customer_reference = models.CharField(max_length=128, blank=True, default='', db_index=True)
     actor = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.DO_NOTHING,
+        db_constraint=False,
         related_name='compliance_audit_actions',
     )
     authority_user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.DO_NOTHING,
+        db_constraint=False,
         related_name='compliance_audit_authorizations',
     )
     actor_label = models.CharField(max_length=255, blank=True, default='')

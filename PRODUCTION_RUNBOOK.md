@@ -172,3 +172,24 @@ smallest workflow/branch/product, verify its automatic expiry, and review the
 `EmergencyAccessGrant` and notification audit rows afterward. It creates
 temporary audited access; use the maker-checker access request flow for any
 permanent change.
+
+### Superuser user hard deletion
+
+Use **Authentication and Authorization → Users → Hard delete account** (or the
+bulk action) only when the account must be physically removed. This is a
+unilateral active-Superuser operation and does not enter the staff-lifecycle
+checker queue.
+
+1. Review every retained, detached, and deleted relationship in the preview.
+2. Confirm at least one other active Superuser will remain.
+3. Choose a specific reason category, add useful context, re-enter your Admin
+   password, and type the displayed confirmation phrase exactly.
+4. After completion, open the recorded `UserHardDeletionBatch`, review its TAT
+   coverage gaps, and assign replacement access/responsibility where required.
+5. Run `python manage.py verify_compliance_audit --strict` and retain the result
+   with the release/incident evidence.
+
+Hard deletion does not remove signed documents, applications, decisions, or
+compliance events. It does remove live access, personal UI state, task locators,
+and delivery connections. A deleted account is not recoverable through Admin;
+restore an approved backup or onboard a new account deliberately.

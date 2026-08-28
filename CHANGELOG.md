@@ -1,5 +1,26 @@
 # Changelog
 
+## Superuser user hard deletion with retained audit - 28-August-2026
+
+- Replaced Django's protected-object User deletion dead end with a full-width,
+  active-Superuser-only impact preview and hard-delete confirmation. No checker
+  is required; self-deletion and removal of the final active Superuser are
+  rejected.
+- Added immutable deletion batches and deleted-identity manifests. Live access,
+  sessions, drafts, locators, and routing recipients are removed; active TAT
+  ownership is force-unassigned and resulting coverage gaps are retained in the
+  batch result.
+- Preserved original compliance-ledger actor IDs and hash bytes through
+  unconstrained historical references. Other protected history is retained via
+  a disabled evidence tombstone rather than cascading business records.
+
+  Migration note: `core.0142_user_hard_delete_audit` changes only historical
+  User-reference constraints and adds the two evidence tables. Before any hard
+  deletion has run, reverse with
+  `python manage.py migrate core 0141_staff_lifecycle_workspace`. After a hard
+  deletion has created orphan historical actor IDs, do not reverse this schema;
+  restore an approved pre-deletion backup or ship a reviewed forward repair.
+
 ## TAT private-delivery reliability - 24-August-2026
 
 - Fixed private TAT Telegram delivery on PostgreSQL by locking only the task-recipient row instead of applying `FOR UPDATE` across nullable profile and group joins. Due recipients now advance beyond `Pending` and record their delivery attempt.

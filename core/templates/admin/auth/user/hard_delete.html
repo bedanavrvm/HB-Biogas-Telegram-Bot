@@ -1,0 +1,63 @@
+{% extends "admin/base_site.html" %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+  #content { max-width:none!important; }
+  .hard-delete-shell{width:100%;max-width:1500px}
+  .hard-delete-warning,.hard-delete-card{border:1px solid #d7dee8;border-radius:.7rem;padding:1rem;background:var(--color-base-50,#fff)}
+  .hard-delete-warning{border-left:5px solid #dc2626;background:#fff7f7;margin-bottom:1rem}
+  .hard-delete-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.75rem;margin:1rem 0}
+  .hard-delete-stat{border:1px solid #d7dee8;border-radius:.55rem;padding:.8rem}
+  .hard-delete-stat strong{display:block;font-size:1.25rem}
+  .hard-delete-table{width:100%;border-collapse:collapse}
+  .hard-delete-table th,.hard-delete-table td{padding:.65rem;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top}
+  .hard-delete-fields{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem}
+  .hard-delete-field{display:flex;flex-direction:column;gap:.35rem}
+  .hard-delete-field textarea,.hard-delete-field input,.hard-delete-field select{width:100%;max-width:none}
+  .hard-delete-wide{grid-column:1/-1}
+  .hard-delete-actions{position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:.75rem;padding:1rem;margin-top:1rem;background:rgba(255,255,255,.96);border-top:1px solid #d7dee8}
+  .hard-delete-danger{border:0;border-radius:.45rem;background:#dc2626;color:#fff;padding:.75rem 1rem;font-weight:700}
+  @media(max-width:850px){.hard-delete-grid,.hard-delete-fields{grid-template-columns:1fr}.hard-delete-wide{grid-column:auto}.hard-delete-table{display:block;overflow-x:auto}}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="hard-delete-shell">
+  <div class="hard-delete-warning">
+    <h1>Hard delete user accounts</h1>
+    <p>This physically removes the selected account(s). Historical workflow records and immutable compliance evidence remain. Live access is revoked and responsibilities are force-unassigned.</p>
+    <p><strong>No checker approval is required.</strong> This action cannot delete your current account or the final active Superuser.</p>
+  </div>
+  {% if form.non_field_errors %}<div class="hard-delete-warning">{{ form.non_field_errors }}</div>{% endif %}
+  <section class="hard-delete-card">
+    <h2>Accounts</h2>
+    <table class="hard-delete-table"><thead><tr><th>Username</th><th>Name</th><th>Active</th><th>Staff</th><th>Superuser</th></tr></thead><tbody>
+      {% for target in targets %}<tr><td>{{ target.username }}</td><td>{{ target.get_full_name|default:"-" }}</td><td>{{ target.is_active|yesno:"Yes,No" }}</td><td>{{ target.is_staff|yesno:"Yes,No" }}</td><td>{{ target.is_superuser|yesno:"Yes,No" }}</td></tr>{% endfor %}
+    </tbody></table>
+    <div class="hard-delete-grid">
+      <div class="hard-delete-stat"><strong>{{ preview.totals.targets }}</strong>accounts deleted</div>
+      <div class="hard-delete-stat"><strong>{{ preview.totals.historical_rows_preserved }}</strong>historical rows preserved</div>
+      <div class="hard-delete-stat"><strong>{{ preview.totals.references_detached }}</strong>references detached</div>
+      <div class="hard-delete-stat"><strong>{{ preview.totals.personal_rows_deleted }}</strong>personal/live rows removed</div>
+    </div>
+    <h2>Relationship impact</h2>
+    <table class="hard-delete-table"><thead><tr><th>Model</th><th>Field</th><th>Handling</th><th>Rows</th></tr></thead><tbody>
+      {% for row in preview.relationships %}<tr><td>{{ row.model }}</td><td>{{ row.field }}</td><td>{{ row.action }}</td><td>{{ row.count }}</td></tr>{% empty %}<tr><td colspan="4">No related rows.</td></tr>{% endfor %}
+    </tbody></table>
+  </section>
+  <form method="post" class="hard-delete-card mt-4" id="hard-delete-form">
+    {% csrf_token %}{{ form.request_id }}{{ form.preview_fingerprint }}
+    {% if is_bulk %}<input type="hidden" name="action" value="hard_delete_selected"><input type="hidden" name="select_across" value="0">{% for target in targets %}<input type="hidden" name="{{ action_checkbox_name }}" value="{{ target.pk }}">{% endfor %}{% endif %}
+    <h2>Authorise deletion</h2>
+    <div class="hard-delete-fields">
+      <div class="hard-delete-field"><label for="{{ form.reason_category.id_for_label }}">{{ form.reason_category.label }}</label>{{ form.reason_category }}{{ form.reason_category.errors }}</div>
+      <div class="hard-delete-field"><label for="{{ form.password.id_for_label }}">{{ form.password.label }}</label>{{ form.password }}<small>{{ form.password.help_text }}</small>{{ form.password.errors }}</div>
+      <div class="hard-delete-field hard-delete-wide"><label for="{{ form.reason_note.id_for_label }}">{{ form.reason_note.label }}</label>{{ form.reason_note }}<small>{{ form.reason_note.help_text }}</small>{{ form.reason_note.errors }}</div>
+      <div class="hard-delete-field hard-delete-wide"><label for="{{ form.confirmation.id_for_label }}">Confirmation phrase</label><code>{{ expected_phrase }}</code>{{ form.confirmation }}{{ form.confirmation.errors }}</div>
+    </div>
+    <div class="hard-delete-actions"><a class="rounded border px-4 py-3" href="{% url 'admin:auth_user_changelist' %}">Cancel</a><button class="hard-delete-danger" type="submit" name="hard_delete_confirm" value="1">Hard delete account{% if targets|length != 1 %}s{% endif %}</button></div>
+  </form>
+</div>
+<script>(function(){const form=document.getElementById('hard-delete-form');if(!form)return;form.addEventListener('submit',function(event){const button=event.submitter;if(button){button.disabled=true;button.textContent='Deleting…';}});})();</script>
+{% endblock %}
