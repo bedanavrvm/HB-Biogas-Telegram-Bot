@@ -170,6 +170,7 @@ Key modules:
 - `reporting_relationships.py` — read-only model-relationship inventory used to govern future report-source expansion; it never creates cross-workflow customer joins
 - `workflow_capabilities.py` — centrally defined Mini App capabilities and role policy resolution
 - `miniapp_requests.py` — shared Mini App retry-key compatibility and strict-mode policy
+- `miniapp_messages.py` — versioned plain-language Mini App message catalogue, compatibility contract, correlation references, and privacy-safe error boundary
 - `miniapp_settings.py` — typed personal preferences and maker-checker TAT configuration proposals
 - `miniapp_diagnostics.py` — privacy-safe Mini App lifecycle telemetry, idempotent signal ingestion, recovery classification, and aggregate retention
 - `external_resilience.py` — bounded synchronous retry, durable external-operation register, and circuit state

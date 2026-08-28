@@ -13,6 +13,7 @@
         'X-Telegram-Init-Data': initData || '',
         'X-Request-ID': requestId,
         'Idempotency-Key': requestId,
+        'X-MiniApp-Message-Contract': '2',
       },
       body: JSON.stringify(body),
     };
@@ -20,9 +21,10 @@
     const response = await fetch(`/api/complaints/${path}`, options);
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.ok) {
-      const error = new Error(result.error || 'Request failed.');
+      const normalized = utils?.normalizeResponsePayload ? utils.normalizeResponsePayload(response, result) : result;
+      const error = new Error(normalized.message || normalized.error || 'We could not complete that action.');
       error.status = response.status;
-      error.payload = result;
+      error.payload = normalized;
       throw error;
     }
     return result;
@@ -39,6 +41,7 @@
         'X-Telegram-Init-Data': initData || '',
         'X-Request-ID': requestId,
         'Idempotency-Key': requestId,
+        'X-MiniApp-Message-Contract': '2',
       },
       body: formData,
     };
@@ -46,9 +49,10 @@
     const response = await fetch(`/api/complaints/${path}`, options);
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.ok) {
-      const error = new Error(result.error || 'Request failed.');
+      const normalized = utils?.normalizeResponsePayload ? utils.normalizeResponsePayload(response, result) : result;
+      const error = new Error(normalized.message || normalized.error || 'We could not complete that action.');
       error.status = response.status;
-      error.payload = result;
+      error.payload = normalized;
       throw error;
     }
     return result;

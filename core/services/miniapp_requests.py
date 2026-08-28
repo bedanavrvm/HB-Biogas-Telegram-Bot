@@ -75,18 +75,25 @@ def bind_miniapp_request_identity(request, payload: dict[str, Any] | None = None
     return identity
 
 
-def idempotency_error_response(error: Exception) -> JsonResponse:
+def idempotency_error_response(error: Exception, request=None) -> JsonResponse:
     status = 428 if isinstance(error, IdempotencyKeyRequired) else 400
-    return JsonResponse(
-        {
-            "ok": False,
-            "success": False,
-            "error": str(error),
-            "message": str(error),
-            "code": "idempotency_key_required" if status == 428 else "invalid_idempotency_key",
-        },
+    # Imported lazily because the message boundary also uses request-key
+    # validation when it assigns a support reference.
+    from core.services.miniapp_messages import miniapp_error_response
+    return miniapp_error_response(
+        request or _RequestProxy(),
+        "outdated_client" if status == 428 else "invalid_request",
+        workflow="miniapp_request",
         status=status,
+        developer_message=str(error),
     )
+
+
+class _RequestProxy:
+    """Compatibility request for callers that have not passed the request yet."""
+
+    headers: dict = {}
+    path = "miniapp-request"
 
 
 def attach_miniapp_request_metadata(request, response):

@@ -113,6 +113,7 @@
     const options = opts || {};
     const headers = {
       'Content-Type': 'application/json',
+      'X-MiniApp-Message-Contract': '2',
       ...initDataHeader(tg),
       ...(options.headers || {}),
     };
@@ -123,7 +124,9 @@
     }
     try {
       const response = await fetchWithTimeout(apiBase() + path, requestOptions);
-      const data = await response.json().catch(function () { return {}; });
+      const raw = await response.json().catch(function () { return {}; });
+      const data = window.MiniAppUtils?.normalizeResponsePayload
+        ? window.MiniAppUtils.normalizeResponsePayload(response, raw) : raw;
       if (
         data?.ok && path !== '/publication/attempt/'
         && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(String(requestOptions.method || 'GET').toUpperCase())
@@ -159,10 +162,12 @@
     if (!formData.get('client_request_id')) formData.set('client_request_id', key);
     const response = await fetchWithTimeout(apiBase() + path, {
       method: 'POST',
-      headers: { ...initDataHeader(tg), ...(extraHeaders || {}), 'X-Request-ID': key, 'Idempotency-Key': key },
+      headers: { ...initDataHeader(tg), ...(extraHeaders || {}), 'X-Request-ID': key, 'Idempotency-Key': key, 'X-MiniApp-Message-Contract': '2' },
       body: formData,
     });
-    const data = await response.json().catch(function () { return {}; });
+    const raw = await response.json().catch(function () { return {}; });
+    const data = window.MiniAppUtils?.normalizeResponsePayload
+      ? window.MiniAppUtils.normalizeResponsePayload(response, raw) : raw;
     if (data?.ok) {
       if (data.publication) schedulePublication(data.publication, tg);
       (Array.isArray(data.publications) ? data.publications : []).forEach(item => schedulePublication(item, tg));

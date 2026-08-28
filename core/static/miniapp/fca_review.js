@@ -160,7 +160,7 @@
     try {
       const response = await fetch('/api/fca/review/commit/', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: utils.messageHeaders ? utils.messageHeaders({ 'Content-Type': 'application/json' }) : { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           batch_id: payload.batch_id,
           token: payload.token,
@@ -168,7 +168,10 @@
           rows,
         }),
       });
-      const result = await response.json();
+      const rawResult = await response.json().catch(() => ({}));
+      const result = utils.normalizeResponsePayload
+        ? utils.normalizeResponsePayload(response, rawResult, 'Some rows still need correction.')
+        : rawResult;
       if (!response.ok || !result.success) {
         if (Array.isArray(result.rows)) {
           rows = result.rows;

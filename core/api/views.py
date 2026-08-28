@@ -145,7 +145,7 @@ def _bind_miniapp_write_request(request, payload: dict):
     try:
         bind_miniapp_request_identity(request, payload)
     except ValueError as exc:
-        return idempotency_error_response(exc)
+        return idempotency_error_response(exc, request)
     return None
 
 
@@ -168,7 +168,14 @@ def miniapp_write_response(view_func):
     @wraps(view_func)
     def wrapped(request, *args, **kwargs):
         from core.services.miniapp_requests import attach_miniapp_request_metadata
-        return attach_miniapp_request_metadata(request, view_func(request, *args, **kwargs))
+        from core.services.miniapp_messages import normalize_miniapp_response, unexpected_miniapp_error
+        try:
+            response = view_func(request, *args, **kwargs)
+        except Exception as exc:
+            logger.exception('Mini App request failed unexpectedly: path=%s', request.path)
+            response = unexpected_miniapp_error(request, exc, workflow="miniapp")
+        response = attach_miniapp_request_metadata(request, response)
+        return normalize_miniapp_response(request, response, workflow="miniapp")
     return wrapped
 
 
@@ -348,6 +355,7 @@ def _tat_capability_error(user: dict, capability: str, group_config):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def tat_tracker_bootstrap(request):
     payload = _tat_json_body(request)
     group_id, group_config, user_payload, user, error = _tat_context(payload)
@@ -377,6 +385,7 @@ def tat_tracker_bootstrap(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def tat_tracker_task_resolve(request):
     """Resolve an opaque DM locator only after Telegram and role authorization."""
     payload = _tat_json_body(request)
@@ -424,6 +433,7 @@ def tat_tracker_task_resolve(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def tat_tracker_tasks(request):
     payload = _tat_json_body(request)
     _group_id, group_config, _user_payload, user, error = _tat_context(payload)
@@ -473,6 +483,7 @@ def tat_tracker_connect_private_alerts(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def tat_tracker_home(request):
     payload = _tat_json_body(request)
     group_id, group_config, user_payload, user, error = _tat_context(payload)
@@ -555,6 +566,7 @@ def _tat_home_page_size(value) -> int:
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def tat_tracker_search(request):
     payload = _tat_json_body(request)
     group_id, group_config, user_payload, user, error = _tat_context(payload)
@@ -616,6 +628,7 @@ def tat_tracker_target_settings(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def tat_tracker_settings(request):
     payload = _tat_json_body(request)
     group_id, group_config, user_payload, user, error = _tat_context(payload)
@@ -748,6 +761,7 @@ def tat_tracker_create(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def tat_tracker_identity_context(request):
     """Show exact prior-loan context before a deliberate TAT create.
 
@@ -782,6 +796,7 @@ def tat_tracker_identity_context(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def tat_tracker_detail(request):
     payload = _tat_json_body(request)
     group_id, group_config, user_payload, user, error = _tat_context(payload)
@@ -985,6 +1000,7 @@ def order_approval_form(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def order_approval_webapp_submit(request):
     """Accept a Telegram Web App order approval form submission."""
     try:
@@ -1055,6 +1071,7 @@ def order_approval_webapp_submit(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def order_approval_webapp_lookup(request):
     """Load an existing order approval row into the Web App edit form."""
     try:
@@ -1088,6 +1105,7 @@ def order_approval_webapp_lookup(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def order_approval_webapp_suggest(request):
     """Return candidate order rows while staff type an ID prefix."""
     try:
@@ -1265,6 +1283,7 @@ def jawabu_farmers_review(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def jawabu_farmers_review_commit(request):
     """Commit approved Mini App rows into the Jawabu farmer master table."""
     from core.models import JawabuFarmerUploadBatch
@@ -1394,6 +1413,7 @@ def fca_review(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def fca_review_commit(request):
     from core.services.fca import (
         commit_fcaup_review_batch,
@@ -1599,6 +1619,7 @@ def _spin_webapp_context_get(request, *, allow_form_token: bool = True):
 
 @csrf_exempt
 @require_http_methods(["GET"])
+@miniapp_write_response
 def spin_form_requests(request):
     """List SPIN/CRB requests for dashboard."""
     group_id, group_config, auth_payload, error_response = _spin_webapp_context_get(
@@ -1709,6 +1730,7 @@ def spin_form_requests(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def spin_form_settings(request):
     """Return settings for the verified SPIN staff member only."""
     try:

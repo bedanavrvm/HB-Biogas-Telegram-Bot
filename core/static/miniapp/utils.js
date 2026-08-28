@@ -1,6 +1,9 @@
 (function () {
   'use strict';
 
+  const MESSAGE_CONTRACT_VERSION = '2';
+  const handledMessageCodes = Object.freeze(['origination_shared_signer_phone']);
+
   function initTelegram(options) {
     const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
     if (!tg) return null;
@@ -41,7 +44,51 @@
 
   function idempotencyHeaders(requestId) {
     const key = requestId || createRequestId();
-    return { 'X-Request-ID': key, 'Idempotency-Key': key };
+    return { 'X-Request-ID': key, 'Idempotency-Key': key, 'X-MiniApp-Message-Contract': MESSAGE_CONTRACT_VERSION };
+  }
+
+  function messageHeaders(headers) {
+    return Object.assign({}, headers || {}, { 'X-MiniApp-Message-Contract': MESSAGE_CONTRACT_VERSION });
+  }
+
+  function fallbackMessage(status) {
+    if (status === 401) return 'Your Telegram session has expired. Close and reopen the Mini App, then try again.';
+    if (status === 403) return 'You do not have access to this action. Contact a JBL administrator if you think this is a mistake.';
+    if (status === 404) return 'This item is no longer available. Return to the list and refresh it.';
+    if (status === 409) return 'This information was updated elsewhere. Reload the latest version before continuing.';
+    if (status === 429) return 'There have been too many attempts. Please wait a short while and try again.';
+    if (status >= 500) return 'We cannot complete this right now. Please try again shortly.';
+    return 'We could not complete that action. Check the information and try again.';
+  }
+
+  function normalizeResponsePayload(response, payload, fallback) {
+    const data = payload && typeof payload === 'object' ? payload : {};
+    const currentContract = response && response.headers
+      ? response.headers.get('X-MiniApp-Message-Contract') === MESSAGE_CONTRACT_VERSION : false;
+    const requestId = data.request_id || (response && response.headers ? response.headers.get('X-Request-ID') : '') || '';
+    const failed = !response || !response.ok || data.ok === false || data.success === false;
+    if (failed) {
+      // Raw legacy `error` text is accepted only from a pre-contract server.
+      // Current servers must provide reviewed `message` copy.
+      const message = data.message || (!currentContract ? data.error : '') || fallback || fallbackMessage(response ? response.status : 0);
+      data.message = message;
+      // Local compatibility for existing screen code. Version-2 servers do
+      // not need to transmit the deprecated mirror to updated clients.
+      data.error = message;
+    }
+    data.request_id = requestId;
+    return data;
+  }
+
+  function apiError(response, payload, fallback) {
+    const data = normalizeResponsePayload(response, payload, fallback);
+    const error = new Error(data.message || fallbackMessage(response ? response.status : 0));
+    error.code = data.code || '';
+    error.status = response ? response.status : 0;
+    error.details = data.details || {};
+    error.requestId = data.request_id || '';
+    error.payload = data;
+    return error;
   }
 
   function parseDisplayDate(value) {
@@ -72,13 +119,12 @@
   }
 
   async function fetchJson(url, options) {
-    const response = await fetch(url, options || {});
-    const data = await response.json().catch(function () { return {}; });
+    const requestOptions = Object.assign({}, options || {});
+    requestOptions.headers = messageHeaders(requestOptions.headers);
+    const response = await fetch(url, requestOptions);
+    const data = normalizeResponsePayload(response, await response.json().catch(function () { return {}; }));
     if (!response.ok || data.ok === false) {
-      const error = new Error(data.error || data.message || 'Request failed.');
-      error.code = data.code || '';
-      error.status = response.status;
-      throw error;
+      throw apiError(response, data);
     }
     return data;
   }
@@ -154,7 +200,7 @@
     let pendingPayload = null;
 
     function headers() {
-      const result = { 'Content-Type': 'application/json' };
+      const result = { 'Content-Type': 'application/json', 'X-MiniApp-Message-Contract': MESSAGE_CONTRACT_VERSION };
       if (settings.initData) result['X-Telegram-Init-Data'] = settings.initData();
       if (settings.token) result['X-MiniApp-Context-Token'] = settings.token();
       // Portal applies the same retry-key policy to draft writes as it does to
@@ -171,9 +217,13 @@
         body: payload === undefined ? undefined : JSON.stringify(payload),
         credentials: 'same-origin',
       });
-      const data = await response.json().catch(function () { return {}; });
+      const data = normalizeResponsePayload(
+        response,
+        await response.json().catch(function () { return {}; }),
+        'Draft could not be saved.',
+      );
       if (!response.ok || data.ok === false) {
-        const error = new Error(data.error || 'Draft could not be saved.');
+        const error = apiError(response, data, 'Draft could not be saved.');
         error.conflict = response.status === 409 || Boolean(data.conflict);
         throw error;
       }
@@ -289,6 +339,7 @@
   }
 
   window.MiniAppUtils = {
+    apiError: apiError,
     escapeHtml: escapeHtml,
     fetchHtml: fetchHtml,
     fetchJson: fetchJson,
@@ -305,6 +356,9 @@
     createRequestId: createRequestId,
     ensureRequestId: ensureRequestId,
     idempotencyHeaders: idempotencyHeaders,
+    handledMessageCodes: handledMessageCodes,
+    messageHeaders: messageHeaders,
+    normalizeResponsePayload: normalizeResponsePayload,
     setButtonLoading: setButtonLoading,
     showToast: showToast,
   };

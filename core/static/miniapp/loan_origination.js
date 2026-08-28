@@ -190,13 +190,17 @@
         signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
+          'X-MiniApp-Message-Contract': '2',
           ...(tg?.initData ? { 'X-Telegram-Init-Data': tg.initData } : {}),
           ...(requestOptions.headers || {}),
         },
       });
       const contentType = String(response.headers.get('Content-Type') || '');
       if (contentType.startsWith('application/pdf') || contentType.startsWith('image/')) return { ok: response.ok, status: response.status, blob: await response.blob(), pageCount: Number(response.headers.get('X-Preview-Page-Count') || 1) };
-      return { ok: response.ok, status: response.status, data: await response.json().catch(() => ({})) };
+      const raw = await response.json().catch(() => ({}));
+      const data = window.MiniAppUtils?.normalizeResponsePayload
+        ? window.MiniAppUtils.normalizeResponsePayload(response, raw) : raw;
+      return { ok: response.ok, status: response.status, data };
     } catch (error) {
       return { ok: false, status: 0, data: { error: error?.name === 'AbortError' ? 'The request timed out. Try again.' : 'Could not connect. Check your signal and try again.' } };
     } finally {
@@ -2132,6 +2136,7 @@
     reviewDialogMode = mode;
     reviewReturnFocus = document.activeElement;
     const overlay = document.getElementById('origination-review-overlay');
+    document.getElementById('review-dialog-eyebrow').textContent = 'Maker-checker review';
     const title = document.getElementById('review-dialog-title');
     const hint = document.getElementById('review-dialog-hint');
     const targets = document.getElementById('review-dialog-targets');
@@ -2153,11 +2158,12 @@
     summary.focus();
   }
 
-  function openAuditedReasonDialog({ title, hint, submitLabel, onSubmit, returnFocus }) {
+  function openAuditedReasonDialog({ title, hint, submitLabel, onSubmit, returnFocus, eyebrow = 'Audited action' }) {
     reviewDialogMode = 'audited_reason';
     reviewReturnFocus = returnFocus || document.activeElement;
     pendingAuditedReasonAction = onSubmit;
     const overlay = document.getElementById('origination-review-overlay');
+    document.getElementById('review-dialog-eyebrow').textContent = eyebrow;
     document.getElementById('review-dialog-title').textContent = title;
     document.getElementById('review-dialog-hint').textContent = hint;
     document.getElementById('review-dialog-targets').innerHTML = '';
@@ -2783,11 +2789,13 @@
           package_id: button.dataset.packageId, signer_role: button.dataset.signerRole,
           access_mode: button.dataset.accessMode,
         });
-        if (!result.ok && /Superuser override/i.test(result.data?.error || '') && capabilities.is_superuser) {
+        if (!result.ok && result.data?.code === 'origination_shared_signer_phone' && capabilities.is_superuser) {
+          const shared = result.data?.details || {};
           openAuditedReasonDialog({
-            title: 'Approve shared signer phone',
-            hint: 'Explain why this shared phone is safe to use. The Superuser override is retained in the audit trail.',
-            submitLabel: 'Approve and send',
+            eyebrow: 'Security confirmation',
+            title: 'Confirm shared signer phone',
+            hint: `${shared.roles || 'Multiple signers'} use the same phone${shared.phone_last4 ? ` ending ${shared.phone_last4}` : ''}. Explain why this is intentional. Your reason is saved with this application and these signer roles.`,
+            submitLabel: 'Confirm and send',
             returnFocus: button,
             onSubmit: async overrideReason => runPrimaryAction('Creating signer session...', async () => {
               const overrideResult = await postJson(`/applications/${current.id}/signer-sessions/`, {

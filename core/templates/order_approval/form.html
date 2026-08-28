@@ -1014,7 +1014,8 @@
 
   {{ location_catalog|json_script:"location-catalog-data" }}
   {% include "miniapp_diagnostics.html" %}
-  <script src="{% static 'miniapp/order_approval_api.js' %}?v=1"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=5"></script>
+  <script src="{% static 'miniapp/order_approval_api.js' %}?v=2"></script>
   <script>
     const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
     const orderApprovalApi = window.OrderApprovalMiniAppApi || {};

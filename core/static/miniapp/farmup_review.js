@@ -278,10 +278,13 @@
     try {
       const response = await fetch('/api/jawabu-farmers/review/commit/', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: utils.messageHeaders ? utils.messageHeaders({ 'Content-Type': 'application/json' }) : { 'Content-Type': 'application/json' },
         body: JSON.stringify({ batch_id: batchId, token, init_data: initData, rows }),
       });
-      const result = await response.json();
+      const rawResult = await response.json().catch(() => ({}));
+      const result = utils.normalizeResponsePayload
+        ? utils.normalizeResponsePayload(response, rawResult, 'Some rows still need correction.')
+        : rawResult;
       if (!response.ok || !result.success) {
         setStatus(result.message || 'Some rows still need correction.', 'error');
         if (result.rows) {

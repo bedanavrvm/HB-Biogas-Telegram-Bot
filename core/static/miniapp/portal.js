@@ -267,14 +267,15 @@
 
   async function apiFetch(path, opts = {}) {
     if (portalApi.apiFetch) return portalApi.apiFetch(path, opts, tg);
-    const headers = { 'Content-Type': 'application/json', ...initDataHeader(), ...(opts.headers || {}) };
+    const headers = { 'Content-Type': 'application/json', 'X-MiniApp-Message-Contract': '2', ...initDataHeader(), ...(opts.headers || {}) };
     const requestOptions = { ...opts, headers };
     if (!requestOptions.method || String(requestOptions.method).toUpperCase() === 'GET') {
       requestOptions.cache = 'no-store';
     }
     try {
       const res = await fetch(apiBase() + path, requestOptions);
-      const data = await res.json().catch(() => ({}));
+      const raw = await res.json().catch(() => ({}));
+      const data = utils.normalizeResponsePayload ? utils.normalizeResponsePayload(res, raw) : raw;
       return { ok: res.ok, status: res.status, data };
     } catch (_) {
       return {

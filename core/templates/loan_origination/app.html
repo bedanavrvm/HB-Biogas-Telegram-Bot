@@ -32,7 +32,7 @@
   </div>
   <div id="origination-review-overlay" class="review-overlay" role="dialog" aria-modal="true" aria-hidden="true" hidden>
     <form id="origination-review-dialog" class="review-dialog">
-      <header><div><p class="eyebrow">Maker-checker review</p><h2 id="review-dialog-title">Request corrections</h2></div><button type="button" class="icon-button" id="review-dialog-close" aria-label="Close review dialog"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
+      <header><div><p class="eyebrow" id="review-dialog-eyebrow">Maker-checker review</p><h2 id="review-dialog-title">Request corrections</h2></div><button type="button" class="icon-button" id="review-dialog-close" aria-label="Close review dialog"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
       <p id="review-dialog-hint"></p>
       <div id="review-dialog-targets" class="review-dialog-targets"></div>
       <label><span>Overall instruction or reason</span><textarea id="review-dialog-summary" maxlength="2000" required></textarea></label>
@@ -57,7 +57,7 @@
   </div>
   <div id="origination-toast" class="origination-toast" role="status" aria-live="polite" hidden></div>
   {% include "miniapp_diagnostics.html" %}
-  <script src="{% static 'miniapp/utils.js' %}?v=4"></script>
-  <script src="{% static 'miniapp/loan_origination.js' %}?v=20260827-4"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=5"></script>
+  <script src="{% static 'miniapp/loan_origination.js' %}?v=20260828-1"></script>
 </body>
 </html>

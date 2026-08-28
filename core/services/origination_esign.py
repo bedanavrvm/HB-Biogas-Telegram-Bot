@@ -78,6 +78,16 @@ class OriginationSigningRateLimited(OriginationError):
         self.retry_after = max(1, int(retry_after))
 
 
+class OriginationSigningProblem(OriginationError):
+    """Expected signing failure with stable user copy and safe parameters."""
+
+    def __init__(self, code: str, message: str, *, details=None, status: int | None = None):
+        super().__init__(message)
+        self.code = code
+        self.details = dict(details or {})
+        self.status = status
+
+
 def _require_approved_package(package: OriginationSigningPackage) -> None:
     if package.application.status not in {
         LoanOriginationApplication.STATUS_SIGNING_PENDING,
@@ -285,6 +295,23 @@ def _duplicate_external_phones(package: OriginationSigningPackage) -> dict[str, 
     return {phone: roles for phone, roles in roles_by_phone.items() if len(set(roles)) > 1}
 
 
+def _role_label(role: str) -> str:
+    return str(role or '').replace('_', ' ').strip().title()
+
+
+def _shared_phone_reason(value: str) -> str:
+    reason = str(value or '').strip()
+    collapsed = ''.join(character for character in reason.casefold() if character.isalnum())
+    rubber_stamps = {'ok', 'okay', 'confirmed', 'approved', 'test', 'samephone', 'safe'}
+    if reason and (len(reason) < 12 or collapsed in rubber_stamps):
+        raise OriginationSigningProblem(
+            'validation_failed',
+            'The shared-phone exception reason was too short or non-specific.',
+            details={'field': 'shared_phone_override_reason'},
+        )
+    return reason
+
+
 @transaction.atomic
 def create_signer_session(
     *, package_id, signer_role: str, actor, request_id: str,
@@ -313,12 +340,28 @@ def create_signer_session(
     participant = _participant(package, signer_role)
     identity, phone = _identity_for(package, participant)
     duplicates = _duplicate_external_phones(package)
-    override_reason = str(shared_phone_override_reason or '').strip()
+    # Reset/reissue carries forward evidence already approved on the previous
+    # session. Apply the stronger quality rule to new approvals without making
+    # historical sessions impossible to reissue.
+    override_reason = (
+        str(shared_phone_override_reason or '').strip()
+        if approved_shared_phone_by is not None
+        else _shared_phone_reason(shared_phone_override_reason)
+    )
     shared_phone_approver = approved_shared_phone_by or (
         actor if getattr(actor, 'is_superuser', False) else None
     )
     if phone in duplicates and not (shared_phone_approver and override_reason):
-        raise OriginationError('This phone is mapped to more than one external signer. A Superuser override with a reason is required.')
+        shared_roles = [_role_label(role) for role in duplicates[phone]]
+        raise OriginationSigningProblem(
+            'origination_shared_signer_phone',
+            'This phone is mapped to more than one external signer. A Superuser override with a reason is required.',
+            details={
+                'roles': ' and '.join(shared_roles),
+                'phone_last4': phone[-4:],
+            },
+            status=409,
+        )
     if access_mode not in dict(OriginationSignerSession.MODE_CHOICES):
         raise OriginationError('Choose self-service or assisted signing.')
     now = timezone.now()
@@ -342,6 +385,7 @@ def create_signer_session(
     _record_event(package.application, 'signer_session_created', actor=actor, request_id=request_id, after={
         'package_id': str(package.pk), 'session_id': str(session.pk), 'signer_role': signer_role,
         'access_mode': access_mode, 'shared_phone_override': bool(phone in duplicates),
+        'shared_phone_roles': duplicates.get(phone, []),
     })
     return session, raw_token, False
 
@@ -399,7 +443,9 @@ def resolve_session(raw_token: str, *, for_update: bool = False) -> OriginationS
         queryset = queryset.select_for_update()
     session = queryset.filter(token_hash=token_hash, is_active=True).first()
     if not session or not hmac.compare_digest(session.token_hash, token_hash):
-        raise OriginationError('This signing link is invalid or has been replaced.')
+        raise OriginationSigningProblem(
+            'signing_invalid_link', 'This signing link is invalid or has been replaced.', status=404,
+        )
     now = timezone.now()
     if session.token_expires_at <= now:
         if session.status not in {session.STATUS_VERIFIED, session.STATUS_EXPIRED}:
@@ -407,7 +453,9 @@ def resolve_session(raw_token: str, *, for_update: bool = False) -> OriginationS
             session.is_active = False
             session.invalidated_at = now
             session.save(update_fields=['status', 'is_active', 'invalidated_at', 'updated_at'])
-        raise OriginationError('This signing link has expired. Ask JBL Operations to reissue it.')
+        raise OriginationSigningProblem(
+            'signing_invalid_link', 'The signing token expired.', status=404,
+        )
     return session
 
 
@@ -450,7 +498,9 @@ def record_consent_and_signature(
     if session.status == session.STATUS_VERIFIED:
         return session
     if not consent:
-        raise OriginationError('Review and accept the complete document packet before signing.')
+        raise OriginationSigningProblem(
+            'signing_accept_packet', 'The signer did not accept the packet consent.',
+        )
     if access_mode != session.access_mode:
         raise OriginationError('This signing session was opened in a different access mode.')
     total_pages = sum(
@@ -461,9 +511,13 @@ def record_consent_and_signature(
     try:
         reviewed = sorted({int(item) for item in (reviewed_pages or [])})
     except (TypeError, ValueError) as exc:
-        raise OriginationError('The reviewed packet pages are invalid.') from exc
+        raise OriginationSigningProblem(
+            'signing_review_all_pages', 'The reviewed-page list was malformed.',
+        ) from exc
     if total_pages < 1 or reviewed != list(range(1, total_pages + 1)):
-        raise OriginationError('Review every page of the complete packet before signing.')
+        raise OriginationSigningProblem(
+            'signing_review_all_pages', 'Review every page of the complete packet before signing.',
+        )
     capture = _validated_signature_capture(signature_capture)
     request_digest = _digest(json.dumps({
         'capture': capture, 'consent': consent, 'access_mode': access_mode,
@@ -477,7 +531,9 @@ def record_consent_and_signature(
     capture_hash = hashlib.sha256(json.dumps(capture, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
     consent_version = _package_consent_version(session.package)
     if not consent_version:
-        raise OriginationError('This packet does not have a valid consent version.')
+        raise OriginationSigningProblem(
+            'unexpected_error', 'The frozen package has no valid consent version.', status=500,
+        )
     changed = capture_hash != session.signature_capture_sha256 or session.consent_version != consent_version
     session.consent_version = consent_version
     session.consented_at = timezone.now()
@@ -501,15 +557,15 @@ def _otp_send_limits(session: OriginationSignerSession) -> None:
     challenges = OriginationOtpChallenge.objects.filter(session=session)
     latest = challenges.order_by('-created_at').first()
     if latest and latest.created_at > now - timedelta(seconds=60):
-        raise OriginationError('Wait 60 seconds before requesting another code.')
+        raise OriginationSigningProblem('signing_code_wait', 'OTP resend attempted inside 60 seconds.', status=429)
     if challenges.filter(created_at__gte=now - timedelta(minutes=30)).count() >= 3:
-        raise OriginationError('The OTP send limit is reached. Try again after 30 minutes or ask Operations to reset the session.')
+        raise OriginationSigningProblem('signing_code_limit', 'Session OTP send limit reached.', status=429)
     phone_sessions = OriginationSignerSession.objects.filter(phone_hash=session.phone_hash).values('pk')
     phone_challenges = OriginationOtpChallenge.objects.filter(session_id__in=phone_sessions)
     if phone_challenges.filter(created_at__gte=now - timedelta(hours=1)).count() >= 5:
-        raise OriginationError('This phone has received too many codes. Try again later.')
+        raise OriginationSigningProblem('signing_code_limit', 'Hourly phone OTP send limit reached.', status=429)
     if phone_challenges.filter(created_at__gte=now - timedelta(days=1)).count() >= 10:
-        raise OriginationError('This phone has reached its daily signing-code limit.')
+        raise OriginationSigningProblem('signing_code_limit', 'Daily phone OTP send limit reached.', status=429)
 
 
 @transaction.atomic
@@ -526,10 +582,12 @@ def issue_otp(*, raw_token: str, request_id: str, ip_hash: str) -> tuple[Origina
     if session.status == session.STATUS_VERIFIED:
         raise OriginationError('This signer has already completed the packet.')
     if not session.consented_at or not session.signature_capture_sha256:
-        raise OriginationError('Capture the signature and accept the packet before requesting an OTP.')
+        raise OriginationSigningProblem(
+            'signing_accept_packet', 'OTP requested before consent and signature capture.',
+        )
     now = timezone.now()
     if session.locked_until and session.locked_until > now:
-        raise OriginationError('This signer is temporarily locked. Wait until the lock expires or ask Operations to reset it.')
+        raise OriginationSigningProblem('signing_code_locked', 'OTP requested while signer session is locked.', status=429)
     _otp_send_limits(session)
     session.otp_challenges.filter(verified_at__isnull=True, invalidated_at__isnull=True).update(invalidated_at=now)
     code = f'{secrets.randbelow(1_000_000):06d}'
@@ -667,7 +725,7 @@ def _archive_signed_package_after_commit(*, package_id, signed_hash: str) -> Non
 
 def verify_otp(*, raw_token: str, code: str, request_id: str, ip_hash: str) -> OriginationSignerSession:
     request_id = _require_request_id(request_id)
-    error_message = ''
+    error_problem = None
     verified_session = None
     with transaction.atomic():
         session = resolve_session(raw_token, for_update=True)
@@ -680,22 +738,30 @@ def verify_otp(*, raw_token: str, code: str, request_id: str, ip_hash: str) -> O
         if session.status == session.STATUS_VERIFIED:
             return session
         if replayed_request:
-            error_message = 'This verification request was already processed. Retry with the current code.'
+            error_problem = OriginationSigningProblem(
+                'invalid_request', 'This verification request was already processed. Retry with the current code.',
+            )
         now = timezone.now()
-        if error_message:
+        if error_problem:
             pass
         elif session.locked_until and session.locked_until > now:
-            error_message = 'This signer is temporarily locked. Wait or ask Operations to reset the session.'
+            error_problem = OriginationSigningProblem(
+                'signing_code_locked', 'This signer is temporarily locked. Wait or ask Operations to reset the session.', status=429,
+            )
         else:
             challenge = session.otp_challenges.select_for_update().filter(
                 invalidated_at__isnull=True, verified_at__isnull=True,
             ).order_by('-created_at').first()
             if not challenge or challenge.expires_at <= now:
-                error_message = 'The verification code has expired. Request a new code.'
+                error_problem = OriginationSigningProblem(
+                    'signing_code_expired', 'The verification code has expired. Request a new code.',
+                )
             elif challenge.binding_sha256 != _binding(session):
                 challenge.invalidated_at = now
                 challenge.save(update_fields=['invalidated_at'])
-                error_message = 'The packet, consent, or signature changed. Request a new code.'
+                error_problem = OriginationSigningProblem(
+                    'signing_packet_changed', 'The packet, consent, or signature changed. Request a new code.', status=409,
+                )
             elif not check_password(str(code or '').strip(), challenge.code_hash):
                 challenge.last_attempt_at = now
                 challenge.attempts_remaining = max(0, challenge.attempts_remaining - 1)
@@ -705,10 +771,15 @@ def verify_otp(*, raw_token: str, code: str, request_id: str, ip_hash: str) -> O
                     session.status = session.STATUS_LOCKED
                     session.locked_until = now + LOCKOUT_WINDOW
                     session.save(update_fields=['status', 'locked_until', 'updated_at'])
-                    error_message = 'Too many incorrect codes. This signing session is locked for 30 minutes.'
+                    error_problem = OriginationSigningProblem(
+                        'signing_code_locked', 'Too many incorrect codes. This signing session is locked for 30 minutes.', status=429,
+                    )
                 else:
                     challenge.save(update_fields=['attempts_remaining', 'last_attempt_at'])
-                    error_message = f'Incorrect verification code. {challenge.attempts_remaining} attempt(s) remain.'
+                    error_problem = OriginationSigningProblem(
+                        'signing_code_incorrect', f'Incorrect verification code. {challenge.attempts_remaining} attempt(s) remain.',
+                        details={'attempts_remaining': challenge.attempts_remaining},
+                    )
             else:
                 challenge.last_attempt_at = now
                 challenge.verified_at = now
@@ -753,8 +824,8 @@ def verify_otp(*, raw_token: str, code: str, request_id: str, ip_hash: str) -> O
                     'shared_phone_override': bool(session.shared_phone_approved_by_id),
                 })
                 verified_session = session
-    if error_message:
-        raise OriginationError(error_message)
+    if error_problem:
+        raise error_problem
     return verified_session
 
 

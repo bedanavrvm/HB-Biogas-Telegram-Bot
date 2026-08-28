@@ -11,6 +11,7 @@
       'Content-Type': 'application/json',
       'X-Request-ID': requestId,
       'Idempotency-Key': requestId,
+      'X-MiniApp-Message-Contract': '2',
     };
     if (utils && utils.fetchJson) {
       return utils.fetchJson(path, {
@@ -24,7 +25,8 @@
       headers,
       body: JSON.stringify(body),
     });
-    const data = await response.json().catch(() => ({}));
+    const raw = await response.json().catch(() => ({}));
+    const data = utils?.normalizeResponsePayload ? utils.normalizeResponsePayload(response, raw) : raw;
     if (!response.ok || !data.ok) {
       const error = new Error(data.error || 'Request failed.');
       error.code = data.code || '';

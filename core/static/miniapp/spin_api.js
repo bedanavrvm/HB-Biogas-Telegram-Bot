@@ -2,12 +2,14 @@
   'use strict';
 
   async function parseJson(response) {
-    const data = await response.json().catch(() => ({}));
+    const raw = await response.json().catch(() => ({}));
+    const data = window.MiniAppUtils?.normalizeResponsePayload
+      ? window.MiniAppUtils.normalizeResponsePayload(response, raw) : raw;
     return { ok: response.ok, status: response.status, data };
   }
 
   async function getJson(url) {
-    return parseJson(await fetch(url));
+    return parseJson(await fetch(url, { headers: window.MiniAppUtils?.messageHeaders?.() || {} }));
   }
 
   function requestId(payload) {
@@ -24,7 +26,7 @@
     const key = requestId(body);
     return parseJson(await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Request-ID': key, 'Idempotency-Key': key },
+      headers: { 'Content-Type': 'application/json', 'X-Request-ID': key, 'Idempotency-Key': key, 'X-MiniApp-Message-Contract': '2' },
       body: JSON.stringify(body),
     }));
   }
@@ -37,7 +39,7 @@
       if (!formData.get('client_request_id')) formData.set('client_request_id', key);
       return parseJson(await fetch(url, {
         method: 'POST',
-        headers: { 'X-Request-ID': key, 'Idempotency-Key': key },
+        headers: { 'X-Request-ID': key, 'Idempotency-Key': key, 'X-MiniApp-Message-Contract': '2' },
         body: formData,
       }));
     }

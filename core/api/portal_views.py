@@ -106,7 +106,7 @@ def portal_auth_required(view_func):
             try:
                 bind_miniapp_request_identity(request, _portal_payload_for_request_identity(request))
             except ValueError as exc:
-                return _finish_portal_response(request, idempotency_error_response(exc), started_at)
+                return _finish_portal_response(request, idempotency_error_response(exc, request), started_at)
             # Maintenance is a read-only safety mode. A request already inside
             # a view remains allowed to finish; only newly admitted writes are
             # rejected, preventing an IT toggle from splitting a live upload.
@@ -132,12 +132,14 @@ def portal_auth_required(view_func):
                 request.portal_request_id = ''
         try:
             response = view_func(request, *args, **kwargs)
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 'Portal request failed: request_id=%s method=%s path=%s',
                 request.portal_request_id, request.method, request.path,
             )
-            raise
+            from core.services.miniapp_messages import unexpected_miniapp_error
+            response = unexpected_miniapp_error(request, exc, workflow='portal')
+            return _finish_portal_response(request, response, started_at)
         return _finish_portal_response(request, response, started_at)
     return wrapper
 
@@ -271,6 +273,8 @@ def _finish_portal_response(request, response, started_at: float):
     response['X-Request-ID'] = request_id
     from core.services.miniapp_requests import attach_miniapp_request_metadata
     response = attach_miniapp_request_metadata(request, response)
+    from core.services.miniapp_messages import normalize_miniapp_response
+    response = normalize_miniapp_response(request, response, workflow="portal")
     elapsed_ms = round((time.monotonic() - started_at) * 1000, 1)
     response['Server-Timing'] = f'portal;dur={elapsed_ms}'
     if isinstance(response, JsonResponse):

@@ -186,11 +186,16 @@
     try {
       const response = await fetch('/api/jawabu-farmers/review/commit/', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: utils.messageHeaders ? utils.messageHeaders({ 'Content-Type': 'application/json' }) : { 'Content-Type': 'application/json' },
         body: JSON.stringify({ batch_id: batchId, token, init_data: tg ? tg.initData : '', rows }),
       });
-      const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(result.message || 'Commit failed.');
+      const rawResult = await response.json().catch(() => ({}));
+      const result = utils.normalizeResponsePayload
+        ? utils.normalizeResponsePayload(response, rawResult, 'Commit failed.')
+        : rawResult;
+      if (!response.ok || !result.success) {
+        throw (utils.apiError ? utils.apiError(response, result, 'Commit failed.') : new Error(result.message || 'Commit failed.'));
+      }
       // The server returned the canonical remaining rows, so any prior local
       // review draft must not be restored over that result on a later visit.
       draft?.clear().catch(() => {});

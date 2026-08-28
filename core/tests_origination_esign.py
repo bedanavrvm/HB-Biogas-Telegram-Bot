@@ -245,6 +245,20 @@ class OriginationVerifiedSigningTests(TestCase):
         self.assertEqual(session.shared_phone_approved_by, self.actor)
         self.assertEqual(session.shared_phone_override_reason, 'Synthetic supervised exception.')
 
+    def test_shared_phone_rejects_rubber_stamp_override_reason(self):
+        self.package.participants_snapshot.append({
+            'role': 'guarantor_1', 'required': True,
+            'identity': {'name': 'Synthetic Guarantor', 'phone': '0712345678'},
+            'slots': [{'key': 'guarantor_signature', 'document_key': 'support', 'type': 'signature', 'required': True}],
+        })
+        self.package.save(update_fields=['participants_snapshot'])
+
+        with self.assertRaisesRegex(OriginationError, 'too short or non-specific'):
+            create_signer_session(
+                package_id=self.package.pk, signer_role='borrower', actor=self.actor,
+                request_id='shared-rubber-stamp', shared_phone_override_reason='ok',
+            )
+
     def test_session_request_is_idempotent_and_rotates_old_token(self):
         first, token, replayed = self._session('stable-session-request')
         repeated, repeated_token, replayed = self._session('stable-session-request')

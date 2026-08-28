@@ -185,6 +185,12 @@ def _application_access_error(request, application, *, require_full: bool = True
 
 def _safe_error(exc: Exception) -> dict:
     payload = {'ok': False, 'error': str(exc)}
+    code = str(getattr(exc, 'code', '') or '').strip()
+    if code:
+        payload['code'] = code
+    details = getattr(exc, 'details', None)
+    if details:
+        payload['details'] = details
     errors = getattr(exc, 'errors', None)
     if errors:
         payload['errors'] = errors
@@ -1092,8 +1098,8 @@ def origination_signer_session(request):
     try:
         session = resolve_session(_public_signing_token(request))
     except OriginationError as exc:
-        return JsonResponse(_safe_error(exc), status=404)
-    return JsonResponse({'ok': True, 'session': serialize_public_session(session)})
+        return _public_signing_error(request, exc, fallback_code='signing_invalid_link')
+    return _public_signing_response(request, JsonResponse({'ok': True, 'session': serialize_public_session(session)}))
 
 
 @csrf_exempt  # Opaque signer token is the non-cookie credential.
@@ -1106,23 +1112,38 @@ def origination_signer_packet_preview(request):
         from core.services.partnership_laf_preview import render_pdf_page
         image, page_count = render_pdf_page(content, page_number=int(request.GET.get('page') or 1))
     except OriginationError as exc:
-        return JsonResponse(_safe_error(exc), status=400)
+        return _public_signing_error(request, exc, fallback_code='signing_invalid_link')
     except (RuntimeError, TypeError, ValueError) as exc:
-        return JsonResponse(_safe_error(exc), status=400)
+        return _public_signing_error(request, exc, fallback_code='invalid_request')
     response = HttpResponse(image, content_type='image/jpeg')
     response['X-Preview-Page-Count'] = str(page_count)
     response['Cache-Control'] = 'no-store, private'
     response['X-Content-Type-Options'] = 'nosniff'
-    return response
+    return _public_signing_response(request, response)
 
 
-def _public_signing_error(exc: Exception):
+def _public_signing_response(request, response):
+    from core.services.miniapp_messages import normalize_miniapp_response
+    return normalize_miniapp_response(request, response, workflow='public_signing')
+
+
+def _public_signing_error(request, exc: Exception, *, fallback_code: str = 'invalid_request'):
     from core.services.origination_esign import OriginationSigningRateLimited
+    from core.services.miniapp_messages import miniapp_error_response
+    code = str(getattr(exc, 'code', '') or fallback_code)
+    details = dict(getattr(exc, 'details', None) or {})
+    status = getattr(exc, 'status', None)
     if isinstance(exc, OriginationSigningRateLimited):
-        response = JsonResponse(_safe_error(exc), status=429)
-        response['Retry-After'] = str(exc.retry_after)
-        return response
-    return JsonResponse(_safe_error(exc), status=400)
+        code = 'retry_later'
+        status = 429
+        # Public signing exposes only a coarse backoff. Exact internal throttle
+        # counters remain private so the response is not an abuse-tuning aid.
+        details['retry_after'] = max(60, ((exc.retry_after + 59) // 60) * 60)
+    return miniapp_error_response(
+        request, code, workflow='public_signing', status=status,
+        details=details,
+        developer_message=f'{type(exc).__name__}:{code}', exception=exc,
+    )
 
 
 @csrf_exempt  # Opaque signer token is the non-cookie credential.
@@ -1141,8 +1162,8 @@ def origination_signer_consent(request):
             request_id=_request_id(request, body),
         )
     except (OriginationError, TypeError, ValueError) as exc:
-        return _public_signing_error(exc)
-    return JsonResponse({'ok': True, 'session': serialize_public_session(session)})
+        return _public_signing_error(request, exc)
+    return _public_signing_response(request, JsonResponse({'ok': True, 'session': serialize_public_session(session)}))
 
 
 @csrf_exempt  # Opaque signer token is the non-cookie credential.
@@ -1158,14 +1179,14 @@ def origination_signer_otp(request):
         if not replayed:
             challenge = dispatch_otp(challenge, code)
         session = challenge.session
-    except ExternalOperationError:
-        return JsonResponse({'ok': False, 'error': 'The SMS provider did not confirm this code. Wait 60 seconds before requesting another.'}, status=502)
+    except ExternalOperationError as exc:
+        return _public_signing_error(request, exc, fallback_code='service_unavailable')
     except (OriginationError, TypeError, ValueError) as exc:
-        return _public_signing_error(exc)
-    return JsonResponse({
+        return _public_signing_error(request, exc)
+    return _public_signing_response(request, JsonResponse({
         'ok': True, 'replayed': replayed,
         'session': serialize_public_session(session),
-    }, status=200 if replayed else 201)
+    }, status=200 if replayed else 201))
 
 
 @csrf_exempt  # Opaque signer token is the non-cookie credential.
@@ -1179,8 +1200,8 @@ def origination_signer_verify(request):
             request_id=_request_id(request, body), ip_hash=client_ip_hash(request),
         )
     except (OriginationError, TypeError, ValueError) as exc:
-        return _public_signing_error(exc)
-    return JsonResponse({'ok': True, 'session': serialize_public_session(session)})
+        return _public_signing_error(request, exc)
+    return _public_signing_response(request, JsonResponse({'ok': True, 'session': serialize_public_session(session)}))
 
 
 @csrf_exempt  # Provider receipt is informational only and cannot advance signing state.
@@ -1243,7 +1264,7 @@ def portal_origination_signer_session(request, application_id: str):
     except ExternalOperationError:
         return JsonResponse({'ok': False, 'error': 'The signer session was created, but the invitation SMS was not confirmed. Reissue it after checking the provider.'}, status=502)
     except (OriginationError, TypeError, ValueError) as exc:
-        return JsonResponse(_safe_error(exc), status=400)
+        return JsonResponse(_safe_error(exc), status=int(getattr(exc, 'status', None) or 400))
     return JsonResponse({
         'ok': True, 'replayed': replayed,
         'signer_session': {

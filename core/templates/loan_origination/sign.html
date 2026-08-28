@@ -18,7 +18,7 @@
     <section id="sign-content" hidden>
       <div class="summary-card"><div><span>Packet</span><strong id="sign-reference"></strong></div><div><span>Signing as</span><strong id="sign-role"></strong></div><div><span>OTP phone</span><strong id="sign-phone"></strong></div></div>
       <div id="signing-mode-banner" class="mode-banner" role="status"><strong id="signing-mode-label"></strong><span id="signing-mode-detail"></span></div>
-      <div id="shared-phone-warning" class="warning" hidden>This packet has an approved shared-phone exception. Confirm that you are personally signing only for the role shown above.</div>
+      <div id="shared-phone-warning" class="warning" hidden>Important: this phone number is also linked to another signer on this application. Check that the name and signing role above are yours before continuing.</div>
       <section class="card">
         <header><div><small>STEP 1</small><h2>Review the complete packet</h2></div><div class="page-controls"><button id="page-prev" type="button" aria-label="Previous page">‹</button><span id="page-label"></span><button id="page-next" type="button" aria-label="Next page">›</button></div></header>
         <div id="document-list" class="document-list"></div>
@@ -41,6 +41,7 @@
       </section>
     </section>
   </main>
-  <script src="{% static 'miniapp/origination_signing.js' %}?v=20260827-1"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=5"></script>
+  <script src="{% static 'miniapp/origination_signing.js' %}?v=20260828-1"></script>
 </body>
 </html>

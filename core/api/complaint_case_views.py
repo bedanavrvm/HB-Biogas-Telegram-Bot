@@ -43,7 +43,7 @@ def _bind_miniapp_write_request(request, payload: dict):
     try:
         bind_miniapp_request_identity(request, payload)
     except ValueError as exc:
-        return idempotency_error_response(exc)
+        return idempotency_error_response(exc, request)
     return None
 
 
@@ -51,7 +51,14 @@ def miniapp_write_response(view_func):
     @wraps(view_func)
     def wrapped(request, *args, **kwargs):
         from core.services.miniapp_requests import attach_miniapp_request_metadata
-        return attach_miniapp_request_metadata(request, view_func(request, *args, **kwargs))
+        from core.services.miniapp_messages import normalize_miniapp_response, unexpected_miniapp_error
+        try:
+            response = view_func(request, *args, **kwargs)
+        except Exception as exc:
+            logger.exception('Complaint Mini App request failed unexpectedly: path=%s', request.path)
+            response = unexpected_miniapp_error(request, exc, workflow="complaints")
+        response = attach_miniapp_request_metadata(request, response)
+        return normalize_miniapp_response(request, response, workflow="complaints")
     return wrapped
 
 
@@ -116,6 +123,7 @@ def _capability_error(actor, capability: str, group_config, *, resource=None, br
 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
 @require_http_methods(['POST'])
+@miniapp_write_response
 def complaint_cases_bootstrap(request):
     payload = _request_payload(request)
     group_config, actor, error = _context(request, payload)
@@ -165,6 +173,7 @@ def complaint_cases_settings_personal(request):
 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
 @require_http_methods(['POST'])
+@miniapp_write_response
 def complaint_cases_list(request):
     payload = _request_payload(request)
     group_config, actor, error = _context(request, payload)
@@ -193,6 +202,7 @@ def complaint_cases_list(request):
 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
 @require_http_methods(['POST'])
+@miniapp_write_response
 def complaint_cases_list_fragment(request):
     payload = _request_payload(request)
     group_config, actor, error = _context(request, payload)
@@ -253,6 +263,7 @@ def complaint_cases_create(request):
 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
 @require_http_methods(['POST'])
+@miniapp_write_response
 def complaint_cases_detail(request, case_id: str):
     payload = _request_payload(request)
     group_config, actor, error = _context(request, payload)
@@ -377,6 +388,7 @@ def complaint_cases_reopen(request, case_id: str):
 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
 @require_http_methods(['POST'])
+@miniapp_write_response
 def complaint_cases_evidence_access(request, evidence_id: str):
     payload = _request_payload(request)
     group_config, actor, error = _context(request, payload)
