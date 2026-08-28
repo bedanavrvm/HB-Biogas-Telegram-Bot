@@ -3,8 +3,9 @@ from django.contrib.admin import helpers
 from django.contrib.sessions.backends.db import SessionStore
 from django.contrib.sessions.models import Session
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import connection, transaction
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from core.models import (
@@ -178,16 +179,23 @@ class UserHardDeleteServiceTests(TestCase):
         )
         preview = preview_user_hard_delete(actor=self.root, users=[self.target])
 
-        batch = execute_user_hard_delete(
-            actor=self.root, users=[self.target],
-            reason_category=UserHardDeletionBatch.REASON_DEPARTED,
-            request_id='hard-delete-tat-owner', expected_fingerprint=preview.fingerprint,
-        )
+        with CaptureQueriesContext(connection) as captured_queries:
+            batch = execute_user_hard_delete(
+                actor=self.root, users=[self.target],
+                reason_category=UserHardDeletionBatch.REASON_DEPARTED,
+                request_id='hard-delete-tat-owner', expected_fingerprint=preview.fingerprint,
+            )
 
         assignment.refresh_from_db()
         self.assertFalse(assignment.active)
         self.assertTrue(assignment.primary_user.username.startswith('__deleted_user_'))
         self.assertTrue(any(row['code'] == 'tat-responsibility-missing' for row in batch.coverage_gaps))
+        task_queries = [
+            row['sql'] for row in captured_queries.captured_queries
+            if 'FROM "core_tatactiontask"' in row['sql']
+        ]
+        self.assertTrue(task_queries)
+        self.assertTrue(all('SELECT DISTINCT' not in sql.upper() for sql in task_queries))
 
 
 @override_settings(TELEGRAM_BOT_TOKEN='')

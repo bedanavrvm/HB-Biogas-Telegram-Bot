@@ -13,7 +13,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import Exists, F, OuterRef, Q
 from django.utils import timezone
 
 from core.models import (
@@ -25,6 +25,7 @@ from core.models import (
     JawabuApprovalDelegation,
     StaffLifecycleChangePlan,
     TatActionTask,
+    TatActionTaskRecipient,
     TatResponsibilityAssignment,
     TatResponsibilityBackup,
     TatResponsibilityEvent,
@@ -240,9 +241,25 @@ def _cancel_open_work(*, target_ids: list[int], actor, now) -> dict:
         user_id__in=target_ids, active=True,
     ).update(active=False)
 
-    task_rows = list(TatActionTask.objects.select_for_update().filter(
+    # PostgreSQL rejects SELECT FOR UPDATE when the outer query also uses
+    # DISTINCT. Use a correlated recipient existence check so the task table is
+    # locked directly without a duplicate-producing reverse join.
+    target_recipient = TatActionTaskRecipient.objects.filter(
+        task_id=OuterRef('pk'),
+        user_id__in=target_ids,
+    )
+    pending_tasks = TatActionTask.objects.select_for_update().filter(
         status=TatActionTask.STATUS_PENDING,
-    ).filter(Q(recipients__user_id__in=target_ids) | Q(assignment_id__in=assignment_ids)).distinct())
+    ).annotate(
+        has_hard_deleted_recipient=Exists(target_recipient),
+    )
+    if assignment_ids:
+        pending_tasks = pending_tasks.filter(
+            Q(has_hard_deleted_recipient=True) | Q(assignment_id__in=assignment_ids),
+        )
+    else:
+        pending_tasks = pending_tasks.filter(has_hard_deleted_recipient=True)
+    task_rows = list(pending_tasks.order_by('pk'))
     for task in task_rows:
         snapshot = dict(task.recipient_snapshot or {})
         snapshot['hard_deleted_user_ids'] = sorted(

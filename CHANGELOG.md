@@ -16,6 +16,10 @@
 - Fixed the browser confirmation POST so disabling the submit button for visual
   feedback cannot remove the confirmation marker and silently re-open the
   impact preview instead of deleting the selected accounts.
+- Replaced the TAT open-task reverse join used during deletion with an
+  existence-based row-lock query. This avoids PostgreSQL's prohibition on
+  combining `FOR UPDATE` with outer `DISTINCT` while retaining transactional
+  task rerouting.
 
   Migration note: `core.0142_user_hard_delete_audit` changes only historical
   User-reference constraints and adds the two evidence tables. Before any hard
