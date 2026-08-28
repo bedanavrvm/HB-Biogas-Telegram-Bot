@@ -15,6 +15,7 @@ from core.models import (
     OriginationProductDefinition,
     OriginationSignerSession,
     OriginationSigningAction,
+    OriginationSigningActionInvalidation,
     OriginationSigningPackage,
 )
 from core.services.loan_origination import (
@@ -33,9 +34,17 @@ from core.services.origination_esign import (
     signed_package_content,
     signing_url,
     verify_otp,
+    serialize_public_session,
 )
-from core.services.origination_signing import render_verified_package, serialize_test_signing
-from core.api.origination_views import portal_origination_signed_packet
+from core.services.origination_signing import (
+    render_verified_package,
+    serialize_test_signing,
+    verified_packet_version,
+)
+from core.api.origination_views import (
+    portal_origination_current_signing_packet,
+    portal_origination_signed_packet,
+)
 
 
 ESIGN_SETTINGS = {
@@ -112,6 +121,62 @@ class OriginationVerifiedSigningTests(TestCase):
             rendered = render_verified_package(self.package)
         self.assertTrue(rendered.startswith(b'%PDF'))
         self.assertEqual(len(PdfReader(BytesIO(rendered)).pages), 2)
+
+    def test_current_packet_version_changes_with_active_verified_actions(self):
+        before = verified_packet_version(self.package)
+        action = OriginationSigningAction.objects.create(
+            package=self.package, document_key='main', slot_key='borrower_signature_main',
+            signer_role='borrower', action_type=OriginationSigningAction.TYPE_SIGNATURE,
+            mode=OriginationSigningAction.MODE_VERIFIED, request_id='versioned-action',
+            metadata={'signature_capture': {'method': 'typed', 'name': 'Synthetic Borrower'}},
+        )
+        after = verified_packet_version(self.package)
+
+        self.assertNotEqual(before, after)
+        OriginationSigningActionInvalidation.objects.create(
+            action=action,
+            reason='Synthetic correction', invalidated_by=self.actor,
+            request_id='invalidate-versioned-action',
+        )
+        self.assertEqual(verified_packet_version(self.package), before)
+
+    def test_public_packet_preview_renders_preceding_signatures_and_returns_version(self):
+        session, token, _ = self._session('current-public-packet')
+        expected_version = verified_packet_version(self.package)
+        self.assertEqual(serialize_public_session(session)['packet_version'], expected_version)
+
+        with patch(
+            'core.api.origination_views.render_verified_package', return_value=b'%PDF-current',
+        ) as render, patch(
+            'core.services.partnership_laf_preview.render_pdf_page', return_value=(b'jpeg-page', 2),
+        ):
+            response = self.client.get(
+                '/origination/sign/api/packet/?page=1',
+                HTTP_AUTHORIZATION=f'Bearer {token}',
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b'jpeg-page')
+        self.assertEqual(response['X-Signing-Packet-Version'], expected_version)
+        self.assertIn('no-store', response['Cache-Control'])
+        render.assert_called_once_with(session.package)
+
+    def test_authorized_staff_can_preview_current_partially_signed_packet(self):
+        request = RequestFactory().get(
+            f'/api/origination/api/applications/{self.application.pk}/current-signing-packet/',
+            {'package_id': str(self.package.pk), 'page': '1'},
+        )
+        request.portal_user = self.actor
+        with patch(
+            'core.api.origination_views.render_verified_package', return_value=b'%PDF-current',
+        ), patch(
+            'core.services.partnership_laf_preview.render_pdf_page', return_value=(b'jpeg-page', 2),
+        ):
+            response = portal_origination_current_signing_packet(request, str(self.application.pk))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b'jpeg-page')
+        self.assertEqual(response['X-Signing-Packet-Version'], verified_packet_version(self.package))
 
     def _session(self, request_id='session-1'):
         return create_signer_session(

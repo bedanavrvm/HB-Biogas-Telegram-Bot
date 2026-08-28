@@ -32,7 +32,12 @@ from core.services.loan_origination import (
     OriginationConflict, OriginationError, _record_event, _require_request_id,
     _slot_request_id,
 )
-from core.services.origination_signing import _slot_catalog, _validated_signature_capture, render_verified_package
+from core.services.origination_signing import (
+    _slot_catalog,
+    _validated_signature_capture,
+    render_verified_package,
+    verified_packet_version,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -900,6 +905,7 @@ def serialize_public_session(session: OriginationSignerSession) -> dict[str, Any
         'consent_version': _package_consent_version(session.package),
         'consent_text': str(policy.get('signer_consent_text') or ''),
         'completion_text': str(policy.get('signer_completion_text') or ''),
+        'packet_version': verified_packet_version(session.package),
         'otp': {
             'delivery_status': latest.delivery_status if latest else '',
             'expires_at': latest.expires_at.isoformat() if latest else '',
@@ -958,6 +964,7 @@ def serialize_verified_signing(package: OriginationSigningPackage) -> dict[str, 
         } for item in stamps.select_related('branch').distinct().order_by('name', '-version')],
         'archive_status': package.archive_status,
         'archive_error': package.archive_error,
+        'packet_version': verified_packet_version(package),
         'signed_packet_available': bool(
             package.status == package.STATUS_FULLY_SIGNED and package.signed_document_hash
         ),

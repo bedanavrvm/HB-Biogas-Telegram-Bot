@@ -25,7 +25,12 @@ is replaced regardless of its original response body.
 ## Response contract
 
 Updated clients send `X-MiniApp-Message-Contract: 2`.  Error responses contain
-`ok`, `success`, `code`, `message`, and `request_id`.  Only explicitly
+`ok`, `success`, `code`, `message`, `request_id`, and additive `presentation`
+guidance. `presentation` contains a reviewed `tone` (`info`, `success`,
+`warning`, or `error`), `persistence` (`transient` or `until_resolved`), and
+`surface_hint` (`toast`, `banner`, or `field`). Clients may fall back safely
+when those optional fields are absent, so this remains contract version 2.
+Only explicitly
 allowlisted display details may be included.  Cached clients without the header
 also receive `error` as a mirror of the safe `message`; the server logs
 `legacy_error_mirror=true` whenever it emits that compatibility field.
@@ -53,8 +58,8 @@ the operational catalogue to make it easier to edit.
 
 ## Adding a message
 
-1. Add a unique snake-case code and plain-language default to
-   `MESSAGE_CATALOG`.
+1. Add a unique snake-case code, plain-language default, and appropriate
+   presentation metadata to `MESSAGE_CATALOG`.
 2. Pass only allowlisted, non-identifying formatting details.
 3. Add client-specific handling only when the screen needs behaviour beyond
    displaying the message; keep `CLIENT_HANDLED_CODES` and

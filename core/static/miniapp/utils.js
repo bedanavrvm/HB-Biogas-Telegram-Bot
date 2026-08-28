@@ -67,6 +67,13 @@
       ? response.headers.get('X-MiniApp-Message-Contract') === MESSAGE_CONTRACT_VERSION : false;
     const requestId = data.request_id || (response && response.headers ? response.headers.get('X-Request-ID') : '') || '';
     const failed = !response || !response.ok || data.ok === false || data.success === false;
+    const suppliedPresentation = data.presentation && typeof data.presentation === 'object'
+      ? data.presentation : {};
+    data.presentation = {
+      tone: suppliedPresentation.tone || (failed ? (response?.status === 409 || response?.status === 429 ? 'warning' : 'error') : 'success'),
+      persistence: suppliedPresentation.persistence || (failed ? 'until_resolved' : 'transient'),
+      surface_hint: suppliedPresentation.surface_hint || (failed ? 'banner' : 'toast'),
+    };
     if (failed) {
       // Raw legacy `error` text is accepted only from a pre-contract server.
       // Current servers must provide reviewed `message` copy.
@@ -86,6 +93,7 @@
     error.code = data.code || '';
     error.status = response ? response.status : 0;
     error.details = data.details || {};
+    error.presentation = data.presentation || {};
     error.requestId = data.request_id || '';
     error.payload = data;
     return error;
@@ -150,6 +158,53 @@
         button.innerHTML = button.dataset.originalHtml;
         delete button.dataset.originalHtml;
       }
+    }
+  }
+
+  function setButtonFeedback(button, state, label) {
+    if (!button) return;
+    const nextState = state || 'idle';
+    if (nextState === 'loading') return setButtonLoading(button, true, label);
+    if (nextState === 'success') {
+      if (!button.dataset.originalHtml) button.dataset.originalHtml = button.innerHTML;
+      button.disabled = true;
+      button.removeAttribute('aria-busy');
+      button.dataset.feedbackState = 'success';
+      button.innerHTML = '<span aria-hidden="true">&#10003;</span><span>' + escapeHtml(label || 'Saved') + '</span>';
+      haptic('success');
+      return;
+    }
+    if (nextState === 'error') {
+      button.removeAttribute('aria-busy');
+      button.dataset.feedbackState = 'error';
+      haptic('error');
+      return;
+    }
+    delete button.dataset.feedbackState;
+    setButtonLoading(button, false);
+  }
+
+  async function runButtonAction(button, action, options) {
+    const settings = options || {};
+    if (!button || button.disabled) return false;
+    setButtonFeedback(button, 'loading', settings.loadingLabel || 'Working');
+    try {
+      const result = await action();
+      if (result === false) {
+        setButtonFeedback(button, 'error');
+        setButtonFeedback(button, 'idle');
+        return false;
+      }
+      if (button.isConnected) {
+        setButtonFeedback(button, 'success', settings.successLabel || 'Saved');
+        await new Promise(function (resolve) { window.setTimeout(resolve, settings.successDuration || 800); });
+      }
+      return result;
+    } catch (error) {
+      setButtonFeedback(button, 'error');
+      throw error;
+    } finally {
+      if (button.isConnected) setButtonFeedback(button, 'idle');
     }
   }
 
@@ -359,6 +414,8 @@
     handledMessageCodes: handledMessageCodes,
     messageHeaders: messageHeaders,
     normalizeResponsePayload: normalizeResponsePayload,
+    runButtonAction: runButtonAction,
+    setButtonFeedback: setButtonFeedback,
     setButtonLoading: setButtonLoading,
     showToast: showToast,
   };

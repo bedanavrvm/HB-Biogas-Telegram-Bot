@@ -42,6 +42,9 @@
   let previewDocumentKey = '';
   let previewedRevision = null;
   let previewSucceeded = false;
+  let previewPacketVersion = '';
+  let signingRefreshTimer = null;
+  let signingRefreshGeneration = 0;
   let dirty = false;
   let editGeneration = 0;
   let saveInFlight = null;
@@ -67,10 +70,9 @@
   let testSignatureStrokes = [];
   let testSignatureActiveStroke = null;
   let testSignatureResizeObserver = null;
-  let activeCustomSelect = null;
   let activeCameraStream = null;
-  let customSelectReturnFocus = null;
   let mainButtonHandler = null;
+  let lastActivatedButton = null;
   let primaryBusy = false;
   let createInFlight = false;
   let previewPinch = null;
@@ -196,7 +198,13 @@
         },
       });
       const contentType = String(response.headers.get('Content-Type') || '');
-      if (contentType.startsWith('application/pdf') || contentType.startsWith('image/')) return { ok: response.ok, status: response.status, blob: await response.blob(), pageCount: Number(response.headers.get('X-Preview-Page-Count') || 1) };
+      if (contentType.startsWith('application/pdf') || contentType.startsWith('image/')) return {
+        ok: response.ok,
+        status: response.status,
+        blob: await response.blob(),
+        pageCount: Number(response.headers.get('X-Preview-Page-Count') || 1),
+        packetVersion: response.headers.get('X-Signing-Packet-Version') || '',
+      };
       const raw = await response.json().catch(() => ({}));
       const data = window.MiniAppUtils?.normalizeResponsePayload
         ? window.MiniAppUtils.normalizeResponsePayload(response, raw) : raw;
@@ -348,8 +356,7 @@
       return;
     }
     if (!tg?.MainButton) return;
-    const blockedByOverlay = Boolean(activeCustomSelect)
-      || !document.getElementById('document-preview-overlay')?.hidden
+    const blockedByOverlay = !document.getElementById('document-preview-overlay')?.hidden
       || !document.getElementById('origination-review-overlay')?.hidden
       || (sheetMode && sheetMode !== 'create');
     const action = blockedByOverlay ? null : actions.find(item => item.getClientRects().length > 0);
@@ -397,12 +404,22 @@
     if (!busy) syncPrimaryAction();
   }
 
-  async function runPrimaryAction(label, action) {
+  async function runPrimaryAction(label, action, button = null, successLabel = 'Saved') {
     if (primaryBusy) return false;
+    button = button || document.activeElement?.closest?.('button')
+      || (lastActivatedButton?.isConnected ? lastActivatedButton : null);
     setPrimaryBusy(true, label);
+    window.MiniAppUtils?.setButtonFeedback?.(button, 'loading', label);
     try {
-      return await action();
+      const result = await action();
+      if (result === false) return false;
+      if (button?.isConnected) {
+        window.MiniAppUtils?.setButtonFeedback?.(button, 'success', successLabel);
+        await new Promise(resolve => window.setTimeout(resolve, 800));
+      }
+      return result;
     } finally {
+      if (button?.isConnected) window.MiniAppUtils?.setButtonFeedback?.(button, 'idle');
       setPrimaryBusy(false);
     }
   }
@@ -411,7 +428,7 @@
     if (tg?.BackButton) {
       const previewOpen = !document.getElementById('document-preview-overlay')?.hidden;
       try {
-        if (activeCustomSelect || sheetMode || reviewDialogMode || previewOpen || current) tg.BackButton.show?.();
+        if (sheetMode || reviewDialogMode || previewOpen || current) tg.BackButton.show?.();
         else tg.BackButton.hide?.();
       } catch (_) { /* The in-DOM navigation remains usable if Telegram's bridge fails. */ }
     }
@@ -434,91 +451,6 @@
     } else if (!event.shiftKey && document.activeElement === last) {
       event.preventDefault(); first.focus();
     }
-  }
-
-  function customSelectLabel(select) {
-    return select.closest('label')?.querySelector(':scope > span')?.textContent?.replace('*', '').trim()
-      || select.getAttribute('aria-label') || select.name || 'Choose an option';
-  }
-
-  function syncCustomSelect(select) {
-    const trigger = select._originationSelectTrigger;
-    if (!trigger) return;
-    const selected = select.options[select.selectedIndex];
-    const text = selected?.textContent?.trim() || 'Choose';
-    trigger.querySelector('span').textContent = text;
-    trigger.disabled = select.disabled;
-    trigger.setAttribute('aria-label', `${customSelectLabel(select)}: ${text}`);
-  }
-
-  function closeCustomSelect({ restoreFocus = true } = {}) {
-    if (!activeCustomSelect) return;
-    const overlay = document.getElementById('origination-select-overlay');
-    overlay.hidden = true;
-    overlay.setAttribute('aria-hidden', 'true');
-    activeCustomSelect = null;
-    const returnFocus = customSelectReturnFocus;
-    customSelectReturnFocus = null;
-    syncTelegramControls();
-    if (restoreFocus) window.requestAnimationFrame(() => returnFocus?.focus?.());
-  }
-
-  function openCustomSelect(select, trigger) {
-    if (select.disabled) return;
-    activeCustomSelect = select;
-    customSelectReturnFocus = trigger;
-    document.getElementById('origination-select-title').textContent = customSelectLabel(select);
-    const options = document.getElementById('origination-select-options');
-    options.replaceChildren(...[...select.options].map((option, index) => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'origination-select-option';
-      button.setAttribute('role', 'option');
-      button.setAttribute('aria-selected', option.selected ? 'true' : 'false');
-      button.disabled = option.disabled;
-      button.dataset.optionIndex = String(index);
-      const label = document.createElement('span');
-      label.textContent = option.textContent || '';
-      button.append(label);
-      if (option.selected) button.insertAdjacentHTML('beforeend', iconSvg('check'));
-      button.onclick = () => {
-        select.selectedIndex = index;
-        syncCustomSelect(select);
-        select.dispatchEvent(new Event('input', { bubbles: true }));
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-        closeCustomSelect();
-      };
-      return button;
-    }));
-    const overlay = document.getElementById('origination-select-overlay');
-    overlay.hidden = false;
-    overlay.setAttribute('aria-hidden', 'false');
-    syncTelegramControls();
-    window.requestAnimationFrame(() => options.querySelector('[aria-selected="true"]')?.focus()
-      || options.querySelector('button:not([disabled])')?.focus()
-      || document.getElementById('origination-select-dialog')?.focus());
-  }
-
-  function enhanceSelect(select) {
-    if (select._originationSelectTrigger) return syncCustomSelect(select);
-    select.classList.add('origination-native-select');
-    select.setAttribute('aria-hidden', 'true');
-    select.tabIndex = -1;
-    const trigger = document.createElement('button');
-    trigger.type = 'button';
-    trigger.className = 'origination-select-trigger';
-    trigger.setAttribute('aria-haspopup', 'listbox');
-    trigger.innerHTML = `<span></span>${iconSvg('chevronDown')}`;
-    trigger.onclick = () => openCustomSelect(select, trigger);
-    select.insertAdjacentElement('afterend', trigger);
-    select._originationSelectTrigger = trigger;
-    select.addEventListener('change', () => syncCustomSelect(select));
-    syncCustomSelect(select);
-  }
-
-  function enhanceSelects(container = document) {
-    if (container.matches?.('select')) enhanceSelect(container);
-    container.querySelectorAll?.('select').forEach(enhanceSelect);
   }
 
   function isoDate(date) {
@@ -737,7 +669,6 @@
     overlay.hidden = false;
     overlay.setAttribute('aria-hidden', 'false');
     document.body.classList.add('origination-modal-open');
-    enhanceSelects(document.getElementById('origination-sheet'));
     syncTelegramControls();
     window.requestAnimationFrame(() => {
       focusableElements(document.getElementById('origination-sheet'))[0]?.focus()
@@ -1046,6 +977,50 @@
       requestedStep = wizardSections().length - 1;
     }
     renderEditor(current, requestedStep);
+  }
+
+  function currentPacketVersion(application = current) {
+    return String(application?.signing_package?.verified_signing?.packet_version || '');
+  }
+
+  function scheduleSigningRefresh() {
+    window.clearTimeout(signingRefreshTimer);
+    signingRefreshTimer = null;
+    if (!current || document.visibilityState === 'hidden'
+        || !['signing_pending', 'partially_signed', 'signed_pending_approval'].includes(current.status)) return;
+    signingRefreshTimer = window.setTimeout(() => void refreshCurrentSigning(), 20000);
+  }
+
+  async function refreshCurrentSigning({ manual = false } = {}) {
+    if (!current || document.visibilityState === 'hidden') return false;
+    const applicationId = String(current.id);
+    const generation = ++signingRefreshGeneration;
+    const oldVersion = currentPacketVersion();
+    const result = await apiFetch(`/applications/${applicationId}/`, {});
+    if (generation !== signingRefreshGeneration || String(current?.id || '') !== applicationId) return false;
+    if (!result.ok || !result.data?.application) {
+      if (manual) showToast(result.data?.error || 'Could not refresh signing progress.', true);
+      scheduleSigningRefresh();
+      return false;
+    }
+    const next = result.data.application;
+    const changed = oldVersion !== currentPacketVersion(next) || current.status !== next.status;
+    const previewOutdated = Boolean(
+      previewPacketVersion && currentPacketVersion(next)
+      && previewPacketVersion !== currentPacketVersion(next),
+    );
+    current = next;
+    if ((changed || previewOutdated) && previewDocumentKey === '__signing_packet__'
+        && !document.getElementById('document-preview-overlay')?.hidden) {
+      if (hasFinalSignedPacket()) previewDocumentKey = '__signed_packet__';
+      const notice = document.getElementById('preview-update-notice');
+      if (notice) notice.hidden = false;
+    } else if (changed || manual) {
+      renderEditor(current, step);
+      if (manual) showToast(changed ? 'Signing progress updated.' : 'Signing progress is already current.', 'info');
+    }
+    scheduleSigningRefresh();
+    return true;
   }
 
   function sectionFor(key) {
@@ -1681,6 +1656,7 @@
     const latestConfiguration = changedWhileSaving ? collectProductConfiguration() : null;
     current = result.data.application;
     previewedRevision = null;
+    syncPreviewStaleFeedback();
     lastFailedSaveRequestId = '';
     if (serverValidationErrorsVisible) {
       showErrors({});
@@ -1713,6 +1689,7 @@
     if (saveInFlight) pendingSaveRequestId = requestKey('save');
     else pendingSaveRequestId ||= requestKey('save');
     setSaveState('Unsaved changes', 'dirty');
+    syncPreviewStaleFeedback();
     window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(() => saveDraft(false), 900);
     const payload = collectPayload();
@@ -1771,8 +1748,15 @@
       && Boolean(packageData?.verified_signing?.signed_packet_available);
   }
 
+  function hasCurrentSigningPacket() {
+    return ['signing_pending', 'partially_signed'].includes(current?.status)
+      && Boolean(current?.signing_package?.id)
+      && !current?.signing_package?.test_signing?.test_mode;
+  }
+
   function latestPreviewLabel(fallback) {
     if (hasFinalSignedPacket()) return 'Preview signed packet';
+    if (hasCurrentSigningPacket()) return 'Preview current signed packet';
     if (current?.review_packet_ready && ['ready_for_review', 'reviewed'].includes(current?.status)) {
       return current.status === 'reviewed' ? 'Preview approved packet' : 'Preview frozen packet';
     }
@@ -1781,6 +1765,7 @@
 
   function resolveLatestPreviewKey(documentKey) {
     if (hasFinalSignedPacket()) return '__signed_packet__';
+    if (hasCurrentSigningPacket()) return '__signing_packet__';
     if (current?.review_packet_ready && ['ready_for_review', 'reviewed'].includes(current?.status)) {
       return '__review_packet__';
     }
@@ -1802,10 +1787,11 @@
   function reviewMarkup(values) {
     const hasPacket = (current?.document_packet?.documents || []).filter(item => item.selected).length > 1;
     const signed = ['fully_signed', 'signed_pending_approval', 'approved'].includes(current?.status);
+    const sectionAction = ['draft', 'correction_required'].includes(current?.status) ? 'Edit' : 'View';
     const reviewCards = ['fully_signed', 'approved'].includes(current?.status) ? '' : `<div class="review-sections">${wizardSections().slice(0, -1).map((section, index) => {
       if (section.key === 'document_selection') {
         const selected = (current?.document_packet?.documents || []).filter(item => item.role === 'supporting' && item.selected);
-        return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>Supporting documents</strong><small>${selected.length} selected</small></span><span>Edit ${iconSvg('arrowRight')}</span></button>`;
+        return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>Supporting documents</strong><small>${selected.length} selected</small></span><span>${sectionAction} ${iconSvg('arrowRight')}</span></button>`;
       }
       if (section.key.startsWith('document:')) {
         const document = section.document;
@@ -1816,11 +1802,11 @@
         const completed = Object.values(configuration.requirements).filter(value => value !== '' && value != null && value !== false).length
           + Object.values(configuration.customValues).filter(value => value !== '' && value != null).length;
         const total = (current?.product_terms?.requirements || []).length + (current?.product_terms?.custom_attributes || []).length;
-        return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(section.label)}</strong><small>${completed} of ${total} details completed</small></span><span>Edit ${iconSvg('arrowRight')}</span></button>`;
+        return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(section.label)}</strong><small>${completed} of ${total} details completed</small></span><span>${sectionAction} ${iconSvg('arrowRight')}</span></button>`;
       }
       const fields = fieldsFor(section.key);
       const completed = fields.filter(field => values[field.key] !== '' && values[field.key] != null).length;
-      return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(section.label)}</strong><small>${completed} of ${fields.length} fields completed</small></span><span>Edit ${iconSvg('arrowRight')}</span></button>`;
+      return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(section.label)}</strong><small>${completed} of ${fields.length} fields completed</small></span><span>${sectionAction} ${iconSvg('arrowRight')}</span></button>`;
     }).join('')}</div>`;
     return `${reviewWorkflowMarkup()}<div class="review-intro"><div><p class="eyebrow">${signed ? 'Completed packet' : 'Final check'}</p><h3>${signed ? 'Signed application' : 'Review the application'}</h3><p>${signed ? 'The application is immutable. View the final signed packet below.' : current?.review_packet_ready ? 'Inspect the frozen packet and open sections to verify the captured data.' : 'Open each section to correct details, then inspect the complete document packet.'}</p></div><div class="review-preview-actions"><button type="button" class="btn btn-primary" id="origination-preview">${latestPreviewLabel(hasPacket ? 'Preview full packet' : 'Preview main LAF')}</button></div></div>
       ${reviewCards}${signingTestMarkup()}`;
@@ -1868,7 +1854,7 @@
         : current.status === 'approved'
           ? 'Independent final review approved this immutable signed packet.'
           : signingComplete ? 'Every required signature and stamp has been applied to the immutable packet.' : 'Remote signing works from any location. Each external signer reviews the immutable packet and verifies their own OTP.';
-      return `<section class="signing-verified-panel"><p class="eyebrow">Verified packet signing</p><h3>${signingHeading}</h3><p>${signingDetail}</p>${participants || '<div class="empty-state">No signing participants were configured.</div>'}${signedPacket}${archive}</section>`;
+      return `<section class="signing-verified-panel"><div class="signing-panel-heading"><div><p class="eyebrow">Verified packet signing</p><h3>${signingHeading}</h3></div><button type="button" class="icon-button" id="origination-refresh-signing" aria-label="Refresh signing progress" title="Refresh signing progress">${iconSvg('refresh')}</button></div><p>${signingDetail}</p>${participants || '<div class="empty-state">No signing participants were configured.</div>'}${signedPacket}${archive}</section>`;
     }
     const stamps = packageData.test_stamps || [];
     const slots = test.slots || [];
@@ -1965,6 +1951,28 @@
     return `<aside class="notice recovery-conflict"><strong>Two draft revisions need your choice</strong><span>The encrypted phone draft was based on revision ${escapeHtml(conflictDraft.revision)}; the server is now revision ${escapeHtml(current.revision)}. Nothing has been overwritten.</span><div><button type="button" class="btn btn-secondary" id="recovery-use-server">Use server version</button><button type="button" class="btn btn-primary" id="recovery-restore-phone">Restore phone draft</button></div></aside>`;
   }
 
+  function previewIsStale() {
+    return ['draft', 'correction_required'].includes(current?.status)
+      && (dirty || previewedRevision !== current?.revision);
+  }
+
+  function persistentStateFeedbackMarkup() {
+    if (current?.status === 'signed_pending_approval') {
+      return '<aside class="notice feedback-banner success" role="status"><strong>Signed — pending JBL approval</strong><span>All required signatures are present. The packet becomes final only after independent checker approval.</span></aside>';
+    }
+    if (!['draft', 'correction_required'].includes(current?.status)) return '';
+    return `<aside id="origination-preview-stale" class="notice feedback-banner warning" role="status"${previewIsStale() ? '' : ' hidden'}><strong>Preview outdated</strong><span>Preview the complete packet again after saving before confirmation.</span></aside>`;
+  }
+
+  function syncPreviewStaleFeedback() {
+    const stale = previewIsStale();
+    const notice = document.getElementById('origination-preview-stale');
+    if (notice) notice.hidden = !stale;
+    document.querySelectorAll('#origination-preview, #origination-preview-early').forEach(button => {
+      button.classList.toggle('preview-stale', stale);
+    });
+  }
+
   function renderEditor(application, requestedStep) {
     document.body.classList.add('origination-editor-open');
     current = application;
@@ -1999,10 +2007,11 @@
     const actionFooter = editable || actions
       ? `<footer class="wizard-actions">${editable ? `<span id="origination-save-status" data-state="${recoveryState[1]}">${recoveryState[0]}</span>` : '<span></span>'}<div>${actions}</div></footer>`
       : '';
-    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small><small class="editor-status-text">${escapeHtml(application.status_text || applicationStatusLabel(application))}</small></div><span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(applicationStatusLabel(application))}</span></div>${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${progressMarkup()}<section class="wizard-card">${content}</section>${actionFooter}`;
+    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small><small class="editor-status-text">${escapeHtml(application.status_text || applicationStatusLabel(application))}</small></div><span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(applicationStatusLabel(application))}</span></div>${persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${progressMarkup()}<section class="wizard-card">${content}</section>${actionFooter}`;
     syncNativeDateDisplays(root());
     bindEditor(sectionEditable);
     syncTelegramControls();
+    scheduleSigningRefresh();
     window.requestAnimationFrame(() => window.scrollTo(0, 0));
   }
 
@@ -2526,6 +2535,9 @@
   }
 
   function bindEditor(editable) {
+    document.getElementById('origination-refresh-signing')?.addEventListener('click', event => {
+      void runPrimaryAction('Refreshing...', () => refreshCurrentSigning({ manual: true }), event.currentTarget, 'Updated');
+    });
     document.getElementById('recovery-retry-refresh')?.addEventListener('click', () => {
       if (conflictDraft) void reconcileSavedDraftConflict(conflictDraft, true);
     });
@@ -2914,6 +2926,7 @@
     const title = document.getElementById('preview-title');
     if (title) title.textContent = documentKey === '__signed_packet__'
       ? (current?.signing_package?.verified_signing?.archive_status === 'uploaded' ? 'Archived signed packet' : 'Final signed packet')
+      : documentKey === '__signing_packet__' ? 'Current signing packet'
       : documentKey === '__review_packet__' ? (current?.status === 'reviewed' ? 'Checker-approved frozen packet' : 'Frozen packet for final review')
       : documentKey === '__packet__' ? 'Filled document packet'
       : documentKey === '__test_signing__' ? 'TEST signed packet'
@@ -2938,9 +2951,9 @@
     const key = previewRequestId || requestKey('preview');
     const applicationId = current.id;
     const revision = current.revision;
-    const signedPacketPreview = previewDocumentKey === '__signed_packet__';
+    const signedPacketPreview = ['__signed_packet__', '__signing_packet__'].includes(previewDocumentKey);
     const previewPath = signedPacketPreview
-      ? `/applications/${applicationId}/signed-packet/?package_id=${encodeURIComponent(current?.signing_package?.id || '')}&preview_format=image&page=${pageNumber}`
+      ? `/applications/${applicationId}/${previewDocumentKey === '__signing_packet__' ? 'current-signing-packet' : 'signed-packet'}/?package_id=${encodeURIComponent(current?.signing_package?.id || '')}&preview_format=image&page=${pageNumber}`
       : previewDocumentKey === '__review_packet__'
       ? `/applications/${applicationId}/review-packet/preview/`
       : previewDocumentKey === '__test_signing__'
@@ -2962,21 +2975,24 @@
     }).then(result => {
       if (!result.ok || !result.blob) return { error: result.data?.error || 'Could not generate the filled document.' };
       if (key !== previewRequestId || current?.id !== applicationId) return { stale: true };
-      const entry = { url: URL.createObjectURL(result.blob), pageCount: Math.max(1, result.pageCount || 1) };
+      const entry = { url: URL.createObjectURL(result.blob), pageCount: Math.max(1, result.pageCount || 1), packetVersion: result.packetVersion || '' };
+      if (signedPacketPreview && result.packetVersion) previewPacketVersion = result.packetVersion;
       previewPageUrls.set(pageNumber, entry);
       if (!previewDocumentKey && pageNumber === 1) {
         previewedRevision = current.revision;
         previewSucceeded = true;
+        syncPreviewStaleFeedback();
       }
       if (previewDocumentKey === '__packet__' && pageNumber === 1) {
         previewedRevision = current.revision;
         previewSucceeded = true;
+        syncPreviewStaleFeedback();
         (current?.document_packet?.documents || []).filter(item => item.selected).forEach(item => {
           item.previewed = true;
         });
         if (current?.document_packet) current.document_packet.primary_ready = true;
       }
-      if (previewDocumentKey && !['__packet__', '__review_packet__', '__test_signing__', '__signed_packet__'].includes(previewDocumentKey) && pageNumber === 1) {
+      if (previewDocumentKey && !['__packet__', '__review_packet__', '__test_signing__', '__signed_packet__', '__signing_packet__'].includes(previewDocumentKey) && pageNumber === 1) {
         const document = current?.document_packet?.documents?.find(item => item.key === previewDocumentKey);
         if (document) document.previewed = true;
       }
@@ -3119,6 +3135,9 @@
     document.querySelector('.preview-toolbar').hidden = false;
     clearPreviewPageCache();
     previewRequestId = '';
+    previewPacketVersion = '';
+    const updateNotice = document.getElementById('preview-update-notice');
+    if (updateNotice) updateNotice.hidden = true;
     previewPinch = null;
     previewSwipe = null;
     previewPointers.clear();
@@ -3140,16 +3159,29 @@
     window.requestAnimationFrame(() => returnFocus?.focus?.());
   }
 
-  function showToast(message, error) {
+  function showToast(message, presentation = 'success') {
     const toast = document.getElementById('origination-toast');
-    if (!toast) return;
-    toast.textContent = message; toast.classList.toggle('error', Boolean(error)); toast.hidden = false;
-    window.clearTimeout(showToast.timer); showToast.timer = window.setTimeout(() => { toast.hidden = true; }, 3500);
+    const settings = typeof presentation === 'object' && presentation
+      ? presentation : { tone: presentation === true ? 'error' : String(presentation || 'success') };
+    const tone = ['info', 'success', 'warning', 'error'].includes(settings.tone) ? settings.tone : 'info';
+    if (!toast) return tone !== 'error';
+    toast.textContent = message;
+    toast.className = `origination-toast ${tone}`;
+    toast.setAttribute('role', tone === 'error' ? 'alert' : 'status');
+    toast.hidden = false;
+    window.MiniAppUtils?.haptic?.(tone);
+    window.clearTimeout(showToast.timer);
+    if (settings.persistence !== 'until_resolved') {
+      showToast.timer = window.setTimeout(() => { toast.hidden = true; }, Number(settings.timeout || 3500));
+    }
+    return tone !== 'error';
   }
 
   function renderList({ restoreScroll = false, focusSearch = false } = {}) {
     document.body.classList.remove('origination-editor-open');
     current = null;
+    window.clearTimeout(signingRefreshTimer);
+    signingRefreshTimer = null;
     step = 0;
     dirty = false;
     window.clearTimeout(saveTimer);
@@ -3280,6 +3312,10 @@
     root().setAttribute('aria-busy', 'false');
   }
 
+  document.addEventListener('click', event => {
+    const button = event.target.closest?.('button');
+    if (button) lastActivatedButton = button;
+  }, true);
   document.getElementById('preview-close').onclick = closePreview;
   document.getElementById('preview-previous').onclick = () => navigatePreviewPage(-1);
   document.getElementById('preview-next').onclick = () => navigatePreviewPage(1);
@@ -3289,6 +3325,15 @@
     clearPreviewPageCache();
     previewRequestId = requestKey('preview');
     await loadPreviewPage();
+  };
+  document.getElementById('preview-update-now').onclick = async event => {
+    window.MiniAppUtils?.setButtonFeedback?.(event.currentTarget, 'loading', 'Refreshing');
+    clearPreviewPageCache();
+    previewRequestId = requestKey('preview');
+    await loadPreviewPage();
+    document.getElementById('preview-update-notice').hidden = true;
+    window.MiniAppUtils?.setButtonFeedback?.(event.currentTarget, 'success', 'Updated');
+    window.setTimeout(() => window.MiniAppUtils?.setButtonFeedback?.(event.currentTarget, 'idle'), 800);
   };
   document.getElementById('preview-zoom-out').onclick = () => setPreviewZoom(previewZoom - 25);
   document.getElementById('preview-zoom-in').onclick = () => setPreviewZoom(previewZoom + 25);
@@ -3300,11 +3345,6 @@
     if (event.target === event.currentTarget) closeSheet();
   });
   document.getElementById('origination-sheet').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
-  document.getElementById('origination-select-dialog').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
-  document.getElementById('origination-select-close').onclick = () => closeCustomSelect();
-  document.getElementById('origination-select-overlay').addEventListener('click', event => {
-    if (event.target === event.currentTarget) closeCustomSelect();
-  });
   document.getElementById('origination-review-dialog').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
   document.getElementById('document-preview-overlay').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
   bindPreviewPinch();
@@ -3313,7 +3353,10 @@
   window.addEventListener('pageshow', () => { void resumeDraftSynchronization(); });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') preserveDraftOnExit();
-    else void resumeDraftSynchronization();
+    else {
+      void resumeDraftSynchronization();
+      void refreshCurrentSigning();
+    }
   });
   window.addEventListener('online', () => { void resumeDraftSynchronization(); });
   window.addEventListener('resize', syncViewport);
@@ -3332,8 +3375,7 @@
   });
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
-    if (activeCustomSelect) closeCustomSelect();
-    else if (sheetMode) closeSheet();
+    if (sheetMode) closeSheet();
     else if (reviewDialogMode) closeReviewDialog();
     else if (!document.getElementById('document-preview-overlay').hidden) closePreview();
   });
@@ -3346,22 +3388,11 @@
   syncViewport();
   try {
     tg?.BackButton?.onClick?.(async () => {
-      if (activeCustomSelect) return closeCustomSelect();
       if (sheetMode) return closeSheet();
       if (reviewDialogMode) return closeReviewDialog();
       if (!document.getElementById('document-preview-overlay').hidden) return closePreview();
       if (current) await exitEditor();
     });
   } catch (_) { /* In-DOM controls remain available. */ }
-  new MutationObserver(mutations => {
-    mutations.forEach(mutation => {
-      mutation.addedNodes.forEach(node => {
-        if (node.nodeType !== Node.ELEMENT_NODE) return;
-        enhanceSelects(node);
-      });
-      if (mutation.target?.matches?.('select')) syncCustomSelect(mutation.target);
-    });
-  }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled'] });
-  enhanceSelects();
   load();
 })();

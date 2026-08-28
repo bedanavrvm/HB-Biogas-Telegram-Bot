@@ -36,7 +36,6 @@ from core.services.loan_origination import (
     OriginationRecallConfirmationRequired,
     confirm_and_start_conditional_signing,
     create_application,
-    frozen_unsigned_package_content,
     prepare_review_package,
     prepare_signing_package,
     recall_application,
@@ -57,7 +56,12 @@ from core.services.origination_documents import (
     save_document_fields,
     select_documents,
 )
-from core.services.origination_signing import render_test_package, simulate_slot
+from core.services.origination_signing import (
+    render_test_package,
+    render_verified_package,
+    simulate_slot,
+    verified_packet_version,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -1108,7 +1112,7 @@ def origination_signer_packet_preview(request):
     from core.services.origination_esign import resolve_session
     try:
         session = resolve_session(_public_signing_token(request))
-        content = frozen_unsigned_package_content(session.package)
+        content = render_verified_package(session.package)
         from core.services.partnership_laf_preview import render_pdf_page
         image, page_count = render_pdf_page(content, page_number=int(request.GET.get('page') or 1))
     except OriginationError as exc:
@@ -1117,6 +1121,7 @@ def origination_signer_packet_preview(request):
         return _public_signing_error(request, exc, fallback_code='invalid_request')
     response = HttpResponse(image, content_type='image/jpeg')
     response['X-Preview-Page-Count'] = str(page_count)
+    response['X-Signing-Packet-Version'] = verified_packet_version(session.package)
     response['Cache-Control'] = 'no-store, private'
     response['X-Content-Type-Options'] = 'nosniff'
     return _public_signing_response(request, response)
@@ -1465,6 +1470,41 @@ def portal_origination_signed_packet(request, application_id: str):
         response = HttpResponse(content, content_type='application/pdf')
         disposition = 'attachment' if request.GET.get('download') == '1' else 'inline'
         response['Content-Disposition'] = f'{disposition}; filename="{filename}.pdf"'
+    response['Cache-Control'] = 'no-store, private'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
+@require_http_methods(['GET'])
+def portal_origination_current_signing_packet(request, application_id: str):
+    """Serve current frozen bytes plus all active verified signing actions."""
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    if (error := _capability_error(request, 'portal.origination.view', application)):
+        return error
+    if (access_error := _application_access_error(request, application)):
+        return access_error
+    package_id = str(request.GET.get('package_id') or '').strip()
+    package = application.signing_packages.filter(
+        pk=package_id,
+        status__in=[
+            OriginationSigningPackage.STATUS_PENDING,
+            OriginationSigningPackage.STATUS_IN_PROGRESS,
+        ],
+    ).first()
+    if not package:
+        return JsonResponse({'ok': False, 'error': 'Current signing packet not found.'}, status=404)
+    try:
+        content = render_verified_package(package)
+        page_number = int(request.GET.get('page') or 1)
+        from core.services.partnership_laf_preview import render_pdf_page
+        image, total_pages = render_pdf_page(content, page_number=page_number)
+    except (OriginationError, RuntimeError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    response = HttpResponse(image, content_type='image/jpeg')
+    response['X-Preview-Page-Count'] = str(total_pages)
+    response['X-Signing-Packet-Version'] = verified_packet_version(package)
     response['Cache-Control'] = 'no-store, private'
     response['X-Content-Type-Options'] = 'nosniff'
     return response

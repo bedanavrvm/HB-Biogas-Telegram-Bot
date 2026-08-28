@@ -523,3 +523,32 @@ def render_verified_package(package: OriginationSigningPackage) -> bytes:
     output = BytesIO()
     writer.write(output)
     return output.getvalue()
+
+
+def verified_packet_version(package: OriginationSigningPackage) -> str:
+    """Derive a stable display version from the frozen bytes and active actions.
+
+    The value is presentation/concurrency metadata only. A predecessor signing
+    action changing this version never invalidates another signer's consent or
+    active OTP challenge.
+    """
+    actions = package.actions.filter(
+        mode=OriginationSigningAction.MODE_VERIFIED,
+        invalidation__isnull=True,
+    ).order_by('document_key', 'slot_key', 'signer_role', 'created_at', 'id')
+    payload = {
+        'unsigned_document_hash': package.unsigned_document_hash,
+        'actions': [
+            {
+                'id': str(item.pk),
+                'document_key': item.document_key,
+                'slot_key': item.slot_key,
+                'signer_role': item.signer_role,
+                'action_type': item.action_type,
+            }
+            for item in actions
+        ],
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(',', ':')).encode('utf-8')
+    ).hexdigest()

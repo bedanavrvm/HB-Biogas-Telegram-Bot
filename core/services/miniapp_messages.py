@@ -30,6 +30,16 @@ MESSAGE_CONTRACT_HEADER = "X-MiniApp-Message-Contract"
 class MiniAppMessage:
     text: str
     status: int
+    tone: str = "error"
+    persistence: str = "until_resolved"
+    surface_hint: str = "banner"
+
+    def presentation(self) -> dict[str, str]:
+        return {
+            "tone": self.tone,
+            "persistence": self.persistence,
+            "surface_hint": self.surface_hint,
+        }
 
 
 MESSAGE_CATALOG: dict[str, MiniAppMessage] = {
@@ -50,12 +60,15 @@ MESSAGE_CATALOG: dict[str, MiniAppMessage] = {
     ),
     "conflict_reload": MiniAppMessage(
         "This information was updated elsewhere. Reload the latest version before continuing.", 409,
+        tone="warning",
     ),
     "outdated_client": MiniAppMessage(
         "This Mini App is out of date. Close it, reopen it from Telegram, and try again.", 428,
+        tone="warning",
     ),
     "retry_later": MiniAppMessage(
         "There have been too many attempts. Please wait a short while and try again.", 429,
+        tone="warning", persistence="transient", surface_hint="toast",
     ),
     "service_unavailable": MiniAppMessage(
         "We cannot complete this right now. Your saved work is safe; please try again shortly.", 503,
@@ -65,6 +78,7 @@ MESSAGE_CATALOG: dict[str, MiniAppMessage] = {
     ),
     "origination_shared_signer_phone": MiniAppMessage(
         "{roles} use the same phone ending {phone_last4}. Confirm that this is intentional before sending the signing link.", 409,
+        tone="warning",
     ),
     "signing_invalid_link": MiniAppMessage(
         "This signing link is incomplete or no longer valid. Ask the JBL officer to send you a new link.", 404,
@@ -83,21 +97,26 @@ MESSAGE_CATALOG: dict[str, MiniAppMessage] = {
     ),
     "signing_code_expired": MiniAppMessage(
         "That verification code has expired. Request a new code and try again.", 400,
+        tone="warning",
     ),
     "signing_code_incorrect": MiniAppMessage(
         "That code is not correct. You have {attempts_remaining} attempt(s) left.", 400,
     ),
     "signing_code_locked": MiniAppMessage(
         "Signing is temporarily locked after several incorrect codes. Please wait about 30 minutes or contact the JBL officer.", 429,
+        tone="warning",
     ),
     "signing_code_wait": MiniAppMessage(
         "Please wait about a minute before requesting another code.", 429,
+        tone="warning", persistence="transient", surface_hint="toast",
     ),
     "signing_code_limit": MiniAppMessage(
         "No more verification codes can be sent right now. Please try again later or contact the JBL officer.", 429,
+        tone="warning",
     ),
     "signing_packet_changed": MiniAppMessage(
         "The documents or signature changed before verification. Request a new code and try again.", 409,
+        tone="warning",
     ),
 }
 
@@ -188,6 +207,18 @@ def render_message(code: str, *, details: Mapping[str, Any] | None = None, reque
         return MESSAGE_CATALOG["unexpected_error"].text.format(request_id=request_id)
 
 
+def message_presentation(code: str, *, status: int = 400) -> dict[str, str]:
+    """Return additive UI guidance without coupling clients to message text."""
+    item = MESSAGE_CATALOG.get(code)
+    if item:
+        return item.presentation()
+    return {
+        "tone": "error" if status >= 400 else "info",
+        "persistence": "until_resolved" if status >= 400 else "transient",
+        "surface_hint": "banner" if status >= 400 else "toast",
+    }
+
+
 class _SafeFormat(dict):
     def __missing__(self, key):
         return ""
@@ -223,6 +254,7 @@ def miniapp_error_response(
         "code": code,
         "message": message,
         "request_id": request_id,
+        "presentation": message_presentation(code, status=final_status),
     })
     legacy = not _uses_current_contract(request)
     if legacy:
@@ -311,6 +343,7 @@ def normalize_miniapp_response(request, response, *, workflow: str):
             if key not in {
                 'ok', 'success', 'code', 'message', 'error', 'request_id',
                 'details', 'errors', 'traceback', 'exception', 'debug', 'sql',
+                'presentation',
             }
         },
     )

@@ -1,0 +1,37 @@
+.notice.info {
+  border-color: #9fc8e0;
+  background: #eef8fe;
+  color: #174d6a;
+}
+
+.notice.warning {
+  border-color: #e5c26d;
+  background: #fff8df;
+  color: #684900;
+}
+
+.notice.error {
+  border-color: #e3aaaa;
+  background: #fff2ef;
+}
+
+.notice.success {
+  border-color: #7fc7bf;
+  background: #edf9f3;
+}
+
+.spinner-inline {
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  margin-right: 7px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -3px;
+  animation: origination-signing-spin .7s linear infinite;
+}
+
+@keyframes origination-signing-spin {
+  to { transform: rotate(360deg); }
+}

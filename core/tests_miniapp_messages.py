@@ -34,6 +34,8 @@ class MiniAppMessageContractTests(SimpleTestCase):
         self.assertEqual(response.status_code, 500)
         self.assertEqual(payload['code'], 'unexpected_error')
         self.assertEqual(payload['request_id'], 'request-12345678')
+        self.assertEqual(payload['presentation']['tone'], 'error')
+        self.assertEqual(payload['presentation']['persistence'], 'until_resolved')
         self.assertNotIn('error', payload)
         self.assertNotIn('DatabaseError', payload['message'])
         self.assertIn('request-12345678', payload['message'])
@@ -71,6 +73,7 @@ class MiniAppMessageContractTests(SimpleTestCase):
         self.assertIn('ending 5678', payload['message'])
         self.assertNotIn('+254700005678', response.content.decode())
         self.assertEqual(payload['details'], {'roles': 'Borrower and Guarantor 1', 'phone_last4': '5678'})
+        self.assertEqual(payload['presentation']['tone'], 'warning')
 
     def test_frontend_specific_codes_match_backend_catalogue(self):
         source = Path('core/static/miniapp/utils.js').read_text(encoding='utf-8')
