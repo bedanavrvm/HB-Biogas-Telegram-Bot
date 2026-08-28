@@ -1,0 +1,43 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_setup.css' %}?v=1">{% endblock %}
+
+{% block content %}
+<main class="osw-page">
+  <header class="osw-hero">
+    <div><p class="osw-kicker">JBL ORIGINATION</p><h1>Product setup workspace</h1><p>Create and maintain a product without remembering which Admin models come next.</p></div>
+    <nav><a href="{{ laf_library_url }}">Reusable LAF library</a><a href="{{ advanced_url }}">Advanced records</a></nav>
+  </header>
+
+  <section class="osw-card osw-start">
+    <div><span class="osw-step-number">1</span><h2>Start a product</h2><p>The product remains an inactive draft until both publication checkpoints are complete.</p></div>
+    <form method="post" action="{{ start_url }}" data-osw-submit>
+      {% csrf_token %}<input type="hidden" name="request_id" value="{{ request_id }}">
+      {{ start_form.non_field_errors }}
+      <div class="osw-form-grid">{% for field in start_form %}<div class="osw-field{% if field.name == 'description' or field.name == 'branches' %} osw-span-2{% endif %}">{{ field.label_tag }}{{ field }}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}{{ field.errors }}</div>{% endfor %}</div>
+      <button class="osw-primary" type="submit"><span data-label>Create draft and continue</span><span class="osw-spinner" aria-hidden="true"></span></button>
+    </form>
+  </section>
+
+  <section class="osw-section">
+    <div class="osw-section-title"><div><h2>Resume drafts</h2><p>Resume opens the first stale or incomplete step.</p></div><span class="osw-count">{{ draft_rows|length }}</span></div>
+    <div class="osw-card-grid">
+      {% for row in draft_rows %}<article class="osw-card osw-product-card">
+        <header><div><h3>{{ row.definition.name }}</h3><p>{{ row.definition.product_key }} · form v{{ row.definition.version }}</p></div><span class="osw-status in-progress">Draft</span></header>
+        <ol class="osw-mini-progress">{% for item in row.readiness %}<li class="{{ item.status }}" title="{{ item.detail }}"><span></span>{{ item.label }}</li>{% endfor %}</ol>
+        <a class="osw-primary" href="{{ row.resume_url }}">Continue: {{ row.resume_label }}</a>
+      </article>{% empty %}<div class="osw-card osw-empty">No product drafts are waiting.</div>{% endfor %}
+    </div>
+  </section>
+
+  <section class="osw-section">
+    <div class="osw-section-title"><div><h2>Published products</h2><p>Create an immutable successor when a live product needs maintenance.</p></div><span class="osw-count">{{ published_products|length }}</span></div>
+    <div class="osw-table-wrap"><table class="osw-table"><thead><tr><th>Product</th><th>Version</th><th>Terms</th><th></th></tr></thead><tbody>
+      {% for product in published_products %}<tr><td><b>{{ product.name }}</b><small>{{ product.product_key }}</small></td><td>Form v{{ product.version }}</td><td>{% if product.product_version %}Terms v{{ product.product_version.version }}{% else %}Legacy{% endif %}</td><td><form method="post" action="{% url 'admin:core_origination_setup_revise' product.pk %}" data-osw-submit>{% csrf_token %}<input type="hidden" name="request_id" value="{{ request_id }}"><button type="submit" class="osw-secondary"><span data-label>Create editable successor</span><span class="osw-spinner"></span></button></form></td></tr>
+      {% empty %}<tr><td colspan="4">No published Origination products yet.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+</main>
+<script src="{% static 'admin/origination_setup.js' %}?v=1" defer></script>
+{% endblock %}

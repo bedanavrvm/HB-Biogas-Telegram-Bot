@@ -10,7 +10,7 @@
   <div class="opb-shell opb-supporting-setup" data-setup-root>
     <header class="opb-header">
       <div>
-        <a class="opb-secondary-link" href="{{ product_url }}">&larr; Back to {{ product.name }} document packet</a>
+        <a class="opb-secondary-link" href="{{ setup_return_url|default:product_url }}">&larr; Back to {{ product.name }} document packet</a>
         <h1>Add a supporting document</h1>
         <p>Create one reusable PDF once, then it will automatically use its latest compatible published version for this product's new applications.</p>
       </div>
@@ -18,6 +18,7 @@
 
     <form method="post" enctype="multipart/form-data" novalidate>
       {% csrf_token %}
+      {% if setup_return_token %}<input type="hidden" name="setup_return" value="{{ setup_return_token }}">{% endif %}
       {% if form.non_field_errors %}<div class="opb-errors">{{ form.non_field_errors }}</div>{% endif %}
       <section class="opb-setup-card">
         <h2>1. Choose the source</h2>
@@ -63,7 +64,7 @@
           <div class="opb-form-grid-full">{{ form.condition_value.label_tag }}{{ form.condition_value }}{{ form.condition_value.errors }}</div>
         </div>
       </section>
-      <footer class="submit-row"><a class="button cancel-link" href="{{ product_url }}">Cancel</a><button type="submit" class="default" data-setup-submit>Attach document</button></footer>
+      <footer class="submit-row"><a class="button cancel-link" href="{{ setup_return_url|default:product_url }}">Cancel</a><button type="submit" class="default" data-setup-submit>Attach document</button></footer>
     </form>
   </div>
   <script src="{% static 'admin/origination_product_builder.js' %}?v=8" defer></script>

@@ -3,7 +3,10 @@
 {% block content %}
   {% if request.user.is_superuser %}
     <section style="margin-bottom:12px;padding:11px 13px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#172033">
-      <strong style="display:block;font-size:14px">One row per origination product</strong>
+      <div style="display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+        <strong style="display:block;font-size:14px">One row per origination product</strong>
+        <a class="button" href="{% url 'admin:core_origination_setup_dashboard' %}">Guided product setup</a>
+      </div>
       <p style="margin:3px 0 0;color:#64748b;font-size:12px">This list shows the latest operational version only. Use <b>Version history</b> to view immutable published and retired versions or their retained PDFs.</p>
     </section>
   {% endif %}

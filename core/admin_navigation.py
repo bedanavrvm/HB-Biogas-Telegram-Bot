@@ -264,6 +264,12 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("core.LocationPolicyState", "Location enforcement", "policy"),
         _model_item("core.Product", "Global products", "inventory_2"),
         _model_item("core.ProductVersion", "Product terms and requirements", "price_change"),
+        _custom_item(
+            "Guided Origination product setup",
+            "admin:core_origination_setup_dashboard",
+            "route",
+            _superuser,
+        ),
         _model_item("core.OriginationProductDefinition", "Loan form definitions", "dynamic_form"),
         _model_item("core.OriginationDocumentTemplate", "Origination PDF templates", "picture_as_pdf"),
         _model_item("core.OriginationProductDocumentAssignment", "Product document assignments", "assignment"),

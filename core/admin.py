@@ -13,6 +13,7 @@ from django.contrib.auth.models import Group
 from django.conf import settings
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.template.response import TemplateResponse
+from django.core import signing
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import DatabaseError, connections, models, transaction
 from django.urls import path, reverse
@@ -7131,6 +7132,31 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
         urls = super().get_urls()
         custom = [
             path(
+                'setup/',
+                self.admin_site.admin_view(self.setup_dashboard_view),
+                name='core_origination_setup_dashboard',
+            ),
+            path(
+                'setup/start/',
+                self.admin_site.admin_view(self.setup_start_view),
+                name='core_origination_setup_start',
+            ),
+            path(
+                'setup/<path:object_id>/revise/',
+                self.admin_site.admin_view(self.setup_revise_view),
+                name='core_origination_setup_revise',
+            ),
+            path(
+                'setup/<path:object_id>/<slug:step_key>/',
+                self.admin_site.admin_view(self.setup_step_view),
+                name='core_origination_setup_step',
+            ),
+            path(
+                'setup/<path:object_id>/',
+                self.admin_site.admin_view(self.setup_workspace_view),
+                name='core_origination_setup_workspace',
+            ),
+            path(
                 'product-family/<path:product_key>/god-mode-purge/',
                 self.admin_site.admin_view(self.product_family_purge_view),
                 name='core_originationproductdefinition_family_purge',
@@ -7187,6 +7213,26 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
             ),
         ]
         return custom + urls
+
+    def setup_dashboard_view(self, request):
+        from core.origination_setup_admin import dashboard_view
+        return dashboard_view(self, request)
+
+    def setup_start_view(self, request):
+        from core.origination_setup_admin import start_view
+        return start_view(self, request)
+
+    def setup_workspace_view(self, request, object_id):
+        from core.origination_setup_admin import workspace_view
+        return workspace_view(self, request, object_id)
+
+    def setup_revise_view(self, request, object_id):
+        from core.origination_setup_admin import revise_view
+        return revise_view(self, request, object_id)
+
+    def setup_step_view(self, request, object_id, step_key):
+        from core.origination_setup_admin import step_view
+        return step_view(self, request, object_id, step_key)
 
     def product_family_purge_view(self, request, product_key):
         if (
@@ -7870,6 +7916,27 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
         if not product:
             return HttpResponse(status=404)
         product_url = reverse('admin:core_originationproductdefinition_change', args=[product.pk])
+        setup_token = str(
+            request.POST.get('setup_return') or request.GET.get('setup_return') or ''
+        ).strip()
+        setup_return_url = ''
+        if setup_token:
+            try:
+                from core.services.origination_setup import resolve_return_token
+                setup_target = resolve_return_token(setup_token)
+                if str(setup_target['definition_id']) != str(product.pk):
+                    raise ValidationError('The return target belongs to another product.')
+                setup_return_url = reverse(
+                    'admin:core_origination_setup_step',
+                    args=[product.pk, setup_target['step_key']],
+                )
+            except (signing.BadSignature, ValidationError, ValueError):
+                setup_token = ''
+                self.message_user(
+                    request,
+                    'The setup return link expired. You can still configure the document safely.',
+                    level=messages.WARNING,
+                )
         if product.lifecycle_status != product.STATUS_DRAFT:
             self.message_user(
                 request, 'Published product versions are immutable. Create an editable next version first.',
@@ -7903,7 +7970,7 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
                         'New applications will resolve the latest compatible published version.',
                         level=messages.SUCCESS,
                     )
-                    return HttpResponseRedirect(product_url)
+                    return HttpResponseRedirect(setup_return_url or product_url)
                 template = create_shared_supporting_template(
                     pdf_file=form.cleaned_data['pdf_file'], name=form.cleaned_data['name'],
                     document_key=form.cleaned_data['document_key'],
@@ -7930,9 +7997,12 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
                         'PDF uploaded. Draw its fields, then use Publish & attach to finish the packet.',
                         level=messages.SUCCESS,
                     )
-                    return HttpResponseRedirect(reverse(
+                    calibration_url = reverse(
                         'admin:core_originationdocumenttemplate_calibrate', args=[template.pk],
-                    ))
+                    )
+                    if setup_token:
+                        calibration_url += '?' + urlencode({'setup_return': setup_token})
+                    return HttpResponseRedirect(calibration_url)
         from core.services.loan_origination import SIGNER_ROLE_CATALOG
         from core.services.origination_fields import catalogue_for_product
         return TemplateResponse(request, 'admin/core/originationproductdefinition/supporting_document_setup.html', {
@@ -7941,6 +8011,8 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
             'title': f'Add supporting document: {product}',
             'product': product,
             'product_url': product_url,
+            'setup_return_url': setup_return_url,
+            'setup_return_token': setup_token,
             'form': form,
             'origination_signer_roles': [
                 {'key': key, 'label': label} for key, label in SIGNER_ROLE_CATALOG
@@ -8558,13 +8630,49 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         obj = self._calibration_template(request, object_id)
         pending_attachment = self._pending_supporting_attachment(request, obj)
         product = pending_attachment['product'] if pending_attachment else None
+        setup_return_url = ''
+        setup_return_warning = ''
+        setup_token = str(request.GET.get('setup_return') or '').strip()
+        if setup_token:
+            try:
+                from core.services.origination_setup import resolve_return_token
+                setup_target = resolve_return_token(setup_token)
+                setup_definition = OriginationProductDefinition.objects.filter(
+                    pk=setup_target['definition_id'],
+                    lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
+                ).first()
+                owns_template = bool(
+                    setup_definition
+                    and (
+                        obj.product_definition_id == setup_definition.pk
+                        or (product and product.pk == setup_definition.pk)
+                        or setup_definition.document_assignments.filter(
+                            template__document_type=obj.document_type,
+                        ).exists()
+                    )
+                )
+                if not owns_template:
+                    raise ValidationError('The PDF does not belong to that setup workspace.')
+                setup_return_url = reverse(
+                    'admin:core_origination_setup_step',
+                    args=[setup_definition.pk, setup_target['step_key']],
+                )
+            except (signing.BadSignature, ValidationError, ValueError):
+                setup_return_url = reverse('admin:core_origination_setup_dashboard')
+                setup_return_warning = (
+                    'The setup return link is invalid or expired. Saving is still safe; '
+                    'Back returns to the product setup dashboard.'
+                )
         return TemplateResponse(request, 'admin/core/originationdocumenttemplate/calibrate.html', {
             **self.admin_site.each_context(request), 'opts': self.model._meta,
             'title': f'Calibrate fields: {obj}', 'template_record': obj,
             'calibration_attach_product': product,
-            'calibration_back_url': reverse(
-                'admin:core_originationproductdefinition_change', args=[product.pk],
-            ) if product else reverse('admin:core_originationdocumenttemplate_changelist'),
+            'calibration_back_url': setup_return_url or (
+                reverse('admin:core_originationproductdefinition_change', args=[product.pk])
+                if product else reverse('admin:core_originationdocumenttemplate_changelist')
+            ),
+            'calibration_setup_return_url': setup_return_url,
+            'calibration_setup_return_warning': setup_return_warning,
             'calibration_attach_product_url': (
                 reverse('admin:core_originationproductdocumentassignment_add')
                 + '?' + urlencode({'template': obj.pk})

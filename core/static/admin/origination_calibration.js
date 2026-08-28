@@ -1449,6 +1449,22 @@
       if (!published) setOperationState('idle');
     }
   }).catch(() => {});
+  const saveReturn = $('calibration-save-return');
+  if (saveReturn) saveReturn.onclick = () => runWrite(async () => {
+    const snapshot = copy(configuration), snapshotHash = configurationHash(snapshot);
+    try {
+      setOperationState('saving');
+      saveReturn.setAttribute('aria-busy', 'true');
+      status('Saving reviewed alignment…', false, true);
+      if (snapshotHash !== savedBaselineHash) await saveDraft(snapshot, snapshotHash);
+      window.location.assign(app.dataset.setupReturnUrl);
+    } catch (error) {
+      status(error.message, true, true);
+      if (!published) setOperationState('idle');
+      saveReturn.removeAttribute('aria-busy');
+      throw error;
+    }
+  }).catch(() => {});
   $('calibration-publish').onclick = () => runWrite(async () => {
     try {
       if (!readinessState().ready) { updateReadiness(); openMobileSheet('fields', $('cal-mobile-fields')); return; }
@@ -1475,6 +1491,9 @@
             : `${data.template_name || 'Document template'} is published and available for product document packets.`,
         false, true,
       );
+      if (app.dataset.setupReturnUrl) {
+        window.setTimeout(() => window.location.assign(app.dataset.setupReturnUrl), 650);
+      }
     } catch (error) {
       serverReadinessIssue = error.message;
       if (!published) setOperationState('idle');

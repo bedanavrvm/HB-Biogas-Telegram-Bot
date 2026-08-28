@@ -1,0 +1,58 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/origination_setup.css' %}?v=1">
+  {% if step_key == 'form' %}<link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=10">{% endif %}
+{% endblock %}
+
+{% block content %}
+<main class="osw-page">
+  <header class="osw-workspace-head">
+    <div><a href="{{ dashboard_url }}">← Product setup</a><p class="osw-kicker">{{ definition.product_key }}</p><h1>{{ definition.name }}</h1><p>Form v{{ definition.version }} · Terms v{{ definition.product_version.version }}</p></div>
+    <div class="osw-head-actions"><span class="osw-status {% if published_readonly %}published{% else %}in-progress{% endif %}">{% if published_readonly %}Published{% else %}Draft{% endif %}</span><a href="{{ advanced_url }}">Advanced settings</a></div>
+  </header>
+
+  {% if conflict %}<section class="osw-alert error" role="alert"><h2>This setup changed in another tab</h2><p>Reload before saving so you do not overwrite newer values. Changed: {{ conflict.changed|join:', ' }}.</p><a class="osw-primary" href="">Reload latest</a><details><summary>Keep a copy of my submitted values</summary><pre>{{ conflict.submitted }}</pre></details></section>{% endif %}
+  {% if step_error %}<section class="osw-alert error" role="alert"><h2>This step was not saved</h2><p>{{ step_error }}</p></section>{% endif %}
+
+  <nav class="osw-stepper" aria-label="Product setup steps">{% for item in steps %}<a href="{{ item.url }}" class="{{ item.status }}{% if item.key == step_key %} current{% endif %}" aria-current="{% if item.key == step_key %}step{% else %}false{% endif %}"><b>{{ forloop.counter }}</b><span>{{ item.label }}<small>{{ item.status }}</small></span></a>{% endfor %}</nav>
+
+  <section class="osw-card osw-step-card">
+    <header class="osw-section-title"><div><p class="osw-kicker">STEP {{ step_label }}</p><h2>{{ step_label }}</h2></div><span class="osw-hash" title="Workspace concurrency token">State {{ workspace_token|slice:':8' }}</span></header>
+
+    {% if published_readonly %}<div class="osw-alert info">This version is immutable. Return to the dashboard and create an editable successor to make changes.</div>{% endif %}
+
+    {% if step_key == 'identity' %}
+      <form method="post" data-osw-submit>{% csrf_token %}{% include "admin/core/origination_setup/write_contract.html" %}{{ form.non_field_errors }}<div class="osw-form-grid">{% for field in form %}<div class="osw-field{% if field.name == 'description' or field.name == 'branches' %} osw-span-2{% endif %}">{{ field.label_tag }}{{ field }}<small>{{ field.help_text }}</small>{{ field.errors }}</div>{% endfor %}</div>{% include "admin/core/origination_setup/save_continue.html" with label="Save and continue" %}</form>
+    {% elif step_key == 'terms' %}
+      {% if terms_readonly %}<div class="osw-alert info">These commercial terms are published and immutable.</div><dl class="osw-summary"><dt>Amount</dt><dd>KES {{ terms_summary.min_amount }} – {{ terms_summary.max_amount|default:'No maximum' }}</dd><dt>Tenor</dt><dd>{{ terms_summary.min_tenor }}–{{ terms_summary.max_tenor }} {{ terms_summary.get_tenor_unit_display }}</dd><dt>Interest</dt><dd>{{ terms_summary.interest_rate }} · {{ terms_summary.get_interest_method_display }}</dd></dl><a class="osw-primary" href="{% url 'admin:core_origination_setup_step' definition.pk 'terms_publish' %}">Continue</a>
+      {% else %}<form method="post" data-osw-submit>{% csrf_token %}{% include "admin/core/origination_setup/write_contract.html" %}{{ form.non_field_errors }}<div class="osw-form-grid">{% for field in form %}<div class="osw-field">{{ field.label_tag }}{{ field }}{{ field.errors }}</div>{% endfor %}</div>
+        {% include "admin/core/origination_setup/formset.html" with title="Fees" formset=fees %}
+        {% include "admin/core/origination_setup/formset.html" with title="Origination requirements" formset=requirements %}
+        {% include "admin/core/origination_setup/formset.html" with title="Custom attributes" formset=attributes %}
+        {% include "admin/core/origination_setup/save_continue.html" with label="Save terms and continue" %}</form>{% endif %}
+    {% elif step_key == 'terms_publish' %}
+      <div class="osw-alert warning"><h3>Publication checkpoint 1 of 2</h3><p>Publishing locks these commercial terms. Later changes require a new terms version; existing applications retain their selected version.</p></div>
+      <dl class="osw-summary"><dt>Amount</dt><dd>KES {{ terms_summary.min_amount }} – {{ terms_summary.max_amount|default:'No maximum' }}</dd><dt>Tenor</dt><dd>{{ terms_summary.min_tenor }}–{{ terms_summary.max_tenor }} {{ terms_summary.get_tenor_unit_display }}</dd><dt>Status</dt><dd>{{ terms_summary.get_status_display }}</dd></dl>
+      {% if terms_summary.status == 'draft' %}<form method="post" data-osw-submit>{% csrf_token %}{% include "admin/core/origination_setup/write_contract.html" %}{% include "admin/core/origination_setup/save_continue.html" with label="Publish commercial terms" %}</form>{% else %}<a class="osw-primary" href="{% url 'admin:core_origination_setup_step' definition.pk 'form' %}">Continue to form</a>{% endif %}
+    {% elif step_key == 'form' %}
+      <form method="post" data-osw-submit>{% csrf_token %}{% include "admin/core/origination_setup/write_contract.html" %}{{ form }}
+        {{ origination_signer_roles|json_script:"origination-signer-role-data" }}{{ origination_data_fields|json_script:"origination-data-field-data" }}
+        <section id="origination-product-builder" class="opb-shell" data-create-field-url="{{ origination_data_field_create_url }}">
+          <header class="opb-header"><div><h2>Loan form builder</h2><p>Arrange officer fields and define every required signing role.</p></div><div class="opb-actions"><a class="opb-secondary-link" href="{{ origination_data_field_add_url }}" target="_blank" rel="noopener">Create canonical field</a><button type="button" class="button" data-action="add-section">Add section</button><button type="button" class="button" data-action="add-signer">Add signer</button></div></header>
+          <div id="opb-errors" class="opb-errors" hidden></div><div class="opb-grid"><section><h3>Form sections and fields</h3><div id="opb-sections"></div></section><aside><h3>Signing roles</h3><p class="help">These roles become available as PDF signing slots.</p><div id="opb-signers"></div></aside></div>
+        </section>{% include "admin/core/origination_setup/save_continue.html" with label="Save form and continue" %}</form>
+    {% elif step_key == 'documents' %}
+      {% if documents or assignments %}<div class="osw-document-list">{% for item in documents %}<article><div><b>{{ item.name }}</b><small>{{ item.get_document_role_display }} · product-owned v{{ item.version }}</small></div><a href="{% url 'admin:core_originationdocumenttemplate_change' item.pk %}">Details</a></article>{% endfor %}{% for item in assignments %}<article><div><b>{{ item.assignment.name }}</b><small>Reusable{% if item.resolved %} · v{{ item.resolved.version }}{% endif %}</small></div><a href="{% url 'admin:core_originationproductdocumentassignment_change' item.assignment.pk %}">Settings</a></article>{% endfor %}</div><form method="post" data-osw-submit>{% csrf_token %}{% include "admin/core/origination_setup/write_contract.html" %}<input type="hidden" name="action" value="confirm_existing">{% include "admin/core/origination_setup/save_continue.html" with label="Confirm packet and continue" %}</form><hr>{% endif %}
+      <h3>{% if documents or assignments %}Replace or choose another main LAF{% else %}Choose the main LAF{% endif %}</h3><form method="post" enctype="multipart/form-data" data-osw-submit>{% csrf_token %}{% include "admin/core/origination_setup/write_contract.html" %}<div class="osw-form-grid">{% for field in form %}<div class="osw-field osw-span-2">{{ field.label_tag }}{{ field }}{{ field.errors }}</div>{% endfor %}</div>{% include "admin/core/origination_setup/save_continue.html" with label="Save main LAF" %}</form><div class="osw-inline-actions"><a href="{{ supporting_url }}">Add supporting document</a><a href="{{ library_url }}">Manage reusable library</a></div>
+    {% elif step_key == 'calibration' %}
+      <p>Open each document full-screen, save its reviewed alignment, then return here. The return target is signed and expires after 24 hours.</p><div class="osw-document-list">{% for item in calibration_items %}<article><div><b>{{ item.name }}</b><small>{% if item.published %}Published reusable alignment{% elif item.ready %}Draft alignment saved{% else %}Alignment required{% endif %}</small></div><a class="osw-secondary" href="{{ item.url }}">Open alignment</a></article>{% empty %}<div class="osw-alert error">Add a main LAF before calibrating.</div>{% endfor %}</div><form method="post" data-osw-submit>{% csrf_token %}{% include "admin/core/origination_setup/write_contract.html" %}{% include "admin/core/origination_setup/save_continue.html" with label="Confirm alignment and continue" %}</form>
+    {% elif step_key == 'publish' %}
+      <div class="osw-alert warning"><h3>Publication checkpoint 2 of 2</h3><p>This publishes the exact form contract and resolved document packet for new applications. Published versions remain immutable.</p></div><div class="osw-readiness">{% for row in review_rows %}<article class="{{ row.status }}"><span></span><div><b>{{ row.label }}</b><small>{{ row.detail }}</small></div><em>{{ row.status }}</em></article>{% endfor %}</div>{% if primary_template %}<p class="osw-final-packet"><b>Main LAF:</b> {{ primary_template.name }} v{{ primary_template.version }} · SHA-256 {{ primary_template.source_sha256|slice:':12' }}…</p>{% endif %}<form method="post" data-osw-submit>{% csrf_token %}{% include "admin/core/origination_setup/write_contract.html" %}{% include "admin/core/origination_setup/save_continue.html" with label="Publish Origination product" %}</form>
+    {% endif %}
+  </section>
+</main>
+{% if step_key == 'form' %}<script src="{% static 'admin/origination_product_builder.js' %}?v=9" defer></script>{% endif %}<script src="{% static 'admin/origination_setup.js' %}?v=1" defer></script>
+{% endblock %}

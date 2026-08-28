@@ -165,6 +165,7 @@ Key modules:
 - `origination_esign.py` — verified packet signing sessions, immutable consent/signature binding, Africa's Talking OTP delivery, throttling, and signed-PDF archival
 - `origination_consent.py` — immutable compliance-approved conditional-consent versions and deterministic signed-packet notice pages
 - `origination_final_review.py` — independent post-sign approval, exact-hash review, targeted signature invalidation, and correction routing
+- `origination_setup.py` — derived guided-product-setup readiness, dependency hashes, optimistic-concurrency contracts, signed calibration returns, and append-only step evidence
 - `invoice_finance_origination_seed.py` — reviewed, idempotent Invoice Finance canonical-field/schema/signer contract used by the dry-run-first LAF setup command; it never publishes PDF coordinates
 - `generic_jawabu_laf_seed.py` — reviewed reusable Jawabu LAF canonical-field, repeating-table, evidence, and signer contract; product assignment and PDF coordinates remain explicit Admin actions
 - `reporting_relationships.py` — read-only model-relationship inventory used to govern future report-source expansion; it never creates cross-workflow customer joins
