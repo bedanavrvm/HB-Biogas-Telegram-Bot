@@ -1,0 +1,35 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block bodyclass %}{{ block.super }} osw-admin-page{% endblock %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_setup.css' %}?v=3"><link rel="stylesheet" href="{% static 'admin/origination_setup_layout.css' %}?v=1"><link rel="stylesheet" href="{% static 'admin/origination_product_overview.css' %}?v=1">{% endblock %}
+
+{% block content %}
+<main class="osw-page">
+  <header class="osw-workspace-head">
+    <div><a href="{{ dashboard_url }}">&larr; Product setup</a><p class="osw-kicker">PUBLISHED PRODUCT</p><h1>{{ product.name }}</h1><p>{{ product.code }}{% if product.category %} &middot; {{ product.category }}{% endif %}</p></div>
+    <div class="osw-head-actions"><a class="osw-secondary" href="{{ availability_url }}">Manage availability</a><a class="osw-secondary" href="{{ version_history_url }}">Version history</a><form method="post" action="{{ revise_url }}" data-osw-submit>{% csrf_token %}<input type="hidden" name="request_id" value="{{ request_id }}"><button class="osw-primary" type="submit"><span data-label>Create editable successor</span><span class="osw-spinner"></span></button></form></div>
+  </header>
+
+  <section class="osw-card">
+    <header class="osw-section-title"><div><h2>Current availability</h2><p>This is current product-level coverage; it is not a historical version snapshot.</p></div><span class="osw-count">{{ availability|length }}</span></header>
+    <div class="osw-coverage-chips">{% for assignment in availability %}<span><b>{{ assignment.workflow_label }}</b> &middot; {{ assignment.branch.name|default:'Any branch' }}</span>{% empty %}<p>No explicit availability is configured.</p>{% endfor %}</div>
+  </section>
+
+  <section class="osw-section">
+    <div class="osw-section-title"><div><h2>Product versions</h2><p>Each card describes the exact terms, form, signers and document packet for that version. Published versions are immutable.</p></div><span class="osw-count">{{ version_rows|length }}</span></div>
+    <div class="osw-version-stack">{% for row in version_rows %}<article class="osw-card osw-version-card">
+      <header class="osw-version-head"><div><h2>Form v{{ row.definition.version }} &middot; Terms v{{ row.terms.version }}</h2><p>{{ row.definition.get_lifecycle_status_display }}{% if row.definition.is_active %} &middot; Active for new applications{% endif %}</p></div><div><span class="osw-status {% if row.definition.is_active %}published{% else %}in-progress{% endif %}">{% if row.definition.is_active %}Live{% else %}Historical{% endif %}</span><a href="{{ row.advanced_url }}">Technical record</a></div></header>
+      <div class="osw-overview-grid">
+        <section><h3>Commercial terms</h3><dl class="osw-summary"><dt>Amount</dt><dd>{{ row.terms.currency }} {{ row.terms.min_amount|floatformat:"-2" }} – {{ row.terms.max_amount|floatformat:"-2"|default:'No maximum' }}</dd><dt>Tenor</dt><dd>{{ row.terms.min_tenor }}–{{ row.terms.max_tenor }} {{ row.terms.get_tenor_unit_display }}</dd><dt>Interest</dt><dd>{{ row.terms.interest_rate|floatformat:"-6" }}% &middot; {{ row.terms.get_interest_method_display }} &middot; {{ row.terms.get_interest_rate_period_display }}</dd><dt>Repayment</dt><dd>{{ row.terms.get_repayment_frequency_display }}</dd><dt>Effective</dt><dd>{{ row.terms.effective_from|date:"d-m-Y" }}{% if row.terms.effective_to %} to {{ row.terms.effective_to|date:"d-m-Y" }}{% endif %}</dd></dl>
+          <details><summary>Fees, requirements and attributes</summary><div class="osw-detail-list"><h4>Fees</h4>{% for item in row.terms.fees.all %}<p><b>{{ item.label }}</b> &middot; {{ item.get_fee_type_display }}{% if item.fixed_amount != None %} &middot; {{ row.terms.currency }} {{ item.fixed_amount|floatformat:"-2" }}{% endif %}{% if item.percentage != None %} &middot; {{ item.percentage|floatformat:"-6" }}%{% endif %}</p>{% empty %}<p>None</p>{% endfor %}<h4>Requirements</h4>{% for item in row.terms.requirements.all %}<p><b>{{ item.label }}</b> &middot; {{ item.get_requirement_type_display }}{% if item.required %} &middot; Required{% endif %}</p>{% empty %}<p>None</p>{% endfor %}<h4>Custom attributes</h4>{% for item in row.terms.custom_attributes.all %}<p><b>{{ item.label }}</b> &middot; {{ item.get_attribute_type_display }}{% if item.required %} &middot; Required{% endif %}</p>{% empty %}<p>None</p>{% endfor %}</div></details>
+        </section>
+        <section><h3>Form and signers</h3><p><b>{{ row.sections|length }}</b> sections &middot; <b>{{ row.fields|length }}</b> fields &middot; <b>{{ row.signers|length }}</b> signer roles</p><details><summary>Form fields</summary><div class="osw-table-wrap"><table class="osw-table"><thead><tr><th>Section</th><th>Field</th><th>Type</th><th>Required</th></tr></thead><tbody>{% for field in row.fields %}<tr><td>{{ field.section }}</td><td><b>{{ field.label }}</b><small>{{ field.key }}</small></td><td>{{ field.type }}</td><td>{{ field.required|yesno:"Yes,No" }}</td></tr>{% empty %}<tr><td colspan="4">No configured fields.</td></tr>{% endfor %}</tbody></table></div></details><div class="osw-signer-list">{% for signer in row.signers %}<span><b>{{ signer.role }}</b>{% if signer.required %} &middot; Required{% endif %}{% if signer.slots %}<small>{{ signer.slots|join:", " }}</small>{% endif %}</span>{% empty %}<p>No signer roles.</p>{% endfor %}</div></section>
+      </div>
+      <section class="osw-documents"><h3>Document packet / LAFs</h3><div class="osw-document-list">{% for document in row.documents %}<article><div><b>{{ document.name }}</b><small>{{ document.role }} &middot; {{ document.source }} &middot; {{ document.inclusion }} &middot; {{ document.version_policy }}</small>{% if document.resolved %}<small>Resolved v{{ document.resolved.version }} &middot; {{ document.resolved.get_status_display }} &middot; SHA-256 {{ document.resolved.source_sha256|slice:':12' }}… &middot; {% if document.calibrated %}Calibration published{% else %}Calibration not published{% endif %}</small>{% else %}<small>Referenced reusable version is unavailable.</small>{% endif %}</div><div class="osw-inline-actions"><a href="{{ document.detail_url }}">Document</a>{% if document.calibration_url %}<a href="{{ document.calibration_url }}">View alignment</a>{% endif %}</div></article>{% empty %}<div class="osw-alert error">No document packet is attached to this version.</div>{% endfor %}</div></section>
+      <footer>Created {{ row.definition.created_at|date:"d-m-Y H:i" }} by {{ row.definition.created_by|default:'System' }}{% if row.definition.published_at %} &middot; Published {{ row.definition.published_at|date:"d-m-Y H:i" }} by {{ row.definition.published_by|default:'System' }}{% endif %}{% if row.definition.supersedes %} &middot; Supersedes form v{{ row.definition.supersedes.version }}{% endif %}</footer>
+    </article>{% empty %}<div class="osw-card osw-empty">No Origination versions found.</div>{% endfor %}</div>
+  </section>
+</main>
+<script src="{% static 'admin/origination_setup.js' %}?v=2" defer></script>
+{% endblock %}

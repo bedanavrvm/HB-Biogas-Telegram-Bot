@@ -43,6 +43,7 @@ class GroupConfig:
         sheet_schema: Dict[str, Any] = None,
         workflow: Dict[str, Any] = None,
         parser_rules: Dict[str, Any] = None,
+        tat_sheet_projection_enabled: bool = True,
     ):
         self.group_id = str(group_id)
         self.sheet_id = sheet_id
@@ -64,6 +65,7 @@ class GroupConfig:
             }
         self.sheet_schema = SheetSchema.from_config(self.sheet_schema_config)
         self.parser_rules = parser_rules or self.metadata.get('parser_rules') or {}
+        self.tat_sheet_projection_enabled = bool(tat_sheet_projection_enabled)
 
         if not self.sheet_id:
             logger.warning(f"Group {group_id} has no sheet_id configured")

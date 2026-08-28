@@ -408,14 +408,38 @@ def tat_tracker_task_resolve(request):
         return JsonResponse({'ok': False, 'error': 'This TAT workflow is no longer available.'}, status=404)
     user = staff_user_for_payload(group_config, user_payload)
     actor = user.get('_canonical_user')
-    if not user.get('authorized') or not task_access_allowed(task, actor):
+    if not user.get('authorized'):
+        return JsonResponse({'ok': False, 'error': 'This task is outside your current TAT assignment.'}, status=403)
+    expired = bool(locator.revoked_at or locator.expires_at <= timezone.now())
+    if expired:
+        # A normal case-revision supersession may safely hand an authorized
+        # recipient to the successor task. An explicit in-place reroute keeps
+        # the same task and must never revive the old recipient's locator.
+        successor = None
+        if task.status != task.STATUS_PENDING:
+            successor = task.superseded_by or task.case.action_tasks.filter(
+                status=task.STATUS_PENDING,
+            ).order_by('-created_at').first()
+        if successor and task_access_allowed(successor, actor):
+            mark_task_read(successor, actor)
+            return JsonResponse({'ok': True, 'data': {
+                'group_id': task.case.group_id, 'case_id': successor.case.case_id,
+                'stage_key': successor.stage_key, 'task_id': str(successor.pk),
+                'link_status': 'expired',
+                'message': 'This task changed. The current task has been opened.',
+            }})
+        return JsonResponse({'ok': True, 'data': {
+            'group_id': task.case.group_id, 'case_id': task.case.case_id,
+            'stage_key': '', 'task_id': '', 'link_status': 'expired',
+            'message': 'This task link is no longer active. Open your current TAT inbox.',
+        }})
+    if not task_access_allowed(task, actor):
         return JsonResponse({'ok': False, 'error': 'This task is outside your current TAT assignment.'}, status=403)
     current = task
     if task.status != task.STATUS_PENDING:
         current = task.superseded_by or task.case.action_tasks.filter(status=task.STATUS_PENDING).order_by('-created_at').first()
     if current and not task_access_allowed(current, actor):
         current = None
-    expired = bool(locator.revoked_at or locator.expires_at <= timezone.now())
     if current and current.status == current.STATUS_PENDING and task_access_allowed(current, actor):
         mark_task_read(current, actor)
     return JsonResponse({'ok': True, 'data': {
@@ -423,10 +447,9 @@ def tat_tracker_task_resolve(request):
         'case_id': current.case.case_id if current else task.case.case_id,
         'stage_key': current.stage_key if current else '',
         'task_id': str(current.pk) if current else '',
-        'link_status': 'expired' if expired else ('current' if current == task else 'superseded'),
+        'link_status': 'current' if current == task else 'superseded',
         'message': (
-            'This link has expired. The current task is available in your inbox.' if expired
-            else ('This task changed. The current task has been opened.' if current != task else '')
+            'This task changed. The current task has been opened.' if current != task else ''
         ),
     }})
 

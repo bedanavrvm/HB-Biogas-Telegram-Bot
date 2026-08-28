@@ -81,6 +81,7 @@ class TatTrackerWorkflowTest(TestCase):
             display_name='TAT Test',
             sheet_id='sheet123',
             sheet_name='TRACKER-Business',
+            tat_sheet_projection_enabled=True,
             workflow={
                 'type': 'tat_tracker',
                 'products': ['business', 'logbook'],
@@ -125,6 +126,15 @@ class TatTrackerWorkflowTest(TestCase):
 
     def test_detects_tat_tracker_workflow(self):
         self.assertTrue(is_tat_tracker_workflow(self.config))
+
+    def test_new_tat_group_defaults_to_django_only_register(self):
+        group = GroupSheetConfiguration.objects.create(
+            group_id='-100django-only', display_name='Django only', sheet_id='',
+            sheet_name='', workflow={'type': 'tat_tracker', 'branches': ['Nakuru']},
+        )
+
+        self.assertFalse(group.tat_sheet_projection_enabled)
+        group.full_clean()
 
     def test_product_amount_limits_match_current_tat_policy(self):
         self.assertEqual(product_by_key('logbook').max_amount, Decimal('700000'))

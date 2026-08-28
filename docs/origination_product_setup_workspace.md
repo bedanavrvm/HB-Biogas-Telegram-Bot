@@ -18,6 +18,18 @@ Open **Django Admin → Origination product definitions → Guided product setup
 
 The dashboard resumes the first stale step before the first incomplete step. `blocked` means a preceding required step is not valid. `stale` means the step was previously confirmed but one of its governed inputs or dependencies has changed.
 
+## Published product overview
+
+Select a product name or **View product** under **Published products** to open its read-only family overview. It shows current branch/workflow availability plus every form and terms version, fees, requirements, custom attributes, form fields, signer roles, owned or reusable LAFs, supporting documents, version policies, calibration status, hashes, and publication history.
+
+Availability is current product-level configuration. Terms, forms, signer rules, and document packets are shown separately for each exact version. Use **Create editable successor** to change a published version.
+
+## Bulk availability
+
+Open **Manage availability** from a Product record or the published-product overview. Select several branches and workflows and apply them once; the internal `portal` channel is derived automatically and is not an Admin choice. Repeating the same request is safe. To remove coverage, select the existing assignments and use **Deactivate selected**. Assignments are deactivated rather than deleted and the operation is recorded in the compliance audit ledger.
+
+**Select all current** stores each currently active branch explicitly. A branch created later is not automatically authorized.
+
 ## Maintenance and version safety
 
 - Published `ProductVersion` and `OriginationProductDefinition` rows are never edited.
@@ -50,7 +62,7 @@ Successful step confirmations are append-only `setup_step_completed` events on t
 - `core/origination_setup_forms.py` owns bounded multi-model forms.
 - `core/origination_setup_admin.py` owns the Superuser routes and transaction boundaries.
 - The authoritative final publication still runs the existing product-catalog and Origination-template publication services. The workspace readiness projection is guidance; it does not replace final server-side validation.
-- No schema migration is required because durable draft state and audit evidence use existing governed models.
+- Migration `0140_repair_origination_availability_channel` changes active legacy Loan Origination `telegram` availability rows to the operational `portal` channel. It merges safely when an equivalent portal row already exists.
 
 ## Verification
 

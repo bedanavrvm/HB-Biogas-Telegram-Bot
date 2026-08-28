@@ -156,6 +156,9 @@ from .models import (
     TatActionTask,
     TatActionTaskRecipient,
     TatActionTaskLocator,
+    TatTaskRerouteEvent,
+    TatResponsibilityChangePlan,
+    TatConfigurationEvent,
     TatGroupExceptionStatus,
     TatNotificationProcessorRun,
     TatRepairJob,
@@ -1578,15 +1581,9 @@ class LocationConfigurationEventAdmin(CompactModelAdmin):
         return False
 
 
-PRODUCT_WORKFLOW_CHOICES = [
-    ('', 'All workflows'),
-    ('jawabu_portal', 'Jawabu Portal'),
-    ('loan_origination', 'Loan Origination'),
-    ('tat_tracker', 'TAT Tracker'),
-    ('spin_credit_analysis', 'SPIN / Credit Analysis'),
-    ('order_approval', 'Order Approval'),
-    ('complaint_cases', 'Complaint Cases'),
-]
+from core.services.product_availability import PRODUCT_WORKFLOW_CHOICES as _PRODUCT_WORKFLOW_CHOICES
+
+PRODUCT_WORKFLOW_CHOICES = [('', 'All workflows'), *_PRODUCT_WORKFLOW_CHOICES]
 
 PRODUCT_REQUIREMENT_STAGE_CHOICES = [
     ('', 'No transition gate'),
@@ -1607,21 +1604,6 @@ class ProductAliasInline(TabularInline):
     fields = ('alias',)
 
 
-class ProductAvailabilityForm(forms.ModelForm):
-    workflow = forms.ChoiceField(choices=PRODUCT_WORKFLOW_CHOICES, required=False)
-
-    class Meta:
-        model = ProductAvailability
-        fields = ('branch', 'workflow', 'channel', 'active')
-
-
-class ProductAvailabilityInline(TabularInline):
-    model = ProductAvailability
-    form = ProductAvailabilityForm
-    extra = 1
-    fields = ('branch', 'workflow', 'channel', 'active')
-
-
 @admin.register(Product)
 class ProductAdmin(CompactModelAdmin):
     """Canonical identity shared by every workflow and external adapter."""
@@ -1630,13 +1612,101 @@ class ProductAdmin(CompactModelAdmin):
     list_filter = ('active', 'category')
     search_fields = ('name', 'code', 'aliases__alias')
     ordering = ('sort_order', 'name')
-    readonly_fields = ('created_at', 'updated_at', 'terms_link')
-    inlines = (ProductAliasInline, ProductAvailabilityInline)
+    readonly_fields = ('created_at', 'updated_at', 'terms_link', 'availability_link')
+    inlines = (ProductAliasInline,)
     fieldsets = (
         ('Global identity', {'fields': (('name', 'code'), ('category', 'active'), 'description', 'sort_order')}),
         ('Commercial terms', {'fields': ('terms_link',)}),
+        ('Availability', {'fields': ('availability_link',)}),
         ('Audit', {'fields': (('created_at', 'updated_at'),), 'classes': ('collapse',)}),
     )
+
+    def get_urls(self):
+        return [
+            path(
+                '<path:object_id>/availability/',
+                self.admin_site.admin_view(self.availability_workspace_view),
+                name='core_product_availability',
+            ),
+        ] + super().get_urls()
+
+    def availability_workspace_view(self, request, object_id):
+        if not request.user.is_active or not request.user.is_superuser:
+            raise PermissionDenied
+        product = Product.objects.filter(pk=object_id).first()
+        if not product:
+            return HttpResponse(status=404)
+        error = ''
+        if request.method == 'POST':
+            from core.services.product_availability import (
+                add_product_coverage, deactivate_product_coverage,
+            )
+            try:
+                action = str(request.POST.get('action') or '')
+                if action == 'add':
+                    result = add_product_coverage(
+                        product=product,
+                        branch_ids=request.POST.getlist('branches'),
+                        workflows=request.POST.getlist('workflows'),
+                        actor=request.user,
+                        request_id=request.POST.get('request_id') or '',
+                    )
+                    self.message_user(
+                        request,
+                        f"Coverage saved: {result['created_count']} added and "
+                        f"{result['reactivated_count']} reactivated.",
+                        level=messages.SUCCESS,
+                    )
+                elif action == 'deactivate':
+                    count = deactivate_product_coverage(
+                        product=product,
+                        assignment_ids=request.POST.getlist('assignments'),
+                        actor=request.user,
+                        request_id=request.POST.get('request_id') or '',
+                    )
+                    self.message_user(
+                        request, f'{count} coverage assignment(s) deactivated.',
+                        level=messages.SUCCESS,
+                    )
+                else:
+                    raise ValidationError('Choose a supported availability action.')
+                return HttpResponseRedirect(reverse(
+                    'admin:core_product_availability', args=[product.pk],
+                ))
+            except ValidationError as exc:
+                error = '; '.join(exc.messages)
+        from core.services.product_availability import (
+            CANONICAL_PRODUCT_CHANNEL, PRODUCT_WORKFLOW_CHOICES,
+        )
+        workflow_labels = dict(PRODUCT_WORKFLOW_CHOICES)
+        canonical = list(product.availability_assignments.select_related('branch').filter(
+            active=True, channel=CANONICAL_PRODUCT_CHANNEL,
+            workflow__in=workflow_labels,
+        ).order_by('workflow', 'branch__sort_order', 'branch__name'))
+        for assignment in canonical:
+            assignment.workflow_label = workflow_labels.get(
+                assignment.workflow, assignment.workflow,
+            )
+        compatibility = list(product.availability_assignments.select_related('branch').filter(
+            active=True,
+        ).exclude(
+            channel=CANONICAL_PRODUCT_CHANNEL, workflow__in=workflow_labels,
+        ).order_by('workflow', 'channel', 'branch__name'))
+        return TemplateResponse(request, 'admin/core/product/availability.html', {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': f'Manage {product.name} availability',
+            'product': product,
+            'branches': OperationalLocation.objects.filter(
+                location_type='branch', active=True,
+            ).order_by('sort_order', 'name'),
+            'workflows': PRODUCT_WORKFLOW_CHOICES,
+            'canonical_assignments': canonical,
+            'compatibility_assignments': compatibility,
+            'request_id': str(uuid.uuid4()),
+            'error': error,
+            'product_change_url': reverse('admin:core_product_change', args=[product.pk]),
+        }, status=400 if error else 200)
 
     @admin.display(description='Current terms')
     def current_terms(self, obj):
@@ -1651,6 +1721,18 @@ class ProductAdmin(CompactModelAdmin):
         url = reverse('admin:core_productversion_changelist') + '?' + urlencode({'product__id__exact': obj.pk})
         add_url = reverse('admin:core_productversion_add') + '?' + urlencode({'product': obj.pk})
         return format_html('<a class="button" href="{}">Manage versions</a> <a class="button" href="{}">Add version</a>', url, add_url)
+
+    @admin.display(description='Product availability')
+    def availability_link(self, obj):
+        if not obj.pk:
+            return 'Save the product before configuring availability.'
+        count = obj.availability_assignments.filter(active=True, channel='portal').count()
+        url = reverse('admin:core_product_availability', args=[obj.pk])
+        return format_html(
+            '<a class="button" href="{}">Manage availability</a> '
+            '<span>{} active branch/workflow assignment(s)</span>',
+            url, count,
+        )
 
     def get_readonly_fields(self, request, obj=None):
         fields = list(self.readonly_fields)
@@ -2265,7 +2347,249 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
                 self.admin_site.admin_view(self.eligible_users_view),
                 name='core_tatresponsibilityassignment_eligible_users',
             ),
+            path(
+                'control-center/<int:group_id>/',
+                self.admin_site.admin_view(self.control_center_view),
+                name='core_tat_control_center',
+            ),
+            path(
+                'control-center/<int:group_id>/stages/<uuid:version_id>/',
+                self.admin_site.admin_view(self.stage_designer_view),
+                name='core_tat_stage_designer',
+            ),
+            path(
+                'control-center/<int:group_id>/register/',
+                self.admin_site.admin_view(self.register_view),
+                name='core_tat_register',
+            ),
+            path(
+                'control-center/<int:group_id>/register/export/',
+                self.admin_site.admin_view(self.register_export_view),
+                name='core_tat_register_export',
+            ),
+            path(
+                'control-center/task/<uuid:task_id>/reroute/',
+                self.admin_site.admin_view(self.reroute_task_view),
+                name='core_tat_task_reroute',
+            ),
+            path(
+                'control-center/case/<uuid:case_id>/resolve-configuration/',
+                self.admin_site.admin_view(self.resolve_case_configuration_view),
+                name='core_tat_case_configuration_resolve',
+            ),
         ] + super().get_urls()
+
+    def _control_group(self, group_id):
+        group = GroupSheetConfiguration.objects.filter(pk=group_id, enabled=True).first()
+        if not group or str((group.workflow or {}).get('type') or '') != 'tat_tracker':
+            raise PermissionDenied('Choose an enabled TAT Tracker group.')
+        return group
+
+    def control_center_view(self, request, group_id):
+        if not self.has_module_permission(request):
+            raise PermissionDenied
+        from core.services.tat_setup import (
+            TatSetupError, disable_sheet_projection, enable_sheet_projection,
+            setup_readiness, sheet_cutover_readiness,
+        )
+        group = self._control_group(group_id)
+        if request.method == 'POST' and request.POST.get('action') in {'disable_projection', 'enable_projection'}:
+            try:
+                operation = disable_sheet_projection if request.POST.get('action') == 'disable_projection' else enable_sheet_projection
+                operation(
+                    group=group, actor=request.user,
+                    reason=request.POST.get('reason'), request_id=request.POST.get('request_id'),
+                )
+            except TatSetupError as exc:
+                messages.error(request, str(exc))
+            else:
+                from core.services.group_config import GroupRegistry
+                from core.services.sheets import GoogleSheetsService
+                GroupRegistry._instance = None
+                GoogleSheetsService.clear_instances()
+                state = 'disabled' if request.POST.get('action') == 'disable_projection' else 'enabled'
+                messages.success(request, f'Google Sheet projection {state}. Django remains the TAT source of truth.')
+            return HttpResponseRedirect(reverse('admin:core_tat_control_center', args=[group.pk]))
+        readiness = setup_readiness(group)
+        allowed_product_keys = [item.key for item in configured_products(group.workflow)]
+        versions = list(ProductVersion.objects.select_related('product').filter(
+            tat_configuration__isnull=False, product__code__in=allowed_product_keys,
+        ).order_by('product__sort_order', 'product__name', '-version'))
+        products = {}
+        for version in versions:
+            row = products.setdefault(version.product_id, {
+                'product': version.product, 'versions': [], 'selected': None,
+            })
+            row['versions'].append(version)
+            if row['selected'] is None or version.status == ProductVersion.STATUS_DRAFT:
+                row['selected'] = version
+        for row in products.values():
+            selected = row['selected']
+            row['designer_url'] = reverse(
+                'admin:core_tat_stage_designer', args=[group.pk, selected.pk],
+            )
+            row['version_admin_url'] = reverse('admin:core_productversion_change', args=[selected.pk])
+        return TemplateResponse(request, 'admin/core/tatresponsibilityassignment/control_center.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta,
+            'title': f'TAT Control Center - {group.display_name or group.group_id}',
+            'group': group, 'readiness': readiness, 'products': list(products.values()),
+            'cutover': sheet_cutover_readiness(group),
+            'register_url': reverse('admin:core_tat_register', args=[group.pk]),
+            'responsibilities_url': f"{reverse('admin:core_tatresponsibilityassignment_changelist')}?workspace_group={group.pk}",
+            'users_url': reverse('admin:auth_user_changelist'),
+            'request_id': str(uuid.uuid4()),
+        })
+
+    def stage_designer_view(self, request, group_id, version_id):
+        if not self.has_module_permission(request):
+            raise PermissionDenied
+        from core.services.tat_setup import TatSetupError, save_stage_design, stage_editor_rows
+        group = self._control_group(group_id)
+        version = ProductVersion.objects.select_related('product').filter(pk=version_id).first()
+        allowed_keys = {item.key for item in configured_products(group.workflow)}
+        if not version or not hasattr(version, 'tat_configuration') or version.product.code not in allowed_keys:
+            return HttpResponse(status=404)
+        request_id = str(request.POST.get('request_id') or uuid.uuid4())
+        if request.method == 'POST':
+            try:
+                stages = json.loads(request.POST.get('stages_json') or '[]')
+                saved = save_stage_design(
+                    version=version, stages=stages, actor=request.user,
+                    expected_updated_at=request.POST.get('expected_updated_at'),
+                    reason=request.POST.get('reason'), request_id=request_id,
+                )
+            except (json.JSONDecodeError, TatSetupError) as exc:
+                messages.error(request, str(exc))
+            else:
+                messages.success(request, f'Stage design saved to editable {saved.product.name} version {saved.version}.')
+                return HttpResponseRedirect(reverse(
+                    'admin:core_tat_stage_designer', args=[group.pk, saved.pk],
+                ))
+        return TemplateResponse(request, 'admin/core/tatresponsibilityassignment/stage_designer.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta,
+            'title': f'{version.product.name} TAT stage designer', 'group': group,
+            'version': version, 'stages_json': json.dumps(stage_editor_rows(version)),
+            'request_id': request_id,
+            'back_url': reverse('admin:core_tat_control_center', args=[group.pk]),
+        })
+
+    def register_view(self, request, group_id):
+        if not self.has_module_permission(request):
+            raise PermissionDenied
+        from core.services.tat_register import register_data, version_timeline
+        group = self._control_group(group_id)
+        filters = {key: str(request.GET.get(key) or '').strip() for key in (
+            'search', 'branch', 'product', 'version', 'stage', 'owner', 'status',
+        )}
+        data = register_data(
+            group=group, filters=filters, page=request.GET.get('page') or 1,
+            page_size=request.GET.get('page_size') or 25,
+        )
+        branches = sorted(set(TatTrackerCase.objects.filter(
+            group_id=group.group_id, is_deleted=False,
+        ).exclude(branch='').values_list('branch', flat=True)))
+        version_options = ProductVersion.objects.select_related('product').filter(
+            tat_configuration__isnull=False,
+        ).order_by('product__name', '-version')
+        selected_version = version_options.filter(pk=filters.get('version')).first() if filters.get('version') else None
+        return TemplateResponse(request, 'admin/core/tatresponsibilityassignment/register.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta,
+            'title': f'TAT Register - {group.display_name or group.group_id}',
+            'group': group, 'filters': filters, 'register': data, 'branches': branches,
+            'status_choices': TatTrackerCase.STATUS_CHOICES,
+            'version_options': version_options, 'selected_version': selected_version,
+            'timeline': version_timeline(group=group, version=selected_version),
+            'products': configured_products(group.workflow),
+            'export_url': reverse('admin:core_tat_register_export', args=[group.pk]),
+            'control_center_url': reverse('admin:core_tat_control_center', args=[group.pk]),
+            'request_id': str(uuid.uuid4()),
+        })
+
+    def register_export_view(self, request, group_id):
+        if not self.has_module_permission(request):
+            raise PermissionDenied
+        if request.method != 'POST':
+            response = HttpResponse(status=405)
+            response['Allow'] = 'POST'
+            return response
+        from core.services.tat_register import export_xlsx
+        group = self._control_group(group_id)
+        filters = {key: str(request.POST.get(key) or '').strip() for key in (
+            'search', 'branch', 'product', 'version', 'stage', 'owner', 'status',
+        )}
+        request_id = str(request.POST.get('request_id') or '').strip()
+        if not request_id:
+            messages.error(request, 'The export request expired. Reload the register and try again.')
+            return HttpResponseRedirect(reverse('admin:core_tat_register', args=[group.pk]))
+        content = export_xlsx(group=group, actor=request.user, request_id=request_id, filters=filters)
+        response = HttpResponse(
+            content, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = f'attachment; filename="tat-register-{timezone.localdate().isoformat()}.xlsx"'
+        return response
+
+    def reroute_task_view(self, request, task_id):
+        if not self.has_module_permission(request):
+            raise PermissionDenied
+        task = TatActionTask.objects.select_related('case', 'group_configuration').filter(pk=task_id).first()
+        if not task:
+            return HttpResponse(status=404)
+        if request.method == 'POST':
+            from core.services.tat_notifications import reroute_pending_task
+            try:
+                reroute_pending_task(
+                    task=task, actor=request.user, reason=request.POST.get('reason'),
+                    request_id=request.POST.get('request_id'),
+                )
+            except ValueError as exc:
+                messages.error(request, str(exc))
+            else:
+                messages.success(request, 'The open task was rerouted to the current approved responsibility roster.')
+            return HttpResponseRedirect(reverse(
+                'admin:core_tat_register', args=[task.group_configuration_id],
+            ))
+        return TemplateResponse(request, 'admin/core/tatresponsibilityassignment/reroute.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta,
+            'title': f'Reroute {task.case.case_id}', 'task': task,
+            'request_id': str(uuid.uuid4()),
+            'back_url': reverse('admin:core_tat_register', args=[task.group_configuration_id]),
+        })
+
+    def resolve_case_configuration_view(self, request, case_id):
+        if not self.has_module_permission(request):
+            raise PermissionDenied
+        case = TatTrackerCase.objects.select_related('product', 'product_version').filter(pk=case_id).first()
+        if not case:
+            return HttpResponse(status=404)
+        group = GroupSheetConfiguration.objects.filter(group_id=case.group_id).first()
+        versions = ProductVersion.objects.select_related('product').filter(tat_configuration__isnull=False)
+        versions = (
+            versions.filter(product_id=case.product_id)
+            if case.product_id else versions.filter(product__code=case.product_key)
+        )
+        request_id = str(request.POST.get('request_id') or uuid.uuid4())
+        if request.method == 'POST':
+            from core.services.tat_configuration import TatConfigurationError, resolve_case_configuration
+            version = versions.filter(pk=request.POST.get('product_version')).first()
+            if not version:
+                messages.error(request, 'Choose a matching governed product version.')
+            else:
+                try:
+                    resolve_case_configuration(
+                        case=case, version=version, actor=request.user,
+                        reason=request.POST.get('reason'), request_id=request_id,
+                    )
+                except TatConfigurationError as exc:
+                    messages.error(request, str(exc))
+                else:
+                    messages.success(request, 'The case is now bound to the selected immutable TAT configuration.')
+                    return HttpResponseRedirect(reverse('admin:core_tat_register', args=[group.pk]))
+        return TemplateResponse(request, 'admin/core/tatresponsibilityassignment/resolve_case.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta,
+            'title': f'Resolve configuration for {case.case_id}', 'case': case,
+            'versions': versions.order_by('-version'), 'request_id': request_id,
+            'back_url': reverse('admin:core_tat_register', args=[group.pk]) if group else reverse('admin:core_tatresponsibilityassignment_changelist'),
+        })
 
     def eligible_users_view(self, request):
         if not request.user.is_active or not request.user.is_superuser:
@@ -2477,6 +2801,14 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
             'responsibility_issue_count': sum(len(rows) for rows in issues.values()),
             'capability_matrix_url': reverse('admin:core_workflowrolecapability_matrix'),
             'users_url': reverse('admin:auth_user_changelist'),
+            'control_center_url': (
+                reverse('admin:core_tat_control_center', args=[selected_group.pk])
+                if selected_group else ''
+            ),
+            'register_url': (
+                reverse('admin:core_tat_register', args=[selected_group.pk])
+                if selected_group else ''
+            ),
         }
         # Workspace selectors are presentation controls, not ORM field
         # lookups. Remove them before Django's ChangeList parses query params.
@@ -2519,7 +2851,7 @@ class TatActionTaskRecipientInline(TabularInline):
     can_delete = False
     fields = (
         'user', 'kind', 'rank', 'threshold_percent', 'inbox_status',
-        'delivery_state', 'deliver_after', 'delivery_attempts', 'delivered_at',
+        'routing_generation', 'delivery_state', 'deliver_after', 'delivery_attempts', 'delivered_at',
     )
     readonly_fields = fields
 
@@ -2543,6 +2875,35 @@ class TatActionTaskAdmin(GovernedConfigurationAuditAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(TatTaskRerouteEvent)
+class TatTaskRerouteEventAdmin(GovernedConfigurationAuditAdmin):
+    list_display = ('task', 'generation_before', 'generation_after', 'actor', 'reason', 'created_at')
+    list_filter = ('created_at',)
+    search_fields = ('task__case__case_id', 'actor__username', 'reason', 'request_id')
+    readonly_fields = [field.name for field in TatTaskRerouteEvent._meta.fields]
+    def has_add_permission(self, request): return False
+    def has_delete_permission(self, request, obj=None): return False
+
+
+@admin.register(TatResponsibilityChangePlan)
+class TatResponsibilityChangePlanAdmin(GovernedConfigurationAuditAdmin):
+    list_display = ('assignment', 'status', 'effective_at', 'created_by', 'created_at', 'applied_at')
+    list_filter = ('status', 'effective_at')
+    readonly_fields = [field.name for field in TatResponsibilityChangePlan._meta.fields]
+    def has_add_permission(self, request): return False
+    def has_delete_permission(self, request, obj=None): return False
+
+
+@admin.register(TatConfigurationEvent)
+class TatConfigurationEventAdmin(GovernedConfigurationAuditAdmin):
+    list_display = ('action', 'group_configuration', 'actor', 'reason', 'created_at')
+    list_filter = ('action', 'created_at')
+    search_fields = ('action', 'request_id', 'reason', 'actor__username')
+    readonly_fields = [field.name for field in TatConfigurationEvent._meta.fields]
+    def has_add_permission(self, request): return False
+    def has_delete_permission(self, request, obj=None): return False
 
 
 @admin.register(TatPrivateAlertConnection)
@@ -4122,7 +4483,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
     inlines = []
     actions = ['publish_jbl_apps_launchers', 'preview_jbl_apps_launchers']
     list_display = [
-        'display_label', 'group_id', 'enabled', 'sheet_name',
+        'display_label', 'group_id', 'enabled', 'tat_sheet_projection_enabled', 'sheet_name',
         'sheet_link', 'sheet_coverage_link', 'live_records_link', 'data_records_link',
         'media_records_link', 'tat_repair_link', 'tat_duplicate_link', 'updated_at',
     ]
@@ -7142,6 +7503,11 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
                 name='core_origination_setup_start',
             ),
             path(
+                'setup/<path:object_id>/overview/',
+                self.admin_site.admin_view(self.setup_detail_view),
+                name='core_origination_setup_detail',
+            ),
+            path(
                 'setup/<path:object_id>/revise/',
                 self.admin_site.admin_view(self.setup_revise_view),
                 name='core_origination_setup_revise',
@@ -7221,6 +7587,10 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
     def setup_start_view(self, request):
         from core.origination_setup_admin import start_view
         return start_view(self, request)
+
+    def setup_detail_view(self, request, object_id):
+        from core.origination_setup_admin import detail_view
+        return detail_view(self, request, object_id)
 
     def setup_workspace_view(self, request, object_id):
         from core.origination_setup_admin import workspace_view

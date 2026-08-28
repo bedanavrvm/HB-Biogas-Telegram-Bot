@@ -1,0 +1,57 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block bodyclass %}{{ block.super }} osw-admin-page{% endblock %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_setup.css' %}?v=3"><link rel="stylesheet" href="{% static 'admin/origination_setup_layout.css' %}?v=1"><link rel="stylesheet" href="{% static 'admin/product_availability.css' %}?v=1">{% endblock %}
+
+{% block content %}
+<main class="osw-page">
+  <header class="osw-workspace-head">
+    <div><a href="{{ product_change_url }}">&larr; Product record</a><p class="osw-kicker">GLOBAL PRODUCT</p><h1>{{ product.name }}</h1><p>Configure where this product may be used. The operational channel is applied automatically.</p></div>
+    <span class="osw-status published">{{ canonical_assignments|length }} active</span>
+  </header>
+
+  {% if error %}<section class="osw-alert error" role="alert"><h2>Availability was not saved</h2><p>{{ error }}</p></section>{% endif %}
+
+  <section class="osw-card">
+    <header class="osw-section-title"><div><h2>Add coverage</h2><p>Select several branches and workflows once. Existing coverage is safely reused.</p></div><span class="osw-count" id="coverage-preview">0 combinations</span></header>
+    <form method="post" data-osw-submit id="coverage-add-form">
+      {% csrf_token %}<input type="hidden" name="action" value="add"><input type="hidden" name="request_id" value="{{ request_id }}">
+      <div class="osw-choice-columns">
+        <fieldset class="osw-choice-box"><legend>Branches</legend><div class="osw-choice-actions"><button type="button" data-select-group="branches">Select all current</button><button type="button" data-clear-group="branches">Clear</button></div><div class="osw-choice-list">{% for branch in branches %}<label><input type="checkbox" name="branches" value="{{ branch.pk }}"> {{ branch.name }}</label>{% empty %}<p>No active branches.</p>{% endfor %}</div></fieldset>
+        <fieldset class="osw-choice-box"><legend>Workflows</legend><div class="osw-choice-actions"><button type="button" data-select-group="workflows">Select all</button><button type="button" data-clear-group="workflows">Clear</button></div><div class="osw-choice-list">{% for key, label in workflows %}<label><input type="checkbox" name="workflows" value="{{ key }}"> {{ label }}</label>{% endfor %}</div></fieldset>
+      </div>
+      <p class="osw-note">“Select all current” does not automatically authorize branches created later.</p>
+      <div class="osw-submit-row"><button class="osw-primary" type="submit"><span data-label>Add coverage</span><span class="osw-spinner"></span></button></div>
+    </form>
+  </section>
+
+  <section class="osw-section">
+    <div class="osw-section-title"><div><h2>Active coverage</h2><p>Select only the assignments you want to deactivate.</p></div><label>Filter <input id="coverage-filter" type="search" placeholder="Branch or workflow"></label></div>
+    <form method="post" data-osw-submit data-confirm="Deactivate the selected product coverage? Existing applications are not changed.">
+      {% csrf_token %}<input type="hidden" name="action" value="deactivate"><input type="hidden" name="request_id" value="{{ request_id }}">
+      <div class="osw-table-wrap"><table class="osw-table"><thead><tr><th></th><th>Workflow</th><th>Branch</th><th>Internal channel</th></tr></thead><tbody>
+        {% for assignment in canonical_assignments %}<tr data-coverage-row><td><input type="checkbox" name="assignments" value="{{ assignment.pk }}" aria-label="Select {{ assignment.branch }} {{ assignment.workflow }}"></td><td>{{ assignment.workflow_label }}</td><td>{{ assignment.branch.name|default:'Any branch (legacy wildcard)' }}</td><td><span class="osw-status complete">Automatic</span></td></tr>{% empty %}<tr><td colspan="4">No explicit active coverage. Add the approved branches and workflows above.</td></tr>{% endfor %}
+      </tbody></table></div>
+      {% if canonical_assignments %}<div class="osw-submit-row"><button class="osw-secondary" type="submit"><span data-label>Deactivate selected</span><span class="osw-spinner"></span></button></div>{% endif %}
+    </form>
+  </section>
+
+  {% if compatibility_assignments %}<section class="osw-section"><div class="osw-section-title"><div><h2>Compatibility coverage</h2><p>Older wildcard or non-operational-channel assignments are shown for diagnosis and are not created here.</p></div></div><div class="osw-table-wrap"><table class="osw-table"><thead><tr><th>Workflow</th><th>Branch</th><th>Legacy channel</th></tr></thead><tbody>{% for assignment in compatibility_assignments %}<tr><td>{{ assignment.workflow|default:'All workflows' }}</td><td>{{ assignment.branch.name|default:'Any branch' }}</td><td>{{ assignment.channel|default:'Any channel' }}</td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
+</main>
+<script src="{% static 'admin/origination_setup.js' %}?v=2" defer></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const form = document.getElementById('coverage-add-form');
+  const preview = document.getElementById('coverage-preview');
+  const checked = name => form.querySelectorAll(`input[name="${name}"]:checked`).length;
+  const update = () => { preview.textContent = `${checked('branches') * checked('workflows')} combinations`; };
+  document.querySelectorAll('[data-select-group]').forEach(button => button.addEventListener('click', () => { form.querySelectorAll(`input[name="${button.dataset.selectGroup}"]`).forEach(input => input.checked = true); update(); }));
+  document.querySelectorAll('[data-clear-group]').forEach(button => button.addEventListener('click', () => { form.querySelectorAll(`input[name="${button.dataset.clearGroup}"]`).forEach(input => input.checked = false); update(); }));
+  form.addEventListener('change', update);
+  const filter = document.getElementById('coverage-filter');
+  filter?.addEventListener('input', () => { const query = filter.value.trim().toLowerCase(); document.querySelectorAll('[data-coverage-row]').forEach(row => { row.hidden = query && !row.textContent.toLowerCase().includes(query); }); });
+  update();
+});
+</script>
+{% endblock %}

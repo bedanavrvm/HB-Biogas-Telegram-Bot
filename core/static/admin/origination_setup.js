@@ -3,6 +3,10 @@
   document.querySelectorAll('[data-osw-submit]').forEach(form => {
     form.addEventListener('submit', event => {
       if (!form.checkValidity()) return;
+      if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) {
+        event.preventDefault();
+        return;
+      }
       const button = event.submitter || form.querySelector('button[type="submit"]');
       if (!button || button.dataset.busy === 'true') {
         if (button) event.preventDefault();

@@ -1,0 +1,12 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/css/tat_control_center.css' %}"><script defer src="{% static 'admin/js/tat_stage_designer.js' %}"></script>{% endblock %}
+{% block content %}
+<main class="tat-control-shell">
+  <header class="tat-hero"><div><p class="tat-kicker">Visual stage designer</p><h1>{{ title }}</h1><p>{{ version.product.name }} version {{ version.version }} · {{ version.get_status_display }}. Published versions are copied to an editable successor on save.</p></div><a class="button" href="{{ back_url }}">Back to setup</a></header>
+  <form method="post" id="tat-stage-form" class="tat-designer-form">{% csrf_token %}<input type="hidden" name="request_id" value="{{ request_id }}"><input type="hidden" name="expected_updated_at" value="{{ version.updated_at.isoformat }}"><textarea id="tat-stage-source" hidden>{{ stages_json }}</textarea><input type="hidden" name="stages_json" id="tat-stages-json">
+    <section class="tat-panel"><div class="tat-panel-heading"><div><span>Ordered workflow</span><h2>Stages</h2></div><button class="button" id="tat-add-stage" type="button">Add stage</button></div><p>Drag-free controls work reliably on desktop and touch devices. Move stages with the arrow buttons; the order shown here is the order cases follow.</p><div id="tat-stage-list" class="tat-stage-list"></div></section>
+    <section class="tat-panel tat-save-bar"><label>Reason for change<textarea name="reason" rows="2" required minlength="10" placeholder="Describe the operational reason for this version"></textarea></label><button class="button default" type="submit">Save stage design</button></section>
+  </form>
+</main>
+{% endblock %}

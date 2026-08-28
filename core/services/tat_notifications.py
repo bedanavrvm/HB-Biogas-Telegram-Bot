@@ -10,7 +10,7 @@ from typing import Iterable
 import requests
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils import timezone
 
 from core.models import (
@@ -23,6 +23,7 @@ from core.models import (
     TatNotificationProcessorRun,
     TatPrivateAlertConnection,
     TatResponsibilityAssignment,
+    TatTaskRerouteEvent,
     TatTrackerCase,
 )
 from core.services.telegram_identity import database_group_configuration
@@ -353,6 +354,38 @@ def _connection_status(user) -> str:
     return connection.status if connection else TatPrivateAlertConnection.STATUS_UNKNOWN
 
 
+def _routing_recipients(*, group, case: TatTrackerCase, role: str, stage_key: str):
+    """Resolve the current assignment to an explicit, access-checked roster."""
+    assignment = resolve_assignment(group=group, case=case, role=role, stage_key=stage_key)
+    recipients = []
+    recipient_user_ids = set()
+    invalid_assignment = False
+    if assignment:
+        if user_can_receive_task(assignment.primary_user, group=group, case=case, role=role):
+            recipients.append((assignment.primary_user, TatActionTaskRecipient.KIND_PRIMARY, 0, None))
+            recipient_user_ids.add(assignment.primary_user_id)
+        else:
+            invalid_assignment = True
+        for backup in assignment.backups.filter(active=True).select_related('user').order_by('rank'):
+            if (
+                backup.user_id not in recipient_user_ids
+                and user_can_receive_task(backup.user, group=group, case=case, role=role)
+            ):
+                recipients.append((
+                    backup.user, TatActionTaskRecipient.KIND_BACKUP,
+                    backup.rank, backup.threshold_percent,
+                ))
+                recipient_user_ids.add(backup.user_id)
+            else:
+                invalid_assignment = True
+    if not recipients:
+        recipients = [
+            (user, TatActionTaskRecipient.KIND_ROLE, index + 1, None)
+            for index, user in enumerate(eligible_role_users(group=group, case=case, role=role))
+        ]
+    return assignment, recipients, invalid_assignment
+
+
 @transaction.atomic
 def synchronize_case_task(group_config, case: TatTrackerCase, *, actor_user=None) -> TatActionTask | None:
     """Supersede stale work and create exactly one task for the current revision."""
@@ -400,33 +433,9 @@ def synchronize_case_task(group_config, case: TatTrackerCase, *, actor_user=None
         )
         old.locators.filter(revoked_at__isnull=True).update(revoked_at=now)
 
-    assignment = resolve_assignment(group=group, case=case, role=stage.role, stage_key=stage.key)
-    recipients = []
-    recipient_user_ids = set()
-    invalid_assignment = False
-    if assignment:
-        if user_can_receive_task(assignment.primary_user, group=group, case=case, role=stage.role):
-            recipients.append((assignment.primary_user, TatActionTaskRecipient.KIND_PRIMARY, 0, None))
-            recipient_user_ids.add(assignment.primary_user_id)
-        else:
-            invalid_assignment = True
-        for backup in assignment.backups.filter(active=True).select_related('user').order_by('rank'):
-            if (
-                backup.user_id not in recipient_user_ids
-                and user_can_receive_task(backup.user, group=group, case=case, role=stage.role)
-            ):
-                recipients.append((
-                    backup.user, TatActionTaskRecipient.KIND_BACKUP,
-                    backup.rank, backup.threshold_percent,
-                ))
-                recipient_user_ids.add(backup.user_id)
-            else:
-                invalid_assignment = True
-    if not recipients:
-        recipients = [
-            (user, TatActionTaskRecipient.KIND_ROLE, index + 1, None)
-            for index, user in enumerate(eligible_role_users(group=group, case=case, role=stage.role))
-        ]
+    assignment, recipients, invalid_assignment = _routing_recipients(
+        group=group, case=case, role=stage.role, stage_key=stage.key,
+    )
 
     task = TatActionTask.objects.create(
         case=case, group_configuration=group, assignment=assignment,
@@ -467,6 +476,111 @@ def synchronize_case_task(group_config, case: TatTrackerCase, *, actor_user=None
     return task
 
 
+@transaction.atomic
+def reroute_pending_task(*, task: TatActionTask, actor, reason: str, request_id: str) -> TatActionTask:
+    """Atomically replace a pending task roster using the latest approved responsibility."""
+    if not getattr(actor, 'is_superuser', False):
+        raise ValueError('Only a Django Superuser may reroute open TAT tasks.')
+    reason = str(reason or '').strip()
+    request_id = str(request_id or '').strip()
+    if len(reason) < 10:
+        raise ValueError('Explain why this reroute is required (at least 10 characters).')
+    if not request_id:
+        raise ValueError('A request ID is required.')
+    task = TatActionTask.objects.select_related('case', 'group_configuration').get(pk=task.pk)
+    # The case lock is shared with stage completion. Whichever operation wins
+    # commits first; the loser then revalidates the terminal/pending state.
+    case = TatTrackerCase.objects.select_for_update().get(pk=task.case_id)
+    task = TatActionTask.objects.select_for_update().select_related(
+        'case', 'group_configuration',
+    ).get(pk=task.pk)
+    existing_event = TatTaskRerouteEvent.objects.filter(task=task, request_id=request_id).first()
+    if existing_event:
+        return task
+    if task.status != TatActionTask.STATUS_PENDING:
+        raise ValueError('This task was already completed or superseded; it was not rerouted.')
+    from core.services.tat_tracker import next_action
+    current_stage = next_action(case)
+    if not current_stage or current_stage.key != task.stage_key or case.workflow_revision != task.case_revision:
+        raise ValueError('The case changed before rerouting. Refresh and review its current task.')
+    assignment, recipients, invalid_assignment = _routing_recipients(
+        group=task.group_configuration, case=case,
+        role=task.responsible_role, stage_key=task.stage_key,
+    )
+    now = timezone.now()
+    before_rows = list(task.recipients.select_for_update().order_by('rank', 'created_at'))
+    before_snapshot = {
+        'assignment_id': str(task.assignment_id or ''),
+        'routing_generation': task.routing_generation,
+        'recipients': [
+            {'user_id': row.user_id, 'kind': row.kind, 'rank': row.rank}
+            for row in before_rows
+        ],
+    }
+    generation = task.routing_generation + 1
+    intended = {user.pk: (user, kind, rank, threshold) for user, kind, rank, threshold in recipients}
+    existing_by_user = {row.user_id: row for row in before_rows}
+    removed_user_ids = set(existing_by_user) - set(intended)
+    if removed_user_ids:
+        task.locators.filter(recipient_id__in=removed_user_ids, revoked_at__isnull=True).update(revoked_at=now)
+    for user_id, row in existing_by_user.items():
+        if user_id not in intended:
+            row.inbox_status = TatActionTaskRecipient.INBOX_SUPERSEDED
+            row.delivery_state = TatActionTaskRecipient.DELIVERY_SKIPPED
+            row.delivery_error = 'Superseded by an explicit task reroute.'
+            row.deliver_after = None
+            row.save(update_fields=[
+                'inbox_status', 'delivery_state', 'delivery_error', 'deliver_after', 'updated_at',
+            ])
+            continue
+        _user, kind, rank, threshold = intended[user_id]
+        row.kind = kind
+        row.rank = rank
+        row.threshold_percent = threshold
+        row.routing_generation = generation
+        if row.inbox_status == TatActionTaskRecipient.INBOX_SUPERSEDED:
+            row.inbox_status = TatActionTaskRecipient.INBOX_UNREAD
+        row.save(update_fields=[
+            'kind', 'rank', 'threshold_percent', 'routing_generation', 'inbox_status', 'updated_at',
+        ])
+    for user_id, (user, kind, rank, threshold) in intended.items():
+        if user_id in existing_by_user:
+            continue
+        immediate = kind in {TatActionTaskRecipient.KIND_PRIMARY, TatActionTaskRecipient.KIND_ROLE}
+        TatActionTaskRecipient.objects.create(
+            task=task, user=user, kind=kind, rank=rank, threshold_percent=threshold,
+            routing_generation=generation,
+            deliver_after=now if immediate else _backup_due_at(case, task.stage_key, threshold),
+        )
+    task.assignment = assignment
+    task.routing_generation = generation
+    task.recipient_snapshot = {
+        'invalid_assignment': invalid_assignment,
+        'assignment_id': str(assignment.pk) if assignment else '',
+        'recipient_user_ids': sorted(intended),
+        'delivery_exception': not bool(intended),
+        'rerouted_at': now.isoformat(),
+    }
+    task.save(update_fields=['assignment', 'routing_generation', 'recipient_snapshot', 'updated_at'])
+    after_snapshot = {
+        'assignment_id': str(task.assignment_id or ''),
+        'routing_generation': generation,
+        'recipients': [
+            {'user_id': user.pk, 'kind': kind, 'rank': rank}
+            for user, kind, rank, _threshold in recipients
+        ],
+    }
+    TatTaskRerouteEvent.objects.create(
+        task=task, actor=actor, request_id=request_id, reason=reason,
+        generation_before=before_snapshot['routing_generation'], generation_after=generation,
+        before_snapshot=before_snapshot, after_snapshot=after_snapshot,
+    )
+    transaction.on_commit(lambda task_id=task.pk: safe_dispatch_task(task_id))
+    if task.group_configuration_id:
+        transaction.on_commit(lambda group_id=task.group_configuration_id: safe_refresh_group_exception(group_id))
+    return task
+
+
 def _telegram_request(method: str, payload: dict):
     token = str(getattr(settings, 'TELEGRAM_BOT_TOKEN', '') or '')
     if not token:
@@ -495,6 +609,11 @@ def _send_recipient(recipient: TatActionTaskRecipient) -> bool:
         # PostgreSQL reject FOR UPDATE with "nullable side of an outer join".
         # Related objects are loaded lazily after this short claim transaction.
         recipient = TatActionTaskRecipient.objects.select_for_update().get(pk=recipient.pk)
+        task_generation = TatActionTask.objects.select_for_update().values_list(
+            'routing_generation', flat=True,
+        ).get(pk=recipient.task_id)
+        if recipient.routing_generation != task_generation:
+            return False
         if recipient.delivery_state == TatActionTaskRecipient.DELIVERY_DELIVERED:
             return True
         if recipient.delivery_state not in {
@@ -510,6 +629,7 @@ def _send_recipient(recipient: TatActionTaskRecipient) -> bool:
         recipient.save(update_fields=[
             'delivery_attempts', 'delivery_state', 'deliver_after', 'updated_at',
         ])
+        claimed_generation = recipient.routing_generation
     user = recipient.user
     profile = getattr(user, 'staff_profile', None)
     chat_id = str(getattr(profile, 'telegram_id', '') or '').strip()
@@ -589,14 +709,29 @@ def _send_recipient(recipient: TatActionTaskRecipient) -> bool:
             'delivery_state', 'delivery_error', 'delivery_attempts', 'deliver_after', 'updated_at',
         ])
         return False
-    recipient.delivery_state = TatActionTaskRecipient.DELIVERY_DELIVERED
-    recipient.delivery_error = ''
-    recipient.telegram_message_id = str(result.get('message_id') or '')
-    recipient.delivered_at = now
-    recipient.save(update_fields=[
-        'delivery_state', 'delivery_error', 'telegram_message_id', 'delivered_at',
-        'delivery_attempts', 'updated_at',
-    ])
+    with transaction.atomic():
+        current = TatActionTaskRecipient.objects.select_for_update().select_related('task').get(pk=recipient.pk)
+        if (
+            current.routing_generation != claimed_generation
+            or current.task.routing_generation != claimed_generation
+            or current.task.status != TatActionTask.STATUS_PENDING
+        ):
+            if locator:
+                locator.revoked_at = timezone.now()
+                locator.save(update_fields=['revoked_at'])
+            current.delivery_state = TatActionTaskRecipient.DELIVERY_SKIPPED
+            current.delivery_error = 'Delivery became stale during rerouting.'
+            current.deliver_after = None
+            current.save(update_fields=['delivery_state', 'delivery_error', 'deliver_after', 'updated_at'])
+            return False
+        current.delivery_state = TatActionTaskRecipient.DELIVERY_DELIVERED
+        current.delivery_error = ''
+        current.telegram_message_id = str(result.get('message_id') or '')
+        current.delivered_at = now
+        current.save(update_fields=[
+            'delivery_state', 'delivery_error', 'telegram_message_id', 'delivered_at',
+            'delivery_attempts', 'updated_at',
+        ])
     connection.status = TatPrivateAlertConnection.STATUS_CONNECTED
     connection.connected_at = connection.connected_at or now
     connection.last_success_at = now
@@ -662,6 +797,7 @@ def dispatch_task(task_id) -> None:
     mode = notification_mode(group_config) if group_config else MODE_SHADOW
     now = timezone.now()
     due = list(task.recipients.select_related('user', 'user__staff_profile').filter(
+        routing_generation=task.routing_generation,
         delivery_state__in=[TatActionTaskRecipient.DELIVERY_PENDING, TatActionTaskRecipient.DELIVERY_RETRY],
         deliver_after__isnull=False, deliver_after__lte=now,
     ).order_by('rank', 'created_at'))
@@ -715,6 +851,7 @@ def safe_refresh_group_exception(group_id) -> None:
 def process_due_tasks(*, limit: int = 100) -> int:
     task_ids = list(TatActionTaskRecipient.objects.filter(
         task__status=TatActionTask.STATUS_PENDING,
+        routing_generation=F('task__routing_generation'),
         delivery_state__in=[TatActionTaskRecipient.DELIVERY_PENDING, TatActionTaskRecipient.DELIVERY_RETRY],
         deliver_after__isnull=False, deliver_after__lte=timezone.now(),
     ).values_list('task_id', flat=True).distinct()[:limit])
@@ -820,6 +957,7 @@ def inbox_payload(
         'task__case', 'task__group_configuration',
     ).filter(
         user=user, task__status=TatActionTask.STATUS_PENDING,
+        routing_generation=F('task__routing_generation'),
         inbox_status__in=[TatActionTaskRecipient.INBOX_UNREAD, TatActionTaskRecipient.INBOX_READ],
     )
     if group:
@@ -895,7 +1033,9 @@ def inbox_payload(
 
 @transaction.atomic
 def mark_task_read(task: TatActionTask, user) -> None:
-    recipient = TatActionTaskRecipient.objects.select_for_update().filter(task=task, user=user).first()
+    recipient = TatActionTaskRecipient.objects.select_for_update().filter(
+        task=task, user=user, routing_generation=task.routing_generation,
+    ).first()
     if not recipient:
         return
     if recipient.inbox_status == TatActionTaskRecipient.INBOX_UNREAD:
@@ -909,7 +1049,10 @@ def task_access_allowed(task: TatActionTask, user) -> bool:
         return False
     if user.is_superuser:
         return True
-    if task.recipients.filter(user=user).exists():
+    if task.recipients.filter(
+        user=user, routing_generation=task.routing_generation,
+        inbox_status__in=[TatActionTaskRecipient.INBOX_UNREAD, TatActionTaskRecipient.INBOX_READ],
+    ).exists():
         return user_can_receive_task(
             user, group=task.group_configuration, case=task.case,
             role=task.responsible_role,

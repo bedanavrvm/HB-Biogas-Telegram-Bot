@@ -1,5 +1,7 @@
 {% extends "admin/change_list.html" %}
-{% load i18n %}
+{% load i18n static %}
+
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/css/tat_control_center.css' %}">{% endblock %}
 
 {% block content %}
   <div class="tat-responsibility-workspace mb-5 grid gap-4">
@@ -12,6 +14,8 @@
           </p>
         </div>
         <div class="flex flex-wrap gap-2">
+          {% if control_center_url %}<a href="{{ control_center_url }}" class="inline-flex min-h-10 items-center rounded bg-primary-600 px-3 text-sm font-medium text-white">Guided setup</a>{% endif %}
+          {% if register_url %}<a href="{{ register_url }}" class="inline-flex min-h-10 items-center rounded border border-base-200 px-3 text-sm dark:border-base-700">Built-in register</a>{% endif %}
           <a href="{{ capability_matrix_url }}?workflow=tat_tracker" class="inline-flex min-h-10 items-center rounded border border-base-200 px-3 text-sm dark:border-base-700">Stage permissions</a>
           <a href="{{ users_url }}" class="inline-flex min-h-10 items-center rounded border border-base-200 px-3 text-sm dark:border-base-700">User access grants</a>
         </div>

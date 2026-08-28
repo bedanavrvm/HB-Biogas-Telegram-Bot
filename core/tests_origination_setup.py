@@ -3,7 +3,7 @@ import uuid
 
 from django.contrib.auth import get_user_model
 from django.core import signing
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from core.models import (
@@ -75,6 +75,10 @@ class OriginationSetupWorkspaceTests(TestCase):
         self.assertTrue(ProductAvailability.objects.filter(
             product=definition.product_version.product,
             branch=self.branch,
+            workflow='loan_origination', channel='portal', active=True,
+        ).exists())
+        self.assertFalse(ProductAvailability.objects.filter(
+            product=definition.product_version.product,
             workflow='loan_origination', channel='telegram', active=True,
         ).exists())
         self.assertEqual(ProductVersionEvent.objects.filter(
@@ -183,6 +187,54 @@ class OriginationSetupWorkspaceTests(TestCase):
         self.assertContains(response, 'name="expected_tokens"')
         self.assertEqual(
             json.loads(response.context['expected_tokens']), step_tokens(definition),
+        )
+
+    def test_product_overview_is_read_only_and_superuser_only(self):
+        self.client.force_login(self.superuser)
+        self.client.post(reverse('admin:core_origination_setup_start'), {
+            'request_id': str(uuid.uuid4()), 'name': 'Overview Loan',
+            'code': 'overview_loan', 'category': 'Credit', 'description': '',
+            'sort_order': 0, 'branches': [self.branch.pk],
+        })
+        definition = OriginationProductDefinition.objects.get(product_key='overview_loan')
+        url = reverse('admin:core_origination_setup_detail', args=[definition.pk])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Commercial terms')
+        self.assertContains(response, 'Form and signers')
+        self.assertContains(response, 'Document packet / LAFs')
+        self.assertContains(response, 'Setup Branch')
+
+        self.client.force_login(self.staff)
+        self.assertEqual(self.client.get(url).status_code, 403)
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, SECURE_SSL_REDIRECT=False)
+    def test_guided_branch_availability_reaches_the_origination_product_api(self):
+        self.client.force_login(self.superuser)
+        self.client.post(reverse('admin:core_origination_setup_start'), {
+            'request_id': str(uuid.uuid4()), 'name': 'Visible Guided Loan',
+            'code': 'visible_guided_loan', 'category': 'Credit', 'description': '',
+            'sort_order': 0, 'branches': [self.branch.pk],
+        })
+        definition = OriginationProductDefinition.objects.get(
+            product_key='visible_guided_loan',
+        )
+        from core.services.product_catalog import publish_product_version
+        publish_product_version(
+            version=definition.product_version, actor=self.superuser,
+        )
+        OriginationProductDefinition.objects.filter(pk=definition.pk).update(
+            lifecycle_status=OriginationProductDefinition.STATUS_PUBLISHED,
+            is_active=True,
+        )
+
+        response = self.client.get(
+            reverse('loan_origination_products'), {'branch': self.branch.name},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            'visible_guided_loan',
+            [item['product_key'] for item in response.json()['products']],
         )
 
     def test_terms_can_save_without_forcing_optional_repeatable_rows(self):

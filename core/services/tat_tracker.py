@@ -602,7 +602,7 @@ def home_data(
         stage = next_action(case)
         if not stage:
             continue
-        product = product_by_key(case.product_key)
+        product = product_for_case(case)
         target = stage_target_minutes_for_case(case, workflow, product, stage)
         elapsed = stage_tat_minutes(case, stage)
         if target is not None and target > 0 and elapsed is not None and elapsed > target:
@@ -842,6 +842,8 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
     validate_amount(product, amount)
     product_version = None
     terms_snapshot = {}
+    tat_configuration_snapshot = {}
+    configuration_binding_status = TatTrackerCase.CONFIG_LEGACY_ASSUMED
     quote_snapshot = {}
     requirement_evidence = payload.get('product_requirement_evidence') or {}
     custom_values = payload.get('product_custom_values') or {}
@@ -859,6 +861,9 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
             validate_custom_values,
         )
         product_version = ProductVersion.objects.select_related('product').get(pk=product.version_id)
+        from core.services.tat_configuration import serialize_tat_configuration
+        tat_configuration_snapshot = serialize_tat_configuration(product_version)
+        configuration_binding_status = TatTrackerCase.CONFIG_VERSIONED
         branch_record = OperationalLocation.objects.filter(location_type='branch', name__iexact=branch, active=True).first()
         if not product_is_available(product_version.product, branch=branch_record, workflow='tat_tracker', channel='portal'):
             raise ValueError('This product is not available for the selected branch and channel.')
@@ -917,6 +922,8 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
         case_id=case_id, product_key=product.key, product_label=product.label, client_name=client_name,
         product_id=product.product_id, product_version=product_version,
         product_terms_snapshot=terms_snapshot, product_quote_snapshot=quote_snapshot,
+        tat_configuration_snapshot=tat_configuration_snapshot,
+        configuration_binding_status=configuration_binding_status,
         product_requirement_evidence=requirement_evidence,
         product_custom_values=custom_values,
         product_selected_fee_keys=selected_fee_keys,
@@ -931,8 +938,8 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
     synchronize_case_task(group_config, case)
     if payload.get('_defer_sheet_sync'):
         return serialize_case_detail(case, user, workflow=workflow)
-    sync_case_to_sheet(group_config, case)
-    if not case.row_number:
+    projected = sync_case_to_sheet(group_config, case)
+    if projected and not case.row_number:
         raise RuntimeError('TAT tracker sheet sync did not return a row number. Case was not saved.')
     return serialize_case_detail(case, user, workflow=workflow)
 
@@ -1465,7 +1472,7 @@ def update_case(
     next_stage = next_action(case)
     case.current_stage = next_stage.key if next_stage else ''
     if next_stage:
-        snapshot_stage_target(case, workflow, product_by_key(case.product_key), next_stage)
+        snapshot_stage_target(case, workflow, product_for_case(case), next_stage)
     case.last_updated_by = user.get('name', '')
     case.save(update_fields=['stage_values', 'stage_target_snapshots', 'status', 'remarks', 'current_stage', 'last_updated_by', 'workflow_revision', 'updated_at', 'client_name', 'national_id', 'primary_phone', 'branch', 'bro_name', 'amount', 'product_requirement_evidence', 'product_custom_values', 'product_selected_fee_keys'])
     record_tat_event(
@@ -1529,7 +1536,7 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
             if not new_value:
                 raise ValueError('BRO name is required.')
         else:
-            product = product_by_key(case.product_key)
+            product = product_for_case(case)
             new_value = parse_amount(raw_value)
             validate_amount(product, new_value)
         if str(old or '') == str(new_value or ''):
@@ -1554,7 +1561,7 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
             row_number=case.row_number,
         )
         return
-    product = product_by_key(case.product_key)
+    product = product_for_case(case)
     if field == 'remarks':
         old = case.remarks
         case.remarks = str(item.get('value') or '').strip()
@@ -1715,8 +1722,13 @@ def _tat_sheet_call(operation, *, description: str):
             time.sleep(delay)
 
 
-def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
-    product = product_by_key(case.product_key)
+def sync_case_to_sheet(group_config, case: TatTrackerCase) -> bool:
+    if not bool(getattr(group_config, 'tat_sheet_projection_enabled', True)):
+        if case.sync_error:
+            case.sync_error = ''
+            case.save(update_fields=['sync_error', 'updated_at'])
+        return False
+    product = product_for_case(case)
     service = get_sheets_service(sheet_id=group_config.sheet_id, sheet_name=product.sheet_name)
     if not service.is_available():
         case.sync_error = 'Google Sheets service unavailable.'
@@ -1795,6 +1807,7 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
                 sync_case_index(group_config, case)
             except Exception as exc:
                 logger.warning('TAT tracker CASE_INDEX sync failed for %s: %s', case.case_id, exc, exc_info=True)
+        return True
     except Exception as exc:
         case.sync_error = str(exc)
         case.save(update_fields=['sync_error', 'updated_at'])
@@ -2130,7 +2143,7 @@ def minutes_between(start, end) -> Decimal | None:
 
 
 def stage_tat_minutes(case: TatTrackerCase, stage: StageConfig, now=None) -> Decimal | None:
-    product = product_by_key(case.product_key)
+    product = product_for_case(case)
     previous = previous_stage_timestamp(case, product, stage)
     if not previous:
         return None
@@ -2141,7 +2154,7 @@ def stage_tat_minutes(case: TatTrackerCase, stage: StageConfig, now=None) -> Dec
 
 
 def stage_business_tat_minutes(case: TatTrackerCase, stage: StageConfig, now=None) -> Decimal | None:
-    previous = previous_stage_timestamp(case, product_by_key(case.product_key), stage)
+    previous = previous_stage_timestamp(case, product_for_case(case), stage)
     if not previous:
         return None
     current = stage_completed_at(case, stage)
@@ -2644,7 +2657,9 @@ def cleanup_tat_sheet_duplicate_case_ids(
 
 
 def next_action(case: TatTrackerCase) -> StageConfig | None:
-    product = product_by_key(case.product_key)
+    if case.configuration_binding_status == TatTrackerCase.CONFIG_UNRESOLVED:
+        return None
+    product = product_for_case(case)
     if case.status in {'Disbursed', 'Rejected', 'Declined'}:
         return None
     for stage in product.stages:
@@ -2654,7 +2669,7 @@ def next_action(case: TatTrackerCase) -> StageConfig | None:
 
 
 def previous_stages_complete(case: TatTrackerCase, stage: StageConfig) -> bool:
-    product = product_by_key(case.product_key)
+    product = product_for_case(case)
     for current in product.stages:
         if current.key == stage.key:
             return True
@@ -2683,23 +2698,25 @@ def can_user_correct_case_details(user: dict, case: TatTrackerCase | None = None
 
 def serialize_case_summary(case: TatTrackerCase, user: dict | None = None, next_stage: StageConfig | None = None, workflow: dict | None = None) -> dict:
     next_stage = next_stage or next_action(case)
-    product = product_by_key(case.product_key)
+    unresolved = case.configuration_binding_status == TatTrackerCase.CONFIG_UNRESOLVED
+    product = product_by_key(case.product_key) if unresolved else product_for_case(case)
     tat_minutes = calculated_tat_minutes(case)
     business_minutes = calculated_business_tat_minutes(case)
     tat_hours = calculated_tat_hours(case) if tat_minutes is not None else None
     tat_days = calculated_tat_days(case) if tat_minutes is not None else None
     total_target = total_target_minutes(workflow, product)
     certificates = {certificate.stage_key: certificate.status for certificate in case.approval_certificates.all()}
-    read_only = not is_record_operational(case)
-    return {'case_id': case.case_id, 'product': case.product_label or product.label, 'product_key': case.product_key, 'client_name': case.client_name, 'national_id': case.national_id, 'primary_phone': case.primary_phone, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'status': case.status, 'current_stage': case.current_stage, 'workflow_revision': int(case.workflow_revision or 1), 'next_stage': next_stage.label if next_stage and not read_only else '', 'next_stage_key': next_stage.key if next_stage and not read_only else '', 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'wall_clock_minutes': str(tat_minutes) if tat_minutes is not None else '', 'business_minutes': str(business_minutes) if business_minutes is not None else '', 'sla_minutes': str(tat_minutes) if tat_minutes is not None else '', 'tat_hours': str(tat_hours) if tat_hours is not None else '', 'tat_days': str(tat_days) if tat_days is not None else '', 'target_minutes': str(total_target) if total_target is not None else '', 'sla_status': sla_status(tat_minutes, total_target), 'certificate_statuses': certificates, 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at), 'data_mode': case.data_mode, 'is_pilot': case.data_mode == 'pilot', 'read_only': read_only, 'pilot_cycle_id': str(case.pilot_cycle_id or '')}
+    read_only = unresolved or not is_record_operational(case)
+    return {'case_id': case.case_id, 'product': case.product_label or product.label, 'product_key': case.product_key, 'client_name': case.client_name, 'national_id': case.national_id, 'primary_phone': case.primary_phone, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'status': case.status, 'current_stage': case.current_stage, 'workflow_revision': int(case.workflow_revision or 1), 'next_stage': next_stage.label if next_stage and not read_only else '', 'next_stage_key': next_stage.key if next_stage and not read_only else '', 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'wall_clock_minutes': str(tat_minutes) if tat_minutes is not None else '', 'business_minutes': str(business_minutes) if business_minutes is not None else '', 'sla_minutes': str(tat_minutes) if tat_minutes is not None else '', 'tat_hours': str(tat_hours) if tat_hours is not None else '', 'tat_days': str(tat_days) if tat_days is not None else '', 'target_minutes': str(total_target) if total_target is not None else '', 'sla_status': sla_status(tat_minutes, total_target), 'certificate_statuses': certificates, 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at), 'data_mode': case.data_mode, 'is_pilot': case.data_mode == 'pilot', 'read_only': read_only, 'configuration_binding_status': case.configuration_binding_status, 'configuration_blocker': 'Resolve the legacy product version in TAT Control Center before editing this case.' if unresolved else '', 'pilot_cycle_id': str(case.pilot_cycle_id or '')}
 
 
 def serialize_case_detail(case: TatTrackerCase, user: dict, workflow: dict | None = None) -> dict:
-    product = product_by_key(case.product_key)
-    read_only = not is_record_operational(case)
+    unresolved = case.configuration_binding_status == TatTrackerCase.CONFIG_UNRESOLVED
+    product = product_by_key(case.product_key) if unresolved else product_for_case(case)
+    read_only = unresolved or not is_record_operational(case)
     can_correct_details = (not read_only) and can_user_correct_case_details(user, case)
     fields = []
-    for stage in product.stages:
+    for stage in (() if unresolved else product.stages):
         value = case.stage_values.get(stage.key, '')
         editable = (not read_only) and previous_stages_complete(case, stage) and can_user_edit_stage(user, case, stage) and (not value or stage.kind == 'dropdown')
         tat_minutes = stage_tat_minutes(case, stage)
@@ -2865,6 +2882,12 @@ def product_by_key(key: str) -> ProductConfig:
         if normalized not in PRODUCTS:
             raise ValueError('Invalid product.')
         return PRODUCTS[normalized]
+
+
+def product_for_case(case: TatTrackerCase) -> ProductConfig:
+    """Return the exact TAT configuration frozen on the case."""
+    from core.services.tat_configuration import product_config_for_case
+    return product_config_for_case(case)
 
 
 def stage_by_key(product: ProductConfig, key: str) -> StageConfig | None:

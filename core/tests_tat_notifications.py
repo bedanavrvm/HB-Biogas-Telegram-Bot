@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import time
+from io import BytesIO
 from datetime import timedelta
 from urllib.parse import urlencode
 from unittest.mock import patch
@@ -26,6 +27,7 @@ from core.models import (
     TatResponsibilityAssignment,
     TatResponsibilityBackup,
     TatResponsibilityEvent,
+    TatTaskRerouteEvent,
     TatTrackerCase,
     UserProfile,
 )
@@ -40,7 +42,9 @@ from core.services.tat_notifications import (
     refresh_group_exception,
     resolve_locator,
     resolve_assignment,
+    reroute_pending_task,
     synchronize_case_task,
+    task_access_allowed,
 )
 from core.services.group_config import GroupRegistry
 
@@ -247,6 +251,51 @@ class TatPrivateTaskTests(TestCase):
         )
         self.assertContains(response, '2 eligible active users match this exact TAT scope.')
         self.assertContains(response, reverse('admin:core_tatresponsibilityassignment_eligible_users'))
+
+    def test_superuser_can_open_guided_control_center_and_register(self):
+        superuser = get_user_model().objects.create_superuser(
+            username='control-admin', password='test-password', email='control@example.test',
+        )
+        self.client.force_login(superuser)
+
+        setup = self.client.get(reverse('admin:core_tat_control_center', args=[self.group.pk]))
+        register = self.client.get(reverse('admin:core_tat_register', args=[self.group.pk]))
+
+        self.assertEqual(setup.status_code, 200)
+        self.assertContains(setup, 'Guided TAT administration')
+        self.assertContains(setup, 'Built-in register and Sheet projection')
+        self.assertEqual(register.status_code, 200)
+        self.assertContains(register, self.case.case_id)
+
+    def test_non_superuser_cannot_open_guided_control_center(self):
+        self.primary.is_staff = True
+        self.primary.save(update_fields=['is_staff'])
+        self.client.force_login(self.primary)
+
+        response = self.client.get(reverse('admin:core_tat_control_center', args=[self.group.pk]))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_register_export_uses_privacy_allowlist(self):
+        from openpyxl import load_workbook
+        from core.models import ComplianceAuditChainState
+        from core.services.tat_register import export_xlsx
+
+        superuser = get_user_model().objects.create_superuser(
+            username='export-admin', password='test-password', email='export@example.test',
+        )
+        ComplianceAuditChainState.objects.get_or_create(singleton=1)
+        content = export_xlsx(
+            group=self.group, actor=superuser, request_id='tat-export-test-1', filters={},
+        )
+        sheet = load_workbook(BytesIO(content), read_only=True).active
+        headers = [cell.value for cell in next(sheet.iter_rows(max_row=1))]
+
+        self.assertIn('Case reference', headers)
+        self.assertNotIn('Applicant name', headers)
+        self.assertNotIn('National ID', headers)
+        self.assertNotIn('Phone', headers)
+        self.assertNotIn('Remarks', headers)
 
     def test_eligible_user_lookup_supports_multi_role_and_filters_exact_scope(self):
         superuser = get_user_model().objects.create_superuser(
@@ -481,6 +530,32 @@ class TatPrivateTaskTests(TestCase):
         self.assertEqual(old.status, TatActionTask.STATUS_SUPERSEDED)
         self.assertEqual(old.superseded_by, current)
         self.assertIsNotNone(locator.revoked_at)
+
+    def test_explicit_reroute_revokes_removed_recipient_and_increments_generation(self):
+        task = synchronize_case_task(self.group, self.case)
+        token = issue_locator(task, self.primary)
+        replacement = self._user('replacement', '110')
+        self._grant(replacement, 'BRO')
+        self.assignment.primary_user = replacement
+        self.assignment.save(update_fields=['primary_user', 'updated_at'])
+        superuser = get_user_model().objects.create_superuser(
+            username='reroute-admin', password='test-password', email='reroute@example.test',
+        )
+
+        rerouted = reroute_pending_task(
+            task=task, actor=superuser,
+            reason='The approved primary responsibility owner changed.',
+            request_id='reroute-test-1',
+        )
+
+        locator = resolve_locator(token)
+        self.assertEqual(rerouted.routing_generation, 2)
+        self.assertIsNotNone(locator.revoked_at)
+        self.assertFalse(task_access_allowed(rerouted, self.primary))
+        self.assertTrue(task_access_allowed(rerouted, replacement))
+        self.assertTrue(TatTaskRerouteEvent.objects.filter(
+            task=rerouted, generation_before=1, generation_after=2,
+        ).exists())
 
     def test_stale_locator_redirects_authorized_recipient_to_current_revision(self):
         old = synchronize_case_task(self.group, self.case)

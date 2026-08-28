@@ -1,0 +1,27 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/css/tat_control_center.css' %}">{% endblock %}
+{% block content %}
+<main class="tat-control-shell">
+  <header class="tat-hero"><div><p class="tat-kicker">Django source of truth</p><h1>{{ title }}</h1><p>Operational stage data without applicant names, IDs, phones, remarks, or evidence in exports.</p></div><a class="button" href="{{ control_center_url }}">Guided setup</a></header>
+  <form method="get" class="tat-filter-grid">
+    <label>Case reference<input name="search" value="{{ filters.search }}" placeholder="JBL-..."></label>
+    <label>Branch<select name="branch"><option value="">All</option>{% for branch in branches %}<option{% if filters.branch == branch %} selected{% endif %}>{{ branch }}</option>{% endfor %}</select></label>
+    <label>Product<select name="product"><option value="">All</option>{% for product in products %}<option value="{{ product.key }}"{% if filters.product == product.key %} selected{% endif %}>{{ product.label }}</option>{% endfor %}</select></label>
+    <label>Exact version<select name="version"><option value="">All versions</option>{% for version in version_options %}<option value="{{ version.pk }}"{% if filters.version == version.pk|stringformat:'s' %} selected{% endif %}>{{ version.product.name }} v{{ version.version }}</option>{% endfor %}</select></label>
+    <label>Status<select name="status"><option value="">All</option>{% for key,label in status_choices %}<option value="{{ key }}"{% if filters.status == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    <label>Owner<input name="owner" value="{{ filters.owner }}"></label>
+    <label>Rows<select name="page_size"><option>25</option><option>50</option><option>100</option></select></label>
+    <button class="button default" type="submit">Apply filters</button>
+  </form>
+  <section class="tat-stage-board">{% for stage,count in register.stage_board.items %}<div><strong>{{ count }}</strong><span>{{ stage }}</span></div>{% empty %}<p>No cases match these filters.</p>{% endfor %}</section>
+  {% if selected_version %}<section class="tat-panel tat-table-panel"><div class="tat-panel-heading"><div><span>Exact version only</span><h2>{{ selected_version.product.name }} v{{ selected_version.version }} timeline</h2></div></div><div class="tat-table-scroll"><table><thead><tr><th>Reference</th>{% for column in timeline.columns %}<th>{{ column.label }}</th>{% endfor %}</tr></thead><tbody>{% for row in timeline.items %}<tr><td><strong>{{ row.case_reference }}</strong></td>{% for value in row.values %}<td>{% if value.complete %}<span class="tat-chip ok">Complete</span>{% else %}<span class="tat-chip">Pending</span>{% endif %}</td>{% endfor %}</tr>{% empty %}<tr><td colspan="20">No cases use this exact version.</td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
+  <section class="tat-panel tat-table-panel">
+    <div class="tat-panel-heading"><div><span>{{ register.total }} cases</span><h2>Action register</h2></div><form method="post" action="{{ export_url }}">{% csrf_token %}<input type="hidden" name="request_id" value="{{ request_id }}">{% for key,value in filters.items %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}<button class="button" type="submit">Export privacy-safe XLSX</button></form></div>
+    <div class="tat-table-scroll"><table><thead><tr><th>Reference</th><th>Branch</th><th>Product version</th><th>Stage / role</th><th>Owner</th><th>Status</th><th>SLA</th><th>Binding</th><th>Action</th></tr></thead><tbody>
+      {% for row in register.items %}<tr><td><strong>{{ row.case_reference }}</strong><small>{{ row.updated_at|date:'d-m-y H:i' }}</small></td><td>{{ row.branch }}</td><td>{{ row.product }}<small>v{{ row.product_version|default:'legacy' }}</small></td><td>{{ row.stage }}<small>{{ row.role }}</small></td><td>{{ row.owner|default:'Unassigned' }}</td><td><span class="tat-chip ok">{{ row.status }}</span></td><td>{{ row.elapsed_minutes|default:'-' }} / {{ row.target_minutes|default:'-' }} min</td><td><span class="tat-chip {% if row.binding_status == 'versioned' %}ok{% endif %}">{{ row.binding_status }}</span></td><td>{% if row.binding_status != 'versioned' %}<a href="{% url 'admin:core_tat_case_configuration_resolve' row.id %}">Resolve version</a>{% elif row.task_id %}<a href="{% url 'admin:core_tat_task_reroute' row.task_id %}">Reroute</a>{% else %}-{% endif %}</td></tr>{% empty %}<tr><td colspan="9">No cases match these filters.</td></tr>{% endfor %}
+    </tbody></table></div>
+    <nav class="tat-pagination"><span>Page {{ register.page }} of {{ register.pages }}</span>{% if register.page > 1 %}<a class="button" href="?page={{ register.page|add:'-1' }}&page_size={{ register.page_size }}">Previous</a>{% endif %}{% if register.page < register.pages %}<a class="button" href="?page={{ register.page|add:'1' }}&page_size={{ register.page_size }}">Next</a>{% endif %}</nav>
+  </section>
+</main>
+{% endblock %}

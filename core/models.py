@@ -947,6 +947,15 @@ class SpinRequestSequence(models.Model):
 class TatTrackerCase(models.Model):
     """Django-owned TAT tracker case mirrored to the live Google workbook."""
 
+    CONFIG_VERSIONED = 'versioned'
+    CONFIG_LEGACY_ASSUMED = 'legacy_assumed'
+    CONFIG_UNRESOLVED = 'unresolved'
+    CONFIG_BINDING_CHOICES = [
+        (CONFIG_VERSIONED, 'Versioned'),
+        (CONFIG_LEGACY_ASSUMED, 'Legacy assumed'),
+        (CONFIG_UNRESOLVED, 'Unresolved'),
+    ]
+
     STATUS_CHOICES = [
         ('Active', 'Active'),
         ('Disbursed', 'Disbursed'),
@@ -982,6 +991,11 @@ class TatTrackerCase(models.Model):
         related_name='tat_cases',
     )
     product_terms_snapshot = models.JSONField(default=dict, blank=True)
+    tat_configuration_snapshot = models.JSONField(default=dict, blank=True)
+    configuration_binding_status = models.CharField(
+        max_length=24, choices=CONFIG_BINDING_CHOICES,
+        default=CONFIG_LEGACY_ASSUMED, db_index=True,
+    )
     product_quote_snapshot = models.JSONField(default=dict, blank=True)
     product_requirement_evidence = models.JSONField(default=dict, blank=True)
     product_custom_values = models.JSONField(default=dict, blank=True)
@@ -1382,6 +1396,7 @@ class TatActionTask(models.Model):
     stage_label = models.CharField(max_length=160)
     responsible_role = models.CharField(max_length=80, db_index=True)
     case_revision = models.PositiveIntegerField()
+    routing_generation = models.PositiveIntegerField(default=1)
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
     recipient_snapshot = models.JSONField(default=dict, blank=True)
     acted_by = models.ForeignKey(
@@ -1467,6 +1482,7 @@ class TatActionTaskRecipient(models.Model):
     kind = models.CharField(max_length=16, choices=KIND_CHOICES)
     rank = models.PositiveSmallIntegerField(default=0)
     threshold_percent = models.PositiveSmallIntegerField(null=True, blank=True)
+    routing_generation = models.PositiveIntegerField(default=1)
     inbox_status = models.CharField(max_length=16, choices=INBOX_CHOICES, default=INBOX_UNREAD, db_index=True)
     delivery_state = models.CharField(max_length=16, choices=DELIVERY_CHOICES, default=DELIVERY_PENDING, db_index=True)
     deliver_after = models.DateTimeField(null=True, blank=True, db_index=True)
@@ -1484,6 +1500,110 @@ class TatActionTaskRecipient(models.Model):
         indexes = [models.Index(fields=['user', 'inbox_status', 'created_at'])]
         verbose_name = 'TAT task recipient'
         verbose_name_plural = 'TAT task recipients'
+
+
+class TatTaskRerouteEvent(models.Model):
+    """Append-only evidence for one explicit reroute of a pending TAT task."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(TatActionTask, on_delete=models.CASCADE, related_name='reroute_events')
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='tat_task_reroute_events',
+    )
+    request_id = models.CharField(max_length=128, db_index=True)
+    reason = models.TextField()
+    generation_before = models.PositiveIntegerField()
+    generation_after = models.PositiveIntegerField()
+    before_snapshot = models.JSONField(default=dict)
+    after_snapshot = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [models.UniqueConstraint(
+            fields=['task', 'request_id'], name='unique_tat_task_reroute_request',
+        )]
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError('TAT task reroute events are append-only.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('TAT task reroute events cannot be deleted.')
+
+
+class TatResponsibilityChangePlan(models.Model):
+    """Durable, revision-checked plan for an operational roster change."""
+
+    STATUS_DRAFT = 'draft'
+    STATUS_SCHEDULED = 'scheduled'
+    STATUS_APPLIED = 'applied'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, 'Draft'), (STATUS_SCHEDULED, 'Scheduled'),
+        (STATUS_APPLIED, 'Applied'), (STATUS_CANCELLED, 'Cancelled'),
+        (STATUS_FAILED, 'Failed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    assignment = models.ForeignKey(
+        TatResponsibilityAssignment, on_delete=models.PROTECT, related_name='change_plans',
+    )
+    proposed_snapshot = models.JSONField(default=dict)
+    expected_updated_at = models.DateTimeField()
+    effective_at = models.DateTimeField(default=timezone.now, db_index=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_DRAFT, db_index=True)
+    reason = models.TextField()
+    request_id = models.CharField(max_length=128, unique=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='created_tat_responsibility_change_plans',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    applied_at = models.DateTimeField(null=True, blank=True)
+    error = models.CharField(max_length=500, blank=True, default='')
+
+    class Meta:
+        ordering = ['-created_at']
+
+
+class TatConfigurationEvent(models.Model):
+    """Append-only evidence for guided TAT configuration changes."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    group_configuration = models.ForeignKey(
+        'GroupSheetConfiguration', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='tat_configuration_events',
+    )
+    action = models.CharField(max_length=80, db_index=True)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='tat_configuration_events',
+    )
+    request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    reason = models.TextField(blank=True, default='')
+    before_snapshot = models.JSONField(default=dict, blank=True)
+    after_snapshot = models.JSONField(default=dict, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [models.UniqueConstraint(
+            fields=['action', 'request_id'], condition=~models.Q(request_id=''),
+            name='unique_tat_configuration_event_request',
+        )]
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError('TAT configuration events are append-only.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('TAT configuration events cannot be deleted.')
 
 
 class TatGroupExceptionStatus(models.Model):
@@ -3324,6 +3444,34 @@ class ProductTatConfiguration(models.Model):
 
     def __str__(self):
         return f'{self.product_version}: TAT configuration'
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        stages = self.stages if isinstance(self.stages, list) else []
+        if not stages:
+            errors['stages'] = 'Configure at least one ordered TAT stage.'
+        keys = []
+        columns = []
+        for position, stage in enumerate(stages, start=1):
+            key = str(stage.get('key') or '').strip() if isinstance(stage, dict) else ''
+            label = str(stage.get('label') or '').strip() if isinstance(stage, dict) else ''
+            role = str(stage.get('role') or '').strip() if isinstance(stage, dict) else ''
+            try:
+                column = int(stage.get('column') or 0) if isinstance(stage, dict) else 0
+            except (TypeError, ValueError):
+                column = 0
+            if not key or not label or not role or column < 1:
+                errors['stages'] = f'Stage {position} needs a key, label, role, and positive Sheet column.'
+                break
+            keys.append(key)
+            columns.append(column)
+        if len(keys) != len(set(keys)):
+            errors['stages'] = 'TAT stage keys must be unique within a product version.'
+        if len(columns) != len(set(columns)):
+            errors['stages'] = 'TAT stage Sheet columns must be unique within a product version.'
+        if errors:
+            raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
         _require_draft_product_configuration(self.product_version)
@@ -6485,12 +6633,19 @@ class GroupSheetConfiguration(models.Model):
         help_text='Human-friendly name shown in the admin list.',
     )
     enabled = models.BooleanField(default=True)
+    tat_sheet_projection_enabled = models.BooleanField(
+        default=False,
+        help_text='Publish the canonical TAT register to Google Sheets for this group.',
+    )
+    tat_sheet_projection_disabled_at = models.DateTimeField(null=True, blank=True)
     sheet_id = models.CharField(
         max_length=255,
+        blank=True,
         help_text='Google spreadsheet ID for this group.',
     )
     sheet_name = models.CharField(
         max_length=255,
+        blank=True,
         default='Complaints Register',
         help_text='Worksheet/tab name inside the spreadsheet.',
     )
@@ -6527,7 +6682,8 @@ class GroupSheetConfiguration(models.Model):
         self.group_id = str(self.group_id or '').strip()
         self.sheet_id = str(self.sheet_id or '').strip()
         self.sheet_name = str(self.sheet_name or '').strip()
-        if self.enabled and not self.sheet_id:
+        is_tat = str((self.workflow or {}).get('type') or '') == 'tat_tracker'
+        if self.enabled and not self.sheet_id and (not is_tat or self.tat_sheet_projection_enabled):
             from django.core.exceptions import ValidationError
             raise ValidationError({'sheet_id': 'Enabled groups need a sheet ID.'})
 
@@ -6547,6 +6703,7 @@ class GroupSheetConfiguration(models.Model):
             'sheet_schema': self.sheet_schema or {},
             'workflow': workflow,
             'parser_rules': self.parser_rules or {},
+            'tat_sheet_projection_enabled': self.tat_sheet_projection_enabled,
         }
     def sheet_url(self) -> str:
         if not self.sheet_id:

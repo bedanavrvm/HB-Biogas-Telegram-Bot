@@ -264,6 +264,8 @@ def _validate_version_children(version: ProductVersion) -> None:
     for collection in (version.fees.all(), version.requirements.all(), version.custom_attributes.all()):
         for item in collection:
             item.full_clean()
+    if hasattr(version, 'tat_configuration'):
+        version.tat_configuration.full_clean()
 
 
 @transaction.atomic

@@ -120,11 +120,14 @@ def dashboard_view(model_admin, request):
         for item in drafts
     ]
     latest_ids = []
-    for code in OriginationProductDefinition.objects.values_list(
+    for code in OriginationProductDefinition.objects.filter(
+        lifecycle_status=OriginationProductDefinition.STATUS_PUBLISHED,
+    ).values_list(
         'product_key', flat=True,
     ).distinct():
         latest = OriginationProductDefinition.objects.filter(
             product_key=code,
+            lifecycle_status=OriginationProductDefinition.STATUS_PUBLISHED,
         ).order_by('-version').values_list('pk', flat=True).first()
         if latest:
             latest_ids.append(latest)
@@ -144,6 +147,148 @@ def dashboard_view(model_admin, request):
         'advanced_url': reverse('admin:core_originationproductdefinition_changelist'),
         'laf_library_url': reverse('admin:core_originationdocumenttemplate_changelist'),
     })
+
+
+def detail_view(model_admin, request, object_id):
+    """Read-only, family-wide view of an Origination product contract."""
+
+    _guard(request)
+    selected = _definition(object_id)
+    if not selected or not selected.product_version_id:
+        return HttpResponse(status=404)
+    product = selected.product_version.product
+    from core.services.origination_templates import resolve_assignment_template
+    from core.services.product_availability import (
+        CANONICAL_PRODUCT_CHANNEL, PRODUCT_WORKFLOW_CHOICES,
+    )
+    workflow_labels = dict(PRODUCT_WORKFLOW_CHOICES)
+    availability = list(product.availability_assignments.select_related('branch').filter(
+        active=True, channel=CANONICAL_PRODUCT_CHANNEL,
+        workflow__in=workflow_labels,
+    ).order_by('workflow', 'branch__sort_order', 'branch__name'))
+    for assignment in availability:
+        assignment.workflow_label = workflow_labels.get(
+            assignment.workflow, assignment.workflow or 'All workflows',
+        )
+    versions = list(OriginationProductDefinition.objects.filter(
+        product_key=selected.product_key,
+    ).select_related(
+        'product_version', 'created_by', 'published_by', 'supersedes',
+    ).prefetch_related(
+        'product_version__fees', 'product_version__requirements',
+        'product_version__custom_attributes', 'document_templates',
+        'document_assignments__template__published_configuration_revision',
+    ).order_by('-version'))
+    rows = []
+    for definition in versions:
+        schema = definition.form_schema if isinstance(definition.form_schema, dict) else {}
+        sections = {
+            str(item.get('key') or ''): str(item.get('label') or item.get('key') or '')
+            for item in schema.get('sections', []) if isinstance(item, dict)
+        }
+        fields = []
+        for item in schema.get('fields', []):
+            if not isinstance(item, dict):
+                continue
+            fields.append({
+                'key': str(item.get('key') or ''),
+                'label': str(item.get('label') or item.get('key') or ''),
+                'type': str(item.get('type') or item.get('control') or 'text'),
+                'required': bool(item.get('required')),
+                'width': str(item.get('width') or ''),
+                'section': sections.get(
+                    str(item.get('section_key') or ''),
+                    str(item.get('section_key') or 'Unsectioned'),
+                ),
+            })
+        signers = []
+        for item in definition.signer_rules if isinstance(definition.signer_rules, list) else []:
+            if not isinstance(item, dict):
+                continue
+            signers.append({
+                'role': str(item.get('label') or item.get('role') or ''),
+                'required': bool(item.get('required')),
+                'slots': [
+                    str(slot.get('label') or slot.get('key') or '')
+                    for slot in item.get('slots', []) if isinstance(slot, dict)
+                ],
+            })
+        documents = []
+        for template in definition.document_templates.all():
+            documents.append({
+                'name': template.name,
+                'source': 'Product-owned',
+                'role': template.get_document_role_display(),
+                'inclusion': template.get_inclusion_mode_display(),
+                'version_policy': f'Pinned to v{template.version}',
+                'resolved': template,
+                'calibrated': bool(template.published_configuration_revision_id),
+                'detail_url': reverse(
+                    'admin:core_originationdocumenttemplate_change', args=[template.pk],
+                ),
+                'calibration_url': reverse(
+                    'admin:core_originationdocumenttemplate_calibrate', args=[template.pk],
+                ) if template.drive_file_id else '',
+            })
+        for assignment in definition.document_assignments.all():
+            resolved = resolve_assignment_template(assignment)
+            documents.append({
+                'name': assignment.name,
+                'source': 'Reusable library',
+                'role': assignment.template.get_document_role_display(),
+                'inclusion': assignment.get_inclusion_mode_display(),
+                'version_policy': assignment.get_version_policy_display(),
+                'resolved': resolved,
+                'calibrated': bool(
+                    resolved and resolved.published_configuration_revision_id
+                ),
+                'detail_url': reverse(
+                    'admin:core_originationdocumenttemplate_change',
+                    args=[resolved.pk if resolved else assignment.template_id],
+                ),
+                'calibration_url': reverse(
+                    'admin:core_originationdocumenttemplate_calibrate',
+                    args=[resolved.pk],
+                ) if resolved and resolved.drive_file_id else '',
+            })
+        rows.append({
+            'definition': definition,
+            'terms': definition.product_version,
+            'fields': fields,
+            'sections': list(sections.values()),
+            'signers': signers,
+            'documents': sorted(
+                documents,
+                key=lambda item: (item['role'] != 'Primary LAF', item['name']),
+            ),
+            'readiness': setup_readiness(definition),
+            'advanced_url': reverse(
+                'admin:core_originationproductdefinition_change', args=[definition.pk],
+            ),
+        })
+    return TemplateResponse(
+        request, 'admin/core/origination_setup/detail.html', {
+            **model_admin.admin_site.each_context(request),
+            'opts': model_admin.model._meta,
+            'title': f'{selected.name} product overview',
+            'selected': selected,
+            'product': product,
+            'availability': availability,
+            'version_rows': rows,
+            'dashboard_url': reverse('admin:core_origination_setup_dashboard'),
+            'availability_url': reverse(
+                'admin:core_product_availability', args=[product.pk],
+            ),
+            'version_history_url': reverse(
+                'admin:core_originationproductdefinition_version_history',
+                args=[selected.pk],
+            ),
+            'revise_url': reverse(
+                'admin:core_origination_setup_revise', args=[selected.pk],
+            ),
+            'request_id': str(uuid.uuid4()),
+        },
+    )
 
 
 def start_view(model_admin, request):
@@ -279,16 +424,17 @@ def revise_view(model_admin, request, object_id):
 
 
 def _sync_availability(product, branches):
-    selected = {str(item.pk) for item in branches}
+    selected = {item.pk for item in branches}
     existing = product.availability_assignments.filter(workflow='loan_origination')
-    existing.exclude(branch_id__in=selected).update(active=False)
+    existing.exclude(channel='portal').update(active=False)
+    existing.filter(channel='portal').exclude(branch_id__in=selected).update(active=False)
     for branch in branches:
         ProductAvailability.objects.update_or_create(
             product=product,
-            scope_signature=f'branch:{branch.pk}|workflow:loan_origination|channel:telegram',
+            scope_signature=f'branch:{branch.pk}|workflow:loan_origination|channel:portal',
             defaults={
                 'branch': branch, 'workflow': 'loan_origination',
-                'channel': 'telegram', 'active': True,
+                'channel': 'portal', 'active': True,
             },
         )
 

@@ -16,6 +16,7 @@ from core.models import (
     TatNotificationProcessorRun,
     TatPrivateAlertConnection,
     TatResponsibilityAssignment,
+    TatTrackerCase,
     WorkflowDataModeState,
     WORKFLOW_DATA_MODE_PRODUCTION,
 )
@@ -85,7 +86,7 @@ def _group_scope_issues(group) -> list[ReadinessIssue]:
         ))
         return issues
 
-    if not SheetRegisterContract.objects.filter(
+    if group.tat_sheet_projection_enabled and not SheetRegisterContract.objects.filter(
         group_configuration=group,
         subject_type=SheetRegisterContract.SUBJECT_TAT_CASE,
         enabled=True,
@@ -93,6 +94,25 @@ def _group_scope_issues(group) -> list[ReadinessIssue]:
         issues.append(ReadinessIssue(
             'error', 'tat-sheet-contract',
             f'{group_label}: enable a governed TAT Sheet register contract before production.',
+        ))
+
+    unresolved_count = TatTrackerCase.objects.filter(
+        group_id=group.group_id, is_deleted=False,
+        configuration_binding_status=TatTrackerCase.CONFIG_UNRESOLVED,
+    ).count()
+    if unresolved_count:
+        issues.append(ReadinessIssue(
+            'error', 'tat-configuration-unresolved',
+            f'{group_label}: {unresolved_count} case(s) have no verified TAT configuration and are read-only.',
+        ))
+    assumed_count = TatTrackerCase.objects.filter(
+        group_id=group.group_id, is_deleted=False,
+        configuration_binding_status=TatTrackerCase.CONFIG_LEGACY_ASSUMED,
+    ).count()
+    if assumed_count:
+        issues.append(ReadinessIssue(
+            'warning', 'tat-configuration-legacy-assumed',
+            f'{group_label}: {assumed_count} legacy case(s) still use an assumed configuration.',
         ))
 
     routing_enabled = mode in {'shadow', 'hybrid'}

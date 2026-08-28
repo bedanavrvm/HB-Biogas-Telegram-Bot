@@ -25,7 +25,7 @@ from core.services.jawabu_pipeline import JAWABU_TERMINAL_STATES, current_workfl
 from core.services.tat_tracker import (
     is_tat_tracker_workflow,
     next_action,
-    product_by_key,
+    product_for_case,
     stage_target_minutes,
     stage_target_minutes_for_case,
     stage_tat_minutes,
@@ -171,7 +171,7 @@ def tat_sla_candidates(*, now=None) -> list[WorkflowSlaCandidate]:
             stage = next_action(case)
             if not stage:
                 continue
-            product = product_by_key(case.product_key)
+            product = product_for_case(case)
             target = stage_target_minutes_for_case(case, workflow, product, stage)
             elapsed = stage_tat_minutes(case, stage, now=now)
             target_value = _positive_minutes(target)
@@ -351,7 +351,7 @@ def collect_tat_daily_metrics(*, metric_date=None, now=None) -> list[dict]:
             is_deleted=False,
             status='Active',
         )):
-            product = product_by_key(case.product_key)
+            product = product_for_case(case)
             for stage in product.stages:
                 wall_clock_minutes = stage_tat_minutes(case, stage, now=now)
                 sla_minutes = wall_clock_minutes
