@@ -6886,7 +6886,16 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             f'HARD DELETE {len(targets)} USERS'
             if bulk else f'HARD DELETE {targets[0].get_username()}'
         )
-        submitted = request.method == 'POST' and bool(request.POST.get('hard_delete_confirm'))
+        # Do not use the submit button as the confirmation marker. The UI disables
+        # that button immediately to prevent a double-submit, and disabled controls
+        # are omitted from the browser's form payload. The signed preview fields are
+        # only present on the confirmation form, so they reliably distinguish the
+        # action-selection POST from the destructive confirmation POST.
+        submitted = (
+            request.method == 'POST'
+            and bool(request.POST.get('request_id'))
+            and bool(request.POST.get('preview_fingerprint'))
+        )
         initial = {
             'request_id': f'user-hard-delete-{uuid.uuid4()}',
             'preview_fingerprint': preview.fingerprint,

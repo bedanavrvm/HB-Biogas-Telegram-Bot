@@ -1,4 +1,5 @@
 from django.contrib.auth import BACKEND_SESSION_KEY, HASH_SESSION_KEY, SESSION_KEY, get_user_model
+from django.contrib.admin import helpers
 from django.contrib.sessions.backends.db import SessionStore
 from django.contrib.sessions.models import Session
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -211,7 +212,6 @@ class UserHardDeleteAdminTests(TestCase):
         preview_response = self.client.get(url)
         form = preview_response.context['form']
         response = self.client.post(url, {
-            'hard_delete_confirm': '1',
             'reason_category': UserHardDeletionBatch.REASON_DUPLICATE,
             'reason_note': 'Duplicate account confirmed.',
             'password': 'password',
@@ -237,3 +237,35 @@ class UserHardDeleteAdminTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'password is incorrect')
         self.assertTrue(get_user_model().objects.filter(pk=self.target.pk).exists())
+
+    def test_bulk_admin_action_confirms_and_deletes_selected_user(self):
+        url = reverse('admin:auth_user_changelist')
+        preview_response = self.client.post(url, {
+            'action': 'hard_delete_selected',
+            'index': '0',
+            'select_across': '0',
+            helpers.ACTION_CHECKBOX_NAME: [str(self.target.pk)],
+        })
+        self.assertEqual(preview_response.status_code, 200)
+        self.assertContains(preview_response, 'HARD DELETE 1 USERS')
+        self.assertContains(
+            preview_response,
+            '<input type="hidden" name="hard_delete_confirm" value="1">',
+            html=True,
+        )
+        form = preview_response.context['form']
+
+        response = self.client.post(url, {
+            'action': 'hard_delete_selected',
+            'select_across': '0',
+            helpers.ACTION_CHECKBOX_NAME: [str(self.target.pk)],
+            'reason_category': UserHardDeletionBatch.REASON_DUPLICATE,
+            'reason_note': 'Duplicate account selected from the Users list.',
+            'password': 'password',
+            'confirmation': 'HARD DELETE 1 USERS',
+            'request_id': form.initial['request_id'],
+            'preview_fingerprint': form.initial['preview_fingerprint'],
+        })
+
+        self.assertRedirects(response, url)
+        self.assertFalse(get_user_model().objects.filter(pk=self.target.pk).exists())

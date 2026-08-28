@@ -48,6 +48,7 @@
   </section>
   <form method="post" class="hard-delete-card mt-4" id="hard-delete-form">
     {% csrf_token %}{{ form.request_id }}{{ form.preview_fingerprint }}
+    <input type="hidden" name="hard_delete_confirm" value="1">
     {% if is_bulk %}<input type="hidden" name="action" value="hard_delete_selected"><input type="hidden" name="select_across" value="0">{% for target in targets %}<input type="hidden" name="{{ action_checkbox_name }}" value="{{ target.pk }}">{% endfor %}{% endif %}
     <h2>Authorise deletion</h2>
     <div class="hard-delete-fields">
@@ -56,7 +57,7 @@
       <div class="hard-delete-field hard-delete-wide"><label for="{{ form.reason_note.id_for_label }}">{{ form.reason_note.label }}</label>{{ form.reason_note }}<small>{{ form.reason_note.help_text }}</small>{{ form.reason_note.errors }}</div>
       <div class="hard-delete-field hard-delete-wide"><label for="{{ form.confirmation.id_for_label }}">Confirmation phrase</label><code>{{ expected_phrase }}</code>{{ form.confirmation }}{{ form.confirmation.errors }}</div>
     </div>
-    <div class="hard-delete-actions"><a class="rounded border px-4 py-3" href="{% url 'admin:auth_user_changelist' %}">Cancel</a><button class="hard-delete-danger" type="submit" name="hard_delete_confirm" value="1">Hard delete account{% if targets|length != 1 %}s{% endif %}</button></div>
+    <div class="hard-delete-actions"><a class="rounded border px-4 py-3" href="{% url 'admin:auth_user_changelist' %}">Cancel</a><button class="hard-delete-danger" type="submit">Hard delete account{% if targets|length != 1 %}s{% endif %}</button></div>
   </form>
 </div>
 <script>(function(){const form=document.getElementById('hard-delete-form');if(!form)return;form.addEventListener('submit',function(event){const button=event.submitter;if(button){button.disabled=true;button.textContent='Deleting…';}});})();</script>

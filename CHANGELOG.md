@@ -13,6 +13,9 @@
 - Preserved original compliance-ledger actor IDs and hash bytes through
   unconstrained historical references. Other protected history is retained via
   a disabled evidence tombstone rather than cascading business records.
+- Fixed the browser confirmation POST so disabling the submit button for visual
+  feedback cannot remove the confirmation marker and silently re-open the
+  impact preview instead of deleting the selected accounts.
 
   Migration note: `core.0142_user_hard_delete_audit` changes only historical
   User-reference constraints and adds the two evidence tables. Before any hard
