@@ -182,6 +182,8 @@ from .models import (
     AccessControlPolicySnapshot,
     EmergencyAccessGrant,
     StaffLifecycleChangePlan,
+    StaffTelegramOnboarding,
+    StaffTelegramGroupInvitation,
     TelegramStaffActivation,
     AccessControlNotification,
     UserHardDeletionBatch,
@@ -6709,6 +6711,14 @@ class StaffLifecycleForm(forms.Form):
     django_username = forms.CharField(max_length=150, required=False)
     email = forms.EmailField(required=False)
     password = forms.CharField(required=False, widget=forms.PasswordInput(render_value=False))
+    telegram_groups = forms.ModelMultipleChoiceField(
+        queryset=GroupSheetConfiguration.objects.none(), required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text=(
+            'Select only the Telegram groups this person should join. Access grants authorize tools; '
+            'this selection controls which private group invitations are sent after activation.'
+        ),
+    )
     superuser_password = forms.CharField(
         required=False,
         widget=forms.PasswordInput(render_value=False),
@@ -6748,6 +6758,9 @@ class StaffLifecycleForm(forms.Form):
         ).order_by('first_name', 'last_name', 'username')
         self.fields['target_user'].queryset = users
         self.fields['replacement_user'].queryset = users.filter(is_active=True)
+        self.fields['telegram_groups'].queryset = GroupSheetConfiguration.objects.filter(
+            enabled=True,
+        ).order_by('display_name', 'group_id')
         target_id = self.data.get('target_user') or self.initial.get('target_user')
         self.fields['retire_grants'].queryset = AccessGrant.objects.filter(user_id=target_id, active=True) if target_id else AccessGrant.objects.none()
         if not self.initial.get('request_key'):
@@ -7204,12 +7217,18 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             } if data['action'] == StaffLifecycleChangePlan.ACTION_ONBOARD else {}
             submission_action = str(request.POST.get('lifecycle_action') or '')
             try:
+                telegram_group_ids = list(data.get('telegram_groups', []).values_list('pk', flat=True))
                 direct_preview = lifecycle_submission_preview(
                     action=data['action'], reason=data['reason'], desired_grants=desired,
                     target_user=target, replacement_user=data.get('replacement_user'),
                     leave_from=data.get('leave_from'), leave_until=data.get('leave_until'),
                     delegation_gates=data.get('delegation_gates'), identity=identity,
+                    telegram_group_ids=telegram_group_ids,
                     new_user_password=data.get('password') or '',
+                )
+                direct_preview['telegram_groups'] = list(
+                    GroupSheetConfiguration.objects.filter(pk__in=telegram_group_ids)
+                    .values_list('display_name', flat=True)
                 )
                 if submission_action == 'confirm_direct':
                     if request.POST.get('preview_fingerprint') != direct_preview['fingerprint']:
@@ -7223,6 +7242,7 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                         leave_until=data.get('leave_until'), leave_from=data.get('leave_from'),
                         delegation_gates=data.get('delegation_gates'),
                         request_key=data.get('request_key'), identity=identity,
+                        telegram_group_ids=telegram_group_ids,
                         new_user_password=data.get('password') or '',
                         current_password=data.get('superuser_password') or '',
                         decision_mode=StaffLifecycleChangePlan.DECISION_SUPERUSER,
@@ -7232,6 +7252,13 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                         ('Lifecycle change applied directly by Superuser.' if created else
                          'This lifecycle request was already processed; the original result is shown.'),
                     )
+                    if created and hasattr(plan, 'telegram_onboarding'):
+                        from core.services.staff_lifecycle import generate_telegram_activation
+
+                        _challenge, activation_code = generate_telegram_activation(
+                            user=plan.target_user, actor=request.user,
+                        )
+                        request.session[f'staff_activation_code:{plan.pk}'] = activation_code
                     return HttpResponseRedirect(
                         reverse('admin:auth_user_staff_lifecycle_plan', args=[plan.pk]),
                     )
@@ -7247,6 +7274,7 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                         leave_until=data.get('leave_until'), leave_from=data.get('leave_from'),
                         delegation_gates=data.get('delegation_gates'),
                         request_key=data.get('request_key'), identity=identity,
+                        telegram_group_ids=telegram_group_ids,
                         new_user_password=data.get('password') or '',
                         decision_mode=StaffLifecycleChangePlan.DECISION_CHECKER,
                     )
@@ -7264,6 +7292,14 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                     direct_preview = None
         plans = StaffLifecycleChangePlan.objects.select_related('target_user', 'requested_by', 'reviewed_by')
         plans = plans[:50]
+        onboarding_attention = StaffTelegramOnboarding.objects.filter(
+            models.Q(status=StaffTelegramOnboarding.STATUS_ATTENTION)
+            | models.Q(
+                group_invitations__status=StaffTelegramGroupInvitation.STATUS_SENT,
+                group_invitations__invite_expires_at__lte=timezone.now(),
+                group_invitations__joined_at__isnull=True,
+            )
+        ).select_related('plan', 'user').distinct()[:20]
         return TemplateResponse(request, 'admin/auth/user/staff_lifecycle.html', {
             **self.admin_site.each_context(request), 'opts': self.model._meta,
             'title': 'Staff lifecycle workspace', 'form': form,
@@ -7271,6 +7307,7 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             'has_independent_checker': approver_users().exclude(pk=request.user.pk).exists(),
             'is_superuser_workspace': True,
             'direct_preview': direct_preview,
+            'telegram_onboarding_attention': onboarding_attention,
         })
 
     def staff_approvals_view(self, request):
@@ -7312,6 +7349,7 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             approve_lifecycle_plan,
             cancel_pending_lifecycle_plan_as_superuser,
             reject_lifecycle_plan,
+            generate_telegram_activation,
         )
 
         plan = StaffLifecycleChangePlan.objects.select_related(
@@ -7361,6 +7399,27 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                         reason=str(request.POST.get('review_comment') or ''),
                     )
                     messages.info(request, 'The pending lifecycle plan was cancelled.')
+                elif 'generate_activation' in request.POST:
+                    if not request.user.is_superuser or not hasattr(plan, 'telegram_onboarding'):
+                        raise PermissionDenied
+                    _challenge, activation_code = generate_telegram_activation(
+                        user=plan.target_user, actor=request.user,
+                    )
+                    request.session[f'staff_activation_code:{plan.pk}'] = activation_code
+                    messages.warning(request, 'The replacement activation code is shown once.')
+                elif 'retry_telegram_onboarding' in request.POST:
+                    if not request.user.is_superuser or not hasattr(plan, 'telegram_onboarding'):
+                        raise PermissionDenied
+                    from core.services.staff_telegram_onboarding import (
+                        deliver_staff_telegram_onboarding,
+                        prepare_staff_telegram_onboarding_retry,
+                    )
+
+                    onboarding = prepare_staff_telegram_onboarding_retry(
+                        onboarding=plan.telegram_onboarding,
+                    )
+                    result = deliver_staff_telegram_onboarding(onboarding=onboarding)
+                    messages.info(request, result['message'])
             except (PermissionDenied, ValidationError, ValueError) as exc:
                 messages.error(request, '; '.join(getattr(exc, 'messages', [str(exc)])))
             return HttpResponseRedirect(reverse('admin:auth_user_staff_lifecycle_plan', args=[plan.pk]))
@@ -7372,10 +7431,18 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             and plan.target_user_id != request.user.pk
             and (plan.proposed_snapshot or {}).get('replacement_user_id') != request.user.pk
         )
+        onboarding = getattr(plan, 'telegram_onboarding', None)
+        activation_code = request.session.pop(f'staff_activation_code:{plan.pk}', '')
+        from core.services.staff_telegram_onboarding import staff_activation_launcher_url
+
+        activation_fallback = request.build_absolute_uri(reverse('staff_telegram_activation_page'))
         return TemplateResponse(request, 'admin/auth/user/staff_lifecycle_plan.html', {
             **self.admin_site.each_context(request), 'opts': self.model._meta,
             'title': f'{plan.get_action_display()}: {plan.target_user}',
             'plan': plan,
+            'telegram_onboarding': onboarding,
+            'activation_code': activation_code,
+            'activation_url': staff_activation_launcher_url(fallback_url=activation_fallback),
             'can_review': can_review,
             'can_superuser_resolve': bool(
                 request.user.is_active and request.user.is_superuser

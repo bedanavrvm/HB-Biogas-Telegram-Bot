@@ -4,12 +4,15 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from datetime import timedelta
+from unittest.mock import patch
 
 from core.models import (
     AccessControlPolicyState,
     AccessGrant,
     GroupSheetConfiguration,
     StaffLifecycleChangePlan,
+    StaffTelegramGroupInvitation,
+    StaffTelegramOnboarding,
     TatEscalationRule,
     TatResponsibilityAssignment,
     TatResponsibilityBackup,
@@ -26,6 +29,11 @@ from core.services.staff_lifecycle import (
     submit_lifecycle_change,
 )
 from core.services.telegram_identity import TelegramIdentity, resolve_or_bind_telegram_user
+from core.services.staff_telegram_onboarding import (
+    deliver_staff_telegram_onboarding,
+    record_governed_group_join,
+    staff_activation_launcher_url,
+)
 
 
 class StaffLifecycleServiceTests(TestCase):
@@ -387,6 +395,179 @@ class TelegramStaffActivationTests(TestCase):
         self.assertIsNotNone(first.invalidated_at)
         self.assertFalse(resolve_or_bind_telegram_user(self.identity, activation_code=first_code))
         self.assertEqual(resolve_or_bind_telegram_user(self.identity, activation_code=second_code), self.user)
+
+
+@override_settings(TELEGRAM_BOT_TOKEN='test-token')
+class StaffTelegramOnboardingTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.root = User.objects.create_superuser('telegram-onboard-root', 'root@example.test', 'password')
+        AccessControlPolicyState.current()
+        self.group = GroupSheetConfiguration.objects.create(
+            group_id='-100staffgroup', display_name='Nakuru TAT', enabled=True,
+            workflow={'type': 'tat_tracker', 'mini_app_launchers': ['tat_tracker']},
+        )
+        self.identity = {
+            'display_name': 'Telegram Officer', 'login_method': 'telegram',
+            'telegram_username': 'telegram_officer', 'django_username': '',
+            'email': '', 'django_admin_login': False,
+        }
+
+    def _onboard(self, **overrides):
+        values = {
+            'requester': self.root,
+            'action': StaffLifecycleChangePlan.ACTION_ONBOARD,
+            'reason': 'Create and activate the Telegram staff member directly.',
+            'desired_grants': [{'workflow': 'tat_tracker', 'role': 'BRO'}],
+            'telegram_group_ids': [self.group.pk],
+            'request_key': 'telegram-onboard-1',
+            'identity': self.identity,
+            'current_password': 'password',
+            'decision_mode': StaffLifecycleChangePlan.DECISION_SUPERUSER,
+        }
+        values.update(overrides)
+        return submit_lifecycle_change(**values)
+
+    def test_direct_onboarding_projects_selected_group_once(self):
+        first, created = self._onboard()
+        second, replay_created = self._onboard()
+
+        self.assertTrue(created)
+        self.assertFalse(replay_created)
+        self.assertEqual(first.pk, second.pk)
+        onboarding = StaffTelegramOnboarding.objects.get(plan=first)
+        self.assertEqual(onboarding.status, onboarding.STATUS_PENDING)
+        self.assertEqual(
+            list(onboarding.group_invitations.values_list('group_configuration_id', flat=True)),
+            [self.group.pk],
+        )
+
+    @override_settings(
+        TELEGRAM_BOT_USERNAME='jbl_bot',
+        STAFF_ACTIVATION_MINI_APP_SHORT_NAME='staff-activation',
+    )
+    def test_activation_pack_uses_botfather_miniapp_link(self):
+        self.assertEqual(
+            staff_activation_launcher_url(fallback_url='https://example.test/api/staff/activate/'),
+            'https://t.me/jbl_bot/staff-activation',
+        )
+
+    def test_incompatible_group_is_rejected_before_user_creation(self):
+        complaint_group = GroupSheetConfiguration.objects.create(
+            group_id='-100complaints', display_name='Complaints', enabled=True,
+            workflow={'type': 'case', 'mini_app_launchers': ['complaint_cases']},
+        )
+        with self.assertRaises(ValidationError):
+            self._onboard(telegram_group_ids=[complaint_group.pk])
+        self.assertFalse(get_user_model().objects.filter(username='tg_telegram_officer').exists())
+
+    @override_settings(
+        TELEGRAM_BOT_USERNAME='jbl_bot',
+        STAFF_ACTIVATION_MINI_APP_SHORT_NAME='staff-activation',
+    )
+    def test_admin_direct_onboarding_shows_one_time_activation_pack(self):
+        self.client.force_login(self.root)
+        url = reverse('admin:auth_user_staff_lifecycle')
+        payload = {
+            'action': StaffLifecycleChangePlan.ACTION_ONBOARD,
+            'display_name': 'Admin Telegram Officer',
+            'login_method': 'telegram',
+            'telegram_username': 'admin_telegram_officer',
+            'reason': 'Create this Telegram staff account directly as Superuser.',
+            'request_key': 'admin-telegram-onboard-1',
+            'telegram_groups': [str(self.group.pk)],
+            'grants-TOTAL_FORMS': '3', 'grants-INITIAL_FORMS': '0',
+            'grants-MIN_NUM_FORMS': '0', 'grants-MAX_NUM_FORMS': '8',
+            'grants-0-include': 'on', 'grants-0-workflow': 'tat_tracker',
+            'grants-0-role': 'BRO', 'grants-0-branch': '', 'grants-0-product': '',
+            'grants-0-group_configuration': '', 'lifecycle_action': 'apply_now',
+        }
+        preview = self.client.post(url, payload)
+        self.assertEqual(preview.status_code, 200)
+        fingerprint = preview.context['direct_preview']['fingerprint']
+        confirmed = self.client.post(url, {
+            **payload, 'lifecycle_action': 'confirm_direct',
+            'preview_fingerprint': fingerprint, 'superuser_password': 'password',
+        })
+        plan = StaffLifecycleChangePlan.objects.get(request_key='admin-telegram-onboard-1')
+        self.assertRedirects(
+            confirmed, reverse('admin:auth_user_staff_lifecycle_plan', args=[plan.pk]),
+            fetch_redirect_response=False,
+        )
+        result = self.client.get(reverse('admin:auth_user_staff_lifecycle_plan', args=[plan.pk]))
+        self.assertContains(result, 'Copyable activation pack')
+        self.assertContains(result, 'https://t.me/jbl_bot/staff-activation')
+        self.assertContains(result, self.group.display_name)
+
+        second_view = self.client.get(reverse('admin:auth_user_staff_lifecycle_plan', args=[plan.pk]))
+        self.assertNotContains(second_view, 'Copyable activation pack')
+
+    @patch('core.services.staff_telegram_onboarding.publish_group_launcher')
+    @patch('core.services.staff_telegram_onboarding.telegram_api_call')
+    def test_delivery_publishes_launcher_sends_one_use_invite_and_private_welcome(
+        self, telegram_call, publish_launcher,
+    ):
+        plan, _ = self._onboard()
+        onboarding = plan.telegram_onboarding
+        profile = plan.target_user.staff_profile
+        profile.telegram_id = '998877'
+        profile.save(update_fields=['telegram_id', 'updated_at'])
+
+        def api_result(method, payload):
+            if method == 'createChatInviteLink':
+                self.assertEqual(payload['member_limit'], 1)
+                return {'ok': True, 'result': {'invite_link': 'https://t.me/+one-use'}}
+            self.assertEqual(method, 'sendMessage')
+            self.assertEqual(payload['chat_id'], '998877')
+            self.assertIn('Welcome to JBL Field Workflow', payload['text'])
+            return {'ok': True, 'result': {'message_id': 77}}
+
+        telegram_call.side_effect = api_result
+        result = deliver_staff_telegram_onboarding(onboarding=onboarding)
+
+        self.assertEqual(result['status'], onboarding.STATUS_COMPLETE)
+        publish_launcher.assert_called_once_with(
+            self.group,
+            operation_key_suffix=f'staff-{onboarding.pk}-{onboarding.revision}',
+        )
+        invitation = StaffTelegramGroupInvitation.objects.get(onboarding=onboarding)
+        self.assertEqual(invitation.status, invitation.STATUS_SENT)
+        self.assertTrue(invitation.invite_digest)
+        self.assertEqual(invitation.pending_invite_url, '')
+        self.assertEqual(telegram_call.call_count, 2)
+
+    def test_governed_join_is_recorded_for_quiet_group_welcome(self):
+        plan, _ = self._onboard()
+        onboarding = plan.telegram_onboarding
+        profile = plan.target_user.staff_profile
+        profile.telegram_id = '998877'
+        profile.save(update_fields=['telegram_id', 'updated_at'])
+        invitation = onboarding.group_invitations.get()
+        invitation.status = invitation.STATUS_SENT
+        invitation.save(update_fields=['status', 'updated_at'])
+
+        self.assertTrue(record_governed_group_join(telegram_id='998877', group_id=self.group.group_id))
+        invitation.refresh_from_db()
+        self.assertEqual(invitation.status, invitation.STATUS_JOINED)
+
+    def test_governed_join_suppresses_duplicate_public_welcome(self):
+        from core.api.views import _process_new_chat_members
+
+        plan, _ = self._onboard()
+        profile = plan.target_user.staff_profile
+        profile.telegram_id = '998877'
+        profile.save(update_fields=['telegram_id', 'updated_at'])
+        invitation = plan.telegram_onboarding.group_invitations.get()
+        invitation.status = invitation.STATUS_SENT
+        invitation.save(update_fields=['status', 'updated_at'])
+
+        result = _process_new_chat_members({
+            'chat': {'id': self.group.group_id},
+            'new_chat_members': [{'id': 998877, 'first_name': 'Telegram', 'is_bot': False}],
+        })
+
+        self.assertEqual(result['status'], 'ignored')
+        self.assertIn('private welcome', result['reason'])
 
 
 class AccessGrantGovernanceTests(TestCase):

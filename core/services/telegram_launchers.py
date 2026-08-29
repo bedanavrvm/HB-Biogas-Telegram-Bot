@@ -157,6 +157,7 @@ def publish_group_launcher(
     token: str | None = None,
     timeout: int | None = None,
     allow_disabled: bool = False,
+    operation_key_suffix: str = '',
 ) -> dict:
     if not config.enabled and not allow_disabled:
         raise TelegramLauncherError('Disabled groups cannot publish a launcher.')
@@ -170,7 +171,10 @@ def publish_group_launcher(
     operation, _ = reserve_operation(
         integration='telegram',
         operation_type='publish_group_launcher',
-        deduplication_key=f'telegram:launcher:{config.pk}:{preview["signature"]}',
+        deduplication_key=(
+            f'telegram:launcher:{config.pk}:{preview["signature"]}'
+            + (f':{operation_key_suffix}' if operation_key_suffix else '')
+        ),
         source_model='GroupSheetConfiguration',
         source_id=str(config.pk),
         operation_payload=(config.group_id, preview['signature']),
@@ -299,6 +303,18 @@ def _telegram_call(token: str, method: str, payload: dict, timeout: int) -> dict
             headers=response.headers,
         )
     return response_payload
+
+
+def telegram_api_call(method: str, payload: dict, *, token: str | None = None,
+                      timeout: int | None = None) -> dict:
+    """Call an approved Telegram Bot API method with the launcher's safe errors."""
+    token = str(token or getattr(settings, 'TELEGRAM_BOT_TOKEN', '') or '').strip()
+    if not token:
+        raise TelegramLauncherError('TELEGRAM_BOT_TOKEN is not configured.')
+    return _telegram_call(
+        token, method, payload,
+        int(timeout or getattr(settings, 'API_REQUEST_TIMEOUT', 10)),
+    )
 
 
 def _is_unchanged_message(error: _TelegramApiError) -> bool:

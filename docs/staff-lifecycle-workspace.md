@@ -11,6 +11,9 @@ may deliberately request an independent checker decision.
 
 Open **Django Admin > Configuration > Users > Staff lifecycle workspace**.
 
+For the one-time BotFather and Render setup required by Telegram identity
+activation, see [Telegram Staff Activation Mini App Setup](telegram-staff-activation-setup.md).
+
 ## Authority and approvals
 
 No checker is required for **Apply now**. The direct path requires the active
@@ -64,11 +67,30 @@ For Django Admin onboarding, re-enter the new staff member's initial password
 after the direct preview. Password inputs are intentionally never rendered back
 by the server. Raw passwords are not stored in plan snapshots or audit records.
 
-For Telegram staff, application leaves identity binding pending. Generate the
-activation code from the user page and give the eight-digit code only to the
-intended person. The code expires after 15 minutes, is single-use, and is
-blocked after five failed attempts. Signed Telegram identity, enrolled
-username, and the code must all agree.
+For Telegram staff, explicitly select the Telegram groups the person is meant
+to join. The server verifies that every group is compatible with the final
+AccessGrants; broad workflow access never silently invites a person to every
+configured group.
+
+After direct application, the plan page shows a copyable activation pack once.
+Give its Mini App link and eight-digit code only to the intended person. The
+code expires after 15 minutes, is single-use, and is blocked after five failed
+attempts. Signed Telegram identity, enrolled username, and the code must all
+agree. Use **Generate replacement activation pack** if it expires.
+
+After verification, the system:
+
+1. refreshes the existing shared launcher in each selected group;
+2. creates a one-member invite link expiring after 24 hours;
+3. privately welcomes the staff member with authorized Mini App buttons and
+   the group invitations; and
+4. records group joins without repeating the public welcome.
+
+Telegram does not allow the bot to force-add a person to a group. The staff
+member must accept each invitation. Unknown or manually added members retain
+the existing public group welcome. A delivery failure does not roll back the
+active account or grants; the plan page shows **Attention required** and an
+active Superuser can use **Retry Telegram delivery**.
 
 ### Transfer and access change
 
@@ -150,6 +172,10 @@ Use synthetic users only.
 - Success, stale, rejection, and validation messages remain compact and visible.
 - Layout remains usable at desktop, tablet, and narrow mobile widths.
 - The activation code is shown once and no raw code appears in logs or diagnostics.
+- Telegram group choices are explicit and incompatible groups are rejected.
+- The plan page shows activation, welcome, launcher, invitation, expiry, and join status.
+- The private welcome contains only authorized Mini App launchers.
+- Failed Telegram delivery is visibly retryable without recreating the user.
 
 ## Maintenance notes
 
@@ -159,3 +185,13 @@ Use synthetic users only.
 - Direct Superuser decisions must use `submit_lifecycle_change`; do not bypass
   the plan, request fingerprint, or compliance ledger.
 - Django Superuser lifecycle is a separate god-mode procedure and is not handled here.
+- The bot must be an administrator with invite-user and pin-message rights in
+  every selected group. Missing rights appear as a retryable onboarding error.
+- Configure `STAFF_ACTIVATION_MINI_APP_SHORT_NAME` to the BotFather Mini App
+  whose URL is `/api/staff/activate/`; this ensures Telegram supplies signed
+  `initData` when the activation pack is opened.
+- The complete registration, deployment, verification, and troubleshooting
+  procedure is documented in
+  [Telegram Staff Activation Mini App Setup](telegram-staff-activation-setup.md).
+- Invite URLs are retained only until the private welcome succeeds; durable
+  evidence stores their SHA-256 digest and expiry, never the usable secret URL.

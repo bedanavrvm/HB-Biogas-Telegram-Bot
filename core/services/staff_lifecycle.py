@@ -31,7 +31,7 @@ from core.services.access_control import (
     _policy_snapshot, approver_users, can_approve_access_change, notify_approvers,
 )
 from core.services.access_grant_governance import governed_access_grant_mutation
-from core.services.access_policies import validate_access_scope
+from core.services.access_policies import WORKFLOW_GROUP_TYPES, validate_access_scope
 
 
 ACTIVATION_TTL_MINUTES = 15
@@ -121,9 +121,47 @@ def _normalize_grants(rows) -> list[dict]:
     return normalized
 
 
+def _normalize_telegram_groups(group_ids, grants) -> list[int]:
+    requested = sorted({int(value) for value in (group_ids or []) if str(value).strip()})
+    if not requested:
+        return []
+    from core.models import GroupSheetConfiguration
+
+    groups = list(GroupSheetConfiguration.objects.filter(pk__in=requested, enabled=True))
+    if len(groups) != len(requested):
+        raise ValidationError('One or more selected Telegram groups are disabled or no longer configured.')
+    for group in groups:
+        group_type = str((group.workflow or {}).get('type') or '')
+        from core.services.staff_telegram_onboarding import LAUNCHER_WORKFLOWS
+        from core.services.telegram_launchers import configured_launcher_keys
+
+        compatible = any(
+            (
+                row.get('group_configuration_id') == group.pk
+                or (
+                    not row.get('group_configuration_id')
+                    and (
+                        group_type in WORKFLOW_GROUP_TYPES.get(row.get('workflow'), set())
+                        or any(
+                            LAUNCHER_WORKFLOWS.get(key) == row.get('workflow')
+                            for key in configured_launcher_keys(group)
+                        )
+                    )
+                )
+            )
+            for row in grants
+        )
+        if not compatible:
+            raise ValidationError(
+                f'{group.display_name or group.group_id} is not compatible with the proposed workflow access.'
+            )
+    return requested
+
+
 def _request_fingerprint(*, action, target_user_id, reason, desired_grants,
                          replacement_user_id, leave_from, leave_until,
-                         delegation_gates, identity, new_user_password='') -> str:
+                         delegation_gates, identity, telegram_group_ids=None,
+                         new_user_password='') -> str:
     password_proof = ''
     if new_user_password:
         password_proof = hmac.new(
@@ -139,6 +177,7 @@ def _request_fingerprint(*, action, target_user_id, reason, desired_grants,
         'leave_until': leave_until.isoformat() if leave_until else '',
         'delegation_gates': sorted(str(value) for value in (delegation_gates or [])),
         'identity': identity or {},
+        'telegram_group_ids': sorted(int(value) for value in (telegram_group_ids or [])),
         'new_user_password_proof': password_proof,
     }
     return hashlib.sha256(
@@ -207,9 +246,11 @@ def lifecycle_submission_preview(*, action, reason, desired_grants=None,
                                  target_user=None, replacement_user=None,
                                  leave_from=None, leave_until=None,
                                  delegation_gates=None, identity=None,
+                                 telegram_group_ids=None,
                                  new_user_password='') -> dict:
     normalized_grants = _normalize_grants(desired_grants)
     normalized_identity = dict(identity or {})
+    normalized_groups = _normalize_telegram_groups(telegram_group_ids, normalized_grants)
     fingerprint = _request_fingerprint(
         action=action,
         target_user_id=getattr(target_user, 'pk', None),
@@ -220,6 +261,7 @@ def lifecycle_submission_preview(*, action, reason, desired_grants=None,
         leave_until=leave_until,
         delegation_gates=delegation_gates,
         identity=normalized_identity,
+        telegram_group_ids=normalized_groups,
         new_user_password=new_user_password,
     )
     return {
@@ -227,6 +269,7 @@ def lifecycle_submission_preview(*, action, reason, desired_grants=None,
         'action': dict(StaffLifecycleChangePlan.ACTION_CHOICES).get(action, action),
         'target': str(target_user) if target_user else normalized_identity.get('display_name', ''),
         'identity': normalized_identity,
+        'telegram_group_ids': normalized_groups,
         'grants': normalized_grants,
         'replacement': str(replacement_user) if replacement_user else '',
         'leave_from': leave_from,
@@ -269,6 +312,7 @@ def create_lifecycle_plan(*, requester, target_user, action: str, reason: str,
                           desired_grants=None, replacement_user=None,
                           leave_from=None, leave_until=None, delegation_gates=None,
                           request_key='', identity=None,
+                          telegram_group_ids=None,
                           decision_mode=StaffLifecycleChangePlan.DECISION_CHECKER,
                           request_fingerprint='') -> StaffLifecycleChangePlan:
     if not requester or not requester.is_active or not requester.is_superuser:
@@ -318,6 +362,13 @@ def create_lifecycle_plan(*, requester, target_user, action: str, reason: str,
         proposed['grants'] = _normalize_grants(desired_grants)
         if not proposed['grants']:
             raise ValidationError('Choose at least one workflow role and scope.')
+    if action == StaffLifecycleChangePlan.ACTION_ONBOARD:
+        if (proposed.get('identity') or {}).get('login_method') == 'telegram':
+            proposed['telegram_group_ids'] = _normalize_telegram_groups(
+                telegram_group_ids, proposed.get('grants') or [],
+            )
+        elif telegram_group_ids:
+            raise ValidationError('Telegram groups apply only to Telegram staff onboarding.')
     if action in {
         StaffLifecycleChangePlan.ACTION_TRANSFER,
         StaffLifecycleChangePlan.ACTION_LEAVE,
@@ -655,6 +706,10 @@ def _finalize_lifecycle_plan(*, plan, actor, state, review_comment=''):
         'reviewed_by', 'reviewed_at', 'review_comment', 'status', 'applied_at',
         'impact', 'decision_mode',
     ])
+    if plan.action == plan.ACTION_ONBOARD:
+        from core.services.staff_telegram_onboarding import create_staff_telegram_onboarding
+
+        create_staff_telegram_onboarding(plan=plan)
     _record_plan(plan, 'staff_lifecycle.plan.applied')
     return plan
 
@@ -664,6 +719,7 @@ def submit_lifecycle_change(*, requester, action: str, reason: str,
                             desired_grants=None, target_user=None,
                             replacement_user=None, leave_from=None, leave_until=None,
                             delegation_gates=None, request_key='', identity=None,
+                            telegram_group_ids=None,
                             new_user_password='', current_password='',
                             decision_mode=StaffLifecycleChangePlan.DECISION_SUPERUSER):
     """Create and either apply or queue one idempotent lifecycle change."""
@@ -677,6 +733,7 @@ def submit_lifecycle_change(*, requester, action: str, reason: str,
 
     normalized_grants = _normalize_grants(desired_grants)
     normalized_identity = dict(identity or {})
+    normalized_groups = _normalize_telegram_groups(telegram_group_ids, normalized_grants)
     key = str(request_key or '').strip()[:128]
     if not key:
         raise ValidationError('Reload the lifecycle workspace before submitting this change.')
@@ -690,6 +747,7 @@ def submit_lifecycle_change(*, requester, action: str, reason: str,
         leave_until=leave_until,
         delegation_gates=delegation_gates,
         identity=normalized_identity,
+        telegram_group_ids=normalized_groups,
         new_user_password=new_user_password,
     )
     AccessControlPolicyState.current()
@@ -719,6 +777,7 @@ def submit_lifecycle_change(*, requester, action: str, reason: str,
         delegation_gates=delegation_gates,
         request_key=key,
         identity=normalized_identity,
+        telegram_group_ids=normalized_groups,
         decision_mode=decision_mode,
         request_fingerprint=fingerprint,
     )

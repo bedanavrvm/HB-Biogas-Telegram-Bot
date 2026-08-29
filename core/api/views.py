@@ -85,7 +85,10 @@ def staff_telegram_activation_submit(request):
             'ok': False,
             'message': 'The username or activation code did not match. Ask the administrator for a new code.',
         }, status=403)
-    return JsonResponse({'ok': True, 'message': 'Telegram identity verified. You can now open your JBL Mini App.'})
+    from core.services.staff_telegram_onboarding import complete_staff_telegram_onboarding
+
+    onboarding_result = complete_staff_telegram_onboarding(user=user)
+    return JsonResponse({'ok': True, 'message': onboarding_result['message']})
 
 
 # ---------------------------------------------------------------------------
@@ -2374,6 +2377,26 @@ def _process_new_chat_members(message_data: dict) -> dict | None:
     ]
     if not human_members:
         return {'status': 'ignored', 'reason': 'Only bot members joined'}
+
+    from core.services.staff_telegram_onboarding import record_governed_group_join
+
+    public_welcome_members = []
+    governed_count = 0
+    for member in human_members:
+        if record_governed_group_join(
+            telegram_id=str(member.get('id') or ''), group_id=group_id,
+        ):
+            governed_count += 1
+        else:
+            public_welcome_members.append(member)
+    if governed_count == len(human_members):
+        return {
+            'status': 'ignored',
+            'reason': 'Governed staff onboarding already sent a private welcome',
+            'onboarded_members': governed_count,
+        }
+    if governed_count:
+        human_members = public_welcome_members
 
     from core.services.group_config import GroupRegistry
     group_config = GroupRegistry.get_instance().get_group(group_id)

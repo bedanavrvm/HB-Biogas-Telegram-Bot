@@ -78,6 +78,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **IT** | A scoped support role available in every access-controlled Mini App workflow. It is assigned through `AccessGrant`, never inferred from Django technical-admin flags. |
 | **Access Control Checker** | A Django Admin staff user appointed by a technical Superuser to independently review Mini App access-policy requests. It is not a Mini App workflow role. |
 | **Staff lifecycle plan** | One durable, revision-checked change that atomically coordinates staff activation, permanent AccessGrants, TAT routing, temporary delegations, or offboarding. An active Django Superuser applies it directly by default or may deliberately send it for independent checker review. It never manages Django Superuser status. |
+| **Telegram staff onboarding** | The post-lifecycle handoff for Telegram staff: single-use identity activation, an authorization-filtered private welcome, explicit one-use group invitations, and shared group-launcher publication. AccessGrant authorizes Mini Apps; accepting a Telegram invite controls group membership. |
 | **User hard deletion** | Active-Superuser-only physical deletion of another Django user without checker approval. Immutable identity/relationship evidence remains, live access and routing are removed, compliance actor IDs and hashes remain unchanged, and the final active Superuser cannot be removed. |
 
 If new domain terms are introduced by a change, add them here rather than only in a service docstring — this table is the first place agents and new contributors look.
@@ -279,6 +280,7 @@ This is a template of variables this class of system typically needs. Treat it a
 | `TAT_REPAIR_CASE_DELAY_SECONDS` | Delay between Admin TAT repair case writes to stay below Google Sheets per-minute quotas | No |
 | `COMPLAINT_CASES_MINI_APP_SHORT_NAME` | Telegram Mini App short name for complaint cases | No |
 | `ORIGINATION_MINI_APP_SHORT_NAME` | BotFather short name for the standalone Loan Origination Mini App | No |
+| `STAFF_ACTIVATION_MINI_APP_SHORT_NAME` | BotFather short name whose Mini App URL points to `/api/staff/activate/` for signed staff identity activation | No |
 | `ORIGINATION_TEMPLATE_MAX_FILE_SIZE_MB` | PDF size limit for versioned Origination legal templates managed in Django Admin; templates use the existing `GOOGLE_DRIVE_MEDIA_FOLDER_ID` root | No |
 | `ORIGINATION_FULL_RESET_ENABLED` | Testing-only gate for the active-Superuser Django Admin action that empties Origination database models while leaving Drive files and other workflows untouched; defaults to disabled | No |
 | `ORIGINATION_PRODUCT_FAMILY_PURGE_ENABLED` | Gate for the active-Superuser purge of one Origination product family and its Origination-owned descendants; global Product records and Drive files remain untouched; defaults to disabled | No |

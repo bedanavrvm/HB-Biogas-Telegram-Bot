@@ -4384,6 +4384,98 @@ class TelegramStaffActivation(models.Model):
         )
 
 
+class StaffTelegramOnboarding(models.Model):
+    """Durable Telegram handoff created by an applied staff onboarding plan."""
+
+    STATUS_PENDING = 'pending_activation'
+    STATUS_DELIVERING = 'delivering'
+    STATUS_ATTENTION = 'attention_required'
+    STATUS_COMPLETE = 'complete'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending Telegram activation'),
+        (STATUS_DELIVERING, 'Delivering Telegram onboarding'),
+        (STATUS_ATTENTION, 'Attention required'),
+        (STATUS_COMPLETE, 'Complete'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    plan = models.OneToOneField(
+        StaffLifecycleChangePlan, on_delete=models.CASCADE,
+        related_name='telegram_onboarding',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='telegram_onboardings',
+    )
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    revision = models.PositiveIntegerField(default=1)
+    activated_at = models.DateTimeField(null=True, blank=True)
+    welcome_sent_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    last_error_code = models.CharField(max_length=80, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+
+class StaffTelegramGroupInvitation(models.Model):
+    """One governed, expiring Telegram-group invitation for staff onboarding."""
+
+    STATUS_PENDING = 'pending'
+    STATUS_READY = 'ready'
+    STATUS_SENT = 'sent'
+    STATUS_JOINED = 'joined'
+    STATUS_ATTENTION = 'attention_required'
+    STATUS_EXPIRED = 'expired'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_READY, 'Invite ready'),
+        (STATUS_SENT, 'Sent'),
+        (STATUS_JOINED, 'Joined'),
+        (STATUS_ATTENTION, 'Attention required'),
+        (STATUS_EXPIRED, 'Expired'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    onboarding = models.ForeignKey(
+        StaffTelegramOnboarding, on_delete=models.CASCADE, related_name='group_invitations',
+    )
+    group_configuration = models.ForeignKey(
+        'GroupSheetConfiguration', on_delete=models.PROTECT,
+        related_name='staff_onboarding_invitations',
+    )
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    launcher_ready_at = models.DateTimeField(null=True, blank=True)
+    invite_created_at = models.DateTimeField(null=True, blank=True)
+    invite_expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    invite_digest = models.CharField(max_length=64, blank=True, default='')
+    # Kept only until the private welcome is successfully sent, then cleared.
+    pending_invite_url = models.TextField(blank=True, default='')
+    joined_at = models.DateTimeField(null=True, blank=True)
+    last_error_code = models.CharField(max_length=80, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['group_configuration__display_name', 'pk']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['onboarding', 'group_configuration'],
+                name='unique_staff_onboarding_group_invite',
+            ),
+        ]
+
+    @property
+    def is_expired(self):
+        return bool(
+            self.status != self.STATUS_JOINED
+            and self.invite_expires_at
+            and self.invite_expires_at <= timezone.now()
+        )
+
+
 class AccessControlNotification(models.Model):
     """Delivery ledger; notification failure never undoes an applied control."""
 
