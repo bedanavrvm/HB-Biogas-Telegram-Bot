@@ -235,6 +235,79 @@ class TatTrackerWorkflowTest(TestCase):
         })
         self.assertEqual([item['case_id'] for item in result['items']], [cases[0].case_id])
 
+    def test_bootstrap_includes_the_same_queue_contract_as_home(self):
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            case_id='JBL-BOOTSTRAP-001',
+            product_key='business', product_label='Business',
+            client_name='Bootstrap Client', branch='Nakuru', status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+        )
+
+        data = bootstrap(self.config, {'id': 111, 'username': 'bro_user'})
+
+        self.assertEqual(data['queue'], 'role')
+        self.assertEqual(data['metrics']['total'], 1)
+        self.assertEqual(data['visibility']['code'], 'cases_visible')
+        self.assertEqual([item['case_id'] for item in data['items']], [case.case_id])
+
+    def test_home_treats_blank_access_scope_as_all_branches_products_and_group(self):
+        AccessGrant.objects.filter(user=self.bro_user, workflow='tat_tracker').delete()
+        AccessGrant.objects.create(
+            user=self.bro_user, workflow='tat_tracker', role='BRO',
+            branch='', product='', group_configuration=None,
+        )
+        visible_case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            case_id='JBL-GLOBAL-SCOPE-001',
+            product_key='logbook', product_label='Logbook',
+            client_name='Global Scope Client', branch='Embu', status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+        )
+        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+
+        result = home_data(self.config, user, queue='all')
+
+        self.assertEqual(result['visibility']['scoped_total'], 1)
+        self.assertEqual(result['metrics']['total'], 1)
+        self.assertEqual([item['case_id'] for item in result['items']], [visible_case.case_id])
+
+    def test_home_explains_when_access_scope_excludes_existing_cases(self):
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            case_id='JBL-OUTSIDE-SCOPE-001',
+            product_key='logbook', product_label='Logbook',
+            client_name='Outside Scope Client', branch='Embu', status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+        )
+        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+
+        result = home_data(self.config, user, queue='all')
+
+        self.assertEqual(result['metrics']['total'], 0)
+        self.assertEqual(result['visibility']['stored_group_total'], 1)
+        self.assertEqual(result['visibility']['operational_group_total'], 1)
+        self.assertEqual(result['visibility']['scoped_total'], 0)
+        self.assertEqual(result['visibility']['code'], 'access_scope_excludes_cases')
+
+    def test_home_explains_when_active_filters_hide_accessible_cases(self):
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            case_id='JBL-FILTERED-001',
+            product_key='business', product_label='Business',
+            client_name='Filtered Client', branch='Nakuru', status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+        )
+        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+
+        result = home_data(
+            self.config, user, queue='all', statuses=['Deferred'],
+        )
+
+        self.assertEqual(result['metrics']['total'], 0)
+        self.assertEqual(result['visibility']['scoped_total'], 1)
+        self.assertEqual(result['visibility']['code'], 'filters_exclude_cases')
+
     def test_home_supports_authorized_multi_select_filters(self):
         User = get_user_model()
         superuser = User.objects.create_superuser(
@@ -480,14 +553,14 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Assigned to me', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn('?v=46', template)
+        self.assertIn('?v=47', template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
         stylesheet = Path('core/static/miniapp/tat_tracker.css').read_text(encoding='utf-8')
         template = Path('core/templates/tat_tracker/app.html').read_text(encoding='utf-8')
 
-        for label in ['Assigned to me', 'My role queue', 'Total cases', 'Completed', 'Stalled']:
+        for label in ['Assigned to me', 'Ready for my role', 'Total cases', 'Completed', 'Stalled']:
             self.assertIn(label, template)
         self.assertIn('queueFilterOverlay', template)
         self.assertIn('queuePreviousBtn', template)
@@ -501,6 +574,41 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
         self.assertIn("miniapp/tat_tracker.css' %}?v=27", template)
         self.assertIn('.queue-pagination', stylesheet)
+
+    def test_responsibility_editor_hides_redundant_related_object_controls(self):
+        from core.admin import TatResponsibilityBackupInline
+        from core.models import TatResponsibilityAssignment
+
+        root = get_user_model().objects.create_superuser(
+            username='responsibility-root', email='root@example.invalid',
+            password='test-password',
+        )
+        request = RequestFactory().get(reverse(
+            'admin:core_tatresponsibilityassignment_add',
+        ))
+        request.user = root
+        model_admin = admin.site._registry[TatResponsibilityAssignment]
+        form = model_admin.get_form(request)(initial={
+            'group_configuration': self.config.pk, 'branch': 'Nakuru',
+            'role': 'BRO', 'product_key': 'business',
+        })
+
+        for field_name in ('group_configuration', 'primary_user'):
+            widget = form.fields[field_name].widget
+            self.assertFalse(widget.can_add_related)
+            self.assertFalse(widget.can_change_related)
+            self.assertFalse(widget.can_delete_related)
+            self.assertFalse(widget.can_view_related)
+        self.assertEqual(TatResponsibilityBackupInline.extra, 0)
+
+    def test_responsibility_workspace_keeps_stage_overrides_advanced(self):
+        template = Path(
+            'core/templates/admin/core/tatresponsibilityassignment/change_list.html',
+        ).read_text(encoding='utf-8')
+
+        self.assertIn('<details class="rounded border', template)
+        self.assertIn('Advanced stage overrides', template)
+        self.assertIn('Default role rosters already cover normal routing.', template)
 
     def test_compact_cards_have_a_distinct_queue_hierarchy(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')

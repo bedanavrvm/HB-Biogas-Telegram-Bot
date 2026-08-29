@@ -523,6 +523,13 @@ def bootstrap(group_config, user_payload: dict) -> dict:
         'bro_names': [item['name'] for item in bro_users],
         'bro_users': bro_users,
         'statuses': STATUS_VALUES,
+        # Bootstrap is the Mini App's first queue response. Keep its contract
+        # identical to /home/ so the first render cannot invent zero counts
+        # while accessible cases are already present.
+        'queue': home['queue'],
+        'items': home['items'],
+        'metrics': home['metrics'],
+        'visibility': home['visibility'],
         'recent': home['recent'],
         'action_required': home['action_required'],
         'pagination': home['pagination'],
@@ -550,10 +557,17 @@ def home_data(
     response for cached Mini App clients during the responsive-home rollout.
     """
     workflow = getattr(group_config, 'workflow', None) or {}
-    queryset = operational_tat_cases(
-        TatTrackerCase.objects.filter(group_id=str(group_config.group_id), is_deleted=False)
+    stored_queryset = TatTrackerCase.objects.filter(
+        group_id=str(group_config.group_id), is_deleted=False,
     )
-    queryset = _scope_tat_queryset(queryset, user, 'tat.home.view')
+    stored_group_total = stored_queryset.count()
+    operational_queryset = operational_tat_cases(stored_queryset)
+    operational_group_total = operational_queryset.count()
+    scoped_queryset = _scope_tat_queryset(
+        operational_queryset, user, 'tat.home.view',
+    )
+    scoped_total = scoped_queryset.count()
+    queryset = scoped_queryset
     allowed_keys = [p.key for p in _allowed_products(workflow, user)]
     def selected_values(values, legacy=''):
         source = values if values not in (None, '') else legacy
@@ -563,11 +577,13 @@ def home_data(
             source = [source]
         return list(dict.fromkeys(str(value or '').strip() for value in source if str(value or '').strip()))
 
+    invalid_filter_scope = False
     selected_products = selected_values(product_keys, product_key)
     if selected_products:
         if set(selected_products).issubset(allowed_keys):
             queryset = queryset.filter(product_key__in=selected_products)
         else:
+            invalid_filter_scope = True
             queryset = queryset.none()
     allowed_branches = _allowed_branches(workflow, user)
     selected_branches = selected_values(branches, branch)
@@ -575,12 +591,14 @@ def home_data(
         if set(selected_branches).issubset(allowed_branches):
             queryset = queryset.filter(branch__in=selected_branches)
         else:
+            invalid_filter_scope = True
             queryset = queryset.none()
     selected_statuses = selected_values(statuses)
     if selected_statuses:
         if set(selected_statuses).issubset(STATUS_VALUES):
             queryset = queryset.filter(status__in=selected_statuses)
         else:
+            invalid_filter_scope = True
             queryset = queryset.none()
     action_offset = max(0, int(action_offset or 0))
     recent_offset = max(0, int(recent_offset or 0))
@@ -593,6 +611,35 @@ def home_data(
 
     cases = list(queryset.prefetch_related('approval_certificates'))
     recent_total = len(cases)
+    filters_active = bool(selected_products or selected_branches or selected_statuses)
+    if recent_total:
+        visibility_code = 'cases_visible'
+        visibility_message = ''
+    elif stored_group_total == 0:
+        visibility_code = 'launcher_group_has_no_cases'
+        visibility_message = 'No TAT cases have been created for this launcher group yet.'
+    elif operational_group_total == 0:
+        visibility_code = 'outside_operational_data_mode'
+        visibility_message = (
+            'Cases exist for this launcher, but none belong to the current '
+            'operational data mode or active pilot cycle.'
+        )
+    elif scoped_total == 0:
+        visibility_code = 'access_scope_excludes_cases'
+        visibility_message = (
+            'Cases exist for this launcher, but they are outside your current '
+            'branch, product, or group access scope.'
+        )
+    elif filters_active:
+        visibility_code = 'invalid_filter_scope' if invalid_filter_scope else 'filters_exclude_cases'
+        visibility_message = (
+            'One or more selected filters are outside your access scope.'
+            if invalid_filter_scope else
+            'No accessible cases match the selected filters.'
+        )
+    else:
+        visibility_code = 'no_visible_cases'
+        visibility_message = 'No accessible TAT cases are available.'
     recent_cases = sorted(cases, key=lambda item: item.updated_at, reverse=True)
     recent = [
         serialize_case_summary(case, user, workflow=workflow)
@@ -699,6 +746,15 @@ def home_data(
             'total': recent_total,
             'completed': completed_total,
             'stalled': len(stalled_case_ids),
+        },
+        'visibility': {
+            'code': visibility_code,
+            'message': visibility_message,
+            'stored_group_total': stored_group_total,
+            'operational_group_total': operational_group_total,
+            'scoped_total': scoped_total,
+            'filtered_total': recent_total,
+            'filters_active': filters_active,
         },
         'recent': recent,
         'action_required': action_required,

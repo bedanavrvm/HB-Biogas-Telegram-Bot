@@ -44,7 +44,7 @@
       </div>
       <div class="metric-tile">
         <span id="statRoleQueue">0</span>
-        <small>My role queue</small>
+        <small>Ready for my role</small>
       </div>
       <div class="metric-tile">
         <span id="statTotal">0</span>
@@ -97,7 +97,7 @@
     <section id="queueView" class="view active" aria-label="Queue">
       <nav class="home-queue-tabs" aria-label="TAT work queues">
         <button type="button" class="active" data-home-queue="assigned"><span>Assigned</span><strong id="assignedTabCount">0</strong></button>
-        <button type="button" data-home-queue="role"><span>My roles</span><strong id="roleTabCount">0</strong></button>
+        <button type="button" data-home-queue="role"><span>Ready for my role</span><strong id="roleTabCount">0</strong></button>
         <button type="button" data-home-queue="all"><span>All cases</span><strong id="allTabCount">0</strong></button>
       </nav>
 
@@ -341,6 +341,6 @@
   {% include "miniapp_diagnostics.html" %}
   <script src="{% static 'miniapp/utils.js' %}?v=7"></script>
   <script src="{% static 'miniapp/tat_api.js' %}?v=3"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=46"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=47"></script>
 </body>
 </html>

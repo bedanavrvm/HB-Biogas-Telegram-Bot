@@ -2322,6 +2322,17 @@ class TatResponsibilityAssignmentForm(forms.ModelForm):
             eligibility_message,
             reverse('admin:auth_user_changelist'),
         )
+        # This editor assigns an existing workflow and staff member. Django's
+        # related-object add/change/view controls duplicate the guided links
+        # above and make the roster form look like a model-maintenance screen.
+        for field_name in ('group_configuration', 'primary_user'):
+            widget = self.fields[field_name].widget
+            for attribute in (
+                'can_add_related', 'can_change_related', 'can_delete_related',
+                'can_view_related',
+            ):
+                if hasattr(widget, attribute):
+                    setattr(widget, attribute, False)
 
     def clean(self):
         cleaned = super().clean()
@@ -2376,12 +2387,21 @@ class TatResponsibilityBackupForm(forms.ModelForm):
             self.fields['user'].queryset = get_user_model().objects.filter(
                 access_grants__in=grants, is_active=True,
             ).distinct().order_by('first_name', 'last_name', 'username')
+        user_widget = self.fields['user'].widget
+        for attribute in (
+            'can_add_related', 'can_change_related', 'can_delete_related',
+            'can_view_related',
+        ):
+            if hasattr(user_widget, attribute):
+                setattr(user_widget, attribute, False)
 
 
 class TatResponsibilityBackupInline(TabularInline):
     model = TatResponsibilityBackup
     form = TatResponsibilityBackupForm
-    extra = 1
+    # Do not render a misleading empty backup record. Administrators can add
+    # one explicitly when the roster genuinely needs escalation coverage.
+    extra = 0
     fields = ('rank', 'user', 'threshold_percent', 'active')
 
 
@@ -2403,13 +2423,21 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
     readonly_fields = ('created_by', 'created_at', 'updated_at')
     inlines = (TatResponsibilityBackupInline,)
     fieldsets = (
-        ('Responsibility scope', {
+        ('Roster scope', {
             'fields': (
                 'group_configuration', ('branch', 'role'),
-                ('product_key', 'stage_key'), 'primary_user',
-                'change_reason',
+                'product_key',
             ),
-            'description': 'Assignment routes alerts only. Every actor still needs a matching TAT AccessGrant.',
+            'description': 'Choose where this alert roster applies. Access grants still determine who may open and act on cases.',
+        }),
+        ('Primary routing', {
+            'fields': ('primary_user', 'change_reason'),
+            'description': 'Choose the first eligible recipient. Add backup recipients only when escalation coverage is needed.',
+        }),
+        ('Advanced stage override', {
+            'fields': ('stage_key',),
+            'classes': ('collapse',),
+            'description': 'Leave this as all stages for the role unless one canonical stage needs a different roster.',
         }),
         ('Availability', {
             'fields': (('active', 'effective_from', 'effective_until'),),

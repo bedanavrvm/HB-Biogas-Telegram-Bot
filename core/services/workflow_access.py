@@ -201,19 +201,29 @@ def scope_workflow_queryset(
     scope = Q(pk__in=[])
     for grant in grants:
         item = Q()
+        restricted = False
         if getattr(grant, 'branch', ''):
             if not branch_field:
                 continue
             item &= Q(**{f'{branch_field}__iexact': grant.branch})
+            restricted = True
         if getattr(grant, 'product', ''):
             if not product_field:
                 continue
             item &= Q(**{f'{product_field}__iexact': grant.product})
+            restricted = True
         if getattr(grant, 'group_configuration_id', None):
             if not group_field:
                 continue
             group_value = getattr(grant.group_configuration, 'group_id', '')
             item &= Q(**{f'{group_field}__iexact': group_value})
+            restricted = True
+        if not restricted:
+            # An allowed grant with no branch, product, or group restriction
+            # is an intentional wildcard. ``Q(impossible) | Q()`` does not
+            # reliably express that in Django, so return the already-bounded
+            # workflow queryset explicitly.
+            return queryset
         scope |= item
     return queryset.filter(scope).distinct()
 

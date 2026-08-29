@@ -14,7 +14,7 @@
     pendingCreateRequestId: readPendingCreateRequestId(),
     creatingCase: false,
     refreshing: false,
-    home: { queue: 'role', items: [], metrics: {}, pagination: {} },
+    home: { queue: 'role', items: [], metrics: {}, visibility: {}, pagination: {} },
     homeQueue: 'role',
     homePages: { assigned: 1, role: 1, all: 1 },
     autoSelectHomeQueue: true,
@@ -412,9 +412,35 @@
   }
 
   function queuePresentation(queue) {
-    if (queue === 'assigned') return ['Assigned to me', 'No assigned tasks', 'Direct primary and backup work will appear here.'];
-    if (queue === 'all') return ['All cases', 'No cases found', 'Change the filters or create a case.'];
-    return ['Available to my roles', 'No role actions', 'Cases your current roles can action will appear here.'];
+    const metrics = state.home.metrics || {};
+    const visibility = state.home.visibility || {};
+    const accessibleTotal = Number(metrics.total || 0);
+    if (!accessibleTotal && visibility.message) {
+      return ['All cases', 'No cases available', visibility.message];
+    }
+    if (queue === 'assigned') {
+      return [
+        'Assigned to me',
+        'No assigned tasks',
+        accessibleTotal
+          ? `${accessibleTotal} accessible ${accessibleTotal === 1 ? 'case is' : 'cases are'} still available under All cases.`
+          : 'Direct primary and backup work will appear here.',
+      ];
+    }
+    if (queue === 'all') {
+      return [
+        'All cases',
+        'No cases found',
+        visibility.filters_active ? visibility.message : 'No accessible cases have been created yet.',
+      ];
+    }
+    return [
+      'Ready for my role',
+      'No role actions',
+      accessibleTotal
+        ? `${accessibleTotal} accessible ${accessibleTotal === 1 ? 'case is' : 'cases are'} visible under All cases, but none currently require your roles.`
+        : 'Cases your current roles can action will appear here.',
+    ];
   }
 
   function renderActiveFilters() {
@@ -454,6 +480,7 @@
       queue: page.queue || state.homeQueue,
       items: page.items || legacyItems,
       metrics: page.metrics || {},
+      visibility: page.visibility || {},
       pagination: page.pagination || {},
     };
     state.homeQueue = state.home.queue;
@@ -1013,7 +1040,10 @@
     );
     fillSelect(broInput, broOptions, 'value', 'label');
     if ((data.bro_names || []).includes(currentUserName())) broInput.value = currentUserName();
-    const initialQueue = Number((data.metrics || {}).assigned || 0) > 0 ? 'assigned' : 'role';
+    const initialMetrics = data.metrics || {};
+    const initialQueue = Number(initialMetrics.assigned || 0) > 0
+      ? 'assigned'
+      : Number(initialMetrics.role || 0) > 0 ? 'role' : 'all';
     state.homeQueue = initialQueue;
     state.homePages[initialQueue] = 1;
     renderHome(data);
