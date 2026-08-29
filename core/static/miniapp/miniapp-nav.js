@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const tg = window.Telegram?.WebApp;
+  const tg = window.MiniAppUtils?.initTelegram?.() || window.Telegram?.WebApp;
   let backHandler = null;
   let mainHandler = null;
   let lastFocusedElement = null;
@@ -228,12 +228,6 @@
   }
 
   if (tg) {
-    tg.ready();
-    // Expand only during initial Mini App startup. Native file pickers and
-    // media viewers emit activated/visibility events while Telegram is still
-    // restoring its WebView; calling expand again in that transition produces
-    // a Telegram viewport error on Android.
-    tg.expand?.();
     syncTelegramViewportHeight();
     tg.onEvent?.('themeChanged', syncTheme);
     tg.onEvent?.('viewportChanged', handleTelegramViewportChanged);

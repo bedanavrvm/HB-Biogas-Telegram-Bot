@@ -31,6 +31,22 @@ Mini App launch does not depend on a runtime Sentry CDN request.
 - `X-Request-ID` is the existing business request UUID. It is not replaced by a
   diagnostics-only correlation identifier.
 - Signal-token retries and client event UUIDs are idempotent.
+- At startup, the client may record the allowlisted `gesture_policy`
+  capability result (`ok` or `unknown`). It records no touch coordinates,
+  element names, field contents, or gestures.
+
+## Telegram gesture and close protection
+
+Supported Telegram clients receive `disableVerticalSwipes()` during the shared
+Mini App bootstrap. This prevents ordinary content scrolling from minimizing
+the Mini App. Telegram deliberately retains header dragging as an escape route;
+the application does not intercept or suppress that native header gesture.
+
+Closing confirmation is state-aware. The shared utility keeps a set of stable
+local reasons and enables Telegram's confirmation only while a draft is not yet
+saved, a signature capture is unfinished, or a write/upload is in flight. It is
+disabled again after confirmed persistence, reset, cancellation, or completion.
+Normal browsers and older Telegram clients use no-op feature detection.
 
 ## Classification and alerts
 
@@ -50,7 +66,9 @@ points. The warning is rate-limited to once per segment per hour.
 
 Before enabling alert routing, exercise Android and iOS Telegram clients through
 background/foreground, phone lock, app switching, intentional close, offline
-launch, and process termination. Confirm that WebView `localStorage` survives
+launch, and process termination. Also confirm content-area scrolling does not
+minimize the Mini App, header dragging still works, dirty work prompts before
+closing, and clean/read-only screens do not prompt. Confirm that WebView `localStorage` survives
 relaunch on the supported Telegram/device versions. Observe production in the
 read-only Django Admin diagnostics views for at least two weeks before changing
 the initial segmented thresholds.

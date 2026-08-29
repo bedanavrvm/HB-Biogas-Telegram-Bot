@@ -112,6 +112,21 @@ class MiniAppDiagnosticApiTests(TestCase):
         self.assertEqual(session.classification, MiniAppDiagnosticSession.CLASSIFICATION_ACTIVE)
         self.assertIsNone(session.ended_at)
 
+    def test_gesture_capability_signal_is_privacy_safe_and_non_terminal(self):
+        started = self.start().json()
+        event = self.event('client_capability', action='gesture_policy')
+        event['status_bucket'] = 'ok'
+
+        response = self.signal(self.session_uuid, started['signal_token'], [event])
+
+        self.assertEqual(response.status_code, 200)
+        stored = MiniAppDiagnosticEvent.objects.get(event_type='client_capability')
+        self.assertEqual(stored.action, 'gesture_policy')
+        self.assertEqual(stored.status_bucket, 'ok')
+        session = MiniAppDiagnosticSession.objects.get()
+        self.assertEqual(session.classification, MiniAppDiagnosticSession.CLASSIFICATION_ACTIVE)
+        self.assertIsNone(session.ended_at)
+
     def test_delayed_backward_heartbeat_is_acknowledged_without_becoming_new_evidence(self):
         started = self.start().json()
         later = self.event('resumed', action='visibility_change')

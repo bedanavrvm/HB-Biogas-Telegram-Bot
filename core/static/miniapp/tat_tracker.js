@@ -1490,6 +1490,7 @@
         requestId: state.pendingCorrection.requestId,
       });
       state.pendingCorrection = null;
+      caseCorrectionProtection?.markClean();
       $('caseCorrectionPanel').classList.add('hidden');
     } catch (error) {
       setStatus(`${error.message} Retry will safely check the same correction.`, 'error');
@@ -1624,6 +1625,12 @@
   });
   $('cancelCaseCorrectionBtn').addEventListener('click', () => $('caseCorrectionPanel').classList.add('hidden'));
   $('caseCorrectionForm').addEventListener('submit', submitCaseCorrection);
+  const caseCorrectionProtection = utils.bindFormCloseProtection?.($('caseCorrectionForm'), 'tat-case-correction');
+  const targetSettingsProtection = utils.bindFormCloseProtection?.($('targetSettingsForm'), 'tat-target-settings');
+  const holidaySettingsProtection = utils.bindFormCloseProtection?.($('holidaySettingsForm'), 'tat-holiday-settings');
+  const escalationSettingsProtection = utils.bindFormCloseProtection?.($('escalationSettingsForm'), 'tat-escalation-settings');
+  const newCaseProtection = utils.bindFormCloseProtection?.($('newCaseForm'), 'tat-new-case');
+  const personalSettingsProtection = utils.bindFormCloseProtection?.($('personalSettingsForm'), 'tat-personal-settings');
   $('targetSettingsForm').addEventListener('submit', async (event) => {
     event.preventDefault();
     if (state.savingTargets) return;
@@ -1632,6 +1639,7 @@
       setButtonLoading($('saveTargetSettingsBtn'), true, 'Saving');
       setStatus('Saving TAT targets...', 'busy');
       await saveTargetSettings();
+      targetSettingsProtection?.markClean();
     } catch (error) {
       setStatus(error.message, 'error');
     } finally {
@@ -1651,6 +1659,7 @@
       setButtonLoading(button, true, 'Saving');
       await saveConfigurationSettings('business_calendar', holidaySettingsPayload(), $('holidaySettingsReason').value.trim());
       $('holidaySettingsReason').value = '';
+      holidaySettingsProtection?.markClean();
     } catch (error) {
       setStatus(error.message, 'error');
     } finally {
@@ -1665,6 +1674,7 @@
       setButtonLoading(button, true, 'Saving');
       await saveConfigurationSettings('tat_escalation', escalationSettingsPayload(), $('escalationSettingsReason').value.trim());
       $('escalationSettingsReason').value = '';
+      escalationSettingsProtection?.markClean();
     } catch (error) {
       setStatus(error.message, 'error');
     } finally {
@@ -1750,6 +1760,7 @@
       state.pendingCreateRequestId = '';
       writePendingCreateRequestId('');
       if (formElement && typeof formElement.reset === 'function') formElement.reset();
+      newCaseProtection?.markClean();
       renderNewCaseProductConfiguration();
       renderExistingLoanContext(null);
       const broInput = document.querySelector('[name="bro_name"]');
@@ -1780,6 +1791,7 @@
         default_screen: $('preferenceDefaultScreen').value,
         show_business_hours_time: $('preferenceBusinessHours').checked,
       });
+      personalSettingsProtection?.markClean();
       setStatus($('preferenceCompactCards').checked
         ? 'Compact cards saved. Queue cards now hide identifiers and timestamps; open a case for full detail.'
         : 'Standard case cards restored.', 'ok');

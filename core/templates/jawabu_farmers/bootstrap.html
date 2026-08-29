@@ -93,7 +93,7 @@
   </main>
   <script>
     const tg = window.Telegram && window.Telegram.WebApp;
-    if (tg) { tg.ready(); tg.expand(); }
+    if (tg) { tg.ready(); tg.expand(); if (typeof tg.disableVerticalSwipes === 'function') tg.disableVerticalSwipes(); if (typeof tg.disableClosingConfirmation === 'function') tg.disableClosingConfirmation(); }
     const params = new URLSearchParams(window.location.search);
     const startParam = params.get('tgWebAppStartParam') || params.get('startapp') || params.get('start_param') || (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || '';
     if (startParam) {

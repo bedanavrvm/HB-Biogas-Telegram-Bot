@@ -71,7 +71,7 @@ class LoanOriginationFrontendTests(SimpleTestCase):
         self.assertNotIn('id="preview-open"', template)
         self.assertIn('data-ui-version="20260828-4"', template)
         self.assertIn("loan_origination.css' %}?v=20260828-4", template)
-        self.assertIn("loan_origination.js' %}?v=20260828-4", template)
+        self.assertIn("loan_origination.js' %}?v=20260829-1", template)
         self.assertIn('maximumLiveViewportHeight', source)
         self.assertIn('setKeyboardViewportOpen', source)
         self.assertIn('.origination-keyboard-open .wizard-actions { display: none !important; }', css)

@@ -211,5 +211,4 @@
 
   render();
   restoreDraft();
-  if (tg) { tg.ready(); tg.expand(); }
 })();

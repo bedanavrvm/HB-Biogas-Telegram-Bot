@@ -1,8 +1,8 @@
 (function () {
   'use strict';
-  const telegram = window.Telegram && window.Telegram.WebApp;
   const apiClient = window.ComplaintCasesMiniAppApi;
   const utils = window.MiniAppUtils || {};
+  const telegram = utils.initTelegram ? utils.initTelegram() : (window.Telegram && window.Telegram.WebApp);
   const $ = (id) => document.getElementById(id);
   const state = { groupId: document.body.dataset.groupId || '', initData: telegram?.initData || '', status: 'pending', query: '', page: 1, pages: 1, capabilities: new Set(), currentCase: null, submitting: false, debounce: null, latitude: '', longitude: '' };
 
@@ -15,7 +15,6 @@
   function optionList(id, values) { const list = $(id); list.replaceChildren(); (values || []).forEach((value) => { const option = document.createElement('option'); option.value = value; list.appendChild(option); }); }
 
   async function bootstrap() {
-    telegram?.ready(); telegram?.expand();
     try {
       const response = await json('bootstrap/'); const data = response.data;
       state.capabilities = new Set(data.actor.capabilities || []);
@@ -109,14 +108,14 @@
   async function submitTransition(event, action) {
     event.preventDefault(); if (!state.currentCase || state.submitting) return;
     const formNode = event.currentTarget; const data = new FormData(formNode); data.set('expected_revision', state.currentCase.revision); data.set('client_request_id', requestId());
-    const button = formNode.querySelector('button[type="submit"]'); state.submitting = true; button.disabled = true;
-    try { const response = await form(`cases/${encodeURIComponent(state.currentCase.case_id)}/${action}/`, data); renderDetail(response.case); notify(response.message); await refreshCounts(); }
+    const button = formNode.querySelector('button[type="submit"]'); state.submitting = true; button.disabled = true; utils.setCloseProtection?.('complaint-operation', true);
+    try { const response = await form(`cases/${encodeURIComponent(state.currentCase.case_id)}/${action}/`, data); utils.setCloseProtection?.('complaint-transition-draft', false); renderDetail(response.case); notify(response.message); await refreshCounts(); }
     catch (error) { if (error.status === 409) showConflict(error); else notify(error.message, true); }
-    finally { state.submitting = false; button.disabled = false; }
+    finally { state.submitting = false; button.disabled = false; utils.setCloseProtection?.('complaint-operation', false); }
   }
 
   async function refreshCounts() { try { const response = await json('bootstrap/'); const counts = response.data.counts; $('pendingCount').textContent = counts.pending; $('resolvedCount').textContent = counts.resolved; $('totalCount').textContent = counts.total; } catch (_) {} }
-  async function submitCreate(event) { event.preventDefault(); if (state.submitting) return; const formNode = event.currentTarget; const data = new FormData(formNode); data.set('client_request_id', requestId()); if (state.latitude) { data.set('latitude', state.latitude); data.set('longitude', state.longitude); } const button = $('createSaveBtn'); state.submitting = true; button.disabled = true; $('createSaveState').textContent = 'Saving...'; try { const response = await form('cases/create/', data); formNode.reset(); state.latitude = ''; state.longitude = ''; $('createSelectedEvidence').replaceChildren(); $('createSaveState').textContent = 'Saved'; notify(response.message); await refreshCounts(); renderDetail(response.case); setView('detailView'); } catch (error) { $('createSaveState').textContent = 'Not saved'; notify(error.message, true); } finally { state.submitting = false; button.disabled = false; } }
+  async function submitCreate(event) { event.preventDefault(); if (state.submitting) return; const formNode = event.currentTarget; const data = new FormData(formNode); data.set('client_request_id', requestId()); if (state.latitude) { data.set('latitude', state.latitude); data.set('longitude', state.longitude); } const button = $('createSaveBtn'); state.submitting = true; button.disabled = true; utils.setCloseProtection?.('complaint-operation', true); $('createSaveState').textContent = 'Saving...'; try { const response = await form('cases/create/', data); formNode.reset(); state.latitude = ''; state.longitude = ''; utils.setCloseProtection?.('complaint-create-draft', false); $('createSelectedEvidence').replaceChildren(); $('createSaveState').textContent = 'Saved'; notify(response.message); await refreshCounts(); renderDetail(response.case); setView('detailView'); } catch (error) { $('createSaveState').textContent = 'Not saved'; notify(error.message, true); } finally { state.submitting = false; button.disabled = false; utils.setCloseProtection?.('complaint-operation', false); } }
   function captureLocation() { if (!navigator.geolocation) return notify('Location is unavailable on this device.', true); $('captureState').textContent = 'Capturing...'; navigator.geolocation.getCurrentPosition((position) => { state.latitude = position.coords.latitude.toFixed(6); state.longitude = position.coords.longitude.toFixed(6); $('captureState').textContent = 'Location captured'; }, () => { $('captureState').textContent = 'Location not captured'; notify('Location permission was not available.', true); }, { enableHighAccuracy: true, timeout: 12000 }); }
   function showFiles(event) { const list = $('createSelectedEvidence'); list.replaceChildren(); Array.from(event.target.files || []).forEach((file) => list.appendChild(Object.assign(document.createElement('li'), { textContent: file.name }))); }
   function returnQueue() { setView('queueView'); loadCases(); }
@@ -126,5 +125,9 @@
   $('queuePreviousBtn').addEventListener('click', () => { if (state.page > 1) { state.page -= 1; loadCases(); } }); $('queueNextBtn').addEventListener('click', () => { if (state.page < state.pages) { state.page += 1; loadCases(); } });
   $('newCaseBtn').addEventListener('click', () => setView('createView')); document.querySelectorAll('[data-back]').forEach((button) => button.addEventListener('click', returnQueue)); $('refreshBtn').addEventListener('click', () => { if (!$('queueView').hidden) { state.page = 1; loadCases(); refreshCounts(); } else if (state.currentCase) openCase(state.currentCase.case_id); });
   $('captureLocationBtn').addEventListener('click', captureLocation); $('createEvidenceInput').addEventListener('change', showFiles); $('createCaseForm').addEventListener('submit', submitCreate); $('resolveForm').addEventListener('submit', (event) => submitTransition(event, 'resolve')); $('reopenForm').addEventListener('submit', (event) => submitTransition(event, 'reopen')); $('copyConflictDraftBtn').addEventListener('click', copyConflictDraft); $('reviewConflictBtn').addEventListener('click', () => openCase(state.currentCase.case_id));
+  $('createCaseForm').addEventListener('input', () => utils.setCloseProtection?.('complaint-create-draft', true));
+  $('createCaseForm').addEventListener('change', () => utils.setCloseProtection?.('complaint-create-draft', true));
+  $('resolveForm').addEventListener('input', () => utils.setCloseProtection?.('complaint-transition-draft', true));
+  $('reopenForm').addEventListener('input', () => utils.setCloseProtection?.('complaint-transition-draft', true));
   telegram?.BackButton?.onClick(returnQueue); bootstrap();
 }());

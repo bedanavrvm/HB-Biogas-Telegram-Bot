@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const tg = window.Telegram?.WebApp;
+  const tg = window.MiniAppUtils?.initTelegram?.() || window.Telegram?.WebApp;
   const LEGACY_SECTIONS = [
     { key: 'applicant', label: 'Applicant', hint: 'Identity, contacts and residence' },
     { key: 'business', label: 'Business', hint: 'Enterprise and household finances' },
@@ -78,6 +78,17 @@
   let previewPinch = null;
   let previewSwipe = null;
   let keyboardFocusTimer = null;
+
+  function syncCloseProtection() {
+    window.MiniAppUtils?.setCloseProtection?.(
+      'origination-unsaved',
+      Boolean(dirty || syncConflict),
+    );
+    window.MiniAppUtils?.setCloseProtection?.(
+      'origination-operation',
+      Boolean(primaryBusy || createInFlight || saveInFlight),
+    );
+  }
   let maximumLiveViewportHeight = Math.max(
     Number(window.visualViewport?.height) || 0,
     Number(window.innerHeight) || 0,
@@ -389,6 +400,7 @@
 
   function setPrimaryBusy(busy, label = '') {
     primaryBusy = Boolean(busy);
+    syncCloseProtection();
     document.querySelectorAll('[data-primary-action]').forEach(action => { action.disabled = primaryBusy; });
     if (tg?.MainButton) {
       try {
@@ -583,6 +595,7 @@
     conflictDraft = draft;
     conflictServerLoaded = false;
     dirty = false;
+    syncCloseProtection();
     window.clearTimeout(saveTimer);
     setSaveState(recoveryAvailable ? 'Encrypted on phone' : 'Conflict', 'offline');
     renderFreshEditor(current, step);
@@ -634,6 +647,7 @@
     if (draftMatchesApplication(local, application)) {
       await removeRecoveryDraft(application.id);
       dirty = false;
+      syncCloseProtection();
       pendingSaveRequestId = '';
       return;
     }
@@ -652,6 +666,7 @@
     pendingSaveRequestId = local.requestId || requestKey('save');
     editGeneration = Number(local.generation || 1);
     dirty = true;
+    syncCloseProtection();
   }
 
   function openSheet({ mode, eyebrow, title, hint = '', body = '', footer = '', trigger = null }) {
@@ -1617,9 +1632,11 @@
         request_id: key,
       }),
     });
+    syncCloseProtection();
     const result = await saveInFlight;
     saveInFlight = null;
     saveInFlightRequestId = '';
+    syncCloseProtection();
     if (!result.ok || !result.data?.ok) {
       if (result.status === 409 || result.data?.code === 'revision_conflict' || result.data?.conflict) {
         let phoneDraft = attemptedDraft;
@@ -1667,11 +1684,13 @@
       current.product_custom_values = latestConfiguration.customValues;
       current.product_selected_fee_keys = latestConfiguration.selectedFeeKeys;
       dirty = true;
+      syncCloseProtection();
       setSaveState('Saving newer changes…', 'saving');
       return saveDraft(showError);
     }
     pendingSaveRequestId = '';
     dirty = false;
+    syncCloseProtection();
     await removeRecoveryDraft(applicationId);
     setSaveState('Saved', 'saved');
     return true;
@@ -1684,6 +1703,7 @@
 
   function scheduleSave() {
     dirty = true;
+    syncCloseProtection();
     editGeneration += 1;
     if (saveInFlight) pendingSaveRequestId = requestKey('save');
     else pendingSaveRequestId ||= requestKey('save');
@@ -2327,7 +2347,7 @@
     formData.append('file', file);
     if (control) control.disabled = true;
     setSaveState('Uploading evidence…', 'saving');
-    const result = await new Promise(resolve => {
+    const uploadPromise = new Promise(resolve => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', `/api/origination/api/applications/${current.id}/requirements/${encodeURIComponent(requirementKey)}/evidence/`);
       xhr.timeout = 60000;
@@ -2346,6 +2366,9 @@
       xhr.ontimeout = () => resolve({ ok: false, status: 0, data: { error: 'The upload timed out. Select the file again to retry.' } });
       xhr.send(formData);
     });
+    const result = await (window.MiniAppUtils?.protectWhile
+      ? window.MiniAppUtils.protectWhile('origination-evidence-upload', uploadPromise)
+      : uploadPromise);
     if (control) control.disabled = false;
     if (result.data?.application) current = result.data.application;
     if (!result.ok) {
@@ -2537,6 +2560,7 @@
       if (!conflictServerLoaded) return;
       await removeRecoveryDraft(current.id);
       syncConflict = false; conflictDraft = null; conflictServerLoaded = false; dirty = false; pendingSaveRequestId = '';
+      syncCloseProtection();
       renderFreshEditor(current, step);
     });
     document.getElementById('recovery-restore-phone')?.addEventListener('click', () => {
@@ -2547,6 +2571,7 @@
       current.product_custom_values = phoneDraft.configuration?.customValues || current.product_custom_values;
       current.product_selected_fee_keys = phoneDraft.configuration?.selectedFeeKeys || current.product_selected_fee_keys;
       syncConflict = false; conflictDraft = null; conflictServerLoaded = false; dirty = true; editGeneration += 1;
+      syncCloseProtection();
       pendingSaveRequestId = requestKey('save');
       renderFreshEditor(current, step);
       void saveDraft(true);
@@ -3174,6 +3199,7 @@
     signingRefreshTimer = null;
     step = 0;
     dirty = false;
+    syncCloseProtection();
     window.clearTimeout(saveTimer);
     closePreview();
     if (sheetMode) closeSheet({ restoreFocus: false });
@@ -3369,7 +3395,6 @@
     else if (reviewDialogMode) closeReviewDialog();
     else if (!document.getElementById('document-preview-overlay').hidden) closePreview();
   });
-  try { tg?.ready?.(); tg?.expand?.(); } catch (_) { /* The web UI also runs outside Telegram. */ }
   try {
     tg?.onEvent?.('themeChanged', syncTelegramTheme);
     tg?.onEvent?.('viewportChanged', () => { syncViewport(); scheduleFocusedInputVisibility(); });

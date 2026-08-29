@@ -3,15 +3,134 @@
 
   const MESSAGE_CONTRACT_VERSION = '2';
   const handledMessageCodes = Object.freeze(['origination_shared_signer_phone']);
+  const closeProtectionReasons = new Set();
+  let telegramInstance = null;
+  let telegramInitialized = false;
+  let closingConfirmationEnabled = null;
+  let writeProtectionInstalled = false;
+
+  function telegramWebApp() {
+    return window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+  }
+
+  function syncClosingConfirmation() {
+    const tg = telegramInstance || telegramWebApp();
+    if (!tg) return false;
+    const shouldEnable = closeProtectionReasons.size > 0;
+    if (closingConfirmationEnabled === shouldEnable) return shouldEnable;
+    const method = shouldEnable ? 'enableClosingConfirmation' : 'disableClosingConfirmation';
+    if (typeof tg[method] === 'function') {
+      tg[method]();
+      closingConfirmationEnabled = shouldEnable;
+    }
+    return shouldEnable;
+  }
+
+  function setCloseProtection(reason, active) {
+    const key = String(reason || '').trim();
+    if (!key) throw new Error('Close protection requires a stable reason.');
+    if (active) closeProtectionReasons.add(key);
+    else closeProtectionReasons.delete(key);
+    return syncClosingConfirmation();
+  }
+
+  function clearCloseProtection() {
+    closeProtectionReasons.clear();
+    return syncClosingConfirmation();
+  }
+
+  function protectWhile(reason, operation) {
+    setCloseProtection(reason, true);
+    let result;
+    try {
+      result = typeof operation === 'function' ? operation() : operation;
+    } catch (error) {
+      setCloseProtection(reason, false);
+      throw error;
+    }
+    return Promise.resolve(result).finally(function () {
+      setCloseProtection(reason, false);
+    });
+  }
+
+  function installWriteProtection() {
+    if (writeProtectionInstalled || typeof window.fetch !== 'function') return;
+    const originalFetch = window.fetch;
+    window.fetch = function () {
+      const args = arguments;
+      const input = args[0];
+      const options = args[1] || {};
+      const method = String(options.method || (input && input.method) || 'GET').toUpperCase();
+      const url = String((input && input.url) || input || '');
+      if (method === 'GET' || method === 'HEAD' || url.indexOf('/miniapp-diagnostics/') >= 0) {
+        return originalFetch.apply(this, args);
+      }
+      const reason = 'network-write:' + createRequestId('write');
+      setCloseProtection(reason, true);
+      try {
+        return Promise.resolve(originalFetch.apply(this, args)).finally(function () {
+          setCloseProtection(reason, false);
+        });
+      } catch (error) {
+        setCloseProtection(reason, false);
+        throw error;
+      }
+    };
+    writeProtectionInstalled = true;
+  }
+
+  function formSignature(form) {
+    if (!form || typeof window.FormData !== 'function') return '';
+    const entries = [];
+    new FormData(form).forEach(function (value, key) {
+      const normalized = value && typeof value === 'object' && 'name' in value
+        ? [value.name, value.size, value.type]
+        : String(value);
+      entries.push([key, normalized]);
+    });
+    return JSON.stringify(entries);
+  }
+
+  function bindFormCloseProtection(form, reason) {
+    if (!form) return { markClean: function () {}, markDirty: function () {} };
+    let baseline = formSignature(form);
+    function sync() {
+      setCloseProtection(reason, formSignature(form) !== baseline);
+    }
+    function markClean() {
+      baseline = formSignature(form);
+      setCloseProtection(reason, false);
+    }
+    function markDirty() {
+      setCloseProtection(reason, true);
+    }
+    form.addEventListener('input', sync);
+    form.addEventListener('change', sync);
+    form.addEventListener('reset', function () { window.setTimeout(markClean, 0); });
+    return { markClean: markClean, markDirty: markDirty };
+  }
 
   function initTelegram(options) {
-    const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+    const tg = telegramWebApp();
     if (!tg) return null;
-    tg.ready();
-    tg.expand();
-    if (!options || options.closingConfirmation !== false) {
-      if (typeof tg.enableClosingConfirmation === 'function') tg.enableClosingConfirmation();
+    telegramInstance = tg;
+    if (!telegramInitialized) {
+      tg.ready();
+      tg.expand();
+      if (typeof tg.disableVerticalSwipes === 'function') tg.disableVerticalSwipes();
+      installWriteProtection();
+      telegramInitialized = true;
+      window.MiniAppDiagnostics?.record?.('client_capability', {
+        action: 'gesture_policy',
+        statusBucket: typeof tg.disableVerticalSwipes === 'function' ? 'ok' : 'unknown',
+      });
     }
+    if (options && options.closingConfirmation === true) {
+      closeProtectionReasons.add('legacy-initialization');
+    } else if (options && options.closingConfirmation === false) {
+      closeProtectionReasons.delete('legacy-initialization');
+    }
+    syncClosingConfirmation();
     return tg;
   }
 
@@ -189,7 +308,10 @@
     if (!button || button.disabled) return false;
     setButtonFeedback(button, 'loading', settings.loadingLabel || 'Working');
     try {
-      const result = await action();
+      const protectionReason = button._miniAppCloseProtectionReason
+        || ('button-action:' + (button.id || createRequestId('button')));
+      button._miniAppCloseProtectionReason = protectionReason;
+      const result = await protectWhile(protectionReason, action);
       if (result === false) {
         setButtonFeedback(button, 'error');
         setButtonFeedback(button, 'idle');
@@ -253,6 +375,7 @@
     let timer = null;
     let savePromise = null;
     let pendingPayload = null;
+    const closeProtectionReason = 'server-draft:' + (workflow || 'unknown');
 
     function headers() {
       const result = { 'Content-Type': 'application/json', 'X-MiniApp-Message-Contract': MESSAGE_CONTRACT_VERSION };
@@ -307,6 +430,7 @@
           savedDraft = data.draft;
           settings.onSaved?.(savedDraft);
         }
+        setCloseProtection(closeProtectionReason, false);
         return savedDraft;
       })()
         .catch(function (error) {
@@ -319,6 +443,7 @@
 
     function schedule(payload, delay) {
       window.clearTimeout(timer);
+      setCloseProtection(closeProtectionReason, true);
       settings.onSaving?.();
       timer = window.setTimeout(function () {
         save(payload).catch(function () { /* surfaced by onError */ });
@@ -335,6 +460,7 @@
       }
       await request('DELETE');
       revision = null;
+      setCloseProtection(closeProtectionReason, false);
       settings.onCleared?.();
     }
 
@@ -403,6 +529,10 @@
     formBody: formBody,
     initDataHeader: initDataHeader,
     initTelegram: initTelegram,
+    setCloseProtection: setCloseProtection,
+    clearCloseProtection: clearCloseProtection,
+    protectWhile: protectWhile,
+    bindFormCloseProtection: bindFormCloseProtection,
     haptic: haptic,
     skeletonCards: skeletonCards,
     createServerDraft: createServerDraft,

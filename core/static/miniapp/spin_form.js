@@ -13,9 +13,10 @@
   if (tg && !utils.initTelegram) {
     tg.ready();
     tg.expand();
+    if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
     applyTelegramTheme();
     if (tg.onEvent) tg.onEvent('themeChanged', applyTelegramTheme);
-    if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
+    if (tg.disableClosingConfirmation) tg.disableClosingConfirmation();
   } else {
     document.body.classList.add('tg-light');
   }

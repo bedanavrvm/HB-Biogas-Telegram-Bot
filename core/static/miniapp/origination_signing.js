@@ -1,6 +1,8 @@
 (() => {
   'use strict';
 
+  window.MiniAppUtils?.initTelegram?.();
+
   const fragmentToken = decodeURIComponent(location.hash.slice(1));
   let storedToken = '';
   try { storedToken = window.sessionStorage.getItem('jbl-origination-signing-token') || ''; } catch (_) { /* restricted WebView */ }
@@ -22,8 +24,17 @@
   let mode = 'drawn';
   let strokes = [];
   let activeStroke = null;
+  let captureSaved = false;
   let reviewedPages = new Set();
   let pageObjectUrl = '';
+
+  function syncSignatureProtection() {
+    const typedName = document.getElementById('typed-name')?.value.trim() || '';
+    window.MiniAppUtils?.setCloseProtection?.(
+      'signing-capture',
+      Boolean(!captureSaved && session?.status !== 'verified' && (strokes.length || typedName)),
+    );
+  }
 
   const id = () => window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
   const escapeHtml = value => {
@@ -139,10 +150,11 @@
       ctx.stroke();
     }
   }
-  pad.addEventListener('pointerdown', event => { pad.setPointerCapture(event.pointerId); activeStroke = [point(event)]; strokes.push(activeStroke); });
+  pad.addEventListener('pointerdown', event => { pad.setPointerCapture(event.pointerId); activeStroke = [point(event)]; strokes.push(activeStroke); captureSaved = false; syncSignatureProtection(); });
   pad.addEventListener('pointermove', event => { if (!activeStroke) return; activeStroke.push(point(event)); redraw(); });
   ['pointerup', 'pointercancel'].forEach(name => pad.addEventListener(name, () => { activeStroke = null; }));
-  document.getElementById('signature-clear').onclick = () => { strokes = []; redraw(); };
+  document.getElementById('signature-clear').onclick = () => { strokes = []; redraw(); syncSignatureProtection(); };
+  document.getElementById('typed-name').addEventListener('input', () => { captureSaved = false; syncSignatureProtection(); });
   function setMode(next) {
     mode = next;
     document.getElementById('mode-drawn').classList.toggle('active', next === 'drawn');
@@ -170,8 +182,11 @@
           body: JSON.stringify({ signature_capture: capture, consent, access_mode: session.access_mode, reviewed_pages: [...reviewedPages].sort((a, b) => a - b) }),
         });
         session = data.session;
+        captureSaved = true;
+        window.MiniAppUtils?.setCloseProtection?.('signing-capture', false);
       }, { loadingLabel: 'Saving signature', successLabel: 'Signature saved' });
       render();
+      syncSignatureProtection();
       show('Your signature is ready. Tap “Send verification code” to continue.', 'success');
     } catch (error) { show(error.message, error.presentation?.tone || 'error'); }
   };

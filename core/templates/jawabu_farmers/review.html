@@ -62,9 +62,9 @@
 <script id="batch-data" type="application/json">{{ batch_json|safe }}</script>
 <script src="{% static 'miniapp/telegram.js' %}"></script>
 {% include "miniapp_diagnostics.html" %}
-<script src="{% static 'miniapp/utils.js' %}?v=5"></script>
+<script src="{% static 'miniapp/utils.js' %}?v=7"></script>
 {% if batch.import_kind == 'system_export' %}
-<script src="{% static 'miniapp/system_export_review.js' %}?v=5"></script>
+<script src="{% static 'miniapp/system_export_review.js' %}?v=6"></script>
 {% else %}
 <script src="{% static 'miniapp/farmup_review.js' %}?v=12"></script>
 {% endif %}

@@ -48,7 +48,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_imports.js'), html.index('miniapp/portal.js'))
         self.assertIn('miniapp/portal_queues.js?v=9', html)
         self.assertIn('miniapp/portal_farmer_sheet.js?v=45', html)
-        self.assertIn('miniapp/utils.js?v=5', html)
+        self.assertIn('miniapp/utils.js?v=7', html)
         self.assertIn('miniapp/portal_helpers.js?v=6', html)
         self.assertIn('miniapp/portal.css?v=77', html)
         self.assertIn('miniapp/portal_filters.js?v=9', html)
@@ -84,6 +84,10 @@ class MiniAppFrontendSmokeTests(TestCase):
         for expected in (
             'window.MiniAppUtils',
             'initTelegram',
+            'disableVerticalSwipes',
+            'setCloseProtection',
+            'clearCloseProtection',
+            'protectWhile',
             'escapeHtml',
             'initDataHeader',
             'fetchJson',
@@ -92,6 +96,22 @@ class MiniAppFrontendSmokeTests(TestCase):
             'showToast',
         ):
             self.assertIn(expected, source)
+
+        self.assertIn("closeProtectionReasons = new Set()", source)
+        self.assertIn("method === 'GET' || method === 'HEAD'", source)
+        self.assertIn("url.indexOf('/miniapp-diagnostics/')", source)
+
+    def test_high_risk_miniapps_use_state_aware_close_protection(self):
+        origination = Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
+        signing = Path('core/static/miniapp/origination_signing.js').read_text(encoding='utf-8')
+        complaints = Path('core/static/miniapp/complaint_cases.js').read_text(encoding='utf-8')
+
+        self.assertIn("'origination-unsaved'", origination)
+        self.assertIn("'origination-operation'", origination)
+        self.assertIn("'origination-evidence-upload'", origination)
+        self.assertIn("'signing-capture'", signing)
+        self.assertIn("'complaint-create-draft'", complaints)
+        self.assertIn("'complaint-transition-draft'", complaints)
 
     def test_portal_jbl_visit_keeps_a_server_backed_field_draft_through_sheet_closure(self):
         source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
@@ -124,12 +144,12 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('renderFreshEditor(current, step)', source)
         self.assertIn('id="recovery-retry-refresh"', source)
         self.assertIn("window.addEventListener('pageshow'", source)
-        self.assertIn('else void resumeDraftSynchronization()', source)
+        self.assertIn('void resumeDraftSynchronization();', source)
         self.assertIn("window.addEventListener('online'", source)
         self.assertNotIn('keepalive: true', source)
         self.assertNotIn('fetch(`/api/origination/api/applications/${current.id}/`', source)
-        self.assertIn('data-ui-version="20260827-4"', template)
-        self.assertIn('loan_origination.js\' %}?v=20260828-1', template)
+        self.assertIn('data-ui-version="20260828-4"', template)
+        self.assertIn('loan_origination.js\' %}?v=20260829-1', template)
 
     def test_origination_repeatable_security_normalizes_numeric_entry_and_marks_required_columns(self):
         source = Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
@@ -156,7 +176,7 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertIn('/\\/portal\\/cases\\/[^/]+\\//', source)
         self.assertIn("return 'case_history'", source)
-        self.assertContains(response, 'miniapp/miniapp-nav.js?v=20')
+        self.assertContains(response, 'miniapp/miniapp-nav.js?v=21')
 
     def test_telegram_back_never_uses_host_history_for_a_cold_portal_screen(self):
         source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
@@ -319,7 +339,8 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('viewportStableHeight', navigation_source)
         self.assertIn('event.isStateStable === false', navigation_source)
         self.assertIn('--miniapp-viewport-height', navigation_source)
-        self.assertEqual(navigation_source.count('tg.expand?.();'), 1)
+        self.assertEqual(navigation_source.count('tg.expand?.();'), 0)
+        self.assertIn('MiniAppUtils?.initTelegram?.()', navigation_source)
         self.assertNotIn("input[type=\"file\"]", navigation_source)
         self.assertIn('inset: 0;', portal_css)
         self.assertIn('height: var(--miniapp-viewport-height, 100dvh);', portal_css)

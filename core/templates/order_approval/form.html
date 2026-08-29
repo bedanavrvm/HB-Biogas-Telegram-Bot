@@ -1014,10 +1014,10 @@
 
   {{ location_catalog|json_script:"location-catalog-data" }}
   {% include "miniapp_diagnostics.html" %}
-  <script src="{% static 'miniapp/utils.js' %}?v=5"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=7"></script>
   <script src="{% static 'miniapp/order_approval_api.js' %}?v=2"></script>
   <script>
-    const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+    const tg = window.MiniAppUtils?.initTelegram?.() || (window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null);
     const orderApprovalApi = window.OrderApprovalMiniAppApi || {};
     const form = document.getElementById('approval-form');
     const statusEl = document.getElementById('status');
@@ -1153,8 +1153,6 @@
     }));
 
     if (tg) {
-      tg.ready();
-      tg.expand();
       initDataInput.value = tg.initData || '';
       const actionsFooter = document.querySelector('.actions');
       if (actionsFooter) {
@@ -1842,9 +1840,11 @@
       });
       if (!hasAnyValue) {
         window.localStorage.removeItem(draftStorageKey);
+        window.MiniAppUtils?.setCloseProtection?.('order-approval-draft', false);
         return;
       }
       window.localStorage.setItem(draftStorageKey, JSON.stringify(draftPayload()));
+      window.MiniAppUtils?.setCloseProtection?.('order-approval-draft', true);
     }
 
     function clearDraft() {
@@ -1854,6 +1854,7 @@
       if (draftBanner) {
         draftBanner.dataset.visible = 'false';
       }
+      window.MiniAppUtils?.setCloseProtection?.('order-approval-draft', false);
     }
 
     function draftHasValues(payload) {
