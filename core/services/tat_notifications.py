@@ -22,6 +22,7 @@ from core.models import (
     TatGroupExceptionStatus,
     TatNotificationProcessorRun,
     TatPrivateAlertConnection,
+    TatPrivateAlertConnectionEvent,
     TatResponsibilityAssignment,
     TatTaskRerouteEvent,
     TatTrackerCase,
@@ -39,7 +40,52 @@ LOCATOR_TTL = timedelta(hours=72)
 TRANSIENT_DELIVERY_GRACE = timedelta(minutes=5)
 
 
-def begin_notification_processor_run() -> tuple[TatNotificationProcessorRun, bool]:
+def _record_connection_event(
+    connection: TatPrivateAlertConnection,
+    event_type: str,
+    *,
+    source: str,
+    request_id: str = '',
+    detail_code: str = '',
+    actor=None,
+) -> TatPrivateAlertConnectionEvent:
+    """Append privacy-bounded connection evidence with retry idempotency."""
+    key = str(request_id or '').strip()[:128]
+    if key:
+        existing = TatPrivateAlertConnectionEvent.objects.filter(request_id=key).first()
+        if existing:
+            return existing
+    user = connection.user
+    try:
+        with transaction.atomic():
+            return TatPrivateAlertConnectionEvent.objects.create(
+                connection=connection,
+                connection_id_snapshot=str(connection.pk or ''),
+                user_id_snapshot=str(user.pk or ''),
+                username_snapshot=user.get_username(),
+                actor_id_snapshot=str(getattr(actor, 'pk', '') or ''),
+                actor_username_snapshot=str(
+                    actor.get_username() if actor and hasattr(actor, 'get_username') else ''
+                )[:150],
+                event_type=event_type,
+                status=connection.status,
+                source=str(source or '')[:32],
+                request_id=key,
+                detail_code=str(detail_code or '')[:80],
+            )
+    except IntegrityError:
+        if key:
+            return TatPrivateAlertConnectionEvent.objects.get(request_id=key)
+        raise
+
+
+def begin_notification_processor_run(
+    *,
+    trigger_source: str = TatNotificationProcessorRun.TRIGGER_SCHEDULED,
+    actor=None,
+    reason: str = '',
+    request_id: str = '',
+) -> tuple[TatNotificationProcessorRun, bool]:
     """Acquire the database-backed runner lock and retain one health row.
 
     The unique non-null lock key works across web and scheduler processes. A
@@ -47,6 +93,24 @@ def begin_notification_processor_run() -> tuple[TatNotificationProcessorRun, boo
     invocation can recover it without deleting its evidence.
     """
     now = timezone.now()
+    request_key = str(request_id or '').strip()[:128]
+    if request_key:
+        existing = TatNotificationProcessorRun.objects.filter(request_id=request_key).first()
+        if existing:
+            return existing, False
+    trigger_values = {
+        'trigger_source': (
+            TatNotificationProcessorRun.TRIGGER_ADMIN
+            if trigger_source == TatNotificationProcessorRun.TRIGGER_ADMIN
+            else TatNotificationProcessorRun.TRIGGER_SCHEDULED
+        ),
+        'triggered_by_id_snapshot': str(getattr(actor, 'pk', '') or ''),
+        'triggered_by_username_snapshot': str(
+            actor.get_username() if actor and hasattr(actor, 'get_username') else ''
+        )[:150],
+        'trigger_reason': str(reason or '').strip()[:500],
+        'request_id': request_key,
+    }
     lock_seconds = max(60, int(getattr(settings, 'TAT_NOTIFICATION_PROCESSOR_LOCK_SECONDS', 240)))
     stale_before = now - timedelta(seconds=lock_seconds)
     try:
@@ -61,6 +125,7 @@ def begin_notification_processor_run() -> tuple[TatNotificationProcessorRun, boo
                     completed_at=now,
                     error_code='active-run',
                     error_message='Another notification processor run still owns the lease.',
+                    **trigger_values,
                 )
                 return skipped, False
             if active:
@@ -76,9 +141,14 @@ def begin_notification_processor_run() -> tuple[TatNotificationProcessorRun, boo
                 status=TatNotificationProcessorRun.STATUS_RUNNING,
                 active_lock_key=TatNotificationProcessorRun.LOCK_KEY,
                 started_at=now,
+                **trigger_values,
             )
             return run, True
     except IntegrityError:
+        if request_key:
+            existing = TatNotificationProcessorRun.objects.filter(request_id=request_key).first()
+            if existing:
+                return existing, False
         # Two workers can both observe no row before one wins the unique-key
         # insert. The loser records a harmless overlap rather than retrying.
         skipped = TatNotificationProcessorRun.objects.create(
@@ -87,6 +157,7 @@ def begin_notification_processor_run() -> tuple[TatNotificationProcessorRun, boo
             completed_at=now,
             error_code='lock-race',
             error_message='Another notification processor acquired the lease first.',
+            **trigger_values,
         )
         return skipped, False
 
@@ -206,8 +277,9 @@ def mark_private_alert_seen(user, *, allows_write: bool = False) -> TatPrivateAl
         return None
     if not connection:
         connection = TatPrivateAlertConnection.objects.create(user=user)
-    if allows_write:
+    if allows_write and connection.status != TatPrivateAlertConnection.STATUS_DISCONNECTED:
         now = timezone.now()
+        status_changed = connection.status != TatPrivateAlertConnection.STATUS_CONNECTED
         connection.status = TatPrivateAlertConnection.STATUS_CONNECTED
         connection.connected_at = connection.connected_at or now
         connection.last_success_at = now
@@ -215,6 +287,11 @@ def mark_private_alert_seen(user, *, allows_write: bool = False) -> TatPrivateAl
         connection.save(update_fields=[
             'status', 'connected_at', 'last_success_at', 'last_failure_code', 'updated_at',
         ])
+        if status_changed:
+            _record_connection_event(
+                connection, TatPrivateAlertConnectionEvent.EVENT_CONNECTED,
+                source='telegram_session', actor=user,
+            )
     return connection
 
 
@@ -228,7 +305,10 @@ def connection_payload(user) -> dict:
         'status': status,
         'connected': status == TatPrivateAlertConnection.STATUS_CONNECTED,
         'connected_at': connection.connected_at.isoformat() if connection and connection.connected_at else '',
+        'disconnected_at': connection.disconnected_at.isoformat() if connection and connection.disconnected_at else '',
         'last_success_at': connection.last_success_at.isoformat() if connection and connection.last_success_at else '',
+        'last_failure_at': connection.last_failure_at.isoformat() if connection and connection.last_failure_at else '',
+        'last_failure_code': connection.last_failure_code if connection else '',
     }
 
 
@@ -645,7 +725,11 @@ def _send_recipient(recipient: TatActionTaskRecipient) -> bool:
         recipient.save(update_fields=['delivery_state', 'delivery_error', 'updated_at'])
         return False
     known_status = _connection_status(user)
-    if known_status in {TatPrivateAlertConnection.STATUS_UNCONNECTED, TatPrivateAlertConnection.STATUS_BLOCKED} or not chat_id:
+    if known_status in {
+        TatPrivateAlertConnection.STATUS_UNCONNECTED,
+        TatPrivateAlertConnection.STATUS_DISCONNECTED,
+        TatPrivateAlertConnection.STATUS_BLOCKED,
+    } or not chat_id:
         recipient.delivery_state = TatActionTaskRecipient.DELIVERY_UNREACHABLE
         recipient.delivery_error = 'Private alerts are not connected.'
         recipient.save(update_fields=['delivery_state', 'delivery_error', 'delivery_attempts', 'updated_at'])
@@ -681,13 +765,23 @@ def _send_recipient(recipient: TatActionTaskRecipient) -> bool:
             recipient.deliver_after = now + timedelta(minutes=1)
         else:
             recipient.delivery_state = TatActionTaskRecipient.DELIVERY_UNREACHABLE
-        connection.status = (
+        failure_status = (
             TatPrivateAlertConnection.STATUS_BLOCKED if permanent
             else TatPrivateAlertConnection.STATUS_TEMPORARY_FAILURE
         )
-        connection.last_failure_at = now
-        connection.last_failure_code = str(code or 'network')
-        connection.save(update_fields=['status', 'last_failure_at', 'last_failure_code', 'updated_at'])
+        TatPrivateAlertConnection.objects.filter(pk=connection.pk).exclude(
+            status=TatPrivateAlertConnection.STATUS_DISCONNECTED,
+        ).update(
+            status=failure_status, last_failure_at=now,
+            last_failure_code=str(code or 'network'), updated_at=now,
+        )
+        connection.refresh_from_db()
+        _record_connection_event(
+            connection, TatPrivateAlertConnectionEvent.EVENT_DELIVERY_FAILED,
+            source='task_delivery',
+            request_id=f'task-delivery:{recipient.pk}:{recipient.delivery_attempts}',
+            detail_code=str(code or 'network'),
+        )
         recipient.save(update_fields=[
             'delivery_state', 'delivery_error', 'delivery_attempts', 'deliver_after', 'updated_at',
         ])
@@ -701,10 +795,19 @@ def _send_recipient(recipient: TatActionTaskRecipient) -> bool:
         recipient.deliver_after = now + timedelta(minutes=1)
         if now - recipient.created_at >= TRANSIENT_DELIVERY_GRACE:
             recipient.delivery_state = TatActionTaskRecipient.DELIVERY_UNREACHABLE
-        connection.status = TatPrivateAlertConnection.STATUS_TEMPORARY_FAILURE
-        connection.last_failure_at = now
-        connection.last_failure_code = 'network'
-        connection.save(update_fields=['status', 'last_failure_at', 'last_failure_code', 'updated_at'])
+        TatPrivateAlertConnection.objects.filter(pk=connection.pk).exclude(
+            status=TatPrivateAlertConnection.STATUS_DISCONNECTED,
+        ).update(
+            status=TatPrivateAlertConnection.STATUS_TEMPORARY_FAILURE,
+            last_failure_at=now, last_failure_code='network', updated_at=now,
+        )
+        connection.refresh_from_db()
+        _record_connection_event(
+            connection, TatPrivateAlertConnectionEvent.EVENT_DELIVERY_FAILED,
+            source='task_delivery',
+            request_id=f'task-delivery:{recipient.pk}:{recipient.delivery_attempts}',
+            detail_code='network',
+        )
         recipient.save(update_fields=[
             'delivery_state', 'delivery_error', 'delivery_attempts', 'deliver_after', 'updated_at',
         ])
@@ -732,13 +835,19 @@ def _send_recipient(recipient: TatActionTaskRecipient) -> bool:
             'delivery_state', 'delivery_error', 'telegram_message_id', 'delivered_at',
             'delivery_attempts', 'updated_at',
         ])
-    connection.status = TatPrivateAlertConnection.STATUS_CONNECTED
-    connection.connected_at = connection.connected_at or now
-    connection.last_success_at = now
-    connection.last_failure_code = ''
-    connection.save(update_fields=[
-        'status', 'connected_at', 'last_success_at', 'last_failure_code', 'updated_at',
-    ])
+    TatPrivateAlertConnection.objects.filter(pk=connection.pk).exclude(
+        status=TatPrivateAlertConnection.STATUS_DISCONNECTED,
+    ).update(
+        status=TatPrivateAlertConnection.STATUS_CONNECTED,
+        connected_at=connection.connected_at or now,
+        last_success_at=now, last_failure_code='', updated_at=now,
+    )
+    connection.refresh_from_db()
+    _record_connection_event(
+        connection, TatPrivateAlertConnectionEvent.EVENT_DELIVERY_SUCCEEDED,
+        source='task_delivery',
+        request_id=f'task-delivery:{recipient.pk}:{recipient.delivery_attempts}',
+    )
     return True
 
 
@@ -1074,28 +1183,136 @@ def task_access_allowed(task: TatActionTask, user) -> bool:
     return False
 
 
-@transaction.atomic
 def connect_private_alerts(user, *, request_id: str = '') -> dict:
-    connection, _ = TatPrivateAlertConnection.objects.select_for_update().get_or_create(user=user)
     request_id = str(request_id or '').strip()
-    if request_id and connection.last_connect_request_id == request_id:
-        return connection_payload(user)
     profile = getattr(user, 'staff_profile', None)
     telegram_id = str(getattr(profile, 'telegram_id', '') or '').strip()
     if not telegram_id:
         raise ValueError('Your staff profile is not linked to a Telegram account.')
-    _telegram_request('sendMessage', {
-        'chat_id': telegram_id,
-        'text': 'Private TAT alerts are connected. Future assigned actions can appear in this chat.',
-    })
+    with transaction.atomic():
+        connection, _ = TatPrivateAlertConnection.objects.select_for_update().get_or_create(user=user)
+        if request_id and connection.last_connect_request_id == request_id:
+            return connection_payload(user)
+        connection.last_connect_request_id = request_id
+        connection.save(update_fields=['last_connect_request_id', 'updated_at'])
     now = timezone.now()
-    connection.status = TatPrivateAlertConnection.STATUS_CONNECTED
-    connection.connected_at = connection.connected_at or now
-    connection.last_success_at = now
-    connection.last_failure_code = ''
-    connection.last_connect_request_id = request_id
+    try:
+        _telegram_request('sendMessage', {
+            'chat_id': telegram_id,
+            'text': 'Private TAT alerts are connected. Future assigned actions can appear in this chat.',
+        })
+    except Exception as exc:
+        failure_code = type(exc).__name__[:80]
+        with transaction.atomic():
+            connection = TatPrivateAlertConnection.objects.select_for_update().get(user=user)
+            if connection.status != TatPrivateAlertConnection.STATUS_DISCONNECTED:
+                connection.status = TatPrivateAlertConnection.STATUS_TEMPORARY_FAILURE
+                connection.last_failure_at = now
+                connection.last_failure_code = failure_code
+                connection.save(update_fields=[
+                    'status', 'last_failure_at', 'last_failure_code', 'updated_at',
+                ])
+            _record_connection_event(
+                connection, TatPrivateAlertConnectionEvent.EVENT_CONNECT_FAILED,
+                source='miniapp', request_id=request_id,
+                detail_code=failure_code, actor=user,
+            )
+        raise
+    with transaction.atomic():
+        connection = TatPrivateAlertConnection.objects.select_for_update().get(user=user)
+        if (
+            connection.status == TatPrivateAlertConnection.STATUS_DISCONNECTED
+            and connection.disconnected_at
+            and connection.disconnected_at >= now
+        ):
+            return connection_payload(user)
+        connection.status = TatPrivateAlertConnection.STATUS_CONNECTED
+        connection.connected_at = connection.connected_at or now
+        connection.disconnected_at = None
+        connection.last_success_at = now
+        connection.last_failure_code = ''
+        connection.save(update_fields=[
+            'status', 'connected_at', 'disconnected_at', 'last_success_at',
+            'last_failure_code', 'updated_at',
+        ])
+        _record_connection_event(
+            connection, TatPrivateAlertConnectionEvent.EVENT_CONNECTED,
+            source='miniapp', request_id=request_id, actor=user,
+        )
+    return connection_payload(user)
+
+
+@transaction.atomic
+def disconnect_private_alerts(user, *, request_id: str = '') -> dict:
+    """Disable private delivery without affecting the durable in-app inbox."""
+    connection, _ = TatPrivateAlertConnection.objects.select_for_update().get_or_create(user=user)
+    request_id = str(request_id or '').strip()
+    if request_id and connection.last_disconnect_request_id == request_id:
+        return connection_payload(user)
+    now = timezone.now()
+    connection.status = TatPrivateAlertConnection.STATUS_DISCONNECTED
+    connection.disconnected_at = now
+    connection.last_disconnect_request_id = request_id
     connection.save(update_fields=[
-        'status', 'connected_at', 'last_success_at', 'last_failure_code',
-        'last_connect_request_id', 'updated_at',
+        'status', 'disconnected_at', 'last_disconnect_request_id', 'updated_at',
     ])
+    _record_connection_event(
+        connection, TatPrivateAlertConnectionEvent.EVENT_DISCONNECTED,
+        source='miniapp', request_id=request_id, actor=user,
+    )
+    return connection_payload(user)
+
+
+def send_private_alert_test(user, *, request_id: str = '', actor=None) -> dict:
+    """Send one explicit Admin test without creating or advancing a TAT task."""
+    request_id = str(request_id or '').strip()
+    with transaction.atomic():
+        connection, _ = TatPrivateAlertConnection.objects.select_for_update().get_or_create(user=user)
+        if request_id and connection.last_test_request_id == request_id:
+            return connection_payload(user)
+        if connection.status == TatPrivateAlertConnection.STATUS_DISCONNECTED:
+            raise ValueError('This user disconnected private alerts and must reconnect from the Mini App.')
+        connection.last_test_request_id = request_id
+        connection.save(update_fields=['last_test_request_id', 'updated_at'])
+    profile = getattr(user, 'staff_profile', None)
+    telegram_id = str(getattr(profile, 'telegram_id', '') or '').strip()
+    if not telegram_id:
+        raise ValueError('This staff profile is not linked to a Telegram account.')
+    now = timezone.now()
+    try:
+        _telegram_request('sendMessage', {
+            'chat_id': telegram_id,
+            'text': 'JBL TAT private-alert test: delivery is working. No task or escalation was created.',
+        })
+    except Exception as exc:
+        failure_code = type(exc).__name__[:80]
+        with transaction.atomic():
+            connection = TatPrivateAlertConnection.objects.select_for_update().get(user=user)
+            if connection.status != TatPrivateAlertConnection.STATUS_DISCONNECTED:
+                connection.status = TatPrivateAlertConnection.STATUS_TEMPORARY_FAILURE
+                connection.last_failure_at = now
+                connection.last_failure_code = failure_code
+                connection.save(update_fields=[
+                    'status', 'last_failure_at', 'last_failure_code', 'updated_at',
+                ])
+            _record_connection_event(
+                connection, TatPrivateAlertConnectionEvent.EVENT_TEST_FAILED,
+                source='admin_test', request_id=request_id,
+                detail_code=failure_code, actor=actor,
+            )
+        raise
+    with transaction.atomic():
+        connection = TatPrivateAlertConnection.objects.select_for_update().get(user=user)
+        if connection.status != TatPrivateAlertConnection.STATUS_DISCONNECTED:
+            connection.status = TatPrivateAlertConnection.STATUS_CONNECTED
+            connection.connected_at = connection.connected_at or now
+            connection.last_success_at = now
+            connection.last_failure_code = ''
+            connection.save(update_fields=[
+                'status', 'connected_at', 'last_success_at', 'last_failure_code', 'updated_at',
+            ])
+        _record_connection_event(
+            connection, TatPrivateAlertConnectionEvent.EVENT_TEST_SUCCEEDED,
+            source='admin_test', request_id=request_id, actor=actor,
+        )
     return connection_payload(user)

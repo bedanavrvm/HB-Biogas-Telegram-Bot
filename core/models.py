@@ -1343,12 +1343,14 @@ class TatPrivateAlertConnection(models.Model):
     STATUS_UNKNOWN = 'unknown'
     STATUS_CONNECTED = 'connected'
     STATUS_UNCONNECTED = 'unconnected'
+    STATUS_DISCONNECTED = 'disconnected'
     STATUS_BLOCKED = 'blocked'
     STATUS_TEMPORARY_FAILURE = 'temporary_failure'
     STATUS_CHOICES = [
         (STATUS_UNKNOWN, 'Unknown'),
         (STATUS_CONNECTED, 'Connected'),
         (STATUS_UNCONNECTED, 'Never connected'),
+        (STATUS_DISCONNECTED, 'Disconnected by user'),
         (STATUS_BLOCKED, 'Bot blocked or permission withdrawn'),
         (STATUS_TEMPORARY_FAILURE, 'Temporarily failing'),
     ]
@@ -1359,15 +1361,64 @@ class TatPrivateAlertConnection(models.Model):
     )
     status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_UNKNOWN, db_index=True)
     connected_at = models.DateTimeField(null=True, blank=True)
+    disconnected_at = models.DateTimeField(null=True, blank=True)
     last_success_at = models.DateTimeField(null=True, blank=True)
     last_failure_at = models.DateTimeField(null=True, blank=True)
     last_failure_code = models.CharField(max_length=80, blank=True, default='')
     last_connect_request_id = models.CharField(max_length=128, blank=True, default='')
+    last_disconnect_request_id = models.CharField(max_length=128, blank=True, default='')
+    last_test_request_id = models.CharField(max_length=128, blank=True, default='')
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = 'TAT private alert connection'
         verbose_name_plural = 'TAT private alert connections'
+
+
+class TatPrivateAlertConnectionEvent(models.Model):
+    """Append-only connection and delivery evidence for private TAT alerts."""
+
+    EVENT_CONNECTED = 'connected'
+    EVENT_CONNECT_FAILED = 'connect_failed'
+    EVENT_DISCONNECTED = 'disconnected'
+    EVENT_TEST_SUCCEEDED = 'test_succeeded'
+    EVENT_TEST_FAILED = 'test_failed'
+    EVENT_DELIVERY_SUCCEEDED = 'delivery_succeeded'
+    EVENT_DELIVERY_FAILED = 'delivery_failed'
+    EVENT_CHOICES = [
+        (EVENT_CONNECTED, 'Connected'),
+        (EVENT_CONNECT_FAILED, 'Connection test failed'),
+        (EVENT_DISCONNECTED, 'Disconnected'),
+        (EVENT_TEST_SUCCEEDED, 'Test message delivered'),
+        (EVENT_TEST_FAILED, 'Test message failed'),
+        (EVENT_DELIVERY_SUCCEEDED, 'Task alert delivered'),
+        (EVENT_DELIVERY_FAILED, 'Task alert failed'),
+    ]
+
+    connection = models.ForeignKey(
+        TatPrivateAlertConnection, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='events',
+    )
+    connection_id_snapshot = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    user_id_snapshot = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    username_snapshot = models.CharField(max_length=150, blank=True, default='')
+    actor_id_snapshot = models.CharField(max_length=64, blank=True, default='')
+    actor_username_snapshot = models.CharField(max_length=150, blank=True, default='')
+    event_type = models.CharField(max_length=32, choices=EVENT_CHOICES, db_index=True)
+    status = models.CharField(max_length=24, choices=TatPrivateAlertConnection.STATUS_CHOICES)
+    source = models.CharField(max_length=32, blank=True, default='', db_index=True)
+    request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    detail_code = models.CharField(max_length=80, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [models.UniqueConstraint(
+            fields=['request_id'], condition=~models.Q(request_id=''),
+            name='unique_tat_alert_event_request',
+        )]
+        verbose_name = 'TAT private alert connection event'
+        verbose_name_plural = 'TAT private alert connection events'
 
 
 class TatActionTask(models.Model):
@@ -1647,6 +1698,12 @@ class TatNotificationProcessorRun(models.Model):
         (STATUS_SKIPPED_OVERLAP, 'Skipped because another run was active'),
     ]
     LOCK_KEY = 'tat-notification-processor'
+    TRIGGER_SCHEDULED = 'scheduled'
+    TRIGGER_ADMIN = 'admin'
+    TRIGGER_CHOICES = [
+        (TRIGGER_SCHEDULED, 'Scheduled runner'),
+        (TRIGGER_ADMIN, 'Manual Admin run'),
+    ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     status = models.CharField(max_length=24, choices=STATUS_CHOICES, db_index=True)
@@ -1661,10 +1718,21 @@ class TatNotificationProcessorRun(models.Model):
     unreachable_recipient_count = models.PositiveIntegerField(default=0)
     error_code = models.CharField(max_length=80, blank=True, default='')
     error_message = models.CharField(max_length=500, blank=True, default='')
+    trigger_source = models.CharField(
+        max_length=16, choices=TRIGGER_CHOICES, default=TRIGGER_SCHEDULED, db_index=True,
+    )
+    triggered_by_id_snapshot = models.CharField(max_length=64, blank=True, default='')
+    triggered_by_username_snapshot = models.CharField(max_length=150, blank=True, default='')
+    trigger_reason = models.CharField(max_length=500, blank=True, default='')
+    request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
 
     class Meta:
         ordering = ['-started_at']
         indexes = [models.Index(fields=['status', 'started_at'], name='tat_notify_run_status_idx')]
+        constraints = [models.UniqueConstraint(
+            fields=['request_id'], condition=~models.Q(request_id=''),
+            name='unique_tat_notify_run_request',
+        )]
         verbose_name = 'TAT notification processor run'
         verbose_name_plural = 'TAT notification processor runs'
 

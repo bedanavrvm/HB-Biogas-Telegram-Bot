@@ -158,6 +158,7 @@ from .models import (
     TatResponsibilityBackup,
     TatResponsibilityEvent,
     TatPrivateAlertConnection,
+    TatPrivateAlertConnectionEvent,
     TatActionTask,
     TatActionTaskRecipient,
     TatActionTaskLocator,
@@ -2964,7 +2965,6 @@ class TatActionTaskRecipientInline(TabularInline):
     def has_add_permission(self, request, obj=None):
         return False
 
-
 @admin.register(TatActionTask)
 class TatActionTaskAdmin(GovernedConfigurationAuditAdmin):
     list_display = (
@@ -3012,12 +3012,103 @@ class TatConfigurationEventAdmin(GovernedConfigurationAuditAdmin):
     def has_delete_permission(self, request, obj=None): return False
 
 
+class TatPrivateAlertConnectionEventInline(TabularInline):
+    model = TatPrivateAlertConnectionEvent
+    extra = 0
+    can_delete = False
+    fields = (
+        'created_at', 'event_type', 'status', 'source',
+        'actor_username_snapshot', 'detail_code', 'request_id',
+    )
+    readonly_fields = fields
+    ordering = ('-created_at',)
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def get_queryset(self, request):
+        # Keep the connection page compact; per-message delivery evidence is
+        # available in the separately filterable event register.
+        return super().get_queryset(request).exclude(source='task_delivery')
+
+
 @admin.register(TatPrivateAlertConnection)
 class TatPrivateAlertConnectionAdmin(GovernedConfigurationAuditAdmin):
-    list_display = ('user', 'status', 'connected_at', 'last_success_at', 'last_failure_at', 'updated_at')
+    list_display = (
+        'user', 'status', 'connected_at', 'disconnected_at', 'last_success_at',
+        'last_failure_at', 'test_delivery', 'updated_at',
+    )
     list_filter = ('status', 'updated_at')
     search_fields = ('user__username', 'user__first_name', 'user__last_name')
     readonly_fields = [field.name for field in TatPrivateAlertConnection._meta.fields]
+    inlines = (TatPrivateAlertConnectionEventInline,)
+
+    def get_urls(self):
+        return [path(
+            '<path:object_id>/test-private-alert/',
+            self.admin_site.admin_view(self.test_private_alert_view),
+            name='core_tatprivatealertconnection_test',
+        )] + super().get_urls()
+
+    @admin.display(description='Test')
+    def test_delivery(self, obj):
+        if obj.status == TatPrivateAlertConnection.STATUS_DISCONNECTED:
+            return 'User must reconnect'
+        return format_html(
+            '<a href="{}">Send test</a>',
+            reverse('admin:core_tatprivatealertconnection_test', args=[obj.pk]),
+        )
+
+    def test_private_alert_view(self, request, object_id):
+        if not request.user.is_active or not request.user.is_superuser:
+            raise PermissionDenied
+        connection = TatPrivateAlertConnection.objects.select_related('user').filter(pk=object_id).first()
+        if not connection:
+            return HttpResponse(status=404)
+        request_id = str(request.POST.get('request_id') or uuid.uuid4())
+        if request.method == 'POST':
+            if request.POST.get('confirmation_phrase') != 'SEND TEST':
+                messages.error(request, 'Type SEND TEST exactly to confirm the Telegram test message.')
+            else:
+                from core.services.tat_notifications import send_private_alert_test
+                try:
+                    send_private_alert_test(
+                        connection.user, actor=request.user, request_id=request_id,
+                    )
+                except (ValueError, RuntimeError) as exc:
+                    messages.error(request, str(exc))
+                except Exception:
+                    logger.exception('Admin TAT private-alert test failed; connection=%s', connection.pk)
+                    messages.error(request, 'Telegram could not deliver the test message. Review the connection event and server monitoring.')
+                else:
+                    messages.success(request, 'The private Telegram test message was delivered.')
+                    return HttpResponseRedirect(reverse('admin:core_tatprivatealertconnection_change', args=[connection.pk]))
+        return TemplateResponse(request, 'admin/core/tatprivatealertconnection/test.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta,
+            'title': f'Test private alerts for {connection.user.get_username()}',
+            'connection': connection, 'request_id': request_id,
+            'back_url': reverse('admin:core_tatprivatealertconnection_change', args=[connection.pk]),
+        })
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(TatPrivateAlertConnectionEvent)
+class TatPrivateAlertConnectionEventAdmin(GovernedConfigurationAuditAdmin):
+    list_display = (
+        'created_at', 'username_snapshot', 'event_type', 'status', 'source',
+        'actor_username_snapshot', 'detail_code',
+    )
+    list_filter = ('event_type', 'status', 'source', 'created_at')
+    search_fields = (
+        'username_snapshot', 'user_id_snapshot', 'actor_username_snapshot',
+        'request_id', 'detail_code',
+    )
+    readonly_fields = [field.name for field in TatPrivateAlertConnectionEvent._meta.fields]
 
     def has_add_permission(self, request):
         return False
@@ -3045,13 +3136,84 @@ class TatGroupExceptionStatusAdmin(GovernedConfigurationAuditAdmin):
 
 @admin.register(TatNotificationProcessorRun)
 class TatNotificationProcessorRunAdmin(GovernedConfigurationAuditAdmin):
+    change_list_template = 'admin/core/tatnotificationprocessorrun/change_list.html'
     list_display = (
-        'started_at', 'status', 'completed_at', 'processed_task_count',
+        'started_at', 'trigger_source', 'triggered_by_username_snapshot', 'status',
+        'completed_at', 'processed_task_count',
         'retry_recipient_count', 'overdue_recipient_count',
         'unreachable_recipient_count', 'error_code',
     )
-    list_filter = ('status', 'started_at', 'completed_at')
+    list_filter = ('status', 'trigger_source', 'started_at', 'completed_at')
     readonly_fields = [field.name for field in TatNotificationProcessorRun._meta.fields]
+
+    def get_urls(self):
+        return [path(
+            'run-now/', self.admin_site.admin_view(self.run_now_view),
+            name='core_tatnotificationprocessorrun_run_now',
+        )] + super().get_urls()
+
+    def run_now_view(self, request):
+        if not request.user.is_active or not request.user.is_superuser:
+            raise PermissionDenied
+        from core.models import TatActionTaskRecipient
+        from core.services.tat_notifications import (
+            begin_notification_processor_run, finish_notification_processor_run,
+            process_due_tasks,
+        )
+        due_recipients = TatActionTaskRecipient.objects.filter(
+            task__status=TatActionTask.STATUS_PENDING,
+            delivery_state__in=[
+                TatActionTaskRecipient.DELIVERY_PENDING,
+                TatActionTaskRecipient.DELIVERY_RETRY,
+            ],
+        ).filter(models.Q(deliver_after__isnull=True) | models.Q(deliver_after__lte=timezone.now())).count()
+        request_id = str(request.POST.get('request_id') or uuid.uuid4())
+        if request.method == 'POST':
+            reason = str(request.POST.get('reason') or '').strip()
+            if request.POST.get('confirmation_phrase') != 'RUN PRIVATE ALERTS':
+                messages.error(request, 'Type RUN PRIVATE ALERTS exactly to confirm live delivery.')
+            elif not reason:
+                messages.error(request, 'Give a reason for this manual processor run.')
+            else:
+                try:
+                    limit = max(1, min(int(request.POST.get('limit') or 100), 1000))
+                except (TypeError, ValueError):
+                    messages.error(request, 'Maximum tasks must be a number from 1 to 1000.')
+                    return TemplateResponse(request, 'admin/core/tatnotificationprocessorrun/run_now.html', {
+                        **self.admin_site.each_context(request), 'opts': self.model._meta,
+                        'title': 'Process private TAT alerts now',
+                        'due_recipient_count': due_recipients,
+                        'request_id': request_id,
+                        'back_url': reverse('admin:core_tatnotificationprocessorrun_changelist'),
+                    })
+                run, acquired = begin_notification_processor_run(
+                    trigger_source=TatNotificationProcessorRun.TRIGGER_ADMIN,
+                    actor=request.user, reason=reason, request_id=request_id,
+                )
+                if not acquired:
+                    if run.request_id == request_id and run.trigger_source == TatNotificationProcessorRun.TRIGGER_ADMIN:
+                        messages.info(request, 'This manual request was already processed. No duplicate run was started.')
+                    else:
+                        messages.warning(request, 'Another notification processor is already running. No duplicate run was started.')
+                else:
+                    count = 0
+                    try:
+                        count = process_due_tasks(limit=limit)
+                        finish_notification_processor_run(run, processed_task_count=count)
+                    except Exception as exc:
+                        finish_notification_processor_run(run, processed_task_count=count, error=exc)
+                        logger.exception('Manual TAT notification processing failed; run=%s', run.pk)
+                        messages.error(request, 'The manual run failed. Review its processor record and server monitoring.')
+                    else:
+                        messages.success(request, f'Processed {count} due TAT task(s).')
+                return HttpResponseRedirect(reverse('admin:core_tatnotificationprocessorrun_changelist'))
+        return TemplateResponse(request, 'admin/core/tatnotificationprocessorrun/run_now.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta,
+            'title': 'Process private TAT alerts now',
+            'due_recipient_count': due_recipients,
+            'request_id': request_id,
+            'back_url': reverse('admin:core_tatnotificationprocessorrun_changelist'),
+        })
 
     def has_add_permission(self, request):
         return False

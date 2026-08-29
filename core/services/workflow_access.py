@@ -248,6 +248,8 @@ MINIAPP_ENDPOINT_CAPABILITIES = {
     'tat_tracker_target_settings': ('tat_tracker', 'tat.settings.targets.propose'),
     'tat_tracker_settings': ('tat_tracker', 'tat.home.view'),
     'tat_tracker_settings_personal': ('tat_tracker', 'tat.home.view'),
+    'tat_tracker_connect_private_alerts': ('tat_tracker', 'tat.home.view'),
+    'tat_tracker_disconnect_private_alerts': ('tat_tracker', 'tat.home.view'),
     'tat_tracker_create': ('tat_tracker', 'tat.case.create'),
     'tat_tracker_identity_context': ('tat_tracker', 'tat.case.create'),
     'tat_tracker_detail': ('tat_tracker', 'tat.home.view'),

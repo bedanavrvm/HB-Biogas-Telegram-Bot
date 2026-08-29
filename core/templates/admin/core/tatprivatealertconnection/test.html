@@ -1,0 +1,27 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <div class="max-w-3xl">
+    <div class="rounded border border-base-200 bg-white p-6 shadow-sm dark:border-base-800 dark:bg-base-900">
+      <h1 class="text-xl font-semibold">Test private Telegram delivery</h1>
+      <p class="mt-2 text-sm text-font-subtle-light dark:text-font-subtle-dark">
+        This sends one harmless test message to <strong>{{ connection.user }}</strong>. It does not create a task, change a case, or trigger an escalation.
+      </p>
+      <dl class="mt-5 grid gap-3 text-sm sm:grid-cols-2">
+        <div><dt class="text-font-subtle-light dark:text-font-subtle-dark">Current status</dt><dd class="font-medium">{{ connection.get_status_display }}</dd></div>
+        <div><dt class="text-font-subtle-light dark:text-font-subtle-dark">Last successful delivery</dt><dd class="font-medium">{{ connection.last_success_at|default:'Never' }}</dd></div>
+      </dl>
+      <form method="post" class="mt-6 grid gap-4">
+        {% csrf_token %}
+        <input type="hidden" name="request_id" value="{{ request_id }}">
+        <label class="grid gap-1 text-sm font-medium">Type <code>SEND TEST</code> to confirm
+          <input name="confirmation_phrase" autocomplete="off" required class="w-full rounded border border-base-300 px-3 py-2 dark:border-base-700 dark:bg-base-900">
+        </label>
+        <div class="flex flex-wrap gap-2">
+          <button type="submit" class="rounded bg-primary-600 px-4 py-2 font-medium text-white">Send test message</button>
+          <a href="{{ back_url }}" class="rounded border border-base-300 px-4 py-2 dark:border-base-700">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endblock %}

@@ -546,9 +546,13 @@
     const data = connection || { status: 'unknown', connected: false };
     const button = $('connectPrivateAlertsBtn');
     const text = $('privateAlertStatusText');
-    button.hidden = Boolean(data.connected);
+    button.hidden = false;
+    button.dataset.connected = data.connected ? 'true' : 'false';
+    button.textContent = data.connected ? 'Disconnect private alerts' : 'Connect private alerts';
     if (data.connected) {
       text.textContent = 'Connected. Assigned TAT actions can be delivered to your private Telegram chat.';
+    } else if (data.status === 'disconnected') {
+      text.textContent = 'Disconnected. Assigned work remains available in this Mini App inbox, but private Telegram alerts are paused.';
     } else if (data.status === 'blocked') {
       text.textContent = 'The bot is blocked or private delivery was withdrawn. Unblock the bot, then reconnect.';
     } else if (data.status === 'temporary_failure') {
@@ -1715,18 +1719,27 @@
   $('closeNoticeBtn').addEventListener('click', closeNotice);
   $('connectPrivateAlertsBtn').addEventListener('click', async (event) => {
     const button = event.currentTarget;
+    const disconnecting = button.dataset.connected === 'true';
+    let connection = null;
     try {
-      setButtonLoading(button, true, 'Connecting');
-      if (tg && typeof tg.requestWriteAccess === 'function') {
+      setButtonLoading(button, true, disconnecting ? 'Disconnecting' : 'Connecting');
+      if (!disconnecting && tg && typeof tg.requestWriteAccess === 'function') {
         await new Promise((resolve) => tg.requestWriteAccess(() => resolve()));
       }
-      const result = await api('/api/tat-tracker/private-alerts/connect/', { request_id: newRequestId() });
-      renderPrivateAlertConnection(result.data || {});
-      setStatus('Private TAT alerts connected.', 'ok');
+      const path = disconnecting
+        ? '/api/tat-tracker/private-alerts/disconnect/'
+        : '/api/tat-tracker/private-alerts/connect/';
+      const result = await api(path, { request_id: newRequestId() });
+      connection = result.data || {};
+      setStatus(
+        disconnecting ? 'Private Telegram alerts disconnected. In-app tasks remain available.' : 'Private TAT alerts connected.',
+        'ok',
+      );
     } catch (error) {
       setStatus(error.message, 'error');
     } finally {
       setButtonLoading(button, false);
+      if (connection) renderPrivateAlertConnection(connection);
     }
   });
   configureClipboardFields();

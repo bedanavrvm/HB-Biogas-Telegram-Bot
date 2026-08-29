@@ -4,6 +4,7 @@ import json
 import time
 from io import BytesIO
 from datetime import timedelta
+from pathlib import Path
 from urllib.parse import urlencode
 from unittest.mock import patch
 
@@ -24,6 +25,7 @@ from core.models import (
     TatGroupExceptionStatus,
     TatNotificationProcessorRun,
     TatPrivateAlertConnection,
+    TatPrivateAlertConnectionEvent,
     TatResponsibilityAssignment,
     TatResponsibilityBackup,
     TatResponsibilityEvent,
@@ -34,15 +36,18 @@ from core.models import (
 from core.services.tat_notifications import (
     begin_notification_processor_run,
     connect_private_alerts,
+    disconnect_private_alerts,
     dispatch_task,
     inbox_payload,
     issue_locator,
+    mark_private_alert_seen,
     process_due_tasks,
     finish_notification_processor_run,
     refresh_group_exception,
     resolve_locator,
     resolve_assignment,
     reroute_pending_task,
+    send_private_alert_test,
     synchronize_case_task,
     task_access_allowed,
 )
@@ -225,7 +230,7 @@ class TatPrivateTaskTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'TAT access &amp; responsibilities')
-        self.assertContains(response, 'Canonical stage ownership')
+        self.assertContains(response, 'Advanced stage overrides')
         self.assertContains(response, 'mpesa_to_admin')
         self.assertContains(response, 'primary')
 
@@ -426,6 +431,12 @@ class TatPrivateTaskTests(TestCase):
             task.recipients.get(user=self.primary).delivery_attempts,
             1,
         )
+        self.assertEqual(
+            TatPrivateAlertConnectionEvent.objects.filter(
+                event_type=TatPrivateAlertConnectionEvent.EVENT_DELIVERY_SUCCEEDED,
+            ).count(),
+            1,
+        )
 
     @patch('core.services.tat_notifications._telegram_request', return_value={'message_id': 781})
     def test_due_pending_recipient_is_recovered_by_notification_processor(self, telegram):
@@ -472,6 +483,32 @@ class TatPrivateTaskTests(TestCase):
         active.refresh_from_db()
         self.assertIsNone(active.active_lock_key)
 
+    def test_manual_notification_run_retains_actor_and_reason_snapshots(self):
+        actor = get_user_model().objects.create_superuser(
+            username='manual-run-root', email='manual@example.invalid', password='password',
+        )
+
+        run, acquired = begin_notification_processor_run(
+            trigger_source=TatNotificationProcessorRun.TRIGGER_ADMIN,
+            actor=actor,
+            reason='Verify private delivery after roster maintenance.',
+            request_id='manual-run-request-0001',
+        )
+        replay, replay_acquired = begin_notification_processor_run(
+            trigger_source=TatNotificationProcessorRun.TRIGGER_ADMIN,
+            actor=actor,
+            reason='Verify private delivery after roster maintenance.',
+            request_id='manual-run-request-0001',
+        )
+
+        self.assertTrue(acquired)
+        self.assertFalse(replay_acquired)
+        self.assertEqual(replay.pk, run.pk)
+        self.assertEqual(run.trigger_source, TatNotificationProcessorRun.TRIGGER_ADMIN)
+        self.assertEqual(run.triggered_by_username_snapshot, actor.username)
+        self.assertEqual(run.trigger_reason, 'Verify private delivery after roster maintenance.')
+        finish_notification_processor_run(run)
+
     @patch(
         'core.management.commands.process_tat_notifications.process_due_tasks',
         side_effect=RuntimeError('synthetic runner failure'),
@@ -509,6 +546,147 @@ class TatPrivateTaskTests(TestCase):
         self.assertTrue(first['connected'])
         self.assertTrue(second['connected'])
         self.assertEqual(telegram.call_count, 1)
+        self.assertEqual(
+            TatPrivateAlertConnectionEvent.objects.filter(
+                event_type=TatPrivateAlertConnectionEvent.EVENT_CONNECTED,
+            ).count(),
+            1,
+        )
+
+    def test_disconnect_is_idempotent_and_session_bootstrap_does_not_reconnect(self):
+        connection = TatPrivateAlertConnection.objects.create(
+            user=self.primary, status=TatPrivateAlertConnection.STATUS_CONNECTED,
+            connected_at=timezone.now(),
+        )
+
+        first = disconnect_private_alerts(self.primary, request_id='disconnect-request-0001')
+        second = disconnect_private_alerts(self.primary, request_id='disconnect-request-0001')
+        mark_private_alert_seen(self.primary, allows_write=True)
+
+        connection.refresh_from_db()
+        self.assertFalse(first['connected'])
+        self.assertFalse(second['connected'])
+        self.assertEqual(connection.status, TatPrivateAlertConnection.STATUS_DISCONNECTED)
+        self.assertIsNotNone(connection.disconnected_at)
+        self.assertEqual(
+            TatPrivateAlertConnectionEvent.objects.filter(
+                event_type=TatPrivateAlertConnectionEvent.EVENT_DISCONNECTED,
+            ).count(),
+            1,
+        )
+
+    @patch('core.services.tat_notifications._telegram_request', return_value={'message_id': 81})
+    def test_explicit_connect_restores_a_disconnected_connection(self, telegram):
+        TatPrivateAlertConnection.objects.create(
+            user=self.primary, status=TatPrivateAlertConnection.STATUS_DISCONNECTED,
+            disconnected_at=timezone.now(),
+        )
+
+        result = connect_private_alerts(self.primary, request_id='reconnect-request-0001')
+
+        connection = TatPrivateAlertConnection.objects.get(user=self.primary)
+        self.assertTrue(result['connected'])
+        self.assertEqual(connection.status, TatPrivateAlertConnection.STATUS_CONNECTED)
+        self.assertIsNone(connection.disconnected_at)
+        self.assertEqual(telegram.call_count, 1)
+
+    @patch('core.services.tat_notifications._telegram_request', side_effect=RuntimeError('synthetic failure'))
+    def test_failed_connect_is_persisted_and_same_request_is_not_resent(self, telegram):
+        with self.assertRaises(RuntimeError):
+            connect_private_alerts(self.primary, request_id='failed-connect-0001')
+
+        replay = connect_private_alerts(self.primary, request_id='failed-connect-0001')
+
+        connection = TatPrivateAlertConnection.objects.get(user=self.primary)
+        event = TatPrivateAlertConnectionEvent.objects.get(request_id='failed-connect-0001')
+        self.assertFalse(replay['connected'])
+        self.assertEqual(connection.status, TatPrivateAlertConnection.STATUS_TEMPORARY_FAILURE)
+        self.assertEqual(event.event_type, TatPrivateAlertConnectionEvent.EVENT_CONNECT_FAILED)
+        self.assertEqual(event.detail_code, 'RuntimeError')
+        self.assertEqual(telegram.call_count, 1)
+
+    @patch('core.services.tat_notifications._telegram_request', return_value={'message_id': 82})
+    def test_admin_test_message_is_idempotent_and_audited(self, telegram):
+        connection = TatPrivateAlertConnection.objects.create(
+            user=self.primary, status=TatPrivateAlertConnection.STATUS_CONNECTED,
+        )
+        actor = get_user_model().objects.create_superuser(
+            username='alert-test-root', email='root@example.invalid', password='password',
+        )
+
+        send_private_alert_test(
+            self.primary, actor=actor, request_id='admin-alert-test-0001',
+        )
+        send_private_alert_test(
+            self.primary, actor=actor, request_id='admin-alert-test-0001',
+        )
+
+        event = TatPrivateAlertConnectionEvent.objects.get(
+            event_type=TatPrivateAlertConnectionEvent.EVENT_TEST_SUCCEEDED,
+        )
+        self.assertEqual(event.connection, connection)
+        self.assertEqual(event.actor_username_snapshot, actor.username)
+        self.assertEqual(telegram.call_count, 1)
+
+    def test_miniapp_private_alert_button_is_a_persistent_toggle(self):
+        source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
+        template = Path('core/templates/tat_tracker/app.html').read_text(encoding='utf-8')
+
+        self.assertIn("button.dataset.connected = data.connected ? 'true' : 'false'", source)
+        self.assertIn("'Disconnect private alerts'", source)
+        self.assertIn("'/api/tat-tracker/private-alerts/disconnect/'", source)
+        self.assertIn('?v=48', template)
+
+    @patch('core.services.tat_notifications._telegram_request', return_value={'message_id': 83})
+    def test_superuser_can_send_confirmed_test_from_connection_admin(self, telegram):
+        connection = TatPrivateAlertConnection.objects.create(
+            user=self.primary, status=TatPrivateAlertConnection.STATUS_CONNECTED,
+        )
+        actor = get_user_model().objects.create_superuser(
+            username='connection-admin-root', email='connection@example.invalid', password='password',
+        )
+        self.client.force_login(actor)
+        url = reverse('admin:core_tatprivatealertconnection_test', args=[connection.pk])
+
+        preview = self.client.get(url)
+        response = self.client.post(url, {
+            'confirmation_phrase': 'SEND TEST',
+            'request_id': 'admin-test-view-0001',
+        })
+
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(telegram.call_count, 1)
+        self.assertTrue(TatPrivateAlertConnectionEvent.objects.filter(
+            request_id='admin-test-view-0001',
+            actor_username_snapshot=actor.username,
+        ).exists())
+
+    def test_superuser_can_confirm_manual_processor_run_from_admin(self):
+        actor = get_user_model().objects.create_superuser(
+            username='processor-admin-root', email='processor@example.invalid', password='password',
+        )
+        self.client.force_login(actor)
+        url = reverse('admin:core_tatnotificationprocessorrun_run_now')
+
+        preview = self.client.get(url)
+        with patch('core.services.tat_notifications.process_due_tasks', return_value=0) as run_due:
+            response = self.client.post(url, {
+                'confirmation_phrase': 'RUN PRIVATE ALERTS',
+                'reason': 'Verify delivery after scheduler maintenance.',
+                'limit': '25',
+                'request_id': 'manual-admin-view-0001',
+            })
+
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(response.status_code, 302)
+        run_due.assert_called_once_with(limit=25)
+        run = TatNotificationProcessorRun.objects.get(
+            trigger_source=TatNotificationProcessorRun.TRIGGER_ADMIN,
+        )
+        self.assertEqual(run.triggered_by_username_snapshot, actor.username)
+        self.assertEqual(run.request_id, 'manual-admin-view-0001')
+        self.assertEqual(run.status, TatNotificationProcessorRun.STATUS_SUCCEEDED)
 
     def test_same_case_stage_revision_is_idempotent(self):
         first = synchronize_case_task(self.group, self.case)

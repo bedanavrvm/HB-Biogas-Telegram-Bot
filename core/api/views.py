@@ -567,6 +567,27 @@ def tat_tracker_connect_private_alerts(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 @miniapp_write_response
+def tat_tracker_disconnect_private_alerts(request):
+    payload = _tat_json_body(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    _group_id, group_config, _user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    capability_error = _tat_capability_error(user, 'tat.home.view', group_config)
+    if capability_error:
+        return capability_error
+    from core.services.tat_notifications import disconnect_private_alerts
+    return JsonResponse({'ok': True, 'data': disconnect_private_alerts(
+        user.get('_canonical_user'),
+        request_id=getattr(request, 'miniapp_request_id', ''),
+    )})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@miniapp_write_response
 def tat_tracker_home(request):
     payload = _tat_json_body(request)
     group_id, group_config, user_payload, user, error = _tat_context(payload)

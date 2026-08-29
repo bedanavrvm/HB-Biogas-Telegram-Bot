@@ -1,0 +1,30 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <div class="max-w-3xl">
+    <div class="rounded border border-orange-300 bg-orange-50 p-6 text-orange-950 shadow-sm dark:border-orange-800 dark:bg-orange-950 dark:text-orange-100">
+      <h1 class="text-xl font-semibold">Process due private alerts and escalations</h1>
+      <p class="mt-2 text-sm">
+        This is a live delivery action. It will process due task recipients using the same lock, access checks, retry rules, and escalation rules as the scheduled runner.
+      </p>
+      <p class="mt-4 font-medium">Currently due recipients: {{ due_recipient_count }}</p>
+      <form method="post" class="mt-6 grid gap-4">
+        {% csrf_token %}
+        <input type="hidden" name="request_id" value="{{ request_id }}">
+        <label class="grid gap-1 text-sm font-medium">Maximum tasks
+          <input type="number" name="limit" value="100" min="1" max="1000" required class="w-full rounded border border-orange-300 px-3 py-2 dark:border-orange-800 dark:bg-orange-950">
+        </label>
+        <label class="grid gap-1 text-sm font-medium">Reason for manual run
+          <textarea name="reason" rows="3" required class="w-full rounded border border-orange-300 px-3 py-2 dark:border-orange-800 dark:bg-orange-950"></textarea>
+        </label>
+        <label class="grid gap-1 text-sm font-medium">Type <code>RUN PRIVATE ALERTS</code> to confirm
+          <input name="confirmation_phrase" autocomplete="off" required class="w-full rounded border border-orange-300 px-3 py-2 dark:border-orange-800 dark:bg-orange-950">
+        </label>
+        <div class="flex flex-wrap gap-2">
+          <button type="submit" class="rounded bg-orange-700 px-4 py-2 font-medium text-white">Run live processor</button>
+          <a href="{{ back_url }}" class="rounded border border-orange-400 px-4 py-2">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endblock %}
