@@ -1,5 +1,25 @@
 # Changelog
 
+## Direct Superuser staff lifecycle and visible approvals - 29-August-2026
+
+- Made active-Superuser staff onboarding, access changes, transfers, leave,
+  return, and offboarding direct by default. The exact server-derived impact is
+  reviewed before current-password confirmation; no checker is required.
+- Preserved independent review as an explicit **Send for independent review**
+  choice and added **Configuration > Staff approvals (N)** as the clear queue
+  where eligible checkers approve or reject those plans.
+- Added decision-mode and request-fingerprint evidence to lifecycle plans.
+  Identical retries return the original plan/account; changed payloads cannot
+  reuse the same request key, and raw passwords are never retained in the plan
+  or audit trail.
+- Added password-protected Superuser actions to apply or cancel existing pending
+  lifecycle plans without waiting for a checker. Existing rows retain their
+  original independent-review meaning after migration.
+
+  Migration note: apply `core.0143_direct_superuser_staff_lifecycle`. Before any
+  direct-decision rows exist it may be reversed to `0142`; afterward prefer a
+  forward policy change so historical decision evidence remains interpretable.
+
 ## Superuser user hard deletion with retained audit - 28-August-2026
 
 - Replaced Django's protected-object User deletion dead end with a full-width,

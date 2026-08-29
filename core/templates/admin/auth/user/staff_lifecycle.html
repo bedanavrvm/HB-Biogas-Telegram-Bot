@@ -1,112 +1,30 @@
 {% extends "admin/base_site.html" %}
-
 {% block extrahead %}
-  {{ block.super }}
-  {{ form.media }}{{ grant_formset.media }}
-  <style>
-    #content { max-width: none !important; }
-    .lifecycle-shell { width: 100%; }
-    .lifecycle-steps { display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.5rem;margin-bottom:1rem; }
-    .lifecycle-step,.lifecycle-card { border:1px solid #d7dee8;border-radius:.65rem;background:var(--color-base-50,#fff);padding:1rem; }
-    .lifecycle-step strong { display:block;color:#1976b9;font-size:.75rem;text-transform:uppercase; }
-    .lifecycle-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem; }
-    .lifecycle-field { display:flex;flex-direction:column;gap:.3rem;min-width:0; }
-    .lifecycle-field input,.lifecycle-field select,.lifecycle-field textarea { width:100%;max-width:none; }
-    .lifecycle-wide { grid-column:1/-1; }
-    .lifecycle-grants { display:grid;grid-template-columns:repeat(3,minmax(240px,1fr));gap:.75rem; }
-    .lifecycle-grant { border:1px solid #d7dee8;border-radius:.5rem;padding:.75rem; }
-    .lifecycle-actions { position:sticky;bottom:0;display:flex;gap:.75rem;justify-content:flex-end;background:rgba(255,255,255,.96);padding:1rem;border-top:1px solid #d7dee8; }
-    .lifecycle-primary { border:0;border-radius:.45rem;background:#249bd7;color:white;padding:.75rem 1.1rem;font-weight:600; }
-    .lifecycle-alert { border-left:4px solid #d97706;background:#fffbeb;padding:.75rem;margin-bottom:1rem; }
-    .lifecycle-table { width:100%;border-collapse:collapse; }
-    .lifecycle-table th,.lifecycle-table td { padding:.65rem;border-bottom:1px solid #e5e7eb;text-align:left; }
-    @media(max-width:900px){.lifecycle-steps,.lifecycle-grid,.lifecycle-grants{grid-template-columns:1fr}.lifecycle-step{padding:.65rem}}
-  </style>
+{{ block.super }}{{ form.media }}{{ grant_formset.media }}
+<style>
+#content{max-width:none!important}.lifecycle-shell{width:100%}.lifecycle-steps{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.5rem;margin-bottom:1rem}.lifecycle-step,.lifecycle-card{border:1px solid #d7dee8;border-radius:.65rem;background:var(--color-base-50,#fff);padding:1rem}.lifecycle-step strong{display:block;color:#1976b9;font-size:.75rem;text-transform:uppercase}.lifecycle-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.lifecycle-field{display:flex;flex-direction:column;gap:.3rem;min-width:0}.lifecycle-field input,.lifecycle-field select,.lifecycle-field textarea{width:100%;max-width:none}.lifecycle-wide{grid-column:1/-1}.lifecycle-grants{display:grid;grid-template-columns:repeat(3,minmax(240px,1fr));gap:.75rem}.lifecycle-grant{border:1px solid #d7dee8;border-radius:.5rem;padding:.75rem}.lifecycle-actions{position:sticky;bottom:0;display:flex;gap:.75rem;justify-content:flex-end;background:rgba(255,255,255,.96);padding:1rem;border-top:1px solid #d7dee8;z-index:5}.lifecycle-primary{border:0;border-radius:.45rem;background:#249bd7;color:#fff;padding:.75rem 1.1rem;font-weight:600}.lifecycle-alert{border-left:4px solid #d97706;background:#fffbeb;padding:.75rem;margin-bottom:1rem}.lifecycle-table{width:100%;border-collapse:collapse}.lifecycle-table th,.lifecycle-table td{padding:.65rem;border-bottom:1px solid #e5e7eb;text-align:left}@media(max-width:900px){.lifecycle-steps,.lifecycle-grid,.lifecycle-grants{grid-template-columns:1fr}.lifecycle-step{padding:.65rem}}
+</style>
 {% endblock %}
-
 {% block content %}
 <div class="lifecycle-shell">
-  <h1>Staff lifecycle workspace</h1>
-  {% if is_superuser_workspace %}<p>Create one auditable plan. Nothing changes until a different Access Control Checker approves the complete plan.</p>{% else %}<p>Review pending plans assigned to an independent checker. Open a row to inspect its exact before/proposed state and impact.</p>{% endif %}
-  {% if is_superuser_workspace %}
-  {% if not has_independent_checker %}
-    <div class="lifecycle-alert"><strong>Independent checker required.</strong> Appoint an active non-Superuser checker from that user’s page before submitting a lifecycle plan. This bootstrap grants no Mini App access.</div>
-  {% endif %}
-  <div class="lifecycle-steps" aria-label="Lifecycle steps">
-    <div class="lifecycle-step"><strong>Step 1</strong>Action and identity</div>
-    <div class="lifecycle-step"><strong>Step 2</strong>Access scopes</div>
-    <div class="lifecycle-step"><strong>Step 3</strong>Responsibilities</div>
-    <div class="lifecycle-step"><strong>Step 4</strong>Impact and readiness</div>
-    <div class="lifecycle-step"><strong>Step 5</strong>Review and approval</div>
-  </div>
-
-  <form method="post" id="staff-lifecycle-form">
-    {% csrf_token %}
-    {{ form.request_key }}
-    {% if form.non_field_errors %}<div class="lifecycle-alert">{{ form.non_field_errors }}</div>{% endif %}
-    <section class="lifecycle-card">
-      <h2>1. Action and identity</h2>
-      <div class="lifecycle-grid">
-        {% for field in form %}
-          {% if field.name == 'action' or field.name == 'target_user' or field.name == 'display_name' or field.name == 'login_method' or field.name == 'telegram_username' or field.name == 'django_username' or field.name == 'email' or field.name == 'password' %}
-          <div class="lifecycle-field" data-field="{{ field.name }}"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}{{ field.errors }}</div>
-          {% endif %}
-        {% endfor %}
-      </div>
-      <button type="submit" formmethod="get" class="mt-3 rounded border px-3 py-2">Load current staff access</button>
-    </section>
-
-    <section class="lifecycle-card mt-4">
-      <h2>2. Permanent access</h2>
-      <div class="lifecycle-field lifecycle-wide"><label>{{ form.retire_grants.label }}</label>{{ form.retire_grants }}<small>{{ form.retire_grants.help_text }}</small>{{ form.retire_grants.errors }}</div>
-      {{ grant_formset.management_form }}
-      <h3 class="mt-4">Add access scopes</h3>
-      <div class="lifecycle-grants">
-        {% for grant_form in grant_formset %}
-        <div class="lifecycle-grant">
-          {% for field in grant_form %}<div class="lifecycle-field"><label>{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}
-          {% if grant_form.non_field_errors %}<div class="lifecycle-alert">{{ grant_form.non_field_errors }}</div>{% endif %}
-        </div>
-        {% endfor %}
-      </div>
-    </section>
-
-    <section class="lifecycle-card mt-4">
-      <h2>3. Responsibilities and temporary coverage</h2>
-      <div class="lifecycle-grid">
-        <div class="lifecycle-field"><label>{{ form.replacement_user.label }}</label>{{ form.replacement_user }}<small>{{ form.replacement_user.help_text }}</small>{{ form.replacement_user.errors }}</div>
-        <div class="lifecycle-field"><label>{{ form.leave_from.label }}</label>{{ form.leave_from }}<small>{{ form.leave_from.help_text }}</small>{{ form.leave_from.errors }}</div>
-        <div class="lifecycle-field"><label>{{ form.leave_until.label }}</label>{{ form.leave_until }}<small>{{ form.leave_until.help_text }}</small>{{ form.leave_until.errors }}</div>
-        <div class="lifecycle-field lifecycle-wide"><label>{{ form.delegation_gates.label }}</label>{{ form.delegation_gates }}{{ form.delegation_gates.errors }}</div>
-      </div>
-    </section>
-
-    <section class="lifecycle-card mt-4">
-      <h2>4. Reason and submission</h2>
-      <div class="lifecycle-field"><label>{{ form.reason.label }}</label>{{ form.reason }}{{ form.reason.errors }}</div>
-      <p class="mt-3 text-sm">The review page will show current grants, affected responsibilities, open tasks, delegations, and the exact proposed state before a checker acts.</p>
-    </section>
-    <div class="lifecycle-actions"><button class="lifecycle-primary" type="submit">Submit complete plan for checker approval</button></div>
-  </form>
-  {% endif %}
-
-  <section class="lifecycle-card mt-6">
-    <h2>{% if is_superuser_workspace %}Recent lifecycle plans{% else %}Pending independent reviews{% endif %}</h2>
-    <table class="lifecycle-table"><thead><tr><th>Staff</th><th>Action</th><th>Status</th><th>Maker</th><th>Requested</th></tr></thead><tbody>
-      {% for plan in plans %}<tr><td><a href="{% url 'admin:auth_user_staff_lifecycle_plan' plan.pk %}">{{ plan.target_user }}</a></td><td>{{ plan.get_action_display }}</td><td>{{ plan.get_status_display }}</td><td>{{ plan.requested_by }}</td><td>{{ plan.requested_at|date:"d-m-Y H:i" }}</td></tr>{% empty %}<tr><td colspan="5">No lifecycle plans yet.</td></tr>{% endfor %}
-    </tbody></table>
-  </section>
+<h1>Staff lifecycle workspace</h1>
+<p>Active Superusers apply staff changes directly with password confirmation. Independent checker review remains available when deliberately requested.</p>
+{% if not has_independent_checker %}<div class="lifecycle-alert"><strong>No independent checker is currently appointed.</strong> Direct Superuser actions remain available. Appoint an active Django Admin staff user as a checker before requesting independent review.</div>{% endif %}
+<div class="lifecycle-steps" aria-label="Lifecycle steps"><div class="lifecycle-step"><strong>Step 1</strong>Action and identity</div><div class="lifecycle-step"><strong>Step 2</strong>Access scopes</div><div class="lifecycle-step"><strong>Step 3</strong>Responsibilities</div><div class="lifecycle-step"><strong>Step 4</strong>Impact and readiness</div><div class="lifecycle-step"><strong>Step 5</strong>Review and decision</div></div>
+<form method="post" id="staff-lifecycle-form">{% csrf_token %}{{ form.request_key }}
+{% if form.non_field_errors %}<div class="lifecycle-alert">{{ form.non_field_errors }}</div>{% endif %}
+<section class="lifecycle-card"><h2>1. Action and identity</h2><div class="lifecycle-grid">{% for field in form %}{% if field.name == 'action' or field.name == 'target_user' or field.name == 'display_name' or field.name == 'login_method' or field.name == 'telegram_username' or field.name == 'django_username' or field.name == 'email' or field.name == 'password' %}<div class="lifecycle-field" data-field="{{ field.name }}"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}{{ field.errors }}</div>{% endif %}{% endfor %}</div><button type="button" id="load-staff-state" class="mt-3 rounded border px-3 py-2">Load current staff access</button></section>
+<section class="lifecycle-card mt-4"><h2>2. Permanent access</h2><div class="lifecycle-field lifecycle-wide"><label>{{ form.retire_grants.label }}</label>{{ form.retire_grants }}<small>{{ form.retire_grants.help_text }}</small>{{ form.retire_grants.errors }}</div>{{ grant_formset.management_form }}<h3 class="mt-4">Add access scopes</h3><div class="lifecycle-grants">{% for grant_form in grant_formset %}<div class="lifecycle-grant">{% for field in grant_form %}<div class="lifecycle-field"><label>{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}{% if grant_form.non_field_errors %}<div class="lifecycle-alert">{{ grant_form.non_field_errors }}</div>{% endif %}</div>{% endfor %}</div></section>
+<section class="lifecycle-card mt-4"><h2>3. Responsibilities and temporary coverage</h2><div class="lifecycle-grid"><div class="lifecycle-field"><label>{{ form.replacement_user.label }}</label>{{ form.replacement_user }}<small>{{ form.replacement_user.help_text }}</small>{{ form.replacement_user.errors }}</div><div class="lifecycle-field"><label>{{ form.leave_from.label }}</label>{{ form.leave_from }}<small>{{ form.leave_from.help_text }}</small>{{ form.leave_from.errors }}</div><div class="lifecycle-field"><label>{{ form.leave_until.label }}</label>{{ form.leave_until }}<small>{{ form.leave_until.help_text }}</small>{{ form.leave_until.errors }}</div><div class="lifecycle-field lifecycle-wide"><label>{{ form.delegation_gates.label }}</label>{{ form.delegation_gates }}{{ form.delegation_gates.errors }}</div></div></section>
+<section class="lifecycle-card mt-4"><h2>4. Reason and decision</h2><div class="lifecycle-field"><label>{{ form.reason.label }}</label>{{ form.reason }}{{ form.reason.errors }}</div><p class="mt-3 text-sm">Apply now is immediate and audit-logged. Sending for independent review is optional and makes no live change until an eligible checker approves.</p></section>
+{% if direct_preview %}
+<section class="lifecycle-card mt-4" aria-labelledby="direct-review-title"><h2 id="direct-review-title">5. Confirm exact direct change</h2><input type="hidden" name="preview_fingerprint" value="{{ direct_preview.fingerprint }}"><div class="lifecycle-grid"><div><strong>Action</strong><p>{{ direct_preview.action }}</p></div><div><strong>Staff</strong><p>{{ direct_preview.target }}</p></div><div><strong>Replacement</strong><p>{{ direct_preview.replacement|default:'None' }}</p></div><div><strong>Initial/final grants</strong><p>{{ direct_preview.grants|length }}</p></div><div><strong>Current responsibilities affected</strong><p>{{ direct_preview.impact.responsibilities }}</p></div><div><strong>Current open tasks</strong><p>{{ direct_preview.impact.open_tasks }}</p></div>{% if direct_preview.leave_from or direct_preview.leave_until %}<div><strong>Effective from</strong><p>{{ direct_preview.leave_from|date:"d-m-Y H:i"|default:'Immediately' }}</p></div><div><strong>Until</strong><p>{{ direct_preview.leave_until|date:"d-m-Y H:i"|default:'Not set' }}</p></div>{% endif %}{% if direct_preview.identity %}<div class="lifecycle-wide"><strong>New staff identity</strong><p>{% for key,value in direct_preview.identity.items %}{% if value %}{{ key|capfirst }}: {{ value }}{% if not forloop.last %} · {% endif %}{% endif %}{% endfor %}</p></div>{% endif %}{% if direct_preview.delegation_gates %}<div class="lifecycle-wide"><strong>Temporary approval delegations</strong><p>{{ direct_preview.delegation_gates|join:", " }}</p></div>{% endif %}<div class="lifecycle-wide"><strong>Business reason</strong><p>{{ direct_preview.reason }}</p></div></div>
+{% if direct_preview.grants %}<table class="lifecycle-table mt-3"><thead><tr><th>Workflow</th><th>Role</th><th>Branch</th><th>Product</th></tr></thead><tbody>{% for grant in direct_preview.grants %}<tr><td>{{ grant.workflow }}</td><td>{{ grant.role }}</td><td>{{ grant.branch|default:'All' }}</td><td>{{ grant.product|default:'All' }}</td></tr>{% endfor %}</tbody></table>{% endif %}
+<div class="lifecycle-field mt-4"><label for="{{ form.superuser_password.id_for_label }}">Your current Django Admin password</label>{{ form.superuser_password }}<small>{{ form.superuser_password.help_text }}</small>{{ form.superuser_password.errors }}</div><p class="mt-3 text-sm">If you edit any value, review the refreshed summary before confirmation.</p></section>
+<div class="lifecycle-actions"><button class="rounded border px-4 py-3" type="submit" name="lifecycle_action" value="apply_now">Review refreshed changes</button><button class="lifecycle-primary" type="submit" name="lifecycle_action" value="confirm_direct">Confirm and apply now</button></div>
+{% else %}<div class="lifecycle-actions"><button class="rounded border px-4 py-3" type="submit" name="lifecycle_action" value="send_for_review" {% if not has_independent_checker %}disabled title="Appoint a checker first"{% endif %}>Send for independent review</button><button class="lifecycle-primary" type="submit" name="lifecycle_action" value="apply_now">Review and apply now</button></div>{% endif %}
+</form>
+<section class="lifecycle-card mt-6"><h2>Recent lifecycle plans</h2><table class="lifecycle-table"><thead><tr><th>Staff</th><th>Action</th><th>Decision</th><th>Status</th><th>Maker</th><th>Requested</th></tr></thead><tbody>{% for plan in plans %}<tr><td><a href="{% url 'admin:auth_user_staff_lifecycle_plan' plan.pk %}">{{ plan.target_user }}</a></td><td>{{ plan.get_action_display }}</td><td>{{ plan.get_decision_mode_display }}</td><td>{{ plan.get_status_display }}</td><td>{{ plan.requested_by }}</td><td>{{ plan.requested_at|date:"d-m-Y H:i" }}</td></tr>{% empty %}<tr><td colspan="6">No lifecycle plans yet.</td></tr>{% endfor %}</tbody></table></section>
 </div>
-<script>
-(function(){
-  const action=document.getElementById('id_action');
-  function refresh(){
-    const onboard=action && action.value==='onboard';
-    ['display_name','login_method','telegram_username','django_username','email','password'].forEach(function(name){const node=document.querySelector('[data-field="'+name+'"]');if(node)node.hidden=!onboard;});
-    const target=document.querySelector('[data-field="target_user"]');if(target)target.hidden=onboard;
-  }
-  if(action){action.addEventListener('change',refresh);refresh();}
-  const lifecycleForm=document.getElementById('staff-lifecycle-form');if(lifecycleForm){lifecycleForm.addEventListener('submit',function(event){const button=event.submitter;if(button&&button.formMethod.toLowerCase()==='post'){button.disabled=true;button.textContent='Submitting…';}});}
-})();
-</script>
+<script>(function(){const action=document.getElementById('id_action');const targetInput=document.getElementById('id_target_user');const loadButton=document.getElementById('load-staff-state');function refresh(){const onboard=action&&action.value==='onboard';['display_name','login_method','telegram_username','django_username','email','password'].forEach(function(name){const node=document.querySelector('[data-field="'+name+'"]');if(node)node.hidden=!onboard;});const target=document.querySelector('[data-field="target_user"]');if(target)target.hidden=onboard;if(loadButton)loadButton.hidden=onboard;}if(action){action.addEventListener('change',refresh);refresh();}if(loadButton){loadButton.addEventListener('click',function(){const query=new URLSearchParams();query.set('action',action?String(action.value||''):'');query.set('target_user',targetInput?String(targetInput.value||''):'');window.location.assign(window.location.pathname+'?'+query.toString());});}const form=document.getElementById('staff-lifecycle-form');if(form){form.addEventListener('submit',function(event){const button=event.submitter;if(button&&button.formMethod.toLowerCase()==='post'){if(button.name){const marker=document.createElement('input');marker.type='hidden';marker.name=button.name;marker.value=button.value;form.appendChild(marker);}button.disabled=true;button.textContent='Working…';}});}})();</script>
 {% endblock %}

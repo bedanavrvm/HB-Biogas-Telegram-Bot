@@ -173,6 +173,30 @@ smallest workflow/branch/product, verify its automatic expiry, and review the
 temporary audited access; use the maker-checker access request flow for any
 permanent change.
 
+### Staff lifecycle decisions
+
+Use **Authentication and Authorization > Users > Staff lifecycle workspace**
+for ordinary staff onboarding, permanent access, transfer, leave, return, and
+offboarding.
+
+- **Review and apply now** is the normal active-Superuser path. Review the exact
+  server-generated impact, re-enter the current Admin password, and confirm.
+  No checker is required.
+- **Send for independent review** is optional. Appointed checkers open the
+  dedicated **Configuration > Staff approvals (N)** queue to approve or reject.
+- For an existing pending plan, an active Superuser may open it and
+  password-confirm **Apply now** or **Cancel plan**.
+- A repeated identical request returns the original plan; a changed request
+  must use a new request key. Never work around a conflict with direct ORM
+  AccessGrant writes.
+
+After deploying this behavior, apply migration
+`core.0143_direct_superuser_staff_lifecycle` before exercising the workspace.
+Verify one synthetic direct onboarding, one identical retry, and one optional
+review in staging. Confirm the decision mode and actor appear on the plan and
+in compliance evidence, then remove the synthetic users through the approved
+hard-delete process if required.
+
 ### Superuser user hard deletion
 
 Use **Authentication and Authorization → Users → Hard delete account** (or the

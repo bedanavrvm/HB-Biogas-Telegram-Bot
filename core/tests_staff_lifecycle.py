@@ -19,9 +19,11 @@ from core.models import (
 from core.services.access_control import appoint_access_control_checker
 from core.services.access_grant_governance import governed_access_grant_mutation
 from core.services.staff_lifecycle import (
+    apply_pending_lifecycle_plan_as_superuser,
     approve_lifecycle_plan,
     create_lifecycle_plan,
     generate_telegram_activation,
+    submit_lifecycle_change,
 )
 from core.services.telegram_identity import TelegramIdentity, resolve_or_bind_telegram_user
 
@@ -116,6 +118,25 @@ class StaffLifecycleServiceTests(TestCase):
         self.assertTrue(pending.is_active)
         self.assertTrue(pending.staff_profile.telegram_metadata['activation_required'])
 
+    def test_superuser_can_directly_apply_an_existing_pending_plan(self):
+        plan = create_lifecycle_plan(
+            requester=self.root, target_user=self.target,
+            action=StaffLifecycleChangePlan.ACTION_ACCESS,
+            reason='Apply this existing optional review directly after reconsideration.',
+            desired_grants=[{'workflow': 'jawabu_portal', 'role': 'JBL_OFFICER'}],
+            request_key='pending-direct-apply',
+        )
+
+        applied = apply_pending_lifecycle_plan_as_superuser(
+            plan_id=plan.pk, actor=self.root, current_password='password',
+            review_comment='The Superuser reviewed the exact impact and applied it directly.',
+        )
+
+        self.assertEqual(applied.status, StaffLifecycleChangePlan.STATUS_APPLIED)
+        self.assertEqual(applied.decision_mode, StaffLifecycleChangePlan.DECISION_SUPERUSER)
+        self.assertEqual(applied.reviewed_by, self.root)
+
+
     def test_future_leave_is_approved_without_applying_early(self):
         start = timezone.now() + timedelta(days=1)
         replacement = get_user_model().objects.create_user('leave-replacement', is_active=True)
@@ -175,7 +196,7 @@ class StaffLifecycleServiceTests(TestCase):
         original_backup.refresh_from_db()
         self.assertEqual(original_backup.user, self.target)
 
-    def test_checker_has_a_pending_review_queue_but_cannot_create_plans(self):
+    def test_checker_is_redirected_to_the_dedicated_review_queue_and_cannot_create_plans(self):
         plan = create_lifecycle_plan(
             requester=self.root, target_user=self.target,
             action=StaffLifecycleChangePlan.ACTION_ACCESS,
@@ -184,13 +205,154 @@ class StaffLifecycleServiceTests(TestCase):
         )
         self.client.force_login(self.checker)
         response = self.client.get(reverse('admin:auth_user_staff_lifecycle'))
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, str(plan.pk))
-        self.assertContains(response, 'Pending independent reviews')
-        self.assertNotContains(response, 'Submit complete plan for checker approval')
+        self.assertRedirects(response, reverse('admin:auth_user_staff_approvals'))
+        queue = self.client.get(reverse('admin:auth_user_staff_approvals'))
+        self.assertContains(queue, str(plan.target_user))
         self.assertEqual(
             self.client.post(reverse('admin:auth_user_staff_lifecycle'), {}).status_code,
             403,
+        )
+
+
+class DirectSuperuserLifecycleTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.root = User.objects.create_superuser('direct-root', 'root@example.test', 'password')
+        AccessControlPolicyState.current()
+        self.identity = {
+            'display_name': 'Direct Officer',
+            'login_method': 'django',
+            'django_username': 'direct-officer',
+            'telegram_username': '',
+            'email': 'direct@example.test',
+            'django_admin_login': True,
+        }
+        self.grants = [{'workflow': 'jawabu_portal', 'role': 'JBL_OFFICER'}]
+
+    def _submit(self, **overrides):
+        values = {
+            'requester': self.root,
+            'action': StaffLifecycleChangePlan.ACTION_ONBOARD,
+            'reason': 'Create the approved field officer directly and atomically.',
+            'desired_grants': self.grants,
+            'request_key': 'direct-onboard-1',
+            'identity': self.identity,
+            'new_user_password': 'initial-password',
+            'current_password': 'password',
+            'decision_mode': StaffLifecycleChangePlan.DECISION_SUPERUSER,
+        }
+        values.update(overrides)
+        return submit_lifecycle_change(**values)
+
+    def test_direct_onboarding_needs_no_checker_and_applies_atomically(self):
+        plan, created = self._submit()
+        plan.target_user.refresh_from_db()
+        self.assertTrue(created)
+        self.assertEqual(plan.status, StaffLifecycleChangePlan.STATUS_APPLIED)
+        self.assertEqual(plan.decision_mode, StaffLifecycleChangePlan.DECISION_SUPERUSER)
+        self.assertEqual(plan.reviewed_by, self.root)
+        self.assertTrue(plan.target_user.is_active)
+        self.assertTrue(plan.target_user.is_staff)
+        self.assertTrue(AccessGrant.objects.filter(
+            user=plan.target_user, workflow='jawabu_portal', role='JBL_OFFICER', active=True,
+        ).exists())
+
+    def test_repeated_request_returns_original_user_and_plan(self):
+        first, first_created = self._submit()
+        second, second_created = self._submit()
+        self.assertTrue(first_created)
+        self.assertFalse(second_created)
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(first.target_user_id, second.target_user_id)
+        self.assertEqual(get_user_model().objects.filter(username='direct-officer').count(), 1)
+
+    def test_request_key_reuse_with_changed_details_is_rejected(self):
+        self._submit()
+        with self.assertRaises(ValidationError):
+            self._submit(reason='A different lifecycle operation must not reuse the same request key.')
+        self.assertEqual(get_user_model().objects.filter(username='direct-officer').count(), 1)
+
+    def test_wrong_superuser_password_rolls_back_everything(self):
+        with self.assertRaises(ValidationError):
+            self._submit(current_password='incorrect')
+        self.assertFalse(get_user_model().objects.filter(username='direct-officer').exists())
+        self.assertFalse(StaffLifecycleChangePlan.objects.filter(request_key='direct-onboard-1').exists())
+
+    def test_admin_direct_onboarding_without_checker_uses_preview_then_applies(self):
+        self.client.force_login(self.root)
+        url = reverse('admin:auth_user_staff_lifecycle')
+        payload = {
+            'action': StaffLifecycleChangePlan.ACTION_ONBOARD,
+            'display_name': 'Admin Direct Officer',
+            'login_method': 'django',
+            'django_username': 'admin-direct-officer',
+            'email': 'admin-direct@example.test',
+            'password': 'initial-password',
+            'reason': 'Create this ordinary staff account directly as Superuser.',
+            'request_key': 'admin-direct-onboard-1',
+            'grants-TOTAL_FORMS': '3',
+            'grants-INITIAL_FORMS': '0',
+            'grants-MIN_NUM_FORMS': '0',
+            'grants-MAX_NUM_FORMS': '8',
+            'grants-0-include': 'on',
+            'grants-0-workflow': 'jawabu_portal',
+            'grants-0-role': 'JBL_OFFICER',
+            'grants-0-branch': '',
+            'grants-0-product': '',
+            'grants-0-group_configuration': '',
+            'lifecycle_action': 'apply_now',
+        }
+        preview = self.client.post(url, payload)
+        self.assertEqual(preview.status_code, 200)
+        self.assertContains(preview, 'Confirm exact direct change')
+        self.assertFalse(get_user_model().objects.filter(username='admin-direct-officer').exists())
+
+        fingerprint = preview.context['direct_preview']['fingerprint']
+        confirmed = self.client.post(url, {
+            **payload,
+            'lifecycle_action': 'confirm_direct',
+            'preview_fingerprint': fingerprint,
+            'superuser_password': 'password',
+        })
+        self.assertEqual(confirmed.status_code, 302)
+        user = get_user_model().objects.get(username='admin-direct-officer')
+        self.assertTrue(user.is_active)
+        plan = StaffLifecycleChangePlan.objects.get(request_key='admin-direct-onboard-1')
+        self.assertEqual(plan.status, plan.STATUS_APPLIED)
+        self.assertEqual(plan.decision_mode, plan.DECISION_SUPERUSER)
+
+
+class StaffApprovalQueueAdminTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.root = User.objects.create_superuser('queue-root', 'root@example.test', 'password')
+        self.checker = User.objects.create_user('queue-checker', is_active=True, is_staff=True)
+        appoint_access_control_checker(
+            actor=self.root, user=self.checker,
+            reason='Create the reviewer used by the staff approval queue test.',
+            confirmation_phrase='APPOINT FIRST CHECKER',
+        )
+        self.target = User.objects.create_user('queue-target', is_active=True)
+        UserProfile.objects.create(user=self.target)
+        AccessControlPolicyState.current()
+        self.plan = create_lifecycle_plan(
+            requester=self.root, target_user=self.target,
+            action=StaffLifecycleChangePlan.ACTION_ACCESS,
+            reason='Queue this optional access change for independent review.',
+            desired_grants=[{'workflow': 'jawabu_portal', 'role': 'JBL_OFFICER'}],
+            request_key='queue-review-1',
+        )
+
+    def test_checker_has_a_dedicated_pending_approval_queue(self):
+        self.client.force_login(self.checker)
+        response = self.client.get(reverse('admin:auth_user_staff_approvals'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Staff approvals')
+        self.assertContains(response, '1 pending')
+        self.assertContains(response, str(self.target))
+        self.assertContains(
+            response,
+            reverse('admin:auth_user_staff_lifecycle_plan', args=[self.plan.pk]),
         )
 
 

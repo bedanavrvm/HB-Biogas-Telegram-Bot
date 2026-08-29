@@ -10,12 +10,17 @@
         </p>
       </div>
       <div class="grid gap-3 {% if request.user.is_superuser %}md:grid-cols-2{% endif %}">
-        <a href="{% url 'admin:auth_user_staff_lifecycle' %}"
+        <a href="{% if request.user.is_superuser %}{% url 'admin:auth_user_staff_lifecycle' %}{% else %}{% url 'admin:auth_user_staff_approvals' %}{% endif %}"
            class="flex min-h-20 flex-col justify-center rounded bg-primary-600 px-5 py-4 text-white shadow-sm transition hover:bg-primary-700">
           <strong>{% if request.user.is_superuser %}Open staff lifecycle workspace{% else %}Open pending review queue{% endif %}</strong>
           <span class="mt-1 text-sm opacity-90">{% if request.user.is_superuser %}Create one atomic plan for onboarding, access, routing, leave, transfer, or offboarding.{% else %}Inspect exact before/proposed state and approve or reject eligible plans.{% endif %}</span>
         </a>
         {% if request.user.is_superuser %}
+        <a href="{% url 'admin:auth_user_staff_approvals' %}"
+           class="flex min-h-20 flex-col justify-center rounded border border-base-300 bg-base-50 px-5 py-4 shadow-sm transition hover:bg-base-100 dark:border-base-700 dark:bg-base-800 dark:hover:bg-base-700">
+          <strong>Open staff approvals</strong>
+          <span class="mt-1 text-sm text-font-subtle-light dark:text-font-subtle-dark">Review optional checker requests and resolve older pending lifecycle plans.</span>
+        </a>
         <a href="{% url 'admin:core_workflowrolecapability_matrix' %}"
            class="flex min-h-20 flex-col justify-center rounded border border-base-300 bg-base-50 px-5 py-4 shadow-sm transition hover:bg-base-100 dark:border-base-700 dark:bg-base-800 dark:hover:bg-base-700">
           <strong>Manage Mini App access matrix</strong>

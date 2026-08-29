@@ -17,8 +17,6 @@ from core.models import (
     AccessControlChangeRequest, AccessGrant, GroupSheetConfiguration,
     StaffLifecycleChangePlan, UserProfile,
 )
-from core.services.access_control import appoint_access_control_checker
-from core.services.staff_lifecycle import approve_lifecycle_plan
 
 
 def signed_init_data(telegram_id='12345', token='test-token', username='unified_user'):
@@ -38,6 +36,21 @@ def signed_init_data(telegram_id='12345', token='test-token', username='unified_
 
 @override_settings(SECURE_SSL_REDIRECT=False)
 class CanonicalStaffAdminTests(TestCase):
+
+    def _submit_direct_onboarding(self, *, superuser, payload):
+        url = reverse('admin:auth_user_add_staff')
+        preview = self.client.post(url, {**payload, 'lifecycle_action': 'apply_now'})
+        self.assertEqual(preview.status_code, 200)
+        self.assertIsNotNone(preview.context['direct_preview'])
+        self.assertFalse(StaffLifecycleChangePlan.objects.filter(
+            request_key=payload['request_key'],
+        ).exists())
+        return self.client.post(url, {
+            **payload,
+            'lifecycle_action': 'confirm_direct',
+            'preview_fingerprint': preview.context['direct_preview']['fingerprint'],
+            'superuser_password': 'test-password',
+        })
 
     def test_portal_action_policy_is_centralized_and_fails_closed(self):
         from core.services.portal_permissions import PORTAL_ACTION_ROLES, portal_action_roles
@@ -74,7 +87,9 @@ class CanonicalStaffAdminTests(TestCase):
 
         creation = self.client.get(url)
         self.assertEqual(creation.status_code, 200)
-        self.assertContains(creation, 'Submit complete plan for checker approval')
+        self.assertContains(creation, 'Review and apply now')
+        self.assertContains(creation, 'Send for independent review')
+        self.assertContains(creation, 'Direct Superuser actions remain available')
         self.assertContains(creation, 'name="login_method"')
         self.assertNotContains(creation, 'Dry-run preview')
 
@@ -113,13 +128,7 @@ class CanonicalStaffAdminTests(TestCase):
             username='enrollment-admin', email='admin@example.test', password='test-password',
         )
         self.client.force_login(superuser)
-        checker = get_user_model().objects.create_user('enrollment-checker', is_active=True, is_staff=True)
-        appoint_access_control_checker(
-            actor=superuser, user=checker, reason='Independent enrollment reviewer.',
-            confirmation_phrase='APPOINT FIRST CHECKER',
-        )
-
-        response = self.client.post(reverse('admin:auth_user_add_staff'), {
+        response = self._submit_direct_onboarding(superuser=superuser, payload={
             'action': 'onboard',
             'login_method': 'telegram',
             'display_name': 'Pending Telegram User',
@@ -135,15 +144,13 @@ class CanonicalStaffAdminTests(TestCase):
         self.assertEqual(response.status_code, 302)
         profile = UserProfile.objects.get(telegram_username='pending_user')
         self.assertEqual(profile.telegram_id, '')
-        self.assertFalse(profile.user.is_active)
+        self.assertTrue(profile.user.is_active)
         self.assertFalse(profile.user.is_staff)
         self.assertFalse(profile.user.has_usable_password())
-        self.assertFalse(AccessGrant.objects.filter(user=profile.user).exists())
+        self.assertTrue(AccessGrant.objects.filter(user=profile.user).exists())
         plan = StaffLifecycleChangePlan.objects.get(target_user=profile.user)
-        self.assertEqual(plan.status, plan.STATUS_PENDING)
-        approve_lifecycle_plan(plan_id=plan.pk, approver=checker)
-        profile.user.refresh_from_db()
-        self.assertTrue(profile.user.is_active)
+        self.assertEqual(plan.status, plan.STATUS_APPLIED)
+        self.assertEqual(plan.decision_mode, plan.DECISION_SUPERUSER)
         self.assertTrue(AccessGrant.objects.filter(user=profile.user, role='JBL_OFFICER').exists())
 
     def test_superuser_can_create_password_user_with_initial_access(self):
@@ -151,13 +158,7 @@ class CanonicalStaffAdminTests(TestCase):
             username='password-admin', email='admin@example.test', password='test-password',
         )
         self.client.force_login(superuser)
-        checker = get_user_model().objects.create_user('password-checker', is_active=True, is_staff=True)
-        appoint_access_control_checker(
-            actor=superuser, user=checker, reason='Independent account reviewer.',
-            confirmation_phrase='APPOINT FIRST CHECKER',
-        )
-
-        response = self.client.post(reverse('admin:auth_user_add_staff'), {
+        response = self._submit_direct_onboarding(superuser=superuser, payload={
             'action': 'onboard',
             'login_method': 'django', 'display_name': 'Portal Administrator',
             'telegram_username': '', 'django_username': 'portal-admin',
@@ -172,12 +173,11 @@ class CanonicalStaffAdminTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         user = get_user_model().objects.get(username='portal-admin')
-        self.assertFalse(user.is_staff)
+        self.assertTrue(user.is_staff)
         self.assertTrue(user.check_password('secure-test-password'))
         plan = StaffLifecycleChangePlan.objects.get(target_user=user)
-        approve_lifecycle_plan(plan_id=plan.pk, approver=checker)
-        user.refresh_from_db()
-        self.assertTrue(user.is_staff)
+        self.assertEqual(plan.status, plan.STATUS_APPLIED)
+        self.assertEqual(plan.decision_mode, plan.DECISION_SUPERUSER)
         self.assertTrue(AccessGrant.objects.filter(user=user, role='BUSINESS_ADMIN').exists())
 
         # The redirect target must render the canonical User form, including

@@ -1,0 +1,16 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div style="max-width:1400px;margin:0 auto">
+  <div style="display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;flex-wrap:wrap">
+    <div><h1>Staff approvals</h1><p>Optional staff lifecycle changes waiting for an independent decision.</p></div>
+    <span class="rounded bg-primary-100 px-4 py-2 font-semibold text-primary-800">{{ pending_count }} pending</span>
+  </div>
+  <section class="mt-4 rounded border p-4">
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr><th style="text-align:left;padding:.75rem">Staff</th><th style="text-align:left;padding:.75rem">Action</th><th style="text-align:left;padding:.75rem">Maker</th><th style="text-align:left;padding:.75rem">Submitted</th><th style="text-align:left;padding:.75rem">Impact</th><th></th></tr></thead>
+      <tbody>{% for plan in plans %}<tr style="border-top:1px solid #e5e7eb"><td style="padding:.75rem">{{ plan.target_user }}</td><td style="padding:.75rem">{{ plan.get_action_display }}</td><td style="padding:.75rem">{{ plan.requested_by }}</td><td style="padding:.75rem">{{ plan.requested_at|date:"d-m-Y H:i" }}</td><td style="padding:.75rem">{{ plan.impact.responsibilities|default:0 }} responsibilities · {{ plan.impact.open_tasks|default:0 }} open tasks</td><td style="padding:.75rem"><a class="rounded bg-primary-600 px-4 py-2 text-white" href="{% url 'admin:auth_user_staff_lifecycle_plan' plan.pk %}">Review</a></td></tr>{% empty %}<tr><td colspan="6" style="padding:2rem;text-align:center"><strong>No staff approvals are waiting.</strong><p style="margin-top:.5rem">Superuser actions apply directly unless “Send for independent review” is selected.</p></td></tr>{% endfor %}</tbody>
+    </table>
+  </section>
+  <section class="mt-4 rounded border p-4"><h2>Who can approve?</h2><p>An active appointed Access Control Checker or a different active Superuser may review a plan. The maker, target staff member, and proposed replacement cannot act as its independent checker.</p><p class="mt-2">Superusers appoint a checker from <strong>Users → open the staff account → Appoint as checker</strong>.</p></section>
+</div>
+{% endblock %}

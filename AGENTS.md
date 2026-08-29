@@ -77,7 +77,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **Django Superuser** | Active `is_superuser` is the explicitly approved technical break-glass override across Mini App capabilities and scopes. It is auditable and is not the same staff business role as Head of Rural or Operations Administrator. |
 | **IT** | A scoped support role available in every access-controlled Mini App workflow. It is assigned through `AccessGrant`, never inferred from Django technical-admin flags. |
 | **Access Control Checker** | A Django Admin staff user appointed by a technical Superuser to independently review Mini App access-policy requests. It is not a Mini App workflow role. |
-| **Staff lifecycle plan** | One durable, revision-checked maker-checker proposal that atomically coordinates staff activation, permanent AccessGrants, TAT routing, temporary delegations, or offboarding. It never manages Django Superuser status. |
+| **Staff lifecycle plan** | One durable, revision-checked change that atomically coordinates staff activation, permanent AccessGrants, TAT routing, temporary delegations, or offboarding. An active Django Superuser applies it directly by default or may deliberately send it for independent checker review. It never manages Django Superuser status. |
 | **User hard deletion** | Active-Superuser-only physical deletion of another Django user without checker approval. Immutable identity/relationship evidence remains, live access and routing are removed, compliance actor IDs and hashes remain unchanged, and the final active Superuser cannot be removed. |
 
 If new domain terms are introduced by a change, add them here rather than only in a service docstring — this table is the first place agents and new contributors look.
@@ -181,7 +181,7 @@ Key modules:
 - `external_resilience.py` — bounded synchronous retry, durable external-operation register, and circuit state
 - `portal_publication.py` — durable, request-assisted Portal register publication for free Render; local workflow commits never wait for Google Sheets
 - `access_control.py` — maker-checker access changes, emergency grants, notifications, and policy versioning
-- `staff_lifecycle.py` — atomic checker-approved onboarding, access, routing, leave, return, offboarding, and Telegram activation controls
+- `staff_lifecycle.py` — atomic idempotent Superuser staff lifecycle execution, optional checker review, access, routing, leave, return, offboarding, and Telegram activation controls
 - `user_hard_delete.py` — unilateral Superuser account hard deletion, immutable identity manifests, audit preservation, force-unassignment, and coverage-gap evidence
 - `access_grant_governance.py` — runtime context guard preventing permanent AccessGrant mutations outside approved services
 - `access_control_reporting.py` — access-control evidence exports, parity, and least-privilege diagnostics

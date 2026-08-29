@@ -12,7 +12,7 @@ migrations, tests, settings, and these operational documents take precedence.
 | [SPIN and TAT Pilot Modes](spin-tat-pilot-modes.md) | Superuser mode switches, protected Pilot cycles, Mini App behavior, verified Sheet cleanup, recovery, and developer scoping rules. |
 | [TAT Staff Guide](tat-staff-guide.md) | Day-one queue, case, conflict, connectivity, and alert instructions for TAT users. |
 | [TAT Access and Responsibilities](tat-access-and-responsibilities.md) | Canonical administrator guide for AccessGrant authorization and separate responsibility routing. |
-| [Staff Lifecycle Workspace](staff-lifecycle-workspace.md) | Guided onboarding, access, transfer, leave, return, offboarding, checker bootstrap, and Telegram activation manual. |
+| [Staff Lifecycle Workspace](staff-lifecycle-workspace.md) | Guided direct-Superuser onboarding, access, transfer, leave, return, offboarding, optional approvals, and Telegram activation manual. |
 | [TAT Private Tasks](tat-private-tasks.md) | Private inbox, deep-link, delivery, retry, backup, and privacy behavior. |
 | [TAT Developer Guide](tat-developer-guide.md) | Current service boundaries, authority model, write contracts, and safe extension rules. |
 | [TAT Production Runbook](tat-production-runbook.md) | TAT scheduler, readiness, staging acceptance, monitoring, recovery, and rollback. |

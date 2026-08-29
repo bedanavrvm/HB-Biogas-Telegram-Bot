@@ -15,9 +15,10 @@ from urllib.parse import urlencode
 from django.apps import apps
 from django.conf import settings
 from django.contrib import admin
+from django.db import DatabaseError
 from django.urls import NoReverseMatch, reverse
 
-from core.models import GroupSheetConfiguration
+from core.models import GroupSheetConfiguration, StaffLifecycleChangePlan
 
 
 WORKFLOW_GROUP_LABELS = {
@@ -217,6 +218,38 @@ def _superuser(request) -> bool:
     return bool(getattr(request, "user", None) and request.user.is_superuser)
 
 
+def _staff_approver(request) -> bool:
+    from core.services.access_control import can_approve_access_change
+
+    return bool(getattr(request, 'user', None) and can_approve_access_change(request.user))
+
+
+def _staff_approvals_item(request) -> dict:
+    try:
+        plans = StaffLifecycleChangePlan.objects.filter(
+            status=StaffLifecycleChangePlan.STATUS_PENDING,
+            decision_mode=StaffLifecycleChangePlan.DECISION_CHECKER,
+        ).only('requested_by_id', 'target_user_id', 'proposed_snapshot')
+        if request.user.is_superuser:
+            pending = plans.count()
+        else:
+            plans = plans.exclude(
+                requested_by=request.user,
+            ).exclude(target_user=request.user)
+            pending = sum(
+                1 for plan in plans
+                if (plan.proposed_snapshot or {}).get('replacement_user_id') != request.user.pk
+            )
+    except DatabaseError:
+        pending = 0
+    return _custom_item(
+        f'Staff approvals ({pending})',
+        'admin:auth_user_staff_approvals',
+        'how_to_reg',
+        _staff_approver,
+    )
+
+
 def _origination_full_reset_allowed(request) -> bool:
     user = getattr(request, "user", None)
     return bool(
@@ -253,6 +286,7 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("core.OrderApprovalUpdate", "Order approval updates", "approval"),
     ]
     configuration = [
+        _staff_approvals_item(request),
         _model_item("auth.User", "Users", "group"),
         _model_item("auth.Group", "Groups", "groups"),
         _model_item("core.WorkflowDataModeState", "SPIN/TAT pilot modes", "science"),

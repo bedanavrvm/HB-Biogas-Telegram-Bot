@@ -4253,7 +4253,14 @@ class EmergencyAccessGrant(models.Model):
 
 
 class StaffLifecycleChangePlan(models.Model):
-    """One atomic maker-checker change to a staff member's authority."""
+    """One atomic direct or independently reviewed staff authority change."""
+
+    DECISION_CHECKER = 'checker_review'
+    DECISION_SUPERUSER = 'superuser_direct'
+    DECISION_MODE_CHOICES = [
+        (DECISION_CHECKER, 'Independent checker review'),
+        (DECISION_SUPERUSER, 'Direct Superuser decision'),
+    ]
 
     ACTION_ONBOARD = 'onboard'
     ACTION_ACCESS = 'access_change'
@@ -4305,6 +4312,11 @@ class StaffLifecycleChangePlan(models.Model):
     expected_policy_version = models.PositiveIntegerField(default=1)
     reason = models.TextField()
     request_key = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    request_fingerprint = models.CharField(max_length=64, blank=True, default='')
+    decision_mode = models.CharField(
+        max_length=24, choices=DECISION_MODE_CHOICES, default=DECISION_CHECKER,
+        db_index=True,
+    )
     requested_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
         related_name='requested_staff_lifecycle_plans',

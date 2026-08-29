@@ -6709,6 +6709,11 @@ class StaffLifecycleForm(forms.Form):
     django_username = forms.CharField(max_length=150, required=False)
     email = forms.EmailField(required=False)
     password = forms.CharField(required=False, widget=forms.PasswordInput(render_value=False))
+    superuser_password = forms.CharField(
+        required=False,
+        widget=forms.PasswordInput(render_value=False),
+        help_text='Required only when applying a lifecycle change immediately.',
+    )
     replacement_user = forms.ModelChoiceField(
         queryset=get_user_model().objects.none(), required=False,
         help_text='Required when active TAT responsibilities must move to another staff member.',
@@ -6730,12 +6735,13 @@ class StaffLifecycleForm(forms.Form):
     retire_grants = forms.ModelMultipleChoiceField(
         queryset=AccessGrant.objects.none(), required=False,
         widget=forms.CheckboxSelectMultiple,
-        help_text='Selected permanent grants will be retired only after checker approval.',
+        help_text='Selected permanent grants retire when the chosen lifecycle decision is applied.',
     )
     reason = forms.CharField(widget=forms.Textarea(attrs={'rows': 3}))
     request_key = forms.CharField(widget=forms.HiddenInput, required=False)
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, requester=None, **kwargs):
+        self.requester = requester
         super().__init__(*args, **kwargs)
         users = get_user_model().objects.filter(is_superuser=False).exclude(
             username__startswith='__deleted_user_',
@@ -6751,6 +6757,14 @@ class StaffLifecycleForm(forms.Form):
         cleaned = super().clean()
         action = cleaned.get('action')
         target = cleaned.get('target_user')
+        replay = bool(
+            self.requester
+            and cleaned.get('request_key')
+            and StaffLifecycleChangePlan.objects.filter(
+                requested_by=self.requester,
+                request_key=cleaned['request_key'],
+            ).exists()
+        )
         if action == StaffLifecycleChangePlan.ACTION_ONBOARD:
             if not str(cleaned.get('display_name') or '').strip():
                 self.add_error('display_name', 'Enter the staff member’s full name.')
@@ -6760,13 +6774,13 @@ class StaffLifecycleForm(forms.Form):
                 cleaned['telegram_username'] = username
                 if not username:
                     self.add_error('telegram_username', 'Enter the enrolled Telegram username.')
-                elif UserProfile.objects.filter(telegram_username__iexact=username).exists():
+                elif not replay and UserProfile.objects.filter(telegram_username__iexact=username).exists():
                     self.add_error('telegram_username', 'That Telegram username is already enrolled.')
             elif method == StaffUserCreationForm.LOGIN_DJANGO:
                 username = str(cleaned.get('django_username') or '').strip()
                 if not username:
                     self.add_error('django_username', 'Enter a Django username.')
-                elif get_user_model().objects.filter(username__iexact=username).exists():
+                elif not replay and get_user_model().objects.filter(username__iexact=username).exists():
                     self.add_error('django_username', 'That Django username already exists.')
                 if not cleaned.get('password'):
                     self.add_error('password', 'Enter a password for this Django Admin account.')
@@ -7115,6 +7129,10 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                 name='auth_user_staff_lifecycle',
             ),
             path(
+                'staff-approvals/', self.admin_site.admin_view(self.staff_approvals_view),
+                name='auth_user_staff_approvals',
+            ),
+            path(
                 'staff-lifecycle/<uuid:plan_id>/', self.admin_site.admin_view(self.staff_lifecycle_plan_view),
                 name='auth_user_staff_lifecycle_plan',
             ),
@@ -7131,9 +7149,12 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
         return custom_urls + super().get_urls()
 
     def staff_lifecycle_view(self, request):
-        """Create one durable, independently reviewed staff lifecycle plan."""
+        """Create one direct or optionally checker-reviewed lifecycle plan."""
         from core.services.access_control import approver_users, can_approve_access_change
-        from core.services.staff_lifecycle import create_lifecycle_plan
+        from core.services.staff_lifecycle import (
+            lifecycle_submission_preview,
+            submit_lifecycle_change,
+        )
 
         is_superuser = bool(request.user.is_active and request.user.is_superuser)
         is_checker = can_approve_access_change(request.user)
@@ -7141,98 +7162,157 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             raise PermissionDenied
         if request.method == 'POST' and not is_superuser:
             raise PermissionDenied
+        if not is_superuser:
+            return HttpResponseRedirect(reverse('admin:auth_user_staff_approvals'))
         form = StaffLifecycleForm(
             request.POST or None, initial=request.GET.dict() if request.method == 'GET' else None,
-        ) if is_superuser else None
+            requester=request.user,
+        )
         grant_formset = StaffLifecycleGrantFormSet(
             request.POST or None, prefix='grants',
-        ) if is_superuser else None
+        )
+        direct_preview = None
         if request.method == 'POST' and form.is_valid() and grant_formset.is_valid():
-            if not approver_users().exclude(pk=request.user.pk).exists():
-                form.add_error(None, 'Appoint an independent Access Control Checker before submitting lifecycle changes.')
-            else:
-                data = form.cleaned_data
-                target = data.get('target_user')
-                new_grants = [
-                    grant_form.cleaned_data for grant_form in grant_formset
-                    if grant_form.cleaned_data and grant_form.cleaned_data.get('include')
-                ]
-                identity = {}
-                try:
-                    with transaction.atomic():
-                        if data['action'] == StaffLifecycleChangePlan.ACTION_ONBOARD:
-                            target, identity = self._create_pending_staff_shell(data)
-                        retired_ids = {str(pk) for pk in data.get('retire_grants', []).values_list('pk', flat=True)}
-                        desired = [
-                            {
-                                'workflow': row.workflow, 'role': row.role,
-                                'branch': row.branch, 'product': row.product,
-                                'group_configuration_id': row.group_configuration_id,
-                            }
-                            for row in AccessGrant.objects.filter(user=target, active=True)
-                            if str(row.pk) not in retired_ids
-                        ]
-                        desired.extend(new_grants)
-                        plan = create_lifecycle_plan(
-                            requester=request.user, target_user=target, action=data['action'],
-                            reason=data['reason'], desired_grants=desired,
-                            replacement_user=data.get('replacement_user'), leave_until=data.get('leave_until'),
-                            leave_from=data.get('leave_from'),
-                            delegation_gates=data.get('delegation_gates'), request_key=data.get('request_key'),
-                            identity=identity,
+            data = form.cleaned_data
+            target = data.get('target_user')
+            new_grants = [
+                grant_form.cleaned_data for grant_form in grant_formset
+                if grant_form.cleaned_data and grant_form.cleaned_data.get('include')
+            ]
+            retired_ids = {
+                str(pk) for pk in data.get('retire_grants', []).values_list('pk', flat=True)
+            }
+            desired = [] if target is None else [
+                {
+                    'workflow': row.workflow,
+                    'role': row.role,
+                    'branch': row.branch,
+                    'product': row.product,
+                    'group_configuration_id': row.group_configuration_id,
+                }
+                for row in AccessGrant.objects.filter(user=target, active=True)
+                if str(row.pk) not in retired_ids
+            ]
+            desired.extend(new_grants)
+            identity = {
+                'display_name': str(data.get('display_name') or '').strip(),
+                'login_method': data.get('login_method') or '',
+                'telegram_username': str(data.get('telegram_username') or '').strip(),
+                'django_username': str(data.get('django_username') or '').strip(),
+                'email': str(data.get('email') or '').strip(),
+                'django_admin_login': data.get('login_method') == StaffUserCreationForm.LOGIN_DJANGO,
+            } if data['action'] == StaffLifecycleChangePlan.ACTION_ONBOARD else {}
+            submission_action = str(request.POST.get('lifecycle_action') or '')
+            try:
+                direct_preview = lifecycle_submission_preview(
+                    action=data['action'], reason=data['reason'], desired_grants=desired,
+                    target_user=target, replacement_user=data.get('replacement_user'),
+                    leave_from=data.get('leave_from'), leave_until=data.get('leave_until'),
+                    delegation_gates=data.get('delegation_gates'), identity=identity,
+                    new_user_password=data.get('password') or '',
+                )
+                if submission_action == 'confirm_direct':
+                    if request.POST.get('preview_fingerprint') != direct_preview['fingerprint']:
+                        raise ValidationError(
+                            'The lifecycle details changed. Review the refreshed summary before applying.'
                         )
-                except (PermissionDenied, ValidationError, IntegrityError) as exc:
-                    form.add_error(None, '; '.join(getattr(exc, 'messages', [str(exc)])))
-                else:
-                    messages.success(request, 'Lifecycle plan submitted for independent checker approval.')
-                    return HttpResponseRedirect(reverse('admin:auth_user_staff_lifecycle_plan', args=[plan.pk]))
+                    plan, created = submit_lifecycle_change(
+                        requester=request.user, target_user=target, action=data['action'],
+                        reason=data['reason'], desired_grants=desired,
+                        replacement_user=data.get('replacement_user'),
+                        leave_until=data.get('leave_until'), leave_from=data.get('leave_from'),
+                        delegation_gates=data.get('delegation_gates'),
+                        request_key=data.get('request_key'), identity=identity,
+                        new_user_password=data.get('password') or '',
+                        current_password=data.get('superuser_password') or '',
+                        decision_mode=StaffLifecycleChangePlan.DECISION_SUPERUSER,
+                    )
+                    messages.success(
+                        request,
+                        ('Lifecycle change applied directly by Superuser.' if created else
+                         'This lifecycle request was already processed; the original result is shown.'),
+                    )
+                    return HttpResponseRedirect(
+                        reverse('admin:auth_user_staff_lifecycle_plan', args=[plan.pk]),
+                    )
+                if submission_action == 'send_for_review':
+                    if not approver_users().exclude(pk=request.user.pk).exists():
+                        raise ValidationError(
+                            'Appoint an independent Access Control Checker before requesting review.'
+                        )
+                    plan, created = submit_lifecycle_change(
+                        requester=request.user, target_user=target, action=data['action'],
+                        reason=data['reason'], desired_grants=desired,
+                        replacement_user=data.get('replacement_user'),
+                        leave_until=data.get('leave_until'), leave_from=data.get('leave_from'),
+                        delegation_gates=data.get('delegation_gates'),
+                        request_key=data.get('request_key'), identity=identity,
+                        new_user_password=data.get('password') or '',
+                        decision_mode=StaffLifecycleChangePlan.DECISION_CHECKER,
+                    )
+                    messages.success(
+                        request,
+                        ('Lifecycle plan sent for independent review.' if created else
+                         'This lifecycle request was already submitted; the original plan is shown.'),
+                    )
+                    return HttpResponseRedirect(
+                        reverse('admin:auth_user_staff_lifecycle_plan', args=[plan.pk]),
+                    )
+            except (PermissionDenied, ValidationError, IntegrityError) as exc:
+                form.add_error(None, '; '.join(getattr(exc, 'messages', [str(exc)])))
+                if submission_action == 'confirm_direct':
+                    direct_preview = None
         plans = StaffLifecycleChangePlan.objects.select_related('target_user', 'requested_by', 'reviewed_by')
-        if not is_superuser:
-            plans = plans.filter(status=StaffLifecycleChangePlan.STATUS_PENDING).exclude(
-                models.Q(requested_by=request.user) | models.Q(target_user=request.user)
-            )
         plans = plans[:50]
         return TemplateResponse(request, 'admin/auth/user/staff_lifecycle.html', {
             **self.admin_site.each_context(request), 'opts': self.model._meta,
             'title': 'Staff lifecycle workspace', 'form': form,
             'grant_formset': grant_formset, 'plans': plans,
             'has_independent_checker': approver_users().exclude(pk=request.user.pk).exists(),
-            'is_superuser_workspace': is_superuser,
+            'is_superuser_workspace': True,
+            'direct_preview': direct_preview,
         })
 
-    @staticmethod
-    def _create_pending_staff_shell(data):
-        User = get_user_model()
-        telegram_username = str(data.get('telegram_username') or '')
-        login_method = data.get('login_method')
-        if login_method == StaffUserCreationForm.LOGIN_TELEGRAM:
-            safe_username = re.sub(r'[^a-z0-9_]', '_', telegram_username)[:100]
-            username = f'tg_pending_{safe_username}'
-            if User.objects.filter(username=username).exists():
-                username = f'{username}_{uuid.uuid4().hex[:8]}'
+    def staff_approvals_view(self, request):
+        """Dedicated, visible queue for optional independent staff reviews."""
+        from core.services.access_control import can_approve_access_change
+
+        if not request.user.is_active or not can_approve_access_change(request.user):
+            raise PermissionDenied
+        plans = StaffLifecycleChangePlan.objects.filter(
+            status=StaffLifecycleChangePlan.STATUS_PENDING,
+            decision_mode=StaffLifecycleChangePlan.DECISION_CHECKER,
+        ).select_related('target_user', 'requested_by', 'reviewed_by')
+        if not request.user.is_superuser:
+            # Do not express the optional replacement-user check as a negated
+            # JSON lookup.  SQL NULL semantics make rows with no replacement
+            # disappear from ``exclude(...)`` on some database backends.
+            plans = plans.exclude(
+                requested_by=request.user,
+            ).exclude(target_user=request.user)
+            plans = [
+                plan for plan in plans
+                if (plan.proposed_snapshot or {}).get('replacement_user_id') != request.user.pk
+            ]
         else:
-            username = str(data.get('django_username') or '').strip()
-        name_parts = str(data.get('display_name') or '').strip().split(None, 1)
-        user = User(
-            username=username, first_name=name_parts[0] if name_parts else '',
-            last_name=name_parts[1] if len(name_parts) > 1 else '',
-            email=data.get('email', ''), is_active=False, is_staff=False,
-        )
-        if login_method == StaffUserCreationForm.LOGIN_DJANGO:
-            user.set_password(data['password'])
-        else:
-            user.set_unusable_password()
-        user.save()
-        UserProfile.objects.create(user=user, telegram_username=telegram_username)
-        return user, {
-            'login_method': login_method,
-            'django_admin_login': login_method == StaffUserCreationForm.LOGIN_DJANGO,
-            'telegram_username': telegram_username,
-        }
+            plans = list(plans)
+        pending_count = len(plans)
+        return TemplateResponse(request, 'admin/auth/user/staff_approvals.html', {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': 'Staff approvals',
+            'plans': sorted(plans, key=lambda plan: plan.requested_at),
+            'pending_count': pending_count,
+        })
 
     def staff_lifecycle_plan_view(self, request, plan_id):
         from core.services.access_control import can_approve_access_change
-        from core.services.staff_lifecycle import approve_lifecycle_plan, reject_lifecycle_plan
+        from core.services.staff_lifecycle import (
+            apply_pending_lifecycle_plan_as_superuser,
+            approve_lifecycle_plan,
+            cancel_pending_lifecycle_plan_as_superuser,
+            reject_lifecycle_plan,
+        )
 
         plan = StaffLifecycleChangePlan.objects.select_related(
             'target_user', 'requested_by', 'reviewed_by',
@@ -7260,19 +7340,47 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                         review_comment=str(request.POST.get('review_comment') or ''),
                     )
                     messages.info(request, 'The lifecycle plan was rejected without changing live access.')
+                elif 'apply_direct' in request.POST:
+                    plan = apply_pending_lifecycle_plan_as_superuser(
+                        plan_id=plan.pk,
+                        actor=request.user,
+                        current_password=str(request.POST.get('current_password') or ''),
+                        review_comment=str(request.POST.get('review_comment') or ''),
+                    )
+                    if plan.status == plan.STATUS_STALE:
+                        messages.warning(request, 'The plan is stale and was not applied.')
+                    elif plan.status == plan.STATUS_SCHEDULED:
+                        messages.success(request, 'The plan was directly approved and scheduled.')
+                    else:
+                        messages.success(request, 'The plan was directly applied by Superuser.')
+                elif 'cancel_direct' in request.POST:
+                    plan = cancel_pending_lifecycle_plan_as_superuser(
+                        plan_id=plan.pk,
+                        actor=request.user,
+                        current_password=str(request.POST.get('current_password') or ''),
+                        reason=str(request.POST.get('review_comment') or ''),
+                    )
+                    messages.info(request, 'The pending lifecycle plan was cancelled.')
             except (PermissionDenied, ValidationError, ValueError) as exc:
                 messages.error(request, '; '.join(getattr(exc, 'messages', [str(exc)])))
             return HttpResponseRedirect(reverse('admin:auth_user_staff_lifecycle_plan', args=[plan.pk]))
         can_review = bool(
             plan.status == plan.STATUS_PENDING
+            and plan.decision_mode == plan.DECISION_CHECKER
             and can_approve_access_change(request.user)
             and plan.requested_by_id != request.user.pk
             and plan.target_user_id != request.user.pk
+            and (plan.proposed_snapshot or {}).get('replacement_user_id') != request.user.pk
         )
         return TemplateResponse(request, 'admin/auth/user/staff_lifecycle_plan.html', {
             **self.admin_site.each_context(request), 'opts': self.model._meta,
             'title': f'{plan.get_action_display()}: {plan.target_user}',
-            'plan': plan, 'can_review': can_review,
+            'plan': plan,
+            'can_review': can_review,
+            'can_superuser_resolve': bool(
+                request.user.is_active and request.user.is_superuser
+                and plan.status == plan.STATUS_PENDING
+            ),
         })
 
     def telegram_activation_view(self, request, object_id):

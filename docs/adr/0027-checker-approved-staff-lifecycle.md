@@ -1,5 +1,9 @@
 # ADR 0027: Checker-approved staff lifecycle plans
 
+> Superseded in part by ADR 0029. Checker review is now optional when an active
+> Django Superuser submits the lifecycle change. This ADR still governs plans
+> deliberately sent for independent review and the atomic application model.
+
 ## Decision
 
 Permanent operational access and staff lifecycle changes are represented by

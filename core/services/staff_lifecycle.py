@@ -1,8 +1,10 @@
-"""Atomic, checker-approved staff lifecycle orchestration."""
+"""Atomic direct-Superuser and optionally checker-reviewed staff lifecycle."""
 from __future__ import annotations
 
 import hashlib
 import hmac
+import json
+import re
 import secrets
 from datetime import timedelta
 
@@ -119,6 +121,128 @@ def _normalize_grants(rows) -> list[dict]:
     return normalized
 
 
+def _request_fingerprint(*, action, target_user_id, reason, desired_grants,
+                         replacement_user_id, leave_from, leave_until,
+                         delegation_gates, identity, new_user_password='') -> str:
+    password_proof = ''
+    if new_user_password:
+        password_proof = hmac.new(
+            settings.SECRET_KEY.encode(), str(new_user_password).encode(), hashlib.sha256,
+        ).hexdigest()
+    payload = {
+        'action': str(action or ''),
+        'target_user_id': target_user_id,
+        'reason': str(reason or '').strip(),
+        'desired_grants': desired_grants,
+        'replacement_user_id': replacement_user_id,
+        'leave_from': leave_from.isoformat() if leave_from else '',
+        'leave_until': leave_until.isoformat() if leave_until else '',
+        'delegation_gates': sorted(str(value) for value in (delegation_gates or [])),
+        'identity': identity or {},
+        'new_user_password_proof': password_proof,
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(',', ':'), default=str).encode(),
+    ).hexdigest()
+
+
+def _existing_request(*, requester, request_key, fingerprint):
+    if not request_key:
+        return None
+    existing = StaffLifecycleChangePlan.objects.filter(
+        requested_by=requester, request_key=request_key,
+    ).first()
+    if existing and existing.request_fingerprint and existing.request_fingerprint != fingerprint:
+        raise ValidationError(
+            'This lifecycle request key was already used for different details. Reload and try again.'
+        )
+    return existing
+
+
+def _create_onboarding_shell(*, identity, new_user_password):
+    User = get_user_model()
+    identity = dict(identity or {})
+    login_method = str(identity.get('login_method') or '')
+    telegram_username = str(identity.get('telegram_username') or '').strip().lstrip('@').lower()
+    if login_method == 'telegram':
+        safe_username = re.sub(r'[^a-z0-9_]', '_', telegram_username)[:100]
+        username = f'tg_{safe_username}'
+        if not safe_username:
+            raise ValidationError('Enter the enrolled Telegram username.')
+    elif login_method == 'django':
+        username = str(identity.get('django_username') or '').strip()
+        if not username:
+            raise ValidationError('Enter a Django username.')
+        if not new_user_password:
+            raise ValidationError('Enter an initial password for the Django Admin account.')
+    else:
+        raise ValidationError('Choose how this staff member signs in.')
+    if User.objects.filter(username__iexact=username).exists():
+        raise ValidationError('That Django username already exists.')
+    if telegram_username and UserProfile.objects.filter(
+        telegram_username__iexact=telegram_username,
+    ).exists():
+        raise ValidationError('That Telegram username is already enrolled.')
+    name_parts = str(identity.get('display_name') or '').strip().split(None, 1)
+    if not name_parts:
+        raise ValidationError('Enter the staff member\'s full name.')
+    user = User(
+        username=username,
+        first_name=name_parts[0],
+        last_name=name_parts[1] if len(name_parts) > 1 else '',
+        email=str(identity.get('email') or '').strip(),
+        is_active=False,
+        is_staff=False,
+    )
+    if login_method == 'django':
+        user.set_password(new_user_password)
+    else:
+        user.set_unusable_password()
+    user.save()
+    UserProfile.objects.create(user=user, telegram_username=telegram_username)
+    return user
+
+
+def lifecycle_submission_preview(*, action, reason, desired_grants=None,
+                                 target_user=None, replacement_user=None,
+                                 leave_from=None, leave_until=None,
+                                 delegation_gates=None, identity=None,
+                                 new_user_password='') -> dict:
+    normalized_grants = _normalize_grants(desired_grants)
+    normalized_identity = dict(identity or {})
+    fingerprint = _request_fingerprint(
+        action=action,
+        target_user_id=getattr(target_user, 'pk', None),
+        reason=reason,
+        desired_grants=normalized_grants,
+        replacement_user_id=getattr(replacement_user, 'pk', None),
+        leave_from=leave_from,
+        leave_until=leave_until,
+        delegation_gates=delegation_gates,
+        identity=normalized_identity,
+        new_user_password=new_user_password,
+    )
+    return {
+        'fingerprint': fingerprint,
+        'action': dict(StaffLifecycleChangePlan.ACTION_CHOICES).get(action, action),
+        'target': str(target_user) if target_user else normalized_identity.get('display_name', ''),
+        'identity': normalized_identity,
+        'grants': normalized_grants,
+        'replacement': str(replacement_user) if replacement_user else '',
+        'leave_from': leave_from,
+        'leave_until': leave_until,
+        'delegation_gates': list(delegation_gates or []),
+        'reason': str(reason or '').strip(),
+        'impact': lifecycle_impact(target_user) if target_user else {
+            'active_grants': 0,
+            'responsibilities': 0,
+            'open_tasks': 0,
+            'active_delegations': 0,
+            'covering_for_others': 0,
+        },
+    }
+
+
 def lifecycle_impact(user) -> dict:
     assignment_ids = TatResponsibilityAssignment.objects.filter(
         Q(primary_user=user) | Q(backups__user=user), active=True,
@@ -144,27 +268,36 @@ def lifecycle_impact(user) -> dict:
 def create_lifecycle_plan(*, requester, target_user, action: str, reason: str,
                           desired_grants=None, replacement_user=None,
                           leave_from=None, leave_until=None, delegation_gates=None,
-                          request_key='', identity=None) -> StaffLifecycleChangePlan:
+                          request_key='', identity=None,
+                          decision_mode=StaffLifecycleChangePlan.DECISION_CHECKER,
+                          request_fingerprint='') -> StaffLifecycleChangePlan:
     if not requester or not requester.is_active or not requester.is_superuser:
         raise PermissionDenied('Only an active Django Superuser may propose staff lifecycle changes.')
     if not target_user or not target_user.pk:
         raise ValidationError('Choose the staff account this plan changes.')
     if target_user.is_superuser:
         raise ValidationError('Django Superuser accounts use the separate god-mode lifecycle procedure.')
-    if not approver_users().exclude(pk=requester.pk).exists():
+    if (
+        decision_mode == StaffLifecycleChangePlan.DECISION_CHECKER
+        and not approver_users().exclude(pk=requester.pk).exists()
+    ):
         raise ValidationError('Appoint an independent Access Control Checker before submitting lifecycle changes.')
+    if decision_mode not in dict(StaffLifecycleChangePlan.DECISION_MODE_CHOICES):
+        raise ValidationError('Choose a supported lifecycle decision mode.')
     if action not in dict(StaffLifecycleChangePlan.ACTION_CHOICES):
         raise ValidationError('Choose a supported staff lifecycle action.')
     if action != StaffLifecycleChangePlan.ACTION_ONBOARD and not target_user.is_active:
         raise ValidationError('Choose an active staff account for this lifecycle action.')
     if action == StaffLifecycleChangePlan.ACTION_ONBOARD and target_user.is_active:
-        raise ValidationError('An onboarding account shell must remain inactive until checker approval.')
+        raise ValidationError('An onboarding account shell must remain inactive until its lifecycle decision is applied.')
     reason = str(reason or '').strip()
     if len(reason) < 10:
         raise ValidationError('Explain the lifecycle change in at least 10 characters.')
     key = str(request_key or '').strip()[:128]
     if key:
-        existing = StaffLifecycleChangePlan.objects.filter(requested_by=requester, request_key=key).first()
+        existing = _existing_request(
+            requester=requester, request_key=key, fingerprint=request_fingerprint,
+        )
         if existing:
             return existing
     open_plan = StaffLifecycleChangePlan.objects.filter(
@@ -242,6 +375,8 @@ def create_lifecycle_plan(*, requester, target_user, action: str, reason: str,
                 before_snapshot=before, proposed_snapshot=proposed,
                 impact=lifecycle_impact(target_user), expected_policy_version=state.version,
                 reason=reason, request_key=key, requested_by=requester,
+                request_fingerprint=request_fingerprint,
+                decision_mode=decision_mode,
                 effective_at=start if action == StaffLifecycleChangePlan.ACTION_LEAVE else None,
             )
     except IntegrityError:
@@ -249,16 +384,17 @@ def create_lifecycle_plan(*, requester, target_user, action: str, reason: str,
             return StaffLifecycleChangePlan.objects.get(requested_by=requester, request_key=key)
         raise
     _record_plan(plan, 'staff_lifecycle.plan.submitted')
-    base_url = str(getattr(settings, 'APP_BASE_URL', '') or '').rstrip('/')
-    review_url = f'{base_url}/admin/auth/user/staff-lifecycle/{plan.pk}/' if base_url else ''
-    transaction.on_commit(lambda: notify_approvers(
-        None, 'staff_lifecycle_pending',
-        extra=(
-            f'Staff lifecycle plan {plan.pk} awaits independent review: '
-            f'{plan.get_action_display()} for {target_user}.'
-            + (f' Review: {review_url}' if review_url else '')
-        ),
-    ))
+    if decision_mode == StaffLifecycleChangePlan.DECISION_CHECKER:
+        base_url = str(getattr(settings, 'APP_BASE_URL', '') or '').rstrip('/')
+        review_url = f'{base_url}/admin/auth/user/staff-lifecycle/{plan.pk}/' if base_url else ''
+        transaction.on_commit(lambda: notify_approvers(
+            None, 'staff_lifecycle_pending',
+            extra=(
+                f'Staff lifecycle plan {plan.pk} awaits independent review: '
+                f'{plan.get_action_display()} for {target_user}.'
+                + (f' Review: {review_url}' if review_url else '')
+            ),
+        ))
     return plan
 
 
@@ -480,6 +616,169 @@ def _apply_plan(plan, user) -> None:
     }
 
 
+def _finalize_lifecycle_plan(*, plan, actor, state, review_comment=''):
+    if state.version != plan.expected_policy_version or not _snapshot_matches(plan, plan.target_user):
+        plan.status = plan.STATUS_STALE
+        plan.reviewed_by = actor
+        plan.reviewed_at = timezone.now()
+        plan.review_comment = 'Effective access or routing changed after this plan was submitted.'
+        plan.save(update_fields=[
+            'status', 'reviewed_by', 'reviewed_at', 'review_comment', 'decision_mode',
+        ])
+        _record_plan(plan, 'staff_lifecycle.plan.stale')
+        return plan
+    plan.reviewed_by = actor
+    plan.reviewed_at = timezone.now()
+    plan.review_comment = str(review_comment or '').strip()
+    if plan.effective_at and plan.effective_at > timezone.now():
+        plan.status = plan.STATUS_SCHEDULED
+        plan.save(update_fields=[
+            'reviewed_by', 'reviewed_at', 'review_comment', 'status', 'decision_mode',
+        ])
+        _record_plan(plan, 'staff_lifecycle.plan.scheduled')
+        return plan
+    _apply_plan(plan, plan.target_user)
+    state.version += 1
+    state.save(update_fields=['version', 'updated_at'])
+    snapshot = _policy_snapshot()
+    snapshot['staff_lifecycle_plan'] = {
+        'id': str(plan.pk),
+        'target_user_id': plan.target_user_id,
+        'action': plan.action,
+        'decision_mode': plan.decision_mode,
+        'decision_actor_id': actor.pk,
+    }
+    AccessControlPolicySnapshot.objects.create(version=state.version, state=snapshot)
+    plan.status = plan.STATUS_APPLIED
+    plan.applied_at = timezone.now()
+    plan.save(update_fields=[
+        'reviewed_by', 'reviewed_at', 'review_comment', 'status', 'applied_at',
+        'impact', 'decision_mode',
+    ])
+    _record_plan(plan, 'staff_lifecycle.plan.applied')
+    return plan
+
+
+@transaction.atomic
+def submit_lifecycle_change(*, requester, action: str, reason: str,
+                            desired_grants=None, target_user=None,
+                            replacement_user=None, leave_from=None, leave_until=None,
+                            delegation_gates=None, request_key='', identity=None,
+                            new_user_password='', current_password='',
+                            decision_mode=StaffLifecycleChangePlan.DECISION_SUPERUSER):
+    """Create and either apply or queue one idempotent lifecycle change."""
+    if not requester or not requester.is_active or not requester.is_superuser:
+        raise PermissionDenied('Only an active Django Superuser may submit staff lifecycle changes.')
+    if decision_mode == StaffLifecycleChangePlan.DECISION_SUPERUSER:
+        if not current_password or not requester.check_password(current_password):
+            raise ValidationError('Your current Django Admin password is incorrect.')
+    elif decision_mode != StaffLifecycleChangePlan.DECISION_CHECKER:
+        raise ValidationError('Choose a supported lifecycle decision mode.')
+
+    normalized_grants = _normalize_grants(desired_grants)
+    normalized_identity = dict(identity or {})
+    key = str(request_key or '').strip()[:128]
+    if not key:
+        raise ValidationError('Reload the lifecycle workspace before submitting this change.')
+    fingerprint = _request_fingerprint(
+        action=action,
+        target_user_id=getattr(target_user, 'pk', None),
+        reason=reason,
+        desired_grants=normalized_grants,
+        replacement_user_id=getattr(replacement_user, 'pk', None),
+        leave_from=leave_from,
+        leave_until=leave_until,
+        delegation_gates=delegation_gates,
+        identity=normalized_identity,
+        new_user_password=new_user_password,
+    )
+    AccessControlPolicyState.current()
+    state = AccessControlPolicyState.objects.select_for_update().get(singleton=1)
+    existing = _existing_request(
+        requester=requester, request_key=key, fingerprint=fingerprint,
+    )
+    if existing:
+        return existing, False
+
+    if action == StaffLifecycleChangePlan.ACTION_ONBOARD:
+        if target_user is not None:
+            raise ValidationError('Onboarding creates a new staff account; do not select an existing user.')
+        target_user = _create_onboarding_shell(
+            identity=normalized_identity,
+            new_user_password=new_user_password,
+        )
+    plan = create_lifecycle_plan(
+        requester=requester,
+        target_user=target_user,
+        action=action,
+        reason=reason,
+        desired_grants=normalized_grants,
+        replacement_user=replacement_user,
+        leave_from=leave_from,
+        leave_until=leave_until,
+        delegation_gates=delegation_gates,
+        request_key=key,
+        identity=normalized_identity,
+        decision_mode=decision_mode,
+        request_fingerprint=fingerprint,
+    )
+    if decision_mode == StaffLifecycleChangePlan.DECISION_CHECKER:
+        return plan, True
+    plan.decision_mode = StaffLifecycleChangePlan.DECISION_SUPERUSER
+    plan = _finalize_lifecycle_plan(
+        plan=plan,
+        actor=requester,
+        state=state,
+        review_comment='Applied directly by an active Django Superuser.',
+    )
+    return plan, True
+
+
+@transaction.atomic
+def apply_pending_lifecycle_plan_as_superuser(*, plan_id, actor, current_password,
+                                              review_comment=''):
+    if not actor or not actor.is_active or not actor.is_superuser:
+        raise PermissionDenied('Only an active Django Superuser may directly apply a pending plan.')
+    if not current_password or not actor.check_password(current_password):
+        raise ValidationError('Your current Django Admin password is incorrect.')
+    plan = StaffLifecycleChangePlan.objects.select_for_update().select_related(
+        'target_user', 'requested_by',
+    ).get(pk=plan_id)
+    if plan.status != plan.STATUS_PENDING:
+        raise ValidationError('Only pending lifecycle plans can be applied directly.')
+    state = AccessControlPolicyState.objects.select_for_update().get(singleton=1)
+    plan.decision_mode = plan.DECISION_SUPERUSER
+    return _finalize_lifecycle_plan(
+        plan=plan, actor=actor, state=state,
+        review_comment=review_comment or 'Applied directly by an active Django Superuser.',
+    )
+
+
+@transaction.atomic
+def cancel_pending_lifecycle_plan_as_superuser(*, plan_id, actor, current_password,
+                                               reason):
+    if not actor or not actor.is_active or not actor.is_superuser:
+        raise PermissionDenied('Only an active Django Superuser may cancel a pending plan.')
+    if not current_password or not actor.check_password(current_password):
+        raise ValidationError('Your current Django Admin password is incorrect.')
+    reason = str(reason or '').strip()
+    if len(reason) < 10:
+        raise ValidationError('Explain the cancellation in at least 10 characters.')
+    plan = StaffLifecycleChangePlan.objects.select_for_update().get(pk=plan_id)
+    if plan.status != plan.STATUS_PENDING:
+        raise ValidationError('Only pending lifecycle plans can be cancelled.')
+    plan.status = plan.STATUS_CANCELLED
+    plan.reviewed_by = actor
+    plan.reviewed_at = timezone.now()
+    plan.review_comment = reason
+    plan.decision_mode = plan.DECISION_SUPERUSER
+    plan.save(update_fields=[
+        'status', 'reviewed_by', 'reviewed_at', 'review_comment', 'decision_mode',
+    ])
+    _record_plan(plan, 'staff_lifecycle.plan.cancelled')
+    return plan
+
+
 @transaction.atomic
 def approve_lifecycle_plan(*, plan_id, approver, review_comment='') -> StaffLifecycleChangePlan:
     if not can_approve_access_change(approver):
@@ -487,6 +786,8 @@ def approve_lifecycle_plan(*, plan_id, approver, review_comment='') -> StaffLife
     plan = StaffLifecycleChangePlan.objects.select_for_update().select_related('target_user', 'requested_by').get(pk=plan_id)
     if plan.status != plan.STATUS_PENDING:
         raise ValidationError('Only pending lifecycle plans can be approved.')
+    if plan.decision_mode != plan.DECISION_CHECKER:
+        raise ValidationError('This plan is not awaiting independent checker review.')
     if plan.requested_by_id == approver.pk:
         raise PermissionDenied('The plan maker cannot approve their own lifecycle plan.')
     if plan.target_user_id == approver.pk:
@@ -496,35 +797,9 @@ def approve_lifecycle_plan(*, plan_id, approver, review_comment='') -> StaffLife
     if plan.target_user.is_superuser:
         raise ValidationError('Django Superuser accounts are outside this workspace.')
     state = AccessControlPolicyState.objects.select_for_update().get(singleton=1)
-    if state.version != plan.expected_policy_version or not _snapshot_matches(plan, plan.target_user):
-        plan.status = plan.STATUS_STALE
-        plan.reviewed_by = approver
-        plan.reviewed_at = timezone.now()
-        plan.review_comment = 'Effective access or routing changed after this plan was submitted.'
-        plan.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'review_comment'])
-        _record_plan(plan, 'staff_lifecycle.plan.stale')
-        return plan
-    plan.reviewed_by = approver
-    plan.reviewed_at = timezone.now()
-    plan.review_comment = str(review_comment or '').strip()
-    if plan.effective_at and plan.effective_at > timezone.now():
-        plan.status = plan.STATUS_SCHEDULED
-        plan.save(update_fields=['reviewed_by', 'reviewed_at', 'review_comment', 'status'])
-        _record_plan(plan, 'staff_lifecycle.plan.scheduled')
-        return plan
-    _apply_plan(plan, plan.target_user)
-    state.version += 1
-    state.save(update_fields=['version', 'updated_at'])
-    snapshot = _policy_snapshot()
-    snapshot['staff_lifecycle_plan'] = {
-        'id': str(plan.pk), 'target_user_id': plan.target_user_id, 'action': plan.action,
-    }
-    AccessControlPolicySnapshot.objects.create(version=state.version, state=snapshot)
-    plan.status = plan.STATUS_APPLIED
-    plan.applied_at = timezone.now()
-    plan.save(update_fields=['reviewed_by', 'reviewed_at', 'review_comment', 'status', 'applied_at', 'impact'])
-    _record_plan(plan, 'staff_lifecycle.plan.applied')
-    return plan
+    return _finalize_lifecycle_plan(
+        plan=plan, actor=approver, state=state, review_comment=review_comment,
+    )
 
 
 @transaction.atomic
@@ -645,6 +920,11 @@ def _record_plan(plan, action: str) -> None:
         request_id=plan.request_key or str(plan.pk), source_model='StaffLifecycleChangePlan',
         source_event_id=f'{plan.pk}:{action}', deduplication_key=f'staff:{plan.pk}:{action}',
         before_values=plan.before_snapshot or {}, after_values=plan.proposed_snapshot or {},
-        metadata={'reason': plan.reason, 'status': plan.status, 'impact': plan.impact or {}},
+        metadata={
+            'reason': plan.reason,
+            'status': plan.status,
+            'decision_mode': plan.decision_mode,
+            'impact': plan.impact or {},
+        },
         sensitive=True, occurred_at=timezone.now(),
     )
