@@ -318,6 +318,9 @@ class DirectSuperuserLifecycleTests(TestCase):
         fingerprint = preview.context['direct_preview']['fingerprint']
         confirmed = self.client.post(url, {
             **payload,
+            # Credentials are intentionally excluded from the visible review
+            # fingerprint and may be re-entered after PasswordInput clears.
+            'password': 'replacement-initial-password',
             'lifecycle_action': 'confirm_direct',
             'preview_fingerprint': fingerprint,
             'superuser_password': 'password',
@@ -325,9 +328,29 @@ class DirectSuperuserLifecycleTests(TestCase):
         self.assertEqual(confirmed.status_code, 302)
         user = get_user_model().objects.get(username='admin-direct-officer')
         self.assertTrue(user.is_active)
+        self.assertTrue(user.check_password('replacement-initial-password'))
         plan = StaffLifecycleChangePlan.objects.get(request_key='admin-direct-onboard-1')
         self.assertEqual(plan.status, plan.STATUS_APPLIED)
         self.assertEqual(plan.decision_mode, plan.DECISION_SUPERUSER)
+
+    def test_direct_preview_does_not_conflict_when_credential_is_reentered(self):
+        from core.services.staff_lifecycle import lifecycle_submission_preview
+
+        values = {
+            'action': StaffLifecycleChangePlan.ACTION_ONBOARD,
+            'reason': 'Create a Django staff user after reviewing the non-secret lifecycle details.',
+            'desired_grants': [{'workflow': 'jawabu_portal', 'role': 'JBL_OFFICER'}],
+            'identity': {
+                'display_name': 'Credential Review Officer',
+                'login_method': 'django',
+                'django_username': 'credential-review-officer',
+            },
+        }
+
+        first = lifecycle_submission_preview(**values, new_user_password='first-entry')
+        second = lifecycle_submission_preview(**values, new_user_password='reentered-value')
+
+        self.assertEqual(first['fingerprint'], second['fingerprint'])
 
 
 class StaffApprovalQueueAdminTests(TestCase):

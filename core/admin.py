@@ -6710,7 +6710,10 @@ class StaffLifecycleForm(forms.Form):
     telegram_username = forms.CharField(max_length=100, required=False)
     django_username = forms.CharField(max_length=150, required=False)
     email = forms.EmailField(required=False)
-    password = forms.CharField(required=False, widget=forms.PasswordInput(render_value=False))
+    password = forms.CharField(
+        required=False,
+        widget=forms.PasswordInput(render_value=False, attrs={'autocomplete': 'new-password'}),
+    )
     telegram_groups = forms.ModelMultipleChoiceField(
         queryset=GroupSheetConfiguration.objects.none(), required=False,
         widget=forms.CheckboxSelectMultiple,
@@ -6721,7 +6724,7 @@ class StaffLifecycleForm(forms.Form):
     )
     superuser_password = forms.CharField(
         required=False,
-        widget=forms.PasswordInput(render_value=False),
+        widget=forms.PasswordInput(render_value=False, attrs={'autocomplete': 'current-password'}),
         help_text='Required only when applying a lifecycle change immediately.',
     )
     replacement_user = forms.ModelChoiceField(
@@ -7215,6 +7218,11 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                 'email': str(data.get('email') or '').strip(),
                 'django_admin_login': data.get('login_method') == StaffUserCreationForm.LOGIN_DJANGO,
             } if data['action'] == StaffLifecycleChangePlan.ACTION_ONBOARD else {}
+            new_user_password = (
+                (data.get('password') or '')
+                if data.get('login_method') == StaffUserCreationForm.LOGIN_DJANGO
+                else ''
+            )
             submission_action = str(request.POST.get('lifecycle_action') or '')
             try:
                 telegram_group_ids = list(data.get('telegram_groups', []).values_list('pk', flat=True))
@@ -7224,7 +7232,7 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                     leave_from=data.get('leave_from'), leave_until=data.get('leave_until'),
                     delegation_gates=data.get('delegation_gates'), identity=identity,
                     telegram_group_ids=telegram_group_ids,
-                    new_user_password=data.get('password') or '',
+                    new_user_password=new_user_password,
                 )
                 direct_preview['telegram_groups'] = list(
                     GroupSheetConfiguration.objects.filter(pk__in=telegram_group_ids)
@@ -7243,7 +7251,7 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                         delegation_gates=data.get('delegation_gates'),
                         request_key=data.get('request_key'), identity=identity,
                         telegram_group_ids=telegram_group_ids,
-                        new_user_password=data.get('password') or '',
+                        new_user_password=new_user_password,
                         current_password=data.get('superuser_password') or '',
                         decision_mode=StaffLifecycleChangePlan.DECISION_SUPERUSER,
                     )

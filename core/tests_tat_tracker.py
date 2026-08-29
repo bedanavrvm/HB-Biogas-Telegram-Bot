@@ -235,6 +235,85 @@ class TatTrackerWorkflowTest(TestCase):
         })
         self.assertEqual([item['case_id'] for item in result['items']], [cases[0].case_id])
 
+    def test_home_supports_authorized_multi_select_filters(self):
+        User = get_user_model()
+        superuser = User.objects.create_superuser(
+            username='tat-filter-root', email='tat-filter@example.invalid', password='unused-password',
+        )
+        UserProfile.objects.create(user=superuser, telegram_id='991', telegram_username='tat_filter_root')
+        cases = [
+            TatTrackerCase.objects.create(
+                group_id=self.config.group_id, case_id='JBL-MULTI-001',
+                product_key='business', product_label='Business', client_name='Business Active',
+                branch='Nakuru', status='Active', stage_values={'created': timezone.now().isoformat()},
+            ),
+            TatTrackerCase.objects.create(
+                group_id=self.config.group_id, case_id='JBL-MULTI-002',
+                product_key='logbook', product_label='Logbook', client_name='Logbook Deferred',
+                branch='Embu', status='Deferred', stage_values={'created': timezone.now().isoformat()},
+            ),
+            TatTrackerCase.objects.create(
+                group_id=self.config.group_id, case_id='JBL-MULTI-003',
+                product_key='logbook', product_label='Logbook Rejected', client_name='Excluded Status',
+                branch='Embu', status='Rejected', stage_values={'created': timezone.now().isoformat()},
+            ),
+        ]
+        user = staff_user_for_payload(self.config, {'id': 991, 'username': 'tat_filter_root'})
+
+        result = home_data(
+            self.config, user, queue='all',
+            product_keys=['business', 'logbook'], branches=['Nakuru', 'Embu'],
+            statuses=['Active', 'Deferred'],
+        )
+
+        self.assertEqual(result['metrics']['total'], 2)
+        self.assertEqual({item['case_id'] for item in result['items']}, {cases[0].case_id, cases[1].case_id})
+
+    def test_home_rejects_multi_select_values_outside_authorized_scope(self):
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='JBL-MULTI-SCOPE',
+            product_key='business', product_label='Business', client_name='Scoped Client',
+            branch='Nakuru', status='Active', stage_values={'created': timezone.now().isoformat()},
+        )
+        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+
+        result = home_data(
+            self.config, user, queue='all', product_keys=['business', 'logbook'], branches=['Nakuru'],
+        )
+
+        self.assertEqual(result['metrics']['total'], 0)
+        self.assertEqual(result['items'], [])
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token')
+    def test_home_api_accepts_multi_select_filter_arrays(self):
+        for suffix, status in [('ACTIVE', 'Active'), ('REJECTED', 'Rejected'), ('DEFERRED', 'Deferred')]:
+            TatTrackerCase.objects.create(
+                group_id=self.config.group_id, case_id=f'JBL-MULTI-API-{suffix}',
+                product_key='business', product_label='Business', client_name=f'{status} Client',
+                branch='Nakuru', status=status, stage_values={'created': timezone.now().isoformat()},
+            )
+
+        response = self.client.post(
+            reverse('tat_tracker_home'),
+            data=json.dumps({
+                'group_id': self.config.group_id,
+                'init_data': self.signed_init_data(),
+                'queue': 'all',
+                'product_keys': ['business'],
+                'branches': ['Nakuru'],
+                'statuses': ['Active', 'Rejected'],
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()['data']
+        self.assertEqual(payload['metrics']['total'], 2)
+        self.assertEqual(
+            {item['case_id'] for item in payload['items']},
+            {'JBL-MULTI-API-ACTIVE', 'JBL-MULTI-API-REJECTED'},
+        )
+
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token')
     def test_home_fragment_renders_recent_cases(self):
         TatTrackerCase.objects.create(
@@ -376,11 +455,14 @@ class TatTrackerWorkflowTest(TestCase):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
         template = Path('core/templates/tat_tracker/app.html').read_text(encoding='utf-8')
 
-        self.assertIn('id="queueProductFilter"', template)
-        self.assertIn('id="queueBranchFilter"', template)
+        self.assertIn('id="queueProductFilters"', template)
+        self.assertIn('id="queueBranchFilters"', template)
+        self.assertIn('id="queueStatusFilters"', template)
+        self.assertIn('class="filter-checkbox-grid"', template)
         self.assertIn("miniapp/utils.js", template)
-        self.assertIn("product_key: $('queueProductFilter') ? $('queueProductFilter').value : ''", source)
-        self.assertIn("branch: $('queueBranchFilter') ? $('queueBranchFilter').value : ''", source)
+        self.assertIn("product_keys: checkedFilterValues('queueProductFilters')", source)
+        self.assertIn("branches: checkedFilterValues('queueBranchFilters')", source)
+        self.assertIn("statuses: checkedFilterValues('queueStatusFilters')", source)
         self.assertIn("api('/api/tat-tracker/home/', homePayload())", source)
         self.assertIn("queue: state.homeQueue", source)
         self.assertIn("page: state.homePages[state.homeQueue] || 1", source)
@@ -398,7 +480,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Assigned to me', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn('?v=44', template)
+        self.assertIn('?v=45', template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')

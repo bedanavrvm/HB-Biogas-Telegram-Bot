@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=26">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=27">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}" data-task-token="{{ task_token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -303,8 +303,21 @@
           <button id="closeQueueFiltersBtn" type="button" class="notice-close tat-sheet-close" aria-label="Close filters">&times;</button>
         </header>
         <form id="queueFilterForm" class="sheet-form">
-          <label>Product<select id="queueProductFilter"></select></label>
-          <label>Branch<select id="queueBranchFilter"></select></label>
+          <fieldset class="filter-choice-group">
+            <legend>Products</legend>
+            <p>Select any products to include. No selection shows all authorized products.</p>
+            <div id="queueProductFilters" class="filter-checkbox-grid"></div>
+          </fieldset>
+          <fieldset class="filter-choice-group">
+            <legend>Branches</legend>
+            <p>Select any branches to include. No selection shows all authorized branches.</p>
+            <div id="queueBranchFilters" class="filter-checkbox-grid"></div>
+          </fieldset>
+          <fieldset class="filter-choice-group">
+            <legend>Status</legend>
+            <p>Select any statuses to include. No selection shows every status.</p>
+            <div id="queueStatusFilters" class="filter-checkbox-grid"></div>
+          </fieldset>
         </form>
         <footer>
           <button id="resetQueueFiltersBtn" type="button" class="secondary">Reset</button>
@@ -328,6 +341,6 @@
   {% include "miniapp_diagnostics.html" %}
   <script src="{% static 'miniapp/utils.js' %}?v=5"></script>
   <script src="{% static 'miniapp/tat_api.js' %}?v=3"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=44"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=45"></script>
 </body>
 </html>

@@ -535,6 +535,9 @@ def home_data(
     page_size: int = TAT_HOME_PAGE_SIZE,
     product_key: str = '',
     branch: str = '',
+    product_keys=None,
+    branches=None,
+    statuses=None,
     queue: str = 'role',
     page: int = 1,
 ) -> dict:
@@ -549,17 +552,31 @@ def home_data(
     )
     queryset = _scope_tat_queryset(queryset, user, 'tat.home.view')
     allowed_keys = [p.key for p in _allowed_products(workflow, user)]
-    selected_product = str(product_key or '').strip()
-    if selected_product:
-        if selected_product in allowed_keys:
-            queryset = queryset.filter(product_key=selected_product)
+    def selected_values(values, legacy=''):
+        source = values if values not in (None, '') else legacy
+        if isinstance(source, str):
+            source = source.split(',')
+        if not isinstance(source, (list, tuple, set)):
+            source = [source]
+        return list(dict.fromkeys(str(value or '').strip() for value in source if str(value or '').strip()))
+
+    selected_products = selected_values(product_keys, product_key)
+    if selected_products:
+        if set(selected_products).issubset(allowed_keys):
+            queryset = queryset.filter(product_key__in=selected_products)
         else:
             queryset = queryset.none()
     allowed_branches = _allowed_branches(workflow, user)
-    selected_branch = str(branch or '').strip()
-    if selected_branch:
-        if selected_branch in allowed_branches:
-            queryset = queryset.filter(branch=selected_branch)
+    selected_branches = selected_values(branches, branch)
+    if selected_branches:
+        if set(selected_branches).issubset(allowed_branches):
+            queryset = queryset.filter(branch__in=selected_branches)
+        else:
+            queryset = queryset.none()
+    selected_statuses = selected_values(statuses)
+    if selected_statuses:
+        if set(selected_statuses).issubset(STATUS_VALUES):
+            queryset = queryset.filter(status__in=selected_statuses)
         else:
             queryset = queryset.none()
     action_offset = max(0, int(action_offset or 0))
@@ -617,8 +634,9 @@ def home_data(
         group_id=str(group_config.group_id),
         limit=page_size,
         offset=page_offset if queue_key == 'assigned' else 0,
-        product_key=selected_product,
-        branch=selected_branch,
+        product_keys=selected_products,
+        branches=selected_branches,
+        statuses=selected_statuses,
     )
 
     if queue_key == 'assigned':
@@ -648,8 +666,9 @@ def home_data(
                 group_id=str(group_config.group_id),
                 limit=page_size,
                 offset=page_offset,
-                product_key=selected_product,
-                branch=selected_branch,
+                product_keys=selected_products,
+                branches=selected_branches,
+                statuses=selected_statuses,
             )
             items = assigned['items']
         elif queue_key == 'all':

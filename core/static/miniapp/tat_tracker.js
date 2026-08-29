@@ -420,17 +420,27 @@
   function renderActiveFilters() {
     const filters = currentHomeFilters();
     const chips = [];
-    const product = ((state.data || {}).products || []).find((item) => item.key === filters.product_key);
-    if (filters.product_key) chips.push(['product_key', product ? product.label : filters.product_key]);
-    if (filters.branch) chips.push(['branch', filters.branch]);
+    const products = (state.data || {}).products || [];
+    filters.product_keys.forEach((value) => {
+      const product = products.find((item) => item.key === value);
+      chips.push(['product_keys', value, product ? product.label : value]);
+    });
+    filters.branches.forEach((value) => chips.push(['branches', value, value]));
+    filters.statuses.forEach((value) => chips.push(['statuses', value, value]));
     const container = $('activeQueueFilters');
     container.hidden = !chips.length;
-    container.innerHTML = chips.map(([key, label]) => (
-      `<button type="button" class="filter-chip" data-remove-filter="${escapeHtml(key)}"><span>${escapeHtml(label)}</span><span aria-hidden="true">&times;</span></button>`
+    container.innerHTML = chips.map(([key, value, label]) => (
+      `<button type="button" class="filter-chip" data-remove-filter="${escapeHtml(key)}" data-filter-value="${escapeHtml(value)}"><span>${escapeHtml(label)}</span><span aria-hidden="true">&times;</span></button>`
     )).join('');
     container.querySelectorAll('[data-remove-filter]').forEach((button) => button.addEventListener('click', async () => {
-      if (button.dataset.removeFilter === 'product_key') $('queueProductFilter').value = '';
-      if (button.dataset.removeFilter === 'branch') $('queueBranchFilter').value = '';
+      const group = {
+        product_keys: 'queueProductFilters',
+        branches: 'queueBranchFilters',
+        statuses: 'queueStatusFilters',
+      }[button.dataset.removeFilter];
+      const input = group && Array.from($(group)?.querySelectorAll('input[type="checkbox"]') || [])
+        .find((candidate) => candidate.value === button.dataset.filterValue);
+      if (input) input.checked = false;
       await applyQueueFilters();
     }));
     $('openQueueFiltersBtn').classList.toggle('active', Boolean(chips.length));
@@ -586,10 +596,15 @@
 
   function sameHomeFilters(left, right) {
     return Boolean(left && right)
-      && String(left.product_key || '') === String(right.product_key || '')
-      && String(left.branch || '') === String(right.branch || '')
+      && filterValuesEqual(left.product_keys, right.product_keys)
+      && filterValuesEqual(left.branches, right.branches)
+      && filterValuesEqual(left.statuses, right.statuses)
       && String(left.queue || '') === String(right.queue || '')
       && Number(left.page || 1) === Number(right.page || 1);
+  }
+
+  function filterValuesEqual(left, right) {
+    return JSON.stringify([].concat(left || []).slice().sort()) === JSON.stringify([].concat(right || []).slice().sort());
   }
 
   function fillSelect(select, items, valueKey, labelKey) {
@@ -602,18 +617,29 @@
     });
   }
 
-  function fillFilterSelect(select, items, valueKey, labelKey, allLabel) {
-    const allOption = {};
-    allOption[valueKey] = '';
-    allOption[labelKey] = allLabel;
-    const options = [allOption].concat(items || []);
-    fillSelect(select, options, valueKey, labelKey);
+  function renderFilterCheckboxes(container, items, valueKey, labelKey, groupName) {
+    if (!container) return;
+    container.innerHTML = (items || []).map((item) => (
+      `<label class="filter-checkbox-option"><input type="checkbox" name="${escapeHtml(groupName)}" value="${escapeHtml(item[valueKey])}"><span>${escapeHtml(item[labelKey])}</span></label>`
+    )).join('');
+  }
+
+  function checkedFilterValues(containerId) {
+    return Array.from($(containerId)?.querySelectorAll('input[type="checkbox"]:checked') || []).map((input) => input.value);
+  }
+
+  function setCheckedFilterValues(containerId, values) {
+    const selected = new Set([].concat(values || []).filter(Boolean).map(String));
+    $(containerId)?.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+      input.checked = selected.has(input.value);
+    });
   }
 
   function currentHomeFilters() {
     return {
-      product_key: $('queueProductFilter') ? $('queueProductFilter').value : '',
-      branch: $('queueBranchFilter') ? $('queueBranchFilter').value : '',
+      product_keys: checkedFilterValues('queueProductFilters'),
+      branches: checkedFilterValues('queueBranchFilters'),
+      statuses: checkedFilterValues('queueStatusFilters'),
       queue: state.homeQueue,
       page: state.homePages[state.homeQueue] || 1,
     };
@@ -941,13 +967,9 @@
     document.body.classList.toggle('compact-cards', Boolean(personal.compact_cards));
     document.body.classList.toggle('hide-business-hours-time', personal.show_business_hours_time === false);
     const savedFilters = personal.default_filters || {};
-    const hasOption = (select, value) => Array.from(select.options).some((option) => option.value === String(value));
-    if (savedFilters.product_key && hasOption($('queueProductFilter'), savedFilters.product_key)) {
-      $('queueProductFilter').value = savedFilters.product_key;
-    }
-    if (savedFilters.branch && hasOption($('queueBranchFilter'), savedFilters.branch)) {
-      $('queueBranchFilter').value = savedFilters.branch;
-    }
+    setCheckedFilterValues('queueProductFilters', savedFilters.product_keys || savedFilters.product_key || []);
+    setCheckedFilterValues('queueBranchFilters', savedFilters.branches || savedFilters.branch || []);
+    setCheckedFilterValues('queueStatusFilters', savedFilters.statuses || savedFilters.status || []);
     const canCreate = (((state.data || {}).user || {}).capabilities || []).includes('tat.case.create');
     return personal.default_screen === 'new' && canCreate ? 'new' : 'queue';
   }
@@ -976,8 +998,9 @@
     document.querySelector('[name="product_key"]')?.addEventListener('change', renderNewCaseProductConfiguration);
     renderNewCaseProductConfiguration();
     fillSelect(document.querySelector('[name="branch"]'), (data.branches || []).map((value) => ({ value, label: value })), 'value', 'label');
-    fillFilterSelect($('queueProductFilter'), data.products, 'key', 'label', 'All products');
-    fillFilterSelect($('queueBranchFilter'), (data.branches || []).map((value) => ({ value, label: value })), 'value', 'label', 'All branches');
+    renderFilterCheckboxes($('queueProductFilters'), data.products, 'key', 'label', 'product_keys');
+    renderFilterCheckboxes($('queueBranchFilters'), (data.branches || []).map((value) => ({ value, label: value })), 'value', 'label', 'branches');
+    renderFilterCheckboxes($('queueStatusFilters'), (data.statuses || []).map((value) => ({ value, label: value })), 'value', 'label', 'statuses');
     const broInput = document.querySelector('[name="bro_name"]');
     const taggedBroUsers = Array.isArray(data.bro_users)
       ? data.bro_users
@@ -998,7 +1021,8 @@
     $('trackerTabs').classList.add('has-settings');
     const initialView = applyPersonalPreference(data.personal || {});
     show(initialView);
-    if (state.home.queue !== initialQueue || currentHomeFilters().product_key || currentHomeFilters().branch) {
+    const initialFilters = currentHomeFilters();
+    if (state.home.queue !== initialQueue || initialFilters.product_keys.length || initialFilters.branches.length || initialFilters.statuses.length) {
       state.homeQueue = initialQueue;
       refresh({ background: true }).catch(() => {});
     } else {
@@ -1580,8 +1604,7 @@
     applyQueueFilters().catch((error) => setStatus(error.message, 'error'));
   });
   $('resetQueueFiltersBtn').addEventListener('click', () => {
-    $('queueProductFilter').value = '';
-    $('queueBranchFilter').value = '';
+    ['queueProductFilters', 'queueBranchFilters', 'queueStatusFilters'].forEach((id) => setCheckedFilterValues(id, []));
     applyQueueFilters().catch((error) => setStatus(error.message, 'error'));
   });
   $('saveRemarksBtn').addEventListener('click', async (event) => {

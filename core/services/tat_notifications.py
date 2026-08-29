@@ -948,6 +948,9 @@ def inbox_payload(
     offset: int = 0,
     product_key: str = '',
     branch: str = '',
+    product_keys=None,
+    branches=None,
+    statuses=None,
 ) -> dict:
     if not user or not user.is_active:
         return {'items': [], 'unread_count': 0, 'total': 0, 'pagination': {
@@ -964,12 +967,23 @@ def inbox_payload(
         recipients = recipients.filter(task__group_configuration=group)
     elif str(group_id or '').strip():
         recipients = recipients.filter(task__case__group_id=str(group_id).strip())
-    selected_product = str(product_key or '').strip()
-    selected_branch = str(branch or '').strip()
-    if selected_product:
-        recipients = recipients.filter(task__case__product_key=selected_product)
-    if selected_branch:
-        recipients = recipients.filter(task__case__branch=selected_branch)
+    def selected_values(values, legacy=''):
+        source = values if values not in (None, '') else legacy
+        if isinstance(source, str):
+            source = source.split(',')
+        if not isinstance(source, (list, tuple, set)):
+            source = [source]
+        return list(dict.fromkeys(str(value or '').strip() for value in source if str(value or '').strip()))
+
+    selected_products = selected_values(product_keys, product_key)
+    selected_branches = selected_values(branches, branch)
+    selected_statuses = selected_values(statuses)
+    if selected_products:
+        recipients = recipients.filter(task__case__product_key__in=selected_products)
+    if selected_branches:
+        recipients = recipients.filter(task__case__branch__in=selected_branches)
+    if selected_statuses:
+        recipients = recipients.filter(task__case__status__in=selected_statuses)
     grants = [] if user.is_superuser else list(AccessGrant.objects.filter(
         user=user, workflow='tat_tracker', active=True,
     ).select_related('user', 'group_configuration'))

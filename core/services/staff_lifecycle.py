@@ -262,7 +262,13 @@ def lifecycle_submission_preview(*, action, reason, desired_grants=None,
         delegation_gates=delegation_gates,
         identity=normalized_identity,
         telegram_group_ids=normalized_groups,
-        new_user_password=new_user_password,
+        # Credentials are not part of the rendered review summary and
+        # PasswordInput clears them when that summary is returned. Including a
+        # password proof here makes an unchanged confirmation conflict with
+        # its own preview, especially when a password manager autofills the
+        # hidden Telegram-only credential field. The apply request still
+        # fingerprints the supplied credential for idempotency.
+        new_user_password='',
     )
     return {
         'fingerprint': fingerprint,

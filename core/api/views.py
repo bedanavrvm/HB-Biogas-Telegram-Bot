@@ -566,6 +566,9 @@ def tat_tracker_home(request):
             recent_offset=_tat_home_offset(payload.get('recent_offset')),
             product_key=payload.get('product_key') or '',
             branch=payload.get('branch') or '',
+            product_keys=payload.get('product_keys'),
+            branches=payload.get('branches'),
+            statuses=payload.get('statuses'),
             queue=payload.get('queue') or 'role',
             page=_tat_home_page(payload.get('page')),
             page_size=_tat_home_page_size(payload.get('page_size')),
@@ -595,6 +598,9 @@ def tat_tracker_home_fragment(request):
         recent_offset=_tat_home_offset(payload.get('recent_offset')),
         product_key=payload.get('product_key') or '',
         branch=payload.get('branch') or '',
+        product_keys=payload.get('product_keys'),
+        branches=payload.get('branches'),
+        statuses=payload.get('statuses'),
     )
     empty = {
         'action_required': ('No action needed', 'Cases that need your role will appear here.'),
