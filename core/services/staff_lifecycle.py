@@ -732,7 +732,10 @@ def submit_lifecycle_change(*, requester, action: str, reason: str,
     if not requester or not requester.is_active or not requester.is_superuser:
         raise PermissionDenied('Only an active Django Superuser may submit staff lifecycle changes.')
     if decision_mode == StaffLifecycleChangePlan.DECISION_SUPERUSER:
-        if not current_password or not requester.check_password(current_password):
+        if (
+            action != StaffLifecycleChangePlan.ACTION_ONBOARD
+            and (not current_password or not requester.check_password(current_password))
+        ):
             raise ValidationError('Your current Django Admin password is incorrect.')
     elif decision_mode != StaffLifecycleChangePlan.DECISION_CHECKER:
         raise ValidationError('Choose a supported lifecycle decision mode.')
@@ -804,11 +807,14 @@ def apply_pending_lifecycle_plan_as_superuser(*, plan_id, actor, current_passwor
                                               review_comment=''):
     if not actor or not actor.is_active or not actor.is_superuser:
         raise PermissionDenied('Only an active Django Superuser may directly apply a pending plan.')
-    if not current_password or not actor.check_password(current_password):
-        raise ValidationError('Your current Django Admin password is incorrect.')
     plan = StaffLifecycleChangePlan.objects.select_for_update().select_related(
         'target_user', 'requested_by',
     ).get(pk=plan_id)
+    if (
+        plan.action != plan.ACTION_ONBOARD
+        and (not current_password or not actor.check_password(current_password))
+    ):
+        raise ValidationError('Your current Django Admin password is incorrect.')
     if plan.status != plan.STATUS_PENDING:
         raise ValidationError('Only pending lifecycle plans can be applied directly.')
     state = AccessControlPolicyState.objects.select_for_update().get(singleton=1)

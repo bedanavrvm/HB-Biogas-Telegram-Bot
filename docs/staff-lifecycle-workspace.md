@@ -16,9 +16,11 @@ activation, see [Telegram Staff Activation Mini App Setup](telegram-staff-activa
 
 ## Authority and approvals
 
-No checker is required for **Apply now**. The direct path requires the active
-Superuser to review the server-derived summary and re-enter their own current
-Django Admin password.
+No checker is required for **Apply now**. Direct onboarding requires the active
+Superuser to review the server-derived summary while using their authenticated,
+CSRF-protected Django Admin session; it does not request a second password.
+Direct changes to existing staff and pending non-onboarding plans retain current
+Django Admin password confirmation.
 
 To use **Send for independent review**, appoint an active non-Superuser Django
 staff account as an Access Control Checker. When no checker exists, the root
@@ -161,7 +163,8 @@ Use synthetic users only.
 - Current grants load for the selected user and can be retired explicitly.
 - Submit immediately disables and displays a working state.
 - Direct review clearly shows the exact target, final grants, routing/task
-  impact, business reason, and current-password confirmation.
+  impact, and business reason. Existing-user changes also show current-password
+  confirmation; onboarding shows that the active Superuser session is sufficient.
 - The plan page clearly separates before, proposed, impact, maker, decision
   mode, and decision actor.
 - **Staff approvals (N)** is visible to appointed checkers and opens only

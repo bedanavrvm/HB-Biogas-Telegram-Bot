@@ -246,7 +246,7 @@ class DirectSuperuserLifecycleTests(TestCase):
             'request_key': 'direct-onboard-1',
             'identity': self.identity,
             'new_user_password': 'initial-password',
-            'current_password': 'password',
+            'current_password': '',
             'decision_mode': StaffLifecycleChangePlan.DECISION_SUPERUSER,
         }
         values.update(overrides)
@@ -280,11 +280,26 @@ class DirectSuperuserLifecycleTests(TestCase):
             self._submit(reason='A different lifecycle operation must not reuse the same request key.')
         self.assertEqual(get_user_model().objects.filter(username='direct-officer').count(), 1)
 
-    def test_wrong_superuser_password_rolls_back_everything(self):
+    def test_direct_onboarding_uses_authenticated_superuser_session_without_password(self):
+        plan, created = self._submit(current_password='')
+        self.assertTrue(created)
+        self.assertEqual(plan.status, plan.STATUS_APPLIED)
+        self.assertTrue(get_user_model().objects.filter(username='direct-officer').exists())
+
+    def test_wrong_superuser_password_still_blocks_existing_user_change(self):
+        target = get_user_model().objects.create_user('existing-officer', is_active=True)
         with self.assertRaises(ValidationError):
-            self._submit(current_password='incorrect')
-        self.assertFalse(get_user_model().objects.filter(username='direct-officer').exists())
-        self.assertFalse(StaffLifecycleChangePlan.objects.filter(request_key='direct-onboard-1').exists())
+            self._submit(
+                action=StaffLifecycleChangePlan.ACTION_ACCESS,
+                target_user=target,
+                identity={},
+                new_user_password='',
+                request_key='direct-access-wrong-password',
+                current_password='incorrect',
+            )
+        self.assertFalse(StaffLifecycleChangePlan.objects.filter(
+            request_key='direct-access-wrong-password',
+        ).exists())
 
     def test_admin_direct_onboarding_without_checker_uses_preview_then_applies(self):
         self.client.force_login(self.root)
@@ -323,7 +338,6 @@ class DirectSuperuserLifecycleTests(TestCase):
             'password': 'replacement-initial-password',
             'lifecycle_action': 'confirm_direct',
             'preview_fingerprint': fingerprint,
-            'superuser_password': 'password',
         })
         self.assertEqual(confirmed.status_code, 302)
         user = get_user_model().objects.get(username='admin-direct-officer')
