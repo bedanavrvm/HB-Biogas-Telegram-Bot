@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=27">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=28">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}" data-task-token="{{ task_token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -108,6 +108,7 @@
           <span>Filters</span><b aria-hidden="true" hidden></b>
         </button>
       </div>
+      <p id="queueFreshness" class="queue-freshness" role="status" aria-live="polite">Updating queue…</p>
       <div id="activeQueueFilters" class="active-filters" aria-label="Active filters" hidden></div>
 
       <section class="section-block active-queue-block">
@@ -185,7 +186,7 @@
         <div class="form-grid">
           <label>Start on<select id="preferenceDefaultScreen"><option value="home">Queue</option><option value="new">Create case</option></select></label>
           <label class="check-label"><input id="preferenceCompactCards" type="checkbox"><span>Use compact case cards<small>Queue cards show the client, amount, product, branch, and next action only. Open a case for identifiers and timestamps.</small></span></label>
-          <label class="check-label"><input id="preferenceBusinessHours" type="checkbox"><span>Show business-hours time<small>Keep the optional Nairobi business-hours comparison visible alongside official wall-clock TAT.</small></span></label>
+          <label id="businessTimePreferenceRow" class="check-label"><input id="preferenceBusinessHours" type="checkbox"><span>Show business-hours time<small>Keep the optional Nairobi business-hours comparison visible alongside official wall-clock TAT.</small></span></label>
         </div>
         <div class="form-actions"><button id="savePersonalSettingsBtn" type="submit" class="secondary">Save my settings</button></div>
       </form>
@@ -339,8 +340,8 @@
 
   <script src="{% static 'miniapp/telegram.js' %}?v=3"></script>
   {% include "miniapp_diagnostics.html" %}
-  <script src="{% static 'miniapp/utils.js' %}?v=7"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=8"></script>
   <script src="{% static 'miniapp/tat_api.js' %}?v=3"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=48"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=49"></script>
 </body>
 </html>

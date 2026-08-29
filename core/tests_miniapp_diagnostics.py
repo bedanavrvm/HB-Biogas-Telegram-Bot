@@ -279,6 +279,7 @@ class MiniAppDiagnosticTemplateTests(TestCase):
         for template_name, context in templates.items():
             with self.subTest(template_name=template_name):
                 html = render_to_string(template_name, context, request=request)
+                self.assertIn('miniapp/runtime.js', html)
                 self.assertIn('miniapp/diagnostics.js', html)
                 self.assertIn('vendor-sentry-browser-10.55.0.bundle.tracing.min.js', html)
 

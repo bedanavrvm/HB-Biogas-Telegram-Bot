@@ -165,6 +165,7 @@ from .models import (
     TatTaskRerouteEvent,
     TatResponsibilityChangePlan,
     TatConfigurationEvent,
+    TatPresentationSettings,
     TatGroupExceptionStatus,
     TatNotificationProcessorRun,
     TatRepairJob,
@@ -3056,6 +3057,94 @@ class TatConfigurationEventAdmin(GovernedConfigurationAuditAdmin):
     readonly_fields = [field.name for field in TatConfigurationEvent._meta.fields]
     def has_add_permission(self, request): return False
     def has_delete_permission(self, request, obj=None): return False
+
+
+class TatPresentationSettingsForm(forms.ModelForm):
+    expected_revision = forms.IntegerField(widget=forms.HiddenInput)
+    change_reason = forms.CharField(
+        required=True,
+        min_length=8,
+        widget=forms.Textarea(attrs={'rows': 3}),
+        help_text='Required. This reason is retained in append-only TAT and compliance audit history.',
+    )
+
+    class Meta:
+        model = TatPresentationSettings
+        fields = ('business_time_enabled', 'change_reason', 'expected_revision')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['expected_revision'].initial = int(getattr(self.instance, 'revision', 1) or 1)
+        if not self.is_bound:
+            self.initial['change_reason'] = ''
+
+    def clean(self):
+        cleaned = super().clean()
+        if not self.instance or not self.instance.pk:
+            return cleaned
+        expected_revision = int(cleaned.get('expected_revision') or 0)
+        current = TatPresentationSettings.objects.filter(singleton=1).first()
+        if current and expected_revision != int(current.revision):
+            raise ValidationError('TAT presentation settings changed. Reload before saving.')
+        desired = cleaned.get('business_time_enabled')
+        if desired is not None and bool(desired) == bool(self.instance.business_time_enabled):
+            raise ValidationError('Change the global business-hours TAT setting before saving.')
+        if desired is False:
+            from core.services.tat_presentation import pending_business_calendar_proposals
+            if pending_business_calendar_proposals().exists():
+                raise ValidationError(
+                    'Resolve pending Business Calendar proposals under Workflow configuration change requests before disabling this setting.'
+                )
+        return cleaned
+
+
+@admin.register(TatPresentationSettings)
+class TatPresentationSettingsAdmin(CompactModelAdmin):
+    form = TatPresentationSettingsForm
+    list_display = ('business_time_enabled', 'revision', 'updated_by', 'updated_at')
+    readonly_fields = ('revision', 'updated_by', 'created_at', 'updated_at')
+    fieldsets = (
+        ('Global Mini App presentation', {
+            'description': (
+                'Official wall-clock TAT remains authoritative. Turning this off removes the optional '
+                'business-hours comparison and Business Calendar controls from every TAT Mini App.'
+            ),
+            'fields': ('business_time_enabled', 'change_reason', 'expected_revision'),
+        }),
+        ('Audit', {'fields': ('revision', 'updated_by', 'created_at', 'updated_at')}),
+    )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).filter(singleton=1)
+
+    def has_module_permission(self, request):
+        return bool(request.user.is_active and request.user.is_superuser)
+
+    def has_view_permission(self, request, obj=None):
+        return self.has_module_permission(request)
+
+    def has_change_permission(self, request, obj=None):
+        return self.has_module_permission(request)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def save_model(self, request, obj, form, change):
+        from core.services.tat_presentation import update_presentation_settings
+        updated = update_presentation_settings(
+            actor=request.user,
+            business_time_visible=form.cleaned_data['business_time_enabled'],
+            reason=form.cleaned_data['change_reason'],
+            expected_revision=form.cleaned_data['expected_revision'],
+        )
+        obj.business_time_enabled = updated.business_time_enabled
+        obj.revision = updated.revision
+        obj.change_reason = updated.change_reason
+        obj.updated_by = updated.updated_by
+        obj.updated_at = updated.updated_at
 
 
 class TatPrivateAlertConnectionEventInline(TabularInline):

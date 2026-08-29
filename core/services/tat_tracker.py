@@ -557,6 +557,9 @@ def home_data(
     response for cached Mini App clients during the responsive-home rollout.
     """
     workflow = getattr(group_config, 'workflow', None) or {}
+    from core.services.tat_presentation import presentation_settings
+    presentation = presentation_settings()
+    include_business_time = presentation['business_time_enabled']
     stored_queryset = TatTrackerCase.objects.filter(
         group_id=str(group_config.group_id), is_deleted=False,
     )
@@ -642,7 +645,7 @@ def home_data(
         visibility_message = 'No accessible TAT cases are available.'
     recent_cases = sorted(cases, key=lambda item: item.updated_at, reverse=True)
     recent = [
-        serialize_case_summary(case, user, workflow=workflow)
+        serialize_case_summary(case, user, workflow=workflow, include_business_time=include_business_time)
         for case in recent_cases[recent_offset:recent_offset + page_size]
     ]
 
@@ -655,7 +658,7 @@ def home_data(
             actionable_cases.append((case, next_stage))
     action_total = len(actionable_cases)
     action_required = [
-        serialize_case_summary(case, user, next_stage=next_stage, workflow=workflow)
+        serialize_case_summary(case, user, next_stage=next_stage, workflow=workflow, include_business_time=include_business_time)
         for case, next_stage in actionable_cases[action_offset:action_offset + page_size]
     ]
     completed_total = sum(case.status in TAT_COMPLETED_STATUSES for case in cases)
@@ -694,13 +697,13 @@ def home_data(
         selected_total = assigned['total']
     elif queue_key == 'all':
         items = [
-            serialize_case_summary(case, user, workflow=workflow)
+            serialize_case_summary(case, user, workflow=workflow, include_business_time=include_business_time)
             for case in recent_cases[page_offset:page_offset + page_size]
         ]
         selected_total = recent_total
     else:
         items = [
-            serialize_case_summary(case, user, next_stage=next_stage, workflow=workflow)
+            serialize_case_summary(case, user, next_stage=next_stage, workflow=workflow, include_business_time=include_business_time)
             for case, next_stage in actionable_cases[page_offset:page_offset + page_size]
         ]
         selected_total = action_total
@@ -723,12 +726,12 @@ def home_data(
             items = assigned['items']
         elif queue_key == 'all':
             items = [
-                serialize_case_summary(case, user, workflow=workflow)
+                serialize_case_summary(case, user, workflow=workflow, include_business_time=include_business_time)
                 for case in recent_cases[page_offset:page_offset + page_size]
             ]
         else:
             items = [
-                serialize_case_summary(case, user, next_stage=next_stage, workflow=workflow)
+                serialize_case_summary(case, user, next_stage=next_stage, workflow=workflow, include_business_time=include_business_time)
                 for case, next_stage in actionable_cases[page_offset:page_offset + page_size]
             ]
 
@@ -738,6 +741,7 @@ def home_data(
         'pages': selected_pages,
     })
     return {
+        'presentation': presentation,
         'queue': queue_key,
         'items': items,
         'metrics': {
@@ -791,14 +795,25 @@ def search_cases(group_config, user: dict, query: str) -> list[dict]:
         TatTrackerCase.objects.filter(group_id=str(group_config.group_id), is_deleted=False)
     ).filter(query)
     queryset = _scope_tat_queryset(queryset, user, 'tat.case.search')
-    return [serialize_case_summary(case, user, workflow=workflow) for case in queryset.order_by('-updated_at')[:25]]
+    from core.services.tat_presentation import business_time_enabled
+    include_business_time = business_time_enabled()
+    return [
+        serialize_case_summary(
+            case, user, workflow=workflow, include_business_time=include_business_time,
+        )
+        for case in queryset.order_by('-updated_at')[:25]
+    ]
 
 
 def get_case_detail(group_config, user: dict, case_id: str) -> dict:
     case = TatTrackerCase.objects.get(group_id=str(group_config.group_id), case_id=str(case_id), is_deleted=False)
     if not _tat_scope_allowed(user, 'tat.home.view', case):
         raise ValueError('This TAT case is outside your assigned access scope.')
-    return serialize_case_detail(case, user, workflow=getattr(group_config, 'workflow', None) or {})
+    from core.services.tat_presentation import business_time_enabled
+    return serialize_case_detail(
+        case, user, workflow=getattr(group_config, 'workflow', None) or {},
+        include_business_time=business_time_enabled(),
+    )
 
 
 def record_tat_event(**values) -> TatTrackerEvent:
@@ -2211,8 +2226,13 @@ def calculated_tat_days(case: TatTrackerCase, now=None) -> Decimal | None:
 def overall_tat_end(case: TatTrackerCase, now=None):
     values = case.stage_values or {}
     if case.status in {'Rejected', 'Declined'}:
-        return parse_iso_datetime(values.get('decision_ts')) or parse_iso_datetime(values.get('decision')) or now or timezone.now()
-    return parse_iso_datetime(values.get('disbursement')) or now or timezone.now()
+        return parse_iso_datetime(values.get('decision_ts')) or parse_iso_datetime(values.get('decision')) or case.updated_at
+    disbursed_at = parse_iso_datetime(values.get('disbursement'))
+    if disbursed_at:
+        return disbursed_at
+    if case.status == 'Disbursed':
+        return case.updated_at
+    return now or timezone.now()
 
 
 def minutes_between(start, end) -> Decimal | None:
@@ -2223,6 +2243,28 @@ def minutes_between(start, end) -> Decimal | None:
     return (seconds / Decimal('60')).quantize(Decimal('0.01'))
 
 
+def seconds_between(start, end) -> int | None:
+    if not start or not end:
+        return None
+    return max(0, int((end - start).total_seconds()))
+
+
+def calculated_tat_seconds(case: TatTrackerCase, now=None) -> int | None:
+    created = parse_iso_datetime((case.stage_values or {}).get('created'))
+    if not created:
+        return None
+    return seconds_between(created, overall_tat_end(case, now=now))
+
+
+def overall_tat_running(case: TatTrackerCase) -> bool:
+    values = case.stage_values or {}
+    if not parse_iso_datetime(values.get('created')):
+        return False
+    return case.status not in TAT_COMPLETED_STATUSES and not bool(
+        parse_iso_datetime(values.get('disbursement'))
+    )
+
+
 def stage_tat_minutes(case: TatTrackerCase, stage: StageConfig, now=None) -> Decimal | None:
     product = product_for_case(case)
     previous = previous_stage_timestamp(case, product, stage)
@@ -2230,8 +2272,25 @@ def stage_tat_minutes(case: TatTrackerCase, stage: StageConfig, now=None) -> Dec
         return None
     current = stage_completed_at(case, stage)
     if not current and next_action(case) and next_action(case).key == stage.key:
-        current = now or timezone.now()
+        current = overall_tat_end(case, now=now) if not overall_tat_running(case) else (now or timezone.now())
     return minutes_between(previous, current)
+
+
+def stage_tat_seconds(case: TatTrackerCase, stage: StageConfig, now=None) -> int | None:
+    previous = previous_stage_timestamp(case, product_for_case(case), stage)
+    if not previous:
+        return None
+    current = stage_completed_at(case, stage)
+    if not current and next_action(case) and next_action(case).key == stage.key:
+        current = overall_tat_end(case, now=now) if not overall_tat_running(case) else (now or timezone.now())
+    return seconds_between(previous, current)
+
+
+def stage_tat_running(case: TatTrackerCase, stage: StageConfig) -> bool:
+    if case.status in TAT_COMPLETED_STATUSES or parse_iso_datetime((case.stage_values or {}).get('disbursement')):
+        return False
+    current = next_action(case)
+    return not bool(stage_completed_at(case, stage)) and bool(current and current.key == stage.key)
 
 
 def stage_business_tat_minutes(case: TatTrackerCase, stage: StageConfig, now=None) -> Decimal | None:
@@ -2240,7 +2299,7 @@ def stage_business_tat_minutes(case: TatTrackerCase, stage: StageConfig, now=Non
         return None
     current = stage_completed_at(case, stage)
     if not current and next_action(case) and next_action(case).key == stage.key:
-        current = now or timezone.now()
+        current = overall_tat_end(case, now=now) if not overall_tat_running(case) else (now or timezone.now())
     return business_minutes_between(previous, current)
 
 
@@ -2775,21 +2834,39 @@ def can_user_correct_case_details(user: dict, case: TatTrackerCase | None = None
     return _tat_scope_allowed(user, 'tat.case.correct', case)
 
 
-def serialize_case_summary(case: TatTrackerCase, user: dict | None = None, next_stage: StageConfig | None = None, workflow: dict | None = None) -> dict:
+def serialize_case_summary(
+    case: TatTrackerCase, user: dict | None = None, next_stage: StageConfig | None = None,
+    workflow: dict | None = None, include_business_time: bool | None = None,
+) -> dict:
+    if include_business_time is None:
+        from core.services.tat_presentation import business_time_enabled
+        include_business_time = business_time_enabled()
     next_stage = next_stage or next_action(case)
     unresolved = case.configuration_binding_status == TatTrackerCase.CONFIG_UNRESOLVED
     product = product_by_key(case.product_key) if unresolved else product_for_case(case)
-    tat_minutes = calculated_tat_minutes(case)
-    business_minutes = calculated_business_tat_minutes(case)
-    tat_hours = calculated_tat_hours(case) if tat_minutes is not None else None
-    tat_days = calculated_tat_days(case) if tat_minutes is not None else None
+    calculated_at = timezone.now()
+    tat_minutes = calculated_tat_minutes(case, now=calculated_at)
+    tat_seconds = calculated_tat_seconds(case, now=calculated_at)
+    business_minutes = calculated_business_tat_minutes(case, now=calculated_at) if include_business_time else None
+    tat_hours = calculated_tat_hours(case, now=calculated_at) if tat_minutes is not None else None
+    tat_days = calculated_tat_days(case, now=calculated_at) if tat_minutes is not None else None
     total_target = total_target_minutes(workflow, product)
     certificates = {certificate.stage_key: certificate.status for certificate in case.approval_certificates.all()}
     read_only = unresolved or not is_record_operational(case)
-    return {'case_id': case.case_id, 'product': case.product_label or product.label, 'product_key': case.product_key, 'client_name': case.client_name, 'national_id': case.national_id, 'primary_phone': case.primary_phone, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'status': case.status, 'current_stage': case.current_stage, 'workflow_revision': int(case.workflow_revision or 1), 'next_stage': next_stage.label if next_stage and not read_only else '', 'next_stage_key': next_stage.key if next_stage and not read_only else '', 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'wall_clock_minutes': str(tat_minutes) if tat_minutes is not None else '', 'business_minutes': str(business_minutes) if business_minutes is not None else '', 'sla_minutes': str(tat_minutes) if tat_minutes is not None else '', 'tat_hours': str(tat_hours) if tat_hours is not None else '', 'tat_days': str(tat_days) if tat_days is not None else '', 'target_minutes': str(total_target) if total_target is not None else '', 'sla_status': sla_status(tat_minutes, total_target), 'certificate_statuses': certificates, 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at), 'data_mode': case.data_mode, 'is_pilot': case.data_mode == 'pilot', 'read_only': read_only, 'configuration_binding_status': case.configuration_binding_status, 'configuration_blocker': 'Resolve the legacy product version in TAT Control Center before editing this case.' if unresolved else '', 'pilot_cycle_id': str(case.pilot_cycle_id or '')}
+    payload = {'case_id': case.case_id, 'product': case.product_label or product.label, 'product_key': case.product_key, 'client_name': case.client_name, 'national_id': case.national_id, 'primary_phone': case.primary_phone, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'status': case.status, 'current_stage': case.current_stage, 'workflow_revision': int(case.workflow_revision or 1), 'next_stage': next_stage.label if next_stage and not read_only else '', 'next_stage_key': next_stage.key if next_stage and not read_only else '', 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'wall_clock_minutes': str(tat_minutes) if tat_minutes is not None else '', 'elapsed_seconds': tat_seconds, 'calculated_at': calculated_at.isoformat(), 'server_now': calculated_at.isoformat(), 'running': overall_tat_running(case), 'target_seconds': int(total_target * 60) if total_target is not None else None, 'sla_minutes': str(tat_minutes) if tat_minutes is not None else '', 'tat_hours': str(tat_hours) if tat_hours is not None else '', 'tat_days': str(tat_days) if tat_days is not None else '', 'target_minutes': str(total_target) if total_target is not None else '', 'sla_status': sla_status(tat_minutes, total_target), 'certificate_statuses': certificates, 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at), 'data_mode': case.data_mode, 'is_pilot': case.data_mode == 'pilot', 'read_only': read_only, 'configuration_binding_status': case.configuration_binding_status, 'configuration_blocker': 'Resolve the legacy product version in TAT Control Center before editing this case.' if unresolved else '', 'pilot_cycle_id': str(case.pilot_cycle_id or '')}
+    if include_business_time:
+        payload['business_minutes'] = str(business_minutes) if business_minutes is not None else ''
+    return payload
 
 
-def serialize_case_detail(case: TatTrackerCase, user: dict, workflow: dict | None = None) -> dict:
+def serialize_case_detail(
+    case: TatTrackerCase, user: dict, workflow: dict | None = None,
+    include_business_time: bool | None = None,
+) -> dict:
+    if include_business_time is None:
+        from core.services.tat_presentation import business_time_enabled
+        include_business_time = business_time_enabled()
+    calculated_at = timezone.now()
     unresolved = case.configuration_binding_status == TatTrackerCase.CONFIG_UNRESOLVED
     product = product_by_key(case.product_key) if unresolved else product_for_case(case)
     read_only = unresolved or not is_record_operational(case)
@@ -2798,11 +2875,15 @@ def serialize_case_detail(case: TatTrackerCase, user: dict, workflow: dict | Non
     for stage in (() if unresolved else product.stages):
         value = case.stage_values.get(stage.key, '')
         editable = (not read_only) and previous_stages_complete(case, stage) and can_user_edit_stage(user, case, stage) and (not value or stage.kind == 'dropdown')
-        tat_minutes = stage_tat_minutes(case, stage)
-        business_minutes = stage_business_tat_minutes(case, stage)
+        tat_minutes = stage_tat_minutes(case, stage, now=calculated_at)
+        tat_seconds = stage_tat_seconds(case, stage, now=calculated_at)
+        business_minutes = stage_business_tat_minutes(case, stage, now=calculated_at) if include_business_time else None
         target = stage_target_minutes_for_case(case, workflow, product, stage)
         certificate = case.approval_certificates.filter(stage_key=stage.key).first() if stage.requires_signature_certificate else None
-        fields.append({'key': stage.key, 'label': stage.label, 'kind': stage.kind, 'value': display_stage_value(stage, value), 'raw_value': str(value or ''), 'editable': editable, 'can_correct': bool(value) and can_user_correct_stage(user, case, stage), 'options': list(stage.options), 'role': stage.role, 'locked_reason': '' if editable or (value and can_user_correct_stage(user, case, stage)) else lock_reason(case, user, stage), 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'wall_clock_minutes': str(tat_minutes) if tat_minutes is not None else '', 'business_minutes': str(business_minutes) if business_minutes is not None else '', 'sla_minutes': str(tat_minutes) if tat_minutes is not None else '', 'target_minutes': str(target) if target is not None else '', 'sla_status': sla_status(tat_minutes, target), 'certificate_status': certificate.status if certificate else ''})
+        field_payload = {'key': stage.key, 'label': stage.label, 'kind': stage.kind, 'value': display_stage_value(stage, value), 'raw_value': str(value or ''), 'editable': editable, 'can_correct': bool(value) and can_user_correct_stage(user, case, stage), 'options': list(stage.options), 'role': stage.role, 'locked_reason': '' if editable or (value and can_user_correct_stage(user, case, stage)) else lock_reason(case, user, stage), 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'wall_clock_minutes': str(tat_minutes) if tat_minutes is not None else '', 'elapsed_seconds': tat_seconds, 'calculated_at': calculated_at.isoformat(), 'running': stage_tat_running(case, stage), 'target_seconds': int(target * 60) if target is not None else None, 'sla_minutes': str(tat_minutes) if tat_minutes is not None else '', 'target_minutes': str(target) if target is not None else '', 'sla_status': sla_status(tat_minutes, target), 'certificate_status': certificate.status if certificate else ''}
+        if include_business_time:
+            field_payload['business_minutes'] = str(business_minutes) if business_minutes is not None else ''
+        fields.append(field_payload)
     timeline = tat_case_timeline(case)
     legacy_events = [
         {
@@ -2828,7 +2909,11 @@ def serialize_case_detail(case: TatTrackerCase, user: dict, workflow: dict | Non
             ).filter(Q(workflow='') | Q(workflow='tat_tracker'))
         ]
     return {
-        'summary': serialize_case_summary(case, user, workflow=workflow),
+        'summary': serialize_case_summary(
+            case, user, workflow=workflow, include_business_time=include_business_time,
+        ),
+        'server_now': calculated_at.isoformat(),
+        'business_time_enabled': bool(include_business_time),
         'fields': fields,
         'remarks': case.remarks,
         'events': legacy_events,

@@ -22,6 +22,16 @@
     // cannot leave the user looking at an empty list.
     lastSuccessfulHome: null,
     homeRequestNumber: 0,
+    homeRequestsInFlight: 0,
+    pendingHome: null,
+    lastSuccessfulRefreshAt: null,
+    lastSuccessfulRefreshPerformance: null,
+    consecutiveRefreshFailures: 0,
+    counterDisplayedSeconds: {},
+    businessTimeEnabled: true,
+    detailRequestNumber: 0,
+    detailRequestsInFlight: 0,
+    pendingDetail: null,
     loadingHomePage: false,
     identityContextRequestNumber: 0,
     identityContextTimer: null,
@@ -443,6 +453,60 @@
     ];
   }
 
+  function formatElapsedSeconds(value) {
+    let seconds = Math.max(0, Math.floor(Number(value) || 0));
+    const days = Math.floor(seconds / 86400);
+    seconds %= 86400;
+    const hours = Math.floor(seconds / 3600);
+    seconds %= 3600;
+    const minutes = Math.floor(seconds / 60);
+    seconds %= 60;
+    const parts = [];
+    if (days) parts.push(`${days}d`);
+    if (hours || days) parts.push(`${hours}h`);
+    parts.push(`${minutes}m`);
+    parts.push(`${String(seconds).padStart(2, '0')}s`);
+    return parts.join(' ');
+  }
+
+  function tatCounterMarkup(record, key) {
+    const elapsed = Number(record && record.elapsed_seconds);
+    if (!Number.isFinite(elapsed)) return escapeHtml(formatMinutes(record && (record.wall_clock_minutes || record.tat_minutes)) || 'Not started');
+    const previous = state.counterDisplayedSeconds[key];
+    const reconciled = Number.isFinite(previous) && Math.abs(previous - elapsed) >= 5;
+    return `<span class="live-tat-counter${reconciled ? ' reconciled' : ''}" data-counter-key="${escapeHtml(key)}" data-elapsed-seconds="${elapsed}" data-calculated-at="${escapeHtml(record.calculated_at || record.server_now || '')}" data-running="${record.running ? 'true' : 'false'}" data-target-seconds="${record.target_seconds == null ? '' : escapeHtml(record.target_seconds)}">${escapeHtml(formatElapsedSeconds(elapsed))}</span>${reconciled ? '<small class="tat-reconciled-note">Updated from server</small>' : ''}`;
+  }
+
+  function hydrateTatCounters(root) {
+    (root || document).querySelectorAll('[data-counter-key]').forEach((node) => {
+      node._tatClock = window.MiniAppRuntime?.createServerClock(node.dataset.calculatedAt);
+      window.setTimeout(() => node.classList.remove('reconciled'), 1600);
+      const note = node.parentElement?.querySelector('.tat-reconciled-note');
+      if (note) window.setTimeout(() => note.remove(), 2200);
+    });
+    tickTatCounters();
+  }
+
+  function tickTatCounters() {
+    document.querySelectorAll('[data-counter-key]').forEach((node) => {
+      let elapsed = Math.max(0, Number(node.dataset.elapsedSeconds) || 0);
+      if (node.dataset.running === 'true' && node._tatClock) {
+        elapsed += Math.max(0, Math.floor((node._tatClock.nowMs() - node._tatClock.serverEpochMs) / 1000));
+      }
+      state.counterDisplayedSeconds[node.dataset.counterKey] = elapsed;
+      node.textContent = formatElapsedSeconds(elapsed);
+      const target = Number(node.dataset.targetSeconds);
+      const badge = node.closest('.tat-badge');
+      if (badge && Number.isFinite(target) && target > 0) {
+        badge.classList.remove('within', 'near', 'over');
+        const status = elapsed > target ? 'over' : elapsed >= target * 0.8 ? 'near' : 'within';
+        badge.classList.add(status);
+        const label = badge.parentElement?.querySelector('.live-tat-sla-label');
+        if (label) label.textContent = slaLabel(status);
+      }
+    });
+  }
+
   function renderActiveFilters() {
     const filters = currentHomeFilters();
     const chips = [];
@@ -621,6 +685,94 @@
     return true;
   }
 
+  function queueRenderIsSafe() {
+    const correctionOpen = !$('caseCorrectionPanel')?.classList.contains('hidden');
+    return !state.filterSheetOpen
+      && !state.creatingCase
+      && !state.pendingStageUpdate
+      && !state.pendingCorrection
+      && !correctionOpen
+      && !newCaseProtection?.isDirty?.()
+      && !personalSettingsProtection?.isDirty?.()
+      && !targetSettingsProtection?.isDirty?.()
+      && !holidaySettingsProtection?.isDirty?.()
+      && !escalationSettingsProtection?.isDirty?.();
+  }
+
+  function detailRenderIsSafe() {
+    const remarksDirty = Boolean(
+      state.detail
+      && $('remarksInput')
+      && $('remarksInput').value !== String(state.detail.remarks || ''),
+    );
+    return !state.pendingStageUpdate
+      && !state.pendingCorrection
+      && $('caseCorrectionPanel')?.classList.contains('hidden')
+      && !caseCorrectionProtection?.isDirty?.()
+      && !remarksDirty;
+  }
+
+  function applyPendingDetail() {
+    if (!state.pendingDetail || !detailRenderIsSafe()) return false;
+    state.detail = state.pendingDetail;
+    state.pendingDetail = null;
+    renderDetail(state.detail);
+    return true;
+  }
+
+  function applyPendingHome() {
+    if (!state.pendingHome || !queueRenderIsSafe()) return false;
+    const pending = state.pendingHome;
+    state.pendingHome = null;
+    renderHomePreservingScroll(pending);
+    state.lastSuccessfulHome = snapshotHome();
+    return true;
+  }
+
+  function renderHomePreservingScroll(home) {
+    const scrollTop = window.scrollY || document.documentElement.scrollTop || 0;
+    renderHome(home);
+    window.requestAnimationFrame(() => window.scrollTo(0, scrollTop));
+  }
+
+  function markRefreshSuccess() {
+    state.lastSuccessfulRefreshAt = new Date();
+    state.lastSuccessfulRefreshPerformance = window.performance?.now?.() ?? null;
+    state.consecutiveRefreshFailures = 0;
+    updateQueueFreshness();
+  }
+
+  function markBackgroundRefreshFailure() {
+    state.consecutiveRefreshFailures += 1;
+    updateQueueFreshness();
+  }
+
+  function refreshAgeSeconds() {
+    if (state.lastSuccessfulRefreshPerformance != null && window.performance?.now) {
+      return Math.max(0, Math.floor((window.performance.now() - state.lastSuccessfulRefreshPerformance) / 1000));
+    }
+    if (!state.lastSuccessfulRefreshAt) return null;
+    return Math.max(0, Math.floor((Date.now() - state.lastSuccessfulRefreshAt.getTime()) / 1000));
+  }
+
+  function relativeRefreshAge(seconds) {
+    if (seconds == null || seconds < 10) return 'just now';
+    if (seconds < 60) return `${seconds} seconds ago`;
+    const minutes = Math.floor(seconds / 60);
+    return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  }
+
+  function updateQueueFreshness() {
+    const indicator = $('queueFreshness');
+    if (!indicator) return;
+    const age = relativeRefreshAge(refreshAgeSeconds());
+    const failing = state.consecutiveRefreshFailures >= 2;
+    indicator.classList.toggle('refresh-failing', failing);
+    indicator.textContent = failing
+      ? `Couldn’t refresh — showing data from ${age}`
+      : `Updated ${age}`;
+  }
+
   function homeHasItems(home) {
     return Boolean(home && home.items && home.items.length);
   }
@@ -703,6 +855,7 @@
     if (state.currentView !== 'detail') tg?.BackButton?.hide?.();
     if (!(options && options.restoreFocus === false)) state.filterSheetReturnFocus?.focus?.();
     state.filterSheetReturnFocus = null;
+    applyPendingHome();
   }
 
   function trapFilterSheetFocus(event) {
@@ -960,17 +1113,18 @@
     const result = await api('/api/tat-tracker/settings/', {});
     const personal = result.data.personal || {};
     const configuration = result.data.configuration || {};
+    applyBusinessPresentation((configuration.presentation || {}).business_time_enabled !== false);
     if (utils.renderSettingsAccount) utils.renderSettingsAccount($('tatSettingsAccount'), result.data.account || {});
     if ($('tatSettingsRelease')) $('tatSettingsRelease').textContent = result.data.account?.app_release || 'Current release';
     $('preferenceDefaultScreen').value = personal.default_screen || 'home';
     $('preferenceCompactCards').checked = Boolean(personal.compact_cards);
-    $('preferenceBusinessHours').checked = personal.show_business_hours_time !== false;
+    $('preferenceBusinessHours').checked = state.businessTimeEnabled && personal.show_business_hours_time !== false;
     const targetCard = (configuration.cards || {}).tat_targets || {};
     $('targetSettingsForm').classList.toggle('hidden', !targetCard.can_propose);
     if (targetCard.can_propose) renderTargetSettings(configuration.targets || []);
     const holidayCard = (configuration.cards || {}).business_calendar || {};
-    $('holidaySettingsForm').classList.toggle('hidden', !holidayCard.can_propose);
-    if (holidayCard.can_propose) renderHolidaySettings((configuration.holidays || {}).holidays || []);
+    $('holidaySettingsForm').classList.toggle('hidden', !state.businessTimeEnabled || !holidayCard.can_propose);
+    if (state.businessTimeEnabled && holidayCard.can_propose) renderHolidaySettings((configuration.holidays || {}).holidays || []);
     const escalationCard = (configuration.cards || {}).tat_escalation || {};
     $('escalationSettingsForm').classList.toggle('hidden', !escalationCard.can_propose);
     if (escalationCard.can_propose) renderEscalationSettings((configuration.escalation || {}).rules || []);
@@ -996,7 +1150,7 @@
     const personal = preference || {};
     state.personalPreference = personal;
     document.body.classList.toggle('compact-cards', Boolean(personal.compact_cards));
-    document.body.classList.toggle('hide-business-hours-time', personal.show_business_hours_time === false);
+    document.body.classList.toggle('hide-business-hours-time', !state.businessTimeEnabled || personal.show_business_hours_time === false);
     const savedFilters = personal.default_filters || {};
     setCheckedFilterValues('queueProductFilters', savedFilters.product_keys || savedFilters.product_key || []);
     setCheckedFilterValues('queueBranchFilters', savedFilters.branches || savedFilters.branch || []);
@@ -1005,9 +1159,23 @@
     return personal.default_screen === 'new' && canCreate ? 'new' : 'queue';
   }
 
+  function applyBusinessPresentation(enabled) {
+    state.businessTimeEnabled = Boolean(enabled);
+    const row = $('businessTimePreferenceRow');
+    if (row) row.hidden = !state.businessTimeEnabled;
+    if ($('preferenceBusinessHours')) $('preferenceBusinessHours').disabled = !state.businessTimeEnabled;
+    document.body.classList.toggle(
+      'hide-business-hours-time',
+      !state.businessTimeEnabled || state.personalPreference.show_business_hours_time === false,
+    );
+    if (!state.businessTimeEnabled) $('holidaySettingsForm')?.classList.add('hidden');
+  }
+
   function bootstrap(data) {
     state.data = data;
     state.workflowMode = data.workflow_mode || null;
+    state.businessTimeEnabled = (data.presentation || {}).business_time_enabled !== false;
+    applyBusinessPresentation(state.businessTimeEnabled);
     if (!data.authorized) throw new Error(data.reason || 'Unauthorized.');
     $('loadingBrand').classList.add('hidden');
     const modeBanner = $('workflowModeBanner');
@@ -1051,6 +1219,8 @@
     state.homeQueue = initialQueue;
     state.homePages[initialQueue] = 1;
     renderHome(data);
+    state.lastSuccessfulHome = snapshotHome();
+    markRefreshSuccess();
     renderPrivateAlertConnection(data.private_alerts || {});
     $('trackerTabs').classList.add('has-settings');
     const initialView = applyPersonalPreference(data.personal || {});
@@ -1112,8 +1282,11 @@
 
   async function refresh(options) {
     const background = Boolean(options && options.background);
+    const periodic = Boolean(options && options.periodic);
+    if (periodic && state.homeRequestsInFlight > 0) return null;
     const requestNumber = (state.homeRequestNumber || 0) + 1;
     state.homeRequestNumber = requestNumber;
+    state.homeRequestsInFlight += 1;
     if (!background) setStatus('Refreshing queue...', 'busy');
     try {
       const result = await api('/api/tat-tracker/home/', homePayload());
@@ -1121,6 +1294,7 @@
       if (!nextHome || typeof nextHome !== 'object') {
         throw new Error('Queue refresh returned an invalid response. Tap Refresh to retry.');
       }
+      applyBusinessPresentation((nextHome.presentation || {}).business_time_enabled !== false);
       const cachedHome = state.lastSuccessfulHome;
       if (
         cachedHome
@@ -1134,22 +1308,31 @@
       // A slower request started before this one must not overwrite the
       // current queue with stale (or empty) data.
       if (requestNumber !== state.homeRequestNumber) return result;
-      renderHome(nextHome);
+      if (queueRenderIsSafe()) {
+        // A newer response applied immediately supersedes any older snapshot
+        // that was held while a form or dialog was unsafe to re-render.
+        state.pendingHome = null;
+        renderHomePreservingScroll(nextHome);
+      } else {
+        state.pendingHome = nextHome;
+      }
       if (
         state.autoSelectHomeQueue
-        && state.homeQueue === 'assigned'
-        && Number((state.home.metrics || {}).assigned || 0) === 0
-        && Number((state.home.metrics || {}).role || 0) > 0
+        && String(nextHome.queue || state.homeQueue) === 'assigned'
+        && Number((nextHome.metrics || {}).assigned || 0) === 0
+        && Number((nextHome.metrics || {}).role || 0) > 0
       ) {
         state.autoSelectHomeQueue = false;
         state.homeQueue = 'role';
         return refresh(options);
       }
       state.autoSelectHomeQueue = false;
-      state.lastSuccessfulHome = snapshotHome();
+      if (!state.pendingHome) state.lastSuccessfulHome = snapshotHome();
+      markRefreshSuccess();
       if (!background) setStatus('Queue updated.', 'ok');
       return result;
     } catch (error) {
+      if (requestNumber === state.homeRequestNumber && background) markBackgroundRefreshFailure();
       if (requestNumber === state.homeRequestNumber && !background) {
         const restored = restoreLastSuccessfulHome();
         setStatus(
@@ -1160,16 +1343,48 @@
         );
       }
       throw error;
+    } finally {
+      state.homeRequestsInFlight = Math.max(0, state.homeRequestsInFlight - 1);
+    }
+  }
+
+  async function refreshDetailBackground() {
+    const caseId = state.detail?.summary?.case_id;
+    if (!caseId || state.detailRequestsInFlight > 0) return null;
+    const requestNumber = ++state.detailRequestNumber;
+    state.detailRequestsInFlight += 1;
+    try {
+      const result = await api('/api/tat-tracker/detail/', { case_id: caseId });
+      if (requestNumber !== state.detailRequestNumber || !result.data?.summary) return result;
+      if (detailRenderIsSafe()) {
+        state.pendingDetail = null;
+        state.detail = result.data;
+        renderDetail(result.data);
+      } else {
+        state.pendingDetail = result.data;
+      }
+      return result;
+    } finally {
+      state.detailRequestsInFlight = Math.max(0, state.detailRequestsInFlight - 1);
     }
   }
 
   async function openCase(caseId, focusStageKey) {
+    const requestNumber = ++state.detailRequestNumber;
+    state.detailRequestsInFlight += 1;
     setStatus('Opening case...', 'busy');
-    const result = await api('/api/tat-tracker/detail/', { case_id: caseId });
+    let result;
+    try {
+      result = await api('/api/tat-tracker/detail/', { case_id: caseId });
+    } finally {
+      state.detailRequestsInFlight = Math.max(0, state.detailRequestsInFlight - 1);
+    }
+    if (requestNumber !== state.detailRequestNumber) return;
     if (state.pendingCorrection && state.pendingCorrection.caseId !== caseId) {
       state.pendingCorrection = null;
     }
     state.detail = result.data;
+    state.pendingDetail = null;
     renderDetail(result.data);
     show('detail');
     setStatus('Case opened.', 'ok');
@@ -1226,8 +1441,8 @@
         </div>
         <div class="fact">
           <small>Official TAT (wall clock)</small>
-          <span class="tat-badge ${escapeHtml(summary.sla_status || '')}">${escapeHtml(formatMinutes(summary.wall_clock_minutes || summary.tat_minutes) || 'Not started')}</span>
-          ${summary.business_minutes && state.personalPreference.show_business_hours_time !== false ? `<details class="tat-business-time"><summary>Show business-hours time</summary><small>${escapeHtml(formatMinutes(summary.business_minutes))}</small></details>` : ''}
+          <span class="tat-badge ${escapeHtml(summary.sla_status || '')}">${tatCounterMarkup(summary, `case:${summary.case_id}`)}</span>
+          ${state.businessTimeEnabled && summary.business_minutes && state.personalPreference.show_business_hours_time !== false ? `<details class="tat-business-time"><summary>Show business-hours time</summary><small>${escapeHtml(formatMinutes(summary.business_minutes))}</small></details>` : ''}
         </div>
         <div class="fact fact-activity">
           <small>Activity</small>
@@ -1258,16 +1473,16 @@
       }
 
       const valueText = field.value || (field.locked_reason ? 'Pending previous stages' : 'Not started');
-      const tatText = formatMinutes(field.wall_clock_minutes || field.tat_minutes);
       const businessText = formatMinutes(field.business_minutes);
       const targetText = formatMinutes(field.target_minutes);
       const slaText = slaLabel(field.sla_status);
-      const tatMeta = tatText ? `
+      const hasTat = Number.isFinite(Number(field.elapsed_seconds)) || Boolean(formatMinutes(field.wall_clock_minutes || field.tat_minutes));
+      const tatMeta = hasTat ? `
         <div class="stage-tat-row">
-          <span class="tat-badge ${escapeHtml(field.sla_status || '')}">${escapeHtml(tatText)}</span>
+          <span class="tat-badge ${escapeHtml(field.sla_status || '')}">${tatCounterMarkup(field, `stage:${summary.case_id}:${field.key}`)}</span>
           ${targetText ? `<span class="tat-target">Target ${escapeHtml(targetText)}</span>` : ''}
-          ${slaText ? `<span class="tat-target">${escapeHtml(slaText)}</span>` : ''}
-          ${businessText && state.personalPreference.show_business_hours_time !== false ? `<details class="tat-business-time"><summary>Business-hours time</summary><span class="tat-target">${escapeHtml(businessText)}</span></details>` : ''}
+          ${slaText ? `<span class="tat-target live-tat-sla-label">${escapeHtml(slaText)}</span>` : ''}
+          ${state.businessTimeEnabled && businessText && state.personalPreference.show_business_hours_time !== false ? `<details class="tat-business-time"><summary>Business-hours time</summary><span class="tat-target">${escapeHtml(businessText)}</span></details>` : ''}
         </div>
       ` : '';
       const certificateMeta = field.certificate_status ? `<div class="stage-tat-row"><span class="tat-target">Certificate: ${escapeHtml(field.certificate_status.replace(/_/g, ' '))}</span></div>` : '';
@@ -1340,6 +1555,7 @@
       }
       fields.appendChild(row);
     });
+    hydrateTatCounters($('detailView'));
 
     // Raw audit events deliberately stay out of the staff-facing case screen.
     // They remain available to authorized administrators through the immutable
@@ -1657,7 +1873,11 @@
     $('caseCorrectionPanel').classList.remove('hidden');
     $('caseCorrectionForm').elements.client_name?.focus();
   });
-  $('cancelCaseCorrectionBtn').addEventListener('click', () => $('caseCorrectionPanel').classList.add('hidden'));
+  $('cancelCaseCorrectionBtn').addEventListener('click', () => {
+    $('caseCorrectionPanel').classList.add('hidden');
+    applyPendingHome();
+    applyPendingDetail();
+  });
   $('caseCorrectionForm').addEventListener('submit', submitCaseCorrection);
   const caseCorrectionProtection = utils.bindFormCloseProtection?.($('caseCorrectionForm'), 'tat-case-correction');
   const targetSettingsProtection = utils.bindFormCloseProtection?.($('targetSettingsForm'), 'tat-target-settings');
@@ -1822,12 +2042,15 @@
     const button = $('savePersonalSettingsBtn');
     try {
       setButtonLoading(button, true, 'Saving');
+      const preferences = {
+        default_screen: $('preferenceDefaultScreen').value,
+        compact_cards: $('preferenceCompactCards').checked,
+      };
+      if (state.businessTimeEnabled) {
+        preferences.show_business_hours_time = $('preferenceBusinessHours').checked;
+      }
       const result = await api('/api/tat-tracker/settings/personal/', {
-        preferences: {
-          default_screen: $('preferenceDefaultScreen').value,
-          compact_cards: $('preferenceCompactCards').checked,
-          show_business_hours_time: $('preferenceBusinessHours').checked,
-        },
+        preferences,
       });
       applyPersonalPreference(result.data || {
         compact_cards: $('preferenceCompactCards').checked,
@@ -1883,6 +2106,39 @@
     }
   }
 
+  function startRuntimeTimers() {
+    const runtime = window.MiniAppRuntime;
+    if (runtime) {
+      runtime.createVisibleInterval(function () {
+        if (!state.data) return null;
+        const requests = [refresh({ background: true, periodic: true }).catch(() => {})];
+        if (state.currentView === 'detail') requests.push(refreshDetailBackground().catch(() => {}));
+        return Promise.all(requests);
+      }, 30000, { immediateOnResume: true });
+      runtime.createVisibleInterval(function () {
+        tickTatCounters();
+        applyPendingHome();
+        applyPendingDetail();
+      }, 1000);
+      runtime.createVisibleInterval(updateQueueFreshness, 10000);
+      return;
+    }
+    window.setInterval(function () {
+      if (document.visibilityState !== 'hidden' && state.data) {
+        refresh({ background: true, periodic: true }).catch(() => {});
+        if (state.currentView === 'detail') refreshDetailBackground().catch(() => {});
+      }
+    }, 30000);
+    window.setInterval(function () {
+      if (document.visibilityState !== 'hidden') {
+        tickTatCounters();
+        applyPendingHome();
+        applyPendingDetail();
+      }
+    }, 1000);
+    window.setInterval(updateQueueFreshness, 10000);
+  }
+
   configureHtmx();
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && state.filterSheetOpen) closeQueueFilters();
@@ -1895,5 +2151,7 @@
       }
     });
   }
-  startApp().catch((error) => setStatus(error.message, 'error'));
+  startApp()
+    .then(startRuntimeTimers)
+    .catch((error) => setStatus(error.message, 'error'));
 })();

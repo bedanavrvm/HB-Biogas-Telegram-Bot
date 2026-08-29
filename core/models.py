@@ -1657,6 +1657,32 @@ class TatConfigurationEvent(models.Model):
         raise ValidationError('TAT configuration events cannot be deleted.')
 
 
+class TatPresentationSettings(models.Model):
+    """Global, audited presentation policy for the TAT Mini App."""
+
+    singleton = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    business_time_enabled = models.BooleanField(default=True)
+    revision = models.PositiveIntegerField(default=1)
+    change_reason = models.TextField(blank=True, default='')
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='updated_tat_presentation_settings',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'TAT presentation setting'
+        verbose_name_plural = 'TAT presentation settings'
+        constraints = [models.CheckConstraint(
+            condition=models.Q(singleton=1), name='tat_presentation_singleton_one',
+        )]
+
+    def __str__(self):
+        state = 'enabled' if self.business_time_enabled else 'disabled'
+        return f'TAT presentation settings (business time {state})'
+
+
 class TatGroupExceptionStatus(models.Model):
     """One cumulative, privacy-safe group notification for unreachable tasks."""
 

@@ -290,6 +290,7 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("auth.User", "Users", "group"),
         _model_item("auth.Group", "Groups", "groups"),
         _model_item("core.WorkflowDataModeState", "SPIN/TAT pilot modes", "science"),
+        _model_item("core.TatPresentationSettings", "TAT display settings", "timer"),
         _model_item("core.TatResponsibilityAssignment", "TAT access & responsibilities", "account_tree"),
         _model_item("core.OperationalLocation", "Global locations", "map"),
         _model_item("core.BranchServiceArea", "Branch service areas", "conversion_path"),

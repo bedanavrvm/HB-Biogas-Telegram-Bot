@@ -17,7 +17,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import AccessGrant, BusinessCalendarHoliday, GroupSheetConfiguration, LiveSheetRecordChange, SheetRegisterContract, SheetSyncAuditSnapshot, TatActionTask, TatActionTaskRecipient, TatEscalationRule, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, UserMiniAppPreference, UserProfile, WorkflowConfigurationChangeRequest, WorkflowSlaEscalation
+from core.models import AccessGrant, BusinessCalendarHoliday, GroupSheetConfiguration, LiveSheetRecordChange, SheetRegisterContract, SheetSyncAuditSnapshot, TatActionTask, TatActionTaskRecipient, TatConfigurationEvent, TatEscalationRule, TatPresentationSettings, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, UserMiniAppPreference, UserProfile, WorkflowConfigurationChangeRequest, WorkflowSlaEscalation
 from core.api.views import _dispatch_tat_approval_certificate, _process_telegram_message, tat_tracker_identity_context, tat_tracker_settings
 from core.services.group_config import GroupConfig, GroupRegistry
 from core.services.tat_tracker import (
@@ -68,6 +68,7 @@ from core.services.tat_tracker import (
 from core.services.workflow_transitions import WorkflowRevisionConflict
 from core.services.workflow_sla import collect_sla_candidates, record_sla_candidates
 from core.services.miniapp_settings import create_tat_configuration_request, preference_payload, review_tat_configuration_request, update_preference
+from core.services.tat_presentation import update_presentation_settings
 from core.services.sync_governance import assert_registered_schema_before_publish, audit_sheet_register
 
 
@@ -553,7 +554,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Assigned to me', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn('?v=48', template)
+        self.assertIn('?v=49', template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -572,8 +573,37 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-sheet-overlay', stylesheet)
         self.assertIn('class="notice-close tat-sheet-close"', template)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
-        self.assertIn("miniapp/tat_tracker.css' %}?v=27", template)
+        self.assertIn("miniapp/tat_tracker.css' %}?v=28", template)
         self.assertIn('.queue-pagination', stylesheet)
+        self.assertIn('body.hide-business-hours-time .tat-business-time', stylesheet)
+        self.assertIn('.check-label[hidden]', stylesheet)
+
+    def test_queue_polling_uses_shared_visibility_runtime_and_health_feedback(self):
+        source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
+        runtime = Path('core/static/miniapp/runtime.js').read_text(encoding='utf-8')
+        diagnostics = Path('core/static/miniapp/diagnostics.js').read_text(encoding='utf-8')
+        template = Path('core/templates/tat_tracker/app.html').read_text(encoding='utf-8')
+
+        self.assertIn('createVisibleInterval', runtime)
+        self.assertIn('sharedRuntime.createVisibleInterval', diagnostics)
+        self.assertIn("refresh({ background: true, periodic: true })", source)
+        self.assertIn('if (periodic && state.homeRequestsInFlight > 0)', source)
+        self.assertIn('requestNumber !== state.homeRequestNumber', source)
+        self.assertIn('state.pendingHome = nextHome', source)
+        self.assertIn('refreshDetailBackground()', source)
+        self.assertIn('state.pendingDetail = result.data', source)
+        self.assertIn('Couldn’t refresh — showing data from', source)
+        self.assertIn('id="queueFreshness"', template)
+
+    def test_live_tat_counter_uses_server_anchor_and_monotonic_clock(self):
+        source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
+        runtime = Path('core/static/miniapp/runtime.js').read_text(encoding='utf-8')
+
+        self.assertIn('data-elapsed-seconds', source)
+        self.assertIn('data-calculated-at', source)
+        self.assertIn('Updated from server', source)
+        self.assertIn('performance.now()', runtime)
+        self.assertIn('createServerClock', runtime)
 
     def test_responsibility_editor_hides_redundant_related_object_controls(self):
         from core.admin import TatResponsibilityBackupInline
@@ -745,6 +775,68 @@ class TatTrackerWorkflowTest(TestCase):
         review_tat_configuration_request(str(request.pk), admin_actor, approve=True)
         self.assertTrue(BusinessCalendarHoliday.objects.get(date=future_date).active)
         self.assertEqual(BusinessCalendarHoliday.objects.get(date=historic_date).name, 'Previous operational holiday')
+
+    def test_global_business_time_switch_is_superuser_only_audited_and_enforced(self):
+        root = get_user_model().objects.create_superuser(
+            username='tat-presentation-root', email='root@example.invalid', password='test-password',
+        )
+        row = TatPresentationSettings.objects.get(singleton=1)
+        with self.assertRaisesRegex(PermissionError, 'active Superuser'):
+            update_presentation_settings(
+                actor=self.it_user, business_time_visible=False,
+                reason='Hide the optional comparison during this rollout.',
+                expected_revision=row.revision,
+            )
+
+        updated = update_presentation_settings(
+            actor=root, business_time_visible=False,
+            reason='Hide the optional comparison during this rollout.',
+            expected_revision=row.revision,
+        )
+
+        self.assertFalse(updated.business_time_enabled)
+        self.assertEqual(updated.revision, row.revision + 1)
+        self.assertTrue(TatConfigurationEvent.objects.filter(
+            action='tat.presentation.business_time.changed', actor=root,
+        ).exists())
+        with self.assertRaisesRegex(ValueError, 'global TAT presentation policy'):
+            update_preference(self.it_user, 'tat_tracker', {
+                'default_screen': 'home', 'compact_cards': False,
+                'show_business_hours_time': True, 'alert_mode': 'immediate',
+            })
+        it_actor = staff_user_for_payload(self.config, {'id': 444, 'username': 'it_user'})
+        with self.assertRaisesRegex(ValueError, 'unavailable'):
+            create_tat_configuration_request(
+                self.config, it_actor, setting_key='business_calendar',
+                reason='Add a future public holiday for operational reporting.',
+                proposed={'holidays': []}, request_id='calendar-disabled',
+            )
+        from core.services.miniapp_settings import tat_settings_payload
+        settings_payload = tat_settings_payload(self.config, it_actor)
+        self.assertEqual(settings_payload['holidays'], {})
+        self.assertFalse(settings_payload['cards']['business_calendar']['can_propose'])
+
+    def test_business_time_switch_cannot_hide_pending_calendar_proposal(self):
+        root = get_user_model().objects.create_superuser(
+            username='tat-pending-root', email='pending@example.invalid', password='test-password',
+        )
+        it_actor = staff_user_for_payload(self.config, {'id': 444, 'username': 'it_user'})
+        future_date = timezone.localdate() + timedelta(days=21)
+        create_tat_configuration_request(
+            self.config, it_actor, setting_key='business_calendar',
+            reason='Add a future public holiday before the next planning cycle.',
+            proposed={'holidays': [{
+                'date': future_date.isoformat(), 'name': 'Planned holiday', 'active': True,
+            }]}, request_id='calendar-pending-toggle',
+        )
+        row = TatPresentationSettings.objects.get(singleton=1)
+
+        with self.assertRaisesRegex(ValueError, 'Resolve the pending'):
+            update_presentation_settings(
+                actor=root, business_time_visible=False,
+                reason='Hide business time after calendar governance is resolved.',
+                expected_revision=row.revision,
+            )
 
     def test_tat_escalation_proposal_is_scope_validated_and_applied_once_approved(self):
         it_actor = staff_user_for_payload(self.config, {'id': 444, 'username': 'it_user'})
@@ -2328,10 +2420,44 @@ class TatTrackerWorkflowTest(TestCase):
         detail = serialize_case_detail(case, user, workflow=self.config.workflow)
 
         self.assertEqual(detail['summary']['target_minutes'], '120')
+        self.assertIsInstance(detail['summary']['elapsed_seconds'], int)
+        self.assertTrue(detail['summary']['running'])
+        self.assertEqual(detail['summary']['target_seconds'], 7200)
+        self.assertIn('server_now', detail['summary'])
         self.assertEqual(detail['fields'][0]['tat_minutes'], '50.00')
+        self.assertEqual(detail['fields'][0]['elapsed_seconds'], 3000)
+        self.assertFalse(detail['fields'][0]['running'])
+        self.assertEqual(detail['fields'][0]['target_seconds'], 3600)
         self.assertEqual(detail['fields'][0]['target_minutes'], '60')
         self.assertEqual(detail['fields'][0]['sla_status'], 'near')
         self.assertEqual(detail['fields'][1]['target_minutes'], '30')
+
+        hidden = serialize_case_detail(
+            case, user, workflow=self.config.workflow, include_business_time=False,
+        )
+        self.assertFalse(hidden['business_time_enabled'])
+        self.assertNotIn('business_minutes', hidden['summary'])
+        self.assertTrue(all('business_minutes' not in field for field in hidden['fields']))
+
+    def test_terminal_case_official_counter_is_fixed(self):
+        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+        created_at = timezone.make_aware(timezone.datetime(2026, 7, 14, 8, 0))
+        completed_at = timezone.make_aware(timezone.datetime(2026, 7, 14, 10, 0))
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id, sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-Business', case_id='JBL-BS-2026-FIXED',
+            product_key='business', product_label='Business', client_name='Fixed Client',
+            branch='Nakuru', status='Disbursed',
+            stage_values={'created': created_at.isoformat()},
+        )
+        TatTrackerCase.objects.filter(pk=case.pk).update(updated_at=completed_at)
+        case.refresh_from_db()
+
+        from core.services.tat_tracker import serialize_case_detail
+        detail = serialize_case_detail(case, user, workflow=self.config.workflow)
+
+        self.assertFalse(detail['summary']['running'])
+        self.assertEqual(detail['summary']['elapsed_seconds'], 7200)
 
     def test_next_role_alert_targets_pending_stage_role(self):
         data = {

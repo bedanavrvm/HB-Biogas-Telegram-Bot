@@ -459,15 +459,26 @@
     addEvent('session_started', { action: 'boot' });
     window.addEventListener('error', function () { addEvent('client_error', { statusBucket: 'client_error' }); });
     window.addEventListener('unhandledrejection', function () { addEvent('client_error', { statusBucket: 'client_error' }); });
-    document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState === 'hidden') {
-        addEvent('backgrounded', { action: 'visibility_change', visibility: 'hidden' });
-        window.clearInterval(heartbeatTimer);
-      } else {
-        addEvent('resumed', { action: 'visibility_change', visibility: 'visible' });
-        startHeartbeat();
-      }
-    });
+    const sharedRuntime = window.MiniAppRuntime;
+    if (sharedRuntime) {
+      sharedRuntime.subscribeVisibility(function (event) {
+        if (event.source === 'subscribe') return;
+        addEvent(event.visible ? 'resumed' : 'backgrounded', {
+          action: event.source,
+          visibility: event.visible ? 'visible' : 'hidden'
+        });
+      });
+    } else {
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') {
+          addEvent('backgrounded', { action: 'visibility_change', visibility: 'hidden' });
+          window.clearInterval(heartbeatTimer);
+        } else {
+          addEvent('resumed', { action: 'visibility_change', visibility: 'visible' });
+          startHeartbeat();
+        }
+      });
+    }
     window.addEventListener('pagehide', function () {
       addEvent('page_hidden', { action: 'page_lifecycle', visibility: 'hidden' });
     });
@@ -478,12 +489,19 @@
 
     function startHeartbeat() {
       try {
-        window.clearInterval(heartbeatTimer);
+        if (typeof heartbeatTimer === 'function') heartbeatTimer();
+        else window.clearInterval(heartbeatTimer);
         if (document.visibilityState === 'hidden') return;
         const seconds = Math.max(15, Number(config.heartbeatSeconds || 60));
-        heartbeatTimer = window.setInterval(function () {
-          if (document.visibilityState !== 'hidden') addEvent('heartbeat', { action: 'periodic' });
-        }, seconds * 1000);
+        if (sharedRuntime) {
+          heartbeatTimer = sharedRuntime.createVisibleInterval(function () {
+            addEvent('heartbeat', { action: 'periodic' });
+          }, seconds * 1000);
+        } else {
+          heartbeatTimer = window.setInterval(function () {
+            if (document.visibilityState !== 'hidden') addEvent('heartbeat', { action: 'periodic' });
+          }, seconds * 1000);
+        }
       } catch (_) {}
     }
     startHeartbeat();

@@ -1143,7 +1143,24 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
   color: var(--tat-danger);
   border-color: transparent;
 }
+.live-tat-counter { font-variant-numeric: tabular-nums; }
+.live-tat-counter.reconciled { animation: tat-counter-reconcile 1.4s ease-out; }
+.tat-reconciled-note { color: var(--tat-primary); font-size: 8px; font-weight: 700; }
+@keyframes tat-counter-reconcile {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--tat-primary) 35%, transparent); }
+  45% { box-shadow: 0 0 0 4px transparent; }
+  100% { box-shadow: none; }
+}
+.queue-freshness {
+  margin: -2px 0 7px;
+  color: var(--tat-muted);
+  font-size: 9px;
+  font-weight: 650;
+}
+.queue-freshness.refresh-failing { color: var(--tat-warn); }
 .tat-business-time { margin-top: 5px; color: var(--text-muted); font-size: 11px; }
+body.hide-business-hours-time .tat-business-time,
+.check-label[hidden] { display: none !important; }
 .tat-business-time summary { cursor: pointer; font-weight: 700; }
 .tat-business-time[open] summary { margin-bottom: 3px; }
 .tat-target {

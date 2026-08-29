@@ -168,6 +168,10 @@ def update_preference(user, workflow: str, payload: dict[str, Any]) -> dict[str,
     preference.default_filters = clean_filters
     preference.compact_cards = _normalise_boolean(payload.get('compact_cards'), field='Compact cards')
     if 'show_business_hours_time' in payload:
+        if workflow == 'tat_tracker':
+            from core.services.tat_presentation import business_time_enabled
+            if not business_time_enabled():
+                raise ValueError('Business-hours TAT is currently hidden by the global TAT presentation policy.')
         preference.show_business_hours_time = _normalise_boolean(
             payload.get('show_business_hours_time'),
             field='Show business-hours time',
@@ -308,22 +312,31 @@ def _normalise_escalation(payload: Any) -> dict[str, Any]:
 
 def tat_settings_payload(config, actor: dict) -> dict[str, Any]:
     from core.services.tat_tracker import tat_target_settings
+    from core.services.tat_presentation import presentation_settings
     config = _tat_database_configuration(config)
+    presentation = presentation_settings()
     pending = WorkflowConfigurationChangeRequest.objects.filter(
         workflow='tat_tracker', group_configuration=config, status=WorkflowConfigurationChangeRequest.STATUS_PENDING,
     ).order_by('-requested_at')
+    if not presentation['business_time_enabled']:
+        pending = pending.exclude(setting_key=WorkflowConfigurationChangeRequest.SETTING_HOLIDAYS)
     cards = {}
     for setting_key, (propose, approve) in SETTING_CAPABILITIES.items():
         cards[setting_key] = {'can_propose': _capable(actor, propose), 'can_approve': _capable(actor, approve)}
+    if not presentation['business_time_enabled']:
+        cards[WorkflowConfigurationChangeRequest.SETTING_HOLIDAYS] = {
+            'can_propose': False, 'can_approve': False, 'available': False,
+        }
     return {
+        'presentation': presentation,
         'settings_version': int((config.workflow or {}).get('settings_version') or 1),
         'targets': tat_target_settings(config.workflow),
         # Future rows are configurable; old rows remain immutable evidence for
         # historical business-hour calculations.
-        'holidays': {'holidays': [
+        'holidays': ({'holidays': [
             item for item in _holiday_snapshot()['holidays']
             if date.fromisoformat(item['date']) > timezone.localdate()
-        ]},
+        ]} if presentation['business_time_enabled'] else {}),
         'escalation': _escalation_snapshot(config),
         'cards': cards,
         'pending': [
@@ -338,6 +351,10 @@ def create_tat_configuration_request(config, actor: dict, *, setting_key: str, p
     if setting_key not in SETTING_CAPABILITIES or not _capable(actor, SETTING_CAPABILITIES[setting_key][0]):
         raise PermissionError('Your role cannot propose this setting change.')
     config = _tat_database_configuration(config)
+    if setting_key == WorkflowConfigurationChangeRequest.SETTING_HOLIDAYS:
+        from core.services.tat_presentation import business_time_enabled
+        if not business_time_enabled():
+            raise ValueError('Business Calendar proposals are unavailable while business-hours TAT is globally hidden.')
     reason = ' '.join(str(reason or '').split())
     if len(reason) < 8:
         raise ValueError('Provide a short reason for this configuration change.')
@@ -365,6 +382,10 @@ def create_tat_configuration_request(config, actor: dict, *, setting_key: str, p
 @transaction.atomic
 def review_tat_configuration_request(request_id: str, actor: dict, *, approve: bool, review_comment: str = ''):
     request = WorkflowConfigurationChangeRequest.objects.select_for_update().select_related('group_configuration', 'requested_by').get(pk=request_id)
+    if request.setting_key == WorkflowConfigurationChangeRequest.SETTING_HOLIDAYS:
+        from core.services.tat_presentation import business_time_enabled
+        if not business_time_enabled():
+            raise ValueError('Business Calendar reviews are unavailable while business-hours TAT is globally hidden.')
     approve_capability = SETTING_CAPABILITIES[request.setting_key][1]
     actor_roles = {str(role or '').strip().upper() for role in (actor.get('roles') or [])}
     if BUSINESS_ADMIN_ROLE not in actor_roles or not _capable(actor, approve_capability):

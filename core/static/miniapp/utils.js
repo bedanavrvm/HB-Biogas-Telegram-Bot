@@ -92,7 +92,7 @@
   }
 
   function bindFormCloseProtection(form, reason) {
-    if (!form) return { markClean: function () {}, markDirty: function () {} };
+    if (!form) return { markClean: function () {}, markDirty: function () {}, isDirty: function () { return false; } };
     let baseline = formSignature(form);
     function sync() {
       setCloseProtection(reason, formSignature(form) !== baseline);
@@ -104,10 +104,13 @@
     function markDirty() {
       setCloseProtection(reason, true);
     }
+    function isDirty() {
+      return formSignature(form) !== baseline;
+    }
     form.addEventListener('input', sync);
     form.addEventListener('change', sync);
     form.addEventListener('reset', function () { window.setTimeout(markClean, 0); });
-    return { markClean: markClean, markDirty: markDirty };
+    return { markClean: markClean, markDirty: markDirty, isDirty: isDirty };
   }
 
   function initTelegram(options) {

@@ -1,4 +1,5 @@
 {% extends "admin/base_site.html" %}
+{% load static %}
 {% block content %}
 <div style="max-width:1200px;margin:0 auto">
   <p><a href="{% url 'admin:auth_user_staff_approvals' %}">← Staff approvals</a> · <a href="{% url 'admin:auth_user_staff_lifecycle' %}">Staff lifecycle workspace</a></p>
@@ -21,7 +22,7 @@
       <div><small>Private welcome</small><strong style="display:block">{% if telegram_onboarding.welcome_sent_at %}Sent{% else %}Pending{% endif %}</strong></div>
     </div>
     {% if activation_code %}
-    <div id="staff-activation-pack" class="rounded border border-amber-500 bg-amber-50 p-5 mt-4" data-expires-at="{{ activation_expires_at }}" data-username="{{ plan.target_user.staff_profile.telegram_username }}" data-activation-url="{{ activation_url }}" data-activation-code="{{ activation_code }}">
+    <div id="staff-activation-pack" class="rounded border border-amber-500 bg-amber-50 p-5 mt-4" data-expires-at="{{ activation_expires_at }}" data-server-now="{% now 'c' %}" data-username="{{ plan.target_user.staff_profile.telegram_username }}" data-activation-url="{{ activation_url }}" data-activation-code="{{ activation_code }}">
       <strong>Activation pack · shown once</strong>
       <p style="margin-top:.5rem"><strong>Copy and send this activation pack privately to the staff member.</strong> Telegram cannot message them automatically until they activate.</p>
       <p>Staff username: @{{ plan.target_user.staff_profile.telegram_username }}</p>
@@ -45,6 +46,7 @@
   {% if can_superuser_resolve %}<form method="post" class="rounded border border-amber-400 p-4 mt-4">{% csrf_token %}<h2>Superuser direct decision</h2><p class="mt-1 text-sm">Apply this pending plan now or cancel it without checker approval. Both actions are audit-logged.</p><label for="direct_review_comment" style="display:block;margin-top:1rem"><strong>Decision reason</strong></label><textarea required id="direct_review_comment" name="review_comment" rows="3" style="width:100%"></textarea>{% if plan.action == 'onboard' %}<p class="mt-3 text-sm"><strong>Superuser session confirmed.</strong> Applying this onboarding plan does not require a second password entry. Enter your current password only when cancelling it.</p><label for="current_password" style="display:block;margin-top:1rem"><strong>Current password for cancellation only</strong></label><input type="password" id="current_password" name="current_password" autocomplete="current-password" style="width:100%">{% else %}<label for="current_password" style="display:block;margin-top:1rem"><strong>Your current Django Admin password</strong></label><input required type="password" id="current_password" name="current_password" autocomplete="current-password" style="width:100%">{% endif %}<div style="display:flex;gap:.75rem;justify-content:flex-end;margin-top:1rem"><button name="cancel_direct" value="1" class="rounded border border-red-500 px-4 py-3 text-red-700">Cancel plan</button><button name="apply_direct" value="1" class="rounded bg-primary-600 px-4 py-3 text-white">Apply now</button></div></form>{% endif %}
 </div>
 {% if activation_code %}
+<script src="{% static 'miniapp/runtime.js' %}?v=1"></script>
 <script>
 (function () {
   const pack = document.getElementById('staff-activation-pack');
@@ -52,13 +54,15 @@
   const copyButton = document.getElementById('copy-staff-activation-pack');
   const copyStatus = document.getElementById('copy-staff-activation-status');
   const expiresAt = Date.parse((pack && pack.dataset.expiresAt) || '');
+  const serverClock = window.MiniAppRuntime?.createServerClock(pack && pack.dataset.serverNow);
 
   function updateCountdown() {
     if (!countdown || Number.isNaN(expiresAt)) {
       if (countdown) countdown.textContent = 'Expiry time unavailable. Generate a replacement pack before sharing.';
       return;
     }
-    const remaining = Math.max(0, expiresAt - Date.now());
+    const now = serverClock ? serverClock.nowMs() : Date.now();
+    const remaining = Math.max(0, expiresAt - now);
     if (!remaining) {
       countdown.textContent = 'Expired · generate a replacement activation pack';
       countdown.style.color = '#b91c1c';

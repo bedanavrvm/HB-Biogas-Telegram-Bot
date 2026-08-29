@@ -428,8 +428,10 @@ def tat_tracker_bootstrap(request):
     from core.services.access_control import policy_version
     from django.contrib.auth import get_user_model
     from core.services.miniapp_settings import preference_payload
+    from core.services.tat_presentation import presentation_settings
     data = bootstrap(group_config, user_payload)
     data['access_policy_version'] = policy_version()
+    data['presentation'] = presentation_settings()
     actor = get_user_model().objects.filter(pk=user.get('user_id')).first()
     if actor:
         data['personal'] = preference_payload(actor, 'tat_tracker')

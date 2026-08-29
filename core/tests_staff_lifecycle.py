@@ -818,6 +818,8 @@ class StaffTelegramOnboardingTests(TestCase):
         self.assertContains(result, 'Copy activation pack')
         self.assertContains(result, 'Time remaining:')
         self.assertContains(result, 'data-expires-at=')
+        self.assertContains(result, 'data-server-now=')
+        self.assertContains(result, 'miniapp/runtime.js')
         self.assertContains(result, 'https://t.me/jbl_bot/staff-activation')
         self.assertContains(
             result,
