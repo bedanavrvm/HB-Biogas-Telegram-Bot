@@ -2346,6 +2346,25 @@ class TatResponsibilityAssignmentForm(forms.ModelForm):
                 workflow=group.workflow,
             )
             self.instance.role = cleaned['role']
+
+        branch = str(cleaned.get('branch') or '').strip()
+        role = str(cleaned.get('role') or '').strip().upper()
+        product_key = str(cleaned.get('product_key') or '').strip().lower()
+        stage_key = str(cleaned.get('stage_key') or '').strip()
+        if group and branch and role:
+            duplicate = TatResponsibilityAssignment.objects.filter(
+                group_configuration=group,
+                branch=branch,
+                role=role,
+                product_key=product_key,
+                stage_key=stage_key,
+                active=True,
+            ).exclude(pk=self.instance.pk).first()
+            if duplicate:
+                raise forms.ValidationError(
+                    'An active roster already exists for this exact role and scope. '
+                    'Return to TAT access & responsibilities and edit the existing roster.'
+                )
         return cleaned
 
     class Media:
@@ -2799,6 +2818,26 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
                 initial[key] = request.GET[key]
         return initial
 
+    def _workspace_redirect(self, obj):
+        params = {
+            'workspace_group': obj.group_configuration_id,
+            'workspace_branch': obj.branch,
+            'workspace_product': obj.product_key,
+        }
+        return HttpResponseRedirect(
+            f"{reverse('admin:core_tatresponsibilityassignment_changelist')}?{urlencode(params)}"
+        )
+
+    def response_add(self, request, obj, post_url_continue=None):
+        if '_continue' not in request.POST and '_addanother' not in request.POST:
+            return self._workspace_redirect(obj)
+        return super().response_add(request, obj, post_url_continue=post_url_continue)
+
+    def response_change(self, request, obj):
+        if '_continue' not in request.POST and '_addanother' not in request.POST:
+            return self._workspace_redirect(obj)
+        return super().response_change(request, obj)
+
     def changelist_view(self, request, extra_context=None):
         groups = list(GroupSheetConfiguration.objects.filter(
             workflow__type='tat_tracker', enabled=True,
@@ -2826,18 +2865,16 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
             ).select_related('group_configuration', 'primary_user').prefetch_related('backups__user')
         scoped_assignments = [row for row in assignments if not branch or row.branch.casefold() == branch.casefold()]
         workspace_now = timezone.now()
-        current_assignments = [
-            row for row in scoped_assignments
-            if row.active
-            and row.effective_from <= workspace_now
-            and (row.effective_until is None or row.effective_until > workspace_now)
-        ]
+        active_assignments = [row for row in scoped_assignments if row.active]
+        # Uniqueness covers every active row, including scheduled or elapsed
+        # effective windows. Show those rows instead of offering a duplicate
+        # assignment that the database must reject.
         role_rosters = {
-            (row.role, row.product_key): row for row in current_assignments
+            (row.role, row.product_key): row for row in active_assignments
             if not row.stage_key
         }
         stage_overrides = {
-            (row.stage_key, row.product_key): row for row in current_assignments
+            (row.stage_key, row.product_key): row for row in active_assignments
             if row.stage_key
         }
         role_rows = []
@@ -2849,9 +2886,18 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
                 'product_key': product_key,
                 'role': role,
             }
+            if roster and roster.effective_from > workspace_now:
+                roster_state = f'Scheduled from {timezone.localtime(roster.effective_from):%d %b %Y %H:%M}'
+            elif roster and roster.effective_until and roster.effective_until <= workspace_now:
+                roster_state = 'Effective period ended; deactivate or update this active roster.'
+            elif roster:
+                roster_state = 'Active now'
+            else:
+                roster_state = ''
             role_rows.append({
                 'role': role,
                 'roster': roster,
+                'roster_state': roster_state,
                 'add_url': f"{reverse('admin:core_tatresponsibilityassignment_add')}?{urlencode(params)}",
             })
         for row in catalogue:

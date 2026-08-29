@@ -234,6 +234,58 @@ class TatPrivateTaskTests(TestCase):
         self.assertContains(response, 'mpesa_to_admin')
         self.assertContains(response, 'primary')
 
+    def test_workspace_projects_scheduled_active_roster_instead_of_offering_duplicate(self):
+        superuser = get_user_model().objects.create_superuser(
+            username='scheduled-workspace-admin', password='test-password',
+            email='scheduled-workspace@example.test',
+        )
+        self.assignment.effective_from = timezone.now() + timedelta(days=1)
+        self.assignment.save(update_fields=['effective_from'])
+        self.client.force_login(superuser)
+
+        response = self.client.get(reverse('admin:core_tatresponsibilityassignment_changelist'), {
+            'workspace_group': str(self.group.pk),
+            'workspace_branch': 'Nakuru',
+            'workspace_product': '',
+        })
+
+        bro_row = next(row for row in response.context['responsibility_role_rows'] if row['role'] == 'BRO')
+        self.assertEqual(bro_row['roster'], self.assignment)
+        self.assertTrue(bro_row['roster_state'].startswith('Scheduled from'))
+        self.assertContains(response, 'Edit roster')
+
+    def test_duplicate_active_roster_has_plain_language_form_error(self):
+        superuser = get_user_model().objects.create_superuser(
+            username='duplicate-roster-admin', password='test-password',
+            email='duplicate-roster@example.test',
+        )
+        self.client.force_login(superuser)
+        effective = timezone.localtime()
+
+        response = self.client.post(reverse('admin:core_tatresponsibilityassignment_add'), {
+            'group_configuration': str(self.group.pk),
+            'branch': 'Nakuru',
+            'role': 'BRO',
+            'product_key': '',
+            'stage_key': '',
+            'primary_user': str(self.primary.pk),
+            'change_reason': 'Attempted duplicate for regression coverage.',
+            'active': 'on',
+            'effective_from_0': effective.date().isoformat(),
+            'effective_from_1': effective.time().replace(microsecond=0).isoformat(),
+            'backups-TOTAL_FORMS': '0',
+            'backups-INITIAL_FORMS': '0',
+            'backups-MIN_NUM_FORMS': '0',
+            'backups-MAX_NUM_FORMS': '1000',
+            '_save': 'Save',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'An active roster already exists for this exact role and scope.')
+        self.assertEqual(TatResponsibilityAssignment.objects.filter(
+            group_configuration=self.group, branch='Nakuru', role='BRO', active=True,
+        ).count(), 1)
+
     def test_responsibility_add_form_lists_exact_scope_users(self):
         superuser = get_user_model().objects.create_superuser(
             username='form-admin', password='test-password', email='form@example.test',
