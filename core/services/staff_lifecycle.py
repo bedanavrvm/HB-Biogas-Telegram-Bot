@@ -771,13 +771,14 @@ def submit_lifecycle_change(*, requester, action: str, reason: str,
     """Create and either apply or queue one idempotent lifecycle change."""
     if not requester or not requester.is_active or not requester.is_superuser:
         raise PermissionDenied('Only an active Django Superuser may submit staff lifecycle changes.')
-    if decision_mode == StaffLifecycleChangePlan.DECISION_SUPERUSER:
-        if (
-            action != StaffLifecycleChangePlan.ACTION_ONBOARD
-            and (not current_password or not requester.check_password(current_password))
-        ):
-            raise ValidationError('Your current Django Admin password is incorrect.')
-    elif decision_mode != StaffLifecycleChangePlan.DECISION_CHECKER:
+    # The active authenticated Superuser session is the authority for direct
+    # lifecycle changes. Re-entering the password caused valid SSO/session
+    # users to be blocked and adds no independent approval. Exact review,
+    # stale-state binding, idempotency, and append-only audit evidence remain.
+    if decision_mode not in {
+        StaffLifecycleChangePlan.DECISION_SUPERUSER,
+        StaffLifecycleChangePlan.DECISION_CHECKER,
+    }:
         raise ValidationError('Choose a supported lifecycle decision mode.')
 
     normalized_grants = _normalize_grants(desired_grants)

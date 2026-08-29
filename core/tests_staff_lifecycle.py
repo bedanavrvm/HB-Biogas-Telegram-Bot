@@ -324,19 +324,21 @@ class DirectSuperuserLifecycleTests(TestCase):
         self.assertEqual(initial[0]['role'], 'JBL_OFFICER')
         self.assertTrue(initial[0]['all_groups'])
 
-    def test_wrong_superuser_password_still_blocks_existing_user_change(self):
+    def test_authenticated_superuser_scope_change_does_not_require_password_reentry(self):
         target = get_user_model().objects.create_user('existing-officer', is_active=True)
-        with self.assertRaises(ValidationError):
-            self._submit(
-                action=StaffLifecycleChangePlan.ACTION_ACCESS,
-                target_user=target,
-                identity={},
-                new_user_password='',
-                request_key='direct-access-wrong-password',
-                current_password='incorrect',
-            )
-        self.assertFalse(StaffLifecycleChangePlan.objects.filter(
-            request_key='direct-access-wrong-password',
+        plan, created = self._submit(
+            action=StaffLifecycleChangePlan.ACTION_ACCESS,
+            target_user=target,
+            identity={},
+            new_user_password='',
+            request_key='direct-access-session-authorized',
+            current_password='incorrect',
+        )
+
+        self.assertTrue(created)
+        self.assertEqual(plan.status, plan.STATUS_APPLIED)
+        self.assertTrue(AccessGrant.objects.filter(
+            user=target, workflow='jawabu_portal', role='JBL_OFFICER', active=True,
         ).exists())
 
     def test_admin_direct_onboarding_without_checker_uses_preview_then_applies(self):
