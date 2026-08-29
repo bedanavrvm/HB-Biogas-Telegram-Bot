@@ -4331,6 +4331,7 @@ class StaffLifecycleChangePlan(models.Model):
     ]
 
     ACTION_ONBOARD = 'onboard'
+    ACTION_ADD_WORKFLOW_ACCESS = 'add_workflow_access'
     ACTION_ACCESS = 'access_change'
     ACTION_TRANSFER = 'transfer'
     ACTION_LEAVE = 'leave'
@@ -4339,6 +4340,7 @@ class StaffLifecycleChangePlan(models.Model):
     ACTION_IDENTITY_RESET = 'telegram_identity_reset'
     ACTION_CHOICES = [
         (ACTION_ONBOARD, 'Onboard staff'),
+        (ACTION_ADD_WORKFLOW_ACCESS, 'Add workflow or group access'),
         (ACTION_ACCESS, 'Change role or scope'),
         (ACTION_TRANSFER, 'Transfer staff'),
         (ACTION_LEAVE, 'Temporary leave'),

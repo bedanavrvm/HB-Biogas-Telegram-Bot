@@ -6,12 +6,14 @@ import logging
 from datetime import timedelta
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
 from core.models import (
     GroupSheetConfiguration,
+    StaffLifecycleChangePlan,
     StaffTelegramGroupInvitation,
     StaffTelegramOnboarding,
     UserProfile,
@@ -63,19 +65,51 @@ def staff_activation_launcher_url(*, fallback_url: str = '') -> str:
 def create_staff_telegram_onboarding(*, plan) -> StaffTelegramOnboarding | None:
     """Project a successfully applied Telegram onboarding plan into delivery rows."""
     identity = (plan.proposed_snapshot or {}).get('identity') or {}
-    if plan.action != plan.ACTION_ONBOARD or identity.get('login_method') != 'telegram':
+    initial_onboarding = (
+        plan.action == plan.ACTION_ONBOARD
+        and identity.get('login_method') == 'telegram'
+    )
+    additional_access = plan.action == plan.ACTION_ADD_WORKFLOW_ACCESS
+    if not (initial_onboarding or additional_access):
         return None
+    profile = UserProfile.objects.filter(user=plan.target_user).first()
+    if additional_access and not str(getattr(profile, 'telegram_id', '') or '').strip():
+        raise ValidationError(
+            'Additional workflow onboarding requires an existing verified Telegram identity.'
+        )
+    defaults = {'user': plan.target_user}
+    if additional_access:
+        defaults.update({
+            'status': StaffTelegramOnboarding.STATUS_DELIVERING,
+            'activated_at': timezone.now(),
+        })
     onboarding, _ = StaffTelegramOnboarding.objects.get_or_create(
         plan=plan,
-        defaults={'user': plan.target_user},
+        defaults=defaults,
     )
     selected_ids = (plan.proposed_snapshot or {}).get('telegram_group_ids') or []
     groups = GroupSheetConfiguration.objects.filter(pk__in=selected_ids, enabled=True)
     existing_ids = set(onboarding.group_invitations.values_list('group_configuration_id', flat=True))
-    StaffTelegramGroupInvitation.objects.bulk_create([
-        StaffTelegramGroupInvitation(onboarding=onboarding, group_configuration=group)
-        for group in groups if group.pk not in existing_ids
-    ], ignore_conflicts=True)
+    prior_joined_ids = set(StaffTelegramGroupInvitation.objects.filter(
+        onboarding__user=plan.target_user,
+        status=StaffTelegramGroupInvitation.STATUS_JOINED,
+        group_configuration_id__in=[group.pk for group in groups],
+    ).values_list('group_configuration_id', flat=True))
+    invitations = []
+    for group in groups:
+        if group.pk in existing_ids:
+            continue
+        joined = group.pk in prior_joined_ids
+        invitations.append(StaffTelegramGroupInvitation(
+            onboarding=onboarding,
+            group_configuration=group,
+            status=(
+                StaffTelegramGroupInvitation.STATUS_JOINED
+                if joined else StaffTelegramGroupInvitation.STATUS_PENDING
+            ),
+            joined_at=timezone.now() if joined else None,
+        ))
+    StaffTelegramGroupInvitation.objects.bulk_create(invitations, ignore_conflicts=True)
     return onboarding
 
 
@@ -210,7 +244,7 @@ def deliver_staff_telegram_onboarding(*, onboarding: StaffTelegramOnboarding) ->
     invite_buttons = []
     failures = 0
     for invitation in onboarding.group_invitations.select_related('group_configuration'):
-        if invitation.status in {invitation.STATUS_SENT, invitation.STATUS_JOINED}:
+        if invitation.status == invitation.STATUS_SENT:
             continue
         try:
             publish_group_launcher(
@@ -219,6 +253,8 @@ def deliver_staff_telegram_onboarding(*, onboarding: StaffTelegramOnboarding) ->
             )
             invitation.launcher_ready_at = timezone.now()
             invitation.save(update_fields=['launcher_ready_at', 'updated_at'])
+            if invitation.status == invitation.STATUS_JOINED:
+                continue
             invite_url = _create_group_invite(invitation)
             invite_buttons.append({
                 'text': f'Join {invitation.group_configuration.display_name or invitation.group_configuration.group_id}',
@@ -245,12 +281,20 @@ def deliver_staff_telegram_onboarding(*, onboarding: StaffTelegramOnboarding) ->
     keyboard_buttons = app_buttons + invite_buttons
     keyboard = [keyboard_buttons[index:index + 2] for index in range(0, len(keyboard_buttons), 2)]
     name = onboarding.user.get_full_name().strip() or onboarding.user.get_username()
-    text = (
-        f'Welcome to JBL Field Workflow, {name}. Your Telegram identity is verified and your staff access is active. '
-        'Use the buttons below to open the tools assigned to you. Use each private group link below to join the JBL '
-        'groups selected by your administrator. Each group link works once and expires after 24 hours. If anything '
-        'is missing, contact your administrator.'
-    )
+    if onboarding.plan.action == onboarding.plan.ACTION_ADD_WORKFLOW_ACCESS:
+        text = (
+            f'New JBL workflow access is available, {name}. Your existing Telegram identity remains verified. '
+            'Use the Mini App buttons below to open the newly assigned tools. Use each private group link to join '
+            'the additional JBL group selected by your administrator. Each group link works once and expires after '
+            '24 hours. If anything is missing, contact your administrator.'
+        )
+    else:
+        text = (
+            f'Welcome to JBL Field Workflow, {name}. Your Telegram identity is verified and your staff access is active. '
+            'Use the buttons below to open the tools assigned to you. Use each private group link below to join the JBL '
+            'groups selected by your administrator. Each group link works once and expires after 24 hours. If anything '
+            'is missing, contact your administrator.'
+        )
     operation, _ = reserve_operation(
         integration='telegram', operation_type='staff_onboarding_welcome',
         deduplication_key=f'telegram:staff-onboarding:{onboarding.pk}:welcome:{onboarding.revision}',
@@ -295,7 +339,10 @@ def deliver_staff_telegram_onboarding(*, onboarding: StaffTelegramOnboarding) ->
 
 
 def complete_staff_telegram_onboarding(*, user) -> dict:
-    onboarding = StaffTelegramOnboarding.objects.filter(user=user).order_by('-created_at').first()
+    onboarding = StaffTelegramOnboarding.objects.filter(
+        user=user,
+        plan__action=StaffLifecycleChangePlan.ACTION_ONBOARD,
+    ).order_by('-created_at').first()
     if onboarding is None:
         return {'status': 'not_required', 'message': 'Telegram identity verified. You can now open your JBL Mini App.'}
     return deliver_staff_telegram_onboarding(onboarding=onboarding)

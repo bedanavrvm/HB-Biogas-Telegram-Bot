@@ -533,6 +533,142 @@ class StaffTelegramOnboardingTests(TestCase):
             [self.group.pk],
         )
 
+    @override_settings(
+        APP_BASE_URL='https://example.test',
+        TELEGRAM_BOT_USERNAME='jbl_bot',
+        SPIN_MINI_APP_SHORT_NAME='spin-credit',
+    )
+    @patch('core.services.staff_telegram_onboarding.publish_group_launcher')
+    @patch('core.services.staff_telegram_onboarding.telegram_api_call')
+    def test_verified_staff_can_receive_additional_workflow_access_and_welcome_once(
+        self, telegram_call, publish_launcher,
+    ):
+        user = get_user_model().objects.create_user(
+            username='existing-telegram-staff', first_name='Existing', last_name='Staff',
+            is_active=True,
+        )
+        UserProfile.objects.create(
+            user=user, telegram_id='776655', telegram_username='existing_staff',
+        )
+        existing_grant = AccessGrant.objects.create(
+            user=user, workflow='tat_tracker', role='BRO', group_configuration=self.group,
+        )
+        spin_group = GroupSheetConfiguration.objects.create(
+            group_id='-100spinstaffgroup', display_name='JBL SPIN', enabled=True,
+            workflow={
+                'type': 'spin_credit_analysis',
+                'mini_app_launchers': ['spin_credit'],
+            },
+        )
+
+        def api_result(method, payload):
+            if method == 'createChatInviteLink':
+                self.assertEqual(payload['chat_id'], spin_group.group_id)
+                self.assertEqual(payload['member_limit'], 1)
+                return {'ok': True, 'result': {'invite_link': 'https://t.me/+spin-one-use'}}
+            self.assertEqual(method, 'sendMessage')
+            self.assertEqual(payload['chat_id'], '776655')
+            self.assertIn('New JBL workflow access is available', payload['text'])
+            buttons = [
+                button
+                for row in payload['reply_markup']['inline_keyboard']
+                for button in row
+            ]
+            self.assertIn('SPIN / CRB', {button['text'] for button in buttons})
+            self.assertIn('Join JBL SPIN', {button['text'] for button in buttons})
+            return {'ok': True, 'result': {'message_id': 91}}
+
+        telegram_call.side_effect = api_result
+        values = {
+            'requester': self.root,
+            'target_user': user,
+            'action': StaffLifecycleChangePlan.ACTION_ADD_WORKFLOW_ACCESS,
+            'reason': 'Add the verified staff member to the SPIN workflow and group.',
+            'desired_grants': [{
+                'workflow': 'spin_credit_analysis', 'role': 'CREDIT_ANALYST',
+                'group_configuration': spin_group,
+            }],
+            'telegram_group_ids': [spin_group.pk],
+            'request_key': 'add-spin-access-1',
+            'decision_mode': StaffLifecycleChangePlan.DECISION_SUPERUSER,
+        }
+        with self.captureOnCommitCallbacks(execute=True):
+            plan, created = submit_lifecycle_change(**values)
+        replay, replay_created = submit_lifecycle_change(**values)
+
+        self.assertTrue(created)
+        self.assertFalse(replay_created)
+        self.assertEqual(replay.pk, plan.pk)
+        self.assertTrue(AccessGrant.objects.filter(pk=existing_grant.pk, active=True).exists())
+        self.assertTrue(AccessGrant.objects.filter(
+            user=user, workflow='spin_credit_analysis', role='CREDIT_ANALYST',
+            group_configuration=spin_group, active=True,
+        ).exists())
+        self.assertFalse(TelegramStaffActivation.objects.filter(user=user).exists())
+        onboarding = StaffTelegramOnboarding.objects.get(plan=plan)
+        self.assertEqual(onboarding.status, onboarding.STATUS_COMPLETE)
+        self.assertIsNotNone(onboarding.activated_at)
+        self.assertEqual(onboarding.group_invitations.get().status, StaffTelegramGroupInvitation.STATUS_SENT)
+        self.assertEqual(telegram_call.call_count, 2)
+        publish_launcher.assert_called_once_with(
+            spin_group,
+            operation_key_suffix=f'staff-{onboarding.pk}-{onboarding.revision}',
+        )
+
+    def test_additional_workflow_onboarding_requires_verified_identity_and_group(self):
+        user = get_user_model().objects.create_user(username='unverified-existing', is_active=True)
+        UserProfile.objects.create(user=user, telegram_username='unverified_existing')
+
+        with self.assertRaisesMessage(
+            ValidationError, 'Additional workflow onboarding requires an existing verified Telegram identity.',
+        ):
+            submit_lifecycle_change(
+                requester=self.root,
+                target_user=user,
+                action=StaffLifecycleChangePlan.ACTION_ADD_WORKFLOW_ACCESS,
+                reason='Add another workflow for this existing staff member.',
+                desired_grants=[{'workflow': 'tat_tracker', 'role': 'BRO'}],
+                telegram_group_ids=[self.group.pk],
+                request_key='add-unverified-access-1',
+            )
+
+        user.staff_profile.telegram_id = '112233'
+        user.staff_profile.save(update_fields=['telegram_id', 'updated_at'])
+        with self.assertRaisesMessage(
+            ValidationError, 'Select at least one Telegram group for the additional workflow welcome.',
+        ):
+            submit_lifecycle_change(
+                requester=self.root,
+                target_user=user,
+                action=StaffLifecycleChangePlan.ACTION_ADD_WORKFLOW_ACCESS,
+                reason='Add another workflow for this verified staff member.',
+                desired_grants=[{'workflow': 'tat_tracker', 'role': 'BRO'}],
+                telegram_group_ids=[],
+                request_key='add-without-group-1',
+            )
+
+    def test_admin_exposes_additive_workflow_action_with_current_access_read_only(self):
+        user = get_user_model().objects.create_user(username='existing-admin-target', is_active=True)
+        UserProfile.objects.create(
+            user=user, telegram_id='445566', telegram_username='existing_admin_target',
+        )
+        AccessGrant.objects.create(
+            user=user, workflow='tat_tracker', role='BRO', group_configuration=self.group,
+        )
+        self.client.force_login(self.root)
+
+        response = self.client.get(
+            reverse('admin:auth_user_staff_lifecycle'),
+            {'action': StaffLifecycleChangePlan.ACTION_ADD_WORKFLOW_ACCESS, 'target_user': user.pk},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Add workflow or group access')
+        self.assertContains(response, 'Additive access only')
+        self.assertContains(response, 'Existing grants remain active and will not be removed.')
+        self.assertContains(response, 'tat_tracker')
+        self.assertContains(response, 'BRO')
+
     def test_global_tat_grant_covers_selected_onboarding_group(self):
         from core.services.staff_access_readiness import onboarding_readiness
         from core.services.telegram_identity import user_access

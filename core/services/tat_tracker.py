@@ -77,7 +77,7 @@ DEFAULT_TAT_TARGETS_MINUTES = {
 }
 NEAR_SLA_RATIO = Decimal('0.8')
 TAT_TARGET_MANAGER_ROLES = frozenset({'IT'})
-TAT_CASE_CORRECTION_ROLES = frozenset({'IT', BUSINESS_ADMIN_ROLE})
+TAT_CASE_CORRECTION_ROLES = frozenset({'BRO', 'IT', BUSINESS_ADMIN_ROLE})
 TAT_HOME_PAGE_SIZE = 25
 TAT_HOME_QUEUES = frozenset({'assigned', 'role', 'all'})
 TAT_COMPLETED_STATUSES = frozenset({'Disbursed', 'Rejected', 'Declined'})
@@ -1590,7 +1590,10 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
         if not correction:
             raise ValueError('Case detail changes must be submitted as corrections.')
         if not can_user_correct_case_details(user, case):
-            raise ValueError('Only IT or Admin staff can correct the base case details.')
+            raise ValueError(
+                'Only a scoped BRO, Business Administrator, IT user, or Superuser '
+                'can correct case details.'
+            )
         old = getattr(case, field)
         raw_value = str(item.get('value') or '').strip()
         if field == 'client_name':
@@ -2763,10 +2766,8 @@ def can_user_edit_stage(user: dict, case: TatTrackerCase, stage: StageConfig) ->
 
 
 def can_user_correct_stage(user: dict, case: TatTrackerCase, stage: StageConfig) -> bool:
-    """Allow explicit corrections without weakening normal stage sequencing."""
-    if stage.requires_signature_certificate:
-        return False
-    return can_user_edit_stage(user, case, stage)
+    """Reserve completed-stage correction for scoped IT or Superuser authority."""
+    return _tat_scope_allowed(user, 'tat.stage.correct', case)
 
 
 def can_user_correct_case_details(user: dict, case: TatTrackerCase | None = None) -> bool:

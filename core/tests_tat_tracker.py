@@ -2635,6 +2635,41 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(updated['summary']['client_name'], 'CORRECTED CLIENT')
         self.assertEqual(case.events.filter(stage_key='case_details', source='admin_correction').count(), 3)
 
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_bro_can_correct_scoped_case_details_but_not_completed_stages(self, sync_mock):
+        sync_mock.side_effect = self.mark_case_synced
+        bro = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+        detail = create_case(self.config, bro, {
+            'product_key': 'business',
+            'branch': 'Nakuru',
+            'client_name': 'Original Client',
+            'national_id': '12345678',
+            'primary_phone': '0712345678',
+            'bro_name': 'BRO User',
+            'amount': '10000',
+        })
+        case_id = detail['summary']['case_id']
+        update_case(self.config, bro, case_id, [
+            {'field': 'client_name', 'value': 'BRO Corrected Client', 'correction': True},
+        ])
+        update_case(self.config, bro, case_id, [
+            {'field': 'mpesa_to_admin', 'value': 'STAMP'},
+        ])
+
+        with self.assertRaisesMessage(ValueError, 'Your role cannot correct MPESA sent to Admin'):
+            update_case(self.config, bro, case_id, [{
+                'field': 'mpesa_to_admin',
+                'value': '2026-07-20T10:30',
+                'correction': True,
+            }])
+
+        case = TatTrackerCase.objects.get(case_id=case_id)
+        serialized = get_case_detail(self.config, bro, case_id)
+        completed = next(field for field in serialized['fields'] if field['key'] == 'mpesa_to_admin')
+        self.assertEqual(case.client_name, 'BRO CORRECTED CLIENT')
+        self.assertTrue(serialized['can_correct_details'])
+        self.assertFalse(completed['can_correct'])
+
     def test_create_case_rejects_correction_shaped_payload(self):
         bro = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
 
@@ -2692,6 +2727,7 @@ class TatTrackerWorkflowTest(TestCase):
     def test_completed_timestamp_correction_preserves_audit_history(self, sync_mock):
         sync_mock.side_effect = self.mark_case_synced
         bro = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+        it_user = staff_user_for_payload(self.config, {'id': 444, 'username': 'it_user'})
         detail = create_case(self.config, bro, {
             'product_key': 'business',
             'branch': 'Nakuru',
@@ -2704,7 +2740,7 @@ class TatTrackerWorkflowTest(TestCase):
         case_id = detail['summary']['case_id']
         update_case(self.config, bro, case_id, [{'field': 'mpesa_to_admin', 'value': 'STAMP'}])
 
-        update_case(self.config, bro, case_id, [{
+        update_case(self.config, it_user, case_id, [{
             'field': 'mpesa_to_admin',
             'value': '2026-07-20T10:30',
             'correction': True,
@@ -2716,6 +2752,34 @@ class TatTrackerWorkflowTest(TestCase):
         event = case.events.filter(stage_key='mpesa_to_admin').order_by('-created_at').first()
         self.assertEqual(event.source, 'admin_correction')
         self.assertIn('(Correction)', event.stage_label)
+        self.assertEqual(event.actor_user, self.it_user)
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_superuser_can_correct_completed_stage_without_business_role_grant(self, sync_mock):
+        sync_mock.side_effect = self.mark_case_synced
+        bro = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+        root = get_user_model().objects.create_superuser(
+            username='tat-root', email='tat-root@example.test', password='password',
+        )
+        UserProfile.objects.create(user=root, telegram_id='999', telegram_username='tat_root')
+        root_payload = staff_user_for_payload(self.config, {'id': 999, 'username': 'tat_root'})
+        detail = create_case(self.config, bro, {
+            'product_key': 'business', 'branch': 'Nakuru', 'client_name': 'Root correction',
+            'national_id': '12345678', 'primary_phone': '0712345678',
+            'bro_name': 'BRO User', 'amount': '10000',
+        })
+        case_id = detail['summary']['case_id']
+        update_case(self.config, bro, case_id, [{'field': 'mpesa_to_admin', 'value': 'STAMP'}])
+
+        update_case(self.config, root_payload, case_id, [{
+            'field': 'mpesa_to_admin', 'value': '2026-07-21T11:45', 'correction': True,
+        }])
+
+        case = TatTrackerCase.objects.get(case_id=case_id)
+        self.assertEqual(
+            parse_iso_datetime(case.stage_values['mpesa_to_admin']).strftime('%Y-%m-%d %H:%M'),
+            '2026-07-21 11:45',
+        )
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_assigned_role_can_change_a_dropdown_value_and_audit_the_change(self, sync_mock):

@@ -21,6 +21,8 @@ from core.models import (
     AccessGrant,
     JawabuApprovalDelegation,
     StaffLifecycleChangePlan,
+    StaffTelegramGroupInvitation,
+    StaffTelegramOnboarding,
     TatActionTask,
     TatResponsibilityAssignment,
     TatResponsibilityBackup,
@@ -380,6 +382,12 @@ def create_lifecycle_plan(*, requester, target_user, action: str, reason: str,
         raise ValidationError('Choose an active staff account for this lifecycle action.')
     if action == StaffLifecycleChangePlan.ACTION_ONBOARD and target_user.is_active:
         raise ValidationError('An onboarding account shell must remain inactive until its lifecycle decision is applied.')
+    if action == StaffLifecycleChangePlan.ACTION_ADD_WORKFLOW_ACCESS:
+        profile = getattr(target_user, 'staff_profile', None)
+        if not str(getattr(profile, 'telegram_id', '') or '').strip():
+            raise ValidationError(
+                'Additional workflow onboarding requires an existing verified Telegram identity.'
+            )
     reason = str(reason or '').strip()
     if len(reason) < 10:
         raise ValidationError('Explain the lifecycle change in at least 10 characters.')
@@ -402,19 +410,53 @@ def create_lifecycle_plan(*, requester, target_user, action: str, reason: str,
         proposed['identity'] = dict(identity)
     if action in {
         StaffLifecycleChangePlan.ACTION_ONBOARD,
+        StaffLifecycleChangePlan.ACTION_ADD_WORKFLOW_ACCESS,
         StaffLifecycleChangePlan.ACTION_ACCESS,
         StaffLifecycleChangePlan.ACTION_TRANSFER,
     }:
         proposed['grants'] = _normalize_grants(desired_grants)
         if not proposed['grants']:
             raise ValidationError('Choose at least one workflow role and scope.')
-    if action == StaffLifecycleChangePlan.ACTION_ONBOARD:
+    if action in {
+        StaffLifecycleChangePlan.ACTION_ONBOARD,
+        StaffLifecycleChangePlan.ACTION_ADD_WORKFLOW_ACCESS,
+    }:
         if (proposed.get('identity') or {}).get('login_method') == 'telegram':
             proposed['telegram_group_ids'] = _normalize_telegram_groups(
                 telegram_group_ids, proposed.get('grants') or [],
             )
+        elif action == StaffLifecycleChangePlan.ACTION_ADD_WORKFLOW_ACCESS:
+            proposed['telegram_group_ids'] = _normalize_telegram_groups(
+                telegram_group_ids, proposed.get('grants') or [],
+            )
+            if not proposed['telegram_group_ids']:
+                raise ValidationError(
+                    'Select at least one Telegram group for the additional workflow welcome.'
+                )
         elif telegram_group_ids:
             raise ValidationError('Telegram groups apply only to Telegram staff onboarding.')
+    if action == StaffLifecycleChangePlan.ACTION_ADD_WORKFLOW_ACCESS:
+        desired_keys = {
+            (
+                row['workflow'], row['role'], row.get('branch', ''),
+                row.get('product', ''), row.get('group_configuration_id'),
+            )
+            for row in proposed.get('grants') or []
+        }
+        current_keys = set(AccessGrant.objects.filter(
+            user=target_user, active=True,
+        ).values_list(
+            'workflow', 'role', 'branch', 'product', 'group_configuration_id',
+        ))
+        already_joined_group_ids = set(StaffTelegramGroupInvitation.objects.filter(
+            onboarding__user=target_user,
+            status=StaffTelegramGroupInvitation.STATUS_JOINED,
+        ).values_list('group_configuration_id', flat=True))
+        undelivered_groups = set(proposed.get('telegram_group_ids') or []) - already_joined_group_ids
+        if not (desired_keys - current_keys) and not undelivered_groups:
+            raise ValidationError(
+                'Choose at least one new access scope or a Telegram group that has not already been joined.'
+            )
     if action in {
         StaffLifecycleChangePlan.ACTION_TRANSFER,
         StaffLifecycleChangePlan.ACTION_LEAVE,
@@ -523,6 +565,34 @@ def _apply_desired_grants(plan, user) -> None:
         for row in desired:
             key = (row['workflow'], row['role'], row.get('branch', ''), row.get('product', ''), row.get('group_configuration_id'))
             if key in current_keys:
+                continue
+            grant = AccessGrant(
+                user=user, workflow=key[0], role=key[1], branch=key[2], product=key[3],
+                group_configuration_id=key[4], active=True, source='staff_lifecycle_plan',
+            )
+            grant.full_clean()
+            grant.save()
+
+
+def _apply_additive_grants(plan, user) -> None:
+    """Add exact grants without retiring or rewriting existing staff access."""
+    desired = plan.proposed_snapshot.get('grants') or []
+    with governed_access_grant_mutation(f'additive staff lifecycle plan {plan.pk}'):
+        current = {
+            (row.workflow, row.role, row.branch, row.product, row.group_configuration_id): row
+            for row in AccessGrant.objects.select_for_update().filter(user=user)
+        }
+        for row in desired:
+            key = (
+                row['workflow'], row['role'], row.get('branch', ''),
+                row.get('product', ''), row.get('group_configuration_id'),
+            )
+            existing = current.get(key)
+            if existing:
+                if not existing.active:
+                    existing.active = True
+                    existing.source = 'staff_lifecycle_plan'
+                    existing.save(update_fields=['active', 'source', 'updated_at'])
                 continue
             grant = AccessGrant(
                 user=user, workflow=key[0], role=key[1], branch=key[2], product=key[3],
@@ -665,6 +735,8 @@ def _apply_plan(plan, user) -> None:
     action = plan.action
     if action in {plan.ACTION_ONBOARD, plan.ACTION_ACCESS, plan.ACTION_TRANSFER}:
         _apply_desired_grants(plan, user)
+    elif action == plan.ACTION_ADD_WORKFLOW_ACCESS:
+        _apply_additive_grants(plan, user)
     replacement_id = plan.proposed_snapshot.get('replacement_user_id')
     replacement = get_user_model().objects.select_for_update().filter(pk=replacement_id).first() if replacement_id else None
     changed_assignments = []
@@ -752,10 +824,19 @@ def _finalize_lifecycle_plan(*, plan, actor, state, review_comment=''):
         'reviewed_by', 'reviewed_at', 'review_comment', 'status', 'applied_at',
         'impact', 'decision_mode',
     ])
-    if plan.action == plan.ACTION_ONBOARD:
-        from core.services.staff_telegram_onboarding import create_staff_telegram_onboarding
+    if plan.action in {plan.ACTION_ONBOARD, plan.ACTION_ADD_WORKFLOW_ACCESS}:
+        from core.services.staff_telegram_onboarding import (
+            create_staff_telegram_onboarding,
+            deliver_staff_telegram_onboarding,
+        )
 
-        create_staff_telegram_onboarding(plan=plan)
+        onboarding = create_staff_telegram_onboarding(plan=plan)
+        if onboarding and plan.action == plan.ACTION_ADD_WORKFLOW_ACCESS:
+            transaction.on_commit(
+                lambda onboarding_id=onboarding.pk: deliver_staff_telegram_onboarding(
+                    onboarding=StaffTelegramOnboarding.objects.get(pk=onboarding_id),
+                )
+            )
     _record_plan(plan, 'staff_lifecycle.plan.applied')
     return plan
 

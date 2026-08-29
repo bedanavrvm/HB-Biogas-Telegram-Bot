@@ -7029,7 +7029,8 @@ class StaffLifecycleForm(forms.Form):
         widget=forms.CheckboxSelectMultiple,
         help_text=(
             'Select only the Telegram groups this person should join. Access grants authorize tools; '
-            'this selection controls which private group invitations are sent after activation.'
+            'this selection controls private group invitations sent after first activation or an '
+            'additional workflow assignment.'
         ),
     )
     superuser_password = forms.CharField(
@@ -7583,7 +7584,7 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
         grant_initial = []
         if request.method == 'GET':
             target_id = request.GET.get('target_user')
-            if target_id:
+            if target_id and request.GET.get('action') != StaffLifecycleChangePlan.ACTION_ADD_WORKFLOW_ACCESS:
                 for grant in AccessGrant.objects.filter(
                     user_id=target_id, active=True,
                 ).select_related('group_configuration').order_by(
@@ -7690,7 +7691,10 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                 direct_preview['grant_diff'] = {
                     'added': len(desired_keys - current_keys),
                     'retained': len(desired_keys & current_keys),
-                    'removed': len(current_keys - desired_keys),
+                    'removed': (
+                        0 if data['action'] == StaffLifecycleChangePlan.ACTION_ADD_WORKFLOW_ACCESS
+                        else len(current_keys - desired_keys)
+                    ),
                     'expanded_count': len(desired_keys),
                     'large_expansion': len(desired_keys) > 12,
                 }
@@ -7754,7 +7758,11 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                         ('Lifecycle change applied directly by Superuser.' if created else
                          'This lifecycle request was already processed; the original result is shown.'),
                     )
-                    if created and hasattr(plan, 'telegram_onboarding'):
+                    if (
+                        created
+                        and plan.action == StaffLifecycleChangePlan.ACTION_ONBOARD
+                        and hasattr(plan, 'telegram_onboarding')
+                    ):
                         from core.services.staff_lifecycle import generate_telegram_activation
 
                         challenge, activation_code = generate_telegram_activation(
@@ -7805,6 +7813,15 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                 group_invitations__joined_at__isnull=True,
             )
         ).select_related('plan', 'user').distinct()[:20]
+        selected_target_id = (
+            request.POST.get('target_user') if request.method == 'POST'
+            else request.GET.get('target_user')
+        )
+        current_access_rows = list(AccessGrant.objects.filter(
+            user_id=selected_target_id, active=True,
+        ).select_related('group_configuration').order_by(
+            'workflow', 'role', 'branch', 'product', 'group_configuration_id',
+        )) if selected_target_id else []
         return TemplateResponse(request, 'admin/auth/user/staff_lifecycle.html', {
             **self.admin_site.each_context(request), 'opts': self.model._meta,
             'title': 'Staff lifecycle workspace', 'form': form,
@@ -7814,6 +7831,7 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             'direct_preview': direct_preview,
             'repair_mode': repair_mode,
             'telegram_onboarding_attention': onboarding_attention,
+            'current_access_rows': current_access_rows,
         })
 
     def staff_approvals_view(self, request):
@@ -7906,7 +7924,11 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                     )
                     messages.info(request, 'The pending lifecycle plan was cancelled.')
                 elif 'generate_activation' in request.POST:
-                    if not request.user.is_superuser or not hasattr(plan, 'telegram_onboarding'):
+                    if (
+                        not request.user.is_superuser
+                        or plan.action != plan.ACTION_ONBOARD
+                        or not hasattr(plan, 'telegram_onboarding')
+                    ):
                         raise PermissionDenied
                     challenge, activation_code = generate_telegram_activation(
                         user=plan.target_user, actor=request.user,
