@@ -7263,10 +7263,13 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                     if created and hasattr(plan, 'telegram_onboarding'):
                         from core.services.staff_lifecycle import generate_telegram_activation
 
-                        _challenge, activation_code = generate_telegram_activation(
+                        challenge, activation_code = generate_telegram_activation(
                             user=plan.target_user, actor=request.user,
                         )
                         request.session[f'staff_activation_code:{plan.pk}'] = activation_code
+                        request.session[f'staff_activation_expires_at:{plan.pk}'] = (
+                            challenge.expires_at.isoformat()
+                        )
                     return HttpResponseRedirect(
                         reverse('admin:auth_user_staff_lifecycle_plan', args=[plan.pk]),
                     )
@@ -7410,10 +7413,13 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                 elif 'generate_activation' in request.POST:
                     if not request.user.is_superuser or not hasattr(plan, 'telegram_onboarding'):
                         raise PermissionDenied
-                    _challenge, activation_code = generate_telegram_activation(
+                    challenge, activation_code = generate_telegram_activation(
                         user=plan.target_user, actor=request.user,
                     )
                     request.session[f'staff_activation_code:{plan.pk}'] = activation_code
+                    request.session[f'staff_activation_expires_at:{plan.pk}'] = (
+                        challenge.expires_at.isoformat()
+                    )
                     messages.warning(request, 'The replacement activation code is shown once.')
                 elif 'retry_telegram_onboarding' in request.POST:
                     if not request.user.is_superuser or not hasattr(plan, 'telegram_onboarding'):
@@ -7441,6 +7447,9 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
         )
         onboarding = getattr(plan, 'telegram_onboarding', None)
         activation_code = request.session.pop(f'staff_activation_code:{plan.pk}', '')
+        activation_expires_at = request.session.pop(
+            f'staff_activation_expires_at:{plan.pk}', '',
+        ) if activation_code else ''
         from core.services.staff_telegram_onboarding import staff_activation_launcher_url
 
         activation_fallback = request.build_absolute_uri(reverse('staff_telegram_activation_page'))
@@ -7450,6 +7459,7 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             'plan': plan,
             'telegram_onboarding': onboarding,
             'activation_code': activation_code,
+            'activation_expires_at': activation_expires_at,
             'activation_url': staff_activation_launcher_url(fallback_url=activation_fallback),
             'can_review': can_review,
             'can_superuser_resolve': bool(

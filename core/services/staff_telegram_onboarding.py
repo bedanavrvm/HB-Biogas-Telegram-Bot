@@ -308,7 +308,7 @@ def record_governed_group_join(*, telegram_id: str, group_id: str) -> bool:
             StaffTelegramGroupInvitation.STATUS_SENT,
             StaffTelegramGroupInvitation.STATUS_ATTENTION,
         ],
-    ).select_related('onboarding').first()
+    ).select_related('onboarding', 'group_configuration').first()
     if invitation is None:
         return False
     invitation.status = invitation.STATUS_JOINED
@@ -326,7 +326,34 @@ def record_governed_group_join(*, telegram_id: str, group_id: str) -> bool:
         onboarding.last_error_code = ''
         onboarding.save()
     _record_onboarding(onboarding, 'staff_telegram_onboarding.group_joined')
+    invitation_id = invitation.pk
+    group_configuration_id = invitation.group_configuration_id
+    transaction.on_commit(lambda: _publish_fresh_launcher_after_join(
+        invitation_id=invitation_id,
+        group_configuration_id=group_configuration_id,
+    ))
     return True
+
+
+def _publish_fresh_launcher_after_join(*, invitation_id: int, group_configuration_id: int) -> None:
+    """Give a newly joined member a visible, freshly pinned group launcher."""
+    try:
+        group = GroupSheetConfiguration.objects.get(pk=group_configuration_id)
+        publish_group_launcher(
+            group,
+            operation_key_suffix=f'staff-join:{invitation_id}',
+            force_new_message=True,
+        )
+    except Exception as exc:  # Delivery must not roll back a verified group join.
+        error_code = redacted_error_code(exc)
+        StaffTelegramGroupInvitation.objects.filter(pk=invitation_id).update(
+            last_error_code=error_code,
+        )
+        logger.warning(
+            'Could not refresh the Telegram launcher after governed join: invitation=%s code=%s',
+            invitation_id,
+            error_code,
+        )
 
 
 def _record_onboarding(onboarding: StaffTelegramOnboarding, action: str) -> None:

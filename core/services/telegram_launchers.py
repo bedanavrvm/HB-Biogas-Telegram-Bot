@@ -158,6 +158,7 @@ def publish_group_launcher(
     timeout: int | None = None,
     allow_disabled: bool = False,
     operation_key_suffix: str = '',
+    force_new_message: bool = False,
 ) -> dict:
     if not config.enabled and not allow_disabled:
         raise TelegramLauncherError('Disabled groups cannot publish a launcher.')
@@ -178,17 +179,24 @@ def publish_group_launcher(
         source_model='GroupSheetConfiguration',
         source_id=str(config.pk),
         operation_payload=(config.group_id, preview['signature']),
-        metadata={'launcher_keys': preview['keys']},
+        metadata={
+            'launcher_keys': preview['keys'],
+            'force_new_message': bool(force_new_message),
+        },
     )
 
     def publish_once_with_migration():
         try:
-            return _publish_once(config, token, timeout)
+            return _publish_once(
+                config, token, timeout, force_new_message=force_new_message,
+            )
         except _TelegramApiError as exc:
             if not exc.migration_group_id:
                 raise _safe_api_error(exc) from exc
             _apply_migrated_group_id(config, exc.migration_group_id)
-            return _publish_once(config, token, timeout)
+            return _publish_once(
+                config, token, timeout, force_new_message=force_new_message,
+            )
 
     result = execute_operation(operation, publish_once_with_migration)
     if result is None:
@@ -201,10 +209,16 @@ def publish_group_launcher(
     return result
 
 
-def _publish_once(config: 'GroupSheetConfiguration', token: str, timeout: int) -> dict:
+def _publish_once(
+    config: 'GroupSheetConfiguration', token: str, timeout: int, *,
+    force_new_message: bool = False,
+) -> dict:
     preview = preview_group_launcher(config)
     state = dict((config.metadata or {}).get(_LAUNCHER_METADATA_KEY) or {})
-    message_id = state.get('message_id')
+    # A newly joined member may be unable to see messages sent before they
+    # joined. Send and pin a fresh launcher for that explicit handoff instead
+    # of editing the existing launcher message.
+    message_id = None if force_new_message else state.get('message_id')
     action = 'sent'
 
     if message_id:

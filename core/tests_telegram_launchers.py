@@ -127,6 +127,29 @@ class TelegramLauncherTests(TestCase):
         methods = [call.args[0].rsplit('/', 1)[-1] for call in mock_post.call_args_list]
         self.assertEqual(methods, ['editMessageText', 'sendMessage', 'pinChatMessage'])
 
+    @override_settings(TELEGRAM_BOT_TOKEN='token', API_REQUEST_TIMEOUT=5)
+    @patch('core.services.telegram_launchers.requests.post')
+    def test_force_new_launcher_sends_and_pins_without_editing_previous_message(self, mock_post):
+        self.config.metadata = {'telegram_launcher': {'message_id': 21}}
+        self.config.save(update_fields=['metadata', 'updated_at'])
+        mock_post.side_effect = [
+            telegram_response({'ok': True, 'result': {'message_id': 46}}),
+            telegram_response({'ok': True, 'result': True}),
+        ]
+
+        result = publish_group_launcher(
+            self.config,
+            operation_key_suffix='staff-join:123',
+            force_new_message=True,
+        )
+
+        self.assertEqual(result['action'], 'sent')
+        self.assertEqual(result['message_id'], 46)
+        methods = [call.args[0].rsplit('/', 1)[-1] for call in mock_post.call_args_list]
+        self.assertEqual(methods, ['sendMessage', 'pinChatMessage'])
+        self.config.refresh_from_db()
+        self.assertEqual(self.config.metadata['telegram_launcher']['message_id'], 46)
+
     def test_group_admin_form_saves_selected_launcher_apps(self):
         from core.admin import GroupSheetConfigurationAdminForm
 

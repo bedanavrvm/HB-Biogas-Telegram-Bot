@@ -77,8 +77,10 @@ configured group.
 After direct application, the plan page shows a copyable activation pack once.
 Give its Mini App link and eight-digit code only to the intended person. The
 code expires after 15 minutes, is single-use, and is blocked after five failed
-attempts. Signed Telegram identity, enrolled username, and the code must all
-agree. Use **Generate replacement activation pack** if it expires.
+attempts. The card provides a one-tap copy action and a live countdown based on
+the server-issued expiry time. Signed Telegram identity, enrolled username, and
+the code must all agree. Use **Generate replacement activation pack** if it
+expires.
 
 After verification, the system:
 
@@ -87,6 +89,13 @@ After verification, the system:
 3. privately welcomes the staff member with authorized Mini App buttons and
    the group invitations; and
 4. records group joins without repeating the public welcome.
+
+When the invited staff member joins a governed group, the bot publishes a
+fresh copy of that group's shared **JBL Apps** launcher and pins the new
+message. This makes the Mini App button available even when Telegram hides
+messages sent before the person joined. Repeated Telegram join updates do not
+publish another copy, and a launcher-delivery failure does not undo the
+verified group join.
 
 Telegram does not allow the bot to force-add a person to a group. The staff
 member must accept each invitation. Unknown or manually added members retain

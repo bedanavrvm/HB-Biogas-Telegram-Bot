@@ -532,8 +532,16 @@ class StaffTelegramOnboardingTests(TestCase):
             fetch_redirect_response=False,
         )
         result = self.client.get(reverse('admin:auth_user_staff_lifecycle_plan', args=[plan.pk]))
-        self.assertContains(result, 'Copyable activation pack')
+        self.assertContains(result, 'Copy and send this activation pack privately')
+        self.assertContains(result, 'Copy activation pack')
+        self.assertContains(result, 'Time remaining:')
+        self.assertContains(result, 'data-expires-at=')
         self.assertContains(result, 'https://t.me/jbl_bot/staff-activation')
+        self.assertContains(
+            result,
+            'href="https://t.me/jbl_bot/staff-activation"',
+        )
+        self.assertContains(result, 'target="_blank"')
         self.assertContains(result, self.group.display_name)
 
         second_view = self.client.get(reverse('admin:auth_user_staff_lifecycle_plan', args=[plan.pk]))
@@ -573,7 +581,8 @@ class StaffTelegramOnboardingTests(TestCase):
         self.assertEqual(invitation.pending_invite_url, '')
         self.assertEqual(telegram_call.call_count, 2)
 
-    def test_governed_join_is_recorded_for_quiet_group_welcome(self):
+    @patch('core.services.staff_telegram_onboarding.publish_group_launcher')
+    def test_governed_join_is_recorded_and_fresh_launcher_is_pinned(self, publish_launcher):
         plan, _ = self._onboard()
         onboarding = plan.telegram_onboarding
         profile = plan.target_user.staff_profile
@@ -583,9 +592,23 @@ class StaffTelegramOnboardingTests(TestCase):
         invitation.status = invitation.STATUS_SENT
         invitation.save(update_fields=['status', 'updated_at'])
 
-        self.assertTrue(record_governed_group_join(telegram_id='998877', group_id=self.group.group_id))
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertTrue(record_governed_group_join(
+                telegram_id='998877', group_id=self.group.group_id,
+            ))
         invitation.refresh_from_db()
         self.assertEqual(invitation.status, invitation.STATUS_JOINED)
+        publish_launcher.assert_called_once_with(
+            self.group,
+            operation_key_suffix=f'staff-join:{invitation.pk}',
+            force_new_message=True,
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertFalse(record_governed_group_join(
+                telegram_id='998877', group_id=self.group.group_id,
+            ))
+        publish_launcher.assert_called_once()
 
     def test_governed_join_suppresses_duplicate_public_welcome(self):
         from core.api.views import _process_new_chat_members

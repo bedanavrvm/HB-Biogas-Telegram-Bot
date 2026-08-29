@@ -15,6 +15,8 @@ from core.models import (
     ComplianceAuditEvent,
     DeletedUserIdentity,
     GroupSheetConfiguration,
+    StaffLifecycleChangePlan,
+    StaffTelegramOnboarding,
     TatResponsibilityAssignment,
     UserHardDeletionBatch,
     UserProfile,
@@ -98,6 +100,43 @@ class UserHardDeleteServiceTests(TestCase):
         audit_page = self.client.get(reverse('admin:core_complianceauditevent_change', args=[audit.pk]))
         self.assertEqual(audit_page.status_code, 200)
         self.assertContains(audit_page, f'historical user ID {original_target_id}')
+
+    def test_hard_delete_discards_telegram_delivery_state_but_preserves_lifecycle_plan(self):
+        plan = StaffLifecycleChangePlan.objects.create(
+            action=StaffLifecycleChangePlan.ACTION_ONBOARD,
+            target_user=self.target,
+            status=StaffLifecycleChangePlan.STATUS_APPLIED,
+            reason='Completed onboarding whose delivery state is no longer operational.',
+            requested_by=self.root,
+        )
+        onboarding = StaffTelegramOnboarding.objects.create(
+            plan=plan,
+            user=self.target,
+            status=StaffTelegramOnboarding.STATUS_COMPLETE,
+        )
+        onboarding_id = onboarding.pk
+        preview = preview_user_hard_delete(actor=self.root, users=[self.target])
+
+        self.assertIn(
+            {
+                'model': 'core.StaffTelegramOnboarding',
+                'field': 'user',
+                'action': 'delete_personal_state',
+                'count': 1,
+            },
+            preview.relationships,
+        )
+        execute_user_hard_delete(
+            actor=self.root,
+            users=[self.target],
+            reason_category=UserHardDeletionBatch.REASON_DEPARTED,
+            request_id='hard-delete-telegram-onboarding',
+            expected_fingerprint=preview.fingerprint,
+        )
+
+        self.assertFalse(StaffTelegramOnboarding.objects.filter(pk=onboarding_id).exists())
+        plan.refresh_from_db()
+        self.assertTrue(plan.target_user.username.startswith('__deleted_user_'))
 
     def test_batch_delete_uses_distinct_tombstones_for_unique_protected_relations(self):
         second = get_user_model().objects.create_user('second-departed', is_staff=True)

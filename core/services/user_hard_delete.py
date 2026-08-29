@@ -50,6 +50,7 @@ DISPOSABLE_CASCADE_MODELS = {
     'core.MiniAppDraft',
     'core.PortalCaseWorkspace',
     'core.PortalSavedView',
+    'core.StaffTelegramOnboarding',
     'core.TatActionTaskLocator',
     'core.TatActionTaskRecipient',
     'core.TatPrivateAlertConnection',
