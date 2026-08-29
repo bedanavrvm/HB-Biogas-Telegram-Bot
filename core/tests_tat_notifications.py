@@ -909,12 +909,8 @@ class TatPrivateTaskTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    @patch('core.services.tat_notifications._telegram_request')
-    def test_unrelated_unreachable_cases_update_one_cumulative_group_count(self, telegram):
-        telegram.side_effect = [
-            {'message_id': 501},
-            {},
-        ]
+    @patch('core.services.tat_notifications._telegram_request', return_value={})
+    def test_unreachable_cases_remain_admin_diagnostics_without_group_message(self, telegram):
         isolated_group = GroupSheetConfiguration.objects.create(
             group_id='-100-unassigned-tat', display_name='Unassigned TAT',
             sheet_id='sheet-unassigned', sheet_name='TRACKER-Business',
@@ -938,6 +934,27 @@ class TatPrivateTaskTests(TestCase):
             group_configuration=isolated_group, responsible_role='BRO',
         )
         self.assertEqual(status.unresolved_count, 2)
-        self.assertEqual(status.telegram_message_id, '501')
-        self.assertEqual(telegram.call_args_list[0].args[0], 'sendMessage')
-        self.assertEqual(telegram.call_args_list[1].args[0], 'editMessageText')
+        self.assertEqual(status.telegram_message_id, '')
+        telegram.assert_not_called()
+
+    @patch('core.services.tat_notifications._telegram_request', return_value={})
+    def test_processor_retires_legacy_group_exception_message_without_replacement(self, telegram):
+        status = TatGroupExceptionStatus.objects.create(
+            group_configuration=self.group,
+            responsible_role='BRO',
+            unresolved_count=1,
+            oldest_task_at=timezone.now() - timedelta(minutes=10),
+            active=True,
+            telegram_message_id='501',
+        )
+
+        processed = process_due_tasks(limit=100)
+
+        status.refresh_from_db()
+        self.assertEqual(processed, 0)
+        self.assertEqual(status.telegram_message_id, '')
+        self.assertEqual(status.last_error, '')
+        telegram.assert_called_once_with('deleteMessage', {
+            'chat_id': self.group.group_id,
+            'message_id': '501',
+        })

@@ -7,6 +7,17 @@
       <p class="mt-2 text-sm">
         This is a live delivery action. It will process due task recipients using the same lock, access checks, retry rules, and escalation rules as the scheduled runner.
       </p>
+      <div class="mt-4 rounded border border-orange-200 bg-white/70 p-4 text-sm dark:border-orange-800 dark:bg-black/20">
+        <h2 class="font-semibold">How to test escalation safely</h2>
+        <ol class="mt-2 list-decimal space-y-2 pl-5">
+          <li>Use a Pilot TAT group and assign a primary plus at least one backup in its responsibility roster.</li>
+          <li>Confirm the backup has matching TAT access and connected private alerts.</li>
+          <li>For an immediate soft-escalation test, disconnect the primary's private alerts, then create or advance a Pilot case to that role's stage.</li>
+          <li>For a time-threshold test, use a short Pilot stage target and backup threshold, wait until the recipient is due, then return here.</li>
+          <li>Run the processor and verify the private message plus the recipient delivery states on the TAT action task. Reconnect the primary after testing.</li>
+        </ol>
+        <p class="mt-3">No public TAT group exception message is sent. Do not alter Production case timestamps to make a test due.</p>
+      </div>
       <p class="mt-4 font-medium">Currently due recipients: {{ due_recipient_count }}</p>
       <form method="post" class="mt-6 grid gap-4">
         {% csrf_token %}

@@ -1,6 +1,6 @@
 {% extends "admin/change_list.html" %}
 
 {% block object-tools-items %}
-  <li><a href="{% url 'admin:core_tatnotificationprocessorrun_run_now' %}" class="addlink">Process due alerts now</a></li>
+  <li><a href="{% url 'admin:core_tatnotificationprocessorrun_run_now' %}" class="addlink">Test / process due alerts</a></li>
   {{ block.super }}
 {% endblock %}

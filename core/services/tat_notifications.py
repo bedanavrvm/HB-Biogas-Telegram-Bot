@@ -954,10 +954,49 @@ def safe_refresh_group_exception(group_id) -> None:
     try:
         refresh_group_exception(group_id)
     except Exception:
-        logger.exception('TAT group exception refresh failed for group=%s.', group_id)
+        logger.exception('TAT private-delivery exception status refresh failed for group=%s.', group_id)
+
+
+def retire_group_exception_messages(*, limit: int = 100) -> int:
+    """Delete legacy public exception posts without creating replacements.
+
+    Private inbox and Telegram delivery are now the only alert channels.  The
+    status rows remain useful as privacy-safe Admin diagnostics, while this
+    bounded cleanup makes the scheduled/manual processor retire posts created
+    by older deployments even when no task for that group is currently due.
+    """
+    statuses = list(TatGroupExceptionStatus.objects.select_related(
+        'group_configuration',
+    ).exclude(telegram_message_id='').order_by('last_attempt_at', 'pk')[:limit])
+    retired = 0
+    for status in statuses:
+        status.last_attempt_at = timezone.now()
+        try:
+            _telegram_request('deleteMessage', {
+                'chat_id': status.group_configuration.group_id,
+                'message_id': status.telegram_message_id,
+            })
+        except Exception:
+            status.last_error = 'The legacy public TAT exception message could not be removed.'
+            logger.warning(
+                'Legacy public TAT exception removal failed for group=%s role=%s',
+                status.group_configuration_id, status.responsible_role,
+            )
+        else:
+            status.telegram_message_id = ''
+            status.last_error = ''
+            retired += 1
+        status.save(update_fields=[
+            'telegram_message_id', 'last_error', 'last_attempt_at', 'updated_at',
+        ])
+    return retired
 
 
 def process_due_tasks(*, limit: int = 100) -> int:
+    # Remove posts produced by the retired public fallback, including on runs
+    # where no task is due. Failures remain visible on the diagnostic row and
+    # are retried by the next scheduled/manual run.
+    retire_group_exception_messages(limit=limit)
     task_ids = list(TatActionTaskRecipient.objects.filter(
         task__status=TatActionTask.STATUS_PENDING,
         routing_generation=F('task__routing_generation'),
@@ -971,8 +1010,8 @@ def process_due_tasks(*, limit: int = 100) -> int:
 
 @transaction.atomic
 def refresh_group_exception(group_id, *, role: str = '') -> None:
-    # Serialize cumulative-message refreshes per workflow group so overlapping
-    # task deliveries cannot create two fallback messages for the same role.
+    # Keep a privacy-safe Admin diagnostic count. Public group fallbacks are
+    # retired: task alerts and escalations are delivered privately only.
     group = GroupSheetConfiguration.objects.select_for_update().filter(pk=group_id).first()
     if not group or notification_mode(group) != MODE_HYBRID:
         return
@@ -997,54 +1036,22 @@ def refresh_group_exception(group_id, *, role: str = '') -> None:
         status.oldest_task_at = stuck.values_list('created_at', flat=True).first() if count else None
         status.active = bool(count)
         status.last_attempt_at = timezone.now()
-        from core.services.tat_tracker import build_tat_tracker_mini_app_url
-        launch_url = build_tat_tracker_mini_app_url(group.group_id)
-        reply_markup = {'inline_keyboard': [[{'text': 'Open TAT inbox', 'url': launch_url}]]} if launch_url else None
-        if not count:
-            status.last_error = ''
-            if status.telegram_message_id:
-                try:
-                    _telegram_request('editMessageText', {
-                        'chat_id': group.group_id,
-                        'message_id': status.telegram_message_id,
-                        'text': f'TAT delivery exceptions resolved for {responsible_role}.',
-                        **({'reply_markup': reply_markup} if reply_markup else {}),
-                    })
-                except Exception:
-                    status.last_error = 'The resolved Telegram exception message could not be updated.'
-            status.save()
-            continue
-        age_minutes = max(int((timezone.now() - status.oldest_task_at).total_seconds() // 60), 0)
-        text = (
-            f'TAT delivery exception: {count} {responsible_role} task(s) need a reachable assignee.\n'
-            f'Oldest waiting: {age_minutes} minute(s).\n\n'
-            'Open the TAT inbox. No customer details are included here.'
-        )
-        try:
-            if status.telegram_message_id:
-                _telegram_request('editMessageText', {
-                    'chat_id': group.group_id, 'message_id': status.telegram_message_id,
-                    'text': text,
-                    **({'reply_markup': reply_markup} if reply_markup else {}),
-                })
-            else:
-                result = _telegram_request('sendMessage', {
-                    'chat_id': group.group_id, 'text': text,
-                    **({'reply_markup': reply_markup} if reply_markup else {}),
-                })
-                status.telegram_message_id = str(result.get('message_id') or '')
-            status.last_error = ''
-        except Exception:
+        if status.telegram_message_id:
             try:
-                result = _telegram_request('sendMessage', {
-                    'chat_id': group.group_id, 'text': text,
-                    **({'reply_markup': reply_markup} if reply_markup else {}),
+                _telegram_request('deleteMessage', {
+                    'chat_id': group.group_id,
+                    'message_id': status.telegram_message_id,
                 })
-                status.telegram_message_id = str(result.get('message_id') or '')
+                status.telegram_message_id = ''
                 status.last_error = ''
             except Exception:
-                status.last_error = 'The cumulative Telegram exception message could not be updated.'
-                logger.warning('TAT cumulative exception update failed for group=%s role=%s', group.pk, responsible_role)
+                status.last_error = 'The legacy public TAT exception message could not be removed.'
+                logger.warning(
+                    'Legacy public TAT exception removal failed for group=%s role=%s',
+                    group.pk, responsible_role,
+                )
+        else:
+            status.last_error = ''
         status.save()
 
 
