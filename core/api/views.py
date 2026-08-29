@@ -371,7 +371,22 @@ def _tat_context(payload: dict):
         return group_id, None, {}, {}, JsonResponse({'ok': False, 'error': 'TAT Tracker is not configured for this group.'}, status=403)
     user = staff_user_for_payload(group_config, user_payload)
     if not user.get('authorized'):
-        return group_id, group_config, user_payload, user, JsonResponse({'ok': False, 'error': user.get('reason') or 'Unauthorized.'}, status=403)
+        canonical_user = user.get('_canonical_user')
+        if canonical_user is None:
+            code = 'tat_identity_not_bound'
+            message = 'This Telegram account is not bound to an active JBL staff account. Complete staff activation or contact your administrator.'
+        else:
+            from core.services.telegram_identity import user_access
+            unscoped = user_access(canonical_user, 'tat_tracker')
+            if unscoped.get('authorized'):
+                code = 'tat_group_scope_mismatch'
+                message = 'Your TAT access does not cover this Telegram group. Ask your administrator to review the grant group scope.'
+            else:
+                code = 'tat_access_missing'
+                message = 'Your staff account does not have an active TAT Tracker grant. Ask your administrator to review your access.'
+        return group_id, group_config, user_payload, user, JsonResponse({
+            'ok': False, 'code': code, 'message': message,
+        }, status=403)
     return group_id, group_config, user_payload, user, None
 
 
@@ -385,7 +400,11 @@ def _tat_capability_error(user: dict, capability: str, group_config):
             access=user.get('_access'), group_configuration=group_config,
         ).allowed
     if not allowed:
-        return JsonResponse({'ok': False, 'error': 'Your assigned TAT role does not permit this action.'}, status=403)
+        return JsonResponse({
+            'ok': False,
+            'code': 'tat_capability_denied',
+            'message': f'Your assigned TAT role does not include {capability}. Ask your administrator to review the role capability policy.',
+        }, status=403)
     user_id = user.get('user_id')
     if user_id:
         from django.contrib.auth import get_user_model

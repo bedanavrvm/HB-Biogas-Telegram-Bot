@@ -6115,6 +6115,13 @@ class GroupConfigurationAccessField(forms.ModelChoiceField):
         return f'[{workflow_type}] {label}'
 
 
+class GroupConfigurationAccessMultipleField(forms.ModelMultipleChoiceField):
+    def label_from_instance(self, obj):
+        workflow_type = str((obj.workflow or {}).get('type') or 'unconfigured')
+        label = obj.display_name or obj.group_id
+        return f'[{workflow_type}] {label} ({obj.group_id})'
+
+
 def _configure_access_scope_fields(form) -> None:
     """Populate catalog-backed access choices only after Django has started."""
     from core.services.access_policies import branch_choices, product_choices
@@ -6810,43 +6817,129 @@ class StaffLifecycleForm(forms.Form):
 
 
 class StaffLifecycleGrantForm(forms.Form):
-    include = forms.BooleanField(required=False, initial=False, label='Add this access scope')
+    include = forms.BooleanField(required=False, initial=False, label='Include this scope set')
     workflow = forms.ChoiceField(choices=AccessGrant.WORKFLOW_CHOICES, required=False)
     role = forms.ChoiceField(
         choices=role_choices(), required=False,
         widget=WorkflowScopedSelect(workflow_map=role_workflow_map()),
     )
-    branch = forms.ChoiceField(choices=(('', 'All branches'),), required=False)
-    product = forms.ChoiceField(choices=(('', 'All products'),), required=False)
-    group_configuration = GroupConfigurationAccessField(
+    all_branches = forms.BooleanField(
+        required=False, initial=True,
+        label='All current and future branches',
+    )
+    branches = forms.MultipleChoiceField(
+        choices=(), required=False, widget=forms.CheckboxSelectMultiple,
+        label='Specific branches',
+    )
+    all_products = forms.BooleanField(
+        required=False, initial=True,
+        label='All current and future products',
+    )
+    products = forms.MultipleChoiceField(
+        choices=(), required=False, widget=forms.CheckboxSelectMultiple,
+        label='Specific products',
+    )
+    all_groups = forms.BooleanField(
+        required=False, initial=True,
+        label='All compatible Telegram groups',
+    )
+    groups = GroupConfigurationAccessMultipleField(
         queryset=GroupSheetConfiguration.objects.none(), required=False,
-        empty_label='All compatible groups',
-        widget=GroupConfigurationAccessSelect,
+        widget=forms.CheckboxSelectMultiple,
+        label='Specific Telegram groups',
     )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        _configure_access_scope_fields(self)
+        from core.services.access_policies import branch_choices, product_choices
+
+        self.fields['branches'].choices = [row for row in branch_choices() if row[0]]
+        self.fields['products'].choices = [row for row in product_choices() if row[0]]
+        self.fields['groups'].queryset = GroupSheetConfiguration.objects.filter(
+            enabled=True,
+        ).order_by('display_name', 'group_id')
 
     def clean(self):
         cleaned = super().clean()
         if not cleaned.get('include'):
+            cleaned['expanded_grants'] = []
             return cleaned
-        try:
-            cleaned['role'] = validate_access_scope(
-                workflow=cleaned.get('workflow'), role=cleaned.get('role'),
-                branch=cleaned.get('branch', ''), product=cleaned.get('product', ''),
-                group_configuration=cleaned.get('group_configuration'),
+        workflow = cleaned.get('workflow')
+        role = cleaned.get('role')
+        branches = [''] if cleaned.get('all_branches') else list(cleaned.get('branches') or [])
+        products = [''] if cleaned.get('all_products') else list(cleaned.get('products') or [])
+        groups = [None] if cleaned.get('all_groups') else list(cleaned.get('groups') or [])
+        if cleaned.get('all_branches') and cleaned.get('branches'):
+            self.add_error('branches', 'Choose the all-branches wildcard or specific branches, not both.')
+        if cleaned.get('all_products') and cleaned.get('products'):
+            self.add_error('products', 'Choose the all-products wildcard or specific products, not both.')
+        if cleaned.get('all_groups') and cleaned.get('groups'):
+            self.add_error('groups', 'Choose the all-groups wildcard or specific groups, not both.')
+        if not branches:
+            self.add_error('branches', 'Choose at least one branch or the all-branches wildcard.')
+        if not products:
+            self.add_error('products', 'Choose at least one product or the all-products wildcard.')
+        if not groups:
+            self.add_error('groups', 'Choose at least one Telegram group or the all-groups wildcard.')
+        if self.errors:
+            cleaned['expanded_grants'] = []
+            return cleaned
+        expanded = []
+        for branch in branches:
+            for product in products:
+                for group in groups:
+                    try:
+                        normalized_role = validate_access_scope(
+                            workflow=workflow, role=role, branch=branch, product=product,
+                            group_configuration=group,
+                        )
+                    except ValidationError as exc:
+                        self.add_error(None, '; '.join(exc.messages))
+                        continue
+                    expanded.append({
+                        'workflow': workflow,
+                        'role': normalized_role,
+                        'branch': branch,
+                        'product': product,
+                        'group_configuration_id': getattr(group, 'pk', None),
+                    })
+        if len(expanded) > 50:
+            self.add_error(
+                None,
+                f'This scope set expands to {len(expanded)} grants. Split it into narrower scope sets (maximum 50 each).',
             )
-        except ValidationError as exc:
-            self.add_error(None, '; '.join(exc.messages))
+            expanded = []
+        cleaned['expanded_grants'] = expanded
         return cleaned
 
     class Media:
         js = ('admin/js/access_grant_inline.js',)
 
 
-StaffLifecycleGrantFormSet = forms.formset_factory(StaffLifecycleGrantForm, extra=3, max_num=8)
+class StaffLifecycleGrantBaseFormSet(forms.BaseFormSet):
+    def clean(self):
+        super().clean()
+        if any(self.errors):
+            return
+        expanded_count = sum(
+            len(form.cleaned_data.get('expanded_grants') or [])
+            for form in self.forms
+            if not form.cleaned_data.get('DELETE')
+        )
+        if expanded_count > 100:
+            raise ValidationError(
+                f'This change expands to {expanded_count} grants. Narrow the scope sets (maximum 100 per lifecycle plan).'
+            )
+
+
+StaffLifecycleGrantFormSet = forms.formset_factory(
+    StaffLifecycleGrantForm,
+    formset=StaffLifecycleGrantBaseFormSet,
+    extra=1,
+    can_delete=True,
+    max_num=20,
+    validate_max=True,
+)
 
 
 class UserHardDeleteForm(forms.Form):
@@ -7184,32 +7277,47 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             request.POST or None, initial=request.GET.dict() if request.method == 'GET' else None,
             requester=request.user,
         )
+        grant_initial = []
+        if request.method == 'GET':
+            target_id = request.GET.get('target_user')
+            if target_id:
+                for grant in AccessGrant.objects.filter(
+                    user_id=target_id, active=True,
+                ).select_related('group_configuration').order_by(
+                    'workflow', 'role', 'branch', 'product', 'group_configuration_id',
+                ):
+                    grant_initial.append({
+                        'include': True,
+                        'workflow': grant.workflow,
+                        'role': grant.role,
+                        'all_branches': not bool(grant.branch),
+                        'branches': [grant.branch] if grant.branch else [],
+                        'all_products': not bool(grant.product),
+                        'products': [grant.product] if grant.product else [],
+                        'all_groups': grant.group_configuration_id is None,
+                        'groups': (
+                            [grant.group_configuration_id]
+                            if grant.group_configuration_id is not None else []
+                        ),
+                    })
         grant_formset = StaffLifecycleGrantFormSet(
-            request.POST or None, prefix='grants',
+            request.POST or None, prefix='grants', initial=grant_initial,
+        )
+        repair_mode = (
+            request.GET.get('repair') == 'launcher'
+            if request.method == 'GET'
+            else request.POST.get('repair_mode') == 'launcher'
         )
         direct_preview = None
         if request.method == 'POST' and form.is_valid() and grant_formset.is_valid():
             data = form.cleaned_data
             target = data.get('target_user')
-            new_grants = [
-                grant_form.cleaned_data for grant_form in grant_formset
-                if grant_form.cleaned_data and grant_form.cleaned_data.get('include')
+            desired = [
+                grant
+                for grant_form in grant_formset
+                if grant_form.cleaned_data and not grant_form.cleaned_data.get('DELETE')
+                for grant in (grant_form.cleaned_data.get('expanded_grants') or [])
             ]
-            retired_ids = {
-                str(pk) for pk in data.get('retire_grants', []).values_list('pk', flat=True)
-            }
-            desired = [] if target is None else [
-                {
-                    'workflow': row.workflow,
-                    'role': row.role,
-                    'branch': row.branch,
-                    'product': row.product,
-                    'group_configuration_id': row.group_configuration_id,
-                }
-                for row in AccessGrant.objects.filter(user=target, active=True)
-                if str(row.pk) not in retired_ids
-            ]
-            desired.extend(new_grants)
             identity = {
                 'display_name': str(data.get('display_name') or '').strip(),
                 'login_method': data.get('login_method') or '',
@@ -7238,7 +7346,90 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                     GroupSheetConfiguration.objects.filter(pk__in=telegram_group_ids)
                     .values_list('display_name', flat=True)
                 )
+                group_labels = {
+                    row.pk: (row.display_name or row.group_id)
+                    for row in GroupSheetConfiguration.objects.filter(
+                        pk__in=[
+                            item.get('group_configuration_id')
+                            for item in direct_preview['grants']
+                            if item.get('group_configuration_id')
+                        ]
+                    )
+                }
+                for item in direct_preview['grants']:
+                    item['group_label'] = group_labels.get(
+                        item.get('group_configuration_id'), 'All compatible groups',
+                    )
+                current_grants = [] if target is None else [
+                    {
+                        'workflow': row.workflow,
+                        'role': row.role,
+                        'branch': row.branch,
+                        'product': row.product,
+                        'group_configuration_id': row.group_configuration_id,
+                    }
+                    for row in AccessGrant.objects.filter(user=target, active=True)
+                ]
+                current_keys = {
+                    (
+                        row['workflow'], row['role'], row.get('branch', ''),
+                        row.get('product', ''), row.get('group_configuration_id'),
+                    )
+                    for row in current_grants
+                }
+                desired_keys = {
+                    (
+                        row['workflow'], row['role'], row.get('branch', ''),
+                        row.get('product', ''), row.get('group_configuration_id'),
+                    )
+                    for row in direct_preview['grants']
+                }
+                direct_preview['grant_diff'] = {
+                    'added': len(desired_keys - current_keys),
+                    'retained': len(desired_keys & current_keys),
+                    'removed': len(current_keys - desired_keys),
+                    'expanded_count': len(desired_keys),
+                    'large_expansion': len(desired_keys) > 12,
+                }
+                direct_preview['repair_broadens_access'] = bool(
+                    repair_mode
+                    and any(
+                        key not in current_keys
+                        and (not key[2] or not key[3] or key[4] is None)
+                        for key in desired_keys
+                    )
+                )
                 if submission_action == 'confirm_direct':
+                    # A byte-for-byte HTTP retry may arrive after the first
+                    # request has already changed the target state. Let the
+                    # service's request-key/fingerprint contract resolve that
+                    # replay before applying the stale-review guard.
+                    existing_replay = StaffLifecycleChangePlan.objects.filter(
+                        requested_by=request.user,
+                        request_key=data.get('request_key') or '',
+                    ).first()
+                    if existing_replay is not None:
+                        plan, created = submit_lifecycle_change(
+                            requester=request.user, target_user=target,
+                            action=data['action'], reason=data['reason'],
+                            desired_grants=desired,
+                            replacement_user=data.get('replacement_user'),
+                            leave_until=data.get('leave_until'),
+                            leave_from=data.get('leave_from'),
+                            delegation_gates=data.get('delegation_gates'),
+                            request_key=data.get('request_key'), identity=identity,
+                            telegram_group_ids=telegram_group_ids,
+                            new_user_password=new_user_password,
+                            current_password=data.get('superuser_password') or '',
+                            decision_mode=StaffLifecycleChangePlan.DECISION_SUPERUSER,
+                        )
+                        messages.success(
+                            request,
+                            'This lifecycle request was already processed; the original result is shown.',
+                        )
+                        return HttpResponseRedirect(
+                            reverse('admin:auth_user_staff_lifecycle_plan', args=[plan.pk]),
+                        )
                     if request.POST.get('preview_fingerprint') != direct_preview['fingerprint']:
                         raise ValidationError(
                             'The lifecycle details changed. Review the refreshed summary before applying.'
@@ -7318,6 +7509,7 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             'has_independent_checker': approver_users().exclude(pk=request.user.pk).exists(),
             'is_superuser_workspace': True,
             'direct_preview': direct_preview,
+            'repair_mode': repair_mode,
             'telegram_onboarding_attention': onboarding_attention,
         })
 
@@ -7667,30 +7859,56 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             raise PermissionDenied
         from core.services.telegram_identity import user_access
         from core.services.workflow_capabilities import capabilities_payload
-        from core.services.portal_permissions import portal_capability_scope
+        from core.services.workflow_access import workflow_capability_scope
         rows = []
         for workflow, label in AccessGrant.WORKFLOW_CHOICES:
             access = user_access(user, workflow)
             capabilities = capabilities_payload(user, workflow, access=access)
             scoped_capabilities = []
-            if workflow == 'jawabu_portal':
-                for capability in capabilities:
-                    scope = portal_capability_scope(user, capability, access=access)
-                    scoped_capabilities.append({
-                        'key': capability,
-                        'assignments': [
-                            f"{item['role']}: {item['branch'] or 'All branches'} / {item['product'] or 'All products'}"
-                            for item in scope['assignments']
-                        ],
-                    })
+            for capability in capabilities:
+                scope = workflow_capability_scope(user, workflow, capability, access=access)
+                scoped_capabilities.append({
+                    'key': capability,
+                    'assignments': [
+                        (
+                            f"{item['role']}: {item['branch'] or 'All branches'} / "
+                            f"{item['product'] or 'All products'} / "
+                            f"group {item['group_configuration_id'] or 'All compatible groups'}"
+                        )
+                        for item in scope['assignments']
+                    ],
+                })
+            grant_rows = []
+            for grant in access.get('grants', []):
+                group = getattr(grant, 'group_configuration', None)
+                grant_rows.append({
+                    'id': str(getattr(grant, 'pk', '')),
+                    'role': str(getattr(grant, 'role', '') or ''),
+                    'branch': str(getattr(grant, 'branch', '') or ''),
+                    'product': str(getattr(grant, 'product', '') or ''),
+                    'group_label': (
+                        (getattr(group, 'display_name', '') or getattr(group, 'group_id', ''))
+                        if group else 'All compatible groups'
+                    ),
+                    'group_id': str(getattr(group, 'group_id', '') or ''),
+                    'active': bool(getattr(grant, 'active', True)),
+                })
             rows.append({
                 'workflow': label, 'roles': access['roles'], 'branches': access['branches'],
                 'products': access['products'], 'capabilities': capabilities,
                 'capability_scopes': scoped_capabilities,
+                'grant_rows': grant_rows,
                 'emergency': access.get('emergency_grants', []),
             })
+        onboarding = StaffTelegramOnboarding.objects.filter(user=user).order_by('-created_at').first()
+        readiness = None
+        if onboarding:
+            from core.services.staff_access_readiness import onboarding_readiness
+            readiness = onboarding_readiness(onboarding, require_identity=True)
+        profile = getattr(user, 'staff_profile', None)
         return TemplateResponse(request, 'admin/auth/user/effective_access.html', {
             **self.admin_site.each_context(request), 'opts': self.model._meta, 'title': f'Effective Mini App access: {user.get_username()}', 'target_user': user, 'rows': rows,
+            'telegram_profile': profile, 'launcher_readiness': readiness,
         })
 
 

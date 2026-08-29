@@ -152,7 +152,14 @@ def user_access(user, workflow: str, *, group_configuration=None) -> dict:
         if database_group is None:
             grants = grants.filter(group_configuration__isnull=True)
         else:
-            grants = grants.filter(group_configuration__in=[None, database_group])
+            # SQL ``IN (NULL, value)`` never matches NULL.  Global grants use
+            # a NULL group scope and must explicitly remain eligible for every
+            # compatible configured group.
+            from django.db.models import Q
+            grants = grants.filter(
+                Q(group_configuration__isnull=True)
+                | Q(group_configuration=database_group)
+            )
     grants = list(grants.select_related('group_configuration'))
     emergency_grants = EmergencyAccessGrant.objects.filter(
         user=user, workflow=workflow, revoked_at__isnull=True, expires_at__gt=timezone.now(),
@@ -161,7 +168,11 @@ def user_access(user, workflow: str, *, group_configuration=None) -> dict:
         if database_group is None:
             emergency_grants = emergency_grants.filter(group_configuration__isnull=True)
         else:
-            emergency_grants = emergency_grants.filter(group_configuration__in=[None, database_group])
+            from django.db.models import Q
+            emergency_grants = emergency_grants.filter(
+                Q(group_configuration__isnull=True)
+                | Q(group_configuration=database_group)
+            )
     emergency_grants = list(emergency_grants.select_related('group_configuration'))
     grant_roles = {
         canonical_access_role(workflow, grant.role)

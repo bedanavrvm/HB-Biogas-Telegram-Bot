@@ -444,6 +444,9 @@ def staff_user_for_payload(group_config, user_payload: dict, fallback_name: str 
         'products': [],
         'capabilities': [],
         'reason': 'Your Telegram account is not configured for the TAT Tracker. Ask an administrator to grant TAT access.',
+        '_canonical_user': canonical_user,
+        '_access': access,
+        '_group_configuration': group_config,
     }
 
 

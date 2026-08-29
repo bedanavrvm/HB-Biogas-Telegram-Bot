@@ -80,35 +80,25 @@ def create_staff_telegram_onboarding(*, plan) -> StaffTelegramOnboarding | None:
 
 
 def _authorized_launcher_buttons(onboarding: StaffTelegramOnboarding) -> list[dict]:
-    from core.services.telegram_identity import user_access
-    from core.services.workflow_capabilities import has_capability
+    from core.services.staff_access_readiness import onboarding_readiness
 
     buttons = []
     seen = set()
-    for invitation in onboarding.group_invitations.select_related('group_configuration'):
-        config = invitation.group_configuration
-        for key in configured_launcher_keys(config):
-            workflow = LAUNCHER_WORKFLOWS.get(key)
-            access = user_access(onboarding.user, workflow, group_configuration=config) if workflow else {}
-            if (
-                key in seen
-                or not workflow
-                or not access.get('authorized')
-                or not has_capability(
-                    onboarding.user, workflow, LAUNCHER_CAPABILITIES[key], access=access,
-                )
-            ):
-                continue
-            url = build_launcher_url(key, config.group_id)
-            if not url:
-                continue
-            seen.add(key)
-            label = {
-                'tat_tracker': 'TAT Tracker', 'spin_credit': 'SPIN / CRB',
-                'order_approval': 'Order Approval', 'pipeline_portal': 'Pipeline Portal',
-                'complaint_cases': 'Complaint Cases', 'loan_origination': 'Loan Origination',
-            }[key]
-            buttons.append({'text': label, 'url': url})
+    readiness = onboarding_readiness(onboarding, require_identity=True)
+    for row in readiness['rows']:
+        key = row['launcher_key']
+        if not row['ready'] or key in seen:
+            continue
+        url = build_launcher_url(key, row['group_id'])
+        if not url:
+            continue
+        seen.add(key)
+        label = {
+            'tat_tracker': 'TAT Tracker', 'spin_credit': 'SPIN / CRB',
+            'order_approval': 'Order Approval', 'pipeline_portal': 'Pipeline Portal',
+            'complaint_cases': 'Complaint Cases', 'loan_origination': 'Loan Origination',
+        }[key]
+        buttons.append({'text': label, 'url': url})
     return buttons
 
 
@@ -177,6 +167,41 @@ def deliver_staff_telegram_onboarding(*, onboarding: StaffTelegramOnboarding) ->
     profile = UserProfile.objects.filter(user=onboarding.user).first()
     if not profile or not profile.telegram_id:
         return {'status': onboarding.STATUS_PENDING, 'message': 'Telegram activation is still pending.'}
+
+    # Do not publish launchers, issue invitations, or claim completion until
+    # the exact runtime authorization decision used by the Mini App succeeds.
+    from core.services.staff_access_readiness import onboarding_readiness
+    readiness = onboarding_readiness(onboarding, require_identity=True)
+    if not readiness['ready']:
+        onboarding.status = onboarding.STATUS_ATTENTION
+        onboarding.activated_at = onboarding.activated_at or timezone.now()
+        onboarding.completed_at = None
+        onboarding.last_error_code = readiness['reason_code']
+        onboarding.save(update_fields=[
+            'status', 'activated_at', 'completed_at', 'last_error_code', 'updated_at',
+        ])
+        failed_groups = {
+            row['group_configuration_id']: row['reason_code']
+            for row in readiness['rows'] if not row['ready']
+        }
+        for invitation in onboarding.group_invitations.all():
+            if invitation.group_configuration_id in failed_groups:
+                invitation.status = invitation.STATUS_ATTENTION
+                invitation.last_error_code = failed_groups[invitation.group_configuration_id]
+                invitation.save(update_fields=['status', 'last_error_code', 'updated_at'])
+        _record_onboarding(onboarding, 'staff_telegram_onboarding.readiness_failed')
+        logger.warning(
+            'Staff Telegram onboarding readiness failed: onboarding=%s reason=%s',
+            onboarding.pk, readiness['reason_code'],
+        )
+        return {
+            'status': onboarding.status,
+            'message': (
+                'Telegram identity verified, but the assigned Mini App access is not ready. '
+                'Your administrator must correct the access scope.'
+            ),
+            'readiness': readiness,
+        }
 
     onboarding.status = onboarding.STATUS_DELIVERING
     onboarding.activated_at = onboarding.activated_at or timezone.now()

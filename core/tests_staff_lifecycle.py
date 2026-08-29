@@ -1,9 +1,11 @@
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from datetime import timedelta
+from io import StringIO
 from unittest.mock import patch
 
 from core.models import (
@@ -82,6 +84,22 @@ class StaffLifecycleServiceTests(TestCase):
                 reason='A conflicting transfer should not be accepted concurrently.',
                 desired_grants=[{'workflow': 'tat_tracker', 'role': 'BRO'}],
             )
+
+    def test_review_fingerprint_changes_when_current_staff_state_changes(self):
+        from core.services.staff_lifecycle import lifecycle_submission_preview
+
+        arguments = {
+            'action': StaffLifecycleChangePlan.ACTION_ACCESS,
+            'reason': 'Review an exact access change before direct application.',
+            'desired_grants': [{'workflow': 'tat_tracker', 'role': 'BRO'}],
+            'target_user': self.target,
+        }
+        first = lifecycle_submission_preview(**arguments)
+        self.target.first_name = 'Updated concurrently'
+        self.target.save(update_fields=['first_name'])
+        second = lifecycle_submission_preview(**arguments)
+
+        self.assertNotEqual(first['fingerprint'], second['fingerprint'])
 
     def test_unrelated_policy_change_marks_plan_stale_without_partial_effect(self):
         plan = create_lifecycle_plan(
@@ -286,6 +304,26 @@ class DirectSuperuserLifecycleTests(TestCase):
         self.assertEqual(plan.status, plan.STATUS_APPLIED)
         self.assertTrue(get_user_model().objects.filter(username='direct-officer').exists())
 
+    def test_launcher_repair_opens_with_current_exact_grants_preloaded(self):
+        plan, _ = self._submit(current_password='')
+        self.client.force_login(self.root)
+
+        response = self.client.get(
+            reverse('admin:auth_user_staff_lifecycle'),
+            {
+                'action': StaffLifecycleChangePlan.ACTION_ACCESS,
+                'target_user': plan.target_user_id,
+                'repair': 'launcher',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Launcher-access repair')
+        initial = response.context['grant_formset'].initial
+        self.assertEqual(initial[0]['workflow'], 'jawabu_portal')
+        self.assertEqual(initial[0]['role'], 'JBL_OFFICER')
+        self.assertTrue(initial[0]['all_groups'])
+
     def test_wrong_superuser_password_still_blocks_existing_user_change(self):
         target = get_user_model().objects.create_user('existing-officer', is_active=True)
         with self.assertRaises(ValidationError):
@@ -313,16 +351,16 @@ class DirectSuperuserLifecycleTests(TestCase):
             'password': 'initial-password',
             'reason': 'Create this ordinary staff account directly as Superuser.',
             'request_key': 'admin-direct-onboard-1',
-            'grants-TOTAL_FORMS': '3',
+            'grants-TOTAL_FORMS': '1',
             'grants-INITIAL_FORMS': '0',
             'grants-MIN_NUM_FORMS': '0',
-            'grants-MAX_NUM_FORMS': '8',
+            'grants-MAX_NUM_FORMS': '20',
             'grants-0-include': 'on',
             'grants-0-workflow': 'jawabu_portal',
             'grants-0-role': 'JBL_OFFICER',
-            'grants-0-branch': '',
-            'grants-0-product': '',
-            'grants-0-group_configuration': '',
+            'grants-0-all_branches': 'on',
+            'grants-0-all_products': 'on',
+            'grants-0-all_groups': 'on',
             'lifecycle_action': 'apply_now',
         }
         preview = self.client.post(url, payload)
@@ -346,6 +384,20 @@ class DirectSuperuserLifecycleTests(TestCase):
         plan = StaffLifecycleChangePlan.objects.get(request_key='admin-direct-onboard-1')
         self.assertEqual(plan.status, plan.STATUS_APPLIED)
         self.assertEqual(plan.decision_mode, plan.DECISION_SUPERUSER)
+
+        replay = self.client.post(url, {
+            **payload,
+            'password': 'replacement-initial-password',
+            'lifecycle_action': 'confirm_direct',
+            'preview_fingerprint': fingerprint,
+        })
+        self.assertRedirects(
+            replay, reverse('admin:auth_user_staff_lifecycle_plan', args=[plan.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(
+            get_user_model().objects.filter(username='admin-direct-officer').count(), 1,
+        )
 
     def test_direct_preview_does_not_conflict_when_credential_is_reentered(self):
         from core.services.staff_lifecycle import lifecycle_submission_preview
@@ -479,6 +531,97 @@ class StaffTelegramOnboardingTests(TestCase):
             [self.group.pk],
         )
 
+    def test_global_tat_grant_covers_selected_onboarding_group(self):
+        from core.services.staff_access_readiness import onboarding_readiness
+        from core.services.telegram_identity import user_access
+
+        plan, _ = self._onboard()
+        profile = plan.target_user.staff_profile
+        profile.telegram_id = '998877'
+        profile.save(update_fields=['telegram_id', 'updated_at'])
+
+        access = user_access(plan.target_user, 'tat_tracker', group_configuration=self.group)
+        self.assertTrue(access['authorized'])
+        self.assertEqual([grant.group_configuration_id for grant in access['grants']], [None])
+        readiness = onboarding_readiness(plan.telegram_onboarding)
+        self.assertTrue(readiness['ready'])
+        self.assertEqual(readiness['rows'][0]['reason_code'], 'access_ready')
+
+    @patch('core.services.staff_telegram_onboarding.publish_group_launcher')
+    @patch('core.services.staff_telegram_onboarding.telegram_api_call')
+    def test_delivery_stops_before_side_effects_when_runtime_group_scope_fails(
+        self, telegram_call, publish_launcher,
+    ):
+        from core.services.staff_access_readiness import onboarding_readiness
+
+        plan, _ = self._onboard()
+        other_group = GroupSheetConfiguration.objects.create(
+            group_id='-100otherstaffgroup', display_name='Other TAT', enabled=True,
+            workflow={'type': 'tat_tracker', 'mini_app_launchers': ['tat_tracker']},
+        )
+        AccessGrant.objects.filter(user=plan.target_user, workflow='tat_tracker').update(
+            group_configuration=other_group,
+        )
+        profile = plan.target_user.staff_profile
+        profile.telegram_id = '998877'
+        profile.save(update_fields=['telegram_id', 'updated_at'])
+
+        readiness = onboarding_readiness(plan.telegram_onboarding)
+        self.assertFalse(readiness['ready'])
+        self.assertEqual(readiness['reason_code'], 'group_scope_mismatch')
+        result = deliver_staff_telegram_onboarding(onboarding=plan.telegram_onboarding)
+
+        self.assertEqual(result['status'], StaffTelegramOnboarding.STATUS_ATTENTION)
+        self.assertEqual(result['readiness']['reason_code'], 'group_scope_mismatch')
+        telegram_call.assert_not_called()
+        publish_launcher.assert_not_called()
+
+    def test_scope_set_expands_multiple_groups_into_exact_grants(self):
+        from core.admin import StaffLifecycleGrantFormSet
+
+        second_group = GroupSheetConfiguration.objects.create(
+            group_id='-100secondstaffgroup', display_name='Second TAT', enabled=True,
+            workflow={'type': 'tat_tracker', 'mini_app_launchers': ['tat_tracker']},
+        )
+        formset = StaffLifecycleGrantFormSet(data={
+            'grants-TOTAL_FORMS': '1', 'grants-INITIAL_FORMS': '0',
+            'grants-MIN_NUM_FORMS': '0', 'grants-MAX_NUM_FORMS': '20',
+            'grants-0-include': 'on', 'grants-0-workflow': 'tat_tracker',
+            'grants-0-role': 'BRO', 'grants-0-all_branches': 'on',
+            'grants-0-all_products': 'on',
+            'grants-0-groups': [str(self.group.pk), str(second_group.pk)],
+        }, prefix='grants')
+
+        self.assertTrue(formset.is_valid(), formset.errors)
+        expanded = formset.forms[0].cleaned_data['expanded_grants']
+        self.assertEqual(len(expanded), 2)
+        self.assertEqual(
+            {row['group_configuration_id'] for row in expanded},
+            {self.group.pk, second_group.pk},
+        )
+
+    def test_launcher_readiness_command_is_diagnostic_only(self):
+        plan, _ = self._onboard()
+        profile = plan.target_user.staff_profile
+        profile.telegram_id = '998877'
+        profile.save(update_fields=['telegram_id', 'updated_at'])
+        before_grants = list(AccessGrant.objects.filter(
+            user=plan.target_user,
+        ).values_list('pk', 'active', 'group_configuration_id'))
+        output = StringIO()
+
+        call_command('audit_staff_launcher_readiness', '--json', stdout=output)
+
+        payload = output.getvalue()
+        self.assertIn('"mode": "read_only"', payload)
+        self.assertIn('"ready": true', payload)
+        self.assertEqual(
+            list(AccessGrant.objects.filter(user=plan.target_user).values_list(
+                'pk', 'active', 'group_configuration_id',
+            )),
+            before_grants,
+        )
+
     @override_settings(
         TELEGRAM_BOT_USERNAME='jbl_bot',
         STAFF_ACTIVATION_MINI_APP_SHORT_NAME='staff-activation',
@@ -513,11 +656,12 @@ class StaffTelegramOnboardingTests(TestCase):
             'reason': 'Create this Telegram staff account directly as Superuser.',
             'request_key': 'admin-telegram-onboard-1',
             'telegram_groups': [str(self.group.pk)],
-            'grants-TOTAL_FORMS': '3', 'grants-INITIAL_FORMS': '0',
-            'grants-MIN_NUM_FORMS': '0', 'grants-MAX_NUM_FORMS': '8',
+            'grants-TOTAL_FORMS': '1', 'grants-INITIAL_FORMS': '0',
+            'grants-MIN_NUM_FORMS': '0', 'grants-MAX_NUM_FORMS': '20',
             'grants-0-include': 'on', 'grants-0-workflow': 'tat_tracker',
-            'grants-0-role': 'BRO', 'grants-0-branch': '', 'grants-0-product': '',
-            'grants-0-group_configuration': '', 'lifecycle_action': 'apply_now',
+            'grants-0-role': 'BRO', 'grants-0-all_branches': 'on',
+            'grants-0-all_products': 'on', 'grants-0-all_groups': 'on',
+            'lifecycle_action': 'apply_now',
         }
         preview = self.client.post(url, payload)
         self.assertEqual(preview.status_code, 200)

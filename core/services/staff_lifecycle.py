@@ -132,7 +132,7 @@ def _normalize_telegram_groups(group_ids, grants) -> list[int]:
         raise ValidationError('One or more selected Telegram groups are disabled or no longer configured.')
     for group in groups:
         group_type = str((group.workflow or {}).get('type') or '')
-        from core.services.staff_telegram_onboarding import LAUNCHER_WORKFLOWS
+        from core.services.staff_telegram_onboarding import LAUNCHER_CAPABILITIES, LAUNCHER_WORKFLOWS
         from core.services.telegram_launchers import configured_launcher_keys
 
         compatible = any(
@@ -155,6 +155,31 @@ def _normalize_telegram_groups(group_ids, grants) -> list[int]:
             raise ValidationError(
                 f'{group.display_name or group.group_id} is not compatible with the proposed workflow access.'
             )
+        # Validate the actual launcher capability and exact group scope before
+        # the user shell is created.  A compatible workflow label alone is not
+        # sufficient evidence that the first protected endpoint will allow it.
+        from core.models import WorkflowRoleCapability
+        for launcher_key in configured_launcher_keys(group):
+            workflow = LAUNCHER_WORKFLOWS.get(launcher_key)
+            capability = LAUNCHER_CAPABILITIES.get(launcher_key)
+            matching_rows = [
+                row for row in grants
+                if row.get('workflow') == workflow
+                and row.get('group_configuration_id') in {None, group.pk}
+            ]
+            if not matching_rows:
+                continue
+            allowed_roles = set(WorkflowRoleCapability.objects.filter(
+                workflow=workflow,
+                capability_key=capability,
+                effect=WorkflowRoleCapability.EFFECT_ALLOW,
+                role__in={row.get('role') for row in matching_rows},
+            ).values_list('role', flat=True))
+            if not allowed_roles:
+                raise ValidationError(
+                    f'{group.display_name or group.group_id} cannot launch {launcher_key}: '
+                    f'the proposed role does not receive {capability}.'
+                )
     return requested
 
 
@@ -270,8 +295,23 @@ def lifecycle_submission_preview(*, action, reason, desired_grants=None,
         # fingerprints the supplied credential for idempotency.
         new_user_password='',
     )
+    # The confirmation token also binds the current durable staff state. A
+    # concurrent lifecycle/access change therefore makes the review stale
+    # instead of silently overwriting the newer grants or routing state.
+    current_state_fingerprint = ''
+    if target_user is not None:
+        current_state_fingerprint = hashlib.sha256(
+            json.dumps(
+                lifecycle_snapshot(target_user), sort_keys=True,
+                separators=(',', ':'), default=str,
+            ).encode()
+        ).hexdigest()
+        fingerprint = hashlib.sha256(
+            f'{fingerprint}:{current_state_fingerprint}'.encode()
+        ).hexdigest()
     return {
         'fingerprint': fingerprint,
+        'current_state_fingerprint': current_state_fingerprint,
         'action': dict(StaffLifecycleChangePlan.ACTION_CHOICES).get(action, action),
         'target': str(target_user) if target_user else normalized_identity.get('display_name', ''),
         'identity': normalized_identity,
