@@ -5488,7 +5488,7 @@ def portal_invoice_identity_review(request, invoice_id: str):
     try:
         review = ensure_identity_review(
             invoice, invoice.matched_farmer,
-            client_request_id=str(body.get('client_request_id') or request.headers.get('Idempotency-Key') or '').strip(),
+            client_request_id=_portal_request_id(request, body),
         )
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=409)
@@ -5548,7 +5548,7 @@ def portal_invoice_name_change_create(request, invoice_id: str):
             related_phone=str(body.get('related_phone') or invoice.customer_phone),
             attestation_note=str(body.get('attestation_note') or ''),
             evidence_reference=str(body.get('evidence_reference') or ''),
-            client_request_id=str(body.get('client_request_id') or request.headers.get('Idempotency-Key') or '').strip(),
+            client_request_id=_portal_request_id(request, body),
             batch=batch,
         )
     except ValueError as exc:
@@ -5624,9 +5624,7 @@ def portal_invoice_name_change_batches(request):
             batch, _ = assemble_name_change_batch(
                 items,
                 actor=_portal_sender_from_request(request),
-                client_request_id=str(
-                    body.get('client_request_id') or request.headers.get('Idempotency-Key') or ''
-                ).strip(),
+                client_request_id=_portal_request_id(request, body),
             )
         except NameChangeBatchConflict as exc:
             return JsonResponse({
@@ -5744,9 +5742,7 @@ def portal_invoice_name_change_follow_up(request, item_id: str):
     try:
         follow_up = create_name_change_follow_up(
             item, actor=_portal_sender_from_request(request),
-            client_request_id=str(
-                body.get('client_request_id') or request.headers.get('Idempotency-Key') or ''
-            ).strip(),
+            client_request_id=_portal_request_id(request, body),
         )
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
@@ -5825,9 +5821,7 @@ def portal_invoice_name_change_generate(request, batch_id: str):
     try:
         artifact, created = generate_letter_artifact(
             batch, actor=actor,
-            client_request_id=str(
-                body.get('client_request_id') or request.headers.get('Idempotency-Key') or ''
-            ).strip(),
+            client_request_id=_portal_request_id(request, body),
         )
     except InvoiceNameChangeLetterError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)

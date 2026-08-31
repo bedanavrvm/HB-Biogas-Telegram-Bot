@@ -23,6 +23,7 @@ from typing import Any
 import requests
 from django.conf import settings
 from django.core import signing
+from django.db import IntegrityError
 from django.utils import timezone
 
 from core.models import MediaAttachment, OrderApprovalUpdate
@@ -644,6 +645,7 @@ def process_order_approval_form_submission(
     received_at: datetime | None = None,
     include_blank_fields: bool = False,
     edit_context: dict | None = None,
+    client_request_id: str = '',
 ) -> dict:
     received_at = received_at or timezone.now()
     parsed_fields = clean_form_fields(
@@ -669,29 +671,94 @@ def process_order_approval_form_submission(
             'warnings': [],
         }
 
-    update_record = OrderApprovalUpdate.objects.create(
-        group_id=group_config.group_id,
-        sheet_id=group_config.sheet_id,
-        id_number=id_number,
-        sender=sender or '',
-        raw_text='Telegram Web App submission',
-        parsed_fields=parsed_fields,
-        update_status='pending',
-    )
+    request_key = str(client_request_id or '').strip()[:128]
+    request_material = {
+        'fields': parsed_fields,
+        'include_blank_fields': bool(include_blank_fields),
+        'edit_context': edit_context or {},
+        'files': [],
+    }
+    for uploaded in uploaded_files:
+        content_hash, size = hash_uploaded_file(uploaded.file)
+        request_material['files'].append({
+            'field': str(uploaded.file_type or ''),
+            'name': str(getattr(uploaded.file, 'name', '') or ''),
+            'size': size,
+            'sha256': content_hash,
+        })
+    request_fingerprint = hashlib.sha256(json.dumps(
+        request_material, sort_keys=True, separators=(',', ':'), default=str,
+    ).encode('utf-8')).hexdigest()
+
+    def replay(existing: OrderApprovalUpdate) -> dict:
+        if existing.request_fingerprint != request_fingerprint:
+            return {
+                'success': False,
+                'status': 'conflict',
+                'code': 'IDEMPOTENCY_KEY_REUSED',
+                'message': 'This retry identifier was already used for different order information. Refresh and submit again.',
+                'files_stored': 0,
+                'warnings': [],
+            }
+        if existing.response_snapshot:
+            result = dict(existing.response_snapshot)
+            result['idempotent_replay'] = True
+            return result
+        return {
+            'success': False,
+            'status': 'conflict',
+            'code': 'IDEMPOTENCY_REQUEST_IN_PROGRESS',
+            'message': 'This order submission is still being processed. Wait a moment and retry.',
+            'files_stored': 0,
+            'warnings': [],
+        }
+
+    if request_key:
+        existing = OrderApprovalUpdate.objects.filter(
+            group_id=group_config.group_id,
+            client_request_id=request_key,
+        ).first()
+        if existing is not None:
+            return replay(existing)
+
+    try:
+        update_record = OrderApprovalUpdate.objects.create(
+            group_id=group_config.group_id,
+            sheet_id=group_config.sheet_id,
+            id_number=id_number,
+            sender=sender or '',
+            raw_text='Telegram Web App submission',
+            parsed_fields=parsed_fields,
+            update_status='pending',
+            client_request_id=request_key,
+            request_fingerprint=request_fingerprint if request_key else '',
+        )
+    except IntegrityError:
+        if not request_key:
+            raise
+        return replay(OrderApprovalUpdate.objects.get(
+            group_id=group_config.group_id,
+            client_request_id=request_key,
+        ))
+
+    def finish(result: dict) -> dict:
+        update_record.response_snapshot = result
+        update_record.save(update_fields=['response_snapshot'])
+        return result
     try:
         _bind_order_location_catalog(update_record, parsed_fields)
     except ValueError as exc:
         update_record.update_status = 'failed'
         update_record.sync_error = str(exc)
         update_record.save(update_fields=['update_status', 'sync_error'])
-        return {
+        return finish({
             'success': False,
             'status': 'failed',
             'message': str(exc),
             'errors': [str(exc)],
             'files_stored': 0,
             'warnings': [],
-        }
+        })
 
     loaded_edit_match = None
     if include_blank_fields and edit_context_has_loaded_row(edit_context):
@@ -707,7 +774,7 @@ def process_order_approval_form_submission(
             update_record.update_status = 'failed'
             update_record.sync_error = 'Edit context did not match the loaded sheet row.'
             update_record.save(update_fields=['update_status', 'sync_error'])
-            return {
+            return finish({
                 'success': False,
                 'status': 'failed',
                 'message': (
@@ -716,7 +783,7 @@ def process_order_approval_form_submission(
                 ),
                 'files_stored': 0,
                 'warnings': [],
-            }
+            })
 
         target_id_matches = find_order_approval_matches(group_config, id_number)
         conflicting_matches = [
@@ -727,7 +794,7 @@ def process_order_approval_form_submission(
             update_record.update_status = 'duplicate'
             update_record.sync_error = 'Submitted ID already exists on another row.'
             update_record.save(update_fields=['update_status', 'sync_error'])
-            return {
+            return finish({
                 'success': False,
                 'status': 'duplicate',
                 'message': (
@@ -736,7 +803,7 @@ def process_order_approval_form_submission(
                 ),
                 'files_stored': 0,
                 'warnings': [],
-            }
+            })
         matches = [loaded_edit_match]
     else:
         matches = find_order_approval_matches(group_config, id_number)
@@ -759,7 +826,7 @@ def process_order_approval_form_submission(
             update_record.update_status = 'failed'
             update_record.sync_error = create_result['error']
             update_record.save(update_fields=['update_status', 'sync_error'])
-            return {
+            return finish({
                 'success': False,
                 'status': 'failed',
                 'message': staff_facing_order_error(create_result['error']),
@@ -768,7 +835,7 @@ def process_order_approval_form_submission(
                 ),
                 'files_stored': uploaded.stored_count,
                 'warnings': uploaded.warnings,
-            }
+            })
 
         update_record.sheet_tab = create_result['sheet_name']
         update_record.row_number = create_result['row_number']
@@ -776,7 +843,7 @@ def process_order_approval_form_submission(
         update_record.save(update_fields=[
             'sheet_tab', 'row_number', 'update_status',
         ])
-        return {
+        return finish({
             'success': True,
             'status': 'created',
             'message': 'Entry created.',
@@ -789,7 +856,7 @@ def process_order_approval_form_submission(
             'field_changes': create_result.get('field_changes', []),
             'files_stored': uploaded.stored_count,
             'warnings': uploaded.warnings,
-        }
+        })
 
     if len(matches) > 1:
         uploaded = store_uploaded_files_for_order(
@@ -809,7 +876,7 @@ def process_order_approval_form_submission(
             f"{item['sheet']}!{item['row']}" for item in locations
         )
         update_record.save(update_fields=['update_status', 'sync_error'])
-        return {
+        return finish({
             'success': False,
             'status': 'duplicate',
             'message': (
@@ -818,7 +885,7 @@ def process_order_approval_form_submission(
             ),
             'files_stored': uploaded.stored_count,
             'warnings': uploaded.warnings,
-        }
+        })
 
     match = matches[0]
 
@@ -844,7 +911,7 @@ def process_order_approval_form_submission(
         update_record.update_status = 'failed'
         update_record.sync_error = sheet_result['error']
         update_record.save(update_fields=['update_status', 'sync_error'])
-        return {
+        return finish({
             'success': False,
             'status': 'failed',
             'message': staff_facing_order_error(sheet_result['error']),
@@ -853,14 +920,14 @@ def process_order_approval_form_submission(
             ),
             'files_stored': uploaded.stored_count,
             'warnings': uploaded.warnings,
-        }
+        })
 
     update_record.update_status = 'success'
     update_record.save(update_fields=['update_status'])
     customer_name = parsed_fields.get('customer_name') or value_for_header(
         match, header_for_field(group_config.workflow or {}, 'customer_name')
     )
-    return {
+    return finish({
         'success': True,
         'status': 'success',
         'message': 'Entry updated.',
@@ -873,7 +940,7 @@ def process_order_approval_form_submission(
         'field_changes': sheet_result.get('field_changes', []),
         'files_stored': uploaded.stored_count,
         'warnings': uploaded.warnings,
-    }
+    })
 
 
 def lookup_order_approval_form_record(group_config, id_number: str) -> dict:

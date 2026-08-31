@@ -265,15 +265,56 @@
     });
   }
 
+  const fallbackAmbiguousWriteKeys = new Map();
+
+  function fallbackWriteFingerprint(path, method, body) {
+    const source = `${method}:${path}:${String(body || '')}`;
+    let hash = 2166136261;
+    for (let index = 0; index < source.length; index += 1) {
+      hash ^= source.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `${method}:${path}:${(hash >>> 0).toString(16)}`;
+  }
+
   async function apiFetch(path, opts = {}) {
     if (portalApi.apiFetch) return portalApi.apiFetch(path, opts, tg);
     const headers = { 'Content-Type': 'application/json', 'X-MiniApp-Message-Contract': '2', ...initDataHeader(), ...(opts.headers || {}) };
     const requestOptions = { ...opts, headers };
+    const method = String(requestOptions.method || 'GET').toUpperCase();
+    const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+    let fingerprint = '';
+    let body = null;
+    if (isWrite && typeof requestOptions.body === 'string') {
+      try { body = JSON.parse(requestOptions.body); } catch (_) { /* Header identity still applies. */ }
+    }
+    if (isWrite) {
+      fingerprint = fallbackWriteFingerprint(path, method, requestOptions.body || '');
+      const key = body?.client_request_id
+        || headers['Idempotency-Key']
+        || headers['X-Request-ID']
+        || fallbackAmbiguousWriteKeys.get(fingerprint)
+        || utils.createRequestId?.('portal')
+        || `portal-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      fallbackAmbiguousWriteKeys.set(fingerprint, key);
+      headers['Idempotency-Key'] = key;
+      headers['X-Request-ID'] = key;
+      if (body && typeof body === 'object' && !Array.isArray(body) && !body.client_request_id) {
+        body.client_request_id = key;
+        requestOptions.body = JSON.stringify(body);
+      }
+    }
     if (!requestOptions.method || String(requestOptions.method).toUpperCase() === 'GET') {
       requestOptions.cache = 'no-store';
     }
     try {
-      const res = await fetch(apiBase() + path, requestOptions);
+      const operation = () => fetch(apiBase() + path, requestOptions);
+      const res = await (isWrite && utils.singleFlight
+        ? utils.singleFlight(headers['Idempotency-Key'], operation)
+        : operation());
+      if (fingerprint && res.status > 0 && res.status < 500) {
+        fallbackAmbiguousWriteKeys.delete(fingerprint);
+      }
       const raw = await res.json().catch(() => ({}));
       const data = utils.normalizeResponsePayload ? utils.normalizeResponsePayload(res, raw) : raw;
       return { ok: res.ok, status: res.status, data };

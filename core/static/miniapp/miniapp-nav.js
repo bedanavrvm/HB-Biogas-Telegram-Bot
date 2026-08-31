@@ -241,9 +241,11 @@
 
   document.body.addEventListener('htmx:configRequest', event => {
     if (tg?.initData) event.detail.headers['X-Telegram-Init-Data'] = tg.initData;
-    event.detail.headers['X-Request-ID'] = window.crypto?.randomUUID
+    const requestId = window.crypto?.randomUUID
       ? window.crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    event.detail.headers['X-Request-ID'] = requestId;
+    event.detail.headers['Idempotency-Key'] = requestId;
   });
   document.body.addEventListener('htmx:afterSwap', activateScreen);
   document.body.addEventListener('htmx:afterSettle', activateScreen);

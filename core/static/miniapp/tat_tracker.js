@@ -84,19 +84,28 @@
   }
 
   async function api(path, payload) {
+    const body = basePayload(payload);
+    const requestId = utils.ensureRequestId
+      ? utils.ensureRequestId(body, 'tat')
+      : (body.client_request_id || `tat-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-Request-ID': requestId,
+      'Idempotency-Key': requestId,
+    };
     try {
-      if (tatApi.postJson) return await tatApi.postJson(path, basePayload(payload), utils);
+      if (tatApi.postJson) return await tatApi.postJson(path, body, utils);
       if (utils.fetchJson) {
         return await utils.fetchJson(path, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(basePayload(payload)),
+          headers,
+          body: JSON.stringify(body),
         });
       }
       const response = await fetch(path, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(basePayload(payload)),
+        headers,
+        body: JSON.stringify(body),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok) {
@@ -115,18 +124,27 @@
   }
 
   async function fragmentPost(path, payload) {
-    if (tatApi.postFragment) return tatApi.postFragment(path, basePayload(payload), utils);
+    const body = basePayload(payload);
+    const requestId = utils.ensureRequestId
+      ? utils.ensureRequestId(body, 'tat-fragment')
+      : (body.client_request_id || `tat-fragment-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const headers = {
+      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+      'X-Request-ID': requestId,
+      'Idempotency-Key': requestId,
+    };
+    if (tatApi.postFragment) return tatApi.postFragment(path, body, utils);
     if (utils.fetchHtml && utils.formBody) {
       return utils.fetchHtml(path, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-        body: utils.formBody(basePayload(payload)),
+        headers,
+        body: utils.formBody(body),
       });
     }
     const response = await fetch(path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-      body: new URLSearchParams(basePayload(payload)).toString(),
+      headers,
+      body: new URLSearchParams(body).toString(),
     });
     const html = await response.text();
     if (!response.ok) throw new Error(html || 'Request failed.');

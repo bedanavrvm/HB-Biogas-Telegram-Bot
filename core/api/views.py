@@ -26,6 +26,8 @@ from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
+
+from core.services.miniapp_requests import miniapp_idempotency_boundary
 from django.conf import settings
 from django.db import DatabaseError, connection
 import hmac
@@ -58,6 +60,7 @@ def staff_telegram_activation_page(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_idempotency_boundary
 def staff_telegram_activation_submit(request):
     """Bind an enrolled staff identity with signed initData and one-time proof."""
     from core.services.telegram_identity import (
@@ -208,13 +211,22 @@ def miniapp_write_response(view_func):
     """Return the shared keyed/legacy-client response marker for Mini Apps."""
     @wraps(view_func)
     def wrapped(request, *args, **kwargs):
-        from core.services.miniapp_requests import attach_miniapp_request_metadata
+        from core.services.miniapp_requests import (
+            attach_miniapp_request_metadata,
+            bind_miniapp_write_request,
+            idempotency_error_response,
+        )
         from core.services.miniapp_messages import normalize_miniapp_response, unexpected_miniapp_error
         try:
-            response = view_func(request, *args, **kwargs)
-        except Exception as exc:
-            logger.exception('Mini App request failed unexpectedly: path=%s', request.path)
-            response = unexpected_miniapp_error(request, exc, workflow="miniapp")
+            bind_miniapp_write_request(request)
+        except ValueError as exc:
+            response = idempotency_error_response(exc, request)
+        else:
+            try:
+                response = view_func(request, *args, **kwargs)
+            except Exception as exc:
+                logger.exception('Mini App request failed unexpectedly: path=%s', request.path)
+                response = unexpected_miniapp_error(request, exc, workflow="miniapp")
         response = attach_miniapp_request_metadata(request, response)
         return normalize_miniapp_response(request, response, workflow="miniapp")
     return wrapped
@@ -293,6 +305,7 @@ def _miniapp_draft_context(workflow: str, context_key: str, payload: dict):
 
 @csrf_exempt  # Verified Telegram initData and the scoped review token authenticate this API.
 @require_http_methods(['GET', 'POST', 'DELETE'])
+@miniapp_write_response
 def miniapp_draft(request, workflow: str, context_key: str):
     """Load, save, or clear a short-lived field-only Mini App draft."""
     payload = _miniapp_draft_payload(request)
@@ -620,6 +633,7 @@ def tat_tracker_home(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def tat_tracker_home_fragment(request):
     payload = _tat_payload(request)
     group_id, group_config, user_payload, user, error = _tat_context(payload)
@@ -693,6 +707,7 @@ def tat_tracker_search(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def tat_tracker_search_fragment(request):
     payload = _tat_payload(request)
     group_id, group_config, user_payload, user, error = _tat_context(payload)
@@ -1161,11 +1176,15 @@ def order_approval_webapp_submit(request):
                 'row': request.POST.get('edit_row', ''),
                 'fingerprint': request.POST.get('edit_fingerprint', ''),
             },
+            client_request_id=getattr(request, 'miniapp_request_id', ''),
         )
-        _send_order_approval_webapp_chat_reply(
-            group_id=group_id,
-            result=result,
-        )
+        if not result.get('idempotent_replay') and result.get('status') != 'conflict':
+            _send_order_approval_webapp_chat_reply(
+                group_id=group_id,
+                result=result,
+            )
+        if result.get('status') == 'conflict':
+            return JsonResponse(result, status=409)
         return JsonResponse(result, status=200 if result.get('success') else 400)
     except Exception as exc:
         logger.error(

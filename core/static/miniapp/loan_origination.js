@@ -193,7 +193,25 @@
   }
 
   async function apiFetch(path, options) {
-    const requestOptions = options || {};
+    const requestOptions = { ...(options || {}) };
+    requestOptions.headers = { ...(requestOptions.headers || {}) };
+    const method = String(requestOptions.method || 'GET').toUpperCase();
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+      let body = null;
+      if (typeof requestOptions.body === 'string') {
+        try { body = JSON.parse(requestOptions.body); } catch (_) { /* Non-JSON writes are header-keyed. */ }
+      }
+      const key = body?.client_request_id
+        || requestOptions.headers['Idempotency-Key']
+        || requestOptions.headers['X-Request-ID']
+        || requestKey('write');
+      if (body && typeof body === 'object' && !Array.isArray(body) && !body.client_request_id) {
+        body.client_request_id = key;
+        requestOptions.body = JSON.stringify(body);
+      }
+      requestOptions.headers['Idempotency-Key'] = key;
+      requestOptions.headers['X-Request-ID'] = key;
+    }
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 20000);
     try {
@@ -2352,8 +2370,12 @@
       xhr.open('POST', `/api/origination/api/applications/${current.id}/requirements/${encodeURIComponent(requirementKey)}/evidence/`);
       xhr.timeout = 60000;
       if (tg?.initData) xhr.setRequestHeader('X-Telegram-Init-Data', tg.initData);
-      xhr.setRequestHeader('Idempotency-Key', requestId);
-      xhr.setRequestHeader('X-Request-ID', requestId);
+      if (window.MiniAppUtils?.setXhrIdempotencyHeaders) {
+        window.MiniAppUtils.setXhrIdempotencyHeaders(xhr, requestId);
+      } else {
+        xhr.setRequestHeader('Idempotency-Key', requestId);
+        xhr.setRequestHeader('X-Request-ID', requestId);
+      }
       xhr.upload.onprogress = event => {
         if (event.lengthComputable) setSaveState(`Uploading ${Math.round(event.loaded * 100 / event.total)}%`, 'saving');
       };

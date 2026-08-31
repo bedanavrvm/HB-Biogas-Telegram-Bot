@@ -250,16 +250,20 @@
       } catch (_) {}
     }
 
-    function initHeaders() {
+    function initHeaders(requestId) {
       const headers = { 'Content-Type': 'application/json' };
       try { if (tg && tg.initData) headers['X-Telegram-Init-Data'] = tg.initData; } catch (_) {}
+      if (requestId) {
+        headers['X-Request-ID'] = requestId;
+        headers['Idempotency-Key'] = requestId;
+      }
       return headers;
     }
 
     async function ensureServerSession(session) {
       if (session.server_started && session.signal_token) return true;
       const response = await window.fetch('/api/miniapp-diagnostics/sessions/start/', {
-        method: 'POST', credentials: 'same-origin', headers: initHeaders(),
+        method: 'POST', credentials: 'same-origin', headers: initHeaders(session.session_uuid),
         body: JSON.stringify({
           session_uuid: session.session_uuid, surface: session.surface, release: session.release,
           platform: session.platform, network_bucket: session.network_bucket,
@@ -283,10 +287,11 @@
     async function uploadEvents(session) {
       while (session.events.length) {
         const batch = session.events.slice(0, 20);
+        const requestId = String(batch[0]?.event_uuid || session.session_uuid);
         const response = await window.fetch(
           '/api/miniapp-diagnostics/sessions/' + encodeURIComponent(session.session_uuid) + '/signals/',
           {
-            method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+            method: 'POST', credentials: 'same-origin', headers: initHeaders(requestId),
             body: JSON.stringify({ signal_token: session.signal_token, events: batch })
           }
         );
@@ -333,13 +338,10 @@
         if (!current.signal_token) return false;
         const url = '/api/miniapp-diagnostics/sessions/' + encodeURIComponent(current.session_uuid) + '/signals/';
         const payload = JSON.stringify({ signal_token: current.signal_token, events: [event] });
-        const body = new Blob([payload], {
-          type: 'application/json'
-        });
-        if (navigator.sendBeacon && navigator.sendBeacon(url, body)) return true;
+        const requestId = String(event.event_uuid || current.session_uuid);
         window.fetch(url, {
           method: 'POST', credentials: 'same-origin', keepalive: true,
-          headers: { 'Content-Type': 'application/json' }, body: payload
+          headers: initHeaders(requestId), body: payload
         }).catch(noop);
         return true;
       } catch (_) {

@@ -57,6 +57,45 @@ def production_security_readiness_issues(
     def error(code: str, message: str) -> None:
         issues.append(ReadinessIssue('error', code, message))
 
+    def warning(code: str, message: str) -> None:
+        issues.append(ReadinessIssue('warning', code, message))
+
+    if not bool(getattr(settings, 'REQUIRE_MINIAPP_IDEMPOTENCY_KEY', False)):
+        error(
+            'miniapp-idempotency-strict-mode',
+            'REQUIRE_MINIAPP_IDEMPOTENCY_KEY must be enabled in production.',
+        )
+
+    try:
+        observation_days = int(
+            getattr(settings, 'MINIAPP_IDEMPOTENCY_OBSERVATION_DAYS', 14)
+        )
+    except (TypeError, ValueError):
+        observation_days = 0
+    if observation_days <= 0 or observation_days > 90:
+        error(
+            'miniapp-idempotency-observation-window',
+            'MINIAPP_IDEMPOTENCY_OBSERVATION_DAYS must be between 1 and 90.',
+        )
+    elif check_database:
+        try:
+            from django.db import OperationalError, ProgrammingError
+            from core.services.miniapp_idempotency import recent_legacy_write_summary
+
+            summary = recent_legacy_write_summary(observation_days=observation_days)
+            legacy_count = summary['accepted'] + summary['rejected']
+            if legacy_count:
+                warning(
+                    'miniapp-idempotency-legacy-observed',
+                    f"Observed {legacy_count} legacy Mini App write attempt(s) across "
+                    f"{summary['route_count']} route(s) in the last {observation_days} day(s).",
+                )
+        except (OperationalError, ProgrammingError):
+            # The release command runs before migrations. The first deployment
+            # that creates this aggregate must remain able to reach migrate;
+            # strict transport enforcement is still checked above.
+            pass
+
     for surface, setting_name in MINIAPP_AUTH_SETTINGS:
         if not bool(getattr(settings, setting_name, False)):
             error(

@@ -16,7 +16,10 @@ the completed record in the approved private operations location, not in Git.
 
 - `check_production_readiness --strict` (all five Mini App auth gates and ages,
   Telegram webhook secret, signing credentials, conditional-consent policy,
-  and access-grant governance):
+  access-grant governance, strict Mini App idempotency, and legacy-write
+  observation window):
+- Legacy Mini App write aggregate is clear for the agreed observation window:
+- JSON, multipart, and XHR idempotency client test result:
 - `check_tat_production_readiness --strict` and JSON evidence:
 - Latest successful TAT notification processor run / scheduler alert owner:
 - First successful scheduler run observed while all enabled TAT groups were in shadow mode:

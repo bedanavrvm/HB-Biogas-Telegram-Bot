@@ -28,6 +28,8 @@ _CHECK_IDS = {
     'conditional-approval-esign': 'core.E019',
     'access-grant-governance': 'core.E020',
     'origination-esign-application-environment': 'core.E021',
+    'miniapp-idempotency-strict-mode': 'core.E022',
+    'miniapp-idempotency-observation-window': 'core.E023',
 }
 
 

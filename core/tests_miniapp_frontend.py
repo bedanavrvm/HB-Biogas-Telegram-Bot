@@ -48,18 +48,18 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_imports.js'), html.index('miniapp/portal.js'))
         self.assertIn('miniapp/portal_queues.js?v=9', html)
         self.assertIn('miniapp/portal_farmer_sheet.js?v=45', html)
-        self.assertIn('miniapp/utils.js?v=7', html)
+        self.assertIn('miniapp/utils.js?v=9', html)
         self.assertIn('miniapp/portal_helpers.js?v=6', html)
         self.assertIn('miniapp/portal.css?v=77', html)
         self.assertIn('miniapp/portal_filters.js?v=9', html)
         self.assertIn('miniapp/portal_imports.js?v=7', html)
         self.assertNotIn('portal-import-group', html)
         self.assertIn('miniapp/portal_requisitions.js?v=33', html)
-        self.assertIn('miniapp/portal_api.js?v=7', html)
+        self.assertIn('miniapp/portal_api.js?v=8', html)
         self.assertIn('miniapp/portal_invoices.js?v=16', html)
         self.assertIn('miniapp/portal_payments.js?v=7', html)
         self.assertIn('miniapp/portal_reports.js?v=14', html)
-        self.assertIn('miniapp/portal.js?v=68', html)
+        self.assertIn('miniapp/portal.js?v=69', html)
         self.assertIn('miniapp/portal_case_history.js?v=1', html)
         self.assertLess(html.index('miniapp/portal_case_history.js'), html.index('miniapp/portal.js'))
 
@@ -124,7 +124,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('closeSheet({ saveDraft: false });', source)
         self.assertIn('Closing a sheet, opening case history, or Telegram temporarily replacing', source)
         self.assertIn("const baseUrl = settings.baseUrl ||", utilities)
-        self.assertIn("result['X-Request-ID'] = settings.requestId();", utilities)
+        self.assertIn('Object.assign(result, idempotencyHeaders(key));', utilities)
 
     def test_origination_draft_saves_are_serialized_and_conflicts_are_recoverable(self):
         source = Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
@@ -148,8 +148,8 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("window.addEventListener('online'", source)
         self.assertNotIn('keepalive: true', source)
         self.assertNotIn('fetch(`/api/origination/api/applications/${current.id}/`', source)
-        self.assertIn('data-ui-version="20260828-4"', template)
-        self.assertIn('loan_origination.js\' %}?v=20260829-1', template)
+        self.assertIn('data-ui-version="20260831-1"', template)
+        self.assertIn('loan_origination.js\' %}?v=20260831-1', template)
 
     def test_origination_repeatable_security_normalizes_numeric_entry_and_marks_required_columns(self):
         source = Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8')

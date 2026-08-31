@@ -46,6 +46,12 @@ MESSAGE_CATALOG: dict[str, MiniAppMessage] = {
     "invalid_request": MiniAppMessage(
         "We could not understand that request. Refresh the Mini App and try again.", 400,
     ),
+    "invalid_idempotency_key": MiniAppMessage(
+        "The request retry identifier is invalid. Refresh the Mini App and try again.", 400,
+        tone="error",
+        persistence="until_resolved",
+        surface_hint="banner",
+    ),
     "validation_failed": MiniAppMessage(
         "Check the highlighted information and try again.", 400,
     ),

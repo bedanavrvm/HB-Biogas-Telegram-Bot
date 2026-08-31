@@ -157,13 +157,9 @@ def _capability_error(request, capability: str, application=None):
 
 
 def _request_id(request, body: dict) -> str:
-    return str(
-        request.headers.get('Idempotency-Key')
-        or request.headers.get('X-Request-ID')
-        or body.get('client_request_id')
-        or body.get('request_id')
-        or ''
-    ).strip()[:128]
+    from core.services.miniapp_requests import bind_miniapp_write_request
+
+    return bind_miniapp_write_request(request, body).key
 
 
 def _application(application_id: str):

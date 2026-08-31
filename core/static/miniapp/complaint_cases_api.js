@@ -17,8 +17,12 @@
       },
       body: JSON.stringify(body),
     };
-    if (utils && utils.fetchJson) return utils.fetchJson(`/api/complaints/${path}`, options);
-    const response = await fetch(`/api/complaints/${path}`, options);
+    const operation = () => (utils && utils.fetchJson
+      ? utils.fetchJson(`/api/complaints/${path}`, options)
+      : fetch(`/api/complaints/${path}`, options));
+    if (utils && utils.fetchJson) return utils.singleFlight
+      ? utils.singleFlight(requestId, operation) : operation();
+    const response = await (utils?.singleFlight ? utils.singleFlight(requestId, operation) : operation());
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.ok) {
       const normalized = utils?.normalizeResponsePayload ? utils.normalizeResponsePayload(response, result) : result;
@@ -45,8 +49,12 @@
       },
       body: formData,
     };
-    if (utils && utils.fetchJson) return utils.fetchJson(`/api/complaints/${path}`, options);
-    const response = await fetch(`/api/complaints/${path}`, options);
+    const operation = () => (utils && utils.fetchJson
+      ? utils.fetchJson(`/api/complaints/${path}`, options)
+      : fetch(`/api/complaints/${path}`, options));
+    if (utils && utils.fetchJson) return utils.singleFlight
+      ? utils.singleFlight(requestId, operation) : operation();
+    const response = await (utils?.singleFlight ? utils.singleFlight(requestId, operation) : operation());
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.ok) {
       const normalized = utils?.normalizeResponsePayload ? utils.normalizeResponsePayload(response, result) : result;
@@ -59,14 +67,19 @@
   }
 
   async function postFragment(path, payload, initData, utils) {
+    const body = payload || {};
+    const requestId = utils?.ensureRequestId
+      ? utils.ensureRequestId(body, 'complaint-fragment')
+      : (body.client_request_id || `${Date.now()}-${Math.random().toString(16).slice(2)}`);
     if (utils && utils.fetchHtml && utils.formBody) {
       return utils.fetchHtml(path, {
         method: 'POST',
         headers: Object.assign(
           { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-          utils.initDataHeader ? utils.initDataHeader(initData || '') : { 'X-Telegram-Init-Data': initData || '' }
+          utils.initDataHeader ? utils.initDataHeader(initData || '') : { 'X-Telegram-Init-Data': initData || '' },
+          utils.idempotencyHeaders ? utils.idempotencyHeaders(requestId) : { 'X-Request-ID': requestId, 'Idempotency-Key': requestId }
         ),
-        body: utils.formBody(payload || {}),
+        body: utils.formBody(body),
       });
     }
     const response = await fetch(path, {
@@ -74,8 +87,10 @@
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
         'X-Telegram-Init-Data': initData || '',
+        'X-Request-ID': requestId,
+        'Idempotency-Key': requestId,
       },
-      body: new URLSearchParams(payload || {}).toString(),
+      body: new URLSearchParams(body).toString(),
     });
     const html = await response.text();
     if (!response.ok) throw new Error(html || 'Could not load cases.');

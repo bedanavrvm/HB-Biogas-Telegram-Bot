@@ -13,18 +13,21 @@
       'Idempotency-Key': requestId,
       'X-MiniApp-Message-Contract': '2',
     };
-    if (utils && utils.fetchJson) {
-      return utils.fetchJson(path, {
+    const operation = () => {
+      if (utils && utils.fetchJson) return utils.fetchJson(path, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
       });
-    }
-    const response = await fetch(path, {
+      return fetch(path, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
-    });
+      });
+    };
+    if (utils && utils.fetchJson) return utils.singleFlight
+      ? utils.singleFlight(requestId, operation) : operation();
+    const response = await (utils?.singleFlight ? utils.singleFlight(requestId, operation) : operation());
     const raw = await response.json().catch(() => ({}));
     const data = utils?.normalizeResponsePayload ? utils.normalizeResponsePayload(response, raw) : raw;
     if (!response.ok || !data.ok) {
@@ -37,17 +40,26 @@
   }
 
   async function postFragment(path, payload, utils) {
+    const body = payload || {};
+    const requestId = utils?.ensureRequestId
+      ? utils.ensureRequestId(body, 'tat-fragment')
+      : (body.client_request_id || body.request_id || `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const headers = {
+      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+      'X-Request-ID': requestId,
+      'Idempotency-Key': requestId,
+    };
     if (utils && utils.fetchHtml && utils.formBody) {
       return utils.fetchHtml(path, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-        body: utils.formBody(payload),
+        headers,
+        body: utils.formBody(body),
       });
     }
     const response = await fetch(path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-      body: new URLSearchParams(payload).toString(),
+      headers,
+      body: new URLSearchParams(body).toString(),
     });
     const html = await response.text();
     if (!response.ok) throw new Error(html || 'Request failed.');

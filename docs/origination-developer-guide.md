@@ -454,7 +454,8 @@ that approval is retained when Operations reissues the same signer session.
 | `AFRICASTALKING_SENDER_ID` | Optional approved production Sender ID. |
 | `ORIGINATION_SIGNING_LINK_TTL_HOURS` | Opaque signing-link lifetime, bounded to 1-168 hours; default 48. |
 | `ORIGINATION_SIGNING_BASE_URL` | Optional HTTPS origin for compact signer links; blank falls back to `APP_BASE_URL`. |
-| `REQUIRE_MINIAPP_IDEMPOTENCY_KEY` | Strict retry-key enforcement rollout flag; enable only after cached clients are verified. |
+| `REQUIRE_MINIAPP_IDEMPOTENCY_KEY` | Required `True` in production; local/test compatibility may be explicit. |
+| `MINIAPP_IDEMPOTENCY_OBSERVATION_DAYS` | 1–90 day anonymous missing-key readiness lookback; default 14. |
 | `ORIGINATION_FULL_RESET_ENABLED` | Testing-only Admin reset; default and normal production value is `False`. |
 
 If a setting is added or renamed, update `config/settings.py`, `.env.example`,

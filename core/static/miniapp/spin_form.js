@@ -34,6 +34,18 @@
   let completeRequestKey = '';
   let reviewRequestKey = '';
 
+  function fallbackWriteHeaders(key, contentType) {
+    const requestKey = key || (utils.createRequestId
+      ? utils.createRequestId('spin')
+      : `spin-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    return {
+      ...(contentType ? { 'Content-Type': contentType } : {}),
+      ...(utils.idempotencyHeaders
+        ? utils.idempotencyHeaders(requestKey)
+        : { 'X-Request-ID': requestKey, 'Idempotency-Key': requestKey }),
+    };
+  }
+
   // Dashboard & Modal Elements
   const tabDashboardBtn = document.getElementById('tab-dashboard-btn');
   const dashboardTabBadge = document.getElementById('dashboardTabBadge');
@@ -458,7 +470,7 @@
     if (!files.length) {
       return {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: fallbackWriteHeaders(requestId, 'application/json'),
         body: JSON.stringify({
           group_id: config.group_id || '',
           form_token: config.form_token || '',
@@ -478,7 +490,7 @@
     payload.set('workflow_mode_version', modeVersion());
     Object.entries(data).forEach(([key, value]) => payload.set(key, typeof value === 'object' ? JSON.stringify(value) : value || ''));
     files.forEach(({ fieldName, file }) => payload.append(fieldName, file, file.name));
-    return { method: 'POST', body: payload };
+    return { method: 'POST', headers: fallbackWriteHeaders(requestId), body: payload };
   }
 
   async function submitForm(event) {
@@ -849,7 +861,7 @@
     const response = spinApi.postJson
       ? await spinApi.postJson('/api/spin/settings/', spinSettingsContext())
       : await fetch('/api/spin/settings/', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spinSettingsContext()),
+        method: 'POST', headers: fallbackWriteHeaders('', 'application/json'), body: JSON.stringify(spinSettingsContext()),
       }).then(async (res) => ({ ok: res.ok, data: await res.json().catch(() => ({})) }));
     const result = response.data || {};
     workflowMode = result.workflow_mode || workflowMode;
@@ -998,7 +1010,7 @@
         ? await spinApi.postJson(isBatchCandidate ? '/api/spin/batch-review/resolve/' : '/api/spin/review/update/', payload)
         : await fetch(isBatchCandidate ? '/api/spin/batch-review/resolve/' : '/api/spin/review/update/', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: fallbackWriteHeaders(reviewRequestKey, 'application/json'),
           body: JSON.stringify(payload)
         }).then(async res => ({ ok: res.ok, data: await res.json().catch(() => ({})) }));
       const result = response.data || {};
@@ -1022,27 +1034,25 @@
   async function rejectBatchReviewItem() {
     if (!reviewTarget || reviewTarget.kind !== 'batch') return;
     setButtonLoading(rejectReviewBtn, true, 'Saving');
+    reviewRequestKey = reviewRequestKey || (utils.createRequestId
+      ? utils.createRequestId('spin-batch-reject')
+      : `spin-batch-reject-${Date.now()}`);
+    const rejectionPayload = {
+      item_id: reviewTarget.id,
+      action: 'reject',
+      group_id: config.group_id || '',
+      form_token: config.form_token || '',
+      init_data: tg ? tg.initData || '' : '',
+      workflow_mode_version: modeVersion(),
+      client_request_id: reviewRequestKey,
+    };
     try {
       const response = spinApi.postJson
-        ? await spinApi.postJson('/api/spin/batch-review/resolve/', {
-          item_id: reviewTarget.id,
-          action: 'reject',
-          group_id: config.group_id || '',
-          form_token: config.form_token || '',
-          init_data: tg ? tg.initData || '' : '',
-          workflow_mode_version: modeVersion()
-        })
+        ? await spinApi.postJson('/api/spin/batch-review/resolve/', rejectionPayload)
         : await fetch('/api/spin/batch-review/resolve/', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            item_id: reviewTarget.id,
-            action: 'reject',
-            group_id: config.group_id || '',
-            form_token: config.form_token || '',
-            init_data: tg ? tg.initData || '' : '',
-            workflow_mode_version: modeVersion()
-          })
+          headers: fallbackWriteHeaders(reviewRequestKey, 'application/json'),
+          body: JSON.stringify(rejectionPayload)
         }).then(async res => ({ ok: res.ok, data: await res.json().catch(() => ({})) }));
       const result = response.data || {};
       if (!response.ok || !result.success) {
@@ -1089,6 +1099,7 @@
         ? await spinApi.postForm('/api/spin/complete/', formData)
         : await fetch('/api/spin/complete/', {
           method: 'POST',
+          headers: fallbackWriteHeaders(completeRequestKey),
           body: formData
         }).then(async res => ({ ok: res.ok, data: await res.json().catch(() => ({})) }));
       const result = response.data || {};
@@ -1166,7 +1177,7 @@
       const response = spinApi.postJson
         ? await spinApi.postJson('/api/spin/settings/personal/', payload)
         : await fetch('/api/spin/settings/personal/', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+          method: 'POST', headers: fallbackWriteHeaders(payload.client_request_id, 'application/json'), body: JSON.stringify(payload),
         }).then(async (res) => ({ ok: res.ok, data: await res.json().catch(() => ({})) }));
       const result = response.data || {};
       if (!response.ok || !result.success) throw new Error(result.message || 'Could not save SPIN settings.');
@@ -1204,8 +1215,6 @@
   
   if (window.lucide) window.lucide.createIcons();
 }());
-
-
 
 
 

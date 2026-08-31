@@ -11,6 +11,7 @@
   const visibleCount = document.getElementById('visibleCount');
   let searchText = '';
   let reviewOnly = false;
+  let commitRequestId = '';
   const draft = utils.createServerDraft ? utils.createServerDraft({
     workflow: 'system_export_review',
     contextKey: batchId,
@@ -182,24 +183,30 @@
       return;
     }
     button.disabled = true;
+    commitRequestId = commitRequestId || utils.createRequestId?.('system-export-commit') || ('system-export-commit-' + Date.now());
     setStatus('Committing selected system-export rows...', '');
     try {
       const response = await fetch('/api/jawabu-farmers/review/commit/', {
         method: 'POST',
-        headers: utils.messageHeaders ? utils.messageHeaders({ 'Content-Type': 'application/json' }) : { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batch_id: batchId, token, init_data: tg ? tg.initData : '', rows }),
+        headers: {
+          ...(utils.messageHeaders ? utils.messageHeaders({ 'Content-Type': 'application/json' }) : { 'Content-Type': 'application/json' }),
+          ...(utils.idempotencyHeaders ? utils.idempotencyHeaders(commitRequestId) : { 'X-Request-ID': commitRequestId, 'Idempotency-Key': commitRequestId }),
+        },
+        body: JSON.stringify({ batch_id: batchId, token, init_data: tg ? tg.initData : '', rows, client_request_id: commitRequestId }),
       });
       const rawResult = await response.json().catch(() => ({}));
       const result = utils.normalizeResponsePayload
         ? utils.normalizeResponsePayload(response, rawResult, 'Commit failed.')
         : rawResult;
       if (!response.ok || !result.success) {
+        if (response.status > 0 && response.status < 500) commitRequestId = '';
         throw (utils.apiError ? utils.apiError(response, result, 'Commit failed.') : new Error(result.message || 'Commit failed.'));
       }
       // The server returned the canonical remaining rows, so any prior local
       // review draft must not be restored over that result on a later visit.
       draft?.clear().catch(() => {});
       rows = result.rows || [];
+      commitRequestId = '';
       setStatus(result.message || 'System export committed.', 'success');
       utils.haptic?.('success');
       render();

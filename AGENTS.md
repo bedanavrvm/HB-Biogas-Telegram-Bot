@@ -177,7 +177,8 @@ Key modules:
 - `generic_jawabu_laf_seed.py` — reviewed reusable Jawabu LAF canonical-field, repeating-table, evidence, and signer contract; product assignment and PDF coordinates remain explicit Admin actions
 - `reporting_relationships.py` — read-only model-relationship inventory used to govern future report-source expansion; it never creates cross-workflow customer joins
 - `workflow_capabilities.py` — centrally defined Mini App capabilities and role policy resolution
-- `miniapp_requests.py` — shared Mini App retry-key compatibility and strict-mode policy
+- `miniapp_requests.py` — shared canonical Mini App request-key binding, strict-mode policy, and response metadata
+- `miniapp_idempotency.py` — privacy-safe daily legacy-write aggregates used by production readiness
 - `miniapp_messages.py` — versioned plain-language Mini App message catalogue, compatibility contract, correlation references, and privacy-safe error boundary
 - `miniapp_settings.py` — typed personal preferences and maker-checker TAT configuration proposals
 - `tat_presentation.py` — global audited TAT Mini App presentation policy, including the optional business-hours visibility switch
@@ -237,6 +238,7 @@ The Mini Apps use Django templates and mostly vanilla JavaScript. Preserve Teleg
 - `core/tests_staff_lifecycle.py`
 - `core/tests_user_hard_delete.py`
 - `core/tests_telegram_authentication.py`
+- `core/tests_idempotency_cutover.py`
 
 - `core/tests_portal_imports.py`
 
@@ -276,6 +278,7 @@ This is a template of variables this class of system typically needs. Treat it a
 | `COMPLIANCE_AUDIT_CHECKPOINT_DELIVERY_ENABLED` | Enables explicitly requested daily checkpoint delivery; defaults to disabled | No |
 | `COMPLIANCE_AUDIT_CHECKPOINT_RECIPIENT` | Controlled compliance mailbox for approved checkpoint delivery | Treat as sensitive operational contact data |
 | `REQUIRE_MINIAPP_IDEMPOTENCY_KEY` | Enables strict rejection of Mini App writes without a retry key after cached-client verification | No |
+| `MINIAPP_IDEMPOTENCY_OBSERVATION_DAYS` | Bounded lookback for anonymous legacy-write readiness diagnostics (default 14 days) | No |
 | `ACCESS_GRANT_GOVERNANCE_ENFORCED` | Rejects permanent AccessGrant writes outside approved access-control and staff-lifecycle service contexts; enabled in production | No |
 | `GOOGLE_SHEETS_MAX_RETRIES` | Maximum bounded synchronous Google Sheets write attempts (default 4) | No |
 | `SYSUP_MAX_FILE_SIZE_MB` / `SYSUP_MAX_ROWS_PER_UPLOAD` | Maximum `/sysup` input size and non-blank rows parsed in a Render web request | No |

@@ -7,6 +7,7 @@ migrations, tests, settings, and these operational documents take precedence.
 | Document | Purpose |
 |---|---|
 | [Repository Data and Artifact Policy](repository-data-artifact-policy.md) | Rules, CI enforcement, audit procedure, and historical-response steps for customer data, exports, screenshots, credentials, and reviewed fixtures. |
+| [Mini App Idempotency Contract](miniapp-idempotency.md) | Write-route inventory, canonical request keys, client retry behavior, anonymous legacy diagnostics, and strict production enforcement. |
 | [Glossary](glossary.md) | Shared roles, capabilities, workflow language, and UI status semantics. |
 | [Loan Origination Admin Guide](origination-admin-guide.md) | Superuser setup of products, fields, main/supporting PDFs, access, publication, testing, and troubleshooting. |
 | [Loan Origination Developer Guide](origination-developer-guide.md) | Origination architecture, models, APIs, security, versioning, local development, verification, and safe extension rules. |

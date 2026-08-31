@@ -1529,6 +1529,7 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertEqual(kwargs['edit_context']['sheet'], 'Orders')
         self.assertEqual(kwargs['edit_context']['row'], '4')
         self.assertEqual(kwargs['edit_context']['fingerprint'], 'abc123')
+        self.assertEqual(kwargs['client_request_id'], '')
         mock_post_telegram_reply.assert_called_once()
         self.assertEqual(mock_post_telegram_reply.call_args.kwargs['chat_id'], '-100222')
         telegram_text = mock_post_telegram_reply.call_args.kwargs['text']
@@ -1638,6 +1639,7 @@ class OrderApprovalWebAppTest(TestCase):
         mock_suggest.assert_called_once()
 
     @override_settings(ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    @patch('core.api.views._send_order_approval_webapp_chat_reply')
     @patch('core.services.order_approval.store_uploaded_files_for_order')
     @patch('core.services.order_approval.find_order_approval_matches')
     @patch('core.services.order_approval.get_sheets_service')
@@ -1648,6 +1650,7 @@ class OrderApprovalWebAppTest(TestCase):
         mock_get_sheets_service,
         mock_find_matches,
         mock_store_files,
+        mock_chat_reply,
     ):
         registry = MagicMock()
         registry.get_group.return_value = self._group_config()
@@ -1691,6 +1694,63 @@ class OrderApprovalWebAppTest(TestCase):
                 True,
             ),
         )
+
+    @override_settings(ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    @patch('core.api.views._send_order_approval_webapp_chat_reply')
+    @patch('core.services.order_approval.store_uploaded_files_for_order')
+    @patch('core.services.order_approval.find_order_approval_matches')
+    @patch('core.services.order_approval.get_sheets_service')
+    @patch('core.services.group_config.GroupRegistry.get_instance')
+    def test_webapp_submit_replays_one_record_and_rejects_changed_input(
+        self,
+        mock_registry_get_instance,
+        mock_get_sheets_service,
+        mock_find_matches,
+        mock_store_files,
+        mock_chat_reply,
+    ):
+        registry = MagicMock()
+        registry.get_group.return_value = self._group_config()
+        mock_registry_get_instance.return_value = registry
+        mock_find_matches.return_value = []
+        mock_store_files.return_value = MagicMock(
+            links=[], stored_count=0, warnings=[],
+        )
+        service = FakeService([['ID NUMBER', 'CUSTOMER NAME', 'Media URLs']])
+        mock_get_sheets_service.return_value = service
+        key = 'order-replay-12345678'
+        data = {
+            'group_id': '-100222',
+            'id_number': '5655566',
+            'customer_name': 'NEW CUSTOMER',
+            'client_request_id': key,
+            'init_data': '',
+        }
+        headers = {
+            'HTTP_IDEMPOTENCY_KEY': key,
+            'HTTP_X_REQUEST_ID': key,
+        }
+
+        first = self.client.post('/api/order-approval/webapp/submit/', data=data, **headers)
+        second = self.client.post('/api/order-approval/webapp/submit/', data=data, **headers)
+
+        self.assertEqual((first.status_code, second.status_code), (200, 200))
+        self.assertEqual(first.json()['order_record_id'], second.json()['order_record_id'])
+        self.assertTrue(second.json()['idempotent_replay'])
+        self.assertEqual(OrderApprovalUpdate.objects.filter(client_request_id=key).count(), 1)
+        self.assertEqual(len(service.batch_update_calls), 1)
+        mock_find_matches.assert_called_once()
+        mock_store_files.assert_called_once()
+
+        changed = dict(data, customer_name='DIFFERENT CUSTOMER')
+        conflict = self.client.post(
+            '/api/order-approval/webapp/submit/', data=changed, **headers,
+        )
+        self.assertEqual(conflict.status_code, 409)
+        self.assertEqual(conflict.json()['code'], 'idempotency_key_reused')
+        self.assertEqual(OrderApprovalUpdate.objects.filter(client_request_id=key).count(), 1)
+        self.assertEqual(len(service.batch_update_calls), 1)
+        mock_chat_reply.assert_called_once()
 
     @patch('core.services.order_approval.process_order_approval_form_submission')
     @patch('core.services.group_config.GroupRegistry.get_instance')

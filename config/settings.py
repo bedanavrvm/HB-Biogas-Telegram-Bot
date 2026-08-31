@@ -167,11 +167,13 @@ COMPLIANCE_AUDIT_CHECKPOINT_RECIPIENT = config(
     'COMPLIANCE_AUDIT_CHECKPOINT_RECIPIENT', default='',
 )
 
-# Mini App writes accept existing cached clients during the migration window.
-# Enable only after the refreshed Portal, Complaint Cases, TAT and SPIN builds
-# have been verified in Telegram; strict mode rejects missing retry keys.
+# Mini App transport-key cutover is complete. Production readiness rejects a
+# disabled strict mode; tests/local DEBUG may override it deliberately.
 REQUIRE_MINIAPP_IDEMPOTENCY_KEY = config(
     'REQUIRE_MINIAPP_IDEMPOTENCY_KEY', default=False, cast=bool,
+)
+MINIAPP_IDEMPOTENCY_OBSERVATION_DAYS = config(
+    'MINIAPP_IDEMPOTENCY_OBSERVATION_DAYS', default=14, cast=int,
 )
 ACCESS_GRANT_GOVERNANCE_ENFORCED = config(
     'ACCESS_GRANT_GOVERNANCE_ENFORCED', default=not RUNNING_TESTS, cast=bool,

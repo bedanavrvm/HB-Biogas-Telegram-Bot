@@ -17,8 +17,13 @@ financial or workflow side effect from the staff member who initiated it.
 
 - Mini App writes accept `Idempotency-Key`, `X-Request-ID`, and existing body
   request identifiers. Refreshed clients submit one key per user action and
-  reuse it on a retry. Older clients remain accepted while
-  `REQUIRE_MINIAPP_IDEMPOTENCY_KEY=False`, with an explicit response warning.
+  reuse it on a retry. The compatibility period is complete: production must
+  set `REQUIRE_MINIAPP_IDEMPOTENCY_KEY=True`, and readiness fails when it is
+  disabled. Local/test settings may explicitly retain compatibility mode.
+- The executable write-route inventory and CI checker prevent a new Mini App
+  write route from bypassing authentication/capability/scope review or the
+  shared request-key boundary. Anonymous daily aggregates retain only route
+  name, method, outcome, and count for legacy-client observation.
 - `IntegrationOperation` stores a redacted, deduplicated external-operation
   register; `IntegrationCircuitState` stores bounded circuit health. Neither
   stores documents, tokens, raw Google errors, or customer payloads.

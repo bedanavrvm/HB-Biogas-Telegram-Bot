@@ -169,6 +169,28 @@
     return { 'X-Request-ID': key, 'Idempotency-Key': key, 'X-MiniApp-Message-Contract': MESSAGE_CONTRACT_VERSION };
   }
 
+  const idempotentActionsInFlight = new Map();
+
+  function singleFlight(requestId, operation) {
+    const key = String(requestId || '');
+    if (key && idempotentActionsInFlight.has(key)) return idempotentActionsInFlight.get(key);
+    const promise = Promise.resolve().then(operation);
+    if (!key) return promise;
+    idempotentActionsInFlight.set(key, promise);
+    promise.finally(function () {
+      if (idempotentActionsInFlight.get(key) === promise) idempotentActionsInFlight.delete(key);
+    }).catch(function () {});
+    return promise;
+  }
+
+  function setXhrIdempotencyHeaders(xhr, requestId) {
+    const headers = idempotencyHeaders(requestId);
+    xhr.setRequestHeader('X-Request-ID', headers['X-Request-ID']);
+    xhr.setRequestHeader('Idempotency-Key', headers['Idempotency-Key']);
+    xhr.setRequestHeader('X-MiniApp-Message-Contract', MESSAGE_CONTRACT_VERSION);
+    return headers['X-Request-ID'];
+  }
+
   function messageHeaders(headers) {
     return Object.assign({}, headers || {}, { 'X-MiniApp-Message-Contract': MESSAGE_CONTRACT_VERSION });
   }
@@ -251,6 +273,24 @@
   async function fetchJson(url, options) {
     const requestOptions = Object.assign({}, options || {});
     requestOptions.headers = messageHeaders(requestOptions.headers);
+    const method = String(requestOptions.method || 'GET').toUpperCase();
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+      let bodyKey = '';
+      if (typeof requestOptions.body === 'string') {
+        try {
+          const parsed = JSON.parse(requestOptions.body);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            bodyKey = parsed.client_request_id || parsed.request_id || '';
+            const key = bodyKey || requestOptions.headers['Idempotency-Key'] || requestOptions.headers['X-Request-ID'] || createRequestId();
+            if (!parsed.client_request_id) parsed.client_request_id = key;
+            requestOptions.body = JSON.stringify(parsed);
+            bodyKey = key;
+          }
+        } catch (_) { /* Non-JSON request bodies are still keyed by headers. */ }
+      }
+      const key = bodyKey || requestOptions.headers['Idempotency-Key'] || requestOptions.headers['X-Request-ID'] || createRequestId();
+      Object.assign(requestOptions.headers, idempotencyHeaders(key));
+    }
     const response = await fetch(url, requestOptions);
     const data = normalizeResponsePayload(response, await response.json().catch(function () { return {}; }));
     if (!response.ok || data.ok === false) {
@@ -260,7 +300,14 @@
   }
 
   async function fetchHtml(url, options) {
-    const response = await fetch(url, options || {});
+    const requestOptions = Object.assign({}, options || {});
+    requestOptions.headers = Object.assign({}, requestOptions.headers || {});
+    const method = String(requestOptions.method || 'GET').toUpperCase();
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+      const key = requestOptions.headers['Idempotency-Key'] || requestOptions.headers['X-Request-ID'] || createRequestId();
+      Object.assign(requestOptions.headers, idempotencyHeaders(key));
+    }
+    const response = await fetch(url, requestOptions);
     const html = await response.text();
     if (!response.ok) throw new Error(html || 'Request failed.');
     return html;
@@ -380,21 +427,24 @@
     let pendingPayload = null;
     const closeProtectionReason = 'server-draft:' + (workflow || 'unknown');
 
-    function headers() {
+    function headers(method) {
       const result = { 'Content-Type': 'application/json', 'X-MiniApp-Message-Contract': MESSAGE_CONTRACT_VERSION };
       if (settings.initData) result['X-Telegram-Init-Data'] = settings.initData();
       if (settings.token) result['X-MiniApp-Context-Token'] = settings.token();
       // Portal applies the same retry-key policy to draft writes as it does to
       // workflow writes. A fresh key is correct here: draft revision locking,
       // rather than a workflow-side effect, is what makes repeated autosaves safe.
-      if (settings.requestId) result['X-Request-ID'] = settings.requestId();
+      if (!['GET', 'HEAD'].includes(String(method || 'GET').toUpperCase())) {
+        const key = settings.requestId ? settings.requestId() : createRequestId('draft');
+        Object.assign(result, idempotencyHeaders(key));
+      }
       return result;
     }
 
     async function request(method, payload) {
       const response = await fetch(baseUrl, {
         method: method,
-        headers: headers(),
+        headers: headers(method),
         body: payload === undefined ? undefined : JSON.stringify(payload),
         credentials: 'same-origin',
       });
@@ -544,6 +594,8 @@
     createRequestId: createRequestId,
     ensureRequestId: ensureRequestId,
     idempotencyHeaders: idempotencyHeaders,
+    setXhrIdempotencyHeaders: setXhrIdempotencyHeaders,
+    singleFlight: singleFlight,
     handledMessageCodes: handledMessageCodes,
     messageHeaders: messageHeaders,
     normalizeResponsePayload: normalizeResponsePayload,

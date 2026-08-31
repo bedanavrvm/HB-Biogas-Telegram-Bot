@@ -9,6 +9,7 @@
   const pageHeader = document.querySelector('main > header');
   const toolbar = document.querySelector('.toolbar');
   const summary = document.querySelector('.summary');
+  let commitRequestId = '';
   const fields = ['Customer Name', 'ID Number', 'Primary Phone', 'Hub', 'Field Officer', 'Location', 'HB Staff', 'Deposit', 'Jawabu Visit Date', 'JBL Officer', 'Status', 'Comment', 'Review Notes', 'Source'];
   const draft = utils.createServerDraft ? utils.createServerDraft({
     workflow: 'fca_review',
@@ -156,15 +157,20 @@
     }
     saveDraft();
     btn.disabled = true;
+    commitRequestId = commitRequestId || utils.createRequestId?.('fca-commit') || ('fca-commit-' + Date.now());
     setStatus('Committing approved FCA rows...', '');
     try {
       const response = await fetch('/api/fca/review/commit/', {
         method: 'POST',
-        headers: utils.messageHeaders ? utils.messageHeaders({ 'Content-Type': 'application/json' }) : { 'Content-Type': 'application/json' },
+        headers: {
+          ...(utils.messageHeaders ? utils.messageHeaders({ 'Content-Type': 'application/json' }) : { 'Content-Type': 'application/json' }),
+          ...(utils.idempotencyHeaders ? utils.idempotencyHeaders(commitRequestId) : { 'X-Request-ID': commitRequestId, 'Idempotency-Key': commitRequestId }),
+        },
         body: JSON.stringify({
           batch_id: payload.batch_id,
           token: payload.token,
           init_data: tg ? tg.initData : '',
+          client_request_id: commitRequestId,
           rows,
         }),
       });
@@ -173,6 +179,7 @@
         ? utils.normalizeResponsePayload(response, rawResult, 'Some rows still need correction.')
         : rawResult;
       if (!response.ok || !result.success) {
+        if (response.status > 0 && response.status < 500) commitRequestId = '';
         if (Array.isArray(result.rows)) {
           rows = result.rows;
           render();
@@ -181,6 +188,7 @@
         return;
       }
       rows = Array.isArray(result.rows) ? result.rows : [];
+      commitRequestId = '';
       render();
       const sync = result.sheet_sync || {};
       setStatus(`Committed ${result.committed || 0} row(s). MD updated: ${sync.updated || 0}, created: ${sync.created || 0}. ${rows.length} row(s) remain.`, 'ok');
@@ -201,6 +209,5 @@
   restoreDraft();
   updateTableFrame();
 })();
-
 
 

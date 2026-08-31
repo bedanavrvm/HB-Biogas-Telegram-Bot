@@ -48,7 +48,12 @@ jobs:
           python manage.py collectstatic --noinput
 
       - name: Check architecture boundaries
-        run: python scripts/check_architecture_boundaries.py
+        run: |
+          python scripts/check_architecture_boundaries.py
+          python scripts/check_miniapp_write_inventory.py
+
+      - name: Test Mini App idempotency clients
+        run: node scripts/test_miniapp_idempotency_clients.js
 
       - name: Run Django tests
         env:

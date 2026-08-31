@@ -4,10 +4,12 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from core.services.telegram_identity import TelegramAuthenticationError, user_access
+from core.services.miniapp_requests import miniapp_idempotency_boundary
 
 
 @csrf_exempt
 @require_POST
+@miniapp_idempotency_boundary
 def telegram_session_login(request):
     """Create a normal Django session from freshly validated Telegram initData."""
     init_data = request.headers.get('X-Telegram-Init-Data', '') or request.POST.get('init_data', '')

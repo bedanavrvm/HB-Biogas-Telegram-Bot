@@ -21,6 +21,7 @@
   const visibleCount = document.getElementById('visibleCount');
   let searchText = '';
   let reviewOnly = false;
+  let commitRequestId = '';
   const draft = utils.createServerDraft ? utils.createServerDraft({
     workflow: 'farmup_review',
     contextKey: batchId,
@@ -274,18 +275,23 @@
     }
     saveDraft();
     btn.disabled = true;
+    commitRequestId = commitRequestId || utils.createRequestId?.('farmup-commit') || ('farmup-commit-' + Date.now());
     setStatus('Committing approved rows...', '');
     try {
       const response = await fetch('/api/jawabu-farmers/review/commit/', {
         method: 'POST',
-        headers: utils.messageHeaders ? utils.messageHeaders({ 'Content-Type': 'application/json' }) : { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batch_id: batchId, token, init_data: initData, rows }),
+        headers: {
+          ...(utils.messageHeaders ? utils.messageHeaders({ 'Content-Type': 'application/json' }) : { 'Content-Type': 'application/json' }),
+          ...(utils.idempotencyHeaders ? utils.idempotencyHeaders(commitRequestId) : { 'X-Request-ID': commitRequestId, 'Idempotency-Key': commitRequestId }),
+        },
+        body: JSON.stringify({ batch_id: batchId, token, init_data: initData, rows, client_request_id: commitRequestId }),
       });
       const rawResult = await response.json().catch(() => ({}));
       const result = utils.normalizeResponsePayload
         ? utils.normalizeResponsePayload(response, rawResult, 'Some rows still need correction.')
         : rawResult;
       if (!response.ok || !result.success) {
+        if (response.status > 0 && response.status < 500) commitRequestId = '';
         setStatus(result.message || 'Some rows still need correction.', 'error');
         if (result.rows) {
           rows = result.rows;
@@ -294,6 +300,7 @@
         return;
       }
       const remaining = Array.isArray(result.rows) ? result.rows : [];
+      commitRequestId = '';
       if (remaining.length) {
         rows = remaining;
         // The response is now the canonical outstanding set. Remove the old
@@ -327,7 +334,6 @@
   render();
   restoreDraft();
 })();
-
 
 
 

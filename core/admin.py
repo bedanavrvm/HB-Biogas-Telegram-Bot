@@ -202,6 +202,7 @@ from .models import (
     MiniAppDiagnosticSession,
     MiniAppDiagnosticEvent,
     MiniAppDiagnosticDailyAggregate,
+    MiniAppLegacyWriteDailyAggregate,
 )
 
 logger = logging.getLogger(__name__)
@@ -11156,6 +11157,14 @@ class MiniAppDiagnosticDailyAggregateAdmin(ReadOnlyAuditAdmin):
         'release', 'session_count',
     )
     list_filter = ('workflow', 'surface', 'platform', 'classification', 'network_bucket', 'release')
+    date_hierarchy = 'date'
+
+
+@admin.register(MiniAppLegacyWriteDailyAggregate)
+class MiniAppLegacyWriteDailyAggregateAdmin(ReadOnlyAuditAdmin):
+    list_display = ('date', 'route_name', 'method', 'outcome', 'request_count', 'updated_at')
+    list_filter = ('method', 'outcome', 'date')
+    search_fields = ('route_name',)
     date_hierarchy = 'date'
 
 

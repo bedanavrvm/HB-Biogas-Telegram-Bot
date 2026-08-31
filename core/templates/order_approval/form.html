@@ -817,6 +817,7 @@
       <input type="hidden" name="group_id" value="{{ group_id }}">
       <input type="hidden" name="init_data" id="init-data">
       <input type="hidden" name="form_token" value="{{ form_token }}">
+      <input type="hidden" name="client_request_id" id="client-request-id" value="">
       <input type="hidden" name="write_blank_fields" id="write-blank-fields" value="0">
       <input type="hidden" name="edit_id_number" id="edit-id-number" value="">
       <input type="hidden" name="edit_sheet" id="edit-sheet" value="">
@@ -1014,8 +1015,8 @@
 
   {{ location_catalog|json_script:"location-catalog-data" }}
   {% include "miniapp_diagnostics.html" %}
-  <script src="{% static 'miniapp/utils.js' %}?v=7"></script>
-  <script src="{% static 'miniapp/order_approval_api.js' %}?v=2"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=9"></script>
+  <script src="{% static 'miniapp/order_approval_api.js' %}?v=3"></script>
   <script>
     const tg = window.MiniAppUtils?.initTelegram?.() || (window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null);
     const orderApprovalApi = window.OrderApprovalMiniAppApi || {};
@@ -1029,6 +1030,7 @@
     const submitButton = document.getElementById('submit-button');
     const lookupButton = document.getElementById('lookup-button');
     const initDataInput = document.getElementById('init-data');
+    const clientRequestIdInput = document.getElementById('client-request-id');
     const idNumberInput = document.getElementById('id-number');
     const idSuggestionsEl = document.getElementById('id-suggestions');
     const draftBanner = document.getElementById('draft-banner');
@@ -1543,11 +1545,14 @@
         data.set('init_data', initDataInput.value);
         data.set('form_token', form.elements.form_token.value);
         data.set('id_prefix', prefix);
+        const suggestionRequestId = window.MiniAppUtils?.createRequestId?.('order-suggest') || ('order-suggest-' + Date.now());
+        data.set('client_request_id', suggestionRequestId);
 
         const result = orderApprovalApi.postForm
           ? await orderApprovalApi.postForm('/api/order-approval/webapp/suggest/', data, { signal: suggestionController.signal })
           : await fetch('/api/order-approval/webapp/suggest/', {
             method: 'POST',
+            headers: window.MiniAppUtils?.idempotencyHeaders?.(suggestionRequestId) || { 'X-Request-ID': suggestionRequestId, 'Idempotency-Key': suggestionRequestId },
             body: data,
             signal: suggestionController.signal
           }).then(async (response) => ({ ok: response.ok, data: await response.json().catch(() => ({})) }));
@@ -1750,11 +1755,14 @@
         data.set('init_data', initDataInput.value);
         data.set('form_token', form.elements.form_token.value);
         data.set('id_number', idNumberInput.value.trim());
+        const lookupRequestId = window.MiniAppUtils?.createRequestId?.('order-lookup') || ('order-lookup-' + Date.now());
+        data.set('client_request_id', lookupRequestId);
 
         const result = orderApprovalApi.postForm
           ? await orderApprovalApi.postForm('/api/order-approval/webapp/lookup/', data)
           : await fetch('/api/order-approval/webapp/lookup/', {
             method: 'POST',
+            headers: window.MiniAppUtils?.idempotencyHeaders?.(lookupRequestId) || { 'X-Request-ID': lookupRequestId, 'Idempotency-Key': lookupRequestId },
             body: data
           }).then(async (response) => ({ ok: response.ok, data: await response.json().catch(() => ({})) }));
         const payload = result.data || {};
@@ -2127,17 +2135,20 @@
 
       setBusy(true);
       setStatus('working', 'Submitting update...');
+      clientRequestIdInput.value = clientRequestIdInput.value || window.MiniAppUtils?.createRequestId?.('order-submit') || ('order-submit-' + Date.now());
 
       try {
         const result = orderApprovalApi.postForm
           ? await orderApprovalApi.postForm('/api/order-approval/webapp/submit/', new FormData(form))
           : await fetch('/api/order-approval/webapp/submit/', {
             method: 'POST',
+            headers: window.MiniAppUtils?.idempotencyHeaders?.(clientRequestIdInput.value) || { 'X-Request-ID': clientRequestIdInput.value, 'Idempotency-Key': clientRequestIdInput.value },
             body: new FormData(form)
           }).then(async (response) => ({ ok: response.ok, data: await response.json().catch(() => ({})) }));
         const payload = result.data || {};
 
         if (!result.ok || !payload.success) {
+          if (result.status > 0 && result.status < 500) clientRequestIdInput.value = '';
           const errors = payload.errors || [];
           const message = errors.length
             ? `Fix these fields:\n- ${errors.join('\n- ')}`
@@ -2164,6 +2175,7 @@
         ].filter(Boolean).join('\n');
         setStatus('success', detail);
         clearDraft();
+        clientRequestIdInput.value = '';
         form.reset();
         formMode = 'create';
         currentRecordId = '';
@@ -2187,9 +2199,6 @@
   </script>
 </body>
 </html>
-
-
-
 
 
 

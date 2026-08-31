@@ -24,11 +24,14 @@
   async function postJson(url, payload) {
     const body = payload || {};
     const key = requestId(body);
-    return parseJson(await fetch(url, {
+    const operation = () => fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Request-ID': key, 'Idempotency-Key': key, 'X-MiniApp-Message-Contract': '2' },
       body: JSON.stringify(body),
-    }));
+    });
+    const response = await (window.MiniAppUtils?.singleFlight
+      ? window.MiniAppUtils.singleFlight(key, operation) : operation());
+    return parseJson(response);
   }
 
   async function postForm(url, formDataOrOptions) {
@@ -37,11 +40,14 @@
       const key = formData.get('client_request_id') || (window.MiniAppUtils && window.MiniAppUtils.createRequestId
         ? window.MiniAppUtils.createRequestId('spin') : `spin-${Date.now()}-${Math.random().toString(16).slice(2)}`);
       if (!formData.get('client_request_id')) formData.set('client_request_id', key);
-      return parseJson(await fetch(url, {
+      const operation = () => fetch(url, {
         method: 'POST',
         headers: { 'X-Request-ID': key, 'Idempotency-Key': key, 'X-MiniApp-Message-Contract': '2' },
         body: formData,
-      }));
+      });
+      const response = await (window.MiniAppUtils?.singleFlight
+        ? window.MiniAppUtils.singleFlight(key, operation) : operation());
+      return parseJson(response);
     }
     return parseJson(await fetch(url, formDataOrOptions));
   }

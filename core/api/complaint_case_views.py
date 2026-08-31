@@ -49,13 +49,22 @@ def _bind_miniapp_write_request(request, payload: dict):
 def miniapp_write_response(view_func):
     @wraps(view_func)
     def wrapped(request, *args, **kwargs):
-        from core.services.miniapp_requests import attach_miniapp_request_metadata
+        from core.services.miniapp_requests import (
+            attach_miniapp_request_metadata,
+            bind_miniapp_write_request,
+            idempotency_error_response,
+        )
         from core.services.miniapp_messages import normalize_miniapp_response, unexpected_miniapp_error
         try:
-            response = view_func(request, *args, **kwargs)
-        except Exception as exc:
-            logger.exception('Complaint Mini App request failed unexpectedly: path=%s', request.path)
-            response = unexpected_miniapp_error(request, exc, workflow="complaints")
+            bind_miniapp_write_request(request)
+        except ValueError as exc:
+            response = idempotency_error_response(exc, request)
+        else:
+            try:
+                response = view_func(request, *args, **kwargs)
+            except Exception as exc:
+                logger.exception('Complaint Mini App request failed unexpectedly: path=%s', request.path)
+                response = unexpected_miniapp_error(request, exc, workflow="complaints")
         response = attach_miniapp_request_metadata(request, response)
         return normalize_miniapp_response(request, response, workflow="complaints")
     return wrapped

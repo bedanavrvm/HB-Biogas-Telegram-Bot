@@ -10,6 +10,9 @@ cached clients.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import wraps
+import json
+import logging
 import re
 from typing import Any
 
@@ -18,7 +21,12 @@ from django.http import JsonResponse
 
 
 _KEY_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}\Z")
-_BODY_KEYS = ("client_request_id", "request_id", "create_request_id")
+# ``request_id`` is deliberately excluded: SPIN and other workflows use it
+# as the identifier of the record being changed, so accepting it as transport
+# identity would let an old client bypass strict mode accidentally.
+_BODY_KEYS = ("client_request_id", "create_request_id")
+_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+logger = logging.getLogger(__name__)
 
 
 class IdempotencyKeyRequired(ValueError):
@@ -48,9 +56,15 @@ def validate_request_key(value: Any) -> str:
 def resolve_miniapp_request_identity(request, payload: dict[str, Any] | None = None) -> MiniAppRequestIdentity:
     """Resolve one key with an explicit precedence and no silent random fallback."""
     payload = payload or {}
+    idempotency_header = validate_request_key(request.headers.get("Idempotency-Key", ""))
+    request_header = validate_request_key(request.headers.get("X-Request-ID", ""))
+    if idempotency_header and request_header and idempotency_header != request_header:
+        raise ValueError(
+            "The request retry identifiers do not match. Refresh the Mini App and try again."
+        )
     candidates = (
-        ("idempotency_key", request.headers.get("Idempotency-Key", "")),
-        ("request_header", request.headers.get("X-Request-ID", "")),
+        ("idempotency_key", idempotency_header),
+        ("request_header", request_header),
         *((key, payload.get(key, "")) for key in _BODY_KEYS),
     )
     for source, value in candidates:
@@ -70,9 +84,67 @@ def bind_miniapp_request_identity(request, payload: dict[str, Any] | None = None
     request.miniapp_request_identity = identity
     request.miniapp_request_id = identity.key
     if identity.key and payload is not None:
-        payload.setdefault("client_request_id", identity.key)
-        payload.setdefault("request_id", identity.key)
+        # Header precedence must reach services as data, not merely metadata.
+        # ``request_id`` is also a domain identifier in SPIN and other APIs,
+        # so only the unambiguous transport field is overwritten.
+        payload["client_request_id"] = identity.key
     return identity
+
+
+def request_payload_for_identity(request) -> dict[str, Any]:
+    """Read only the bounded request-key fields from a Mini App request.
+
+    The returned object may contain the ordinary parsed request mapping so the
+    canonical key can be injected for legacy service signatures, but this
+    helper never persists or logs request bodies.
+    """
+    if request.method not in _WRITE_METHODS:
+        return {}
+    content_type = str(getattr(request, "content_type", "") or "").casefold()
+    if content_type.startswith("application/json"):
+        try:
+            value = json.loads(request.body.decode("utf-8") or "{}")
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return {}
+        return value if isinstance(value, dict) else {}
+    try:
+        return request.POST.dict()
+    except (AttributeError, TypeError):
+        return {}
+
+
+def bind_miniapp_write_request(request, payload: dict[str, Any] | None = None) -> MiniAppRequestIdentity:
+    """Bind the canonical key once for any unsafe HTTP method."""
+    existing = getattr(request, "miniapp_request_identity", None)
+    if existing is not None:
+        if existing.key and payload is not None:
+            payload["client_request_id"] = existing.key
+        return existing
+    if request.method not in _WRITE_METHODS:
+        return MiniAppRequestIdentity(key="", source="safe-method")
+    body = payload if payload is not None else request_payload_for_identity(request)
+    try:
+        return bind_miniapp_request_identity(request, body)
+    except IdempotencyKeyRequired:
+        # Preserve only the fact that this was a missing-key attempt so the
+        # response boundary can increment an anonymous aggregate.
+        request.miniapp_request_identity = MiniAppRequestIdentity(key="", source="strict-rejected")
+        request.miniapp_request_id = ""
+        raise
+
+
+def miniapp_idempotency_boundary(view_func):
+    """Require/bind transport identity and annotate one Mini App response."""
+    @wraps(view_func)
+    def wrapped(request, *args, **kwargs):
+        try:
+            bind_miniapp_write_request(request)
+        except ValueError as exc:
+            response = idempotency_error_response(exc, request)
+        else:
+            response = view_func(request, *args, **kwargs)
+        return attach_miniapp_request_metadata(request, response)
+    return wrapped
 
 
 def idempotency_error_response(error: Exception, request=None) -> JsonResponse:
@@ -82,7 +154,7 @@ def idempotency_error_response(error: Exception, request=None) -> JsonResponse:
     from core.services.miniapp_messages import miniapp_error_response
     return miniapp_error_response(
         request or _RequestProxy(),
-        "outdated_client" if status == 428 else "invalid_request",
+        "outdated_client" if status == 428 else "invalid_idempotency_key",
         workflow="miniapp_request",
         status=status,
         developer_message=str(error),
@@ -105,6 +177,30 @@ def attach_miniapp_request_metadata(request, response):
         response["X-Request-ID"] = identity.key
         response["X-Idempotency-Status"] = "keyed"
     elif request.method in {"POST", "PUT", "PATCH", "DELETE"}:
-        response["X-Idempotency-Status"] = "legacy-client"
-        response["Warning"] = '299 - "Mini App retry key missing; refresh before enforcement is enabled"'
+        rejected = identity.source == "strict-rejected"
+        response["X-Idempotency-Status"] = "strict-rejected" if rejected else "legacy-client"
+        if not rejected:
+            response["Warning"] = '299 - "Mini App retry key missing; refresh before enforcement is enabled"'
+        _record_legacy_write_once(request, identity)
     return response
+
+
+def _record_legacy_write_once(request, identity: MiniAppRequestIdentity) -> None:
+    """Increment an anonymous route/day counter without affecting the write."""
+    if getattr(request, "_miniapp_legacy_write_recorded", False):
+        return
+    request._miniapp_legacy_write_recorded = True
+    resolver_match = getattr(request, "resolver_match", None)
+    route_name = str(getattr(resolver_match, "url_name", "") or "unresolved")
+    outcome = "rejected" if identity.source == "strict-rejected" else "accepted"
+    try:
+        from core.services.miniapp_idempotency import record_legacy_write
+
+        record_legacy_write(
+            route_name=route_name,
+            method=str(request.method or "").upper(),
+            outcome=outcome,
+        )
+    except Exception:
+        # Observability must never change the canonical workflow result.
+        logger.exception("Could not aggregate a legacy Mini App write observation.")

@@ -24,6 +24,18 @@
     );
   }
 
+  const ambiguousWriteKeys = new Map();
+
+  function writeFingerprint(path, method, body) {
+    const source = `${method}:${path}:${String(body || '')}`;
+    let hash = 2166136261;
+    for (let index = 0; index < source.length; index += 1) {
+      hash ^= source.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `${method}:${path}:${(hash >>> 0).toString(16)}`;
+  }
+
   function requestFailureMessage(error) {
     if (error?.name === 'AbortError') {
       return 'The request took too long. Check your connection and try again.';
@@ -110,20 +122,44 @@
   }
 
   async function apiFetch(path, opts, tg) {
-    const options = opts || {};
+    const options = { ...(opts || {}) };
     const headers = {
       'Content-Type': 'application/json',
       'X-MiniApp-Message-Contract': '2',
       ...initDataHeader(tg),
       ...(options.headers || {}),
     };
-    headers['X-Request-ID'] = requestId(options);
+    const method = String(options.method || 'GET').toUpperCase();
+    const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+    let retryFingerprint = '';
+    let bodyPayload = null;
+    if (isWrite && typeof options.body === 'string') {
+      try {
+        const parsed = JSON.parse(options.body);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) bodyPayload = parsed;
+      } catch (_) { /* Form/text requests still receive both headers. */ }
+    }
+    const suppliedKey = bodyPayload?.client_request_id || bodyPayload?.request_id || '';
+    if (isWrite && !suppliedKey) {
+      retryFingerprint = writeFingerprint(path, method, options.body || '');
+    }
+    const key = suppliedKey || ambiguousWriteKeys.get(retryFingerprint) || requestId(options);
+    if (isWrite && retryFingerprint) ambiguousWriteKeys.set(retryFingerprint, key);
+    if (isWrite && bodyPayload && !bodyPayload.client_request_id) {
+      bodyPayload.client_request_id = key;
+      options.body = JSON.stringify(bodyPayload);
+    }
+    headers['X-Request-ID'] = key;
+    if (isWrite) headers['Idempotency-Key'] = key;
     const requestOptions = { ...options, headers };
     if (!requestOptions.method || String(requestOptions.method).toUpperCase() === 'GET') {
       requestOptions.cache = 'no-store';
     }
     try {
       const response = await fetchWithTimeout(apiBase() + path, requestOptions);
+      if (retryFingerprint && response.status > 0 && response.status < 500) {
+        ambiguousWriteKeys.delete(retryFingerprint);
+      }
       const raw = await response.json().catch(function () { return {}; });
       const data = window.MiniAppUtils?.normalizeResponsePayload
         ? window.MiniAppUtils.normalizeResponsePayload(response, raw) : raw;
@@ -149,22 +185,26 @@
     const body = payload || {};
     const key = body.client_request_id || body.request_id || requestId({ headers: extraHeaders || {} });
     if (!body.client_request_id) body.client_request_id = key;
-    return apiFetch(path, {
+    const operation = () => apiFetch(path, {
       ...(requestOptions || {}),
       method: 'POST',
       headers: { ...(extraHeaders || {}), 'X-Request-ID': key, 'Idempotency-Key': key },
       body: JSON.stringify(body),
     }, tg);
+    return window.MiniAppUtils?.singleFlight
+      ? window.MiniAppUtils.singleFlight(key, operation) : operation();
   }
 
   async function postForm(path, formData, tg, extraHeaders) {
     const key = formData.get('client_request_id') || requestId({headers: extraHeaders || {}});
     if (!formData.get('client_request_id')) formData.set('client_request_id', key);
-    const response = await fetchWithTimeout(apiBase() + path, {
+    const operation = () => fetchWithTimeout(apiBase() + path, {
       method: 'POST',
       headers: { ...initDataHeader(tg), ...(extraHeaders || {}), 'X-Request-ID': key, 'Idempotency-Key': key, 'X-MiniApp-Message-Contract': '2' },
       body: formData,
     });
+    const response = await (window.MiniAppUtils?.singleFlight
+      ? window.MiniAppUtils.singleFlight(key, operation) : operation());
     const raw = await response.json().catch(function () { return {}; });
     const data = window.MiniAppUtils?.normalizeResponsePayload
       ? window.MiniAppUtils.normalizeResponsePayload(response, raw) : raw;
@@ -179,7 +219,10 @@
     const options = opts || {};
     const url = path.startsWith('/api/') ? path : apiBase() + path;
     const headers = { ...initDataHeader(tg), ...(options.headers || {}) };
-    headers['X-Request-ID'] = requestId(options);
+    const method = String(options.method || 'GET').toUpperCase();
+    const key = requestId(options);
+    headers['X-Request-ID'] = key;
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) headers['Idempotency-Key'] = key;
     const response = await fetchWithTimeout(url, {
       ...options,
       cache: 'no-store',

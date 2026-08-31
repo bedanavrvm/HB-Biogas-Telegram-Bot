@@ -618,6 +618,9 @@ class OrderApprovalUpdate(models.Model):
     id_number = models.CharField(max_length=255, blank=True, default='', db_index=True)
     sender = models.CharField(max_length=255, blank=True, default='')
     telegram_message_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    client_request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    request_fingerprint = models.CharField(max_length=64, blank=True, default='')
+    response_snapshot = models.JSONField(blank=True, default=dict)
     reply_to_telegram_message_id = models.CharField(max_length=255, blank=True, default='')
     raw_text = models.TextField(blank=True, default='')
     parsed_fields = models.JSONField(blank=True, default=dict)
@@ -648,6 +651,13 @@ class OrderApprovalUpdate(models.Model):
             models.Index(fields=['group_id', 'created_at']),
             models.Index(fields=['group_id', 'id_number']),
             models.Index(fields=['telegram_message_id']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['group_id', 'client_request_id'],
+                condition=~models.Q(client_request_id=''),
+                name='unique_order_approval_client_request',
+            ),
         ]
 
     def __str__(self):
@@ -8673,3 +8683,35 @@ class MiniAppDiagnosticDailyAggregate(models.Model):
 
     def __str__(self):
         return f'{self.date} {self.surface}/{self.platform}: {self.classification}'
+
+
+class MiniAppLegacyWriteDailyAggregate(models.Model):
+    """Anonymous counts of write attempts that omitted a transport retry key."""
+
+    OUTCOME_ACCEPTED = 'accepted'
+    OUTCOME_REJECTED = 'rejected'
+    OUTCOME_CHOICES = [
+        (OUTCOME_ACCEPTED, 'Accepted during compatibility window'),
+        (OUTCOME_REJECTED, 'Rejected by strict mode'),
+    ]
+
+    date = models.DateField(db_index=True)
+    route_name = models.CharField(max_length=100, db_index=True)
+    method = models.CharField(max_length=8)
+    outcome = models.CharField(max_length=16, choices=OUTCOME_CHOICES, db_index=True)
+    request_count = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date', 'route_name', 'method', 'outcome']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['date', 'route_name', 'method', 'outcome'],
+                name='unique_miniapp_legacy_write_daily_rollup',
+            ),
+        ]
+        verbose_name = 'Mini App legacy-write daily aggregate'
+        verbose_name_plural = 'Mini App legacy-write daily aggregates'
+
+    def __str__(self):
+        return f'{self.date} {self.route_name} {self.method}: {self.request_count}'

@@ -4,6 +4,7 @@ from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.contrib.auth import get_user_model
@@ -54,6 +55,8 @@ class ProductionReadinessTests(SimpleTestCase):
             'AFRICASTALKING_USERNAME': '',
             'AFRICASTALKING_API_KEY': '',
             'ACCESS_GRANT_GOVERNANCE_ENFORCED': True,
+            'REQUIRE_MINIAPP_IDEMPOTENCY_KEY': True,
+            'MINIAPP_IDEMPOTENCY_OBSERVATION_DAYS': 14,
         }
         values.update({name: True for _surface, name in MINIAPP_AUTH_SETTINGS})
         values.update({name: 86400 for _surface, name in TELEGRAM_AUTH_AGE_SETTINGS})
@@ -123,6 +126,28 @@ class ProductionReadinessTests(SimpleTestCase):
                 }
                 self.assertIn(f'miniapp-auth-{surface}', codes)
 
+    def test_strict_miniapp_idempotency_is_required_in_production(self):
+        configured = self._settings(
+            '/missing/service-account.json',
+            REQUIRE_MINIAPP_IDEMPOTENCY_KEY=False,
+        )
+        codes = {
+            issue.code for issue in production_security_readiness_issues(configured)
+        }
+        self.assertIn('miniapp-idempotency-strict-mode', codes)
+
+    def test_idempotency_observation_window_is_positive_and_bounded(self):
+        for value in (0, 91):
+            with self.subTest(value=value):
+                configured = self._settings(
+                    '/missing/service-account.json',
+                    MINIAPP_IDEMPOTENCY_OBSERVATION_DAYS=value,
+                )
+                codes = {
+                    issue.code for issue in production_security_readiness_issues(configured)
+                }
+                self.assertIn('miniapp-idempotency-observation-window', codes)
+
     def test_authentication_ages_must_be_positive_and_bounded(self):
         for surface, setting_name in TELEGRAM_AUTH_AGE_SETTINGS:
             for value in (0, 86401):
@@ -187,7 +212,11 @@ class ProductionReadinessTests(SimpleTestCase):
         SECURE_HSTS_SECONDS=0,
         SECURE_HSTS_PRELOAD=False,
     )
-    def test_management_command_fails_for_unsafe_configuration(self):
+    @patch(
+        'core.services.miniapp_idempotency.recent_legacy_write_summary',
+        return_value={'accepted': 0, 'rejected': 0, 'route_count': 0},
+    )
+    def test_management_command_fails_for_unsafe_configuration(self, _summary):
         with self.assertRaisesMessage(Exception, 'Production readiness checks failed.'):
             call_command('check_production_readiness', '--strict', stdout=StringIO())
 
@@ -280,6 +309,8 @@ class ConditionalApprovalProductionReadinessTests(TestCase):
             'AFRICASTALKING_USERNAME': 'production-account',
             'AFRICASTALKING_API_KEY': 'production-api-key',
             'ACCESS_GRANT_GOVERNANCE_ENFORCED': True,
+            'REQUIRE_MINIAPP_IDEMPOTENCY_KEY': True,
+            'MINIAPP_IDEMPOTENCY_OBSERVATION_DAYS': 14,
         })
         return SimpleNamespace(**values)
 

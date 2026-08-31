@@ -687,7 +687,7 @@ class TatPrivateTaskTests(TestCase):
         self.assertIn("button.dataset.connected = data.connected ? 'true' : 'false'", source)
         self.assertIn("'Disconnect private alerts'", source)
         self.assertIn("'/api/tat-tracker/private-alerts/disconnect/'", source)
-        self.assertIn('?v=48', template)
+        self.assertIn('?v=50', template)
 
     @patch('core.services.tat_notifications._telegram_request', return_value={'message_id': 83})
     def test_superuser_can_send_confirmed_test_from_connection_admin(self, telegram):

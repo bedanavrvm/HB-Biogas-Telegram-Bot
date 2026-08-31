@@ -102,10 +102,12 @@ privacy-safe health evidence. See `docs/tat-production-runbook.md`. Other
 retryable/dead-letter records remain operator-controlled. Do not delete a local
 case/document or claim a sync succeeded because an external call failed.
 
-Before enabling `REQUIRE_MINIAPP_IDEMPOTENCY_KEY=True`, verify current Portal,
-Complaint Cases, TAT, and SPIN Mini Apps in real Telegram clients and obtain
-explicit approval. The setting blocks old cached clients that do not send a
-retry key.
+Keep `REQUIRE_MINIAPP_IDEMPOTENCY_KEY=True` in production. Before release,
+review the anonymous legacy-write warning over
+`MINIAPP_IDEMPOTENCY_OBSERVATION_DAYS`, verify the first-party clients in real
+Telegram sessions, and investigate any route that still records missing-key
+attempts. Production readiness fails if strict mode is disabled; local/test
+compatibility mode is not a production bypass.
 
 ## Recovery
 

@@ -24,14 +24,15 @@
     </form>
     <div id="activation-status" class="activation-status" role="status" aria-live="polite" hidden></div>
   </main>
-  <script src="{% static 'miniapp/utils.js' %}?v=7"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=9"></script>
   <script>
   (function(){
     const utils=window.MiniAppUtils||{},tg=utils.initTelegram?utils.initTelegram():(window.Telegram&&window.Telegram.WebApp);
     const form=document.getElementById('activation-form'),button=document.getElementById('activate-button'),status=document.getElementById('activation-status');
     document.getElementById('activation-code').addEventListener('input',function(){utils.setCloseProtection?.('staff-activation-code',Boolean(this.value));});
-    form.addEventListener('submit',async function(event){event.preventDefault();button.disabled=true;button.textContent='Verifying…';status.hidden=true;utils.setCloseProtection?.('staff-activation-submit',true);
-      try{const response=await fetch('{% url "staff_telegram_activation_submit" %}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({init_data:tg?tg.initData:'',activation_code:document.getElementById('activation-code').value})});const body=await response.json();status.textContent=body.message||'Activation could not be completed.';status.className='activation-status '+(response.ok?'success':'error');status.hidden=false;if(response.ok){utils.setCloseProtection?.('staff-activation-code',false);button.textContent='Verified';return;}}
+    let activationRequestId='';
+    form.addEventListener('submit',async function(event){event.preventDefault();button.disabled=true;button.textContent='Verifying…';status.hidden=true;utils.setCloseProtection?.('staff-activation-submit',true);activationRequestId=activationRequestId||utils.createRequestId?.('staff-activation')||('staff-activation-'+Date.now());
+      try{const response=await fetch('{% url "staff_telegram_activation_submit" %}',{method:'POST',headers:{'Content-Type':'application/json',...utils.idempotencyHeaders?.(activationRequestId)},body:JSON.stringify({init_data:tg?tg.initData:'',activation_code:document.getElementById('activation-code').value,client_request_id:activationRequestId})});const body=await response.json();status.textContent=body.message||'Activation could not be completed.';status.className='activation-status '+(response.ok?'success':'error');status.hidden=false;if(response.ok){utils.setCloseProtection?.('staff-activation-code',false);button.textContent='Verified';activationRequestId='';return;}}
       catch(_){status.textContent='The connection failed. Check your network and try again.';status.className='activation-status error';status.hidden=false;}finally{utils.setCloseProtection?.('staff-activation-submit',false);}button.disabled=false;button.textContent='Verify identity';
     });
   })();

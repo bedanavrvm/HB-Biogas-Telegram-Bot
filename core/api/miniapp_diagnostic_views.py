@@ -18,6 +18,7 @@ from core.services.miniapp_diagnostics import (
     start_session,
     workflow_for_surface,
 )
+from core.services.miniapp_requests import miniapp_idempotency_boundary
 
 
 def _json_payload(request) -> dict:
@@ -66,6 +67,7 @@ def _error(message: str, *, status: int, code: str) -> JsonResponse:
 
 @csrf_exempt
 @require_POST
+@miniapp_idempotency_boundary
 def miniapp_diagnostic_session_start(request):
     if not getattr(settings, 'MINIAPP_DIAGNOSTICS_ENABLED', True):
         return JsonResponse({'ok': True, 'disabled': True})
@@ -95,6 +97,7 @@ def miniapp_diagnostic_session_start(request):
 
 @csrf_exempt
 @require_POST
+@miniapp_idempotency_boundary
 def miniapp_diagnostic_signals(request, session_uuid):
     if not getattr(settings, 'MINIAPP_DIAGNOSTICS_ENABLED', True):
         return JsonResponse({'ok': True, 'disabled': True, 'acknowledged': []})
