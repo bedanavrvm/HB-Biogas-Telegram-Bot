@@ -5,12 +5,12 @@ import json
 import tempfile
 from unittest.mock import patch
 
-from django.core.files import File
+from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 from core.models import (
     InvoiceUploadBatch,
@@ -32,6 +32,42 @@ from core.services.payment_documents import (
 )
 
 
+def synthetic_payment_template_bytes():
+    """Build a customer-free workbook fixture with the governed payment layout."""
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = '#89'
+    headers = {
+        3: 'Requisition Date', 4: 'Order No', 5: 'Cust No', 6: 'No:',
+        7: 'Name IMAB', 8: 'Name', 9: 'Primary Mobile', 10: 'Secondary Mobile',
+        11: 'Branch', 12: 'Loan Officer', 13: 'HB Invoice Amount',
+        14: 'Expected Invoice Amount', 15: 'Discount', 16: 'Deposit Paid HBG',
+        17: 'Deposit Paid JBL', 18: 'Loan Amount', 19: 'Repayment Dates',
+        20: 'Tenor', 21: 'Product', 22: 'Call Up Comments',
+    }
+    for column, value in headers.items():
+        sheet.cell(row=7, column=column, value=value)
+    for index, row in enumerate(range(8, 12), start=1):
+        sheet.cell(row=row, column=6, value=index)
+    for column in range(13, 19):
+        sheet.cell(row=12, column=column, value=f'=SUM({sheet.cell(8, column).coordinate}:{sheet.cell(11, column).coordinate})')
+    sheet.cell(row=15, column=3, value='PREPARED BY:')
+
+    config = workbook.create_sheet('_TEMPLATE_CONFIG')
+    config_rows = (
+        ('sheet_name', '#89'), ('header_row', '5'), ('data_start_row', '8'),
+        ('totals_row', '12'), ('signature_block_start_row', '15'),
+        ('sum_cols', 'M,N,O,P,Q,R'),
+    )
+    for row, (key, value) in enumerate(config_rows, start=2):
+        config.cell(row=row, column=1, value=key)
+        config.cell(row=row, column=2, value=value)
+    config.sheet_state = 'hidden'
+    output = io.BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
 @override_settings(
     ALLOWED_HOSTS=['testserver'],
     PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False,
@@ -39,6 +75,24 @@ from core.services.payment_documents import (
 )
 class InvoicePoolAndPaymentDocumentTests(TestCase):
     def setUp(self):
+        self._media_root = tempfile.TemporaryDirectory()
+        self.addCleanup(self._media_root.cleanup)
+        self._media_settings = override_settings(MEDIA_ROOT=self._media_root.name)
+        self._media_settings.enable()
+        self.addCleanup(self._media_settings.disable)
+        self.payment_template_bytes = synthetic_payment_template_bytes()
+        template = PaymentDocumentTemplate.objects.create(
+            name='Synthetic customer-free payment fixture',
+            original_filename='synthetic_payment_template.xlsx',
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            size=len(self.payment_template_bytes),
+            is_active=True,
+        )
+        template.file.save(
+            'synthetic_payment_template.xlsx',
+            ContentFile(self.payment_template_bytes),
+            save=True,
+        )
         # The payment fixture uses a historical external product spelling.
         # Register it explicitly so payment readiness exercises the canonical
         # catalogue path instead of an unresolved mapping issue.
@@ -560,7 +614,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertTrue(ignored_invoice.events.filter(action='restored', note='Back to review').exists())
 
     def test_payment_template_layout_uses_visible_sheet_when_config_is_stale(self):
-        workbook = load_workbook('requisition/HB_PAYMENT__89__7__machine_ready (1).xlsx')
+        workbook = load_workbook(io.BytesIO(self.payment_template_bytes))
         layout = payment_template_layout(workbook)
 
         self.assertEqual(layout.sheet_name, '#89')
@@ -589,8 +643,11 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
                     name='Uploaded payment template',
                     is_active=True,
                 )
-                with open('requisition/HB_PAYMENT__89__7__machine_ready (1).xlsx', 'rb') as handle:
-                    template.file.save('uploaded_payment_template.xlsx', File(handle), save=True)
+                template.file.save(
+                    'uploaded_payment_template.xlsx',
+                    ContentFile(self.payment_template_bytes),
+                    save=True,
+                )
 
                 xlsx, summary = generate_payment_workbook('ORDER-UPLOADED', '91')
 
@@ -605,7 +662,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
             is_active=True,
             drive_file_id='drive-template-id',
         )
-        template_bytes = open('requisition/HB_PAYMENT__89__7__machine_ready (1).xlsx', 'rb').read()
+        template_bytes = self.payment_template_bytes
 
         with patch(
             'core.services.payment_documents.workbook_source_from_template',
@@ -720,9 +777,9 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         )
 
         self.assertEqual(missing.status_code, 400)
-        self.assertEqual(missing.json()['error'], 'Payment number is required.')
+        self.assertEqual(missing.json()['code'], 'invalid_request')
         self.assertEqual(invalid.status_code, 400)
-        self.assertIn('digits only', invalid.json()['error'])
+        self.assertEqual(invalid.json()['code'], 'invalid_request')
 
     def test_document_history_lists_and_opens_final_payment_snapshot(self):
         doc = PaymentDocument.objects.create(

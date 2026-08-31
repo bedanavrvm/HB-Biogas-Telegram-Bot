@@ -1,0 +1,16 @@
+{
+  "name": "jbl-workflow-miniapps",
+  "private": true,
+  "engines": {
+    "node": ">=20 <25"
+  },
+  "scripts": {
+    "check:js": "node scripts/check_first_party_javascript.js",
+    "test:node": "node core/tests_js/miniapp_diagnostics.test.js && node scripts/test_miniapp_idempotency_clients.js",
+    "test:browser": "playwright test --config=playwright.config.js",
+    "test": "npm run check:js && npm run test:node && npm run test:browser"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

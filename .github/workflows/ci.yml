@@ -11,6 +11,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -26,16 +28,33 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
 
       - name: Install Python dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          pip install pip-audit==2.10.1 ruff==0.16.5
+
+      - name: Install frontend test dependencies
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Audit Python dependency vulnerabilities
+        run: python scripts/check_dependency_vulnerabilities.py
+
+      - name: Run narrow Python correctness lint
+        run: ruff check config core scripts
 
       - name: Check migrations
         env:
           DJANGO_SECRET_KEY: ci-secret-key-for-checks-only-change-in-production
           DEBUG: "True"
           TELEGRAM_WEBHOOK_SECRET: ci-webhook-secret
-        run: python manage.py makemigrations --check --dry-run
+        run: |
+          python scripts/check_migration_graph.py
+          python manage.py makemigrations --check --dry-run
+          python manage.py showmigrations --plan
 
       - name: Check Django configuration and static assets
         env:
@@ -47,23 +66,57 @@ jobs:
           python manage.py check
           python manage.py collectstatic --noinput
 
-      - name: Check architecture boundaries
+      - name: Check governed routes, settings, dependencies, and boundaries
         run: |
           python scripts/check_architecture_boundaries.py
           python scripts/check_miniapp_write_inventory.py
           python scripts/check_settings_env_parity.py
           python scripts/check_dependency_parity.py
-          python -m unittest scripts.tests.test_phase6_parity
+          python -m unittest discover -s scripts/tests -p 'test_*.py'
 
-      - name: Test Mini App idempotency clients
-        run: node scripts/test_miniapp_idempotency_clients.js
+      - name: Check and test first-party JavaScript
+        run: |
+          npm run check:js
+          npm run test:node
 
-      - name: Run Django tests
+      - name: Run Mini App browser tests
+        run: npm run test:browser
+
+      - name: Run Django tests with branch coverage
         env:
           DJANGO_SECRET_KEY: ci-secret-key-for-tests-only-change-in-production
           DEBUG: "True"
           TELEGRAM_WEBHOOK_SECRET: ci-webhook-secret
-        run: python manage.py test
+        run: |
+          coverage erase
+          coverage run --branch --source=core manage.py test
+          coverage json -o coverage.json
+          if [ -n "${GITHUB_BASE_REF:-}" ]; then
+            python scripts/check_coverage_quality.py --base-ref "origin/${GITHUB_BASE_REF}"
+          else
+            python scripts/check_coverage_quality.py
+          fi
+          coverage report
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: subsystem-coverage
+          path: |
+            coverage.json
+            coverage-subsystems.json
+          if-no-files-found: warn
+
+      - name: Upload browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/playwright/
+          if-no-files-found: ignore
 
       - name: Check Apps Script syntax
         run: |

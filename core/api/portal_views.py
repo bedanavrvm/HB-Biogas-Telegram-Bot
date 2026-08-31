@@ -63,7 +63,11 @@ def portal_auth_required(view_func):
             _portal_init_data_from_request(request)
         )
         if not is_valid:
-            response = JsonResponse({'ok': False, 'error': error}, status=403)
+            response = JsonResponse({
+                'ok': False,
+                'error': error,
+                'code': 'authentication_required',
+            }, status=403)
             return _finish_portal_response(request, response, started_at)
         request.portal_auth_payload = payload
         if getattr(settings, 'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True):
@@ -6428,6 +6432,7 @@ def portal_payment_document_regenerate(request, document_id: str):
     from core.models import JawabuFarmerMaster, PaymentDocument
     from core.services.payment_documents import (
         PaymentTemplateError,
+        approve_payment_document,
         create_payment_document,
         payment_readiness,
         serialize_payment_document,

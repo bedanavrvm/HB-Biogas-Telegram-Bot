@@ -41,7 +41,13 @@ class CanonicalStaffAdminTests(TestCase):
         url = reverse('admin:auth_user_add_staff')
         preview = self.client.post(url, {**payload, 'lifecycle_action': 'apply_now'})
         self.assertEqual(preview.status_code, 200)
-        self.assertIsNotNone(preview.context['direct_preview'])
+        self.assertIsNotNone(
+            preview.context['direct_preview'],
+            msg=(
+                f"form errors={preview.context['form'].errors.as_json()} "
+                f"grant errors={preview.context['grant_formset'].errors}"
+            ),
+        )
         self.assertFalse(StaffLifecycleChangePlan.objects.filter(
             request_key=payload['request_key'],
         ).exists())
@@ -138,7 +144,8 @@ class CanonicalStaffAdminTests(TestCase):
             'grants-TOTAL_FORMS': '3', 'grants-INITIAL_FORMS': '0',
             'grants-MIN_NUM_FORMS': '0', 'grants-MAX_NUM_FORMS': '8',
             'grants-0-include': 'on', 'grants-0-workflow': 'jawabu_portal',
-            'grants-0-role': 'JBL_OFFICER', 'grants-0-branch': 'Nakuru',
+            'grants-0-role': 'JBL_OFFICER', 'grants-0-branches': 'Nakuru',
+            'grants-0-all_products': 'on', 'grants-0-all_groups': 'on',
         })
 
         self.assertEqual(response.status_code, 302)
@@ -169,6 +176,8 @@ class CanonicalStaffAdminTests(TestCase):
             'grants-MIN_NUM_FORMS': '0', 'grants-MAX_NUM_FORMS': '8',
             'grants-0-include': 'on', 'grants-0-workflow': 'jawabu_portal',
             'grants-0-role': 'BUSINESS_ADMIN',
+            'grants-0-all_branches': 'on', 'grants-0-all_products': 'on',
+            'grants-0-all_groups': 'on',
         })
 
         self.assertEqual(response.status_code, 302)

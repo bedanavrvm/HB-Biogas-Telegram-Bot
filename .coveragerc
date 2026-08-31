@@ -1,0 +1,13 @@
+[run]
+branch = True
+source = core
+
+[report]
+omit =
+    core/migrations/*
+    core/test_*.py
+    core/tests*.py
+skip_empty = True
+
+[json]
+pretty_print = True

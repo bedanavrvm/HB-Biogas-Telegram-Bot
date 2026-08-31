@@ -40,6 +40,9 @@ credentials.json
 *.json
 !scripts/architecture_boundaries_baseline.json
 !scripts/tracked_artifact_allowlist.json
+!scripts/coverage_baseline.json
+!package.json
+!package-lock.json
 *.pem
 *.key
 *.p12
@@ -72,6 +75,10 @@ credentials.json
 artifacts/
 test-results/
 playwright-report/
+node_modules/
+coverage.json
+coverage-subsystems.json
+.coverage
 
 # Reviewed public application asset. Its exact bytes are pinned by the
 # tracked-artifact allowlist rather than trusted by path alone.

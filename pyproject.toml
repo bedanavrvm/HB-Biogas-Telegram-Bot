@@ -16,15 +16,15 @@ authors = ["Your Name <you@example.com>"]
 
 [tool.poetry.dependencies]
 python = ">=3.12,<3.13"
-Django = "5.1.6"
+Django = "5.2.17"
 django-htmx = "1.23.0"
 django-unfold = "0.64.2"
 django-health-check = "3.18.3"
-djangorestframework = "3.15.1"
+djangorestframework = "3.15.2"
 dj-database-url = "2.1.0"
 python-decouple = "3.8"
 whitenoise = "6.6.0"
-gunicorn = "21.2.0"
+gunicorn = "22.0.0"
 sentry-sdk = "2.35.1"
 gspread = "6.0.2"
 google-auth = "2.28.2"
@@ -34,13 +34,29 @@ httplib2 = "0.32.0"
 python-dateutil = "2.9.0.post0"
 psycopg = {version = ">=3.1.0", extras = ["binary"]}
 coverage = "7.4.4"
-requests = "2.31.0"
+requests = "2.33.0"
 openpyxl = "3.1.5"
-Pillow = "11.3.0"
-pypdf = "4.2.0"
+Pillow = "12.3.0"
+pypdf = "6.15.0"
 pypdfium2 = "5.12.1"
-WeasyPrint = "66.0"
+WeasyPrint = "68.0"
 africastalking = "2.0.3"
 reportlab = "4.4.10"
 
 [tool.poetry.dev-dependencies]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+exclude = ["core/migrations", ".venv", "node_modules"]
+
+[tool.ruff.lint]
+# Correctness-only adoption. Formatting and broad style/unused-import rules are
+# intentionally deferred so this gate does not force repository-wide churn.
+select = [
+    "E902",
+    "F404", "F406", "F407",
+    "F601", "F602", "F621", "F622", "F631", "F632", "F633", "F634",
+    "F701", "F702", "F704", "F706", "F707", "F722",
+    "F821", "F822", "F823",
+]

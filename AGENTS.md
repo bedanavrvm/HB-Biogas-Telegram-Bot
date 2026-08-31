@@ -249,8 +249,10 @@ The Mini Apps use Django templates and mostly vanilla JavaScript. Preserve Teleg
 - `core/tests_idempotency_cutover.py`
 - `core/tests_phase6_routes_and_throttling.py`
 - `core/tests_release_sequencing.py`
-
 - `core/tests_portal_imports.py`
+- `core/tests_browser/miniapp_flows.spec.js` — intercepted Chromium contracts for
+  first-party Mini App bootstrap, failure, retry, and mobile behaviour
+- `scripts/tests/` — CI-governance script unit tests
 
 ### Operational integrations and examples
 
@@ -780,6 +782,22 @@ aliases in `core/api/legacy_urls.py`. Never restore a blanket root include.
 python -m compileall config core
 python manage.py check
 python manage.py makemigrations --check --dry-run
+ruff check config core scripts
+python scripts/check_settings_env_parity.py
+python scripts/check_dependency_parity.py
+python scripts/check_miniapp_write_inventory.py
+python scripts/check_repository_artifacts.py
+python scripts/check_dependency_vulnerabilities.py
+python scripts/check_migration_graph.py
+```
+
+First-party frontend checks use the committed Node lockfile:
+
+```bash
+npm ci
+npm run check:js
+npm run test:node
+npm run test:browser
 ```
 
 ### Focused tests
@@ -827,9 +845,15 @@ python manage.py test
 
 ```bash
 coverage erase
-coverage run manage.py test
+coverage run --branch --source=core manage.py test
+coverage json -o coverage.json
+python scripts/check_coverage_quality.py
 coverage report -m
 ```
+
+Coverage is reported by subsystem and compared with the reviewed baseline. See
+`docs/ci-and-frontend-quality-gates.md`; do not lower the baseline as routine
+test maintenance.
 
 ### Apps Script syntax
 

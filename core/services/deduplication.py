@@ -9,6 +9,10 @@ from datetime import timedelta
 from django.utils import timezone
 from django.conf import settings
 import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.models import ProcessedMessage
 
 logger = logging.getLogger(__name__)
 

@@ -79,6 +79,10 @@ MESSAGE_CATALOG: dict[str, MiniAppMessage] = {
     "service_unavailable": MiniAppMessage(
         "We cannot complete this right now. Your saved work is safe; please try again shortly.", 503,
     ),
+    "portal_read_only_maintenance": MiniAppMessage(
+        "The Portal is temporarily read-only for maintenance. Your saved work is safe; try again shortly.", 503,
+        tone="warning",
+    ),
     "unexpected_error": MiniAppMessage(
         "Something went wrong. Please try again. If it continues, contact JBL and share reference {request_id}.", 500,
     ),

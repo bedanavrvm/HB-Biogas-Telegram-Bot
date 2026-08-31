@@ -871,7 +871,7 @@ class PortalMiniAppAuthTestCase(TestCase):
         response = self.client.get(reverse('portal_dashboard'))
         self.assertEqual(response.status_code, 403)
         self.assertFalse(response.json()['ok'])
-        self.assertIn('authentication data is missing', response.json()['error'])
+        self.assertEqual(response.json()['code'], 'authentication_required')
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_api_accepts_valid_telegram_init_data(self):
@@ -1093,7 +1093,7 @@ class PortalMiniAppAuthTestCase(TestCase):
         )
 
         self.assertEqual(response.status_code, 403)
-        self.assertIn('not authorized for the Jawabu Portal', response.json()['error'])
+        self.assertEqual(response.json()['code'], 'permission_denied')
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_navigation_omits_links_disallowed_for_role(self):
@@ -1271,7 +1271,7 @@ class PortalMiniAppAuthTestCase(TestCase):
 
         workspace = self.client.get(reverse('portal_workspace'), **headers)
         self.assertEqual(workspace.status_code, 403)
-        self.assertIn('not authorized', workspace.json()['error'])
+        self.assertEqual(workspace.json()['code'], 'permission_denied')
 
         detail = self.client.get(reverse('portal_farmer_detail', args=[farmer.pk]), **headers)
         self.assertEqual(detail.status_code, 200)
@@ -2234,7 +2234,7 @@ class JblPipelineApiTestCase(TestCase):
         response = self.client.post(url, json.dumps(payload), content_type='application/json')
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.json()['ok'])
-        self.assertIn('created in IMAB', response.json()['error'])
+        self.assertEqual(response.json()['code'], 'invalid_request')
 
         self.farmer.refresh_from_db()
         self.assertEqual(self.farmer.credit_decision, 'Pending')
@@ -2889,7 +2889,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.status_code, 400)
         data = response.json()
         self.assertFalse(data['ok'])
-        self.assertIn('requisition Excel template', data['error'])
+        self.assertEqual(data['code'], 'invalid_request')
         self.farmer.refresh_from_db()
         self.assertEqual(self.farmer.order_number, '')
         self.assertIsNone(self.farmer.requisition_date)
@@ -2904,7 +2904,7 @@ class JblPipelineApiTestCase(TestCase):
         url = reverse('portal_requisition_generate')
         response = self.client.post(url, json.dumps(payload), content_type='application/json')
         self.assertEqual(response.status_code, 403)
-        self.assertIn('not ready for requisition', response.json()['error'])
+        self.assertEqual(response.json()['code'], 'permission_denied')
 
     def test_portal_requisition_generate_requires_a_revision_for_each_new_assignment(self):
         self.farmer.jbl_visit_date = date(2026, 7, 1)
