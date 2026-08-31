@@ -4,14 +4,12 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
-import hmac
 import json
 import logging
 import re
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
-import time
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import urlencode
 from typing import Any
 
 from django.conf import settings
@@ -1570,33 +1568,13 @@ def decode_spin_start_param(start_param: str) -> dict[str, str]:
 
 
 def validate_spin_telegram_webapp_init_data(init_data: str) -> tuple[bool, str, dict]:
-    if not getattr(settings, 'SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH', True):
-        return True, '', {}
-    bot_token = getattr(settings, 'TELEGRAM_BOT_TOKEN', '')
-    if not bot_token:
-        return False, 'TELEGRAM_BOT_TOKEN is not configured.', {}
-    if not init_data:
-        return False, 'Telegram Mini App authentication data is missing.', {}
+    from core.services.telegram_auth import validate_telegram_init_data
 
-    pairs = dict(parse_qsl(init_data, keep_blank_values=True))
-    received_hash = pairs.pop('hash', '')
-    if not received_hash:
-        return False, 'Telegram Mini App hash is missing.', {}
-    data_check_string = "\n".join(f"{key}={value}" for key, value in sorted(pairs.items()))
-    secret_key = hmac.new(b'WebAppData', bot_token.encode('utf-8'), hashlib.sha256).digest()
-    calculated_hash = hmac.new(secret_key, data_check_string.encode('utf-8'), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(calculated_hash, received_hash):
-        return False, 'Telegram Mini App authentication failed.', {}
-
-    auth_date = pairs.get('auth_date')
-    max_age = int(getattr(settings, 'SPIN_WEBAPP_AUTH_MAX_AGE_SECONDS', 86400))
-    if auth_date and max_age > 0:
-        try:
-            if time.time() - int(auth_date) > max_age:
-                return False, 'Telegram Mini App authentication expired.', {}
-        except ValueError:
-            return False, 'Telegram Mini App auth_date is invalid.', {}
-    return True, '', pairs
+    return validate_telegram_init_data(
+        init_data,
+        require_auth=getattr(settings, 'SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH', True),
+        max_age_seconds=int(getattr(settings, 'SPIN_WEBAPP_AUTH_MAX_AGE_SECONDS', 86400)),
+    )
 
 
 def process_spin_form_submission(

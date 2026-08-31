@@ -5,8 +5,6 @@ from __future__ import annotations
 import base64
 import binascii
 import csv
-import hmac
-import hashlib
 import io
 import json
 import logging
@@ -14,7 +12,7 @@ import re
 import time
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import urlencode
 from typing import Any
 
 from django.conf import settings
@@ -368,37 +366,16 @@ def decode_tat_start_param(start_param: str) -> dict[str, str]:
 
 
 def validate_tat_telegram_webapp_init_data(init_data: str) -> tuple[bool, str, dict]:
-    if not getattr(settings, 'TAT_TRACKER_WEBAPP_REQUIRE_TELEGRAM_AUTH', True):
-        return True, '', {}
-    bot_token = getattr(settings, 'TELEGRAM_BOT_TOKEN', '')
-    if not bot_token:
-        return False, 'TELEGRAM_BOT_TOKEN is not configured.', {}
-    if not init_data:
-        return False, 'Telegram Mini App authentication data is missing.', {}
-    pairs = dict(parse_qsl(init_data, keep_blank_values=True))
-    received_hash = pairs.pop('hash', '')
-    if not received_hash:
-        return False, 'Telegram Mini App hash is missing.', {}
-    data_check_string = "\n".join(f"{key}={value}" for key, value in sorted(pairs.items()))
-    secret_key = hmac.new(b'WebAppData', bot_token.encode('utf-8'), hashlib.sha256).digest()
-    calculated_hash = hmac.new(secret_key, data_check_string.encode('utf-8'), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(calculated_hash, received_hash):
-        return False, 'Telegram Mini App authentication failed.', {}
-    max_age = int(getattr(settings, 'TAT_TRACKER_WEBAPP_AUTH_MAX_AGE_SECONDS', 86400))
-    auth_date = pairs.get('auth_date')
-    if auth_date and max_age > 0:
-        try:
-            if time.time() - int(auth_date) > max_age:
-                return False, 'Telegram Mini App authentication expired.', {}
-        except ValueError:
-            return False, 'Telegram Mini App auth_date is invalid.', {}
-    user_payload = {}
-    if pairs.get('user'):
-        try:
-            user_payload = json.loads(pairs['user'])
-        except json.JSONDecodeError:
-            user_payload = {}
-    return True, '', user_payload if isinstance(user_payload, dict) else {}
+    from core.services.telegram_auth import validate_telegram_init_data
+
+    valid, error, pairs = validate_telegram_init_data(
+        init_data,
+        require_auth=getattr(settings, 'TAT_TRACKER_WEBAPP_REQUIRE_TELEGRAM_AUTH', True),
+        max_age_seconds=int(getattr(settings, 'TAT_TRACKER_WEBAPP_AUTH_MAX_AGE_SECONDS', 86400)),
+    )
+    if not valid or not pairs:
+        return valid, error, {}
+    return True, '', json.loads(pairs['user'])
 
 
 def staff_user_for_payload(group_config, user_payload: dict, fallback_name: str = '') -> dict:

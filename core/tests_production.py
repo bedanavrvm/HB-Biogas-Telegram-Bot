@@ -6,9 +6,17 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 from django.core.management import call_command
-from django.test import SimpleTestCase, override_settings
+from django.contrib.auth import get_user_model
+from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 
-from core.production import production_readiness_issues
+from core.models import OriginationConsentPolicyVersion
+from core.production import (
+    MINIAPP_AUTH_SETTINGS,
+    TELEGRAM_AUTH_AGE_SETTINGS,
+    production_readiness_issues,
+    production_security_readiness_issues,
+)
 from core.sentry_monitoring import scrub_event, scrub_transaction, sentry_init_options
 
 
@@ -29,12 +37,26 @@ class ProductionReadinessTests(SimpleTestCase):
             'SECURE_PROXY_SSL_HEADER': ('HTTP_X_FORWARDED_PROTO', 'https'),
             'TELEGRAM_BOT_TOKEN': '12345678:' + ('a' * 35),
             'TELEGRAM_WEBHOOK_SECRET': 'webhook-secret',
+            'TELEGRAM_AUTH_MAX_AGE_SECONDS': 86400,
             'API_AUTH_TOKEN': 'manual-api-secret',
             'GOOGLE_SERVICE_ACCOUNT_FILE': str(service_account_file),
             'MEDIA_STORAGE_PROVIDER': 'google_drive',
             'GOOGLE_DRIVE_MEDIA_FOLDER_ID': 'drive-folder-id',
             'SENTRY_DSN': '',
+            'TAT_TRACKER_SIGNATURES_ENABLED': False,
+            'ESIGNATURES_BASE_URL': '',
+            'ESIGNATURES_API_KEY': '',
+            'ESIGNATURES_WEBHOOK_SECRET': '',
+            'ORIGINATION_ESIGN_ENABLED': False,
+            'ORIGINATION_CONDITIONAL_APPROVAL_ENABLED': False,
+            'SENTRY_ENVIRONMENT': 'production',
+            'AFRICASTALKING_SMS_ENVIRONMENT': 'production',
+            'AFRICASTALKING_USERNAME': '',
+            'AFRICASTALKING_API_KEY': '',
+            'ACCESS_GRANT_GOVERNANCE_ENFORCED': True,
         }
+        values.update({name: True for _surface, name in MINIAPP_AUTH_SETTINGS})
+        values.update({name: 86400 for _surface, name in TELEGRAM_AUTH_AGE_SETTINGS})
         values.update(overrides)
         return SimpleNamespace(**values)
 
@@ -90,6 +112,61 @@ class ProductionReadinessTests(SimpleTestCase):
         self.assertTrue(any(item.code == 'origination-signing-base-url' for item in insecure))
         self.assertTrue(any(item.code == 'origination-signing-base-url-host' for item in wrong_host))
         self.assertFalse(any(item.code.startswith('origination-signing-base-url') for item in allowed))
+
+    def test_every_miniapp_authentication_flag_is_required(self):
+        for surface, setting_name in MINIAPP_AUTH_SETTINGS:
+            with self.subTest(setting=setting_name):
+                configured = self._settings('/missing/service-account.json')
+                setattr(configured, setting_name, False)
+                codes = {
+                    issue.code for issue in production_security_readiness_issues(configured)
+                }
+                self.assertIn(f'miniapp-auth-{surface}', codes)
+
+    def test_authentication_ages_must_be_positive_and_bounded(self):
+        for surface, setting_name in TELEGRAM_AUTH_AGE_SETTINGS:
+            for value in (0, 86401):
+                with self.subTest(setting=setting_name, value=value):
+                    configured = self._settings('/missing/service-account.json')
+                    setattr(configured, setting_name, value)
+                    codes = {
+                        issue.code for issue in production_security_readiness_issues(configured)
+                    }
+                    self.assertIn(f'telegram-auth-age-{surface}', codes)
+
+    def test_signing_and_governance_features_require_production_secrets(self):
+        configured = self._settings(
+            '/missing/service-account.json',
+            TAT_TRACKER_SIGNATURES_ENABLED=True,
+            ORIGINATION_ESIGN_ENABLED=True,
+            ORIGINATION_CONDITIONAL_APPROVAL_ENABLED=True,
+            SENTRY_ENVIRONMENT='staging',
+            AFRICASTALKING_SMS_ENVIRONMENT='sandbox',
+            AFRICASTALKING_USERNAME='sandbox',
+            ACCESS_GRANT_GOVERNANCE_ENFORCED=False,
+        )
+        codes = {issue.code for issue in production_security_readiness_issues(configured)}
+        self.assertTrue({
+            'tat-esignatures-base-url',
+            'tat-esignatures-api-key',
+            'tat-esignatures-webhook-secret',
+            'origination-esign-application-environment',
+            'origination-esign-environment',
+            'origination-esign-username',
+            'origination-esign-api-key',
+            'access-grant-governance',
+        }.issubset(codes))
+
+    def test_webhook_and_conditional_approval_dependency_are_required(self):
+        configured = self._settings(
+            '/missing/service-account.json',
+            TELEGRAM_WEBHOOK_SECRET='',
+            ORIGINATION_CONDITIONAL_APPROVAL_ENABLED=True,
+            ORIGINATION_ESIGN_ENABLED=False,
+        )
+        codes = {issue.code for issue in production_security_readiness_issues(configured)}
+        self.assertIn('telegram-webhook-secret', codes)
+        self.assertIn('conditional-approval-esign', codes)
 
     @override_settings(
         DEBUG=True,
@@ -183,3 +260,69 @@ class ProductionReadinessTests(SimpleTestCase):
             'span_id': 'abc', 'trace_id': 'trace', 'op': 'http.client',
         }])
         self.assertNotIn('headers', cleaned['request'])
+
+
+class ConditionalApprovalProductionReadinessTests(TestCase):
+    def _settings(self):
+        values = {
+            name: True for _surface, name in MINIAPP_AUTH_SETTINGS
+        }
+        values.update({
+            name: 86400 for _surface, name in TELEGRAM_AUTH_AGE_SETTINGS
+        })
+        values.update({
+            'TELEGRAM_WEBHOOK_SECRET': 'webhook-secret',
+            'TAT_TRACKER_SIGNATURES_ENABLED': False,
+            'ORIGINATION_ESIGN_ENABLED': True,
+            'ORIGINATION_CONDITIONAL_APPROVAL_ENABLED': True,
+            'SENTRY_ENVIRONMENT': 'production',
+            'AFRICASTALKING_SMS_ENVIRONMENT': 'production',
+            'AFRICASTALKING_USERNAME': 'production-account',
+            'AFRICASTALKING_API_KEY': 'production-api-key',
+            'ACCESS_GRANT_GOVERNANCE_ENFORCED': True,
+        })
+        return SimpleNamespace(**values)
+
+    def test_conditional_approval_requires_an_active_integrity_checked_policy(self):
+        configured = self._settings()
+        missing_codes = {
+            issue.code for issue in production_security_readiness_issues(
+                configured, check_database=True,
+            )
+        }
+        self.assertIn('conditional-approval-consent-policy', missing_codes)
+
+        approver = get_user_model().objects.create_superuser(
+            username='conditional-readiness-approver', password='unused-test-password',
+        )
+        OriginationConsentPolicyVersion.objects.create(
+            version='production-readiness-v1',
+            status=OriginationConsentPolicyVersion.STATUS_ACTIVE,
+            packet_clause='Approved packet clause.',
+            signer_consent_text='Approved signer consent.',
+            signer_completion_text='Approved completion wording.',
+            resigning_text='Approved re-signing wording.',
+            approval_reference='COMPLIANCE-READY-1',
+            approved_by=approver,
+            approved_at=timezone.now(),
+            created_by=approver,
+        )
+
+        ready_codes = {
+            issue.code for issue in production_security_readiness_issues(
+                configured, check_database=True,
+            )
+        }
+        self.assertNotIn('conditional-approval-consent-policy', ready_codes)
+        self.assertNotIn('conditional-approval-consent-approval', ready_codes)
+        self.assertNotIn('conditional-approval-consent-integrity', ready_codes)
+
+        OriginationConsentPolicyVersion.objects.filter(
+            status=OriginationConsentPolicyVersion.STATUS_ACTIVE,
+        ).update(approval_reference='')
+        invalid_codes = {
+            issue.code for issue in production_security_readiness_issues(
+                configured, check_database=True,
+            )
+        }
+        self.assertIn('conditional-approval-consent-approval', invalid_codes)

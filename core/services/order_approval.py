@@ -13,12 +13,11 @@ import json
 import logging
 import mimetypes
 import re
-import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import PurePosixPath
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import urlencode
 from typing import Any
 
 import requests
@@ -2837,46 +2836,13 @@ def decode_order_approval_start_param(start_param: str) -> dict[str, str]:
 
 def validate_telegram_webapp_init_data(init_data: str) -> tuple[bool, str, dict]:
     """Validate Telegram Web App initData using the bot token."""
-    if not getattr(settings, 'ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True):
-        return True, '', {}
+    from core.services.telegram_auth import validate_telegram_init_data
 
-    bot_token = getattr(settings, 'TELEGRAM_BOT_TOKEN', '')
-    if not bot_token:
-        return False, 'TELEGRAM_BOT_TOKEN is not configured.', {}
-    if not init_data:
-        return False, 'Telegram Web App authentication data is missing.', {}
-
-    pairs = dict(parse_qsl(init_data, keep_blank_values=True))
-    received_hash = pairs.pop('hash', '')
-    if not received_hash:
-        return False, 'Telegram Web App hash is missing.', {}
-
-    data_check_string = "\n".join(
-        f"{key}={value}" for key, value in sorted(pairs.items())
+    return validate_telegram_init_data(
+        init_data,
+        require_auth=getattr(settings, 'ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True),
+        max_age_seconds=int(getattr(settings, 'ORDER_APPROVAL_WEBAPP_AUTH_MAX_AGE_SECONDS', 86400)),
     )
-    secret_key = hmac.new(
-        b'WebAppData',
-        bot_token.encode('utf-8'),
-        hashlib.sha256,
-    ).digest()
-    calculated_hash = hmac.new(
-        secret_key,
-        data_check_string.encode('utf-8'),
-        hashlib.sha256,
-    ).hexdigest()
-    if not hmac.compare_digest(calculated_hash, received_hash):
-        return False, 'Telegram Web App authentication failed.', {}
-
-    auth_date = pairs.get('auth_date')
-    max_age = int(getattr(settings, 'ORDER_APPROVAL_WEBAPP_AUTH_MAX_AGE_SECONDS', 86400))
-    if auth_date and max_age > 0:
-        try:
-            if time.time() - int(auth_date) > max_age:
-                return False, 'Telegram Web App authentication expired.', {}
-        except ValueError:
-            return False, 'Telegram Web App auth_date is invalid.', {}
-
-    return True, '', pairs
 
 
 def create_order_approval_form_token(group_id: str) -> str:

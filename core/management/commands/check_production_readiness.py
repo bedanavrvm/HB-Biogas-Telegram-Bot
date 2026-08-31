@@ -24,7 +24,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        issues = production_readiness_issues(settings)
+        issues = production_readiness_issues(settings, check_database=True)
         if options['json']:
             self.stdout.write(
                 json.dumps(

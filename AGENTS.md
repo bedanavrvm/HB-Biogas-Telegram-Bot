@@ -236,6 +236,7 @@ The Mini Apps use Django templates and mostly vanilla JavaScript. Preserve Teleg
 - `core/tests_laf_seed_documentation.py`
 - `core/tests_staff_lifecycle.py`
 - `core/tests_user_hard_delete.py`
+- `core/tests_telegram_authentication.py`
 
 - `core/tests_portal_imports.py`
 

@@ -25,11 +25,10 @@ from core.services.complaint_cases import (
     reopen_case,
     resolve_case,
     retry_case_sync,
-    staff_actor_for_payload,
+    staff_actor_for_user,
     update_case,
 )
 from core.services.group_config import GroupRegistry
-from core.services.telegram_auth import validate_telegram_init_data
 
 
 logger = logging.getLogger(__name__)
@@ -88,13 +87,42 @@ def _request_payload(request) -> dict:
 
 def _context(request, payload: dict):
     init_data = request.headers.get('X-Telegram-Init-Data', '') or payload.get('init_data', '')
-    valid, error, auth_payload = validate_telegram_init_data(
-        init_data,
-        require_auth=getattr(settings, 'COMPLAINT_CASES_WEBAPP_REQUIRE_TELEGRAM_AUTH', True),
-        max_age_seconds=getattr(settings, 'COMPLAINT_CASES_WEBAPP_AUTH_MAX_AGE_SECONDS', 86400),
+    require_auth = bool(
+        getattr(settings, 'COMPLAINT_CASES_WEBAPP_REQUIRE_TELEGRAM_AUTH', True)
     )
-    if not valid:
-        return None, None, JsonResponse({'ok': False, 'error': error}, status=403)
+    identity = None
+    canonical_user = None
+    if require_auth:
+        from core.services.telegram_identity import (
+            TelegramAuthenticationError,
+            resolve_or_bind_telegram_user,
+            validate_telegram_init_data,
+        )
+        try:
+            _auth_payload, identity = validate_telegram_init_data(
+                init_data,
+                max_age_seconds=int(getattr(
+                    settings, 'COMPLAINT_CASES_WEBAPP_AUTH_MAX_AGE_SECONDS', 86400,
+                )),
+            )
+        except TelegramAuthenticationError as exc:
+            return None, None, JsonResponse({'ok': False, 'error': str(exc)}, status=403)
+        canonical_user = resolve_or_bind_telegram_user(identity)
+    else:
+        from core.services.telegram_auth import authentication_bypass_allowed
+
+        if not authentication_bypass_allowed():
+            return None, None, JsonResponse({
+                'ok': False,
+                'error': 'Telegram Mini App authentication can only be disabled in an explicit local or test runtime.',
+            }, status=403)
+        if getattr(request.user, 'is_authenticated', False) and request.user.is_active:
+            canonical_user = request.user
+        else:
+            return None, None, JsonResponse({
+                'ok': False,
+                'error': 'Sign in with a local Django test user before using authentication-disabled mode.',
+            }, status=403)
     group_id = str(payload.get('group_id') or '').strip()
     group_config = GroupRegistry.get_instance().get_group(group_id)
     if not group_config or not is_complaint_workflow(group_config):
@@ -103,7 +131,9 @@ def _context(request, payload: dict):
             status=403,
         )
     try:
-        return group_config, staff_actor_for_payload(group_config, auth_payload), None
+        return group_config, staff_actor_for_user(
+            group_config, canonical_user, identity=identity,
+        ), None
     except ComplaintCaseError as exc:
         return None, None, JsonResponse({'ok': False, 'error': str(exc)}, status=403)
 

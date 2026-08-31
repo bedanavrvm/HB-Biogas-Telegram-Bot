@@ -14,6 +14,10 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 
 
+TELEGRAM_AUTH_MAX_AGE_LIMIT_SECONDS = 86400
+TELEGRAM_AUTH_FUTURE_TOLERANCE_SECONDS = 0
+
+
 class TelegramAuthenticationError(ValueError):
     pass
 
@@ -41,7 +45,9 @@ def validate_telegram_init_data(
     init_data: str, *, bot_token: str | None = None, max_age_seconds: int | None = None,
 ) -> tuple[dict, TelegramIdentity]:
     """Validate Telegram initData once, including signature and freshness."""
-    token = bot_token if bot_token is not None else getattr(settings, 'TELEGRAM_BOT_TOKEN', '')
+    token = str(
+        bot_token if bot_token is not None else getattr(settings, 'TELEGRAM_BOT_TOKEN', '')
+    ).strip()
     if not token:
         raise TelegramAuthenticationError('Telegram bot authentication is not configured.')
     if not init_data:
@@ -55,20 +61,37 @@ def validate_telegram_init_data(
     calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(calculated_hash, received_hash):
         raise TelegramAuthenticationError('Telegram Mini App authentication failed.')
-    max_age = max_age_seconds if max_age_seconds is not None else 86400
+    configured_max_age = (
+        max_age_seconds
+        if max_age_seconds is not None
+        else getattr(settings, 'TELEGRAM_AUTH_MAX_AGE_SECONDS', 86400)
+    )
     try:
-        auth_date = int(pairs.get('auth_date') or '0')
-    except ValueError as exc:
+        max_age = int(configured_max_age)
+    except (TypeError, ValueError) as exc:
+        raise TelegramAuthenticationError(
+            'Telegram Mini App authentication age is not configured safely.'
+        ) from exc
+    if max_age <= 0 or max_age > TELEGRAM_AUTH_MAX_AGE_LIMIT_SECONDS:
+        raise TelegramAuthenticationError(
+            f'Telegram Mini App authentication age must be between 1 and '
+            f'{TELEGRAM_AUTH_MAX_AGE_LIMIT_SECONDS} seconds.'
+        )
+    try:
+        auth_date = int(pairs.get('auth_date') or '')
+    except (TypeError, ValueError) as exc:
         raise TelegramAuthenticationError('Telegram Mini App auth_date is invalid.') from exc
     now = time.time()
-    if auth_date > now + 60:
+    if auth_date > now + TELEGRAM_AUTH_FUTURE_TOLERANCE_SECONDS:
         raise TelegramAuthenticationError('Telegram Mini App auth_date is in the future.')
-    if max_age > 0 and (not auth_date or now - auth_date > max_age):
+    if auth_date <= 0 or now - auth_date > max_age:
         raise TelegramAuthenticationError('Telegram Mini App authentication expired.')
     try:
-        user_payload = json.loads(pairs.get('user') or '{}')
+        user_payload = json.loads(pairs.get('user') or '')
     except (TypeError, ValueError) as exc:
         raise TelegramAuthenticationError('Telegram Mini App user data is malformed.') from exc
+    if not isinstance(user_payload, dict):
+        raise TelegramAuthenticationError('Telegram Mini App user data is malformed.')
     telegram_id = str(user_payload.get('id') or '').strip()
     if not telegram_id:
         raise TelegramAuthenticationError('Telegram Mini App user ID is missing.')

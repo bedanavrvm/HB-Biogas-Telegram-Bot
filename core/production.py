@@ -14,6 +14,23 @@ PLACEHOLDER_MARKERS = (
     'changeme',
 )
 
+MINIAPP_AUTH_SETTINGS = (
+    ('portal', 'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH'),
+    ('complaint-cases', 'COMPLAINT_CASES_WEBAPP_REQUIRE_TELEGRAM_AUTH'),
+    ('tat-tracker', 'TAT_TRACKER_WEBAPP_REQUIRE_TELEGRAM_AUTH'),
+    ('spin', 'SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH'),
+    ('order-approval', 'ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH'),
+)
+
+TELEGRAM_AUTH_AGE_SETTINGS = (
+    ('shared', 'TELEGRAM_AUTH_MAX_AGE_SECONDS'),
+    ('portal', 'PORTAL_WEBAPP_AUTH_MAX_AGE_SECONDS'),
+    ('complaint-cases', 'COMPLAINT_CASES_WEBAPP_AUTH_MAX_AGE_SECONDS'),
+    ('tat-tracker', 'TAT_TRACKER_WEBAPP_AUTH_MAX_AGE_SECONDS'),
+    ('spin', 'SPIN_WEBAPP_AUTH_MAX_AGE_SECONDS'),
+    ('order-approval', 'ORDER_APPROVAL_WEBAPP_AUTH_MAX_AGE_SECONDS'),
+)
+
 
 @dataclass(frozen=True)
 class ReadinessIssue:
@@ -27,7 +44,144 @@ def _blank_or_placeholder(value: object) -> bool:
     return not text or any(marker in text for marker in PLACEHOLDER_MARKERS)
 
 
-def production_readiness_issues(settings) -> list[ReadinessIssue]:
+def production_security_readiness_issues(
+    settings,
+    *,
+    check_database: bool = False,
+) -> list[ReadinessIssue]:
+    """Return fail-closed Mini App and signing configuration issues."""
+    from core.services.telegram_identity import TELEGRAM_AUTH_MAX_AGE_LIMIT_SECONDS
+
+    issues: list[ReadinessIssue] = []
+
+    def error(code: str, message: str) -> None:
+        issues.append(ReadinessIssue('error', code, message))
+
+    for surface, setting_name in MINIAPP_AUTH_SETTINGS:
+        if not bool(getattr(settings, setting_name, False)):
+            error(
+                f'miniapp-auth-{surface}',
+                f'{setting_name} must be enabled in production.',
+            )
+
+    for surface, setting_name in TELEGRAM_AUTH_AGE_SETTINGS:
+        raw_value = getattr(settings, setting_name, None)
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            value = 0
+        if value <= 0 or value > TELEGRAM_AUTH_MAX_AGE_LIMIT_SECONDS:
+            error(
+                f'telegram-auth-age-{surface}',
+                f'{setting_name} must be between 1 and '
+                f'{TELEGRAM_AUTH_MAX_AGE_LIMIT_SECONDS} seconds.',
+            )
+
+    if _blank_or_placeholder(getattr(settings, 'TELEGRAM_WEBHOOK_SECRET', '')):
+        error('telegram-webhook-secret', 'TELEGRAM_WEBHOOK_SECRET must be configured with a real secret.')
+
+    if bool(getattr(settings, 'TAT_TRACKER_SIGNATURES_ENABLED', False)):
+        base_url = str(getattr(settings, 'ESIGNATURES_BASE_URL', '') or '').strip()
+        parsed_url = urlparse(base_url)
+        if (
+            _blank_or_placeholder(base_url)
+            or parsed_url.scheme != 'https'
+            or not parsed_url.hostname
+        ):
+            error(
+                'tat-esignatures-base-url',
+                'ESIGNATURES_BASE_URL must be an absolute HTTPS URL when TAT signatures are enabled.',
+            )
+        for code, setting_name in (
+            ('tat-esignatures-api-key', 'ESIGNATURES_API_KEY'),
+            ('tat-esignatures-webhook-secret', 'ESIGNATURES_WEBHOOK_SECRET'),
+        ):
+            if _blank_or_placeholder(getattr(settings, setting_name, '')):
+                error(code, f'{setting_name} must be configured when TAT signatures are enabled.')
+
+    origination_esign_enabled = bool(
+        getattr(settings, 'ORIGINATION_ESIGN_ENABLED', False)
+    )
+    if origination_esign_enabled:
+        provider_environment = str(
+            getattr(settings, 'AFRICASTALKING_SMS_ENVIRONMENT', '') or ''
+        ).strip().casefold()
+        application_environment = str(
+            getattr(settings, 'SENTRY_ENVIRONMENT', '') or ''
+        ).strip().casefold()
+        username = str(getattr(settings, 'AFRICASTALKING_USERNAME', '') or '').strip()
+        if application_environment != 'production':
+            error(
+                'origination-esign-application-environment',
+                'SENTRY_ENVIRONMENT must be production when Origination e-signing is enabled in production.',
+            )
+        if provider_environment != 'production':
+            error(
+                'origination-esign-environment',
+                'AFRICASTALKING_SMS_ENVIRONMENT must be production when Origination e-signing is enabled in production.',
+            )
+        if _blank_or_placeholder(username) or username.casefold() == 'sandbox':
+            error(
+                'origination-esign-username',
+                'AFRICASTALKING_USERNAME must be a production account when Origination e-signing is enabled.',
+            )
+        if _blank_or_placeholder(getattr(settings, 'AFRICASTALKING_API_KEY', '')):
+            error(
+                'origination-esign-api-key',
+                'AFRICASTALKING_API_KEY must be configured when Origination e-signing is enabled.',
+            )
+
+    conditional_enabled = bool(
+        getattr(settings, 'ORIGINATION_CONDITIONAL_APPROVAL_ENABLED', False)
+    )
+    if conditional_enabled and not origination_esign_enabled:
+        error(
+            'conditional-approval-esign',
+            'ORIGINATION_ESIGN_ENABLED must be enabled before conditional approval.',
+        )
+    if conditional_enabled and check_database:
+        try:
+            from django.db import OperationalError, ProgrammingError
+            from core.models import OriginationConsentPolicyVersion
+
+            policy = OriginationConsentPolicyVersion.objects.filter(
+                status=OriginationConsentPolicyVersion.STATUS_ACTIVE,
+            ).first()
+            if policy is None:
+                error(
+                    'conditional-approval-consent-policy',
+                    'Publish one active compliance-approved Origination consent policy before enabling conditional approval.',
+                )
+            else:
+                if not (
+                    str(policy.approval_reference or '').strip()
+                    and policy.approved_by_id
+                    and policy.approved_at
+                ):
+                    error(
+                        'conditional-approval-consent-approval',
+                        'The active Origination consent policy is missing compliance approval evidence.',
+                    )
+                if policy.content_sha256 != policy._content_hash():
+                    error(
+                        'conditional-approval-consent-integrity',
+                        'The active Origination consent policy failed its integrity check.',
+                    )
+        except (OperationalError, ProgrammingError):
+            error(
+                'conditional-approval-consent-readiness',
+                'The Origination consent-policy register could not be checked.',
+            )
+
+    if not bool(getattr(settings, 'ACCESS_GRANT_GOVERNANCE_ENFORCED', False)):
+        error(
+            'access-grant-governance',
+            'ACCESS_GRANT_GOVERNANCE_ENFORCED must be enabled in production.',
+        )
+    return issues
+
+
+def production_readiness_issues(settings, *, check_database: bool = False) -> list[ReadinessIssue]:
     """Return configuration-only readiness issues without external calls."""
     issues: list[ReadinessIssue] = []
 
@@ -90,9 +244,14 @@ def production_readiness_issues(settings) -> list[ReadinessIssue]:
     if settings.SECURE_PROXY_SSL_HEADER != ('HTTP_X_FORWARDED_PROTO', 'https'):
         error('proxy-ssl', 'SECURE_PROXY_SSL_HEADER must trust Render HTTPS proxy headers.')
 
-    for setting_name in ('TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'API_AUTH_TOKEN'):
+    for setting_name in ('TELEGRAM_BOT_TOKEN', 'API_AUTH_TOKEN'):
         if _blank_or_placeholder(getattr(settings, setting_name, '')):
             error(setting_name.lower(), f'{setting_name} must be configured with a real secret.')
+
+    issues.extend(production_security_readiness_issues(
+        settings,
+        check_database=check_database,
+    ))
 
     service_account_path = Path(settings.GOOGLE_SERVICE_ACCOUNT_FILE)
     if not service_account_path.is_file():

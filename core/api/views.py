@@ -2191,8 +2191,11 @@ def _spin_user_capabilities(auth_payload: dict, *, group_config=None) -> set[str
     if not getattr(settings, 'SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH', True):
         # Local/test mode keeps the existing permissive behavior without
         # weakening production Telegram identity enforcement.
+        from core.services.telegram_auth import authentication_bypass_allowed
         from core.services.workflow_capabilities import capabilities_for_workflow
-        return {item.key for item in capabilities_for_workflow('spin_credit_analysis')}
+        if authentication_bypass_allowed():
+            return {item.key for item in capabilities_for_workflow('spin_credit_analysis')}
+        return set()
     user_payload = _spin_user_payload(auth_payload)
     if user_payload:
         from core.services.telegram_identity import (
@@ -2222,6 +2225,9 @@ def _spin_user_has_capability(
     product: str = '',
 ) -> bool:
     if not getattr(settings, 'SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH', True):
+        from core.services.telegram_auth import authentication_bypass_allowed
+        if not authentication_bypass_allowed():
+            return False
         return capability in _spin_user_capabilities(auth_payload, group_config=group_config)
     canonical_user = _spin_canonical_user(auth_payload)
     if canonical_user is None:

@@ -42,17 +42,13 @@ def _portal_init_data_from_request(request) -> str:
 
 def validate_portal_telegram_init_data(init_data: str) -> tuple[bool, str, dict]:
     """Validate Telegram Mini App initData before portal API access."""
-    if not getattr(settings, 'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True):
-        return True, '', {}
-    from core.services.telegram_identity import TelegramAuthenticationError, validate_telegram_init_data
-    try:
-        payload, _ = validate_telegram_init_data(
-            init_data,
-            max_age_seconds=int(getattr(settings, 'PORTAL_WEBAPP_AUTH_MAX_AGE_SECONDS', 86400)),
-        )
-        return True, '', payload
-    except TelegramAuthenticationError as exc:
-        return False, str(exc), {}
+    from core.services.telegram_auth import validate_telegram_init_data
+
+    return validate_telegram_init_data(
+        init_data,
+        require_auth=getattr(settings, 'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True),
+        max_age_seconds=int(getattr(settings, 'PORTAL_WEBAPP_AUTH_MAX_AGE_SECONDS', 86400)),
+    )
 
 
 def portal_auth_required(view_func):
@@ -3577,8 +3573,10 @@ def portal_open_jbl_media_signed(request, token: str):
     if actor_id:
         from django.contrib.auth import get_user_model
         actor = get_user_model().objects.filter(pk=actor_id).first()
+    from core.services.telegram_auth import authentication_bypass_allowed
     local_auth_bypass = bool(
         not getattr(settings, 'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True)
+        and authentication_bypass_allowed()
         and not actor_id
     )
     if (actor is None or not actor.is_active) and not local_auth_bypass:
@@ -4487,8 +4485,10 @@ def portal_requisition_download(request, token: str):
     from core.services.telegram_identity import user_access
 
     actor = get_user_model().objects.filter(pk=actor_id, is_active=True).first() if actor_id else None
+    from core.services.telegram_auth import authentication_bypass_allowed
     local_auth_bypass = bool(
         not getattr(settings, 'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True)
+        and authentication_bypass_allowed()
         and not actor_id
     )
     if actor is None and not local_auth_bypass:
@@ -5850,8 +5850,11 @@ def portal_invoice_name_change_download(request, token: str):
     from core.services.telegram_identity import user_access
 
     actor = get_user_model().objects.filter(pk=actor_id, is_active=True).first() if actor_id else None
+    from core.services.telegram_auth import authentication_bypass_allowed
     local_auth_bypass = bool(
-        not getattr(settings, 'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True) and not actor_id
+        not getattr(settings, 'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True)
+        and authentication_bypass_allowed()
+        and not actor_id
     )
     if actor is None and not local_auth_bypass:
         return JsonResponse({'ok': False, 'error': 'This download is no longer authorized.'}, status=403)

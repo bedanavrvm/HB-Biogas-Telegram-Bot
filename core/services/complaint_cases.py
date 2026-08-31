@@ -172,14 +172,18 @@ def ensure_case_control(case: ParsedMessage, group_config=None) -> ComplaintCase
     return control
 
 
-def staff_actor_for_payload(group_config, auth_payload: dict) -> ComplaintCaseActor:
-    user = _telegram_user(auth_payload)
-    telegram_id = str(user.get('id') or '').strip()
-    username = str(user.get('username') or '').strip().lower().lstrip('@')
-    if not telegram_id and not username:
-        raise ComplaintCaseError('Telegram identity is missing. Reopen Complaint Cases from Telegram.')
-    from core.services.telegram_identity import identity_from_user_payload, resolve_or_bind_telegram_user, user_access
-    canonical_user = resolve_or_bind_telegram_user(identity_from_user_payload(user)) if telegram_id else None
+def staff_actor_for_user(group_config, canonical_user, *, identity=None) -> ComplaintCaseActor:
+    """Authorize an already resolved canonical Django user for one complaint group."""
+    if canonical_user is None or not canonical_user.is_active:
+        raise ComplaintCaseError('Your Telegram account is not configured for complaint cases in this group.')
+    profile = getattr(canonical_user, 'staff_profile', None)
+    telegram_id = str(
+        getattr(identity, 'telegram_id', '') or getattr(profile, 'telegram_id', '') or ''
+    ).strip()
+    username = str(
+        getattr(identity, 'username', '') or getattr(profile, 'telegram_username', '') or ''
+    ).strip().lower().lstrip('@')
+    from core.services.telegram_identity import user_access
     access = user_access(canonical_user, 'complaint_cases', group_configuration=group_config)
     if not access['authorized']:
         raise ComplaintCaseError('Your Telegram account is not configured for complaint cases in this group.')
@@ -197,6 +201,19 @@ def staff_actor_for_payload(group_config, auth_payload: dict) -> ComplaintCaseAc
         capabilities=frozenset(effective_capability_keys(canonical_user, 'complaint_cases', access=access)),
         access=access,
     )
+
+
+def staff_actor_for_payload(group_config, auth_payload: dict) -> ComplaintCaseActor:
+    """Compatibility adapter for service callers that still hold raw auth fields."""
+    user = _telegram_user(auth_payload)
+    telegram_id = str(user.get('id') or '').strip()
+    username = str(user.get('username') or '').strip().lower().lstrip('@')
+    if not telegram_id and not username:
+        raise ComplaintCaseError('Telegram identity is missing. Reopen Complaint Cases from Telegram.')
+    from core.services.telegram_identity import identity_from_user_payload, resolve_or_bind_telegram_user
+    identity = identity_from_user_payload(user)
+    canonical_user = resolve_or_bind_telegram_user(identity) if telegram_id else None
+    return staff_actor_for_user(group_config, canonical_user, identity=identity)
 
 
 def actor_can(group_config, actor: ComplaintCaseActor, capability: str, case: ParsedMessage | None = None) -> bool:

@@ -14,7 +14,9 @@ the completed record in the approved private operations location, not in Git.
 
 ## Pre-deploy evidence
 
-- `check_production_readiness --strict`:
+- `check_production_readiness --strict` (all five Mini App auth gates and ages,
+  Telegram webhook secret, signing credentials, conditional-consent policy,
+  and access-grant governance):
 - `check_tat_production_readiness --strict` and JSON evidence:
 - Latest successful TAT notification processor run / scheduler alert owner:
 - First successful scheduler run observed while all enabled TAT groups were in shadow mode:
