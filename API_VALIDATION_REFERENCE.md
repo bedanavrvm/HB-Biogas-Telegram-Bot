@@ -1,5 +1,9 @@
 # Quick Reference: API Security & Validation
 
+> **Deprecated configuration note (2026-08-31):** The generic
+> `RATELIMIT_ENABLE` and `RATELIMIT_PER_IP` examples are historical. Do not set
+> them; use the focused database-backed limits in `.env.example`.
+
 ## 🔒 Security Features Implemented
 
 ### 1. Request Size Validation

@@ -1,5 +1,9 @@
 # 📚 Complete Documentation Index
 
+> **Deprecated configuration note (2026-08-31):** References to
+> `RATELIMIT_ENABLE` and `RATELIMIT_PER_IP` describe a removed inert design.
+> They are not current environment variables.
+
 > This root index includes historical documents and is not the production-readiness source of truth. Start with [docs/README.md](docs/README.md). For TAT production, use [the staff guide](docs/tat-staff-guide.md), [developer guide](docs/tat-developer-guide.md), and [production runbook](docs/tat-production-runbook.md).
 
 ## 🎯 Start Here

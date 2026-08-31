@@ -2,6 +2,7 @@
 URL routing for the core API.
 """
 from django.urls import path
+from .legacy_routes import legacy_get_redirect
 from .auth_views import telegram_session_login
 from .miniapp_diagnostic_views import (
     miniapp_diagnostic_session_start,
@@ -11,18 +12,13 @@ from .views import (
     telegram_webhook,
     health_check,
     readiness_check,
-    staff_telegram_activation_page,
     staff_telegram_activation_submit,
-    jawabu_farmers_review,
     jawabu_farmers_review_commit,
     miniapp_draft,
-    fca_review,
     fca_review_commit,
-    order_approval_form,
     order_approval_webapp_lookup,
     order_approval_webapp_suggest,
     order_approval_webapp_submit,
-    spin_form,
     spin_form_submit,
     spin_form_requests,
     spin_form_settings,
@@ -30,7 +26,6 @@ from .views import (
     spin_form_complete,
     spin_form_review_update,
     spin_batch_review_resolve,
-    tat_tracker_app,
     tat_tracker_bootstrap,
     tat_tracker_home,
     tat_tracker_home_fragment,
@@ -55,11 +50,6 @@ from .views import (
     sync_from_sheets,
 )
 from .portal_views import (
-    portal_home,
-    portal_screen,
-    portal_reports_screen,
-    portal_invoices_screen,
-    portal_case_history_detail,
     portal_navigation,
     portal_settings,
     portal_approval_delegations,
@@ -164,7 +154,6 @@ from .portal_views import (
     portal_auth_required,
 )
 from .complaint_case_views import (
-    complaint_cases_app,
     complaint_cases_bootstrap,
     complaint_cases_settings_personal,
     complaint_cases_create,
@@ -178,8 +167,6 @@ from .complaint_case_views import (
     complaint_cases_sync_retry,
 )
 from .origination_views import (
-    origination_app,
-    origination_signing_app,
     origination_signer_session,
     origination_signer_packet_preview,
     origination_signer_consent,
@@ -221,7 +208,7 @@ from .origination_views import (
 )
 
 urlpatterns = [
-    path('staff/activate/', staff_telegram_activation_page, name='staff_telegram_activation_page'),
+    path('staff/activate/', legacy_get_redirect('staff_telegram_activation_page'), name='legacy_api_staff_telegram_activation_page'),
     path('staff/activate/submit/', staff_telegram_activation_submit, name='staff_telegram_activation_submit'),
     path(
         'miniapp-diagnostics/sessions/start/',
@@ -233,9 +220,9 @@ urlpatterns = [
         miniapp_diagnostic_signals,
         name='miniapp_diagnostic_signals',
     ),
-    path('origination/', origination_app, name='loan_origination_app'),
-    path('s/', origination_signing_app, name='loan_origination_signing_short_app'),
-    path('origination/sign/', origination_signing_app, name='loan_origination_signing_app'),
+    path('origination/', legacy_get_redirect('loan_origination_app'), name='legacy_api_loan_origination_app'),
+    path('s/', legacy_get_redirect('loan_origination_signing_short_app'), name='legacy_api_loan_origination_signing_short_app'),
+    path('origination/sign/', legacy_get_redirect('loan_origination_signing_app'), name='legacy_api_loan_origination_signing_app'),
     path('origination/sign/api/session/', origination_signer_session, name='loan_origination_signer_session'),
     path('origination/sign/api/packet/', origination_signer_packet_preview, name='loan_origination_signer_packet'),
     path('origination/sign/api/consent/', origination_signer_consent, name='loan_origination_signer_consent'),
@@ -245,8 +232,8 @@ urlpatterns = [
     path('auth/telegram/', telegram_session_login, name='telegram_session_login'),
     path('health/', health_check, name='health_check'),
     path('readiness/', readiness_check, name='readiness_check'),
-    path('order-approval/', order_approval_form, name='order_approval_form'),
-    path('jawabu-farmers/review/', jawabu_farmers_review, name='jawabu_farmers_review'),
+    path('order-approval/', legacy_get_redirect('order_approval_form'), name='legacy_api_order_approval_form'),
+    path('jawabu-farmers/review/', legacy_get_redirect('jawabu_farmers_review'), name='legacy_api_jawabu_farmers_review'),
     path('jawabu-farmers/review/commit/', jawabu_farmers_review_commit, name='jawabu_farmers_review_commit'),
     path('miniapp-drafts/<str:workflow>/<str:context_key>/', miniapp_draft, name='miniapp_draft'),
     path('origination/api/products/', portal_auth_required(portal_origination_products), name='loan_origination_products'),
@@ -281,9 +268,9 @@ urlpatterns = [
     path('origination/api/applications/<str:application_id>/requirements/<slug:requirement_key>/evidence/', portal_auth_required(portal_origination_evidence_upload), name='loan_origination_evidence_upload'),
     path('origination/api/evidence/<str:evidence_id>/remove/', portal_auth_required(portal_origination_evidence_remove), name='loan_origination_evidence_remove'),
     path('origination/api/evidence/<str:evidence_id>/download/', portal_auth_required(portal_origination_evidence_download), name='loan_origination_evidence_download'),
-    path('fca/review/', fca_review, name='fca_review'),
+    path('fca/review/', legacy_get_redirect('fca_review'), name='legacy_api_fca_review'),
     path('fca/review/commit/', fca_review_commit, name='fca_review_commit'),
-    path('spin/', spin_form, name='spin_form'),
+    path('spin/', legacy_get_redirect('spin_form'), name='legacy_api_spin_form'),
     path('spin/submit/', spin_form_submit, name='spin_form_submit'),
     path('spin/requests/', spin_form_requests, name='spin_form_requests'),
     path('spin/settings/', spin_form_settings, name='spin_form_settings'),
@@ -291,7 +278,7 @@ urlpatterns = [
     path('spin/review/update/', spin_form_review_update, name='spin_form_review_update'),
     path('spin/batch-review/resolve/', spin_batch_review_resolve, name='spin_batch_review_resolve'),
     path('spin/complete/', spin_form_complete, name='spin_form_complete'),
-    path('tat-tracker/', tat_tracker_app, name='tat_tracker_app'),
+    path('tat-tracker/', legacy_get_redirect('tat_tracker_app'), name='legacy_api_tat_tracker_app'),
     path('tat-tracker/bootstrap/', tat_tracker_bootstrap, name='tat_tracker_bootstrap'),
     path('tat-tracker/home/', tat_tracker_home, name='tat_tracker_home'),
     path('tat-tracker/home/fragment/', tat_tracker_home_fragment, name='tat_tracker_home_fragment'),
@@ -310,7 +297,7 @@ urlpatterns = [
     path('tat-tracker/private-alerts/disconnect/', tat_tracker_disconnect_private_alerts, name='tat_tracker_disconnect_private_alerts'),
     path('tat-tracker/detail/', tat_tracker_detail, name='tat_tracker_detail'),
     path('tat-tracker/update/', tat_tracker_update, name='tat_tracker_update'),
-    path('complaints/', complaint_cases_app, name='complaint_cases_app'),
+    path('complaints/', legacy_get_redirect('complaint_cases_app'), name='legacy_api_complaint_cases_app'),
     path('complaints/bootstrap/', complaint_cases_bootstrap, name='complaint_cases_bootstrap'),
     path('complaints/settings/personal/', complaint_cases_settings_personal, name='complaint_cases_settings_personal'),
     path('complaints/cases/', complaint_cases_list, name='complaint_cases_list'),
@@ -344,27 +331,27 @@ urlpatterns = [
     path('sync/from-sheets/', sync_from_sheets, name='sync_from_sheets'),
 
     # JBL Pipeline Portal
-    path('portal/', portal_home, name='portal_home'),
-    path('portal/cases/<str:farmer_id>/', portal_case_history_detail, name='portal_case_history_detail'),
+    path('portal/', legacy_get_redirect('portal_home'), name='legacy_api_portal_home'),
+    path('portal/cases/<str:farmer_id>/', legacy_get_redirect('portal_case_history_detail'), name='legacy_api_portal_case_history_detail'),
     # Reports use drill-down routes so phone/browser Back returns through
     # report detail rather than a crowded all-in-one workspace.
-    path('portal/s/reports/', portal_reports_screen, name='portal_reports_screen'),
-    path('portal/s/reports/new/', portal_reports_screen, {'report_view': 'edit'}, name='portal_reports_new'),
-    path('portal/s/reports/new/<str:report_step>/', portal_reports_screen, {'report_view': 'edit'}, name='portal_reports_new_step'),
-    path('portal/s/reports/<str:report_id>/', portal_reports_screen, {'report_view': 'detail'}, name='portal_report_screen_detail'),
-    path('portal/s/reports/<str:report_id>/edit/', portal_reports_screen, {'report_view': 'edit'}, name='portal_report_screen_edit'),
-    path('portal/s/reports/<str:report_id>/edit/<str:report_step>/', portal_reports_screen, {'report_view': 'edit'}, name='portal_report_screen_edit_step'),
-    path('portal/s/reports/<str:report_id>/run/', portal_reports_screen, {'report_view': 'run'}, name='portal_report_screen_run'),
+    path('portal/s/reports/', legacy_get_redirect('portal_reports_screen'), name='legacy_api_portal_reports_screen'),
+    path('portal/s/reports/new/', legacy_get_redirect('portal_reports_new'), name='legacy_api_portal_reports_new'),
+    path('portal/s/reports/new/<str:report_step>/', legacy_get_redirect('portal_reports_new_step'), name='legacy_api_portal_reports_new_step'),
+    path('portal/s/reports/<str:report_id>/', legacy_get_redirect('portal_report_screen_detail'), name='legacy_api_portal_report_screen_detail'),
+    path('portal/s/reports/<str:report_id>/edit/', legacy_get_redirect('portal_report_screen_edit'), name='legacy_api_portal_report_screen_edit'),
+    path('portal/s/reports/<str:report_id>/edit/<str:report_step>/', legacy_get_redirect('portal_report_screen_edit_step'), name='legacy_api_portal_report_screen_edit_step'),
+    path('portal/s/reports/<str:report_id>/run/', legacy_get_redirect('portal_report_screen_run'), name='legacy_api_portal_report_screen_run'),
     # Invoices use ordinary nested routes so Telegram and phone Back move
     # through the workspace instead of reopening one crowded all-in-one view.
-    path('portal/s/invoices/', portal_invoices_screen, name='portal_invoices_screen'),
-    path('portal/s/invoices/matched/', portal_invoices_screen, {'invoice_view': 'matched'}, name='portal_invoices_matched'),
-    path('portal/s/invoices/ignored/', portal_invoices_screen, {'invoice_view': 'ignored'}, name='portal_invoices_ignored'),
-    path('portal/s/invoices/all/', portal_invoices_screen, {'invoice_view': 'all'}, name='portal_invoices_all'),
-    path('portal/s/invoices/name-changes/', portal_invoices_screen, {'invoice_view': 'name_changes'}, name='portal_invoice_name_changes_screen'),
-    path('portal/s/invoices/upload/', portal_invoices_screen, {'invoice_view': 'upload'}, name='portal_invoices_upload'),
-    path('portal/s/invoices/<str:invoice_id>/', portal_invoices_screen, {'invoice_view': 'detail'}, name='portal_invoice_screen_detail'),
-    path('portal/s/<str:screen>/', portal_screen, name='portal_screen'),
+    path('portal/s/invoices/', legacy_get_redirect('portal_invoices_screen'), name='legacy_api_portal_invoices_screen'),
+    path('portal/s/invoices/matched/', legacy_get_redirect('portal_invoices_matched'), name='legacy_api_portal_invoices_matched'),
+    path('portal/s/invoices/ignored/', legacy_get_redirect('portal_invoices_ignored'), name='legacy_api_portal_invoices_ignored'),
+    path('portal/s/invoices/all/', legacy_get_redirect('portal_invoices_all'), name='legacy_api_portal_invoices_all'),
+    path('portal/s/invoices/name-changes/', legacy_get_redirect('portal_invoice_name_changes_screen'), name='legacy_api_portal_invoice_name_changes_screen'),
+    path('portal/s/invoices/upload/', legacy_get_redirect('portal_invoices_upload'), name='legacy_api_portal_invoices_upload'),
+    path('portal/s/invoices/<str:invoice_id>/', legacy_get_redirect('portal_invoice_screen_detail'), name='legacy_api_portal_invoice_screen_detail'),
+    path('portal/s/<str:screen>/', legacy_get_redirect('portal_screen'), name='legacy_api_portal_screen'),
     path('portal/navigation/', portal_navigation, name='portal_navigation'),
     path('portal/settings/', portal_settings, name='portal_settings'),
     path('portal/settings/delegations/', portal_approval_delegations, name='portal_approval_delegations'),

@@ -1,5 +1,9 @@
 ## 📋 IMPLEMENTATION COMPLETE - Summary for User
 
+> **Deprecated configuration note (2026-08-31):** Any
+> `RATELIMIT_ENABLE` or `RATELIMIT_PER_IP` examples below are historical and
+> must not be configured. Use the focused limits in `.env.example`.
+
 All **6 Critical API Security Issues** have been fully implemented, tested, and documented.
 
 ---

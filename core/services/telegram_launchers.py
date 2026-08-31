@@ -88,7 +88,7 @@ def _pipeline_portal_url() -> str:
     if bot_username and short_name:
         return f'https://t.me/{bot_username}/{short_name}'
     base_url = str(getattr(settings, 'APP_BASE_URL', '') or '').rstrip('/')
-    return f'{base_url}/api/portal/' if base_url else ''
+    return f'{base_url}/portal/' if base_url else ''
 
 
 def loan_origination_launcher_url() -> str:

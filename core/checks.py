@@ -30,6 +30,12 @@ _CHECK_IDS = {
     'origination-esign-application-environment': 'core.E021',
     'miniapp-idempotency-strict-mode': 'core.E022',
     'miniapp-idempotency-observation-window': 'core.E023',
+    'public-rate-limit-window': 'core.E024',
+    'public-rate-limit-staff-activation': 'core.E025',
+    'public-rate-limit-telegram-session-login': 'core.E026',
+    'public-rate-limit-signing-token': 'core.E027',
+    'public-rate-limit-miniapp-diagnostics': 'core.E028',
+    'public-rate-limit-manual-api-auth-failure': 'core.E029',
 }
 
 

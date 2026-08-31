@@ -8798,3 +8798,30 @@ class MiniAppLegacyWriteDailyAggregate(models.Model):
 
     def __str__(self):
         return f'{self.date} {self.route_name} {self.method}: {self.request_count}'
+
+
+class PublicEndpointThrottleBucket(models.Model):
+    """Fixed-window abuse counter keyed only by a one-way privacy-safe digest."""
+
+    scope = models.CharField(max_length=80)
+    key_hash = models.CharField(max_length=64)
+    window_started_at = models.DateTimeField()
+    request_count = models.PositiveIntegerField(default=0)
+    expires_at = models.DateTimeField(db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['scope', 'key_hash', 'window_started_at'],
+                name='unique_public_endpoint_throttle_window',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['scope', 'window_started_at']),
+        ]
+        verbose_name = 'public endpoint throttle bucket'
+        verbose_name_plural = 'public endpoint throttle buckets'
+
+    def __str__(self):
+        return f'{self.scope}: {self.window_started_at.isoformat()}'

@@ -14,6 +14,7 @@ from django.utils import timezone
 from core.models import OriginationConsentPolicyVersion
 from core.production import (
     MINIAPP_AUTH_SETTINGS,
+    PUBLIC_RATE_LIMIT_SETTINGS,
     TELEGRAM_AUTH_AGE_SETTINGS,
     production_readiness_issues,
     production_security_readiness_issues,
@@ -57,9 +58,11 @@ class ProductionReadinessTests(SimpleTestCase):
             'ACCESS_GRANT_GOVERNANCE_ENFORCED': True,
             'REQUIRE_MINIAPP_IDEMPOTENCY_KEY': True,
             'MINIAPP_IDEMPOTENCY_OBSERVATION_DAYS': 14,
+            'PUBLIC_RATE_LIMIT_WINDOW_SECONDS': 600,
         }
         values.update({name: True for _surface, name in MINIAPP_AUTH_SETTINGS})
         values.update({name: 86400 for _surface, name in TELEGRAM_AUTH_AGE_SETTINGS})
+        values.update({name: 100 for _surface, name in PUBLIC_RATE_LIMIT_SETTINGS})
         values.update(overrides)
         return SimpleNamespace(**values)
 
@@ -158,6 +161,21 @@ class ProductionReadinessTests(SimpleTestCase):
                         issue.code for issue in production_security_readiness_issues(configured)
                     }
                     self.assertIn(f'telegram-auth-age-{surface}', codes)
+
+    def test_public_rate_limits_must_be_positive_and_bounded(self):
+        configured = self._settings(
+            '/missing/service-account.json', PUBLIC_RATE_LIMIT_WINDOW_SECONDS=0,
+        )
+        codes = {issue.code for issue in production_security_readiness_issues(configured)}
+        self.assertIn('public-rate-limit-window', codes)
+        for surface, setting_name in PUBLIC_RATE_LIMIT_SETTINGS:
+            with self.subTest(setting=setting_name):
+                configured = self._settings('/missing/service-account.json')
+                setattr(configured, setting_name, 0)
+                codes = {
+                    issue.code for issue in production_security_readiness_issues(configured)
+                }
+                self.assertIn(f'public-rate-limit-{surface}', codes)
 
     def test_signing_and_governance_features_require_production_secrets(self):
         configured = self._settings(

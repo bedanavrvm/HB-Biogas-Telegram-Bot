@@ -1399,7 +1399,7 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertNotIn('requisition_date', ORDER_APPROVAL_WEBAPP_FIELDS)
 
     def test_order_approval_form_renders(self):
-        response = self.client.get('/api/order-approval/?group_id=-100222')
+        response = self.client.get('/order-approval/?group_id=-100222')
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Order Approval')
@@ -1431,7 +1431,7 @@ class OrderApprovalWebAppTest(TestCase):
 
     @override_settings(ORDER_APPROVAL_BRANCH_CHOICES='Biogas Unit, Muranga, Thika Road')
     def test_order_approval_form_uses_configured_branch_choices(self):
-        response = self.client.get('/api/order-approval/?group_id=-100222')
+        response = self.client.get('/order-approval/?group_id=-100222')
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, '<option value="BIOGAS UNIT">BIOGAS UNIT</option>', html=True)
@@ -1455,7 +1455,7 @@ class OrderApprovalWebAppTest(TestCase):
         start_param = create_order_approval_start_param('-100222')
 
         response = self.client.get(
-            f'/api/order-approval/?tgWebAppStartParam={start_param}'
+            f'/order-approval/?tgWebAppStartParam={start_param}'
         )
 
         self.assertEqual(response.status_code, 200)
@@ -1465,7 +1465,7 @@ class OrderApprovalWebAppTest(TestCase):
     def test_invalid_mini_app_start_param_is_ignored(self):
         self.assertEqual(decode_order_approval_start_param('not-valid***'), {})
 
-        response = self.client.get('/api/order-approval/?tgWebAppStartParam=not-valid***')
+        response = self.client.get('/order-approval/?tgWebAppStartParam=not-valid***')
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'name="group_id" value=""')

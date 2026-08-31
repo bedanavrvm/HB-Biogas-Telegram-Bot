@@ -4839,7 +4839,7 @@ class BotCommandServiceTest(TestCase):
         GROUP_MAPPING={},
         MEDIA_STORAGE_PROVIDER='google_drive',
         MEDIA_MAX_FILE_SIZE_MB=20,
-        ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB=60,
+        ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB=30,
     )
     def test_health_command_returns_order_workflow_diagnostics(self):
         """The /health command should include order workflow counters."""
@@ -4881,7 +4881,7 @@ class BotCommandServiceTest(TestCase):
         self.assertIn('Failed updates: 1', result['reply_text'])
         self.assertIn('Failed media: 1', result['reply_text'])
         self.assertIn('Order tabs: Orders', result['reply_text'])
-        self.assertIn('Max upload total: 60 MB', result['reply_text'])
+        self.assertIn('Max upload total: 30 MB', result['reply_text'])
         self.assertIn('Image previews: off', result['reply_text'])
         GroupRegistry._instance = None
 

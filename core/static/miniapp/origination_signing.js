@@ -12,7 +12,7 @@
   }
 
   const shell = document.querySelector('.sign-shell');
-  const sessionUrl = String(shell?.dataset.sessionUrl || '/origination/sign/api/session/');
+  const sessionUrl = String(shell?.dataset.sessionUrl || '/api/origination/sign/api/session/');
   const base = sessionUrl.replace(/session\/?$/, '').replace(/\/$/, '');
   const status = document.getElementById('sign-status');
   const content = document.getElementById('sign-content');

@@ -67,6 +67,18 @@ def staff_telegram_activation_submit(request):
         resolve_or_bind_telegram_user,
         validate_telegram_init_data,
     )
+    from core.services.request_throttling import consume_identity, consume_ip
+
+    limit = int(getattr(settings, 'STAFF_ACTIVATION_RATE_LIMIT', 10))
+    network = consume_ip(request, scope='staff_activation:network', limit=limit)
+    if not network.allowed:
+        response = JsonResponse({
+            'ok': False,
+            'message': 'Too many activation attempts. Wait a short while and try again.',
+            'code': 'retry_later',
+        }, status=429)
+        response['Retry-After'] = str(network.retry_after)
+        return response
 
     try:
         payload = json.loads(request.body.decode('utf-8') or '{}')
@@ -79,6 +91,18 @@ def staff_telegram_activation_submit(request):
             'ok': False,
             'message': 'Open this activation page inside Telegram and try again.',
         }, status=403)
+    actor = consume_identity(
+        scope='staff_activation:telegram', kind='telegram_user',
+        value=identity.telegram_id, limit=limit,
+    )
+    if not actor.allowed:
+        response = JsonResponse({
+            'ok': False,
+            'message': 'Too many activation attempts. Wait a short while and try again.',
+            'code': 'retry_later',
+        }, status=429)
+        response['Retry-After'] = str(actor.retry_after)
+        return response
     user = resolve_or_bind_telegram_user(
         identity, activation_code=str(payload.get('activation_code') or ''),
     )
@@ -130,6 +154,8 @@ def health_check(request):
 def readiness_check(request):
     """Protected stored-state readiness; it never probes external services."""
     if not _authorize_manual_request(request):
+        if response := _manual_auth_failure_response(request):
+            return response
         return error_response('Authentication is required.', 'AUTH_REQUIRED', status_code=403)
     try:
         with connection.cursor() as cursor:
@@ -4504,6 +4530,8 @@ def process_messages(request):
             return error_response(exc.message, exc.code, exc.status_code)
 
         if not _authorize_manual_request(request):
+            if response := _manual_auth_failure_response(request):
+                return response
             return error_response(
                 'Unauthorized: Missing or invalid API token',
                 code='UNAUTHORIZED',
@@ -4591,6 +4619,8 @@ def resend_unsynced(request):
             return error_response(exc.message, exc.code, exc.status_code)
 
         if not _authorize_manual_request(request):
+            if response := _manual_auth_failure_response(request):
+                return response
             return error_response(
                 'Unauthorized: Missing or invalid API token',
                 code='UNAUTHORIZED',
@@ -4638,6 +4668,8 @@ def sync_from_sheets(request):
     single-sheet mode this syncs the default group.
     """
     if not _authorize_manual_request(request):
+        if response := _manual_auth_failure_response(request):
+            return response
         return error_response(
             'Unauthorized: Missing or invalid API token',
             code='UNAUTHORIZED',
@@ -4715,6 +4747,26 @@ def _authorize_manual_request(request) -> bool:
     else:
         provided = request.headers.get('X-API-AUTH-TOKEN', '')
     return provided == token
+
+
+def _manual_auth_failure_response(request):
+    """Throttle repeated bad manual credentials without persisting the token/IP."""
+    from core.services.request_throttling import consume_ip
+
+    decision = consume_ip(
+        request,
+        scope='manual_api_auth_failure:network',
+        limit=int(getattr(settings, 'MANUAL_API_AUTH_FAILURE_RATE_LIMIT', 20)),
+    )
+    if decision.allowed:
+        return None
+    response = error_response(
+        'Too many failed authentication attempts. Try again later.',
+        code='RATE_LIMITED',
+        status_code=429,
+    )
+    response['Retry-After'] = str(decision.retry_after)
+    return response
 
 
 def _extract_sender_name(message_data: dict) -> str:
@@ -4916,7 +4968,7 @@ def _process_portal_command(
                 'status': 'command',
                 'reply_text': 'APP_BASE_URL is not configured; cannot open the Pipeline Portal.',
             }
-        launch_url = f"{base_url}/api/portal/"
+        launch_url = f"{base_url}/portal/"
 
     return {
         'status': 'command',

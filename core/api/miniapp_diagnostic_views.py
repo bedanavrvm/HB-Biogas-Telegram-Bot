@@ -19,6 +19,7 @@ from core.services.miniapp_diagnostics import (
     workflow_for_surface,
 )
 from core.services.miniapp_requests import miniapp_idempotency_boundary
+from core.services.request_throttling import consume_identity, consume_ip
 
 
 def _json_payload(request) -> dict:
@@ -65,12 +66,45 @@ def _error(message: str, *, status: int, code: str) -> JsonResponse:
     return JsonResponse({'ok': False, 'error': message, 'code': code}, status=status)
 
 
+def _network_limit(request):
+    decision = consume_ip(
+        request,
+        scope='miniapp_diagnostics:network',
+        limit=int(getattr(settings, 'MINIAPP_DIAGNOSTICS_RATE_LIMIT', 120)),
+    )
+    if decision.allowed:
+        return None
+    response = _error(
+        'Too many diagnostic requests. Try again later.',
+        status=429, code='retry_later',
+    )
+    response['Retry-After'] = str(decision.retry_after)
+    return response
+
+
+def _actor_limit(actor):
+    decision = consume_identity(
+        scope='miniapp_diagnostics:actor', kind='django_user', value=actor.pk,
+        limit=int(getattr(settings, 'MINIAPP_DIAGNOSTICS_RATE_LIMIT', 120)),
+    )
+    if decision.allowed:
+        return None
+    response = _error(
+        'Too many diagnostic requests. Try again later.',
+        status=429, code='retry_later',
+    )
+    response['Retry-After'] = str(decision.retry_after)
+    return response
+
+
 @csrf_exempt
 @require_POST
 @miniapp_idempotency_boundary
 def miniapp_diagnostic_session_start(request):
     if not getattr(settings, 'MINIAPP_DIAGNOSTICS_ENABLED', True):
         return JsonResponse({'ok': True, 'disabled': True})
+    if response := _network_limit(request):
+        return response
     try:
         payload = _json_payload(request)
         workflow = workflow_for_surface(payload.get('surface'))
@@ -82,6 +116,8 @@ def miniapp_diagnostic_session_start(request):
             'This Telegram account is not authorized for this Mini App.',
             status=403, code='diagnostic_access_denied',
         )
+    if response := _actor_limit(actor):
+        return response
     try:
         session, created = start_session(actor=actor, payload=payload)
     except DiagnosticPayloadError as exc:
@@ -101,6 +137,8 @@ def miniapp_diagnostic_session_start(request):
 def miniapp_diagnostic_signals(request, session_uuid):
     if not getattr(settings, 'MINIAPP_DIAGNOSTICS_ENABLED', True):
         return JsonResponse({'ok': True, 'disabled': True, 'acknowledged': []})
+    if response := _network_limit(request):
+        return response
     try:
         payload = _json_payload(request)
         session = MiniAppDiagnosticSession.objects.select_related('actor').get(
@@ -116,6 +154,8 @@ def miniapp_diagnostic_signals(request, session_uuid):
         actor = _authorized_actor(request, payload, session.workflow)
         if actor is None or actor.pk != session.actor_id:
             return _error('The diagnostic signal is not authorized.', status=403, code='diagnostic_access_denied')
+    if response := _actor_limit(session.actor):
+        return response
     try:
         acknowledged = record_signals(session=session, payload=payload)
     except DiagnosticPayloadError as exc:

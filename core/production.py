@@ -31,6 +31,14 @@ TELEGRAM_AUTH_AGE_SETTINGS = (
     ('order-approval', 'ORDER_APPROVAL_WEBAPP_AUTH_MAX_AGE_SECONDS'),
 )
 
+PUBLIC_RATE_LIMIT_SETTINGS = (
+    ('staff-activation', 'STAFF_ACTIVATION_RATE_LIMIT'),
+    ('telegram-session-login', 'TELEGRAM_SESSION_LOGIN_RATE_LIMIT'),
+    ('signing-token', 'SIGNING_TOKEN_RATE_LIMIT'),
+    ('miniapp-diagnostics', 'MINIAPP_DIAGNOSTICS_RATE_LIMIT'),
+    ('manual-api-auth-failure', 'MANUAL_API_AUTH_FAILURE_RATE_LIMIT'),
+)
+
 
 @dataclass(frozen=True)
 class ReadinessIssue:
@@ -114,6 +122,26 @@ def production_security_readiness_issues(
                 f'telegram-auth-age-{surface}',
                 f'{setting_name} must be between 1 and '
                 f'{TELEGRAM_AUTH_MAX_AGE_LIMIT_SECONDS} seconds.',
+            )
+
+    try:
+        throttle_window = int(getattr(settings, 'PUBLIC_RATE_LIMIT_WINDOW_SECONDS', 600))
+    except (TypeError, ValueError):
+        throttle_window = 0
+    if throttle_window < 1 or throttle_window > 86400:
+        error(
+            'public-rate-limit-window',
+            'PUBLIC_RATE_LIMIT_WINDOW_SECONDS must be between 1 and 86400.',
+        )
+    for surface, setting_name in PUBLIC_RATE_LIMIT_SETTINGS:
+        try:
+            value = int(getattr(settings, setting_name, 0))
+        except (TypeError, ValueError):
+            value = 0
+        if value < 1 or value > 100000:
+            error(
+                f'public-rate-limit-{surface}',
+                f'{setting_name} must be between 1 and 100000.',
             )
 
     if _blank_or_placeholder(getattr(settings, 'TELEGRAM_WEBHOOK_SECRET', '')):

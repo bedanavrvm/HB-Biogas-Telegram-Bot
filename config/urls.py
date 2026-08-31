@@ -8,5 +8,6 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('ops/health/', include('health_check.urls')),
     path('api/', include('core.api.urls')),
-    path('', include('core.api.urls')),  # Health check at root
+    path('', include('core.api.browser_urls')),
+    path('', include('core.api.legacy_urls')),
 ]

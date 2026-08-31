@@ -481,7 +481,7 @@ class OriginationVerifiedSigningTests(TestCase):
         compact_shell = self.client.get('/s/')
         self.assertEqual(compact_shell.status_code, 200)
         self.assertEqual(compact_shell['Referrer-Policy'], 'no-referrer')
-        self.assertContains(compact_shell, 'data-session-url="/origination/sign/api/session/"')
+        self.assertContains(compact_shell, 'data-session-url="/api/origination/sign/api/session/"')
         self.assertNotContains(compact_shell, token)
 
     def test_delivery_receipt_is_informational_only(self):

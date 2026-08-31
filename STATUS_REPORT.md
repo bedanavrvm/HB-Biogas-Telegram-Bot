@@ -1,5 +1,9 @@
 # Status Report: API Security Fixes - Complete ✅
 
+> **Historical configuration warning (2026-08-31):** The
+> `RATELIMIT_ENABLE` and `RATELIMIT_PER_IP` values in this snapshot are
+> obsolete and must not be deployed.
+
 **Date:** Today  
 **Status:** 🟢 COMPLETE & READY FOR DEPLOYMENT  
 **Implementation Time:** 45 minutes  

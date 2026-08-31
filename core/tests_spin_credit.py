@@ -977,7 +977,7 @@ class SpinCreditPortalTestCase(TestCase):
         from core.services.spin_credit import create_spin_start_param
 
         start_param = create_spin_start_param(self.config.group_id)
-        response = self.client.get(f'/api/spin/?tgWebAppStartParam={start_param}')
+        response = self.client.get(f'/spin/?tgWebAppStartParam={start_param}')
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'spin-form-data')

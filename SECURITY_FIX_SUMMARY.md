@@ -1,5 +1,9 @@
 # ✅ API Security Issues - Fixed Summary
 
+> **Deprecated configuration note (2026-08-31):** Do not use the historical
+> `RATELIMIT_ENABLE` setting shown below. Focused database-backed limits now
+> protect only reviewed abuse-sensitive routes.
+
 ## 6 Critical Issues → All Fixed ✅
 
 ```

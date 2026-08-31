@@ -51,6 +51,9 @@ jobs:
         run: |
           python scripts/check_architecture_boundaries.py
           python scripts/check_miniapp_write_inventory.py
+          python scripts/check_settings_env_parity.py
+          python scripts/check_dependency_parity.py
+          python -m unittest scripts.tests.test_phase6_parity
 
       - name: Test Mini App idempotency clients
         run: node scripts/test_miniapp_idempotency_clients.js

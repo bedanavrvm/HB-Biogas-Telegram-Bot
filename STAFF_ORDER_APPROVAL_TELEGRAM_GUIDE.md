@@ -303,7 +303,7 @@ are normally:
 - Maximum per file: `20 MB`
 - Maximum files per slot: `10`
 - Maximum total for one submission: configured by the deployment, commonly
-  `30 MB` or `60 MB`
+  `30 MB`
 
 The current deployment values are authoritative. Use `/health` to see the
 configured maximum file size and maximum total upload size.

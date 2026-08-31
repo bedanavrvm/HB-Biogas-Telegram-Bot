@@ -141,7 +141,7 @@ Never archive synthetic test output into a production customer-document folder.
 In the Africa's Talking SMS application, set the delivery-report callback to:
 
 ```text
-https://<public-host>/origination/webhooks/africastalking/delivery/
+https://<public-host>/api/origination/webhooks/africastalking/delivery/
 ```
 
 The URL must be publicly reachable over HTTPS. The endpoint accepts provider

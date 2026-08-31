@@ -1,5 +1,9 @@
 # API Improvements - Implementation Summary
 
+> **Deprecated configuration note (2026-08-31):** The proposed generic
+> `RATELIMIT_ENABLE` and `RATELIMIT_PER_IP` toggle was inert and has been
+> removed. See `docs/url-and-configuration-contract.md` for current controls.
+
 ## ✅ Implemented Fixes (6 Critical Issues)
 
 ### 1. **Input Validation on Telegram Message Fields** ✅

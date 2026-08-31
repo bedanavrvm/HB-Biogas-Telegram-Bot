@@ -275,6 +275,15 @@ MINIAPP_DIAGNOSTICS_AGGREGATE_RETENTION_DAYS = config('MINIAPP_DIAGNOSTICS_AGGRE
 MINIAPP_DIAGNOSTICS_TOKEN_MAX_AGE_SECONDS = config('MINIAPP_DIAGNOSTICS_TOKEN_MAX_AGE_SECONDS', default=172800, cast=int)
 MINIAPP_DIAGNOSTICS_MAX_PAYLOAD_BYTES = config('MINIAPP_DIAGNOSTICS_MAX_PAYLOAD_BYTES', default=8192, cast=int)
 
+# Focused database-backed abuse controls. These are intentionally not applied
+# to Telegram webhooks, whose legitimate retries must never be dropped.
+PUBLIC_RATE_LIMIT_WINDOW_SECONDS = config('PUBLIC_RATE_LIMIT_WINDOW_SECONDS', default=600, cast=int)
+STAFF_ACTIVATION_RATE_LIMIT = config('STAFF_ACTIVATION_RATE_LIMIT', default=10, cast=int)
+TELEGRAM_SESSION_LOGIN_RATE_LIMIT = config('TELEGRAM_SESSION_LOGIN_RATE_LIMIT', default=20, cast=int)
+SIGNING_TOKEN_RATE_LIMIT = config('SIGNING_TOKEN_RATE_LIMIT', default=60, cast=int)
+MINIAPP_DIAGNOSTICS_RATE_LIMIT = config('MINIAPP_DIAGNOSTICS_RATE_LIMIT', default=120, cast=int)
+MANUAL_API_AUTH_FAILURE_RATE_LIMIT = config('MANUAL_API_AUTH_FAILURE_RATE_LIMIT', default=20, cast=int)
+
 # API protection for manual endpoints
 API_AUTH_TOKEN = config('API_AUTH_TOKEN', default='')
 ESIGNATURES_BASE_URL = config('ESIGNATURES_BASE_URL', default='')
@@ -567,7 +576,3 @@ PARSING_BATCH_SIZE = 50  # Process up to 50 messages per batch request
 
 # Required Telegram Message Fields (must be present in webhook)
 REQUIRED_MESSAGE_FIELDS = ['message_id', 'chat', 'date']
-
-# Rate Limiting (if enabled with django-ratelimit)
-RATELIMIT_ENABLE = config('RATELIMIT_ENABLE', default=False, cast=bool)
-RATELIMIT_PER_IP = '100/h'  # 100 requests per hour per IP

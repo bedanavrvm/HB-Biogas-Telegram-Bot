@@ -6,6 +6,7 @@ import json
 import logging
 from pathlib import Path
 
+from django.conf import settings
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
@@ -116,6 +117,31 @@ def _public_signing_token(request) -> str:
     if not separator or scheme.casefold() != 'bearer' or not value.strip():
         raise OriginationError('This signing link is invalid or incomplete.')
     return value.strip()[:256]
+
+
+def _public_signing_throttle(request):
+    from core.services.origination_esign import OriginationSigningRateLimited
+    from core.services.request_throttling import consume_identity, consume_ip
+
+    limit = int(getattr(settings, 'SIGNING_TOKEN_RATE_LIMIT', 60))
+    decisions = [
+        consume_ip(request, scope='public_signing:network', limit=limit),
+    ]
+    authorization = str(request.headers.get('Authorization') or '')
+    if authorization:
+        decisions.append(consume_identity(
+            scope='public_signing:token', kind='signing_token',
+            value=authorization[:512], limit=limit,
+        ))
+    blocked = [item.retry_after for item in decisions if not item.allowed]
+    if not blocked:
+        return None
+    return _public_signing_error(
+        request,
+        OriginationSigningRateLimited(
+            'Too many signing attempts.', retry_after=max(blocked),
+        ),
+    )
 
 
 @require_http_methods(['GET', 'HEAD'])
@@ -1095,6 +1121,8 @@ def portal_origination_test_signing_preview(request, application_id: str):
 @require_http_methods(['GET'])
 def origination_signer_session(request):
     from core.services.origination_esign import resolve_session, serialize_public_session
+    if response := _public_signing_throttle(request):
+        return response
     try:
         session = resolve_session(_public_signing_token(request))
     except OriginationError as exc:
@@ -1106,6 +1134,8 @@ def origination_signer_session(request):
 @require_http_methods(['GET'])
 def origination_signer_packet_preview(request):
     from core.services.origination_esign import resolve_session
+    if response := _public_signing_throttle(request):
+        return response
     try:
         session = resolve_session(_public_signing_token(request))
         content = render_verified_package(session.package)
@@ -1153,6 +1183,8 @@ def origination_signer_consent(request):
     from core.services.origination_esign import (
         client_ip_hash, record_consent_and_signature, serialize_public_session,
     )
+    if response := _public_signing_throttle(request):
+        return response
     try:
         body = _body(request)
         session = record_consent_and_signature(
@@ -1172,6 +1204,8 @@ def origination_signer_consent(request):
 def origination_signer_otp(request):
     from core.services.external_resilience import ExternalOperationError
     from core.services.origination_esign import client_ip_hash, dispatch_otp, issue_otp, serialize_public_session
+    if response := _public_signing_throttle(request):
+        return response
     try:
         body = _body(request)
         challenge, code, replayed = issue_otp(
@@ -1194,6 +1228,8 @@ def origination_signer_otp(request):
 @require_http_methods(['POST'])
 def origination_signer_verify(request):
     from core.services.origination_esign import client_ip_hash, serialize_public_session, verify_otp
+    if response := _public_signing_throttle(request):
+        return response
     try:
         body = _body(request)
         session = verify_otp(

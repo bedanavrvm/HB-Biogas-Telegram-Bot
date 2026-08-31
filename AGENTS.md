@@ -107,7 +107,9 @@ Many root-level Markdown documents describe earlier versions of the project. The
 - `manage.py` — Django management entry point
 - `config/settings.py` — application settings and environment variables
 - `config/urls.py` — project-level URL routing
-- `core/api/urls.py` — workflow and API route definitions
+- `core/api/urls.py` — canonical `/api/` workflow and API route definitions
+- `core/api/browser_urls.py` — intentional root browser/Mini App entry points
+- `core/api/legacy_urls.py` — individually declared, logged root compatibility aliases
 - `core/api/views.py` — Telegram webhook and several Mini App/API endpoints
 - `core/api/portal_views.py` — Jawabu pipeline portal endpoints
 - `core/models.py` — database models for all workflows
@@ -183,6 +185,7 @@ Key modules:
 - `miniapp_settings.py` — typed personal preferences and maker-checker TAT configuration proposals
 - `tat_presentation.py` — global audited TAT Mini App presentation policy, including the optional business-hours visibility switch
 - `miniapp_diagnostics.py` — privacy-safe Mini App lifecycle telemetry, idempotent signal ingestion, recovery classification, and aggregate retention
+- `request_throttling.py` — database-backed focused abuse limits using only keyed identity/network digests; never applies to Telegram webhook retries
 - `external_resilience.py` — bounded synchronous retry, durable external-operation register, and circuit state
 - `durable_jobs.py` — aggregate health and privacy-safe heartbeat evidence for database-leased complaint-import and TAT-repair runners
 - `portal_publication.py` — durable, request-assisted Portal register publication for free Render; local workflow commits never wait for Google Sheets
@@ -241,6 +244,7 @@ The Mini Apps use Django templates and mostly vanilla JavaScript. Preserve Teleg
 - `core/tests_telegram_authentication.py`
 - `core/tests_durable_jobs.py`
 - `core/tests_idempotency_cutover.py`
+- `core/tests_phase6_routes_and_throttling.py`
 
 - `core/tests_portal_imports.py`
 
@@ -271,9 +275,13 @@ This is a template of variables this class of system typically needs. Treat it a
 | `MINIAPP_DIAGNOSTICS_ENABLED` / `MINIAPP_DIAGNOSTICS_HEARTBEAT_SECONDS` | Enables first-party Mini App lifecycle telemetry and controls visible-only heartbeat frequency | No |
 | `MINIAPP_DIAGNOSTICS_RAW_RETENTION_DAYS` / `MINIAPP_DIAGNOSTICS_AGGREGATE_RETENTION_DAYS` | Raw diagnostics and anonymous daily-rollup retention windows | No |
 | `MINIAPP_DIAGNOSTICS_TOKEN_MAX_AGE_SECONDS` / `MINIAPP_DIAGNOSTICS_MAX_PAYLOAD_BYTES` | Bounds signed signal-token lifetime and diagnostic ingestion payload size | No |
+| `PUBLIC_RATE_LIMIT_WINDOW_SECONDS` | Shared fixed-window duration for focused public-boundary throttles | No |
+| `STAFF_ACTIVATION_RATE_LIMIT` / `TELEGRAM_SESSION_LOGIN_RATE_LIMIT` | Limits activation and Telegram-to-Django session attempts per privacy-safe identity/network key | No |
+| `SIGNING_TOKEN_RATE_LIMIT` / `MINIAPP_DIAGNOSTICS_RATE_LIMIT` / `MANUAL_API_AUTH_FAILURE_RATE_LIMIT` | Limits public signing, diagnostics, and repeated invalid manual credentials; Telegram webhooks are exempt | No |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` / `GOOGLE_APPLICATION_CREDENTIALS` | Service-account credentials for Sheets/Drive API access | Yes |
 | Sheet/Drive IDs (e.g. `*_SHEET_ID`, `*_FOLDER_ID`) | Identify target spreadsheets/folders per workflow | Treat as sensitive unless confirmed non-sensitive |
 | `TAT_TRACKER_SIGNATURES_ENABLED` | Enables external TAT e-signature dispatch and stage gating | No |
+| `ESIGNATURES_BASE_URL` / `ESIGNATURES_API_KEY` / `ESIGNATURES_WEBHOOK_SECRET` | Active TAT e-signature provider endpoint, credential, and callback verification secret | Yes except the base URL |
 | `TAT_NOTIFICATION_SCHEDULER_REQUIRED` / `TAT_NOTIFICATION_PROCESSOR_LOCK_SECONDS` | Requires the production private-alert runner and bounds its database-backed overlap lease | No |
 | `TAT_NOTIFICATION_SCHEDULER_MAX_SILENCE_SECONDS` / `TAT_NOTIFICATION_RUN_RETENTION_DAYS` | Controls the missed-run readiness threshold and privacy-safe processor-health retention | No |
 | `DOCUMENT_SIGNOFF_MAX_FILE_SIZE_MB` | Maximum accepted PDF/JPG/PNG physical sign-off scan; real scan files remain in approved Drive storage | No |
@@ -292,7 +300,7 @@ This is a template of variables this class of system typically needs. Treat it a
 | `TAT_REPAIR_CASE_DELAY_SECONDS` | Delay between Admin TAT repair case writes to stay below Google Sheets per-minute quotas | No |
 | `COMPLAINT_CASES_MINI_APP_SHORT_NAME` | Telegram Mini App short name for complaint cases | No |
 | `ORIGINATION_MINI_APP_SHORT_NAME` | BotFather short name for the standalone Loan Origination Mini App | No |
-| `STAFF_ACTIVATION_MINI_APP_SHORT_NAME` | BotFather short name whose Mini App URL points to `/api/staff/activate/` for signed staff identity activation | No |
+| `STAFF_ACTIVATION_MINI_APP_SHORT_NAME` | BotFather short name whose Mini App URL points to `/staff/activate/` for signed staff identity activation | No |
 | `ORIGINATION_TEMPLATE_MAX_FILE_SIZE_MB` | PDF size limit for versioned Origination legal templates managed in Django Admin; templates use the existing `GOOGLE_DRIVE_MEDIA_FOLDER_ID` root | No |
 | `ORIGINATION_FULL_RESET_ENABLED` | Testing-only gate for the active-Superuser Django Admin action that empties Origination database models while leaving Drive files and other workflows untouched; defaults to disabled | No |
 | `ORIGINATION_PRODUCT_FAMILY_PURGE_ENABLED` | Gate for the active-Superuser purge of one Origination product family and its Origination-owned descendants; global Product records and Drive files remain untouched; defaults to disabled | No |
@@ -310,6 +318,7 @@ This is a template of variables this class of system typically needs. Treat it a
 | `TELEGRAM_AUTH_MAX_AGE_SECONDS` | Maximum age accepted by the shared Telegram-to-Django authentication backend | No |
 | `COMPLAINT_CASE_MAX_FILES_PER_UPDATE` / `COMPLAINT_CASE_MAX_FILE_SIZE_MB` / `COMPLAINT_CASE_MAX_TOTAL_UPLOAD_MB` | Per-update count, per-file size, and total-size limits for complaint evidence uploads | No |
 | `PORTAL_JBL_VISIT_MAX_FILES` / `PORTAL_JBL_VISIT_MAX_TOTAL_UPLOAD_MB` | Combined file-count and upload-size limits for one Portal JBL Visit submission | No |
+| `ORDER_APPROVAL_MAX_FILES_PER_SLOT` / `ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB` | Per-slot count and reviewed 30 MB total limit for one Order Approval submission | No |
 | `PORTAL_VOICE_INPUT_ENABLED` / `PORTAL_VOICE_PROVIDER` / `PORTAL_VOICE_MODEL` | Disabled-by-default Portal dictation pilot and approved transcription provider/model | No |
 | `GROQ_API_KEY` | Server-only Groq transcription credential; enable Zero Data Retention before operational use | Yes |
 | `PORTAL_VOICE_MAX_SECONDS` / `PORTAL_VOICE_DAILY_REQUEST_LIMIT` / `PORTAL_VOICE_DAILY_AUDIO_SECONDS` / `PORTAL_VOICE_USER_DAILY_REQUEST_LIMIT` / `PORTAL_VOICE_RETRY_RETENTION_MINUTES` | Recording, free-tier quota, and temporary Drive retry limits | No |
@@ -750,7 +759,9 @@ Health endpoint:
 GET /api/health/
 ```
 
-Because `core.api.urls` is also included at the root, some routes may be reachable with and without `/api/`. Do not add new duplicate root routing unless compatibility requires it.
+`/api/` is the canonical API prefix. Root routes are limited to browser/Mini App
+entry points, health, compact signing, and the individually reviewed compatibility
+aliases in `core/api/legacy_urls.py`. Never restore a blanket root include.
 
 ---
 

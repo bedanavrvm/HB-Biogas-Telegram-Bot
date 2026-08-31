@@ -421,7 +421,7 @@ Authorized Mini App users retrieve completed documents through
 from restricted Drive and checked against `signed_document_hash` before they
 are returned. Staff session creation/reset, staff signing, stamping, and
 archival remain behind Telegram authentication, capabilities, and application
-scope. `/origination/webhooks/africastalking/delivery/` accepts idempotent
+scope. `/api/origination/webhooks/africastalking/delivery/` accepts idempotent
 provider receipts, but updates only OTP delivery fields. It cannot set
 `verified_at`, create a signing action, or advance a package/application.
 
