@@ -122,7 +122,8 @@ Rules specific to this workflow:
 
 ## JBL Naming Policy Compliance
 
-This follows `JBL_File_Naming_Policy_v1.0.docx` for:
+The previously reviewed JBL naming-policy requirements are incorporated here
+directly; the operational DOCX is intentionally not stored in Git. They require:
 
 - ISO dates: `YYYY-MM-DD`.
 - Clear type prefixes: `KYC`, `LAF`, `FILE`.

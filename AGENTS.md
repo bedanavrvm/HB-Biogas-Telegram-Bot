@@ -120,6 +120,7 @@ Business rules belong in `core/services/`, not in templates or oversized view fu
 Key modules:
 
 - `case_updates.py` — complaint/case update processing
+- `complaint_imports.py` — Superuser-authorized, idempotent complaint import reservations, immutable source attribution, and batch finalization
 - `commands.py` — Telegram command handling
 - `deduplication.py` — message and case deduplication
 - `fca.py` — FCA parsing/import behaviour
@@ -128,6 +129,7 @@ Key modules:
 - `invoice_parser.py` — invoice extraction and parsing
 - `invoice_identity.py` — national-ID-led invoice identity verification, confirmed household links, and pre-payment invoice-name changes
 - `jawabu.py` — Jawabu message processing
+- `jawabu_media_access.py` — fail-closed, transactional native and compliance auditing for Portal evidence retrieval
 - `jawabu_customer_quality.py` — canonical customer matching, phone history, product checks, and field provenance
 - `jawabu_data_quality.py` — read-only active-case and staged `/sysup` reconciliation reports
 - `jawabu_master.py` — master farmer-record operations
@@ -498,6 +500,12 @@ Agents must not:
 - assume private Git hosting is sufficient data protection
 
 Use synthetic fixtures.
+
+The executable repository check is `python scripts/audit_tracked_artifacts.py`.
+Controlled binaries are ignored by default and must be reviewed and hash-pinned
+before they are committed. See
+[`docs/repository-data-artifact-policy.md`](docs/repository-data-artifact-policy.md)
+for the allowlist, sanitized-fixture, and historical-response procedure.
 
 ### Telegram webhook
 

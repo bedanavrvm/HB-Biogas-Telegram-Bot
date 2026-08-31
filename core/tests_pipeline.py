@@ -2106,6 +2106,57 @@ class JblPipelineApiTestCase(TestCase):
         self.assertTrue(JawabuMediaAccessEvent.objects.filter(
             farmer=self.farmer, attachment=attachment, action='view',
         ).exists())
+        self.assertTrue(ComplianceAuditEvent.objects.filter(
+            workflow='portal', action='portal.jbl_media.view',
+            subject_type='media_attachment', subject_id=str(attachment.pk),
+            sensitive=True,
+        ).exists())
+
+    @patch(
+        'core.services.jawabu_media_access.record_sensitive_access',
+        side_effect=RuntimeError('audit unavailable'),
+    )
+    def test_open_jbl_media_fails_closed_and_rolls_back_when_audit_is_unavailable(
+        self, record_sensitive_access,
+    ):
+        attachment = MediaAttachment.objects.create(
+            group_id='portal-test', jawabu_farmer=self.farmer,
+            business_key_type='case_reference', business_key_value=f'case-{self.farmer.pk}',
+            file_type='LAF', original_filename='laf.pdf',
+            drive_url='https://drive.example/laf', upload_status='success',
+        )
+
+        response = self.client.get(reverse(
+            'portal_open_jbl_media', args=[self.farmer.id, attachment.id],
+        ))
+
+        self.assertEqual(response.status_code, 503)
+        self.assertNotIn('Location', response)
+        self.assertEqual(response.json()['code'], 'service_unavailable')
+        self.assertFalse(JawabuMediaAccessEvent.objects.filter(
+            farmer=self.farmer, attachment=attachment,
+        ).exists())
+        record_sensitive_access.assert_called_once()
+
+    def test_open_jbl_media_for_a_different_case_creates_no_access_event(self):
+        other_farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Other evidence owner', national_id='89898989',
+            primary_phone='254788888888', sign_date='24-June-2026',
+            county='Kiambu', branch='Ruiru', status='active',
+        )
+        attachment = MediaAttachment.objects.create(
+            group_id='portal-test', jawabu_farmer=self.farmer,
+            business_key_type='case_reference', business_key_value=f'case-{self.farmer.pk}',
+            file_type='LAF', original_filename='laf.pdf',
+            drive_url='https://drive.example/laf', upload_status='success',
+        )
+
+        response = self.client.get(reverse(
+            'portal_open_jbl_media', args=[other_farmer.id, attachment.id],
+        ))
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(JawabuMediaAccessEvent.objects.filter(attachment=attachment).exists())
 
     def test_signed_jbl_media_link_opens_in_external_browser_and_is_audited(self):
         attachment = MediaAttachment.objects.create(

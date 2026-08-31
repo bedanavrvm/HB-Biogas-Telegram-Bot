@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "artifacts": {
+    "core/static/miniapp/jawabu-logo.png": {
+      "sha256": "06c1d7e3841f428a64f30495df10a557070f6ffb1f86f71911e0d3c126590bc7",
+      "classification": "public_brand_asset",
+      "purpose": "Jawabu logo rendered by staff-facing Mini Apps"
+    }
+  }
+}

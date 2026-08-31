@@ -1,8 +1,7 @@
-"""Fail CI only when a new direct ORM mutation appears in an API view.
+"""Fail CI when a direct ORM mutation appears in an API view.
 
-The project has legacy view-layer writes.  Rewriting them in this reliability
-release would mix an architectural refactor with live business behaviour, so
-the checked-in baseline freezes current debt and prevents it expanding.
+The checked-in baseline supports an explicitly reviewed migration window, but
+is intentionally empty now that the remaining writes have service owners.
 """
 
 from __future__ import annotations

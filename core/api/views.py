@@ -2952,22 +2952,35 @@ def _process_whatsapp_batch_command(
             ),
         }
 
-    from core.models import ComplaintCaseImportBatch
-    source_hash = hashlib.sha256(payload.encode('utf-8')).hexdigest()
-    import_batch, batch_created = ComplaintCaseImportBatch.objects.get_or_create(
-        group_id=str(group_id),
-        source_telegram_message_id=str(telegram_message_id),
-        defaults={
-            'initiated_by': telegram_actor,
-            'actor_label': telegram_actor.get_full_name() or telegram_actor.get_username(),
-            'telegram_user_id_snapshot': str((message_data.get('from') or {}).get('id') or ''),
-            'source_hash': source_hash,
-            'source_count': len(entries),
-        },
+    from core.services.complaint_imports import (
+        ComplaintImportAuthorizationError,
+        ComplaintImportConflict,
+        reserve_complaint_import_batch,
     )
-    if not batch_created and import_batch.source_hash != source_hash:
-        return {'status': 'command', 'reply_text': 'That Telegram message was already used for a different batch import.'}
-    if not batch_created and import_batch.status in {'complete', 'partial'}:
+    source_hash = hashlib.sha256(payload.encode('utf-8')).hexdigest()
+    try:
+        reservation = reserve_complaint_import_batch(
+            actor=telegram_actor,
+            group_id=group_id,
+            source_telegram_message_id=telegram_message_id,
+            telegram_user_id=str((message_data.get('from') or {}).get('id') or ''),
+            source_hash=source_hash,
+            source_count=len(entries),
+        )
+    except ComplaintImportAuthorizationError as exc:
+        return {'status': 'command', 'reply_text': str(exc)}
+    except ComplaintImportConflict as exc:
+        return {'status': 'command', 'reply_text': str(exc)}
+    import_batch = reservation.batch
+    if reservation.already_processing:
+        return {
+            'status': 'command',
+            'reply_text': (
+                'This complaint batch is already being processed. '
+                'The bot will reply when it finishes.'
+            ),
+        }
+    if reservation.already_completed:
         return {
             'status': 'command',
             'reply_text': (
@@ -3038,6 +3051,15 @@ def _start_case_batch_background_import(
             )
             _send_telegram_reply(message_data, result)
         except Exception as exc:
+            from core.services.complaint_imports import mark_complaint_import_batch_failed
+
+            try:
+                mark_complaint_import_batch_failed(batch=import_batch)
+            except Exception:
+                logger.exception(
+                    "Could not mark failed complaint batch import batch_id=%s",
+                    getattr(import_batch, 'pk', ''),
+                )
             logger.error(
                 "Background case WhatsApp batch import failed: %s",
                 exc,
@@ -3075,7 +3097,10 @@ def _run_whatsapp_batch_import(
     from core.services.parser import MessageIntent, detect_message_intent
     from core.services.group_config import GroupRegistry
     from core.services.storage import duplicate_case_for_message, repair_case_sheet_sync
-    from core.models import ComplaintCaseImportItem
+    from core.services.complaint_imports import (
+        associate_complaint_import_item,
+        finalize_complaint_import_batch,
+    )
 
     entries = analysis.get('entries') or []
     configured_max = int(getattr(settings, 'WHATSAPP_BATCH_MAX_MESSAGES', 0) or 0)
@@ -3131,9 +3156,10 @@ def _run_whatsapp_batch_import(
                     'sync_repair': {'status': 'missing_case', 'synced': False},
                 })
         if import_batch and result.get('parsed_message_id') and result.get('status') in {'success', 'partial'}:
-            ComplaintCaseImportItem.objects.get_or_create(
+            associate_complaint_import_item(
+                batch=import_batch,
                 parsed_message_id=result['parsed_message_id'],
-                defaults={'batch': import_batch, 'source_index': index},
+                source_index=index,
             )
         results.append(result)
 
@@ -3185,16 +3211,13 @@ def _run_whatsapp_batch_import(
         'results': results,
     }
     if import_batch:
-        import_batch.status = 'complete' if not response['rejected'] and not response['errors'] else 'partial'
-        import_batch.created_count = saved_count
-        import_batch.matched_count = existing_count
-        import_batch.rejected_count = response['rejected']
-        import_batch.error_count = response['errors']
-        import_batch.completed_at = timezone.now()
-        import_batch.save(update_fields=[
-            'status', 'created_count', 'matched_count', 'rejected_count',
-            'error_count', 'completed_at',
-        ])
+        finalize_complaint_import_batch(
+            batch=import_batch,
+            created_count=saved_count,
+            matched_count=existing_count,
+            rejected_count=response['rejected'],
+            error_count=response['errors'],
+        )
     return response
 
 def _batch_append_case_results(results: list[dict], group_id: str) -> dict:

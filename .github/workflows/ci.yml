@@ -17,6 +17,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Audit tracked artifacts and secret patterns
+        run: |
+          python scripts/audit_tracked_artifacts.py
+          python -m unittest scripts.tests.test_audit_tracked_artifacts
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -58,10 +63,3 @@ jobs:
             cp "$script" "/tmp/${script%.gs}.js"
             node --check "/tmp/${script%.gs}.js"
           done
-
-      - name: Scan tracked files for Telegram token patterns
-        run: |
-          if git grep -nE '[0-9]{8,12}:[A-Za-z0-9_-]{30,}'; then
-            echo "Possible Telegram token found in a tracked file. Rotate it and remove it from the repository."
-            exit 1
-          fi

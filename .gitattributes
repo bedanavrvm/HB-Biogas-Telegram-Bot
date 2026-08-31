@@ -1,0 +1,26 @@
+# Never render controlled data/media contents in commit or pull-request diffs.
+# Review approved fixtures by provenance and SHA-256 through the artifact
+# allowlist; operational data must not be committed at all.
+*.csv binary
+*.tsv binary
+*.xlsx binary
+*.xlsm binary
+*.xls binary
+*.docx binary
+*.pdf binary
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary
+*.webp binary
+*.bmp binary
+*.tif binary
+*.tiff binary
+*.zip binary
+*.7z binary
+*.rar binary
+*.pem binary
+*.key binary
+*.p12 binary
+*.pfx binary
+*.der binary

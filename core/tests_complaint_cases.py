@@ -44,6 +44,14 @@ from core.services.complaint_cases import (
     update_case,
     ensure_case_control,
 )
+from core.services.complaint_imports import (
+    ComplaintImportAuthorizationError,
+    ComplaintImportConflict,
+    associate_complaint_import_item,
+    finalize_complaint_import_batch,
+    mark_complaint_import_batch_failed,
+    reserve_complaint_import_batch,
+)
 from core.services.group_config import GroupConfig, GroupRegistry
 from core.services.telegram_auth import validate_telegram_init_data
 
@@ -380,6 +388,119 @@ class ComplaintCaseServiceTests(TestCase):
 
         self.assertEqual(item['source_attribution']['type'], 'batch')
         self.assertEqual(item['source_attribution']['actor'], 'Manager One')
+
+    def test_import_batch_reservation_is_authorized_idempotent_and_hash_bound(self):
+        with self.assertRaises(ComplaintImportAuthorizationError):
+            reserve_complaint_import_batch(
+                actor=self.manager,
+                group_id=self.config.group_id,
+                source_telegram_message_id='telegram-batch-service-1',
+                telegram_user_id='200',
+                source_hash='a' * 64,
+                source_count=2,
+            )
+        admin_user = get_user_model().objects.create_superuser(
+            username='complaint-import-superuser', password='unused-test-password',
+        )
+        first = reserve_complaint_import_batch(
+            actor=admin_user,
+            group_id=self.config.group_id,
+            source_telegram_message_id='telegram-batch-service-1',
+            telegram_user_id='900',
+            source_hash='a' * 64,
+            source_count=2,
+        )
+        replay = reserve_complaint_import_batch(
+            actor=admin_user,
+            group_id=self.config.group_id,
+            source_telegram_message_id='telegram-batch-service-1',
+            telegram_user_id='900',
+            source_hash='a' * 64,
+            source_count=2,
+        )
+
+        self.assertTrue(first.created)
+        self.assertFalse(replay.created)
+        self.assertTrue(replay.already_processing)
+        self.assertEqual(first.batch.pk, replay.batch.pk)
+        self.assertEqual(ComplaintCaseImportBatch.objects.filter(
+            group_id=self.config.group_id,
+            source_telegram_message_id='telegram-batch-service-1',
+        ).count(), 1)
+        with self.assertRaises(ComplaintImportConflict):
+            reserve_complaint_import_batch(
+                actor=admin_user,
+                group_id=self.config.group_id,
+                source_telegram_message_id='telegram-batch-service-1',
+                telegram_user_id='900',
+                source_hash='b' * 64,
+                source_count=2,
+            )
+        mark_complaint_import_batch_failed(batch=first.batch)
+        failed_retry = reserve_complaint_import_batch(
+            actor=admin_user,
+            group_id=self.config.group_id,
+            source_telegram_message_id='telegram-batch-service-1',
+            telegram_user_id='900',
+            source_hash='a' * 64,
+            source_count=2,
+        )
+        self.assertTrue(failed_retry.retrying)
+        self.assertEqual(
+            failed_retry.batch.status,
+            ComplaintCaseImportBatch.STATUS_PROCESSING,
+        )
+
+    def test_import_item_association_and_finalization_are_idempotent(self):
+        admin_user = get_user_model().objects.create_superuser(
+            username='complaint-attribution-superuser', password='unused-test-password',
+        )
+        reservation = reserve_complaint_import_batch(
+            actor=admin_user,
+            group_id=self.config.group_id,
+            source_telegram_message_id='telegram-batch-service-2',
+            telegram_user_id='901',
+            source_hash='c' * 64,
+            source_count=1,
+        )
+        first_item, first_created = associate_complaint_import_item(
+            batch=reservation.batch,
+            parsed_message=self.case,
+            source_index=0,
+        )
+        replay_item, replay_created = associate_complaint_import_item(
+            batch=reservation.batch,
+            parsed_message=self.case,
+            source_index=0,
+        )
+
+        self.assertTrue(first_created)
+        self.assertFalse(replay_created)
+        self.assertEqual(first_item.pk, replay_item.pk)
+        with self.assertRaises(ComplaintImportConflict):
+            associate_complaint_import_item(
+                batch=reservation.batch,
+                parsed_message=self.other_case,
+                source_index=0,
+            )
+
+        completed = finalize_complaint_import_batch(
+            batch=reservation.batch,
+            created_count=1,
+            matched_count=0,
+            rejected_count=0,
+            error_count=0,
+        )
+        replayed_completion = finalize_complaint_import_batch(
+            batch=reservation.batch,
+            created_count=99,
+            matched_count=99,
+            rejected_count=1,
+            error_count=1,
+        )
+        self.assertEqual(completed.status, ComplaintCaseImportBatch.STATUS_COMPLETE)
+        self.assertEqual(replayed_completion.created_count, 1)
+        self.assertEqual(replayed_completion.error_count, 0)
 
     def test_legacy_import_never_guesses_an_uploader(self):
         self.case.source = 'whatsapp_export'

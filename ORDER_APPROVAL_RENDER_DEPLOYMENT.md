@@ -47,6 +47,10 @@ To redesign the existing April workbook into one manageable `Orders` sheet, run:
 python scripts/redesign_order_approval_workbook.py -i "ORDER APPROVAL APRIL 2026.xlsx" -o "ORDER APPROVAL REDESIGNED.xlsx"
 ```
 
+Operational workbooks are intentionally not bundled with the repository. Keep
+the input and generated output outside the checkout; both filenames above are
+examples for an operator-owned local copy.
+
 The redesign script keeps `SOURCE TAB` and `SOURCE ROW` only as migration/audit
 metadata. They show where a row came from in the old multi-tab workbook. The
 bot does not need them, and fresh templates do not include them.

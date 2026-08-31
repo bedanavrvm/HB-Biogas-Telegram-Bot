@@ -778,6 +778,44 @@ def _jbl_media_is_pdf(attachment) -> bool:
     return mime_type == 'application/pdf' or filename.endswith('.pdf')
 
 
+def _jbl_media_access_audit_error(
+    *, farmer, attachment, actor, request_id: str, access_route: str,
+):
+    """Record the required audit pair or return a fail-closed response."""
+    from core.services.jawabu_media_access import (
+        JawabuMediaAccessError,
+        JawabuMediaAuditUnavailable,
+        record_jawabu_media_access,
+    )
+
+    try:
+        record_jawabu_media_access(
+            farmer=farmer,
+            attachment=attachment,
+            actor=actor,
+            request_id=request_id,
+            access_route=access_route,
+        )
+    except JawabuMediaAccessError:
+        logger.warning(
+            'Rejected mismatched Portal evidence access attachment_id=%s farmer_id=%s',
+            getattr(attachment, 'pk', ''),
+            getattr(farmer, 'pk', ''),
+        )
+        return JsonResponse({'ok': False, 'error': 'Visit evidence was not found.'}, status=404)
+    except JawabuMediaAuditUnavailable:
+        logger.exception(
+            'Could not audit Portal evidence access attachment_id=%s farmer_id=%s',
+            getattr(attachment, 'pk', ''),
+            getattr(farmer, 'pk', ''),
+        )
+        return JsonResponse({
+            'ok': False,
+            'error': 'The evidence cannot be opened safely because its audit record is unavailable. Please retry shortly.',
+        }, status=503)
+    return None
+
+
 _PORTAL_PDF_PREVIEW_MAX_SOURCE_BYTES = 16 * 1024 * 1024
 _PORTAL_PDF_PREVIEW_MAX_PAGES = 8
 _PORTAL_PDF_PREVIEW_MAX_RENDERED_BYTES = 10 * 1024 * 1024
@@ -3398,7 +3436,7 @@ def portal_preview_jbl_media(request, farmer_id: str, attachment_id: str):
     """
     from django.db.models import Q
     from django.utils.http import content_disposition_header
-    from core.models import JawabuFarmerMaster, JawabuMediaAccessEvent, MediaAttachment
+    from core.models import JawabuFarmerMaster, MediaAttachment
 
     farmer = JawabuFarmerMaster.objects.filter(pk=farmer_id).first()
     if not farmer:
@@ -3460,26 +3498,15 @@ def portal_preview_jbl_media(request, farmer_id: str, attachment_id: str):
     # No content, Drive URL, or customer data is copied into either audit log.
     actor = getattr(request, 'portal_user', None)
     request_id = _portal_request_id(request)
-    JawabuMediaAccessEvent.objects.create(
+    audit_error = _jbl_media_access_audit_error(
         farmer=farmer,
         attachment=attachment,
         actor=actor,
         request_id=request_id,
+        access_route='in_app_preview',
     )
-    from core.services.compliance_audit import record_sensitive_access
-    record_sensitive_access(
-        workflow='portal',
-        action='portal.jbl_media.view',
-        subject_type='media_attachment',
-        subject_id=str(attachment.pk),
-        actor=actor,
-        request_id=request_id,
-        metadata={
-            'access_route': 'in_app_preview',
-            'farmer_id': str(farmer.pk),
-            'media_category': attachment.file_type,
-        },
-    )
+    if audit_error:
+        return audit_error
     response = HttpResponse(content, content_type=mime_type)
     response['Content-Disposition'] = content_disposition_header(
         False,
@@ -3494,7 +3521,7 @@ def portal_preview_jbl_media(request, farmer_id: str, attachment_id: str):
 @require_http_methods(["GET"])
 def portal_open_jbl_media(request, farmer_id: str, attachment_id: str):
     """Audit a sensitive evidence read before redirecting to Drive."""
-    from core.models import JawabuFarmerMaster, JawabuMediaAccessEvent, MediaAttachment
+    from core.models import JawabuFarmerMaster, MediaAttachment
 
     farmer = JawabuFarmerMaster.objects.filter(pk=farmer_id).first()
     if not farmer:
@@ -3511,20 +3538,15 @@ def portal_open_jbl_media(request, farmer_id: str, attachment_id: str):
     access_error = _portal_read_access_error(request, farmer, capability='portal.jbl_media.view')
     if access_error:
         return access_error
-    JawabuMediaAccessEvent.objects.create(
-        farmer=farmer, attachment=attachment, actor=getattr(request, 'portal_user', None),
-        request_id=_portal_request_id(request),
-    )
-    from core.services.compliance_audit import record_sensitive_access
-    record_sensitive_access(
-        workflow='portal',
-        action='portal.jbl_media.view',
-        subject_type='media_attachment',
-        subject_id=str(attachment.pk),
+    audit_error = _jbl_media_access_audit_error(
+        farmer=farmer,
+        attachment=attachment,
         actor=getattr(request, 'portal_user', None),
         request_id=_portal_request_id(request),
-        metadata={'farmer_id': str(farmer.pk), 'media_category': attachment.file_type},
+        access_route='drive_redirect',
     )
+    if audit_error:
+        return audit_error
     return HttpResponseRedirect(attachment.drive_url)
 
 
@@ -3575,7 +3597,7 @@ def portal_open_jbl_media_signed(request, token: str):
     attachment_id = str(payload.get('attachment_id') or '').strip()
     if attachment_id:
         from django.db.models import Q
-        from core.models import JawabuMediaAccessEvent, MediaAttachment
+        from core.models import MediaAttachment
 
         attachment = MediaAttachment.objects.filter(
             pk=attachment_id, upload_status='success',
@@ -3586,23 +3608,15 @@ def portal_open_jbl_media_signed(request, token: str):
         if not attachment:
             return JsonResponse({'ok': False, 'error': 'Visit evidence was not found.'}, status=404)
         request_id = str(payload.get('request_id') or '')
-        JawabuMediaAccessEvent.objects.create(
-            farmer=farmer, attachment=attachment, actor=actor, request_id=request_id,
-        )
-        from core.services.compliance_audit import record_sensitive_access
-        record_sensitive_access(
-            workflow='portal',
-            action='portal.jbl_media.view',
-            subject_type='media_attachment',
-            subject_id=str(attachment.pk),
+        audit_error = _jbl_media_access_audit_error(
+            farmer=farmer,
+            attachment=attachment,
             actor=actor,
             request_id=request_id,
-            metadata={
-                'access_route': 'short_lived_link',
-                'farmer_id': str(farmer.pk),
-                'media_category': attachment.file_type,
-            },
+            access_route='short_lived_link',
         )
+        if audit_error:
+            return audit_error
         return HttpResponseRedirect(attachment.drive_url)
 
     legacy_index = payload.get('legacy_index')

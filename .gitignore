@@ -20,6 +20,7 @@ db.sqlite3-journal
 # Environment
 .env
 venv/
+.venv/
 env/
 ENV/
 
@@ -34,17 +35,47 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Credentials
+# Credentials and private key material
 credentials.json
 *.json
 !scripts/architecture_boundaries_baseline.json
+!scripts/tracked_artifact_allowlist.json
+*.pem
+*.key
+*.p12
+*.pfx
+*.der
 
-# Local/customer data artifacts
+# Local/customer data and generated evidence artifacts. A reviewed public or
+# synthetic binary must be force-added and hash-pinned in
+# scripts/tracked_artifact_allowlist.json; the CI scanner fails closed for any
+# unlisted artifact.
 *.xlsx
 *.xlsm
 *.xls
 *.docx
+*.csv
+*.tsv
+*.pdf
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+*.bmp
+*.tif
+*.tiff
+*.zip
+*.7z
+*.rar
 ~$*
+artifacts/
+test-results/
+playwright-report/
+
+# Reviewed public application asset. Its exact bytes are pinned by the
+# tracked-artifact allowlist rather than trusted by path alone.
+!core/static/miniapp/jawabu-logo.png
 
 # Deployment
 .env.production

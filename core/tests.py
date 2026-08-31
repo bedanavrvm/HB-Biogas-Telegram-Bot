@@ -6085,6 +6085,15 @@ NATURE OF THE PROBLEM: Gas leakage"""
         self.assertEqual(result['status'], 'command')
         self.assertIn('WhatsApp batch import started', result['reply_text'])
         self.assertIn('Export messages found: 2', result['reply_text'])
+        replay = _process_telegram_message({
+            'message_id': 123,
+            'from': {'id': 999001, 'first_name': 'Test', 'username': 'batch_admin'},
+            'chat': {'id': -100123, 'type': 'group'},
+            'date': 1711123456,
+            'text': payload_text,
+        })
+        self.assertEqual(replay['status'], 'command')
+        self.assertIn('already being processed', replay['reply_text'])
         mock_start_background.assert_called_once()
         mock_process.assert_not_called()
 
@@ -6558,4 +6567,3 @@ class ParsedMessageModelTest(TestCase):
         self.assertEqual(row[18], '', "Resolution Details (human)")
         self.assertEqual(row[19], '', "Date Resolved (human)")
         self.assertEqual(row[20], '', "Days Open (formula - should be empty)")
-
