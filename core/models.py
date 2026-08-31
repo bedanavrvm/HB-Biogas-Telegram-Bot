@@ -8825,3 +8825,46 @@ class PublicEndpointThrottleBucket(models.Model):
 
     def __str__(self):
         return f'{self.scope}: {self.window_started_at.isoformat()}'
+
+
+class ProductionReleaseAudit(models.Model):
+    """Durable, secret-free evidence and attempt history for one release."""
+
+    STATUS_COMPLETED = 'completed'
+    STATUS_PREFLIGHT_PASSED = 'preflight_passed'
+    STATUS_POST_CHECK_FAILED = 'post_check_failed'
+    STATUS_BOOTSTRAP_FAILED = 'bootstrap_failed'
+    STATUS_MIGRATION_FAILED = 'migration_failed'
+    STATUS_CHOICES = [
+        (STATUS_COMPLETED, 'Completed'),
+        (STATUS_PREFLIGHT_PASSED, 'Preflight passed'),
+        (STATUS_POST_CHECK_FAILED, 'Post-migration check failed'),
+        (STATUS_BOOTSTRAP_FAILED, 'Superuser bootstrap failed'),
+        (STATUS_MIGRATION_FAILED, 'Migration failed'),
+    ]
+
+    release_id = models.CharField(max_length=160, primary_key=True)
+    backup_reference = models.CharField(max_length=255)
+    actor = models.CharField(max_length=160)
+    environment = models.CharField(max_length=80)
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES)
+    migration_names = models.JSONField(default=list)
+    migration_plan_sha256 = models.CharField(max_length=64)
+    readiness_results = models.JSONField(default=dict)
+    attempt_history = models.JSONField(default=list)
+    post_migration_check_passed = models.BooleanField(default=False)
+    superuser_bootstrap_result = models.CharField(max_length=32, blank=True, default='')
+    failure_code = models.CharField(max_length=80, blank=True, default='')
+    attempt_count = models.PositiveIntegerField(default=1)
+    started_at = models.DateTimeField()
+    migrations_completed_at = models.DateTimeField(blank=True, null=True)
+    completed_at = models.DateTimeField(blank=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-started_at']
+        verbose_name = 'production release audit'
+        verbose_name_plural = 'production release audits'
+
+    def __str__(self):
+        return f'{self.release_id}: {self.status}'

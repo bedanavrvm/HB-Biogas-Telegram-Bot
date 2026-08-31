@@ -204,6 +204,7 @@ from .models import (
     MiniAppDiagnosticEvent,
     MiniAppDiagnosticDailyAggregate,
     MiniAppLegacyWriteDailyAggregate,
+    ProductionReleaseAudit,
 )
 
 logger = logging.getLogger(__name__)
@@ -11220,6 +11221,17 @@ class MiniAppLegacyWriteDailyAggregateAdmin(ReadOnlyAuditAdmin):
     list_filter = ('method', 'outcome', 'date')
     search_fields = ('route_name',)
     date_hierarchy = 'date'
+
+
+@admin.register(ProductionReleaseAudit)
+class ProductionReleaseAuditAdmin(ReadOnlyAuditAdmin):
+    list_display = (
+        'release_id', 'environment', 'status', 'actor', 'attempt_count',
+        'post_migration_check_passed', 'completed_at',
+    )
+    list_filter = ('environment', 'status', 'post_migration_check_passed')
+    search_fields = ('release_id', 'backup_reference', 'actor')
+    date_hierarchy = 'started_at'
 
 
 try:

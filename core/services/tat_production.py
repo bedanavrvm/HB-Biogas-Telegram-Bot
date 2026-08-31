@@ -184,7 +184,9 @@ def _group_scope_issues(group) -> list[ReadinessIssue]:
     return issues
 
 
-def tat_production_readiness_issues(settings) -> list[ReadinessIssue]:
+def tat_production_readiness_issues(
+    settings, *, allow_pending_migrations: bool = False,
+) -> list[ReadinessIssue]:
     """Return local configuration/database issues; never call Telegram or Google."""
     issues: list[ReadinessIssue] = []
 
@@ -218,7 +220,7 @@ def tat_production_readiness_issues(settings) -> list[ReadinessIssue]:
     except Exception:
         error('tat-migration-check', 'Could not determine the database migration state.')
         return issues
-    if pending:
+    if pending and not allow_pending_migrations:
         error('tat-migrations', f'{len(pending)} database migration(s) are unapplied.')
         return issues
 

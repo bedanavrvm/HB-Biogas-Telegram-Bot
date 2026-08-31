@@ -188,6 +188,9 @@ Key modules:
 - `request_throttling.py` — database-backed focused abuse limits using only keyed identity/network digests; never applies to Telegram webhook retries
 - `external_resilience.py` — bounded synchronous retry, durable external-operation register, and circuit state
 - `durable_jobs.py` — aggregate health and privacy-safe heartbeat evidence for database-leased complaint-import and TAT-repair runners
+- `production_release.py` — read-only migration-plan inspection, immutable release attribution, and durable secret-free release evidence
+- `origination_production.py` — enabled Origination signing/conditional-approval production readiness projection
+- `superuser_bootstrap.py` — transactional, idempotent deployment Superuser bootstrap
 - `portal_publication.py` — durable, request-assisted Portal register publication for free Render; local workflow commits never wait for Google Sheets
 - `access_control.py` — maker-checker access changes, emergency grants, notifications, and policy versioning
 - `staff_lifecycle.py` — atomic idempotent Superuser staff lifecycle execution, optional checker review, access, routing, leave, return, offboarding, and Telegram activation controls
@@ -245,6 +248,7 @@ The Mini Apps use Django templates and mostly vanilla JavaScript. Preserve Teleg
 - `core/tests_durable_jobs.py`
 - `core/tests_idempotency_cutover.py`
 - `core/tests_phase6_routes_and_throttling.py`
+- `core/tests_release_sequencing.py`
 
 - `core/tests_portal_imports.py`
 
@@ -269,6 +273,9 @@ This is a template of variables this class of system typically needs. Treat it a
 | `TELEGRAM_BOT_TOKEN` | Bot API token used for sending messages / Bot API calls | Yes |
 | `TELEGRAM_WEBHOOK_SECRET` | Shared secret validated on incoming webhook requests | Yes |
 | `API_AUTH_TOKEN` | Token protecting manual/admin/script-facing endpoints | Yes |
+| `APP_RELEASE` | Immutable Git commit or deployment identifier used as the release audit key | No |
+| `RELEASE_BACKUP_REFERENCE` | Required immutable provider backup/snapshot reference verified before migration | No; store only the reference, never a credential or URL token |
+| `RELEASE_ACTOR` / `RELEASE_ENVIRONMENT` | Non-secret deployment actor and environment attribution stored with release evidence | No |
 | `SENTRY_DSN` | Production error-monitoring endpoint; configure only in Render secrets | Yes |
 | `SENTRY_ENVIRONMENT` / `SENTRY_TRACES_SAMPLE_RATE` | Sentry environment label and approved performance-sampling rate | No |
 | `SENTRY_BROWSER_DSN` / `SENTRY_BROWSER_TRACES_SAMPLE_RATE` | Separate public Browser Sentry project DSN and approved trace rate for staff Mini Apps; Replay is not enabled | Treat the DSN as deployment configuration |

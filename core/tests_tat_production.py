@@ -35,6 +35,7 @@ class TatProductionReadinessTests(TestCase):
         GroupSheetConfiguration.objects.create(
             group_id='-100-readiness', display_name='TAT readiness',
             sheet_id='sheet-test', sheet_name='TRACKER-Business',
+            tat_sheet_projection_enabled=True,
             workflow={
                 'type': 'tat_tracker', 'tat_notification_mode': 'hybrid',
                 'branches': ['Nakuru'], 'products': ['business'],

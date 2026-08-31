@@ -21,9 +21,20 @@ Protect `main`: use a feature branch and pull request for every change, require 
    Render deploy ID. Keep `SENTRY_TRACES_SAMPLE_RATE=0.0` until a separate
    performance-monitoring and data-minimisation decision is approved. Point
    external uptime monitoring at `GET /api/health/`.
-5. Configure the production Telegram webhook secret and service-account access only after the application has passed its readiness check.
+5. Set `RELEASE_BACKUP_REFERENCE` to the immutable provider backup/snapshot ID,
+   `RELEASE_ACTOR` to the deployment actor or automation identity, and
+   `RELEASE_ENVIRONMENT=production`. These values are audit metadata, not
+   secrets. Never put a signed backup URL, credential, or access token in them.
+6. Configure the production Telegram webhook secret and service-account access only after the application has passed its readiness check.
 
-`release.sh` runs configuration validation, migrations, and the idempotent superuser setup. It deliberately does **not** contact Telegram. Run `python manage.py sync_telegram_commands` only as an explicit, reviewed operation after confirming the group configuration; use `--dry-run` first.
+`release.sh` delegates to `release_production`. The command runs general,
+enabled TAT, and enabled Origination signing readiness before it inspects the
+migration plan and verifies the backup reference. Only then can it migrate. It
+runs Django's deploy check after migration, skips Superuser bootstrap if that
+check fails, and records a secret-free `ProductionReleaseAudit`. It deliberately
+does **not** contact Telegram or Google. Run `python manage.py
+sync_telegram_commands` only as an explicit, reviewed operation after confirming
+the group configuration; use `--dry-run` first.
 
 The application strips request bodies, query strings, cookies, headers,
 user identity, and arbitrary extras before Sentry receives an error event.
@@ -37,31 +48,52 @@ method, and query-free path. Never test monitoring with customer data.
 2. Run the focused test suite, then `python manage.py test`, `python manage.py check`, `python manage.py makemigrations --check --dry-run`, `python manage.py collectstatic --noinput`, and `python manage.py check --deploy`.
 3. Test every changed Mini App on a narrow mobile viewport with loading, empty, error, authorization, slow-network, and double-submit cases.
 4. Deploy to staging and perform an end-to-end test with the staging bot and copied Sheets/Drive resources.
-5. Before production, confirm the PostgreSQL backup completed, preserve a copy/version of any affected Google Apps Script and Sheet layout, and record the current production commit.
+5. Before production, confirm the PostgreSQL backup completed, copy its immutable
+   provider reference into `RELEASE_BACKUP_REFERENCE`, preserve a copy/version
+   of any affected Google Apps Script and Sheet layout, and set `APP_RELEASE` to
+   the exact production commit/deploy ID.
 6. Deploy with `bash release.sh` as the pre-deploy command. After the new service is healthy, verify `/api/health/`, an authorized Mini App read flow, and webhook delivery without exposing customer data in the test.
 7. Monitor Render logs, Sentry, webhook errors, and unsynced integration records for at least one hour. Record the result in the release ticket.
 
-### Migration rollback record
-
-Every schema migration must include its exact rollback command in the release
-record before it is applied. Confirm first whether a forward data repair is
-safer than destructive reversal. Never apply a migration merely because it
-exists in the source tree; production application requires explicit approval
-for that release.
-
-For the current Portal release, record the actual production migration state
-first. If `core.0089_portalcaseworkspace_portalsavedview` is the only migration
-being reversed, its safe schema rollback is:
+To inspect exactly what would migrate without applying anything, run:
 
 ```powershell
-python manage.py migrate core 0088_business_admin_role_cutover
+python manage.py inspect_release_migration_plan --json
 ```
 
-Do not treat that command as a rollback for the earlier cumulative release
-migrations. In particular, run `python manage.py check_business_admin_cutover
---strict` before applying or reversing the `0088` Business Administrator
-cutover. Approval, audit-ledger, and integration migrations require an
-incident-specific forward correction or a reviewed restore-to-staging plan.
+For supervised execution, `python manage.py release_production` accepts
+`--release-id`, `--backup-reference`, `--actor`, and `--environment`. Command-line
+values override deployment configuration, but they must remain non-secret. A
+retry with the same release ID is safe after migrations complete: an empty plan
+does not invoke `migrate`, the post-check and idempotent bootstrap run again, and
+the earlier migration list and attempt history remain in the audit record.
+Once the audit table exists, the command reserves the reviewed plan immediately
+after all preflights and backup validation pass, so a migration or worker failure
+cannot lose the planned migration names. This reservation never occurs after a
+failed readiness or missing-backup check.
+
+### Rollback and correction decision
+
+Record one of these distinct responses before release; they are not
+interchangeable:
+
+- **Application rollback:** redeploy the recorded known-good application build.
+  This does not reverse database migrations. Use it only when the older code is
+  compatible with the migrated schema, and verify a read-only workflow first.
+- **Forward-only corrective migration:** the normal response to a schema or data
+  defect after migration. Preserve evidence, deploy a reviewed additive repair,
+  and do not erase immutable workflow/audit history. This is preferred for
+  approval, financial, audit-ledger, and integration state.
+- **Database restore:** disaster recovery only, with explicit incident authority.
+  Stop writers, identify the exact `RELEASE_BACKUP_REFERENCE`, document the
+  accepted data-loss window, restore into staging first when possible, and then
+  restore the complete production database under provider/operator supervision.
+
+Do not automatically reverse migrations when a post-migration check fails. The
+release command records `post_check_failed`, blocks bootstrap and application
+promotion, and exits non-zero. Investigate whether application rollback or a
+forward corrective migration is safe; use database restore only for an
+explicitly approved disaster-recovery event.
 
 Use the current release record template in
 [`docs/production-release-record.md`](docs/production-release-record.md) to

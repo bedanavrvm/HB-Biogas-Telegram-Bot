@@ -8,9 +8,12 @@ the completed record in the approved private operations location, not in Git.
 - Release date and planned start time (Africa/Nairobi):
 - Release owner and go/no-go authority: Bedan
 - Release commit / Render deploy ID:
+- `APP_RELEASE` / durable `ProductionReleaseAudit.release_id`:
 - Previous known-good production commit / Render deploy ID:
 - Production database migration state before release:
+- `RELEASE_BACKUP_REFERENCE` (immutable provider ID; no signed URL or secret):
 - Backup timestamp, provider, and restore-to-staging evidence:
+- `RELEASE_ACTOR` and `RELEASE_ENVIRONMENT`:
 
 ## Pre-deploy evidence
 
@@ -35,10 +38,13 @@ the completed record in the approved private operations location, not in Git.
 - Telegram staging smoke test (JBL Officer, Credit Analyst, Business Admin):
 - TAT staging modes: shadow / group / private / backup escalation:
 - Read-only Sheets/register and Drive-link smoke test:
+- `inspect_release_migration_plan --json` migration names and SHA-256:
+- Enabled Origination signing readiness result:
 
 ## Production verification
 
 - `release.sh` pre-deploy result:
+- Durable release-audit status, attempt count, and Admin evidence review:
 - Migration state after release:
 - `/api/health/` result:
 - Protected readiness result:
@@ -54,5 +60,7 @@ the completed record in the approved private operations location, not in Git.
 - Same-path 5xx events during first 15 minutes:
 - Authorization, audit-integrity, payment/approval, or external-write anomalies:
 - Go, halt, forward-fix, or rollback decision and reason:
-- If rollback: application commit reverted to / migration decision / evidence:
+- Response classification: application rollback / forward-only corrective migration / approved disaster-recovery restore:
+- Application rollback compatibility or corrective migration review evidence:
+- If database restore: incident approval, exact backup reference, and accepted data-loss window:
 - Next-business-morning review result:

@@ -5,20 +5,6 @@
 
 set -euo pipefail
 
-echo "Checking production configuration..."
-# A production migration must not proceed with an unowned readiness warning
-# (for example, missing Sentry monitoring). Resolve it before deployment.
-python manage.py check_production_readiness --strict
-
-echo "Applying reviewed migrations..."
-python manage.py migrate --noinput
-
-if [[ "${TAT_NOTIFICATION_SCHEDULER_REQUIRED:-False}" =~ ^([Tt][Rr][Uu][Ee]|1|yes|on)$ ]]; then
-  echo "Checking TAT production configuration and scheduler health..."
-  python manage.py check_tat_production_readiness --strict
-fi
-
-echo "Creating configured superuser when it does not already exist..."
-python manage.py createsuperuser_env
-
-echo "Release preparation completed."
+# The command verifies all enabled-workflow readiness and immutable backup
+# attribution before it is allowed to invoke Django's migrate command.
+python manage.py release_production

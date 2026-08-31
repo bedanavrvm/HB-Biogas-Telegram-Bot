@@ -1,19 +1,20 @@
-from django.core.management.base import BaseCommand
-from django.contrib.auth import get_user_model
-import os
+from django.core.management.base import BaseCommand, CommandError
+
+from core.services.superuser_bootstrap import (
+    SuperuserBootstrapError,
+    bootstrap_superuser_from_environment,
+)
 
 
 class Command(BaseCommand):
     help = 'Create superuser from environment variables'
 
     def handle(self, *args, **options):
-        User = get_user_model()
-
-        username = os.getenv('DJANGO_SUPERUSER_USERNAME')
-        email = os.getenv('DJANGO_SUPERUSER_EMAIL')
-        password = os.getenv('DJANGO_SUPERUSER_PASSWORD')
-
-        if not all([username, email, password]):
+        try:
+            result = bootstrap_superuser_from_environment()
+        except SuperuserBootstrapError as exc:
+            raise CommandError(str(exc)) from exc
+        if result.outcome == 'skipped':
             self.stdout.write(
                 self.style.WARNING(
                     'Superuser environment variables not set. Skipping superuser creation.'
@@ -21,22 +22,13 @@ class Command(BaseCommand):
             )
             return
 
-        if User.objects.filter(username=username).exists():
+        if result.outcome == 'existing':
             self.stdout.write(
-                self.style.SUCCESS(f'Superuser "{username}" already exists. Skipping creation.')
+                self.style.SUCCESS(
+                    f'Superuser "{result.username}" already exists. Skipping creation.'
+                )
             )
             return
-
-        try:
-            User.objects.create_superuser(
-                username=username,
-                email=email,
-                password=password
-            )
-            self.stdout.write(
-                self.style.SUCCESS(f'Successfully created superuser "{username}"')
-            )
-        except Exception as e:
-            self.stdout.write(
-                self.style.ERROR(f'Failed to create superuser: {e}')
-            )
+        self.stdout.write(
+            self.style.SUCCESS(f'Successfully created superuser "{result.username}"')
+        )

@@ -260,6 +260,11 @@ TELEGRAM_BOT_DISPLAY_NAME = config('TELEGRAM_BOT_DISPLAY_NAME', default='Telegra
 APP_DISPLAY_NAME = config('APP_DISPLAY_NAME', default='Telegram Workflow Bot')
 APP_BASE_URL = config('APP_BASE_URL', default='').rstrip('/')
 APP_RELEASE = config('APP_RELEASE', default='').strip()
+RELEASE_BACKUP_REFERENCE = config('RELEASE_BACKUP_REFERENCE', default='').strip()
+RELEASE_ACTOR = config('RELEASE_ACTOR', default='deployment').strip()
+RELEASE_ENVIRONMENT = config(
+    'RELEASE_ENVIRONMENT', default='production' if not DEBUG else 'development',
+).strip()
 
 # Optional production error reporting.  No data is sent when SENTRY_DSN is
 # blank; configure this in Render rather than committing a DSN.
