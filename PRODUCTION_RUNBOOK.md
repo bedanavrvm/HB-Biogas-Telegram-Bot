@@ -94,13 +94,14 @@ Only after explicit approval for read-only external calls, run:
 python manage.py probe_integrations --execute
 ```
 
-The retry/circuit tables are an operator-visible register, not a general
-background queue. There is no Celery/Redis worker. TAT private notifications
-are the one approved scheduled exception: a durable platform scheduler runs
-`process_tat_notifications` once per minute, with a database lease and
-privacy-safe health evidence. See `docs/tat-production-runbook.md`. Other
-retryable/dead-letter records remain operator-controlled. Do not delete a local
-case/document or claim a sync succeeded because an external call failed.
+There is no Celery/Redis worker. The approved platform scheduler runs TAT
+private notifications, durable complaint imports, and bounded TAT repairs from
+their management commands. The latter two use database leases and per-item
+checkpoints; HTTP/Admin requests only queue work. Configure and monitor them as
+described in `docs/tat-production-runbook.md` and
+`docs/durable-job-runners.md`. Other retryable/dead-letter records remain
+operator-controlled. Do not delete a local case/document or claim a sync
+succeeded because an external call failed.
 
 Keep `REQUIRE_MINIAPP_IDEMPOTENCY_KEY=True` in production. Before release,
 review the anonymous legacy-write warning over

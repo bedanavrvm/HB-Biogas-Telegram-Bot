@@ -3448,9 +3448,8 @@ class TatTrackerRepairAdminTest(TestCase):
         self.assertEqual(response.status_code, 200)
         resync.assert_not_called()
 
-    @patch('core.services.tat_repair_jobs.start_repair_job')
     @patch('core.admin.resync_tat_tracker_cases')
-    def test_repair_page_starts_background_job_after_typed_confirmation(self, resync, start_job):
+    def test_repair_page_queues_durable_job_after_typed_confirmation(self, resync):
         resync.return_value = {
             'total_candidates': 1,
             'candidates': 1,
@@ -3469,12 +3468,10 @@ class TatTrackerRepairAdminTest(TestCase):
         job = TatRepairJob.objects.get()
         self.assertEqual(job.product_key, 'business')
         self.assertEqual(job.status, 'queued')
-        start_job.assert_called_once_with(job.id)
         self.assertIn(f'job={job.id}', response['Location'])
 
-    @patch('core.services.tat_repair_jobs.start_repair_job')
     @patch('core.admin.resync_tat_tracker_cases')
-    def test_repair_page_can_include_cases_without_stored_sheet_rows(self, resync, start_job):
+    def test_repair_page_can_include_cases_without_stored_sheet_rows(self, resync):
         resync.return_value = {
             'total_candidates': 1,
             'candidates': 1,
@@ -3516,7 +3513,6 @@ class TatTrackerRepairAdminTest(TestCase):
         job = TatRepairJob.objects.get()
         self.assertEqual(job.case_ids, ['JBL-BS-MISSING-ROW'])
         self.assertEqual(job.skipped_unlinked, 0)
-        start_job.assert_called_once_with(job.id)
 
     def test_repair_page_renders_recorded_failure_details(self):
         job = TatRepairJob.objects.create(
@@ -3537,8 +3533,7 @@ class TatTrackerRepairAdminTest(TestCase):
         self.assertContains(response, 'JBL-BS-FAILED')
         self.assertContains(response, 'Google Sheets quota exceeded; retry later.')
 
-    @patch('core.services.tat_repair_jobs.start_repair_job')
-    def test_repair_page_can_retry_only_recorded_failures(self, start_job):
+    def test_repair_page_can_retry_only_recorded_failures(self):
         TatTrackerCase.objects.create(
             group_id=self.config.group_id,
             sheet_id=self.config.sheet_id,
@@ -3567,7 +3562,7 @@ class TatTrackerRepairAdminTest(TestCase):
         self.assertEqual(response.status_code, 302)
         retry_job = TatRepairJob.objects.exclude(pk=job.pk).get()
         self.assertEqual(retry_job.case_ids, ['JBL-BS-FAILED'])
-        start_job.assert_called_once_with(retry_job.id)
+        self.assertEqual(retry_job.status, 'queued')
 
     @patch('core.admin.resync_tat_tracker_cases')
     def test_repair_page_rejects_a_write_without_matching_preview(self, resync):

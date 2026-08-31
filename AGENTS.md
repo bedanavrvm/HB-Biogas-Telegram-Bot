@@ -184,6 +184,7 @@ Key modules:
 - `tat_presentation.py` — global audited TAT Mini App presentation policy, including the optional business-hours visibility switch
 - `miniapp_diagnostics.py` — privacy-safe Mini App lifecycle telemetry, idempotent signal ingestion, recovery classification, and aggregate retention
 - `external_resilience.py` — bounded synchronous retry, durable external-operation register, and circuit state
+- `durable_jobs.py` — aggregate health and privacy-safe heartbeat evidence for database-leased complaint-import and TAT-repair runners
 - `portal_publication.py` — durable, request-assisted Portal register publication for free Render; local workflow commits never wait for Google Sheets
 - `access_control.py` — maker-checker access changes, emergency grants, notifications, and policy versioning
 - `staff_lifecycle.py` — atomic idempotent Superuser staff lifecycle execution, optional checker review, access, routing, leave, return, offboarding, and Telegram activation controls
@@ -238,6 +239,7 @@ The Mini Apps use Django templates and mostly vanilla JavaScript. Preserve Teleg
 - `core/tests_staff_lifecycle.py`
 - `core/tests_user_hard_delete.py`
 - `core/tests_telegram_authentication.py`
+- `core/tests_durable_jobs.py`
 - `core/tests_idempotency_cutover.py`
 
 - `core/tests_portal_imports.py`
@@ -278,6 +280,9 @@ This is a template of variables this class of system typically needs. Treat it a
 | `COMPLIANCE_AUDIT_CHECKPOINT_DELIVERY_ENABLED` | Enables explicitly requested daily checkpoint delivery; defaults to disabled | No |
 | `COMPLIANCE_AUDIT_CHECKPOINT_RECIPIENT` | Controlled compliance mailbox for approved checkpoint delivery | Treat as sensitive operational contact data |
 | `REQUIRE_MINIAPP_IDEMPOTENCY_KEY` | Enables strict rejection of Mini App writes without a retry key after cached-client verification | No |
+| `DURABLE_JOB_RUNNERS_SHADOW_MODE` / `DURABLE_JOB_LEASE_SECONDS` / `DURABLE_JOB_RUNNER_MAX_SILENCE_SECONDS` | Starts complaint/TAT runners at one record per invocation, bounds stale-lease recovery, and controls readiness freshness | No |
+| `COMPLAINT_IMPORT_RUNNER_REQUIRED` / `TAT_REPAIR_RUNNER_REQUIRED` | Requires fresh scheduled-runner heartbeats in production readiness after controlled bootstrap | No |
+| `COMPLAINT_IMPORT_RUNNER_MAX_ITEMS` / `TAT_REPAIR_RUNNER_MAX_CASES` | Bounds item/case work per scheduled invocation outside shadow mode | No |
 | `MINIAPP_IDEMPOTENCY_OBSERVATION_DAYS` | Bounded lookback for anonymous legacy-write readiness diagnostics (default 14 days) | No |
 | `ACCESS_GRANT_GOVERNANCE_ENFORCED` | Rejects permanent AccessGrant writes outside approved access-control and staff-lifecycle service contexts; enabled in production | No |
 | `GOOGLE_SHEETS_MAX_RETRIES` | Maximum bounded synchronous Google Sheets write attempts (default 4) | No |

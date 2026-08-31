@@ -1,6 +1,7 @@
 # ADR 0009: Bounded, operator-visible integration reliability
 
-**Status:** Accepted for the pending reliability release (30-July-2026)
+**Status:** Accepted for the reliability release (30-July-2026); the
+no-scheduler portion is superseded by ADR 0031.
 
 ## Context
 

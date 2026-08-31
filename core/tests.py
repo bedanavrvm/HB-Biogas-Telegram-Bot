@@ -17,6 +17,8 @@ from unittest.mock import patch, MagicMock
 
 from core.models import (
     CaseUpdate,
+    ComplaintCaseImportBatch,
+    ComplaintCaseImportItem,
     FcaImportRecord,
     GroupSheetConfiguration,
     InvoiceUploadBatch,
@@ -5958,41 +5960,17 @@ NATURE OF THE PROBLEM: Gas leakage"""
             'text': payload_text,
         })
 
-        self.assertEqual(result['status'], 'batch_processed')
-        self.assertEqual(result['source'], 'whatsapp_export')
-        self.assertEqual(result['export_messages'], 3)
-        self.assertEqual(result['skipped_non_complaint'], 1)
-        self.assertEqual(result['total'], 2)
-        self.assertEqual(result['success'], 1)
-        self.assertEqual(result['duplicates'], 1)
-        self.assertEqual(mock_process.call_count, 2)
-        self.assertEqual(
-            mock_process.call_args_list[0].kwargs['telegram_message_id'],
-            '123_wa_1',
-        )
-        self.assertEqual(
-            mock_process.call_args_list[0].kwargs['source'],
-            'whatsapp_export',
-        )
-        self.assertEqual(
-            mock_process.call_args_list[0].kwargs['source_telegram_message_id'],
-            '123',
-        )
-        self.assertEqual(mock_process.call_args_list[0].kwargs['batch_index'], 1)
-        self.assertEqual(mock_process.call_args_list[0].kwargs['sender'], 'Alice Agent')
-        self.assertIs(mock_process.call_args_list[0].kwargs['sync_after_success'], False)
-        self.assertIs(mock_process.call_args_list[0].kwargs['defer_sheet_sync'], True)
-        self.assertEqual(mock_sync.call_count, 2)
-        self.assertEqual(mock_sync.call_args_list[0].args, ('-100123',))
-        self.assertEqual(mock_sync.call_args_list[0].kwargs, {'delete_missing': True})
-        self.assertEqual(mock_sync.call_args_list[1].args, ('-100123',))
-        self.assertEqual(mock_sync.call_args_list[1].kwargs, {'delete_missing': False})
-        self.assertEqual(result['sheet_sync_before']['row_count'], 4)
-        self.assertEqual(result['sheet_sync_after']['row_count'], 5)
-        self.assertEqual(
-            timezone.localtime(mock_process.call_args_list[0].kwargs['received_at']).strftime('%d/%m/%Y %H:%M'),
-            '23/05/2026 12:47',
-        )
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('complaint import queued', result['reply_text'])
+        batch = ComplaintCaseImportBatch.objects.get(source_telegram_message_id='123')
+        self.assertEqual(batch.status, ComplaintCaseImportBatch.STATUS_QUEUED)
+        self.assertEqual(batch.items.count(), 3)
+        first_complaint = batch.items.get(source_index=1)
+        self.assertEqual(first_complaint.normalized_entry_snapshot['sender'], 'Alice Agent')
+        self.assertIn('No gas supply', first_complaint.normalized_entry_snapshot['content'])
+        self.assertEqual(len(first_complaint.content_hash), 64)
+        mock_process.assert_not_called()
+        mock_sync.assert_not_called()
 
     @override_settings(
         TELEGRAM_BOT_USERNAME='biogas_bot',
@@ -6025,14 +6003,15 @@ NATURE OF THE PROBLEM: No gas supply"""
             'text': payload_text,
         })
 
-        self.assertEqual(result['status'], 'batch_processed')
-        self.assertEqual(result['total'], 1)
-        self.assertEqual(result['skipped_non_complaint'], 0)
-        mock_process.assert_called_once()
+        self.assertEqual(result['status'], 'command')
+        batch = ComplaintCaseImportBatch.objects.get(source_telegram_message_id='124')
+        self.assertEqual(batch.items.count(), 1)
         self.assertNotIn(
             'CUSTOMER COMPLAINT',
-            mock_process.call_args.kwargs['content'].upper(),
+            batch.items.get().normalized_entry_snapshot['content'].upper(),
         )
+        mock_process.assert_not_called()
+        mock_sync.assert_not_called()
 
     def test_complaint_batch_import_rejects_non_superusers_before_processing(self):
         from core.api.views import _process_whatsapp_batch_command
@@ -6046,18 +6025,10 @@ NATURE OF THE PROBLEM: No gas supply"""
         self.assertEqual(result['status'], 'command')
         self.assertIn('restricted to an active Django Superuser', result['reply_text'])
 
-    @override_settings(
-        TELEGRAM_BOT_USERNAME='biogas_bot',
-        WHATSAPP_BATCH_ASYNC_THRESHOLD=1,
-    )
-    @patch('core.api.views._start_case_batch_background_import')
+    @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
     @patch('core.api.views._process_single_message')
-    def test_large_telegram_batch_command_starts_background_import(
-        self,
-        mock_process,
-        mock_start_background,
-    ):
-        """Large WhatsApp exports should not block the webhook worker."""
+    def test_large_telegram_batch_command_reserves_durable_import(self, mock_process):
+        """WhatsApp exports acknowledge only after every item is durable."""
         from core.api.views import _process_telegram_message
 
         payload_text = """@biogas_bot /batch
@@ -6083,8 +6054,8 @@ NATURE OF THE PROBLEM: Gas leakage"""
         })
 
         self.assertEqual(result['status'], 'command')
-        self.assertIn('WhatsApp batch import started', result['reply_text'])
-        self.assertIn('Export messages found: 2', result['reply_text'])
+        self.assertIn('complaint import queued', result['reply_text'])
+        self.assertIn('Export messages reserved: 2', result['reply_text'])
         replay = _process_telegram_message({
             'message_id': 123,
             'from': {'id': 999001, 'first_name': 'Test', 'username': 'batch_admin'},
@@ -6094,8 +6065,8 @@ NATURE OF THE PROBLEM: Gas leakage"""
         })
         self.assertEqual(replay['status'], 'command')
         self.assertIn('already being processed', replay['reply_text'])
-        mock_start_background.assert_called_once()
         mock_process.assert_not_called()
+        self.assertEqual(ComplaintCaseImportItem.objects.filter(batch__source_telegram_message_id='123').count(), 2)
 
     @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
     @patch('core.api.views._process_single_message')
@@ -6154,13 +6125,11 @@ NATURE OF THE PROBLEM: No gas supply""",
             },
         })
 
-        self.assertEqual(result['status'], 'batch_processed')
-        self.assertEqual(result['success'], 1)
-        self.assertEqual(mock_sync.call_count, 2)
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('complaint import queued', result['reply_text'])
         mock_download.assert_called_once()
-        mock_process.assert_called_once()
-        self.assertIs(mock_process.call_args.kwargs['sync_after_success'], False)
-        self.assertIs(mock_process.call_args.kwargs['defer_sheet_sync'], True)
+        mock_process.assert_not_called()
+        mock_sync.assert_not_called()
 
     @override_settings(TELEGRAM_BOT_TOKEN='token')
     @patch('core.api.views.requests.post')

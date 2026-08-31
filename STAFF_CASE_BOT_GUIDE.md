@@ -267,13 +267,13 @@ The bot reads common WhatsApp export lines such as:
 
 Only complaint entries are processed. Normal chat messages and WhatsApp system lines are skipped. Each complaint must still include `NAME`, `TEL` or `ID`, and `NATURE OF THE PROBLEM`; incomplete entries are rejected and listed in the batch summary. `COUNTY` is optional but should be included when staff know it.
 
-Before importing the export, the bot refreshes the local case database from the configured Google Sheet. After importing, it refreshes again so the Django admin/live viewer reflects the sheet. This keeps manual sheet edits, deletions, and bot imports aligned.
+The bot reserves the export and every normalized message in Django before it acknowledges the upload. Django remains the source of truth; the configured Google Sheet is updated as an operational register during processing.
 
 If the same export is sent again, existing cases are detected as duplicates using the WhatsApp sender, message text, and WhatsApp timestamp.
 
 Normal WhatsApp `.txt` or `.zip` exports can be sent whole. The bot no longer stops at 50 export messages. If a production limit is configured, admins can set `WHATSAPP_BATCH_MAX_MESSAGES=0` to process the full export in one upload.
 
-Large exports run in the background so Telegram does not time out. Staff will first see `WhatsApp batch import started`, then the bot replies again with the final saved/rejected/duplicate summary when processing finishes. Admins can tune this with `WHATSAPP_BATCH_ASYNC_THRESHOLD`; the production default is `100` export messages.
+Exports are queued for the durable scheduled runner so Telegram does not time out. Staff first see `WhatsApp complaint import queued`, then the bot replies again with the final created/matched/skipped/error summary. A server restart does not discard acknowledged entries.
 
 ## Common Mistakes
 

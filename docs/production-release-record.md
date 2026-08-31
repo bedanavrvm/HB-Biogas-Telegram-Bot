@@ -23,6 +23,9 @@ the completed record in the approved private operations location, not in Git.
 - `check_tat_production_readiness --strict` and JSON evidence:
 - Latest successful TAT notification processor run / scheduler alert owner:
 - First successful scheduler run observed while all enabled TAT groups were in shadow mode:
+- Latest successful complaint-import runner heartbeat / scheduler alert owner:
+- Latest successful TAT-repair runner heartbeat / scheduler alert owner:
+- Durable runner shadow limits, stale-lease recovery, retry, and cancellation evidence:
 - TAT mode, group, Sheet-contract, access, responsibility, and private-connection review:
 - `check_business_admin_cutover --strict`:
 - `verify_compliance_audit --strict`:

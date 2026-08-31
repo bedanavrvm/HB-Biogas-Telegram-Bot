@@ -380,7 +380,8 @@ class ComplaintCaseServiceTests(TestCase):
         batch = ComplaintCaseImportBatch.objects.create(
             group_id=self.config.group_id, source_telegram_message_id='telegram-batch-1',
             initiated_by=self.manager, actor_label='Manager One', telegram_user_id_snapshot='200',
-            source_hash='a' * 64, status='complete', source_count=1, created_count=1,
+            source_hash='a' * 64, status=ComplaintCaseImportBatch.STATUS_COMPLETED,
+            source_count=1, created_count=1,
         )
         ComplaintCaseImportItem.objects.create(batch=batch, parsed_message=self.case, source_index=0)
 
@@ -448,7 +449,7 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertTrue(failed_retry.retrying)
         self.assertEqual(
             failed_retry.batch.status,
-            ComplaintCaseImportBatch.STATUS_PROCESSING,
+            ComplaintCaseImportBatch.STATUS_QUEUED,
         )
 
     def test_import_item_association_and_finalization_are_idempotent(self):

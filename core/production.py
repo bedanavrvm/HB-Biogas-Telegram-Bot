@@ -217,6 +217,70 @@ def production_security_readiness_issues(
             'access-grant-governance',
             'ACCESS_GRANT_GOVERNANCE_ENFORCED must be enabled in production.',
         )
+
+    try:
+        lease_seconds = int(getattr(settings, 'DURABLE_JOB_LEASE_SECONDS', 300))
+    except (TypeError, ValueError):
+        lease_seconds = 0
+    try:
+        runner_silence = int(getattr(settings, 'DURABLE_JOB_RUNNER_MAX_SILENCE_SECONDS', 900))
+    except (TypeError, ValueError):
+        runner_silence = 0
+    if lease_seconds < 30 or lease_seconds > 3600:
+        error('durable-job-lease', 'DURABLE_JOB_LEASE_SECONDS must be between 30 and 3600 seconds.')
+    if runner_silence < 60 or runner_silence > 86400:
+        error(
+            'durable-job-runner-silence',
+            'DURABLE_JOB_RUNNER_MAX_SILENCE_SECONDS must be between 60 and 86400 seconds.',
+        )
+    for code, setting_name, default_value in (
+        ('complaint-import-runner-limit', 'COMPLAINT_IMPORT_RUNNER_MAX_ITEMS', 10),
+        ('tat-repair-runner-limit', 'TAT_REPAIR_RUNNER_MAX_CASES', 5),
+    ):
+        try:
+            value = int(getattr(settings, setting_name, default_value))
+        except (TypeError, ValueError):
+            value = 0
+        if value < 1 or value > 1000:
+            error(code, f'{setting_name} must be between 1 and 1000.')
+
+    if check_database:
+        try:
+            from django.db import OperationalError, ProgrammingError
+            from core.services.durable_jobs import durable_job_health
+
+            health = durable_job_health(max_silence_seconds=runner_silence or 900)
+            for runner_key, required_setting in (
+                ('complaint_imports', 'COMPLAINT_IMPORT_RUNNER_REQUIRED'),
+                ('tat_repairs', 'TAT_REPAIR_RUNNER_REQUIRED'),
+            ):
+                required = bool(getattr(settings, required_setting, False))
+                runner = health['runners'][runner_key]
+                if required and not runner['fresh']:
+                    error(
+                        f'{runner_key.replace("_", "-")}-runner-stale',
+                        f'{required_setting} is enabled but the scheduled runner has no fresh heartbeat.',
+                    )
+                elif required and runner.get('status') == 'failed':
+                    error(
+                        f'{runner_key.replace("_", "-")}-runner-failed',
+                        f'{required_setting} is enabled but the latest scheduled runner invocation failed.',
+                    )
+            for job_key in ('complaint_imports', 'tat_repairs'):
+                stalled = int(health[job_key]['stalled'])
+                if stalled:
+                    warning(
+                        f'{job_key.replace("_", "-")}-jobs-stalled',
+                        f'{stalled} stale {job_key.replace("_", " ")} job(s) are awaiting lease recovery.',
+                    )
+        except (OperationalError, ProgrammingError):
+            if bool(getattr(settings, 'COMPLAINT_IMPORT_RUNNER_REQUIRED', False)) or bool(
+                getattr(settings, 'TAT_REPAIR_RUNNER_REQUIRED', False)
+            ):
+                error(
+                    'durable-job-runner-readiness',
+                    'The durable runner heartbeat register could not be checked.',
+                )
     return issues
 
 

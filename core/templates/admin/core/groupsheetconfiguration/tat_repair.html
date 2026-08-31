@@ -30,7 +30,7 @@
 
   {% if repair_job %}
     <section class="module" id="repair-job" data-status-url="{{ repair_job_status_url }}">
-      <h2>Background repair progress</h2>
+      <h2>Durable repair progress</h2>
       <p id="repair-job-status">Status: <strong>{{ repair_job.status }}</strong></p>
       <progress id="repair-job-progress" value="{{ repair_job.processed_cases }}" max="{{ repair_job.total_cases|default:1 }}" style="width:100%;max-width:48rem"></progress>
       <ul>
@@ -39,7 +39,7 @@
         <li><span id="repair-failed">{{ repair_job.failure_count }}</span> case(s) failed.</li>
         <li>{{ repair_job.skipped_unlinked }} unlinked case(s) skipped.</li>
       </ul>
-      <p id="repair-job-note">You may leave this page. Progress is saved after every case; reopening this job resumes an interrupted worker.</p>
+      <p id="repair-job-note">You may leave this page. The scheduled runner saves progress after every case and safely recovers an expired lease.</p>
       <details id="repair-failure-details"{% if repair_job.failures %} open{% endif %}>
         <summary>Failure details (<span id="repair-failure-summary-count">{{ repair_job.failure_count }}</span>)</summary>
         <div class="module" style="overflow-x:auto">
@@ -70,6 +70,21 @@
           <div class="submit-row">
             <input type="submit" value="Retry failed cases">
           </div>
+        </form>
+      {% endif %}
+      {% if not repair_job.complete %}
+        <form method="post" style="margin-top:1rem">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="cancel_job">
+          <input type="hidden" name="job_id" value="{{ repair_job.id }}">
+          <fieldset class="module aligned">
+            <div class="form-row">
+              <label for="id_cancel_confirm">Cancellation confirmation</label>
+              <input id="id_cancel_confirm" name="confirm" type="text" autocomplete="off">
+              <div class="help">Type CANCEL REPAIR. Completed case checkpoints remain retained.</div>
+            </div>
+          </fieldset>
+          <div class="submit-row"><input type="submit" value="Cancel queued repair"></div>
         </form>
       {% endif %}
     </section>

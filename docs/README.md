@@ -8,6 +8,7 @@ migrations, tests, settings, and these operational documents take precedence.
 |---|---|
 | [Repository Data and Artifact Policy](repository-data-artifact-policy.md) | Rules, CI enforcement, audit procedure, and historical-response steps for customer data, exports, screenshots, credentials, and reviewed fixtures. |
 | [Mini App Idempotency Contract](miniapp-idempotency.md) | Write-route inventory, canonical request keys, client retry behavior, anonymous legacy diagnostics, and strict production enforcement. |
+| [Durable Job Runners](durable-job-runners.md) | Scheduled complaint-import and TAT-repair commands, leases, chunking, rollout, readiness, retry, cancellation, and incident handling. |
 | [Glossary](glossary.md) | Shared roles, capabilities, workflow language, and UI status semantics. |
 | [Loan Origination Admin Guide](origination-admin-guide.md) | Superuser setup of products, fields, main/supporting PDFs, access, publication, testing, and troubleshooting. |
 | [Loan Origination Developer Guide](origination-developer-guide.md) | Origination architecture, models, APIs, security, versioning, local development, verification, and safe extension rules. |
@@ -21,6 +22,7 @@ migrations, tests, settings, and these operational documents take precedence.
 | [TAT Logic](../TAT_TRACKER_TAT_LOGIC.md) | Canonical stage calculation, target, status, and display rules. |
 | [ADR 0001](adr/0001-server-owned-miniapp-recovery-drafts.md) | Decision and release safety record for server-owned Mini App recovery drafts. |
 | [ADR 0007](adr/0007-sheet-register-governance-and-verified-tat-repair.md) | Publication-only Sheet contracts, drift evidence, and verified TAT duplicate-row repair. |
+| [ADR 0031](adr/0031-database-leased-operational-jobs.md) | Database-leased complaint imports and TAT repairs without request-path threads, Celery, or Redis. |
 | [../CHANGELOG.md](../CHANGELOG.md) | Dated visible/operational changes. |
 | [../KNOWN_GAPS.md](../KNOWN_GAPS.md) | Diagnosed limitations, workarounds, and release verification still required. |
 | [../PRODUCTION_RUNBOOK.md](../PRODUCTION_RUNBOOK.md) | Release, rollback, recovery, credentials, backups, and emergency access. |

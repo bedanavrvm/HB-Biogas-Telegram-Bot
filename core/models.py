@@ -538,15 +538,23 @@ class ComplaintCaseEvent(models.Model):
 class ComplaintCaseImportBatch(models.Model):
     """Auditable source record for one Superuser-initiated complaint import."""
 
-    STATUS_PROCESSING = 'processing'
-    STATUS_COMPLETE = 'complete'
+    STATUS_QUEUED = 'queued'
+    STATUS_RUNNING = 'running'
+    STATUS_COMPLETED = 'completed'
     STATUS_PARTIAL = 'partial'
     STATUS_FAILED = 'failed'
+    STATUS_CANCELLED = 'cancelled'
+    # Compatibility names retained while callers migrate to the durable-job
+    # vocabulary. Their values are the canonical persisted values.
+    STATUS_PROCESSING = STATUS_RUNNING
+    STATUS_COMPLETE = STATUS_COMPLETED
     STATUS_CHOICES = [
-        (STATUS_PROCESSING, 'Processing'),
-        (STATUS_COMPLETE, 'Complete'),
+        (STATUS_QUEUED, 'Queued'),
+        (STATUS_RUNNING, 'Running'),
         (STATUS_PARTIAL, 'Partial'),
+        (STATUS_COMPLETED, 'Completed'),
         (STATUS_FAILED, 'Failed'),
+        (STATUS_CANCELLED, 'Cancelled'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -559,17 +567,27 @@ class ComplaintCaseImportBatch(models.Model):
     actor_label = models.CharField(max_length=255, blank=True, default='')
     telegram_user_id_snapshot = models.CharField(max_length=64, blank=True, default='')
     source_hash = models.CharField(max_length=64, db_index=True)
-    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PROCESSING, db_index=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_QUEUED, db_index=True)
+    analysis_snapshot = models.JSONField(blank=True, default=dict)
     source_count = models.PositiveIntegerField(default=0)
     created_count = models.PositiveIntegerField(default=0)
     matched_count = models.PositiveIntegerField(default=0)
     rejected_count = models.PositiveIntegerField(default=0)
     error_count = models.PositiveIntegerField(default=0)
+    attempt_count = models.PositiveIntegerField(default=0)
+    lease_token = models.UUIDField(null=True, blank=True, editable=False, db_index=True)
+    heartbeat_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    last_error_code = models.CharField(max_length=80, blank=True, default='')
+    started_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['-created_at']
+        indexes = [models.Index(
+            fields=['status', 'created_at'], name='cc_import_status_created_idx',
+        )]
         constraints = [models.UniqueConstraint(
             fields=['group_id', 'source_telegram_message_id'],
             name='unique_complaint_import_source_message',
@@ -579,19 +597,49 @@ class ComplaintCaseImportBatch(models.Model):
 
 
 class ComplaintCaseImportItem(models.Model):
-    """Immutable attribution link from an imported complaint to its batch."""
+    """Immutable source snapshot plus resumable outcome for one import row."""
+
+    STATUS_QUEUED = 'queued'
+    STATUS_RUNNING = 'running'
+    STATUS_CREATED = 'created'
+    STATUS_MATCHED = 'matched'
+    STATUS_SKIPPED = 'skipped'
+    STATUS_FAILED = 'failed'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_CHOICES = [
+        (STATUS_QUEUED, 'Queued'),
+        (STATUS_RUNNING, 'Running'),
+        (STATUS_CREATED, 'Created'),
+        (STATUS_MATCHED, 'Matched existing'),
+        (STATUS_SKIPPED, 'Skipped'),
+        (STATUS_FAILED, 'Failed'),
+        (STATUS_CANCELLED, 'Cancelled'),
+    ]
 
     batch = models.ForeignKey(
         ComplaintCaseImportBatch, on_delete=models.PROTECT, related_name='items',
     )
     parsed_message = models.OneToOneField(
-        ParsedMessage, on_delete=models.PROTECT, related_name='complaint_import_item',
+        ParsedMessage, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='complaint_import_item',
     )
     source_index = models.PositiveIntegerField()
+    normalized_entry_snapshot = models.JSONField(blank=True, default=dict)
+    content_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_QUEUED, db_index=True)
+    attempt_count = models.PositiveIntegerField(default=0)
+    last_error_code = models.CharField(max_length=80, blank=True, default='')
+    outcome_reference = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['source_index']
+        indexes = [models.Index(
+            fields=['batch', 'status', 'source_index'], name='cc_item_batch_status_idx',
+        )]
         constraints = [models.UniqueConstraint(
             fields=['batch', 'source_index'], name='unique_complaint_import_source_index',
         )]
@@ -1785,6 +1833,7 @@ class TatRepairJob(models.Model):
         ('completed', 'Completed'),
         ('completed_with_errors', 'Completed with errors'),
         ('failed', 'Failed'),
+        ('cancelled', 'Cancelled'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -1816,10 +1865,44 @@ class TatRepairJob(models.Model):
 
     class Meta:
         ordering = ['-created_at']
-        indexes = [models.Index(fields=['status', 'updated_at'])]
+        indexes = [
+            models.Index(fields=['status', 'updated_at']),
+            models.Index(
+                fields=['status', 'created_at'], name='tat_repair_status_created_idx',
+            ),
+        ]
 
     def __str__(self):
         return f"TAT repair {self.id} ({self.status})"
+
+
+class DurableJobRunnerHeartbeat(models.Model):
+    """Privacy-safe liveness evidence for database-backed scheduled runners."""
+
+    STATUS_RUNNING = 'running'
+    STATUS_SUCCEEDED = 'succeeded'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_RUNNING, 'Running'),
+        (STATUS_SUCCEEDED, 'Succeeded'),
+        (STATUS_FAILED, 'Failed'),
+    ]
+
+    runner_key = models.CharField(max_length=80, primary_key=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_RUNNING)
+    heartbeat_at = models.DateTimeField(default=timezone.now, db_index=True)
+    last_started_at = models.DateTimeField(default=timezone.now)
+    last_completed_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    processed_count = models.PositiveIntegerField(default=0)
+    last_error_code = models.CharField(max_length=80, blank=True, default='')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'durable job runner heartbeat'
+        verbose_name_plural = 'durable job runner heartbeats'
+
+    def __str__(self):
+        return f'{self.runner_key} ({self.status})'
 
 
 class TatCaseSequence(models.Model):

@@ -19,7 +19,6 @@ KEY FIXES (v2):
 """
 import logging
 import io
-import threading
 from datetime import datetime, timezone as dt_timezone
 from django.utils import timezone
 from django.http import JsonResponse
@@ -113,12 +112,14 @@ def health_check(request):
             status_code=503,
         )
 
+    from core.services.durable_jobs import durable_job_health
     return success_response(
         data={
             'service': getattr(settings, 'APP_DISPLAY_NAME', 'Telegram Workflow Bot'),
             'version': getattr(settings, 'APP_RELEASE', '') or '1.0.0',
             'timestamp': timezone.now().isoformat(),
             'database': 'connected',
+            'background_jobs': durable_job_health(),
         },
         message='Service is healthy',
     )
@@ -138,11 +139,13 @@ def readiness_check(request):
             MigrationExecutor(connection).loader.graph.leaf_nodes(),
         )
         from core.services.external_resilience import integration_readiness
+        from core.services.durable_jobs import durable_job_health
         return success_response(
             data={
                 'database': 'connected',
                 'migrations': 'current' if not migration_plan else 'pending',
                 'integration_operations': integration_readiness(),
+                'background_jobs': durable_job_health(),
                 'outbound_probes_performed': False,
             },
             message='Service readiness was evaluated from local state.',
@@ -2976,6 +2979,15 @@ def _process_whatsapp_batch_command(
                 "23/05/2026, 12:46 - Staff Name: CUSTOMER COMPLAIN..."
             ),
         }
+    configured_max = int(getattr(settings, 'WHATSAPP_BATCH_MAX_MESSAGES', 0) or 0)
+    if configured_max > 0 and len(entries) > configured_max:
+        return {
+            'status': 'command',
+            'reply_text': (
+                f'This export contains {len(entries)} messages; the configured maximum is '
+                f'{configured_max}. Nothing was queued. Split the export and send each part once.'
+            ),
+        }
 
     from core.services.complaint_imports import (
         ComplaintImportAuthorizationError,
@@ -2991,6 +3003,10 @@ def _process_whatsapp_batch_command(
             telegram_user_id=str((message_data.get('from') or {}).get('id') or ''),
             source_hash=source_hash,
             source_count=len(entries),
+            entries=entries,
+            fallback_sender=sender,
+            fallback_received_at=received_at,
+            analysis_snapshot=analysis,
         )
     except ComplaintImportAuthorizationError as exc:
         return {'status': 'command', 'reply_text': str(exc)}
@@ -3014,236 +3030,16 @@ def _process_whatsapp_batch_command(
             ),
         }
 
-    async_threshold = int(
-        getattr(settings, 'WHATSAPP_BATCH_ASYNC_THRESHOLD', 100) or 0
-    )
-    if async_threshold > 0 and len(entries) > async_threshold:
-        _start_case_batch_background_import(
-            payload=payload,
-            analysis=analysis,
-            message_data=message_data,
-            sender=sender,
-            received_at=received_at,
-            group_id=group_id,
-            telegram_message_id=telegram_message_id,
-            import_batch=import_batch,
-        )
-        return {
-            'status': 'command',
-            'reply_text': (
-                "WhatsApp batch import started.\n"
-                f"Export messages found: {len(entries)}\n"
-                "The bot will reply here again when processing finishes. "
-                "You can keep using Telegram while it runs."
-            ),
-        }
-
-    return _run_whatsapp_batch_import(
-        analysis=analysis,
-        sender=sender,
-        received_at=received_at,
-        group_id=group_id,
-        telegram_message_id=telegram_message_id,
-        import_batch=import_batch,
-    )
-
-
-def _start_case_batch_background_import(
-    payload: str,
-    analysis: dict,
-    message_data: dict,
-    sender: str,
-    received_at: datetime,
-    group_id: str,
-    telegram_message_id: str,
-    import_batch,
-) -> None:
-    """Run a large case WhatsApp import outside the webhook response."""
-    del payload  # Payload is intentionally parsed before queueing to validate the export.
-
-    def worker() -> None:
-        from django.db import close_old_connections
-
-        close_old_connections()
-        try:
-            result = _run_whatsapp_batch_import(
-                analysis=analysis,
-                sender=sender,
-                received_at=received_at,
-                group_id=group_id,
-                telegram_message_id=telegram_message_id,
-                import_batch=import_batch,
-            )
-            _send_telegram_reply(message_data, result)
-        except Exception as exc:
-            from core.services.complaint_imports import mark_complaint_import_batch_failed
-
-            try:
-                mark_complaint_import_batch_failed(batch=import_batch)
-            except Exception:
-                logger.exception(
-                    "Could not mark failed complaint batch import batch_id=%s",
-                    getattr(import_batch, 'pk', ''),
-                )
-            logger.error(
-                "Background case WhatsApp batch import failed: %s",
-                exc,
-                exc_info=True,
-            )
-            _send_telegram_reply(
-                message_data,
-                {
-                    'status': 'command',
-                    'reply_text': (
-                        "WhatsApp batch import failed before completion.\n"
-                        "Please retry the export. If it fails again, ask an admin to check Render logs."
-                    ),
-                },
-            )
-        finally:
-            close_old_connections()
-
-    thread = threading.Thread(
-        target=worker,
-        name=f"case-batch-{telegram_message_id}",
-        daemon=True,
-    )
-    thread.start()
-
-
-def _run_whatsapp_batch_import(
-    analysis: dict,
-    sender: str,
-    received_at: datetime,
-    group_id: str,
-    telegram_message_id: str,
-    import_batch=None,
-) -> dict:
-    from core.services.parser import MessageIntent, detect_message_intent
-    from core.services.group_config import GroupRegistry
-    from core.services.storage import duplicate_case_for_message, repair_case_sheet_sync
-    from core.services.complaint_imports import (
-        associate_complaint_import_item,
-        finalize_complaint_import_batch,
-    )
-
-    entries = analysis.get('entries') or []
-    configured_max = int(getattr(settings, 'WHATSAPP_BATCH_MAX_MESSAGES', 0) or 0)
-    max_entries = configured_max if configured_max > 0 else len(entries)
-    truncated = configured_max > 0 and len(entries) > max_entries
-    entries_to_process = entries[:max_entries] if truncated else entries
-    sync_before = _sync_case_sheet_for_batch(group_id, delete_missing=True)
-    group_config = GroupRegistry.get_instance().get_group(group_id)
-    results = []
-    skipped_non_complaint = 0
-    processed_entries = 0
-
-    for index, entry in enumerate(entries_to_process):
-        content = entry.get('content', '')
-        if detect_message_intent(content) != MessageIntent.COMPLAINT:
-            skipped_non_complaint += 1
-            continue
-
-        processed_entries += 1
-        result = _process_single_message(
-            telegram_message_id=f"{telegram_message_id}_wa_{index}",
-            content=content,
-            sender=entry.get('sender') or sender,
-            has_image=False,
-            received_at=entry.get('received_at') or received_at,
-            group_id=group_id,
-            source_telegram_message_id=telegram_message_id,
-            batch_index=index,
-            source='whatsapp_export',
-            sync_after_success=False,
-            defer_sheet_sync=True,
-        )
-        if result.get('status') == 'duplicate':
-            existing_case, duplicate_hash = duplicate_case_for_message(
-                sender=entry.get('sender') or sender,
-                content=content,
-                received_at=entry.get('received_at') or received_at,
-            )
-            if existing_case:
-                repair_result = repair_case_sheet_sync(existing_case, group_config=group_config)
-                result.update({
-                    'status': 'existing_matched',
-                    'duplicate_reason': 'message_hash',
-                    'message_hash': duplicate_hash,
-                    'message_id': existing_case.message_id,
-                    'parsed_message_id': existing_case.pk,
-                    'sync_repair': repair_result,
-                })
-            else:
-                result.update({
-                    'duplicate_reason': 'message_hash',
-                    'message_hash': duplicate_hash,
-                    'sync_repair': {'status': 'missing_case', 'synced': False},
-                })
-        if import_batch and result.get('parsed_message_id') and result.get('status') in {'success', 'partial'}:
-            associate_complaint_import_item(
-                batch=import_batch,
-                parsed_message_id=result['parsed_message_id'],
-                source_index=index,
-            )
-        results.append(result)
-
-    saved_count = sum(1 for r in results if r.get('status') in {'success', 'partial'})
-    existing_count = sum(1 for r in results if r.get('status') == 'existing_matched')
-    sync_repairs = [r.get('sync_repair') or {} for r in results if r.get('status') == 'existing_matched']
-    already_synced = sum(1 for r in sync_repairs if r.get('status') == 'already_synced')
-    sync_retried = sum(1 for r in sync_repairs if r.get('status') == 'sync_retried')
-    sync_retry_failed = sum(1 for r in sync_repairs if r.get('status') == 'sync_failed')
-    batch_sheet_append = _batch_append_case_results(
-        results,
-        group_id=group_id,
-    ) if saved_count else None
-    append_status = (batch_sheet_append or {}).get('status')
-    sync_after = (
-        _sync_case_sheet_for_batch(group_id, delete_missing=False)
-        if saved_count and append_status in {'success', 'partial', 'skipped'} else None
-    )
-
-    response = {
-        'status': 'batch_processed',
-        'source': 'whatsapp_export',
-        'format': analysis.get('format', 'unknown'),
-        'total': processed_entries,
-        'export_messages': len(entries),
-        'skipped_non_complaint': skipped_non_complaint,
-        'system_lines': analysis.get('system_lines', 0),
-        'orphan_lines': analysis.get('orphan_lines', 0),
-        'truncated': truncated,
-        'max_entries': max_entries,
-        'success': sum(1 for r in results if r.get('status') == 'success'),
-        'partial': sum(1 for r in results if r.get('status') == 'partial'),
-        'new_cases_created': saved_count,
-        'existing_cases_matched': existing_count,
-        'already_synchronized': already_synced,
-        'synchronization_retried': sync_retried + sync_retry_failed,
-        'synchronization_succeeded': sync_retried,
-        'synchronization_failed': sync_retry_failed,
-        'review_needed': sum(
-            1 for r in results
-            if (r.get('captured_fields') or {}).get('Status') == 'Review Needed'
+    return {
+        'status': 'command',
+        'reply_text': (
+            "WhatsApp complaint import queued.\n"
+            f"Export messages reserved: {len(entries)}\n"
+            "Each entry is durably saved for processing. The bot will reply "
+            "again after the scheduled runner completes the import."
         ),
-        'duplicates': sum(1 for r in results if r.get('status') == 'duplicate'),
-        'rejected': sum(1 for r in results if r.get('status') == 'rejected'),
-        'errors': sum(1 for r in results if r.get('status') == 'error'),
-        'sheet_sync_before': sync_before,
-        'sheet_sync_after': sync_after,
-        'batch_sheet_append': batch_sheet_append,
-        'results': results,
     }
-    if import_batch:
-        finalize_complaint_import_batch(
-            batch=import_batch,
-            created_count=saved_count,
-            matched_count=existing_count,
-            rejected_count=response['rejected'],
-            error_count=response['errors'],
-        )
-    return response
+
 
 def _batch_append_case_results(results: list[dict], group_id: str) -> dict:
     """Append successfully stored case batch rows to Sheets in one request."""

@@ -61,6 +61,7 @@ from .models import (
     ComplaintCaseEvent,
     ComplaintCaseImportBatch,
     ComplaintCaseImportItem,
+    DurableJobRunnerHeartbeat,
     ComplaintCategory,
     ComplaintCategoryAlias,
     ComplaintCategoryAvailability,
@@ -4643,17 +4644,61 @@ class ComplaintCaseEventAdmin(ReadOnlyAuditAdmin):
 
 @admin.register(ComplaintCaseImportBatch)
 class ComplaintCaseImportBatchAdmin(ReadOnlyAuditAdmin):
-    list_display = ('created_at', 'group_id', 'initiated_by', 'status', 'created_count', 'matched_count')
+    list_display = (
+        'created_at', 'group_id', 'initiated_by', 'status', 'source_count',
+        'created_count', 'matched_count', 'rejected_count', 'error_count',
+    )
     list_filter = ('status', 'group_id', 'created_at')
     search_fields = ('source_telegram_message_id', 'actor_label', 'initiated_by__username')
     readonly_fields = [field.name for field in ComplaintCaseImportBatch._meta.fields]
+    actions = ('retry_selected_imports', 'cancel_selected_imports')
+
+    def get_actions(self, request):
+        return super().get_actions(request) if request.user.is_superuser else {}
+
+    @admin.action(description='Retry failed/cancelled complaint import items')
+    def retry_selected_imports(self, request, queryset):
+        from core.services.complaint_imports import retry_complaint_import_batch
+
+        count = 0
+        for batch in queryset:
+            before = batch.status
+            updated = retry_complaint_import_batch(batch=batch)
+            count += int(updated.status != before)
+        self.message_user(request, f'Queued {count} complaint import batch(es) for retry.')
+
+    @admin.action(description='Cancel selected queued complaint imports')
+    def cancel_selected_imports(self, request, queryset):
+        from core.services.complaint_imports import cancel_complaint_import_batch
+
+        count = 0
+        for batch in queryset:
+            before = batch.status
+            updated = cancel_complaint_import_batch(batch=batch)
+            count += int(updated.status != before)
+        self.message_user(request, f'Cancelled {count} complaint import batch(es).')
 
 
 @admin.register(ComplaintCaseImportItem)
 class ComplaintCaseImportItemAdmin(ReadOnlyAuditAdmin):
-    list_display = ('batch', 'source_index', 'parsed_message', 'created_at')
+    list_display = (
+        'batch', 'source_index', 'status', 'attempt_count', 'parsed_message',
+        'last_error_code', 'created_at',
+    )
+    list_filter = ('status', 'last_error_code')
     search_fields = ('batch__source_telegram_message_id', 'parsed_message__message_id')
     readonly_fields = [field.name for field in ComplaintCaseImportItem._meta.fields]
+
+
+@admin.register(DurableJobRunnerHeartbeat)
+class DurableJobRunnerHeartbeatAdmin(ReadOnlyAuditAdmin):
+    list_display = (
+        'runner_key', 'status', 'heartbeat_at', 'last_completed_at',
+        'processed_count', 'last_error_code',
+    )
+    list_filter = ('status',)
+    search_fields = ('runner_key', 'last_error_code')
+    readonly_fields = [field.name for field in DurableJobRunnerHeartbeat._meta.fields]
 
 
 @admin.register(LiveSheetRecordChange)
@@ -5068,8 +5113,23 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
         }
         if request.method == 'POST':
             action = request.POST.get('action') or 'repair'
-            if action == 'retry_failures':
-                from core.services.tat_repair_jobs import create_repair_job, serialize_repair_job, start_repair_job
+            if action == 'cancel_job':
+                from core.services.tat_repair_jobs import cancel_repair_job, serialize_repair_job
+
+                active_job = TatRepairJob.objects.filter(
+                    pk=request.POST.get('job_id'), group_configuration=config,
+                ).first()
+                if active_job is None or active_job.status not in {'queued', 'running'}:
+                    context['confirmation_error'] = 'That repair job is not available for cancellation.'
+                elif request.POST.get('confirm') != 'CANCEL REPAIR':
+                    context['confirmation_error'] = 'Type CANCEL REPAIR exactly to cancel the queued work.'
+                else:
+                    cancel_repair_job(job=active_job)
+                    self.message_user(request, 'TAT repair job cancelled. Completed case checkpoints were retained.', level=messages.SUCCESS)
+                    return HttpResponseRedirect(f'{request.path}?job={active_job.id}')
+                context['repair_job'] = serialize_repair_job(active_job) if active_job else None
+            elif action == 'retry_failures':
+                from core.services.tat_repair_jobs import create_repair_job, serialize_repair_job
 
                 retry_job = TatRepairJob.objects.filter(
                     pk=request.POST.get('job_id'),
@@ -5095,10 +5155,9 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                             include_unlinked=True,
                             case_ids=failed_case_ids,
                         )
-                        start_repair_job(new_job.id)
                         self.message_user(
                             request,
-                            f'Retry started for {new_job.total_cases} failed case(s).',
+                            f'Retry queued for {new_job.total_cases} failed case(s).',
                             level=messages.SUCCESS,
                         )
                         return HttpResponseRedirect(f'{request.path}?job={new_job.id}')
@@ -5121,24 +5180,21 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 if request.session.get('tat_repair_preview') != preview_key:
                     context['confirmation_error'] = 'Preview this exact batch before running its repair.'
                     return TemplateResponse(request, 'admin/core/groupsheetconfiguration/tat_repair.html', context)
-                from core.services.tat_repair_jobs import create_repair_job, start_repair_job
+                from core.services.tat_repair_jobs import create_repair_job
                 job = create_repair_job(
                     config,
                     product_key=selected_product,
                     requested_by=request.user.get_username(),
                     include_unlinked=include_unlinked,
                 )
-                start_repair_job(job.id)
-                self.message_user(request, 'TAT case reconciliation started in the background. Progress is checkpointed after every case.', level=messages.SUCCESS)
+                self.message_user(request, 'TAT case reconciliation queued for the durable scheduled runner. Progress is checkpointed after every case.', level=messages.SUCCESS)
                 return HttpResponseRedirect(f'{request.path}?job={job.id}')
         else:
             job_id = str(request.GET.get('job') or '').strip()
             if job_id:
                 job = TatRepairJob.objects.filter(pk=job_id, group_configuration=config).first()
                 if job:
-                    from core.services.tat_repair_jobs import serialize_repair_job, start_repair_job
-                    if job.status in {'queued', 'running'}:
-                        start_repair_job(job.id)
+                    from core.services.tat_repair_jobs import serialize_repair_job
                     context['repair_job'] = serialize_repair_job(job)
                     context['repair_job_status_url'] = reverse(
                         'admin:core_groupsheetconfiguration_tat_repair_status',
@@ -5358,9 +5414,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
         job = TatRepairJob.objects.filter(pk=job_id, group_configuration=config).first()
         if job is None:
             return JsonResponse({'ok': False, 'error': 'Repair job not found.'}, status=404)
-        from core.services.tat_repair_jobs import serialize_repair_job, start_repair_job
-        if job.status in {'queued', 'running'}:
-            start_repair_job(job.id)
+        from core.services.tat_repair_jobs import serialize_repair_job
         return JsonResponse({'ok': True, 'job': serialize_repair_job(job)})
 
     def get_actions(self, request):

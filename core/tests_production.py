@@ -213,10 +213,21 @@ class ProductionReadinessTests(SimpleTestCase):
         SECURE_HSTS_PRELOAD=False,
     )
     @patch(
+        'core.services.durable_jobs.durable_job_health',
+        return_value={
+            'runners': {
+                'complaint_imports': {'fresh': True},
+                'tat_repairs': {'fresh': True},
+            },
+            'complaint_imports': {'stalled': 0},
+            'tat_repairs': {'stalled': 0},
+        },
+    )
+    @patch(
         'core.services.miniapp_idempotency.recent_legacy_write_summary',
         return_value={'accepted': 0, 'rejected': 0, 'route_count': 0},
     )
-    def test_management_command_fails_for_unsafe_configuration(self, _summary):
+    def test_management_command_fails_for_unsafe_configuration(self, _summary, _job_health):
         with self.assertRaisesMessage(Exception, 'Production readiness checks failed.'):
             call_command('check_production_readiness', '--strict', stdout=StringIO())
 
