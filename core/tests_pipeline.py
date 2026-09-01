@@ -1757,7 +1757,8 @@ class JblPipelineApiTestCase(TestCase):
             {'stage': 'payment'},
         )
         self.assertEqual(payment_fragment.status_code, 200)
-        self.assertContains(payment_fragment, 'Payment #12 awaiting HOR review')
+        self.assertContains(payment_fragment, 'Payment Review')
+        self.assertContains(payment_fragment, 'Payment #12')
         self.assertContains(payment_fragment, f'data-payment-document-id="{payment.id}"')
 
     def test_portal_jbl_queue_fragment_renders_cards(self):

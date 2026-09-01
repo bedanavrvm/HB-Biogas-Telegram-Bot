@@ -545,10 +545,114 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
 body.portal-compact-cards #page-jbl .farmer-card,
 body.portal-compact-cards #page-my_visits .farmer-card { padding: 9px 10px; }
 
+/* Shared compact cards for the remaining operational queues. */
+.operational-farmer-card {
+  padding: 10px 11px;
+  gap: 0;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+}
+.operational-farmer-card.requisition-card { gap: 8px !important; }
+.operational-queue-card-content { min-width: 0; width: 100%; }
+.operational-queue-card-heading,
+.operational-queue-card-details,
+.operational-queue-card-bottom {
+  display: flex;
+  align-items: center;
+}
+.operational-queue-card-heading {
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--border-color);
+}
+.operational-queue-card-identity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.operational-queue-card-identity .farmer-card-number {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 20px;
+  margin-right: 0;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--brand-primary) 11%, var(--bg-surface));
+  color: var(--brand-primary);
+  font-weight: 800;
+}
+.operational-queue-card-identity .fc-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  letter-spacing: .025em;
+  text-transform: uppercase;
+}
+.operational-queue-status {
+  flex: 0 1 auto;
+  max-width: 48%;
+  padding: 3px 7px;
+  background: var(--status-info-bg);
+  color: var(--status-info);
+  font-size: 9px;
+  line-height: 1.2;
+  text-align: center;
+  white-space: normal;
+}
+.operational-queue-card-details {
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0 7px;
+}
+.operational-queue-card-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.operational-queue-card-meta svg {
+  flex: 0 0 13px;
+  width: 13px;
+  height: 13px;
+  stroke: currentColor;
+}
+.operational-queue-card-meta > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.operational-queue-card-phone { justify-content: flex-end; font-variant-numeric: tabular-nums; }
+.operational-queue-card-bottom {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border-color);
+}
+.operational-queue-card-action {
+  width: 100%;
+  min-height: 34px;
+  margin-top: 7px;
+  justify-content: center;
+  gap: 6px;
+  font-size: 10px;
+}
+.operational-queue-card-action svg { width: 14px; height: 14px; stroke: currentColor; }
+body.portal-compact-cards .operational-farmer-card { padding: 9px 10px; }
+
 @media (max-width: 360px) {
   .jbl-queue-card-details { align-items: flex-start; flex-direction: column; gap: 5px; }
   .jbl-queue-card-phone { justify-content: flex-start; }
   .jbl-queue-card-bottom { flex-wrap: wrap; }
+  .operational-queue-card-details { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .operational-queue-card-phone { justify-content: flex-start; }
 }
 
 /* ── Badges ─────────────────────────────────────────────────────────────────── */
@@ -1466,7 +1570,7 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .farmer-card.requisition-card {
   flex-direction: row !important;
   align-items: center !important;
-  gap: 12px !important;
+  gap: 8px !important;
 }
 
 

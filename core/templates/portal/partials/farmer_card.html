@@ -1,5 +1,5 @@
 <div
-  class="farmer-card htmx-farmer-card{% if queue_key == 'requisition' %} requisition-card{% endif %}"
+  class="farmer-card htmx-farmer-card{% if queue_key == 'requisition' %} requisition-card{% endif %}{% if queue_key != 'jbl' and queue_key != 'my_visits' %} operational-farmer-card{% endif %}"
   data-farmer-id="{{ farmer.id }}"
   data-mode="{{ mode|default:'' }}"
 >
@@ -47,35 +47,46 @@
     </div>
   </div>
   {% else %}
-  <div style="flex: 1;">
-    <div class="fc-name">{% if farmer.display_number %}<span class="farmer-card-number" aria-label="Queue position {{ farmer.display_number }}">{{ farmer.display_number }}</span>{% endif %}{{ farmer.customer_name|default:farmer.national_id|default:farmer.primary_phone|default:"Unknown" }}</div>
-    <div class="fc-sub">{{ farmer.location_label|default:"-" }}</div>
-    <div class="fc-sub">{{ farmer.primary_phone|default:"" }}</div>
-    <div class="fc-badges">
+  <div class="operational-queue-card-content">
+    <div class="operational-queue-card-heading">
+      <div class="operational-queue-card-identity">
+        {% if farmer.display_number %}<span class="farmer-card-number" aria-label="Queue position {{ farmer.display_number }}">#{{ farmer.display_number }}</span>{% endif %}
+        <span class="fc-name">{{ farmer.customer_name|default:farmer.national_id|default:farmer.primary_phone|default:"Unknown" }}</span>
+      </div>
+      <span class="badge operational-queue-status">{% if review_stage == 'payment' and farmer.payment_review_payment_number %}Payment Review{% else %}{{ farmer.current_pipeline_state|default:"In Progress" }}{% endif %}</span>
+    </div>
+    <div class="operational-queue-card-details">
+      <span class="operational-queue-card-meta"><i data-lucide="map-pin" aria-hidden="true"></i><span>{{ farmer.location_label|default:"Location not provided" }}</span></span>
+      <span class="operational-queue-card-meta operational-queue-card-phone"><i data-lucide="phone" aria-hidden="true"></i><span>{{ farmer.primary_phone|default:"Phone not provided" }}</span></span>
+    </div>
+    <div class="operational-queue-card-bottom">
+      {% if farmer.unit_number %}<span class="badge badge-grey">Unit {{ farmer.unit_number }}</span>{% endif %}
       {% if review_stage == 'payment' and farmer.payment_review_payment_number %}
-        <span class="badge badge-orange">Payment #{{ farmer.payment_review_payment_number }} awaiting HOR review</span>
+        <span class="badge badge-orange">Payment #{{ farmer.payment_review_payment_number }}</span>
         <span class="badge badge-grey">Order {{ farmer.payment_review_order_number|default:"-" }}</span>
       {% endif %}
       {% if farmer.reappraisal_required %}<span class="badge badge-red">Reappraisal required since {{ farmer.deferred_until }}</span>{% endif %}
-      {% if farmer.unit_number %}<span class="badge badge-grey">Unit {{ farmer.unit_number }}</span>{% endif %}
-      {% if farmer.stage_label %}
-        <span class="badge badge-blue">{{ farmer.stage_label }}</span>
-      {% endif %}
-      {% if farmer.jbl_visit_status %}
+      {% if queue_key == 'credit' and farmer.jbl_visit_status %}
         <span class="badge badge-orange">{{ farmer.jbl_visit_status }}</span>
       {% endif %}
-      {% if farmer.credit_decision %}
+      {% if queue_key == 'final' and review_stage != 'payment' and farmer.credit_decision %}
         <span class="badge badge-green">{{ farmer.credit_decision }}</span>
       {% endif %}
-      {% if farmer.final_decision %}
+      {% if queue_key == 'requisition' and farmer.final_decision %}
         <span class="badge badge-green">Final: {{ farmer.final_decision }}</span>
       {% endif %}
-      {% if farmer.order_number %}
+      {% if queue_key == 'all' and farmer.order_number %}
         <span class="badge badge-green">Order: {{ farmer.order_number }}</span>
+      {% elif queue_key == 'all' and farmer.final_decision %}
+        <span class="badge badge-green">Final: {{ farmer.final_decision }}</span>
+      {% elif queue_key == 'all' and farmer.credit_decision and farmer.credit_decision != 'Pending' %}
+        <span class="badge badge-green">{{ farmer.credit_decision }}</span>
+      {% elif queue_key == 'all' and farmer.jbl_visit_status %}
+        <span class="badge badge-orange">{{ farmer.jbl_visit_status }}</span>
       {% endif %}
     </div>
     {% if review_stage == 'payment' and farmer.payment_review_document_id %}
-      <button type="button" class="btn btn-secondary btn-open-payment-review" data-payment-document-id="{{ farmer.payment_review_document_id }}" onclick="event.stopPropagation();">Open payment review</button>
+      <button type="button" class="btn btn-secondary btn-open-payment-review operational-queue-card-action" data-payment-document-id="{{ farmer.payment_review_document_id }}" onclick="event.stopPropagation();"><i data-lucide="file-check" aria-hidden="true"></i><span>Open Payment Review</span></button>
     {% endif %}
   </div>
   {% endif %}

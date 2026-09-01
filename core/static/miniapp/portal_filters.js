@@ -26,24 +26,11 @@
     listEl.innerHTML = farmers.map(farmer => {
       const originalIdx = state().queues[qKey].indexOf(farmer);
       return `
-          <div class="farmer-card${qKey === 'requisition' ? ' requisition-card' : ''}" data-qkey="${qKey}" data-farmer-id="${deps.escapeHtml(farmer.id || '')}" data-idx="${originalIdx}" id="fc-${qKey}-${originalIdx}">
+          <div class="farmer-card${qKey === 'requisition' ? ' requisition-card' : ''}${qKey === 'jbl' || qKey === 'my_visits' ? '' : ' operational-farmer-card'}" data-qkey="${qKey}" data-farmer-id="${deps.escapeHtml(farmer.id || '')}" data-idx="${originalIdx}" id="fc-${qKey}-${originalIdx}">
           ${qKey === 'requisition' ? `
             <input type="checkbox" class="farmer-card-checkbox" data-id="${deps.escapeHtml(farmer.id)}" ${state().selectedRequisitions.has(farmer.id) ? 'checked' : ''} onclick="event.stopPropagation();">
           ` : ''}
-          ${qKey === 'jbl' || qKey === 'my_visits' ? deps.renderVisitQueueCard(farmer, qKey) : `<div style="flex: 1;">
-            <div class="fc-name">${deps.escapeHtml(farmer.customer_name || farmer.national_id || farmer.primary_phone || 'Unknown')}</div>
-            <div class="fc-sub">${deps.escapeHtml(deps.locationText(farmer))}</div>
-            <div class="fc-sub">${deps.escapeHtml(farmer.primary_phone || '')}</div>
-            <div class="fc-badges">
-              ${farmer.reappraisal_required ? `<span class="badge badge-red">Reappraisal required since ${deps.escapeHtml(farmer.deferred_until || '')}</span>` : ''}
-              ${farmer.unit_number ? `<span class="badge badge-grey">Unit ${deps.escapeHtml(farmer.unit_number)}</span>` : ''}
-              ${deps.stageBadge(farmer)}
-              ${deps.jblBadge(farmer)}
-              ${deps.creditBadge(farmer)}
-              ${state().filters.reviewStage === 'payment' && farmer.payment_review_document_id ? `<span class="badge badge-orange">Payment #${deps.escapeHtml(farmer.payment_review_payment_number || '-')} awaiting HOR review</span><span class="badge badge-grey">Order ${deps.escapeHtml(farmer.payment_review_order_number || '-')}</span><button type="button" class="btn btn-secondary btn-open-payment-review" data-payment-document-id="${deps.escapeHtml(farmer.payment_review_document_id)}">Open payment review</button>` : ''}
-              ${farmer.order_number ? `<span class="badge badge-green">Order: ${deps.escapeHtml(farmer.order_number)}</span>` : ''}
-            </div>
-          </div>`}
+          ${qKey === 'jbl' || qKey === 'my_visits' ? deps.renderVisitQueueCard(farmer, qKey) : deps.renderOperationalQueueCard(farmer, qKey)}
         </div>
       `;
     }).join('');

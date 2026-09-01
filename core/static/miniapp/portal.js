@@ -1125,6 +1125,50 @@
       </div>`;
   }
 
+  function renderOperationalQueueCard(f, qKey) {
+    const displayNumber = f.display_number
+      ? `<span class="farmer-card-number" aria-label="Queue position ${escapeHtml(String(f.display_number))}">#${escapeHtml(String(f.display_number))}</span>`
+      : '';
+    const name = escapeHtml(f.customer_name || f.national_id || f.primary_phone || 'Unknown');
+    const locationValue = locationText(f);
+    const location = escapeHtml(locationValue === '-' ? 'Location not provided' : locationValue);
+    const phone = escapeHtml(f.primary_phone || 'Phone not provided');
+    const paymentReview = state.filters.reviewStage === 'payment' && f.payment_review_payment_number;
+    const status = escapeHtml(paymentReview ? 'Payment Review' : (f.current_pipeline_state || 'In Progress'));
+    const badges = [];
+    if (f.unit_number) badges.push(`<span class="badge badge-grey">Unit ${escapeHtml(f.unit_number)}</span>`);
+    if (paymentReview) {
+      badges.push(`<span class="badge badge-orange">Payment #${escapeHtml(f.payment_review_payment_number)}</span>`);
+      badges.push(`<span class="badge badge-grey">Order ${escapeHtml(f.payment_review_order_number || '-')}</span>`);
+    }
+    if (f.reappraisal_required) badges.push(`<span class="badge badge-red">Reappraisal required since ${escapeHtml(f.deferred_until || '')}</span>`);
+    if (qKey === 'credit' && f.jbl_visit_status) badges.push(`<span class="badge badge-orange">${escapeHtml(f.jbl_visit_status)}</span>`);
+    if (qKey === 'final' && !paymentReview && f.credit_decision) badges.push(`<span class="badge badge-green">${escapeHtml(f.credit_decision)}</span>`);
+    if (qKey === 'requisition' && f.final_decision) badges.push(`<span class="badge badge-green">Final: ${escapeHtml(f.final_decision)}</span>`);
+    if (qKey === 'all') {
+      if (f.order_number) badges.push(`<span class="badge badge-green">Order: ${escapeHtml(f.order_number)}</span>`);
+      else if (f.final_decision) badges.push(`<span class="badge badge-green">Final: ${escapeHtml(f.final_decision)}</span>`);
+      else if (f.credit_decision && f.credit_decision !== 'Pending') badges.push(`<span class="badge badge-green">${escapeHtml(f.credit_decision)}</span>`);
+      else if (f.jbl_visit_status) badges.push(`<span class="badge badge-orange">${escapeHtml(f.jbl_visit_status)}</span>`);
+    }
+    const paymentAction = paymentReview && f.payment_review_document_id
+      ? `<button type="button" class="btn btn-secondary btn-open-payment-review operational-queue-card-action" data-payment-document-id="${escapeHtml(f.payment_review_document_id)}"><i data-lucide="file-check" aria-hidden="true"></i><span>Open Payment Review</span></button>`
+      : '';
+
+    return `<div class="operational-queue-card-content">
+      <div class="operational-queue-card-heading">
+        <div class="operational-queue-card-identity">${displayNumber}<span class="fc-name">${name}</span></div>
+        <span class="badge operational-queue-status">${status}</span>
+      </div>
+      <div class="operational-queue-card-details">
+        <span class="operational-queue-card-meta"><i data-lucide="map-pin" aria-hidden="true"></i><span>${location}</span></span>
+        <span class="operational-queue-card-meta operational-queue-card-phone"><i data-lucide="phone" aria-hidden="true"></i><span>${phone}</span></span>
+      </div>
+      ${badges.length ? `<div class="operational-queue-card-bottom">${badges.join('')}</div>` : ''}
+      ${paymentAction}
+    </div>`;
+  }
+
 
   function renderFarmerList(listEl, farmers, cfg, qKey) {
     if (!farmers.length) {
@@ -1132,22 +1176,11 @@
       return;
     }
     listEl.innerHTML = farmers.map((f, i) => `
-      <div class="farmer-card${qKey === 'requisition' ? ' requisition-card' : ''}" data-qkey="${qKey}" data-farmer-id="${escapeHtml(f.id || '')}" data-idx="${i}" id="fc-${qKey}-${i}">
+      <div class="farmer-card${qKey === 'requisition' ? ' requisition-card' : ''}${qKey === 'jbl' || qKey === 'my_visits' ? '' : ' operational-farmer-card'}" data-qkey="${qKey}" data-farmer-id="${escapeHtml(f.id || '')}" data-idx="${i}" id="fc-${qKey}-${i}">
         ${qKey === 'requisition' && hasCapability('portal.requisition.write') ? `
           <input type="checkbox" class="farmer-card-checkbox" data-id="${escapeHtml(f.id || '')}" data-revision="${escapeHtml(String(f.workflow_revision || 1))}" ${state.selectedRequisitions.has(f.id) ? 'checked' : ''} onclick="event.stopPropagation();">
         ` : ''}
-        ${qKey === 'jbl' || qKey === 'my_visits' ? renderVisitQueueCard(f, qKey) : `<div style="flex: 1;">
-          <div class="fc-name">${f.display_number ? `<span class="farmer-card-number" aria-label="Queue position ${escapeHtml(String(f.display_number))}">${escapeHtml(String(f.display_number))}</span>` : ''}${escapeHtml(f.customer_name || f.national_id || f.primary_phone || 'Unknown')}</div>
-          <div class="fc-sub">${escapeHtml(locationText(f))}</div>
-          <div class="fc-sub">${escapeHtml(f.primary_phone || '')}</div>
-          <div class="fc-badges">
-            ${stageBadge(f)}
-            ${jblBadge(f)}
-            ${creditBadge(f)}
-            ${paymentReviewMarkup(f)}
-            ${f.order_number ? `<span class="badge badge-green">Order: ${f.order_number}</span>` : ''}
-          </div>
-        </div>`}
+        ${qKey === 'jbl' || qKey === 'my_visits' ? renderVisitQueueCard(f, qKey) : renderOperationalQueueCard(f, qKey)}
       </div>
     `).join('');
 
@@ -2404,6 +2437,7 @@
       openPaymentReviewDocument,
       queueConfig,
       renderQueueFragment,
+      renderOperationalQueueCard,
       renderVisitQueueCard,
       stageBadge,
       state,
