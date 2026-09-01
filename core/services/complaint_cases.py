@@ -53,6 +53,41 @@ ALLOWED_DOCUMENT_TYPES = {
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 }
 
+CATEGORY_SUGGESTION_RULES = (
+    ('relocation-request', (
+        r'\brelocat(?:e|ed|ing|ion)\b', r'\b(?:move|moving|shift)\b.{0,30}\b(?:system|digester|unit)\b',
+    )),
+    ('installation-delay', (
+        r'\binstall(?:ation|ed|ing)?\b.{0,45}\b(?:delay(?:ed)?|pending|waiting|not done|not happened|hasn.t happened)\b',
+        r'\b(?:delay(?:ed)?|pending|waiting)\b.{0,30}\binstall(?:ation|ed|ing)?\b',
+    )),
+    ('commissioning-delay', (
+        r'\b(?:commission(?:ing|ed)?|start[ -]?up)\b.{0,45}\b(?:delay(?:ed)?|pending|waiting|not done|not happened)\b',
+        r'\b(?:delay(?:ed)?|pending|waiting)\b.{0,30}\b(?:commission(?:ing|ed)?|start[ -]?up)\b',
+    )),
+    ('accessories-delay', (
+        r'\baccessor(?:y|ies)\b.{0,45}\b(?:delay(?:ed)?|pending|waiting|missing|not received|not delivered)\b',
+        r'\b(?:delay(?:ed)?|pending|waiting|missing)\b.{0,30}\baccessor(?:y|ies)\b',
+    )),
+    ('leakage', (
+        r'\bleak(?:age|ing|s|ed)?\b', r'\bgas\s+(?:is\s+)?escap(?:e|ing)\b', r'\b(?:smell|odou?r)\s+of\s+gas\b', r'\bgas\s+smell\b',
+    )),
+    ('blockage', (
+        r'\bblock(?:age|ed|ing)?\b', r'\bclog(?:ged|ging)?\b', r'\b(?:inlet|outlet)\b.{0,25}\b(?:stuck|blocked|clogged)\b',
+    )),
+    ('burner-knob-fault', (
+        r'\bburner\b', r'\bknob\b', r'\bignit(?:e|ion|ing)\b', r'\bflame\b', r'\bstove\b',
+    )),
+    ('system-performance', (
+        r'\b(?:no|low|little|poor)\s+gas\b', r'\b(?:gas\s+)?production\b', r'\blow\s+pressure\b',
+        r'\bpoor\s+(?:system\s+)?performance\b', r'\bsystem\b.{0,25}\bnot\s+work(?:ing)?\b',
+    )),
+    ('pipe-connection-fault', (
+        r'\b(?:pipe|hose|connection|joint|valve)\b.{0,35}\b(?:fault|broken|damage(?:d)?|disconnect(?:ed)?|crack(?:ed)?|loose)\b',
+        r'\b(?:broken|damage(?:d)?|disconnect(?:ed)?|crack(?:ed)?|loose)\b.{0,35}\b(?:pipe|hose|connection|joint|valve)\b',
+    )),
+)
+
 
 class ComplaintCaseError(ValueError):
     """Staff-safe complaint Mini App validation error."""
@@ -114,6 +149,39 @@ def resolve_category(group_config, value: Any) -> ComplaintCategory:
     return category
 
 
+def suggest_category(group_config, description: Any) -> dict[str, Any]:
+    """Suggest, but never assign, one active category from complaint text."""
+    text = ' '.join(str(description or '').casefold().split())
+    matched_keys = [
+        key for key, patterns in CATEGORY_SUGGESTION_RULES
+        if any(re.search(pattern, text) for pattern in patterns)
+    ]
+    # A leak in a pipe or connection is still primarily Leakage. This is the
+    # only deliberate dominance rule; unrelated collisions stay ambiguous.
+    if 'leakage' in matched_keys and 'pipe-connection-fault' in matched_keys:
+        matched_keys.remove('pipe-connection-fault')
+    categories = {category.key: category for category in available_categories(group_config)}
+    matched = [categories[key] for key in matched_keys if key in categories]
+    if len(matched) == 1:
+        category = matched[0]
+        return {
+            'state': 'matched',
+            'suggestion': {'key': category.key, 'label': category.label},
+            'candidates': [],
+        }
+    if len(matched) > 1:
+        return {
+            'state': 'ambiguous', 'suggestion': None,
+            'candidates': [{'key': item.key, 'label': item.label} for item in matched],
+        }
+    fallback = categories.get('other-complaint')
+    return {
+        'state': 'fallback',
+        'suggestion': ({'key': fallback.key, 'label': fallback.label} if fallback else None),
+        'candidates': [],
+    }
+
+
 def resolve_branch(value: Any) -> OperationalLocation | None:
     text = ' '.join(str(value or '').split())
     if not text:
@@ -158,7 +226,10 @@ def ensure_case_control(case: ParsedMessage, group_config=None) -> ComplaintCase
         try:
             category = resolve_category(group_config, case.complaint_category or 'General complaint')
         except ComplaintCaseError:
-            category = available_categories(group_config).first()
+            categories = available_categories(group_config)
+            category = categories.filter(key='other-complaint').first() or categories.filter(
+                label__iexact='Other Complaint',
+            ).first()
     branch = resolve_branch(case.branch_region)
     customer, match_status = match_customer(case.customer_id, case.customer_phone)
     priority = category.default_priority if category else 'normal'
@@ -252,6 +323,7 @@ def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
     )
     branch_values = set(configured_branches) | set(observed_branches)
     resolved = cases.filter(complaint_status='Closed').count()
+    needs_details = cases.filter(complaint_status='Review Needed').count()
     total = cases.count()
     return {
         'actor': {
@@ -261,9 +333,16 @@ def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
         'statuses': ['pending', 'resolved', 'all'],
         'branches': sorted(branch_values, key=str.casefold),
         'categories': list(available_categories(group_config).values_list('label', flat=True)),
+        'category_catalogue': list(available_categories(group_config).values('key', 'label', 'description')),
+        'evidence_limits': {
+            'max_files': int(getattr(settings, 'COMPLAINT_CASE_MAX_FILES_PER_UPDATE', 10)),
+            'max_file_size_mb': int(getattr(settings, 'COMPLAINT_CASE_MAX_FILE_SIZE_MB', 10)),
+            'max_total_upload_mb': int(getattr(settings, 'COMPLAINT_CASE_MAX_TOTAL_UPLOAD_MB', 30)),
+        },
         'counts': {
             'pending': total - resolved,
             'resolved': resolved,
+            'needs_details': needs_details,
             'total': total,
         },
     }
@@ -660,10 +739,19 @@ def complaint_case_message_id(group_id: str, request_id: str) -> str:
     return f'CMP-MA-{hashlib.sha256(f"{group_id}:{request_id}".encode()).hexdigest()[:24]}'
 
 
-def next_complaint_case_id(group_config) -> str:
-    year = timezone.localtime(timezone.now()).year
+def next_complaint_case_id(group_config_or_id, *, reference_at=None) -> str:
+    """Allocate the next staff-facing complaint reference for one group/year."""
+    group_id = str(
+        getattr(group_config_or_id, 'group_id', group_config_or_id) or 'default'
+    )
+    reference_time = reference_at or timezone.now()
+    if timezone.is_naive(reference_time):
+        reference_time = timezone.make_aware(
+            reference_time, timezone.get_current_timezone()
+        )
+    year = timezone.localtime(reference_time).year
     sequence, _ = ComplaintCaseSequence.objects.select_for_update().get_or_create(
-        group_id=str(group_config.group_id),
+        group_id=group_id,
         year=year,
         defaults={'next_number': 1},
     )
@@ -672,8 +760,176 @@ def next_complaint_case_id(group_config) -> str:
         sequence.next_number = number + 1
         sequence.save(update_fields=['next_number', 'updated_at'])
         case_id = f'CMP-{year}-{number:03d}'
-        if not ParsedMessage.objects.filter(group_id=str(group_config.group_id), message_id=case_id).exists():
+        if not ParsedMessage.objects.filter(group_id=group_id, message_id=case_id).exists():
             return case_id
+
+
+def complete_review_details(
+    group_config,
+    actor: ComplaintCaseActor,
+    case_id: str,
+    fields: dict[str, Any],
+) -> dict[str, Any]:
+    """Complete identifiers on a Review Needed case and return it to Pending."""
+    request_id = create_request_id(fields.get('client_request_id'))
+    case = _case_for_group(group_config.group_id, case_id, actor=actor)
+    if not actor_can(group_config, actor, 'complaint.case.update', case):
+        raise ComplaintCaseError('Your role does not permit completing complaint details in this group.')
+    control = ensure_case_control(case, group_config)
+    values = validate_review_completion_fields(group_config, case, fields)
+    payload_hash = mutation_payload_hash(values)
+    existing_event = control.events.filter(request_id=request_id).first()
+    if existing_event:
+        if existing_event.action != 'details_completed' or existing_event.payload_hash != payload_hash:
+            raise ComplaintCaseError('That retry identifier was already used for different complaint details.')
+        return case_detail(group_config, case_id, actor)
+    try:
+        expected_revision = int(fields.get('expected_revision'))
+    except (TypeError, ValueError):
+        raise ComplaintCaseError('Refresh this case before saving; its revision is missing.')
+    if case.complaint_status != 'Review Needed':
+        raise ComplaintCaseError('Only a case marked Needs details can use this action.')
+    if control.revision != expected_revision:
+        raise ComplaintCaseConflict(
+            'This complaint changed while you were completing its details. Review the latest case and try again.',
+            current_revision=control.revision,
+        )
+    projection_enabled = complaint_sheet_projection_enabled(group_config)
+    try:
+        case, control, update, replayed = _persist_review_completion(
+            case=case,
+            actor=actor,
+            values=values,
+            request_id=request_id,
+            payload_hash=payload_hash,
+            expected_revision=expected_revision,
+            projection_enabled=projection_enabled,
+        )
+    except IntegrityError:
+        replay = ComplaintCaseEvent.objects.filter(case=control, request_id=request_id).first()
+        if replay and replay.action == 'details_completed' and replay.payload_hash == payload_hash:
+            return case_detail(group_config, case_id, actor)
+        raise
+    if replayed:
+        return case_detail(group_config, case_id, actor)
+    if projection_enabled:
+        try:
+            synced = (
+                update_sheet_case(group_config, case, {
+                    'customer_phone': case.customer_phone,
+                    'customer_id': case.customer_id,
+                    'complaint_category': case.complaint_category,
+                    'status': 'Open',
+                })
+                if case.synced_to_sheets else sync_new_case_to_sheet(group_config, case)
+            )
+        except Exception:
+            logger.exception('Complaint detail-completion publication failed for case %s.', case.pk)
+            synced = False
+        update.sync_status = 'success' if synced else 'failed'
+        update.sync_error = '' if synced else 'The local details are saved; complaint register publication is pending.'
+    else:
+        synced = False
+        update.sync_status = 'not_required'
+        update.sync_error = ''
+    update.save(update_fields=['sync_status', 'sync_error'])
+    control.sync_status = update.sync_status
+    control.sync_error = update.sync_error
+    control.last_sync_at = timezone.now() if synced else control.last_sync_at
+    control.save(update_fields=['sync_status', 'sync_error', 'last_sync_at', 'updated_at'])
+    return case_detail(group_config, case_id, actor)
+
+
+def _persist_review_completion(
+    *, case, actor, values, request_id: str, payload_hash: str,
+    expected_revision: int, projection_enabled: bool,
+):
+    with transaction.atomic():
+        case = ParsedMessage.objects.select_for_update().get(pk=case.pk)
+        control = ComplaintCaseControl.objects.select_for_update().get(parsed_message=case)
+        if case.complaint_status != 'Review Needed':
+            replay = control.events.filter(request_id=request_id).first()
+            if replay and replay.action == 'details_completed' and replay.payload_hash == payload_hash:
+                update = CaseUpdate.objects.get(parsed_message=case, client_request_id=request_id)
+                return case, control, update, True
+            raise ComplaintCaseError('Only a case marked Needs details can use this action.')
+        if control.revision != expected_revision:
+            raise ComplaintCaseConflict(
+                'This complaint changed while you were completing its details. Review the latest case and try again.',
+                current_revision=control.revision,
+            )
+        before = control_snapshot(control, case)
+        case.customer_phone = values['customer_phone']
+        case.customer_id = values['customer_id']
+        case.complaint_category = values['category'].label
+        case.complaint_status = 'Open'
+        case.save(update_fields=[
+            'customer_phone', 'customer_id', 'complaint_category', 'complaint_status',
+        ])
+        control.category = values['category']
+        control.customer = values['customer']
+        control.customer_match_status = values['customer_match_status']
+        control.revision += 1
+        control.sync_status = 'pending' if projection_enabled else 'not_required'
+        control.sync_error = ''
+        control.save(update_fields=[
+            'category', 'customer', 'customer_match_status', 'revision',
+            'sync_status', 'sync_error', 'updated_at',
+        ])
+        update = CaseUpdate.objects.create(
+            parsed_message=case,
+            group_id=case.group_id,
+            updated_by=actor.name,
+            old_status='Review Needed',
+            new_status='Open',
+            resolution_text='Required customer details completed.',
+            raw_update_text='Complaint review details completed in Complaint Cases Mini App',
+            source='mini_app_review_completion',
+            client_request_id=request_id,
+            sync_status='pending' if projection_enabled else 'not_required',
+        )
+        ComplaintCaseEvent.objects.create(
+            case=control,
+            revision=control.revision,
+            action='details_completed',
+            actor=actor.user,
+            actor_label=actor.name,
+            request_id=request_id,
+            payload_hash=payload_hash,
+            before_values=before,
+            after_values=control_snapshot(control, case),
+            reason='Required customer identifiers and category confirmed.',
+        )
+        record_complaint_update(update, case, actor, action='complaint.case.details_completed')
+        return case, control, update, False
+
+
+def validate_review_completion_fields(group_config, case: ParsedMessage, fields: dict[str, Any]) -> dict[str, Any]:
+    submitted_phone = str(fields.get('customer_phone') or '').strip()
+    if case.customer_phone and submitted_phone:
+        normalized_submitted = normalize_kenyan_phone(submitted_phone)
+        normalized_existing = normalize_kenyan_phone(case.customer_phone) or case.customer_phone
+        if normalized_submitted != normalized_existing:
+            raise ComplaintCaseError('The existing phone number cannot be changed in this completion action.')
+    phone_input = str(case.customer_phone or submitted_phone).strip()
+    customer_phone = normalize_kenyan_phone(phone_input) if phone_input else ''
+    if not customer_phone:
+        raise ComplaintCaseError('Enter the missing valid Kenyan phone number.')
+    submitted_id = limited_case_text(fields.get('customer_id'), 'Customer ID')
+    if case.customer_id and submitted_id and submitted_id.casefold() != case.customer_id.casefold():
+        raise ComplaintCaseError('The existing customer ID cannot be changed in this completion action.')
+    customer_id = case.customer_id or submitted_id
+    if not customer_id:
+        raise ComplaintCaseError('Enter the missing customer ID.')
+    category = resolve_category(group_config, fields.get('complaint_category') or case.complaint_category)
+    customer, match_status = match_customer(customer_id, customer_phone)
+    return {
+        'customer_phone': customer_phone,
+        'customer_id': customer_id,
+        'category': category,
+        'customer': customer,
+        'customer_match_status': match_status,
+    }
 
 
 def complaint_case_hash(group_id: str, request_id: str) -> str:
@@ -1162,10 +1418,11 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
         'customer_phone': case.customer_phone,
         'customer_id': case.customer_id,
         'branch': case.branch_region,
-        'category': case.complaint_category,
+        'category': control.category.label if control.category_id else case.complaint_category,
         'description': case.complaint_description,
         'status': 'Resolved' if resolved else 'Pending',
         'stored_status': case.complaint_status or 'Open',
+        'needs_details': case.complaint_status == 'Review Needed',
         'reported_at': format_datetime(case.timestamp),
         'recorded_at': format_datetime(case.created_at),
         'days_open': age_days,

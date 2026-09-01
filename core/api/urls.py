@@ -155,6 +155,7 @@ from .portal_views import (
 )
 from .complaint_case_views import (
     complaint_cases_bootstrap,
+    complaint_cases_category_suggestion,
     complaint_cases_settings_personal,
     complaint_cases_create,
     complaint_cases_list,
@@ -165,6 +166,7 @@ from .complaint_case_views import (
     complaint_cases_global_export,
     complaint_cases_detail,
     complaint_cases_update,
+    complaint_cases_complete_details,
     complaint_cases_resolve,
     complaint_cases_reopen,
     complaint_cases_evidence_access,
@@ -303,6 +305,7 @@ urlpatterns = [
     path('tat-tracker/update/', tat_tracker_update, name='tat_tracker_update'),
     path('complaints/', legacy_get_redirect('complaint_cases_app'), name='legacy_api_complaint_cases_app'),
     path('complaints/bootstrap/', complaint_cases_bootstrap, name='complaint_cases_bootstrap'),
+    path('complaints/categories/suggest/', complaint_cases_category_suggestion, name='complaint_cases_category_suggestion'),
     path('complaints/settings/personal/', complaint_cases_settings_personal, name='complaint_cases_settings_personal'),
     path('complaints/cases/', complaint_cases_list, name='complaint_cases_list'),
     path('complaints/cases/fragment/', complaint_cases_list_fragment, name='complaint_cases_list_fragment'),
@@ -313,6 +316,7 @@ urlpatterns = [
     path('complaints/cases/create/', complaint_cases_create, name='complaint_cases_create'),
     path('complaints/cases/<str:case_id>/', complaint_cases_detail, name='complaint_cases_detail'),
     path('complaints/cases/<str:case_id>/update/', complaint_cases_update, name='complaint_cases_update'),
+    path('complaints/cases/<str:case_id>/complete-details/', complaint_cases_complete_details, name='complaint_cases_complete_details'),
     path('complaints/cases/<str:case_id>/resolve/', complaint_cases_resolve, name='complaint_cases_resolve'),
     path('complaints/cases/<str:case_id>/reopen/', complaint_cases_reopen, name='complaint_cases_reopen'),
     path('complaints/cases/<str:case_id>/sync-retry/', complaint_cases_sync_retry, name='complaint_cases_sync_retry'),

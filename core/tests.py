@@ -17,6 +17,7 @@ from unittest.mock import patch, MagicMock
 
 from core.models import (
     CaseUpdate,
+    ComplaintCaseSequence,
     ComplaintCaseImportBatch,
     ComplaintCaseImportItem,
     FcaImportRecord,
@@ -2974,6 +2975,7 @@ class StorageServiceTest(TestCase):
         self.assertIsNotNone(parsed)
         self.assertEqual(parsed.item, 'bread')
         self.assertEqual(parsed.quantity, Decimal('3'))
+        self.assertRegex(parsed.message_id, r'^MSG_[A-F0-9]{16}$')
         
         # Verify raw message stored
         self.assertTrue(
@@ -3034,6 +3036,59 @@ class StorageServiceTest(TestCase):
         self.assertEqual(parsed.group_id, '-100123')
         self.assertFalse(parsed.synced_to_sheets)
         self.assertEqual(getattr(parsed, '_processing_status'), 'success')
+        mock_sheet.assert_not_called()
+
+    @patch('core.services.sheets.append_parsed_message_to_sheet')
+    def test_new_ingested_complaints_share_the_short_yearly_sequence(self, mock_sheet):
+        reported_at = timezone.make_aware(datetime(2026, 9, 1, 9, 0))
+        common = {
+            'sender': 'Agent', 'received_at': reported_at,
+            'group_id': '-100123', 'sheet_id': 'sheet_123',
+            'sheet_name': 'Cases', 'defer_sheet_sync': True,
+        }
+        first = process_and_store_message(
+            telegram_message_id='sequential_complaint_1',
+            content=(
+                'CUSTOMER COMPLAINT\nNAME: Jane Doe\nTEL: 0712345678\n'
+                'ID: A12345\nNATURE OF THE PROBLEM: No gas supply'
+            ),
+            **common,
+        )
+        second = process_and_store_message(
+            telegram_message_id='sequential_complaint_2',
+            content=(
+                'CUSTOMER COMPLAINT\nNAME: John Doe\nTEL: 0798765432\n'
+                'ID: B98765\nNATURE OF THE PROBLEM: Burner needs repair'
+            ),
+            **common,
+        )
+
+        self.assertEqual(first.message_id, 'CMP-2026-001')
+        self.assertEqual(second.message_id, 'CMP-2026-002')
+        self.assertEqual(
+            ComplaintCaseSequence.objects.get(group_id='-100123', year=2026).next_number,
+            3,
+        )
+        mock_sheet.assert_not_called()
+
+    @patch('core.services.sheets.append_parsed_message_to_sheet')
+    def test_new_sequence_does_not_rename_existing_complaints(self, mock_sheet):
+        legacy = create_parsed_case('MSG_EXISTING_LONG_REFERENCE', group_id='-100123')
+        reported_at = timezone.make_aware(datetime(2026, 9, 1, 9, 0))
+
+        created = process_and_store_message(
+            telegram_message_id='new_after_legacy',
+            content=(
+                'CUSTOMER COMPLAINT\nNAME: Jane Doe\nTEL: 0712345678\n'
+                'ID: A12345\nNATURE OF THE PROBLEM: No gas supply'
+            ),
+            sender='Agent', received_at=reported_at, group_id='-100123',
+            sheet_id='sheet_123', sheet_name='Cases', defer_sheet_sync=True,
+        )
+
+        legacy.refresh_from_db()
+        self.assertEqual(legacy.message_id, 'MSG_EXISTING_LONG_REFERENCE')
+        self.assertEqual(created.message_id, 'CMP-2026-001')
         mock_sheet.assert_not_called()
 
     @patch('core.services.sheets.append_parsed_message_to_sheet')

@@ -85,13 +85,17 @@ def store_parsed_message(
     group_id: str = 'default',
     sheet_id: str = '',
     sheet_name: str = '',
+    message_id: str = '',
 ) -> ParsedMessage:
     try:
-        message_id = f"MSG_{processed_message.message_hash[:16].upper()}"
+        stored_message_id = (
+            str(message_id or '').strip()
+            or f"MSG_{processed_message.message_hash[:16].upper()}"
+        )
 
         parsed_message = ParsedMessage.objects.create(
             processed_message=processed_message,
-            message_id=message_id,
+            message_id=stored_message_id,
             timestamp=parsed_result.timestamp,
             sender=parsed_result.sender,
             raw_message=raw_content,
@@ -114,7 +118,7 @@ def store_parsed_message(
         )
 
         logger.info(
-            f"Stored parsed message {message_id}: "
+            f"Stored parsed message {stored_message_id}: "
             f"item={parsed_result.item}, qty={parsed_result.quantity}, "
             f"price={parsed_result.price}, confidence={parsed_result.confidence}"
         )
@@ -226,6 +230,28 @@ def process_and_store_message(
         intent_value = getattr(parsed_result, 'intent', '')
         parsed_intent = getattr(intent_value, 'value', intent_value)
 
+        complaint_group_config = None
+        complaint_projection_enabled = True
+        complaint_case_id = ''
+        if parsed_intent == 'complaint':
+            from core.services.complaint_cases import (
+                complaint_sheet_projection_enabled,
+                next_complaint_case_id,
+            )
+            from core.services.group_config import GroupRegistry
+
+            complaint_group_id = group_id or 'default'
+            complaint_group_config = GroupRegistry.get_instance().get_group(
+                complaint_group_id
+            )
+            complaint_projection_enabled = complaint_sheet_projection_enabled(
+                complaint_group_config
+            )
+            complaint_case_id = next_complaint_case_id(
+                complaint_group_id,
+                reference_at=received_at or getattr(parsed_result, 'timestamp', None),
+            )
+
         # ── 5. Store parsed ──────────────────────────────────────────
         parsed_message = store_parsed_message(
             processed_message=processed_message,
@@ -235,19 +261,11 @@ def process_and_store_message(
             group_id=group_id or 'default',
             sheet_id=sheet_id or '',
             sheet_name=sheet_name or '',
+            message_id=complaint_case_id,
         )
 
-        complaint_group_config = None
-        complaint_projection_enabled = True
         if parsed_intent == 'complaint':
-            from core.services.complaint_cases import (
-                complaint_sheet_projection_enabled,
-                ensure_case_control,
-            )
-            from core.services.group_config import GroupRegistry
-
-            complaint_group_config = GroupRegistry.get_instance().get_group(group_id or 'default')
-            complaint_projection_enabled = complaint_sheet_projection_enabled(complaint_group_config)
+            from core.services.complaint_cases import ensure_case_control
             ensure_case_control(parsed_message, complaint_group_config)
 
         # Batch imports can defer this and append all rows in one Sheets

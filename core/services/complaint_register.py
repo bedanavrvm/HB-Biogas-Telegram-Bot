@@ -11,16 +11,14 @@ from django.db.models import Count, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
-from core.models import GroupSheetConfiguration, ParsedMessage
+from core.models import ComplaintCategory, GroupSheetConfiguration, ParsedMessage
 from core.services.complaint_cases import ComplaintCaseError, format_datetime, sla_payload
 
 
 EXPORT_FIELDS = (
-    'Complaint group', 'Case ID', 'Status', 'Priority', 'SLA state', 'SLA due',
-    'Customer name', 'Phone number', 'Customer ID', 'Branch', 'Category',
-    'Complaint description', 'Assigned to', 'Reported by', 'Reported at',
-    'Recorded at', 'Resolved at', 'Days open', 'Resolution details',
-    'Customer match', 'Sheet projection', 'Sheet sync',
+    'Case ID', 'Customer Name', 'Phone Number', 'Customer ID', 'Branch',
+    'Category', 'Complaint', 'Status', 'Reported At', 'Resolved At',
+    'Days Open', 'Resolution',
 )
 
 SORT_FIELDS = {
@@ -171,7 +169,9 @@ def serialize_register_case(case: ParsedMessage, groups: dict[str, GroupSheetCon
         'category': control.category.label if control.category_id else case.complaint_category,
         'description': case.complaint_description,
         'status': 'Resolved' if case.complaint_status == 'Closed' else 'Pending',
-        'stored_status': case.complaint_status or 'Open', 'priority': control.priority,
+        'stored_status': case.complaint_status or 'Open',
+        'needs_details': case.complaint_status == 'Review Needed',
+        'priority': control.priority,
         'assigned_to': assigned_label, 'reported_by': case.sender,
         'reported_at': format_datetime(case.timestamp), 'recorded_at': format_datetime(case.created_at),
         'resolved_at': format_datetime(case.date_resolved), 'days_open': _days_open(case),
@@ -202,6 +202,7 @@ def register_overview() -> dict[str, Any]:
         total=Count('pk'),
         pending=Count('pk', filter=~Q(complaint_status='Closed')),
         resolved=Count('pk', filter=Q(complaint_status='Closed')),
+        needs_details=Count('pk', filter=Q(complaint_status='Review Needed')),
         overdue=Count('pk', filter=~Q(complaint_status='Closed') & Q(complaint_control__sla_due_at__lt=now)),
         high_priority=Count('pk', filter=~Q(complaint_status='Closed') & Q(complaint_control__priority='high')),
         sync_attention=Count('pk', filter=~Q(group_id__in=disabled) & Q(complaint_control__sync_status__in={'pending', 'failed'})),
@@ -212,7 +213,8 @@ def register_overview() -> dict[str, Any]:
         'complaint_control__category__label', 'complaint_category',
     ):
         category_counts[str(category_label or legacy_label or 'Not set')] += 1
-    observed_groups = sorted(set(queryset.values_list('group_id', flat=True)), key=str)
+    category_filters = set(category_counts)
+    category_filters.update(ComplaintCategory.objects.filter(active=True).values_list('label', flat=True))
     return {
         'metrics': metrics,
         'breakdowns': {
@@ -225,16 +227,8 @@ def register_overview() -> dict[str, Any]:
             'priorities': _breakdown(queryset, 'complaint_control__priority'),
         },
         'filters': {
-            'groups': [
-                {'value': group_id, 'label': _group_label(group_id, groups)}
-                for group_id in observed_groups
-            ],
-            'branches': sorted(filter(None, queryset.values_list('branch_region', flat=True).distinct()), key=str.casefold),
-            'categories': sorted(category_counts, key=str.casefold),
-            'priorities': ['high', 'normal', 'low'],
+            'categories': sorted(category_filters, key=str.casefold),
             'statuses': ['pending', 'resolved'],
-            'sla_states': ['overdue', 'due_soon', 'on_track', 'closed'],
-            'sync_states': ['pending', 'failed', 'success', 'not_required', 'suspended'],
         },
     }
 
@@ -294,13 +288,10 @@ def export_register_xlsx(*, actor, request_id: str) -> tuple[bytes, int]:
     for case in queryset.iterator(chunk_size=500):
         row = serialize_register_case(case, groups)
         sheet.append(tuple(_excel_text(value) for value in (
-            row['group_label'], row['case_id'], row['status'], row['priority'],
-            row['sla']['state'], row['sla']['due_at'], row['customer_name'],
-            row['customer_phone'], row['customer_id'], row['branch'], row['category'],
-            row['description'], row['assigned_to'], row['reported_by'], row['reported_at'],
-            row['recorded_at'], row['resolved_at'], row['days_open'], row['resolution_details'],
-            row['customer_match_status'],
-            'Enabled' if row['sheet_projection_enabled'] else 'Django only', row['sync_status'],
+            row['case_id'], row['customer_name'], row['customer_phone'],
+            row['customer_id'], row['branch'], row['category'], row['description'],
+            row['status'], row['reported_at'], row['resolved_at'],
+            row['days_open'], row['resolution_details'],
         )))
         count += 1
     sheet.freeze_panes = 'A2'

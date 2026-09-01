@@ -2,7 +2,7 @@ import hashlib
 import hmac
 import json
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlencode
@@ -36,17 +36,20 @@ from core.models import (
 from core.services.complaint_cases import (
     ComplaintCaseConflict,
     ComplaintCaseError,
+    complete_review_details,
     create_complaint_case,
     bootstrap_data,
     evidence_filename,
     list_cases,
     list_cases_page,
+    next_complaint_case_id,
     reopen_case,
     resolve_case,
     staff_actor_for_payload,
     update_case,
     ensure_case_control,
     staff_actor_for_user,
+    suggest_category,
 )
 from core.services.complaint_register import register_overview
 from core.services.complaint_imports import (
@@ -157,6 +160,22 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(counts['resolved'], 0)
         self.assertEqual(counts['total'], 1)
 
+    @override_settings(
+        COMPLAINT_CASE_MAX_FILES_PER_UPDATE=4,
+        COMPLAINT_CASE_MAX_FILE_SIZE_MB=7,
+        COMPLAINT_CASE_MAX_TOTAL_UPLOAD_MB=18,
+    )
+    def test_bootstrap_exposes_evidence_limits_and_needs_details_count(self):
+        self.case.complaint_status = 'Review Needed'
+        self.case.save(update_fields=['complaint_status'])
+
+        data = bootstrap_data(self.config, self.actor('100'))
+
+        self.assertEqual(data['counts']['needs_details'], 1)
+        self.assertEqual(data['evidence_limits'], {
+            'max_files': 4, 'max_file_size_mb': 7, 'max_total_upload_mb': 18,
+        })
+
     def test_branch_scoped_grant_still_sees_the_shared_group_queue(self):
         AccessGrant.objects.filter(user=self.officer, workflow='complaint_cases').update(branch='Nakuru')
         self.case.branch_region = 'Nakuru'
@@ -243,6 +262,27 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(reopened.json()['case']['status'], 'Pending')
 
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_category_suggestion_endpoint_is_authenticated_and_read_only(self):
+        ComplaintCategory.objects.update_or_create(
+            key='system-performance', defaults={'label': 'System Performance', 'active': True},
+        )
+        ComplaintCategory.objects.update_or_create(
+            key='other-complaint', defaults={'label': 'Other Complaint', 'active': True},
+        )
+
+        response = self.client.post(
+            reverse('complaint_cases_category_suggestion'),
+            data=json.dumps({'group_id': self.group.group_id, 'description': 'There is no gas production.'}),
+            content_type='application/json',
+            HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('100'),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['data']['suggestion']['key'], 'system-performance')
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.complaint_category, '')
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
     def test_stale_resolution_response_includes_the_winning_resolution(self):
         with patch('core.services.complaint_cases.get_sheets_service') as get_service:
             get_service.return_value.update_case_row.return_value = True
@@ -292,6 +332,65 @@ class ComplaintCaseServiceTests(TestCase):
                 self.config, self.actor('100'), 'CASE-1',
                 {'client_request_id': 'request-2', 'expected_revision': 1, 'resolution_text': 'Done'}, [],
             )
+
+    @patch('core.services.complaint_cases.append_parsed_message_to_sheet', return_value=True)
+    def test_manager_completes_review_details_idempotently(self, append_to_sheet):
+        self.case.complaint_status = 'Review Needed'
+        self.case.customer_id = ''
+        self.case.complaint_category = self.category.label
+        self.case.save(update_fields=['complaint_status', 'customer_id', 'complaint_category'])
+        ensure_case_control(self.case, self.config)
+        fields = {
+            'client_request_id': 'complete-details-1',
+            'expected_revision': 1,
+            'customer_id': 'CUSTOMER-100',
+            'complaint_category': self.category.label,
+        }
+
+        first = complete_review_details(self.config, self.actor('200'), 'CASE-1', fields)
+        replay = complete_review_details(self.config, self.actor('200'), 'CASE-1', fields)
+
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.complaint_status, 'Open')
+        self.assertEqual(self.case.customer_id, 'CUSTOMER-100')
+        self.assertFalse(first['needs_details'])
+        self.assertFalse(replay['needs_details'])
+        self.assertEqual(self.case.case_updates.filter(source='mini_app_review_completion').count(), 1)
+        self.assertEqual(self.case.complaint_control.events.filter(action='details_completed').count(), 1)
+        append_to_sheet.assert_called_once()
+
+    def test_officer_cannot_complete_review_details(self):
+        self.case.complaint_status = 'Review Needed'
+        self.case.customer_id = ''
+        self.case.complaint_category = self.category.label
+        self.case.save(update_fields=['complaint_status', 'customer_id', 'complaint_category'])
+
+        with self.assertRaisesMessage(ComplaintCaseError, 'does not permit completing complaint details'):
+            complete_review_details(self.config, self.actor('100'), 'CASE-1', {
+                'client_request_id': 'complete-details-2', 'expected_revision': 1,
+                'customer_id': 'CUSTOMER-101', 'complaint_category': self.category.label,
+            })
+
+    def test_category_suggestion_is_deterministic_and_never_assigns(self):
+        categories = (
+            ('leakage', 'Leakage'), ('pipe-connection-fault', 'Pipe/Connection Fault'),
+            ('burner-knob-fault', 'Burner/Knob Fault'), ('installation-delay', 'Installation Delay'),
+            ('other-complaint', 'Other Complaint'),
+        )
+        for key, label in categories:
+            ComplaintCategory.objects.update_or_create(
+                key=key, defaults={'label': label, 'active': True},
+            )
+
+        leakage = suggest_category(self.config, 'The broken pipe is leaking gas at the connection.')
+        ambiguous = suggest_category(self.config, 'Installation is delayed and the burner will not ignite.')
+        fallback = suggest_category(self.config, 'Customer has an unusual concern.')
+
+        self.assertEqual(leakage['suggestion']['key'], 'leakage')
+        self.assertEqual(ambiguous['state'], 'ambiguous')
+        self.assertEqual({item['key'] for item in ambiguous['candidates']}, {'installation-delay', 'burner-knob-fault'})
+        self.assertEqual(fallback['suggestion']['key'], 'other-complaint')
+        self.assertEqual(self.case.complaint_category, '')
 
     def test_failed_drive_upload_is_recorded_without_losing_case_update(self):
         evidence = SimpleUploadedFile('photo.jpg', b'\xff\xd8\xff\xe0synthetic-image', content_type='image/jpeg')
@@ -553,6 +652,19 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(CaseUpdate.objects.filter(parsed_message=case).count(), 1)
         append_to_sheet.assert_called_once()
 
+    def test_case_reference_sequence_resets_for_each_calendar_year(self):
+        first_2026 = next_complaint_case_id(
+            self.config,
+            reference_at=timezone.make_aware(datetime(2026, 12, 31, 23, 0)),
+        )
+        first_2027 = next_complaint_case_id(
+            self.config,
+            reference_at=timezone.make_aware(datetime(2027, 1, 1, 9, 0)),
+        )
+
+        self.assertEqual(first_2026, 'CMP-2026-001')
+        self.assertEqual(first_2027, 'CMP-2027-001')
+
     def test_new_case_requires_a_phone_or_customer_id(self):
         with self.assertRaisesMessage(ComplaintCaseError, 'phone number or customer ID'):
             create_complaint_case(
@@ -671,7 +783,9 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
         self.assertNotIn('raw_message', item)
         self.assertNotIn('evidence', item)
         self.assertNotIn('updates', item)
-        self.assertEqual(item['actions'], {'close': False, 'reopen': False, 'sync_retry': False})
+        self.assertEqual(item['actions'], {
+            'close': False, 'reopen': False, 'complete_details': False, 'sync_retry': False,
+        })
 
         AccessGrant.objects.create(
             user=self.officer, workflow='complaint_cases', role='OFFICER',
@@ -680,6 +794,13 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
         allowed = self.post('complaint_cases_global_detail', args=[self.case_b.pk]).json()['case']['actions']
         self.assertTrue(allowed['reopen'])
         self.assertFalse(allowed['close'])
+        self.assertFalse(allowed['complete_details'])
+
+        AccessGrant.objects.filter(
+            user=self.officer, workflow='complaint_cases', group_configuration=self.group_b,
+        ).update(role='MANAGER')
+        manager_actions = self.post('complaint_cases_global_detail', args=[self.case_b.pk]).json()['case']['actions']
+        self.assertTrue(manager_actions['complete_details'])
 
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
     def test_export_requires_all_case_confirmation_and_audits_safe_workbook(self):
@@ -695,15 +816,42 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
         sheet = load_workbook(BytesIO(response.content), read_only=True).active
         rows = list(sheet.iter_rows(values_only=True))
         self.assertEqual(len(rows), 3)
-        customer_column = rows[0].index('Customer name')
-        phone_column = rows[0].index('Phone number')
+        self.assertEqual(rows[0], (
+            'Case ID', 'Customer Name', 'Phone Number', 'Customer ID', 'Branch',
+            'Category', 'Complaint', 'Status', 'Reported At', 'Resolved At',
+            'Days Open', 'Resolution',
+        ))
+        customer_column = rows[0].index('Customer Name')
+        phone_column = rows[0].index('Phone Number')
         self.assertIn("'=HYPERLINK(\"bad\")", {row[customer_column] for row in rows[1:]})
         self.assertTrue(all(str(row[phone_column]).startswith("'") for row in rows[1:]))
         audit = ComplianceAuditEvent.objects.get(
             workflow='complaint_cases', action='register.exported', request_id='global-export-confirmed-1',
         )
         self.assertEqual(audit.after_values['row_count'], 2)
+        self.assertEqual(audit.after_values['fields'], list(rows[0]))
         self.assertNotIn('private raw source', json.dumps(audit.after_values))
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_report_advertises_and_applies_only_the_requested_filters(self):
+        self.case_b.complaint_status = 'Closed'
+        self.case_b.date_resolved = timezone.now()
+        self.case_b.save(update_fields=['complaint_status', 'date_resolved'])
+        today = timezone.localdate().isoformat()
+
+        overview = self.post('complaint_cases_global_overview').json()['data']
+        listing = self.post('complaint_cases_global_list', {
+            'filters': {
+                'query': 'Alice', 'status': 'pending',
+                'category': 'Product issue',
+                'reported_from': today, 'reported_to': today,
+            },
+            'page': 1,
+        }).json()
+
+        self.assertEqual(set(overview['filters']), {'categories', 'statuses'})
+        self.assertEqual(listing['pagination']['total'], 1)
+        self.assertEqual(listing['items'][0]['id'], str(self.case_a.pk))
 
     def test_disabled_projection_keeps_backlog_visible_as_suspended(self):
         self.group_b.complaint_sheet_projection_enabled = False
@@ -720,6 +868,21 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
         restored = register_overview()
         self.assertEqual(restored['metrics']['suspended'], 0)
         self.assertEqual(restored['metrics']['sync_attention'], 2)
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_review_needed_is_pending_with_an_explicit_detail_flag(self):
+        self.case_a.complaint_status = 'Review Needed'
+        self.case_a.save(update_fields=['complaint_status'])
+
+        overview = register_overview()
+        rows = self.post('complaint_cases_global_list', {
+            'filters': {'status': 'pending'}, 'page': 1,
+        }).json()['items']
+        row = next(item for item in rows if item['id'] == str(self.case_a.pk))
+
+        self.assertEqual(overview['metrics']['needs_details'], 1)
+        self.assertEqual(row['status'], 'Pending')
+        self.assertTrue(row['needs_details'])
 
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
     def test_global_register_filters_and_paginates_fifty_rows(self):
@@ -829,19 +992,51 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         template = (root / 'templates' / 'complaint_cases' / 'app.html').read_text(encoding='utf-8')
         script = (root / 'static' / 'miniapp' / 'complaint_cases.js').read_text(encoding='utf-8')
 
-        for expected in ('class="app-top"', 'class="status-tabs"', 'id="createCaseForm"', 'name="client_name"', 'name="customer_phone"', 'name="customer_id"', 'name="branch_region"', 'name="complaint_category"', 'name="complaint_description"', 'id="createEvidenceInput"', 'data-status="pending"', 'data-status="resolved"', 'data-status="all"', 'id="resolveForm"', 'id="reopenForm"', 'id="conflictPanel"', 'id="queuePagination"'):
+        for expected in ('class="app-top"', 'class="status-tabs"', 'id="createCaseForm"', 'name="client_name"', 'name="customer_phone"', 'name="customer_id"', 'name="branch_region"', 'name="complaint_category"', 'name="complaint_description"', 'id="createEvidenceInput"', 'data-status="pending"', 'data-status="resolved"', 'data-status="all"', 'id="completeDetailsForm"', 'id="resolveForm"', 'id="reopenForm"', 'id="conflictPanel"', 'id="queuePagination"'):
             self.assertIn(expected, template)
         for expected in ('id="globalView"', 'id="globalFilters"', 'id="globalCaseRows"', 'id="exportConfirm"'):
             self.assertIn(expected, template)
+        for expected in ('name="query"', 'name="status"', 'name="category"', 'name="reported_from"', 'name="reported_to"'):
+            self.assertIn(expected, template)
+        for removed in ('name="group"', 'name="branch"', 'name="priority"', 'name="sla"', 'name="sync"', 'name="sort"'):
+            self.assertNotIn(removed, template)
+        self.assertEqual(template.count('<th>'), 12)
         self.assertIn('This exports all ${count} cases across all complaint groups', script)
         self.assertIn("miniapp/utils.js", template)
         self.assertIn("data.set('expected_revision'", script)
         self.assertIn("submitTransition(event, 'resolve')", script)
         self.assertIn("submitTransition(event, 'reopen')", script)
+        self.assertIn('function submitCompleteDetails(event)', script)
+        self.assertIn("getUserMedia({ video: { facingMode: { ideal: 'environment' } }", script)
+        self.assertIn("telegram?.onEvent?.('deactivated'", script)
+        self.assertIn("document.addEventListener('visibilitychange'", script)
+        self.assertIn('state.evidenceLimits.max_total_upload_mb', script)
+        self.assertIn("json('categories/suggest/'", script)
         self.assertIn('function showConflict(error)', script)
         self.assertIn("telegram?.BackButton?.onClick", script)
         for retired in ('priorityFilter', 'assignmentFilter', 'slaFilter', 'claimBtn', 'Settings', 'In Progress'):
             self.assertNotIn(retired, template)
+
+
+class ComplaintCategoryCatalogueTests(TestCase):
+    def test_migration_seeds_the_exact_active_category_catalogue(self):
+        active = dict(ComplaintCategory.objects.filter(active=True).values_list('label', 'description'))
+
+        self.assertEqual(active, {
+            'Leakage': 'Gas, bag, pipe, connection, valve, etc.',
+            'Blockage': 'Inlet or outlet blockage',
+            'Burner/Knob Fault': 'Burner, knob, flame, ignition issues',
+            'Pipe/Connection Fault': (
+                'Physical pipe/connection problems where leakage is NOT the primary complaint'
+            ),
+            'System Performance': 'Low/no gas production or poor system performance',
+            'Installation Delay': "Installation hasn't happened/delayed",
+            'Commissioning Delay': 'Commissioning/start-up delayed',
+            'Accessories Delay': 'Accessories requested but delayed',
+            'Relocation Request': 'Customer wants system relocated',
+            'Other Complaint': "Doesn't fit any category",
+        })
+        self.assertEqual(ComplaintCategory.objects.get(key='other-complaint').default_sla_hours, 72)
 
 
 class ComplaintCaseAdminTests(TestCase):

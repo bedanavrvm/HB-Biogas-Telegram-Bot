@@ -18,6 +18,7 @@ from core.services.complaint_cases import (
     actor_can,
     bootstrap_data,
     case_detail,
+    complete_review_details,
     create_complaint_case,
     decode_complaint_start_param,
     evidence_access,
@@ -28,6 +29,7 @@ from core.services.complaint_cases import (
     resolve_case,
     retry_case_sync,
     staff_actor_for_user,
+    suggest_category,
     update_case,
 )
 from core.services.group_config import GroupRegistry
@@ -193,6 +195,23 @@ def complaint_cases_bootstrap(request):
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
 @require_http_methods(['POST'])
 @miniapp_write_response
+def complaint_cases_category_suggestion(request):
+    payload = _request_payload(request)
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    capability_error = _capability_error(actor, 'complaint.queue.view', group_config)
+    if capability_error:
+        return capability_error
+    return JsonResponse({
+        'ok': True,
+        'data': suggest_category(group_config, payload.get('description')),
+    })
+
+
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(['POST'])
+@miniapp_write_response
 def complaint_cases_settings_personal(request):
     """Persist only the authenticated officer's Complaint Case preferences."""
     payload = _request_payload(request)
@@ -312,15 +331,16 @@ def _global_target_actions(actor, item: dict) -> dict[str, bool]:
 
     row = GroupSheetConfiguration.objects.filter(group_id=item['group_id'], enabled=True).first()
     if not row or str((row.workflow or {}).get('type') or 'case') != 'case':
-        return {'close': False, 'reopen': False, 'sync_retry': False}
+        return {'close': False, 'reopen': False, 'complete_details': False, 'sync_retry': False}
     target_config = GroupConfig(**row.as_group_config_kwargs())
     try:
         target_actor = staff_actor_for_user(target_config, actor.user)
     except ComplaintCaseError:
-        return {'close': False, 'reopen': False, 'sync_retry': False}
+        return {'close': False, 'reopen': False, 'complete_details': False, 'sync_retry': False}
     return {
         'close': actor_can(target_config, target_actor, 'complaint.case.close'),
         'reopen': actor_can(target_config, target_actor, 'complaint.case.reopen'),
+        'complete_details': actor_can(target_config, target_actor, 'complaint.case.update'),
         'sync_retry': (
             complaint_sheet_projection_enabled(target_config)
             and actor_can(target_config, target_actor, 'complaint.case.sync.retry')
@@ -479,6 +499,32 @@ def complaint_cases_update(request, case_id: str):
     response = JsonResponse({'ok': True, 'case': result, 'message': 'Case transition saved.'})
     response['Deprecation'] = 'true'
     return response
+
+
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(['POST'])
+@miniapp_write_response
+def complaint_cases_complete_details(request, case_id: str):
+    payload = _request_payload(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    capability_error = _capability_error(actor, 'complaint.case.update', group_config)
+    if capability_error:
+        return capability_error
+    try:
+        result = complete_review_details(group_config, actor, case_id, payload)
+    except ComplaintCaseConflict as exc:
+        return _conflict_response(group_config, actor, case_id, exc)
+    except ComplaintCaseError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('Complaint detail completion failed for group %s case %s.', group_config.group_id, case_id)
+        return JsonResponse({'ok': False, 'error': 'The complaint details could not be saved. Try again.'}, status=500)
+    return JsonResponse({'ok': True, 'case': result, 'message': 'Required details completed.'})
 
 
 def _conflict_response(group_config, actor, case_id: str, exc: ComplaintCaseConflict):

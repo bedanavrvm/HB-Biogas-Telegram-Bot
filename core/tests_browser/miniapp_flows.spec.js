@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('node:path');
+const fs = require('node:fs');
 const { test, expect } = require('playwright/test');
 
 const root = path.resolve(__dirname, '..', '..');
@@ -9,6 +10,65 @@ const asset = (name) => path.join(root, 'core', 'static', 'miniapp', name);
 async function loadUtilities(page) {
   await page.addScriptTag({ path: asset('utils.js') });
 }
+
+test('Complaint camera stops when Telegram deactivates the Mini App', async ({ page }) => {
+  const template = fs.readFileSync(path.join(root, 'core', 'templates', 'complaint_cases', 'app.html'), 'utf8')
+    .replace(/{% load static %}/g, '')
+    .replace(/{% include [^%]+%}/g, '')
+    .replace(/{% static '[^']+' %}/g, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/g, '')
+    .replace(/<link[^>]*>/g, '');
+  await page.setContent(template);
+  await page.evaluate(() => {
+    document.body.dataset.groupId = '-100-camera-test';
+    window.__cameraTrackStopped = 0;
+    window.__telegramEvents = {};
+    Object.defineProperty(HTMLMediaElement.prototype, 'srcObject', {
+      configurable: true,
+      get() { return this.__syntheticStream || null; },
+      set(value) { this.__syntheticStream = value; },
+    });
+    HTMLMediaElement.prototype.play = async function () {};
+    navigator.mediaDevices = {
+      async getUserMedia() {
+        return { getTracks: () => [{ stop() { window.__cameraTrackStopped += 1; } }] };
+      },
+    };
+    const webApp = {
+      initData: 'synthetic-signed-init-data',
+      BackButton: { onClick() {}, show() {}, hide() {} },
+      onEvent(name, callback) { window.__telegramEvents[name] = callback; },
+    };
+    window.Telegram = { WebApp: webApp };
+    window.MiniAppUtils = {
+      initTelegram: () => webApp,
+      createRequestId: prefix => `${prefix}-synthetic-request`,
+      setCloseProtection() {},
+    };
+    window.ComplaintCasesMiniAppApi = {
+      async postJson(path) {
+        if (path === 'bootstrap/') return { data: {
+          actor: { name: 'Manager', role: 'MANAGER', capabilities: ['complaint.case.create'] },
+          counts: { pending: 0, resolved: 0, total: 0 }, branches: [], categories: [],
+          evidence_limits: { max_files: 10, max_file_size_mb: 10, max_total_upload_mb: 30 },
+        } };
+        if (path === 'cases/') return { cases: [], pagination: { page: 1, pages: 1, total: 0 }, start_index: 0 };
+        return { data: {} };
+      },
+    };
+  });
+  await page.addScriptTag({ path: asset('complaint_cases.js') });
+  await page.locator('[data-camera-target="create"]').click();
+  await expect(page.locator('#cameraOverlay')).toBeVisible();
+
+  const stopped = await page.evaluate(() => {
+    window.__telegramEvents.deactivated();
+    return window.__cameraTrackStopped;
+  });
+
+  expect(stopped).toBe(1);
+  await expect(page.locator('#cameraOverlay')).toBeHidden();
+});
 
 test('Mini App bootstrap initializes Telegram once', async ({ page }) => {
   await page.setContent('<main id="app">Ready</main>');
