@@ -53,3 +53,34 @@ button{min-height:40px;padding-inline:12px;border-radius:9px}input,textarea,sele
   .register-filters{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:8px}.register-filters input,.register-filters select{min-height:36px}
   .camera-footer{align-items:flex-start;flex-direction:column}.camera-footer>div{width:100%;display:grid;grid-template-columns:1fr 1fr}.media-viewer-actions{grid-template-columns:40px 1fr 1fr 40px;gap:6px}
 }
+
+/* Local Lucide subset and cleaner icon-led controls. */
+.lucide-sprite{position:absolute;width:0;height:0;overflow:hidden;pointer-events:none}
+.lucide{display:block;width:16px;height:16px;flex:0 0 16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.icon-button{display:inline-grid;place-items:center;padding:0}.icon-button .lucide{width:19px;height:19px}
+.workspace-tabs button,.status-tabs button,.queue-head .primary,.filter-actions button,.back-button,#captureLocationBtn,.evidence-actions button,.sticky-action button,#retrySyncBtn,.media-link,.view-file,.remove-file,.camera-footer button,.media-viewer-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px}
+.workspace-tabs button{gap:6px}.workspace-tabs .lucide{width:15px;height:15px}
+.status-tabs button{gap:4px;padding-inline:7px}.status-tabs .lucide{width:14px;height:14px}.status-tabs strong{min-width:20px;padding:1px 5px;border-radius:6px;background:color-mix(in srgb,var(--text) 7%,transparent);font-size:10px;font-variant-numeric:tabular-nums}.status-tabs button.active strong{background:color-mix(in srgb,var(--accent) 13%,transparent)}
+.search-box{position:relative;display:block}.search-box .search-icon{position:absolute;z-index:1;top:50%;left:12px;width:16px;height:16px;color:var(--muted);transform:translateY(-50%);pointer-events:none}.search-box input{padding-left:37px;background:var(--surface)}
+.case-meta-line{display:flex;min-width:0;flex-wrap:wrap;gap:3px 10px;color:var(--muted);font-size:11px}.case-meta-line>span,.case-age{display:inline-flex;min-width:0;align-items:center;gap:4px}.case-meta-line>span>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.case-meta-line .lucide,.case-age .lucide{width:12px;height:12px;flex-basis:12px;opacity:.78}.case-age{color:var(--warning);font-weight:650}
+.status-pill{gap:4px}.status-pill .lucide{width:12px;height:12px;flex-basis:12px}
+.metric-card{position:relative;overflow:hidden}.metric-card .metric-icon{position:absolute;top:9px;right:9px;width:18px;height:18px;color:var(--accent);opacity:.7}.metric-card.attention .metric-icon{color:var(--warning)}
+.icon-heading{display:flex;align-items:center;gap:7px}.icon-heading .lucide{color:var(--accent)}
+.history-item{display:grid;grid-template-columns:22px minmax(0,1fr);gap:8px}.history-item .item-icon{width:17px;height:17px;margin-top:1px;color:var(--accent)}
+.file-list .view-file,.file-list .remove-file{gap:5px}.file-list .view-file .lucide,.file-list .remove-file .lucide,.media-link .lucide{width:14px;height:14px;flex-basis:14px}
+.media-viewer-actions .lucide{width:18px;height:18px}.media-viewer-actions #mediaViewerPrevious .lucide,.media-viewer-actions #mediaViewerNext .lucide{width:23px;height:23px}
+button{transition:border-color .16s ease,background-color .16s ease,color .16s ease,transform .1s ease,box-shadow .16s ease}button:not(:disabled):active{transform:scale(.98)}button:focus-visible{outline:3px solid var(--soft);outline-offset:2px}
+@media(max-width:390px){.status-tabs button{gap:3px;padding-inline:4px}.status-tabs .lucide{display:none}.file-list .view-file span,.file-list .remove-file span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.file-list .view-file,.file-list .remove-file{width:36px;padding:0}}
+
+/* Record Complaint: compact mobile form matching the complaint-list visual language. */
+#createView{width:min(100%,680px);margin-inline:auto}
+.create-complaint-panel{padding:16px;border-radius:16px;box-shadow:0 5px 18px rgba(20,38,29,.045)}
+.create-complaint-panel .panel-heading h2{font-size:18px;letter-spacing:-.015em}.create-complaint-panel .form-grid{gap:11px 12px}
+.create-complaint-panel input,.create-complaint-panel textarea,.create-complaint-panel select{border-color:color-mix(in srgb,var(--line) 88%,transparent);border-radius:11px;background:color-mix(in srgb,var(--bg) 72%,var(--surface));font-size:12px}
+.create-complaint-panel input::placeholder,.create-complaint-panel textarea::placeholder{color:color-mix(in srgb,var(--muted) 66%,transparent)}
+.create-complaint-panel input:focus,.create-complaint-panel textarea:focus,.create-complaint-panel select:focus{background:var(--surface)}
+.create-complaint-panel .location-field{display:grid;align-items:stretch;gap:7px;margin:12px 0 0}.optional-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}.optional-heading .field-label{color:var(--text);font-size:12px;letter-spacing:0;text-transform:none}.optional-heading .muted{font-size:11px}
+.create-complaint-panel #captureLocationBtn{width:100%;border-color:color-mix(in srgb,var(--accent) 30%,var(--line));background:var(--soft);color:var(--accent)}.create-complaint-panel #captureState{text-align:center}
+.create-evidence-picker{display:grid;align-items:stretch;gap:9px;padding:12px;border-radius:14px}.create-evidence-picker .evidence-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.create-evidence-picker .evidence-actions button{width:100%;background:var(--surface)}.create-evidence-picker .evidence-actions .lucide{color:var(--accent)}
+.create-complaint-panel .sticky-action{margin-top:13px}.create-complaint-panel #createSaveBtn{min-width:180px}
+@media(max-width:520px){.create-complaint-panel{padding:12px}.create-complaint-panel .form-grid{gap:8px}.create-complaint-panel .panel-heading h2{font-size:17px}.create-complaint-panel #createSaveBtn{min-width:0;flex:1}.create-complaint-panel .sticky-action{gap:12px}}

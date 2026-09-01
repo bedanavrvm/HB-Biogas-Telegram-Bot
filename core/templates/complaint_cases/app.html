@@ -10,42 +10,43 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=18">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=19">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
+  {% include "complaint_cases/lucide_icons.html" %}
   <main class="complaint-app" aria-label="Complaints">
     <header id="appHeader" class="app-top">
       <div class="app-brand"><img class="app-logo" src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu"><div><p class="eyebrow">Operations workspace</p><h1>Complaints</h1><p id="actorLine" class="muted">Opening workspace...</p></div></div>
-      <button id="refreshBtn" class="icon-button" type="button" aria-label="Refresh complaints">&#8635;</button>
+      <button id="refreshBtn" class="icon-button" type="button" aria-label="Refresh complaints" title="Refresh complaints"><svg class="lucide" aria-hidden="true"><use href="#lucide-refresh-cw"></use></svg></button>
     </header>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <section id="loadingState" class="loading-state" aria-live="polite"><span class="spinner-inline" aria-hidden="true"></span><span>Loading complaints...</span></section>
     <nav id="workspaceTabs" class="workspace-tabs" aria-label="Complaint workspace" hidden>
-      <button id="queueWorkspaceBtn" type="button" class="active">Complaints</button>
-      <button id="globalWorkspaceBtn" type="button">Overview</button>
+      <button id="queueWorkspaceBtn" type="button" class="active"><svg class="lucide" aria-hidden="true"><use href="#lucide-clipboard-list"></use></svg><span>Complaints</span></button>
+      <button id="globalWorkspaceBtn" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-layout-dashboard"></use></svg><span>Overview</span></button>
     </nav>
 
     <section id="queueView" hidden>
-      <div class="queue-head"><div><p class="eyebrow">Complaint List</p><h2>Complaints</h2><p id="queueResultCount" class="muted">0 complaints</p></div><button id="newCaseBtn" class="primary" type="button" hidden>+ New Complaint</button></div>
+      <div class="queue-head"><div><p class="eyebrow">Complaint List</p><h2>Complaints</h2><p id="queueResultCount" class="muted">0 complaints</p></div><button id="newCaseBtn" class="primary" type="button" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-plus"></use></svg><span>New Complaint</span></button></div>
       <nav class="status-tabs" aria-label="Complaint status">
-        <button type="button" class="active" data-status="pending">Pending <span id="pendingCount">0</span></button>
-        <button type="button" data-status="resolved">Resolved <span id="resolvedCount">0</span></button>
-        <button type="button" data-status="all">All Complaints <span id="totalCount">0</span></button>
+        <button type="button" class="active" data-status="pending"><svg class="lucide" aria-hidden="true"><use href="#lucide-clock"></use></svg><span>Pending</span><strong id="pendingCount">0</strong></button>
+        <button type="button" data-status="resolved"><svg class="lucide" aria-hidden="true"><use href="#lucide-circle-check"></use></svg><span>Resolved</span><strong id="resolvedCount">0</strong></button>
+        <button type="button" data-status="all"><svg class="lucide" aria-hidden="true"><use href="#lucide-list"></use></svg><span>All</span><strong id="totalCount">0</strong></button>
       </nav>
-      <label class="search-box"><span class="sr-only">Search complaints</span><input id="caseSearch" type="search" autocomplete="off" placeholder="Search by complaint ID, name, customer ID, phone number or complaint"></label>
+      <label class="search-box"><span class="sr-only">Search complaints</span><svg class="lucide search-icon" aria-hidden="true"><use href="#lucide-search"></use></svg><input id="caseSearch" type="search" autocomplete="off" placeholder="Search by complaint ID, name, customer ID, phone number or complaint"></label>
       <div id="caseList" class="case-list" aria-live="polite"></div>
       <nav id="queuePagination" class="pagination" aria-label="Complaint pages" hidden><button id="queuePreviousBtn" type="button">Previous</button><span id="queuePageLabel">Page 1 of 1</span><button id="queueNextBtn" type="button">Next</button></nav>
     </section>
 
     <section id="globalView" hidden>
-      <div class="queue-head"><div><p class="eyebrow">Overview</p><h2>All Complaints</h2><p class="muted">View and manage all complaints</p></div><button id="exportAllBtn" class="primary" type="button" hidden>Download Complaints</button></div>
+      <div class="queue-head"><div><p class="eyebrow">Overview</p><h2>All Complaints</h2><p class="muted">View and manage all complaints</p></div><button id="exportAllBtn" class="primary" type="button" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-download"></use></svg><span>Download Complaints</span></button></div>
       <div id="globalMetrics" class="metric-grid" aria-label="Global complaint metrics"></div>
       <form id="globalFilters" class="register-filters">
         <label class="filter-search">Search<input name="query" type="search" autocomplete="off" placeholder="Search by complaint ID, complaint, customer name, or phone number"></label>
         <label class="filter-status">Status<select name="status"><option value="">Any Status</option><option value="pending">Pending</option><option value="resolved">Resolved</option></select></label>
         <label class="filter-category">Category<select name="category"><option value="">Any Category</option></select></label>
         <fieldset class="date-filter"><legend>Date Reported</legend><label>Start Date<input name="reported_from" type="date"></label><label>End Date<input name="reported_to" type="date"></label></fieldset>
-        <div class="filter-actions"><button class="primary" type="submit">Show Results</button><button id="clearGlobalFiltersBtn" type="button">Reset Filters</button></div>
+        <div class="filter-actions"><button class="primary" type="submit"><svg class="lucide" aria-hidden="true"><use href="#lucide-filter"></use></svg><span>Show Results</span></button><button id="clearGlobalFiltersBtn" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-rotate-ccw"></use></svg><span>Reset Filters</span></button></div>
       </form>
       <p id="globalResultCount" class="muted">0 complaints</p>
       <div class="register-table-wrap">
@@ -58,54 +59,54 @@
     </section>
 
     <section id="createView" hidden>
-      <button class="back-button" type="button" data-back>&larr; Complaints</button>
-      <form id="createCaseForm" class="panel" novalidate>
+      <button class="back-button" type="button" data-back><svg class="lucide" aria-hidden="true"><use href="#lucide-arrow-left"></use></svg><span>Complaints</span></button>
+      <form id="createCaseForm" class="panel create-complaint-panel" novalidate>
         <div class="panel-heading"><p class="eyebrow">Complaint Details</p><h2>Record a New Complaint</h2><p class="muted">Enter the customer&rsquo;s complaint details below.</p></div>
         <div class="form-grid">
-          <label class="full">Customer name<input name="client_name" maxlength="255" autocomplete="name" autocapitalize="words" required></label>
-          <label>Phone Number<input name="customer_phone" type="tel" maxlength="20" inputmode="tel" autocomplete="tel"></label>
-          <label>Customer ID<input name="customer_id" type="text" maxlength="255" inputmode="numeric" pattern="[0-9]*" autocomplete="off"></label>
+          <label class="full">Customer name<input name="client_name" maxlength="255" autocomplete="name" autocapitalize="words" placeholder="Enter customer full name" required></label>
+          <label>Phone Number<input name="customer_phone" type="tel" maxlength="20" inputmode="tel" autocomplete="tel" placeholder="e.g. 254..."></label>
+          <label>Customer ID<input name="customer_id" type="text" maxlength="255" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="ID number"></label>
           <label class="full">Branch<select name="branch_region" required><option value="">Select branch</option></select></label>
-          <label class="full"><span class="label-line"><span>What happened?</span><button id="categorySuggestion" class="category-suggestion" type="button" role="status" aria-live="polite" hidden></button></span><textarea name="complaint_description" rows="4" maxlength="5000" required></textarea></label>
+          <label class="full"><span class="label-line"><span>What happened?</span><button id="categorySuggestion" class="category-suggestion" type="button" role="status" aria-live="polite" hidden></button></span><textarea name="complaint_description" rows="4" maxlength="5000" placeholder="Describe the complaint in detail..." required></textarea></label>
           <label class="full">Complaint Type<select name="complaint_category" required><option value="">Select complaint type</option></select><small id="categoryGuidance" class="muted">What is the complaint about?</small></label>
         </div>
-        <div class="optional-row"><button id="captureLocationBtn" type="button">Use My Current Location</button><span id="captureState" class="muted">Optional</span></div>
-        <section class="evidence-picker" aria-labelledby="createEvidenceTitle"><div><p id="createEvidenceTitle" class="field-label">Supporting Documents or Photos</p><p id="createEvidenceHint" class="muted">Optional: photos or PDF</p></div><div class="evidence-actions"><button type="button" data-camera-target="create">Take a Photo</button><button type="button" data-files-target="create">Upload Files</button></div><input id="createEvidenceInput" class="sr-only" type="file" multiple accept="image/jpeg,image/png,image/webp,.pdf"></section>
+        <section class="optional-row location-field" aria-labelledby="locationFieldLabel"><div class="optional-heading"><span id="locationFieldLabel" class="field-label">Location</span><span class="muted">Optional</span></div><button id="captureLocationBtn" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-map-pin"></use></svg><span>Use My Current Location</span></button><span id="captureState" class="muted" role="status" aria-live="polite">Location not added</span></section>
+        <section class="evidence-picker create-evidence-picker" aria-labelledby="createEvidenceTitle"><div><p id="createEvidenceTitle" class="field-label">Supporting Documents or Photos</p><p id="createEvidenceHint" class="muted">Optional: photos or PDF</p></div><div class="evidence-actions"><button type="button" data-camera-target="create"><svg class="lucide" aria-hidden="true"><use href="#lucide-camera"></use></svg><span>Take Photos</span></button><button type="button" data-files-target="create"><svg class="lucide" aria-hidden="true"><use href="#lucide-upload"></use></svg><span>Upload Files</span></button></div><input id="createEvidenceInput" class="sr-only" type="file" multiple accept="image/jpeg,image/png,image/webp,.pdf"></section>
         <ul id="createSelectedEvidence" class="file-list"></ul>
-        <div class="sticky-action"><span id="createSaveState" class="muted">Not Saved</span><button id="createSaveBtn" class="primary" type="submit">Submit Complaint</button></div>
+        <div class="sticky-action"><span id="createSaveState" class="muted">Not Saved</span><button id="createSaveBtn" class="primary" type="submit"><svg class="lucide" aria-hidden="true"><use href="#lucide-send"></use></svg><span>Submit Complaint</span></button></div>
       </form>
     </section>
 
     <section id="detailView" hidden>
-      <button id="detailBackBtn" class="back-button" type="button" data-back>&larr; Complaints</button>
+      <button id="detailBackBtn" class="back-button" type="button" data-back><svg class="lucide" aria-hidden="true"><use href="#lucide-arrow-left"></use></svg><span id="detailBackLabel">Complaints</span></button>
       <article class="panel case-summary">
         <p class="eyebrow section-kicker">Complaint Details</p>
         <div class="case-title"><div><p id="detailCaseId" class="case-reference"></p><h2 id="detailName"></h2><p id="detailGroup" class="muted"></p></div><div class="status-stack"><span id="detailStatus" class="status-pill"></span><span id="detailNeedsDetails" class="needs-details-pill" hidden>Needs More Information</span></div></div>
-        <div id="detailIdentifiers" class="identifiers"></div><p id="detailDescription" class="description"></p><div id="detailMeta" class="meta"></div><p id="detailSource" class="source-line"></p><p id="detailSync" class="source-line"></p><button id="retrySyncBtn" type="button" hidden>Retry Sheet Sync</button>
+        <div id="detailIdentifiers" class="identifiers"></div><p id="detailDescription" class="description"></p><div id="detailMeta" class="meta"></div><p id="detailSource" class="source-line"></p><p id="detailSync" class="source-line"></p><button id="retrySyncBtn" type="button" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-refresh-cw"></use></svg><span>Retry Sheet Sync</span></button>
       </article>
       <section id="previousResolution" class="panel resolution-history" hidden><h2>Resolution History</h2><p id="previousResolutionText"></p><small id="previousResolutionMeta" class="muted"></small><div id="previousReopen" hidden><p class="field-label">Reason for Reopening</p><p id="previousReopenText"></p><small id="previousReopenMeta" class="muted"></small></div></section>
       <section id="conflictPanel" class="panel conflict-panel" role="alert" hidden><h2>This complaint changed while you were working</h2><p id="conflictMessage"></p><p class="eyebrow">Resolution recorded first</p><blockquote id="conflictWinningNote"></blockquote><p class="eyebrow">Your retained draft</p><blockquote id="conflictDraft"></blockquote><div class="conflict-actions"><button id="copyConflictDraftBtn" type="button">Copy My Draft</button><button id="reviewConflictBtn" type="button">Review Latest Complaint</button></div></section>
       <form id="completeDetailsForm" class="panel action-panel" hidden novalidate><div class="panel-heading"><p class="eyebrow">Complaint Details</p><h2>Complete Required Details</h2><p class="muted">Confirm the customer identifiers and complaint type.</p></div><div class="form-grid"><label>Phone Number<input name="customer_phone" type="tel" maxlength="20" inputmode="tel"></label><label>Customer ID<input name="customer_id" type="text" maxlength="255" inputmode="numeric" pattern="[0-9]*"></label><label class="full">Complaint Type<select name="complaint_category" required><option value="">Select complaint type</option></select></label></div><div class="sticky-action"><span class="muted">Returns to Pending</span><button class="primary" type="submit">Complete Details</button></div></form>
-      <form id="resolveForm" class="panel action-panel" hidden novalidate><div class="panel-heading"><p class="eyebrow">HomeBiogas Action</p><h2>Resolve Complaint</h2><p class="muted">Explain what was done and the outcome for the customer.</p></div><label>Resolution Note<textarea name="resolution_text" rows="4" maxlength="5000" required></textarea></label><section class="evidence-picker" aria-labelledby="resolveEvidenceTitle"><div><p id="resolveEvidenceTitle" class="field-label">Supporting Documents or Photos</p><p id="resolveEvidenceHint" class="muted">Optional: photos or PDF</p></div><div class="evidence-actions"><button type="button" data-camera-target="resolve">Take a Photo</button><button type="button" data-files-target="resolve">Upload Files</button></div><input id="resolveEvidenceInput" class="sr-only" type="file" multiple accept="image/jpeg,image/png,image/webp,.pdf"></section><ul id="resolveSelectedEvidence" class="file-list"></ul><div class="sticky-action"><span class="muted">One audited action</span><button class="primary" type="submit">Resolve Complaint</button></div></form>
+      <form id="resolveForm" class="panel action-panel" hidden novalidate><div class="panel-heading"><p class="eyebrow">HomeBiogas Action</p><h2>Resolve Complaint</h2><p class="muted">Explain what was done and the outcome for the customer.</p></div><label>Resolution Note<textarea name="resolution_text" rows="4" maxlength="5000" required></textarea></label><section class="evidence-picker" aria-labelledby="resolveEvidenceTitle"><div><p id="resolveEvidenceTitle" class="field-label">Supporting Documents or Photos</p><p id="resolveEvidenceHint" class="muted">Optional: photos or PDF</p></div><div class="evidence-actions"><button type="button" data-camera-target="resolve"><svg class="lucide" aria-hidden="true"><use href="#lucide-camera"></use></svg><span>Take Photos</span></button><button type="button" data-files-target="resolve"><svg class="lucide" aria-hidden="true"><use href="#lucide-upload"></use></svg><span>Upload Files</span></button></div><input id="resolveEvidenceInput" class="sr-only" type="file" multiple accept="image/jpeg,image/png,image/webp,.pdf"></section><ul id="resolveSelectedEvidence" class="file-list"></ul><div class="sticky-action"><span class="muted">One audited action</span><button class="primary" type="submit"><svg class="lucide" aria-hidden="true"><use href="#lucide-circle-check"></use></svg><span>Resolve Complaint</span></button></div></form>
       <form id="reopenForm" class="panel" hidden novalidate><div class="panel-heading"><h2>Reopen Complaint</h2><p class="muted">If the complaint was not resolved, explain why before reopening it.</p></div><label>Why are you reopening this complaint?<textarea name="reason" rows="4" maxlength="5000" required></textarea></label><div class="sticky-action"><span class="muted">Previous updates will remain in the complaint history.</span><button class="primary" type="submit">Reopen Complaint</button></div></form>
-      <section id="evidencePanel" class="panel"><div class="panel-heading"><h2>Attachments</h2></div><div id="evidenceList" class="item-list"></div></section>
-      <section id="activityPanel" class="panel"><div class="panel-heading"><h2>Complaint History</h2></div><div id="activityList" class="item-list"></div></section>
+      <section id="evidencePanel" class="panel"><div class="panel-heading icon-heading"><svg class="lucide" aria-hidden="true"><use href="#lucide-paperclip"></use></svg><h2>Attachments</h2></div><div id="evidenceList" class="item-list"></div></section>
+      <section id="activityPanel" class="panel"><div class="panel-heading icon-heading"><svg class="lucide" aria-hidden="true"><use href="#lucide-history"></use></svg><h2>Complaint History</h2></div><div id="activityList" class="item-list"></div></section>
     </section>
 
     <div id="exportConfirm" class="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="exportConfirmTitle" hidden>
       <div class="confirm-card"><h2 id="exportConfirmTitle">Download every complaint?</h2><p id="exportConfirmText"></p><div class="confirm-actions"><button id="cancelExportBtn" type="button">Cancel</button><button id="confirmExportBtn" class="primary" type="button">Download Complaints</button></div></div>
     </div>
     <div id="cameraOverlay" class="sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="cameraTitle" hidden>
-      <section class="camera-sheet"><div class="sheet-handle" aria-hidden="true"></div><div class="camera-head"><div><p class="eyebrow">Photo Capture</p><h2 id="cameraTitle">Take Photos</h2><p id="cameraHelp" class="muted">Take as many photos as needed, then tap Done. Nothing uploads until you submit.</p></div><button id="cameraCloseBtn" class="icon-button" type="button" aria-label="Close camera">&times;</button></div><div class="camera-stage"><video id="cameraVideo" autoplay playsinline muted></video><canvas id="cameraCanvas" hidden></canvas></div><div class="camera-footer"><span id="cameraCaptureState" class="muted" role="status" aria-live="polite">No photos added yet</span><div><button id="cameraCancelBtn" type="button">Done</button><button id="cameraCaptureBtn" class="primary" type="button">Take Photo</button></div></div></section>
+      <section class="camera-sheet"><div class="sheet-handle" aria-hidden="true"></div><div class="camera-head"><div><p class="eyebrow">Photo Capture</p><h2 id="cameraTitle">Take Photos</h2><p id="cameraHelp" class="muted">Take as many photos as needed, then tap Done. Nothing uploads until you submit.</p></div><button id="cameraCloseBtn" class="icon-button" type="button" aria-label="Close camera"><svg class="lucide" aria-hidden="true"><use href="#lucide-x"></use></svg></button></div><div class="camera-stage"><video id="cameraVideo" autoplay playsinline muted></video><canvas id="cameraCanvas" hidden></canvas></div><div class="camera-footer"><span id="cameraCaptureState" class="muted" role="status" aria-live="polite">No photos added yet</span><div><button id="cameraCancelBtn" type="button">Done</button><button id="cameraCaptureBtn" class="primary" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-camera"></use></svg><span>Take Photo</span></button></div></div></section>
     </div>
     <div id="mediaViewerOverlay" class="sheet-overlay media-viewer-overlay" role="dialog" aria-modal="true" aria-labelledby="mediaViewerTitle" hidden>
-      <section class="media-viewer-sheet"><div class="camera-head"><div><p class="eyebrow">Secure File</p><h2 id="mediaViewerTitle">File Preview</h2><p id="mediaViewerSub" class="muted"></p></div><button id="mediaViewerClose" class="icon-button" type="button" aria-label="Close file preview">&times;</button></div><div id="mediaViewerContent" class="media-viewer-content" aria-live="polite"></div><div id="mediaViewerActions" class="media-viewer-actions" hidden><button id="mediaViewerPrevious" type="button" aria-label="Previous file" title="Previous file">&#8249;<span class="sr-only">Previous file</span></button><button id="mediaViewerRetake" type="button" aria-label="Retake this photo" title="Retake photo">Retake</button><button id="mediaViewerDelete" class="danger-action" type="button" aria-label="Delete this selected file" title="Delete selected file">Delete</button><button id="mediaViewerNext" type="button" aria-label="Next file" title="Next file">&#8250;<span class="sr-only">Next file</span></button></div></section>
+      <section class="media-viewer-sheet"><div class="camera-head"><div><p class="eyebrow">Secure File</p><h2 id="mediaViewerTitle">File Preview</h2><p id="mediaViewerSub" class="muted"></p></div><button id="mediaViewerClose" class="icon-button" type="button" aria-label="Close file preview"><svg class="lucide" aria-hidden="true"><use href="#lucide-x"></use></svg></button></div><div id="mediaViewerContent" class="media-viewer-content" aria-live="polite"></div><div id="mediaViewerActions" class="media-viewer-actions" hidden><button id="mediaViewerPrevious" type="button" aria-label="Previous file" title="Previous file"><svg class="lucide" aria-hidden="true"><use href="#lucide-chevron-left"></use></svg><span class="sr-only">Previous file</span></button><button id="mediaViewerRetake" type="button" aria-label="Retake this photo" title="Retake photo"><svg class="lucide" aria-hidden="true"><use href="#lucide-rotate-ccw"></use></svg><span>Retake</span></button><button id="mediaViewerDelete" class="danger-action" type="button" aria-label="Delete this selected file" title="Delete selected file"><svg class="lucide" aria-hidden="true"><use href="#lucide-trash-2"></use></svg><span>Delete</span></button><button id="mediaViewerNext" type="button" aria-label="Next file" title="Next file"><svg class="lucide" aria-hidden="true"><use href="#lucide-chevron-right"></use></svg><span class="sr-only">Next file</span></button></div></section>
     </div>
   </main>
   {% include "miniapp_diagnostics.html" %}
   <script src="{% static 'miniapp/utils.js' %}?v=9"></script>
   <script src="{% static 'miniapp/secure_media_viewer.js' %}?v=1"></script>
   <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=4"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=23"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=24"></script>
 </body>
 </html>

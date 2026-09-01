@@ -49,6 +49,27 @@
     if (className) node.className = className;
     return node;
   }
+  function iconNode(name, className) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', ['lucide', className || ''].filter(Boolean).join(' '));
+    svg.setAttribute('aria-hidden', 'true');
+    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    use.setAttribute('href', `#lucide-${name}`);
+    svg.appendChild(use);
+    return svg;
+  }
+  function buttonWithIcon(label, icon, className) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    if (className) button.className = className;
+    button.append(iconNode(icon), textNode('span', label));
+    return button;
+  }
+  function metaItem(icon, value) {
+    const node = document.createElement('span');
+    node.append(iconNode(icon), textNode('span', value));
+    return node;
+  }
   function loadingNode(label) {
     const node = document.createElement('span'); node.className = 'inline-loading'; node.setAttribute('role', 'status');
     const spinner = document.createElement('span'); spinner.className = 'spinner-inline'; spinner.setAttribute('aria-hidden', 'true');
@@ -77,7 +98,10 @@
   function statusStack(item) {
     const stack = document.createElement('div');
     stack.className = 'status-stack';
-    stack.appendChild(textNode('span', displayStatus(item.status), `status-pill ${item.status === 'Resolved' ? 'resolved' : ''}`));
+    const resolved = item.status === 'Resolved' || item.status === 'Closed';
+    const status = textNode('span', displayStatus(item.status), `status-pill ${resolved ? 'resolved' : ''}`);
+    status.prepend(iconNode(resolved ? 'circle-check' : 'clock'));
+    stack.appendChild(status);
     if (item.needs_details) stack.appendChild(textNode('span', 'Needs More Information', 'needs-details-pill'));
     return stack;
   }
@@ -164,11 +188,19 @@
       const button = document.createElement('button');
       button.type = 'button'; button.className = 'case-row'; button.dataset.caseId = item.case_id;
       const body = document.createElement('div');
+      const meta = document.createElement('div'); meta.className = 'case-meta-line';
+      meta.append(
+        metaItem(item.customer_phone ? 'phone' : 'file', item.customer_phone || item.customer_id || 'Customer details required'),
+        metaItem('tag', item.category || 'Other Complaint'),
+        metaItem('map-pin', item.branch || 'Branch not provided'),
+      );
+      const age = document.createElement('p'); age.className = 'case-age';
+      age.append(iconNode('clock'), textNode('span', item.age_label || ''));
       body.append(
         textNode('p', `#${start + index} · ${item.reference_number || item.case_id}`, 'case-reference'),
         textNode('h2', item.customer_name || 'Unnamed customer'),
-        textNode('p', `${item.customer_phone || item.customer_id || 'Customer details required'} · ${item.category || 'Other Complaint'} · ${item.branch || 'Branch not provided'}`, 'case-subtitle'),
-        textNode('p', item.age_label || '', 'case-age'),
+        meta,
+        age,
       );
       button.append(body, statusStack(item));
       button.addEventListener('click', () => openCase(item.case_id));
@@ -229,7 +261,7 @@
     $('resolveForm').hidden = item.status !== 'Pending' || !actions.close;
     $('reopenForm').hidden = item.status !== 'Resolved' || !actions.reopen;
     $('retrySyncBtn').hidden = !actions.sync_retry || !['pending', 'failed'].includes(item.sync_status) || item.sheet_projection_enabled === false;
-    $('detailBackBtn').textContent = state.returnWorkspace === 'global' ? '← Overview' : '← Complaints';
+    $('detailBackLabel').textContent = state.returnWorkspace === 'global' ? 'Overview' : 'Complaints';
     if (!preserveDraft) {
       $('completeDetailsForm').reset(); $('resolveForm').reset(); $('reopenForm').reset();
       clearEvidence('resolve'); $('conflictPanel').hidden = true;
@@ -270,7 +302,7 @@
     items.forEach(item => {
       const row = document.createElement('div'); row.className = 'item evidence-item'; row.appendChild(textNode('strong', item.name));
       if (item.preview_url) {
-        const button = textNode('button', 'View in app', 'media-link'); button.type = 'button';
+        const button = buttonWithIcon('View in app', 'eye', 'media-link');
         button.addEventListener('click', () => openPersistedEvidence(item, button));
         row.appendChild(button);
       } else if (item.status === 'success') {
@@ -350,13 +382,15 @@
     const node = $('activityList'); node.replaceChildren();
     if (!items.length) { node.appendChild(textNode('p', 'No complaint history available.', 'muted')); return; }
     items.forEach(item => {
-      const row = document.createElement('div'); row.className = 'item';
+      const row = document.createElement('div'); row.className = 'item history-item';
       let action = 'Updated by';
       if (item.status === 'Closed') action = 'Resolved by';
       else if (item.status === 'Open' && item.old_status === 'Closed') action = 'Reopened by';
       else if (item.status === 'Open') action = 'Complaint recorded by';
       else if (item.status === 'Review Needed') action = 'More information requested by';
-      row.append(textNode('strong', `${action} ${item.updated_by || 'Staff'}`), textNode('p', displayHistoryNote(item.note)), textNode('small', item.created_at || '', 'muted'));
+      const content = document.createElement('div');
+      content.append(textNode('strong', `${action} ${item.updated_by || 'Staff'}`), textNode('p', displayHistoryNote(item.note)), textNode('small', item.created_at || '', 'muted'));
+      row.append(iconNode(item.status === 'Closed' ? 'circle-check' : 'history', 'item-icon'), content);
       node.appendChild(row);
     });
   }
@@ -519,9 +553,9 @@
       if (item.file.type.startsWith('image/')) { const image = document.createElement('img'); image.src = item.preview; image.alt = ''; row.appendChild(image); }
       else row.appendChild(textNode('span', item.file.name.split('.').pop()?.toUpperCase() || 'FILE', 'file-icon'));
       row.appendChild(textNode('span', item.file.name, 'file-name'));
-      const view = textNode('button', 'View', 'view-file'); view.type = 'button';
+      const view = buttonWithIcon('View', 'eye', 'view-file');
       view.addEventListener('click', () => openSelectedEvidence(target, item.id, view)); row.appendChild(view);
-      const remove = textNode('button', 'Remove', 'remove-file'); remove.type = 'button';
+      const remove = buttonWithIcon('Remove', 'trash-2', 'remove-file');
       remove.addEventListener('click', () => removeEvidence(target, item.id)); row.appendChild(remove); list.appendChild(row);
     });
   }
@@ -661,10 +695,11 @@
 
   function renderMetrics(metrics) {
     const labels = [['total', 'Total Complaints'], ['pending', 'Pending'], ['resolved', 'Resolved'], ['needs_details', 'Need More Information']];
+    const icons = { total: 'list', pending: 'clock', resolved: 'circle-check', needs_details: 'history' };
     const node = $('globalMetrics'); node.replaceChildren();
     labels.forEach(([key, label]) => {
       const card = document.createElement('div'); card.className = `metric-card ${key === 'needs_details' && metrics[key] ? 'attention' : ''}`;
-      card.append(textNode('strong', metrics[key] || 0), textNode('span', label)); node.appendChild(card);
+      card.append(iconNode(icons[key], 'metric-icon'), textNode('strong', metrics[key] || 0), textNode('span', label)); node.appendChild(card);
     });
   }
   function populateGlobalFilters(filters) {

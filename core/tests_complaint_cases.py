@@ -1113,6 +1113,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
     def test_compact_two_state_workspace_has_only_supported_actions(self):
         root = Path(__file__).resolve().parent
         template = (root / 'templates' / 'complaint_cases' / 'app.html').read_text(encoding='utf-8')
+        icons = (root / 'templates' / 'complaint_cases' / 'lucide_icons.html').read_text(encoding='utf-8')
         script = (root / 'static' / 'miniapp' / 'complaint_cases.js').read_text(encoding='utf-8')
 
         for expected in ('class="app-top"', 'class="status-tabs"', 'id="createCaseForm"', 'name="client_name"', 'name="customer_phone"', 'name="customer_id"', 'name="branch_region"', 'name="complaint_category"', 'name="complaint_description"', 'id="createEvidenceInput"', 'data-status="pending"', 'data-status="resolved"', 'data-status="all"', 'id="completeDetailsForm"', 'id="resolveForm"', 'id="reopenForm"', 'id="conflictPanel"', 'id="queuePagination"'):
@@ -1129,12 +1130,18 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('inputmode="numeric" pattern="[0-9]*"', template)
         self.assertIn('id="mediaViewerOverlay"', template)
         self.assertIn('secure_media_viewer.js', template)
+        self.assertIn('complaint_cases/lucide_icons.html', template)
+        self.assertIn('href="#lucide-refresh-cw"', template)
+        self.assertIn('function iconNode(name, className)', script)
+        for icon in ('refresh-cw', 'clipboard-list', 'layout-dashboard', 'camera', 'eye', 'trash-2'):
+            self.assertIn(f'id="lucide-{icon}"', icons)
+        self.assertNotIn('unpkg.com/lucide', template)
         self.assertIn('This download includes all ${count} complaints across all complaint groups', script)
         for wording in (
-            '<h1>Complaints</h1>', '>Complaints</button>', '>Overview</button>',
+            '<h1>Complaints</h1>', '<span>Complaints</span>', '<span>Overview</span>',
             'Record a New Complaint', 'Enter the customer&rsquo;s complaint details below.',
             'Complaint Type', 'What is the complaint about?', 'Use My Current Location',
-            'Supporting Documents or Photos', 'Take a Photo', 'Upload Files',
+            'Supporting Documents or Photos', 'Take Photos', 'Upload Files',
             'Not Saved', 'Submit Complaint',
         ):
             self.assertIn(wording, template)
