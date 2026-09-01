@@ -1070,6 +1070,7 @@ body.portal-compact-cards .operational-farmer-card { padding: 9px 10px; }
 }
 .jbl-visit-sheet .sheet-client-media-toggle svg,
 .jbl-visit-sheet .case360-toggle svg { width: 14px; height: 14px; color: var(--text-muted); stroke: currentColor; }
+.jbl-visit-sheet .sheet-client-media-toggle svg { color: var(--brand-primary); }
 .jbl-visit-sheet .sheet-quick-actions:not(.has-client-media) .case360-toggle { grid-column: 1 / -1; }
 .jbl-visit-sheet #sheet-form { margin-top: 10px !important; }
 .jbl-visit-sheet .form-section.form-grid {
@@ -1103,10 +1104,42 @@ body.portal-compact-cards .operational-farmer-card { padding: 9px 10px; }
   border-color: var(--brand-primary);
   outline: 2px solid color-mix(in srgb, var(--brand-primary) 14%, transparent);
 }
-.jbl-visit-sheet .jbl-date-control { grid-template-columns: minmax(0, 1fr) 34px; gap: 5px; }
-.jbl-visit-sheet .form-row .jbl-date-open { width: 34px; min-width: 34px; height: 34px; min-height: 34px; }
+.jbl-visit-sheet .jbl-date-control { position: relative; display: block; }
+.jbl-visit-sheet #jbl-date-display { padding-right: 36px; }
+.jbl-visit-sheet .form-row .jbl-date-open {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  border: 0;
+  background: transparent;
+}
 .jbl-visit-sheet .field-help { font-size: 9px; }
-.jbl-visit-sheet .voice-input { justify-content: space-between; margin-top: 0; }
+.jbl-visit-sheet .jbl-comment-control {
+  overflow: hidden;
+  padding: 7px 8px 5px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-muted);
+}
+.jbl-visit-sheet .jbl-comment-control textarea {
+  min-height: 46px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  outline: 0;
+}
+.jbl-visit-sheet .jbl-comment-control textarea:focus { border: 0; outline: 0; }
+.jbl-visit-sheet .voice-input {
+  justify-content: space-between;
+  margin-top: 3px;
+  padding-top: 5px;
+  border-top: 1px solid var(--border-color);
+}
 .jbl-visit-sheet .voice-record-button {
   width: auto;
   min-width: 0;
@@ -1121,12 +1154,8 @@ body.portal-compact-cards .operational-farmer-card { padding: 9px 10px; }
 .jbl-visit-sheet .voice-record-button svg { width: 14px; height: 14px; }
 .jbl-visit-sheet .voice-record-visible-label { display: inline; font-size: 9px; font-weight: 800; }
 .jbl-visit-sheet .voice-language-button { min-width: 38px; min-height: 30px; padding: 0 6px; font-size: 8px; }
-.jbl-visit-sheet .media-upload-row > label::after {
-  content: ' · up to 6 files';
-  color: var(--text-muted);
-  font-weight: 600;
-  text-transform: none;
-}
+.jbl-visit-sheet .jbl-media-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.jbl-visit-sheet .jbl-media-section-heading > span { color: var(--text-muted); font-size: 8px; }
 .jbl-visit-sheet .media-category-upload {
   gap: 4px;
   padding: 7px 8px;
@@ -1139,16 +1168,44 @@ body.portal-compact-cards .operational-farmer-card { padding: 9px 10px; }
 .jbl-visit-sheet .jbl-media-icon-button svg { width: 15px; height: 15px; }
 .jbl-visit-sheet .media-upload-control small { font-size: 8px; }
 .jbl-visit-sheet .jbl-media-selection-summary { font-size: 9px; }
+.jbl-visit-sheet .gps-capture-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px !important;
+  padding: 8px !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 10px;
+  background: var(--bg-muted) !important;
+}
+.jbl-visit-sheet .gps-capture-summary { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.jbl-visit-sheet .gps-capture-summary > span:last-child { display: grid; min-width: 0; }
+.jbl-visit-sheet .gps-capture-summary strong { color: var(--text-primary); font-size: 10px; }
+.jbl-visit-sheet .gps-capture-summary .field-help { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jbl-visit-sheet .gps-capture-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
+}
+.jbl-visit-sheet .gps-capture-icon svg { width: 15px; height: 15px; stroke: currentColor; }
 .jbl-visit-sheet .gps-capture-row > button {
-  width: 100%;
-  min-height: 34px;
+  width: auto;
+  min-width: 72px;
+  min-height: 30px;
+  padding: 5px 9px;
   border-color: var(--border-color);
   border-radius: 8px;
-  background: var(--bg-muted);
+  background: var(--bg-surface);
   color: var(--text-primary);
   font-size: 10px;
 }
-.jbl-visit-sheet .gps-capture-row > button svg { width: 14px; height: 14px; color: var(--status-danger); stroke: currentColor; }
+.jbl-visit-sheet .gps-capture-row #jbl-location-unavailable-wrap,
+.jbl-visit-sheet .gps-capture-row .jbl-field-error { grid-column: 1 / -1; }
 .jbl-visit-sheet .jbl-draft-state { margin-top: -2px; }
 .jbl-visit-sheet .sheet-footer {
   position: relative;

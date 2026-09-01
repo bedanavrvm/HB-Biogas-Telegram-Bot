@@ -620,15 +620,20 @@
     const mediaSection = el('sheet-client-media');
     if (mediaSection) {
       const canViewMedia = hasCapability('portal.jbl_media.view') && mediaCount >= 1;
+      const compactMediaLabel = `${mediaCount} Media File${mediaCount === 1 ? '' : 's'}`;
+      const fullMediaLabel = `View ${mediaCount} media file${mediaCount === 1 ? '' : 's'}`;
+      const collapsedMediaLabel = mode === 'jbl_visit' ? compactMediaLabel : fullMediaLabel;
+      const expandedMediaLabel = mode === 'jbl_visit' ? 'Hide Media Files' : 'Hide client media';
+      const mediaIcon = mode === 'jbl_visit' ? 'paperclip' : 'image';
       document.querySelector('.sheet-quick-actions')?.classList.toggle('has-client-media', canViewMedia);
       mediaSection.hidden = !canViewMedia;
       mediaSection.innerHTML = canViewMedia
-        ? `<button type="button" class="btn btn-secondary sheet-client-media-toggle" id="btn-view-client-media" aria-expanded="false" data-collapsed-label="View ${mediaCount} media file${mediaCount === 1 ? '' : 's'}"><i data-lucide="image" aria-hidden="true"></i><span class="sheet-action-label">View ${mediaCount} media file${mediaCount === 1 ? '' : 's'}</span></button><div id="final-client-media" class="media-links client-media-links" hidden></div>`
+        ? `<button type="button" class="btn btn-secondary sheet-client-media-toggle" id="btn-view-client-media" aria-expanded="false" data-collapsed-label="${collapsedMediaLabel}" data-expanded-label="${expandedMediaLabel}"><i data-lucide="${mediaIcon}" aria-hidden="true"></i><span class="sheet-action-label">${collapsedMediaLabel}</span></button><div id="final-client-media" class="media-links client-media-links" hidden></div>`
         : '';
       el('btn-view-client-media')?.addEventListener('click', () => toggleClientMedia(farmer.id));
     }
     const caseToggle = el('case360-toggle');
-    caseToggle.innerHTML = '<i data-lucide="history" aria-hidden="true"></i><span>Open Case History</span>';
+    caseToggle.innerHTML = `<i data-lucide="history" aria-hidden="true"></i><span>${mode === 'jbl_visit' ? 'Case History' : 'Open Case History'}</span>`;
     caseToggle.onclick = () => {
       window.PortalAppShell?.openCaseHistory(farmer.id);
     };
@@ -865,22 +870,23 @@
     const legacySubCounty = farmer.sub_county
       ? `<option value="${deps.escapeHtml(farmer.sub_county)}" selected>${deps.escapeHtml(farmer.sub_county)}</option>`
       : '';
+    const maximumMediaFiles = Number(state().jblVisitMediaMaxFiles || 6);
     const mediaFields = hasCapability('portal.jbl_media.write') ? `
         <div class="form-row media-upload-row form-row-wide">
-          <label>Visit Media</label>
+          <div class="jbl-media-section-heading"><label>Visit Media</label><span>Up to ${maximumMediaFiles} files</span></div>
           <div class="media-upload-control">
             ${jblMediaCategoryMarkup({
-              category: 'LAF', title: 'LAF document(s)', help: 'PDF, JPG or PNG.',
+              category: 'LAF', title: 'LAF Document(s)', help: 'PDF, JPG, PNG',
               pickerId: 'jbl-laf-media', cameraId: 'jbl-laf-camera',
               accept: 'application/pdf,.pdf,image/jpeg,image/png,.jpg,.jpeg,.png',
             })}
             ${jblMediaCategoryMarkup({
-              category: 'JBL_VISIT_PHOTO', title: 'JBL visit photo(s)', help: 'Images only.',
+              category: 'JBL_VISIT_PHOTO', title: 'Visit Photo(s)', help: 'Images only',
               pickerId: 'jbl-visit-photo-media', cameraId: 'jbl-visit-photo-camera',
               accept: 'image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp',
             })}
             ${jblLiveCameraMarkup()}
-            <small class="form-row-wide jbl-media-limit-help">Up to ${Number(state().jblVisitMediaMaxFiles || 6)} files and ${Math.round(Number(state().jblVisitMediaMaxTotalBytes || 40 * 1024 * 1024) / (1024 * 1024))} MB combined. Tap a selected item to review it full-size.</small>
+            <small class="form-row-wide jbl-media-limit-help">${Math.round(Number(state().jblVisitMediaMaxTotalBytes || 40 * 1024 * 1024) / (1024 * 1024))} MB combined. Tap a selected item to review it full-size.</small>
             ${farmer.jbl_media_count ? `<small class="form-row-wide">${farmer.jbl_media_count} existing Drive link${farmer.jbl_media_count === 1 ? '' : 's'} on this record.</small>` : ''}
           </div>
         </div>` : '';
@@ -890,16 +896,16 @@
       <section id="jbl-draft-conflict" class="jbl-workflow-conflict" role="alert" tabindex="-1" hidden><strong>This draft changed on another device.</strong><p>Choose which field-only draft to continue with. Files are never included.</p><div class="jbl-conflict-actions"><button type="button" id="jbl-use-local-draft">Use this device</button><button type="button" id="jbl-use-server-draft">Use saved draft</button></div></section>
       <div class="form-section form-grid">
         <div class="form-row" data-jbl-field="visit_date"><label title="JBL visits follow the HBG visit and cannot be future-dated.">Visit Date <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><div class="jbl-date-control"><input type="text" id="jbl-date-display" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="dd-mm-yy" aria-describedby="jbl-date-help" aria-required="true" value="${deps.escapeHtml(displayDateFromIso(defaultVisitDate))}"><button type="button" id="jbl-date-open" class="jbl-date-open" aria-label="Open native visit date picker" title="Choose visit date">${calendarIcon()}</button><input type="date" id="jbl-date-picker" class="native-date-proxy" min="${deps.escapeHtml(hbgVisitDate)}" max="${deps.escapeHtml(today)}" value="${deps.escapeHtml(defaultVisitDate)}" tabindex="-1" aria-hidden="true"><input type="hidden" id="jbl-date" value="${deps.escapeHtml(defaultVisitDate)}"></div><small id="jbl-date-help" class="field-help">Use dd-mm-yy. Earliest: ${deps.escapeHtml(displayDateFromIso(hbgVisitDate) || 'recorded HBG visit')}; latest: ${deps.escapeHtml(displayDateFromIso(today))}.</small><small class="jbl-field-error" data-error-message-for="visit_date"></small></div>
-        <div class="form-row" data-jbl-field="visit_status"><label>Status / Outcome <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="jbl-status" aria-required="true"><option value="">- Select -</option>${statusOptions}</select><small class="jbl-field-error" data-error-message-for="visit_status"></small></div>
-        <div class="form-row"><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Uses your staff identity when blank" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
+        <div class="form-row" data-jbl-field="visit_status"><label>Outcome <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="jbl-status" aria-required="true"><option value="">- Select -</option>${statusOptions}</select><small class="jbl-field-error" data-error-message-for="visit_status"></small></div>
+        <div class="form-row"><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Uses your staff identity" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
         <div class="form-row" data-jbl-field="county"><label>County</label><select id="jbl-county"><option value="">- Select county -</option>${countyOptions}</select><small class="jbl-field-error" data-error-message-for="county"></small></div>
         <div class="form-row" data-jbl-field="sub_county"><label>Sub-county</label><select id="jbl-sub-county"><option value="">- Select sub-county -</option>${legacySubCounty}</select><small class="jbl-field-error" data-error-message-for="sub_county"></small></div>
         <div class="form-row"><label>Village</label><input type="text" id="jbl-village" placeholder="Village / area" value="${deps.escapeHtml(farmer.village || '')}"></div>
-        <div class="form-row form-row-wide"><label>Comment</label><textarea id="jbl-comment" rows="2" placeholder="Additional notes...">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea>${voiceWidget('jbl_visit_comment', 'jbl-comment')}</div>
+        <div class="form-row form-row-wide jbl-comment-row"><label>Comment</label><div class="jbl-comment-control"><textarea id="jbl-comment" rows="2" placeholder="Additional notes...">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea>${voiceWidget('jbl_visit_comment', 'jbl-comment')}</div></div>
         ${mediaFields}
         <div class="form-row form-row-wide gps-capture-row" data-jbl-field="capture_location">
-          <button type="button" id="btn-gps" class="secondary"><i data-lucide="map-pin" aria-hidden="true"></i><span>Capture GPS Location</span></button>
-          <div id="gps-coords" class="field-help">Not captured</div>
+          <div class="gps-capture-summary"><span class="gps-capture-icon"><i data-lucide="map-pin" aria-hidden="true"></i></span><span><strong>GPS Location</strong><small id="gps-coords" class="field-help">Not captured yet</small></span></div>
+          <button type="button" id="btn-gps" class="secondary"><span>Capture</span></button>
           <input type="hidden" id="jbl-lat" value="">
           <input type="hidden" id="jbl-lng" value="">
           <div id="jbl-location-unavailable-wrap" hidden>
@@ -1990,7 +1996,7 @@
     if (button) {
       button.setAttribute('aria-expanded', 'true');
       const label = button.querySelector('.sheet-action-label');
-      if (label) label.textContent = 'Hide client media';
+      if (label) label.textContent = button.dataset.expandedLabel || 'Hide client media';
     }
     if (target.dataset.loaded === 'true') return;
     loadClientMedia(farmerId);
