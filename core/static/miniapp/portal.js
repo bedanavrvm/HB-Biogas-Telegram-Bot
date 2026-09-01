@@ -1092,7 +1092,7 @@
     }
   }
 
-  function renderJblQueueCard(f) {
+  function renderVisitQueueCard(f, qKey) {
     const displayNumber = f.display_number
       ? `<span class="farmer-card-number" aria-label="Queue position ${escapeHtml(String(f.display_number))}">#${escapeHtml(String(f.display_number))}</span>`
       : '';
@@ -1101,13 +1101,18 @@
     const location = escapeHtml(locationValue === '-' ? 'Location not provided' : locationValue);
     const phone = escapeHtml(f.primary_phone || 'Phone not provided');
     const unit = escapeHtml(f.unit_number || 'not provided');
-    const visitDate = escapeHtml(f.hbg_visit_date_label || (f.hbg_visit_date ? fmtDate(f.hbg_visit_date) : 'Date not provided'));
+    const isJblQueue = qKey === 'jbl';
+    const status = escapeHtml(isJblQueue ? 'Pending Visit' : (f.jbl_visit_status || 'Submitted'));
+    const datePrefix = isJblQueue ? 'HB visit' : 'JBL visit';
+    const rawVisitDate = isJblQueue ? f.hbg_visit_date : f.jbl_visit_date;
+    const visitDateLabel = isJblQueue ? f.hbg_visit_date_label : f.jbl_visit_date_label;
+    const visitDate = escapeHtml(visitDateLabel || (rawVisitDate ? fmtDate(rawVisitDate) : 'Date not provided'));
 
     return `
       <div class="jbl-queue-card-content">
         <div class="jbl-queue-card-heading">
           <div class="jbl-queue-card-identity">${displayNumber}<span class="fc-name">${name}</span></div>
-          <span class="badge jbl-pending-visit-badge">Pending Visit</span>
+          <span class="badge ${isJblQueue ? 'jbl-pending-visit-badge' : 'my-visit-status-badge'}">${status}</span>
         </div>
         <div class="jbl-queue-card-details">
           <span class="jbl-queue-card-meta"><i data-lucide="map-pin" aria-hidden="true"></i><span>${location}</span></span>
@@ -1115,7 +1120,7 @@
         </div>
         <div class="jbl-queue-card-bottom">
           <span class="badge badge-grey">Unit ${unit}</span>
-          <span class="jbl-queue-card-date"><i data-lucide="calendar-days" aria-hidden="true"></i><span>HB visit: ${visitDate}</span></span>
+          <span class="jbl-queue-card-date"><i data-lucide="calendar-days" aria-hidden="true"></i><span>${datePrefix}: ${visitDate}</span></span>
         </div>
       </div>`;
   }
@@ -1131,7 +1136,7 @@
         ${qKey === 'requisition' && hasCapability('portal.requisition.write') ? `
           <input type="checkbox" class="farmer-card-checkbox" data-id="${escapeHtml(f.id || '')}" data-revision="${escapeHtml(String(f.workflow_revision || 1))}" ${state.selectedRequisitions.has(f.id) ? 'checked' : ''} onclick="event.stopPropagation();">
         ` : ''}
-        ${qKey === 'jbl' ? renderJblQueueCard(f) : `<div style="flex: 1;">
+        ${qKey === 'jbl' || qKey === 'my_visits' ? renderVisitQueueCard(f, qKey) : `<div style="flex: 1;">
           <div class="fc-name">${f.display_number ? `<span class="farmer-card-number" aria-label="Queue position ${escapeHtml(String(f.display_number))}">${escapeHtml(String(f.display_number))}</span>` : ''}${escapeHtml(f.customer_name || f.national_id || f.primary_phone || 'Unknown')}</div>
           <div class="fc-sub">${escapeHtml(locationText(f))}</div>
           <div class="fc-sub">${escapeHtml(f.primary_phone || '')}</div>
@@ -2399,6 +2404,7 @@
       openPaymentReviewDocument,
       queueConfig,
       renderQueueFragment,
+      renderVisitQueueCard,
       stageBadge,
       state,
       updateBatchPanel,

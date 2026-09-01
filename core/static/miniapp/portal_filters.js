@@ -30,12 +30,10 @@
           ${qKey === 'requisition' ? `
             <input type="checkbox" class="farmer-card-checkbox" data-id="${deps.escapeHtml(farmer.id)}" ${state().selectedRequisitions.has(farmer.id) ? 'checked' : ''} onclick="event.stopPropagation();">
           ` : ''}
-          <div style="flex: 1;">
+          ${qKey === 'jbl' || qKey === 'my_visits' ? deps.renderVisitQueueCard(farmer, qKey) : `<div style="flex: 1;">
             <div class="fc-name">${deps.escapeHtml(farmer.customer_name || farmer.national_id || farmer.primary_phone || 'Unknown')}</div>
             <div class="fc-sub">${deps.escapeHtml(deps.locationText(farmer))}</div>
             <div class="fc-sub">${deps.escapeHtml(farmer.primary_phone || '')}</div>
-            ${qKey === 'jbl' && farmer.hbg_visit_date ? `<div class="fc-sub fc-visit-date">HB visit: ${deps.escapeHtml(farmer.hbg_visit_date_label || deps.fmtDate(farmer.hbg_visit_date))}</div>` : ''}
-            ${qKey === 'my_visits' && farmer.jbl_visit_date ? `<div class="fc-sub fc-visit-date">JBL visit: ${deps.escapeHtml(farmer.jbl_visit_date_label || deps.fmtDate(farmer.jbl_visit_date))}</div>` : ''}
             <div class="fc-badges">
               ${farmer.reappraisal_required ? `<span class="badge badge-red">Reappraisal required since ${deps.escapeHtml(farmer.deferred_until || '')}</span>` : ''}
               ${farmer.unit_number ? `<span class="badge badge-grey">Unit ${deps.escapeHtml(farmer.unit_number)}</span>` : ''}
@@ -45,7 +43,7 @@
               ${state().filters.reviewStage === 'payment' && farmer.payment_review_document_id ? `<span class="badge badge-orange">Payment #${deps.escapeHtml(farmer.payment_review_payment_number || '-')} awaiting HOR review</span><span class="badge badge-grey">Order ${deps.escapeHtml(farmer.payment_review_order_number || '-')}</span><button type="button" class="btn btn-secondary btn-open-payment-review" data-payment-document-id="${deps.escapeHtml(farmer.payment_review_document_id)}">Open payment review</button>` : ''}
               ${farmer.order_number ? `<span class="badge badge-green">Order: ${deps.escapeHtml(farmer.order_number)}</span>` : ''}
             </div>
-          </div>
+          </div>`}
         </div>
       `;
     }).join('');

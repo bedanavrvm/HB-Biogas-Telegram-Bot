@@ -441,16 +441,19 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
   margin-top: 4px;
 }
 
-/* JBL Visit queue cards keep all essential field information visible even
+/* Visit queue cards keep all essential field information visible even
    when the user's compact-card preference is enabled. */
-#page-jbl .farmer-list { gap: 7px; }
-#page-jbl .farmer-card {
+#page-jbl .farmer-list,
+#page-my_visits .farmer-list { gap: 7px; }
+#page-jbl .farmer-card,
+#page-my_visits .farmer-card {
   padding: 10px 11px;
   gap: 0;
   border-radius: 12px;
   box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
 }
-#page-jbl .farmer-card:focus-visible {
+#page-jbl .farmer-card:focus-visible,
+#page-my_visits .farmer-card:focus-visible {
   outline: 2px solid var(--brand-primary);
   outline-offset: 2px;
 }
@@ -498,6 +501,11 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
   background: var(--status-info-bg);
   color: var(--status-info);
 }
+.my-visit-status-badge {
+  flex: 0 0 auto;
+  background: var(--status-info-bg);
+  color: var(--status-info);
+}
 .jbl-queue-card-details {
   justify-content: space-between;
   gap: 10px;
@@ -534,7 +542,8 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
   border-top: 1px solid var(--border-color);
 }
 .jbl-queue-card-date { color: var(--brand-primary); font-weight: 700; }
-body.portal-compact-cards #page-jbl .farmer-card { padding: 9px 10px; }
+body.portal-compact-cards #page-jbl .farmer-card,
+body.portal-compact-cards #page-my_visits .farmer-card { padding: 9px 10px; }
 
 @media (max-width: 360px) {
   .jbl-queue-card-details { align-items: flex-start; flex-direction: column; gap: 5px; }

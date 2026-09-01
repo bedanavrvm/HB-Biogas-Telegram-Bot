@@ -393,6 +393,8 @@ class MiniAppFrontendSmokeTests(TestCase):
     def test_portal_cards_filters_imab_and_workflow_drafts_are_consistent(self):
         template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')
         card = Path('core/templates/portal/partials/farmer_card.html').read_text(encoding='utf-8')
+        portal = Path('core/static/miniapp/portal.js').read_text(encoding='utf-8')
+        filters = Path('core/static/miniapp/portal_filters.js').read_text(encoding='utf-8')
         sheet = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
         queues = Path('core/static/miniapp/portal_queues.js').read_text(encoding='utf-8')
 
@@ -400,9 +402,12 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertNotIn('portal-preference-default-branch', template)
         self.assertIn('farmer.location_label', card)
         self.assertIn('JBL visit:', card)
+        self.assertIn('queue_key == "jbl" or queue_key == "my_visits"', card)
         self.assertIn('jbl-queue-card-bottom', card)
         self.assertLess(card.index('Unit {{ farmer.unit_number'), card.index('HB visit: {{ farmer.hbg_visit_date_label'))
-        self.assertIn('function renderJblQueueCard(f)', portal)
+        self.assertIn('JBL visit: {{ farmer.jbl_visit_date_label', card)
+        self.assertIn('function renderVisitQueueCard(f, qKey)', portal)
+        self.assertIn("qKey === 'jbl' || qKey === 'my_visits' ? deps.renderVisitQueueCard", filters)
         self.assertNotIn("params.set('county'", queues)
         self.assertNotIn("params.set('branch'", queues)
         self.assertIn("farmer.imab_created || 'Pending'", sheet)

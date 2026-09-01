@@ -11,14 +11,18 @@
       onclick="event.stopPropagation();"
     >
   {% endif %}
-  {% if queue_key == "jbl" %}
+  {% if queue_key == "jbl" or queue_key == "my_visits" %}
   <div class="jbl-queue-card-content">
     <div class="jbl-queue-card-heading">
       <div class="jbl-queue-card-identity">
         {% if farmer.display_number %}<span class="farmer-card-number" aria-label="Queue position {{ farmer.display_number }}">#{{ farmer.display_number }}</span>{% endif %}
         <span class="fc-name">{{ farmer.customer_name|default:farmer.national_id|default:farmer.primary_phone|default:"Unknown" }}</span>
       </div>
-      <span class="badge jbl-pending-visit-badge">Pending Visit</span>
+      {% if queue_key == "jbl" %}
+        <span class="badge jbl-pending-visit-badge">Pending Visit</span>
+      {% else %}
+        <span class="badge my-visit-status-badge">{{ farmer.jbl_visit_status|default:"Submitted" }}</span>
+      {% endif %}
     </div>
     <div class="jbl-queue-card-details">
       <span class="jbl-queue-card-meta">
@@ -34,7 +38,11 @@
       <span class="badge badge-grey">Unit {{ farmer.unit_number|default:"not provided" }}</span>
       <span class="jbl-queue-card-date">
         <i data-lucide="calendar-days" aria-hidden="true"></i>
-        <span>HB visit: {{ farmer.hbg_visit_date_label|default:"Date not provided" }}</span>
+        {% if queue_key == "jbl" %}
+          <span>HB visit: {{ farmer.hbg_visit_date_label|default:"Date not provided" }}</span>
+        {% else %}
+          <span>JBL visit: {{ farmer.jbl_visit_date_label|default:"Date not provided" }}</span>
+        {% endif %}
       </span>
     </div>
   </div>
@@ -43,12 +51,6 @@
     <div class="fc-name">{% if farmer.display_number %}<span class="farmer-card-number" aria-label="Queue position {{ farmer.display_number }}">{{ farmer.display_number }}</span>{% endif %}{{ farmer.customer_name|default:farmer.national_id|default:farmer.primary_phone|default:"Unknown" }}</div>
     <div class="fc-sub">{{ farmer.location_label|default:"-" }}</div>
     <div class="fc-sub">{{ farmer.primary_phone|default:"" }}</div>
-    {% if queue_key == "jbl" and farmer.hbg_visit_date_label %}
-      <div class="fc-sub fc-visit-date">HB visit: {{ farmer.hbg_visit_date_label }}</div>
-    {% endif %}
-    {% if queue_key == "my_visits" and farmer.jbl_visit_date %}
-      <div class="fc-sub fc-visit-date">JBL visit: {{ farmer.jbl_visit_date_label }}</div>
-    {% endif %}
     <div class="fc-badges">
       {% if review_stage == 'payment' and farmer.payment_review_payment_number %}
         <span class="badge badge-orange">Payment #{{ farmer.payment_review_payment_number }} awaiting HOR review</span>
