@@ -49,6 +49,31 @@
   let statusTimeout = null;
   let noticeTimeout = null;
 
+  function bindCollapsingHeader() {
+    const header = $('appHeader');
+    if (!header) return;
+    let previousY = Math.max(0, window.scrollY || 0);
+    let scheduled = false;
+    const update = () => {
+      scheduled = false;
+      const currentY = Math.max(0, window.scrollY || 0);
+      const delta = currentY - previousY;
+      if (currentY <= 12 || delta < -4 || header.contains(document.activeElement)) {
+        header.classList.remove('header-hidden');
+      } else if (currentY > header.offsetHeight && delta > 4) {
+        header.classList.add('header-hidden');
+      }
+      previousY = currentY;
+    };
+    window.addEventListener('scroll', () => {
+      if (!scheduled) {
+        scheduled = true;
+        window.requestAnimationFrame(update);
+      }
+    }, { passive: true });
+    header.addEventListener('focusin', () => header.classList.remove('header-hidden'));
+  }
+
   function readPendingCreateRequestId() {
     try { return window.sessionStorage.getItem('tatPendingCreateRequestId') || ''; } catch (error) { return ''; }
   }
@@ -2182,6 +2207,7 @@
   }
 
   configureHtmx();
+  bindCollapsingHeader();
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && state.filterSheetOpen) closeQueueFilters();
   });

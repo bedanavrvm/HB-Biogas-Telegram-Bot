@@ -11,11 +11,11 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=28">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=29">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}" data-task-token="{{ task_token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
-    <header class="app-top">
+    <header id="appHeader" class="app-top">
       <div class="app-brand">
         <img class="app-logo" src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu">
         <div class="app-title-block">
@@ -24,11 +24,11 @@
           <p id="userLine" class="user-line">Opening tracker...</p>
         </div>
       </div>
-      <button id="refreshBtn" type="button" class="ghost-btn refresh-btn" aria-label="Refresh tracker">
+      <button id="refreshBtn" type="button" class="ghost-btn refresh-btn" aria-label="Refresh tracker" title="Refresh tracker">
         <svg class="icon-refresh" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
           <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l.73-.73"/>
         </svg>
-        <span>Refresh</span>
+        <span class="refresh-label">Refresh</span>
       </button>
     </header>
     <div id="loadingBrand" class="loading-brand" role="status" aria-live="polite">
@@ -342,6 +342,6 @@
   {% include "miniapp_diagnostics.html" %}
   <script src="{% static 'miniapp/utils.js' %}?v=9"></script>
   <script src="{% static 'miniapp/tat_api.js' %}?v=4"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=51"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=52"></script>
 </body>
 </html>
