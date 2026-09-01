@@ -475,6 +475,14 @@ class TatPrivateTaskTests(TestCase):
         dispatch_task(task.pk)
 
         self.assertEqual(telegram.call_count, 1)
+        payload = telegram.call_args.args[1]
+        self.assertIn('⏰ Action Required', payload['text'])
+        self.assertIn('A TAT task requires your attention.', payload['text'])
+        self.assertIn('Stage:', payload['text'])
+        self.assertEqual(
+            payload['reply_markup']['inline_keyboard'][0][0]['text'],
+            'Open TAT Task',
+        )
         self.assertEqual(
             task.recipients.get(user=self.primary).delivery_state,
             TatActionTaskRecipient.DELIVERY_DELIVERED,
@@ -599,6 +607,11 @@ class TatPrivateTaskTests(TestCase):
         self.assertTrue(second['connected'])
         self.assertEqual(telegram.call_count, 1)
         self.assertEqual(
+            telegram.call_args.args[1]['text'],
+            '✅ Task Alerts Connected\n\n'
+            'You will receive your assigned TAT tasks and alerts in this chat.',
+        )
+        self.assertEqual(
             TatPrivateAlertConnectionEvent.objects.filter(
                 event_type=TatPrivateAlertConnectionEvent.EVENT_CONNECTED,
             ).count(),
@@ -679,6 +692,12 @@ class TatPrivateTaskTests(TestCase):
         self.assertEqual(event.connection, connection)
         self.assertEqual(event.actor_username_snapshot, actor.username)
         self.assertEqual(telegram.call_count, 1)
+        self.assertEqual(
+            telegram.call_args.args[1]['text'],
+            '✅ Alert Test Successful\n\n'
+            'Your private task alerts are working correctly.\n\n'
+            'No real task or escalation was created.',
+        )
 
     def test_miniapp_private_alert_button_is_a_persistent_toggle(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')

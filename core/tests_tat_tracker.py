@@ -2475,8 +2475,11 @@ class TatTrackerWorkflowTest(TestCase):
         alert = next_role_alert(self.config, data)
 
         self.assertEqual(alert['role'], 'BRO')
-        self.assertIn('TAT action needed: BRO', alert['text'])
-        self.assertIn('Next step: MPESA sent to Admin', alert['text'])
+        self.assertIn('⏰ Action Required', alert['text'])
+        self.assertIn('Assigned to: BRO', alert['text'])
+        self.assertIn('Reference: JBL-BS-2026-001', alert['text'])
+        self.assertIn('Next Step: MPESA sent to Admin', alert['text'])
+        self.assertIn('confirm the required action', alert['text'])
 
     def test_next_role_alert_can_be_disabled_in_workflow(self):
         self.config.workflow['stage_alerts_enabled'] = False
@@ -2510,7 +2513,8 @@ class TatTrackerWorkflowTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         mock_reply.assert_called_once()
-        self.assertIn('TAT action needed: BRO', mock_reply.call_args.kwargs['text'])
+        self.assertIn('⏰ Action Required', mock_reply.call_args.kwargs['text'])
+        self.assertIn('Assigned to: BRO', mock_reply.call_args.kwargs['text'])
 
     def test_tracker_identifier_headers_are_required_when_headers_exist(self):
         with self.assertRaisesRegex(ValueError, 'ID NUMBER'):

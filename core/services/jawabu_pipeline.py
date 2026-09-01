@@ -2457,18 +2457,19 @@ def _notify_final_approved(farmer: JawabuFarmerMaster) -> None:
         return
 
     text = (
-        f"🎉 *Final Decision Approved* for:\n"
-        f"👤 *Farmer:* {farmer.customer_name or 'Unknown'}\n"
-        f"🆔 *ID:* {farmer.national_id or '—'}\n"
-        f"📞 *Phone:* {farmer.primary_phone or '—'}\n"
-        f"📍 *County:* {farmer.county or '—'}\n\n"
-        f"This record is ready for order batching in the Pipeline Portal!"
+        "🎉 Final Decision Approved\n\n"
+        f"Farmer: {farmer.customer_name or 'Not provided'}\n"
+        f"ID: {farmer.national_id or 'Not provided'}\n"
+        f"Phone: {farmer.primary_phone or 'Not provided'}\n"
+        f"County: {farmer.county or 'Not provided'}\n\n"
+        "The farmer’s application has received final approval and is ready for "
+        "order batching in the Pipeline Portal."
     )
     url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
     try:
         requests.post(
             url,
-            data={'chat_id': chat_id, 'text': text, 'parse_mode': 'Markdown'},
+            data={'chat_id': chat_id, 'text': text},
             timeout=5,
         )
     except Exception as exc:

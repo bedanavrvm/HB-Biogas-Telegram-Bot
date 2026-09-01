@@ -568,7 +568,9 @@ class StaffTelegramOnboardingTests(TestCase):
                 return {'ok': True, 'result': {'invite_link': 'https://t.me/+spin-one-use'}}
             self.assertEqual(method, 'sendMessage')
             self.assertEqual(payload['chat_id'], '776655')
-            self.assertIn('New JBL workflow access is available', payload['text'])
+            self.assertIn('Additional JBL Tools Are Ready, Existing Staff!', payload['text'])
+            self.assertIn('Your existing account remains active.', payload['text'])
+            self.assertNotIn('Mini App', payload['text'])
             buttons = [
                 button
                 for row in payload['reply_markup']['inline_keyboard']
@@ -711,6 +713,11 @@ class StaffTelegramOnboardingTests(TestCase):
 
         self.assertEqual(result['status'], StaffTelegramOnboarding.STATUS_ATTENTION)
         self.assertEqual(result['readiness']['reason_code'], 'group_scope_mismatch')
+        self.assertEqual(
+            result['message'],
+            'Your account has been verified, but your assigned tools are not ready yet. '
+            'Please contact your administrator to check your access.',
+        )
         telegram_call.assert_not_called()
         publish_launcher.assert_not_called()
 
@@ -838,6 +845,8 @@ class StaffTelegramOnboardingTests(TestCase):
     ):
         plan, _ = self._onboard()
         onboarding = plan.telegram_onboarding
+        self.group.display_name = self.group.group_id
+        self.group.save(update_fields=['display_name', 'updated_at'])
         profile = plan.target_user.staff_profile
         profile.telegram_id = '998877'
         profile.save(update_fields=['telegram_id', 'updated_at'])
@@ -849,6 +858,10 @@ class StaffTelegramOnboardingTests(TestCase):
             self.assertEqual(method, 'sendMessage')
             self.assertEqual(payload['chat_id'], '998877')
             self.assertIn('Welcome to JBL Field Workflow', payload['text'])
+            self.assertIn('Your staff account has been verified', payload['text'])
+            buttons = [button for row in payload['reply_markup']['inline_keyboard'] for button in row]
+            self.assertIn('Join assigned JBL group', {button['text'] for button in buttons})
+            self.assertNotIn(self.group.group_id, str(buttons))
             return {'ok': True, 'result': {'message_id': 77}}
 
         telegram_call.side_effect = api_result

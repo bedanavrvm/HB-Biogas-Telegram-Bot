@@ -2938,12 +2938,13 @@ def next_role_alert(group_config, case_data: dict | None) -> dict[str, str]:
         'role_label': role_label,
         'stage': stage.label,
         'text': (
-            f"TAT action needed: {role_label}\n\n"
-            f"Case: {summary.get('case_id', '')}\n"
-            f"Client: {summary.get('client_name', '')}\n"
-            f"Branch: {summary.get('branch', '')}\n"
-            f"Next step: {stage.label}\n\n"
-            "Please open the TAT Tracker and update this stage when done."
+            "⏰ Action Required\n\n"
+            f"Assigned to: {role_label}\n"
+            f"Reference: {summary.get('case_id') or 'Not provided'}\n"
+            f"Customer: {summary.get('client_name') or 'Not provided'}\n"
+            f"Branch: {summary.get('branch') or 'Not provided'}\n"
+            f"Next Step: {stage.label}\n\n"
+            "Open TAT Tracker to review the task and confirm the required action."
         ),
     }
 

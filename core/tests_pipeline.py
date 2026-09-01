@@ -150,6 +150,23 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertNotIn(self.farmer_stage3, queue)
         self.assertNotIn(self.farmer_stage4, queue)
 
+    @override_settings(TELEGRAM_BOT_TOKEN='test-token')
+    @patch('requests.post')
+    def test_final_approval_notification_is_staff_friendly(self, post):
+        from core.services.group_config import GroupRegistry
+        from core.services.jawabu_pipeline import _notify_final_approved
+
+        GroupRegistry._instance = None
+        self.addCleanup(setattr, GroupRegistry, '_instance', None)
+        _notify_final_approved(self.farmer_stage1)
+
+        payload = post.call_args.kwargs['data']
+        self.assertEqual(payload['chat_id'], self.config.group_id)
+        self.assertNotIn('parse_mode', payload)
+        self.assertIn('🎉 Final Decision Approved', payload['text'])
+        self.assertIn('Farmer: Farmer One', payload['text'])
+        self.assertIn('ready for order batching in the Pipeline Portal.', payload['text'])
+
     def test_jbl_visit_queue_orders_by_hbg_visit_and_supports_search(self):
         later = JawabuFarmerMaster.objects.create(
             customer_name='Later HBG Visit', national_id='99999999',

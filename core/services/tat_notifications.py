@@ -738,17 +738,19 @@ def _send_recipient(recipient: TatActionTaskRecipient) -> bool:
     locator = resolve_locator(token)
     url = build_task_url(token)
     text = (
-        f'TAT action needed: {recipient.task.stage_label}\n'
-        f'Branch: {recipient.task.case.branch}\n'
-        f'Product: {recipient.task.case.product_label or recipient.task.case.product_key}\n'
+        '⏰ Action Required\n\n'
+        'A TAT task requires your attention.\n\n'
+        f'Stage: {recipient.task.stage_label}\n'
+        f'Branch: {recipient.task.case.branch or "Not provided"}\n'
+        f'Product: {recipient.task.case.product_label or recipient.task.case.product_key or "Not provided"}\n'
         f'Reference: {recipient.task.case.case_id}\n\n'
-        'Open the secure task to review and confirm.'
+        'Open the task to review the details and confirm the required action.'
     )
     try:
         result = _telegram_request('sendMessage', {
             'chat_id': chat_id,
             'text': text,
-            'reply_markup': {'inline_keyboard': [[{'text': 'Open TAT task', 'url': url}]]},
+            'reply_markup': {'inline_keyboard': [[{'text': 'Open TAT Task', 'url': url}]]},
         })
     except requests.HTTPError as exc:
         if locator:
@@ -1206,7 +1208,10 @@ def connect_private_alerts(user, *, request_id: str = '') -> dict:
     try:
         _telegram_request('sendMessage', {
             'chat_id': telegram_id,
-            'text': 'Private TAT alerts are connected. Future assigned actions can appear in this chat.',
+            'text': (
+                '✅ Task Alerts Connected\n\n'
+                'You will receive your assigned TAT tasks and alerts in this chat.'
+            ),
         })
     except Exception as exc:
         failure_code = type(exc).__name__[:80]
@@ -1289,7 +1294,11 @@ def send_private_alert_test(user, *, request_id: str = '', actor=None) -> dict:
     try:
         _telegram_request('sendMessage', {
             'chat_id': telegram_id,
-            'text': 'JBL TAT private-alert test: delivery is working. No task or escalation was created.',
+            'text': (
+                '✅ Alert Test Successful\n\n'
+                'Your private task alerts are working correctly.\n\n'
+                'No real task or escalation was created.'
+            ),
         })
     except Exception as exc:
         failure_code = type(exc).__name__[:80]

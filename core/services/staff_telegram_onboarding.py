@@ -129,8 +129,8 @@ def _authorized_launcher_buttons(onboarding: StaffTelegramOnboarding) -> list[di
         seen.add(key)
         label = {
             'tat_tracker': 'TAT Tracker', 'spin_credit': 'SPIN / CRB',
-            'order_approval': 'Order Approval', 'pipeline_portal': 'Pipeline Portal',
-            'complaint_cases': 'Complaint Cases', 'loan_origination': 'Loan Origination',
+            'order_approval': 'Order Approvals', 'pipeline_portal': 'Pipeline Portal',
+            'complaint_cases': 'Complaints', 'loan_origination': 'Loan Applications',
         }[key]
         buttons.append({'text': label, 'url': url})
     return buttons
@@ -231,8 +231,8 @@ def deliver_staff_telegram_onboarding(*, onboarding: StaffTelegramOnboarding) ->
         return {
             'status': onboarding.status,
             'message': (
-                'Telegram identity verified, but the assigned Mini App access is not ready. '
-                'Your administrator must correct the access scope.'
+                'Your account has been verified, but your assigned tools are not ready yet. '
+                'Please contact your administrator to check your access.'
             ),
             'readiness': readiness,
         }
@@ -241,9 +241,25 @@ def deliver_staff_telegram_onboarding(*, onboarding: StaffTelegramOnboarding) ->
     onboarding.activated_at = onboarding.activated_at or timezone.now()
     onboarding.last_error_code = ''
     onboarding.save(update_fields=['status', 'activated_at', 'last_error_code', 'updated_at'])
+    invitations = list(onboarding.group_invitations.select_related('group_configuration'))
+    unnamed = [
+        row for row in invitations
+        if not str(row.group_configuration.display_name or '').strip()
+        or str(row.group_configuration.display_name or '').strip() == str(row.group_configuration.group_id)
+    ]
+    unnamed_numbers = {row.pk: index for index, row in enumerate(unnamed, start=1)}
+
+    def invitation_button_text(invitation):
+        display_name = str(invitation.group_configuration.display_name or '').strip()
+        if display_name and display_name != str(invitation.group_configuration.group_id):
+            return f'Join {display_name}'
+        if len(unnamed) == 1:
+            return 'Join assigned JBL group'
+        return f'Join assigned JBL group {unnamed_numbers[invitation.pk]}'
+
     invite_buttons = []
     failures = 0
-    for invitation in onboarding.group_invitations.select_related('group_configuration'):
+    for invitation in invitations:
         if invitation.status == invitation.STATUS_SENT:
             continue
         try:
@@ -257,7 +273,7 @@ def deliver_staff_telegram_onboarding(*, onboarding: StaffTelegramOnboarding) ->
                 continue
             invite_url = _create_group_invite(invitation)
             invite_buttons.append({
-                'text': f'Join {invitation.group_configuration.display_name or invitation.group_configuration.group_id}',
+                'text': invitation_button_text(invitation),
                 'url': invite_url,
             })
         except Exception as exc:
@@ -268,12 +284,12 @@ def deliver_staff_telegram_onboarding(*, onboarding: StaffTelegramOnboarding) ->
             logger.warning('Staff Telegram group invitation failed for onboarding %s.', onboarding.pk, exc_info=True)
 
     # Include still-valid links created by an earlier partial delivery.
-    for invitation in onboarding.group_invitations.select_related('group_configuration').filter(
-        status=StaffTelegramGroupInvitation.STATUS_READY,
-    ):
+    for invitation in invitations:
+        if invitation.status != StaffTelegramGroupInvitation.STATUS_READY:
+            continue
         if invitation.pending_invite_url and not any(row['url'] == invitation.pending_invite_url for row in invite_buttons):
             invite_buttons.append({
-                'text': f'Join {invitation.group_configuration.display_name or invitation.group_configuration.group_id}',
+                'text': invitation_button_text(invitation),
                 'url': invitation.pending_invite_url,
             })
 
@@ -282,19 +298,29 @@ def deliver_staff_telegram_onboarding(*, onboarding: StaffTelegramOnboarding) ->
     keyboard = [keyboard_buttons[index:index + 2] for index in range(0, len(keyboard_buttons), 2)]
     name = onboarding.user.get_full_name().strip() or onboarding.user.get_username()
     if onboarding.plan.action == onboarding.plan.ACTION_ADD_WORKFLOW_ACCESS:
-        text = (
-            f'New JBL workflow access is available, {name}. Your existing Telegram identity remains verified. '
-            'Use the Mini App buttons below to open the newly assigned tools. Use each private group link to join '
-            'the additional JBL group selected by your administrator. Each group link works once and expires after '
-            '24 hours. If anything is missing, contact your administrator.'
-        )
+        paragraphs = [
+            f'Additional JBL Tools Are Ready, {name}! 🎉',
+            'You have been given access to additional JBL workflow tools.\n\nYour existing account remains active.',
+            'Use the buttons below to open the newly assigned tools.',
+        ]
+        if invite_buttons:
+            paragraphs.append(
+                'You can also use the group links below to join the additional JBL groups assigned to you.\n\n'
+                '⚠️ Each group link can only be used once and expires after 24 hours.'
+            )
     else:
-        text = (
-            f'Welcome to JBL Field Workflow, {name}. Your Telegram identity is verified and your staff access is active. '
-            'Use the buttons below to open the tools assigned to you. Use each private group link below to join the JBL '
-            'groups selected by your administrator. Each group link works once and expires after 24 hours. If anything '
-            'is missing, contact your administrator.'
-        )
+        paragraphs = [
+            f'Welcome to JBL Field Workflow, {name}! 👋',
+            'Your staff account has been verified and your access is now active.',
+            'Use the buttons below to open the tools available to you.',
+        ]
+        if invite_buttons:
+            paragraphs.append(
+                'You can also use the group links below to join the JBL groups assigned to you by your administrator.\n\n'
+                '⚠️ Each group link can only be used once and expires after 24 hours.'
+            )
+    paragraphs.append('If you are missing access to a tool or group, please contact your administrator.')
+    text = '\n\n'.join(paragraphs)
     operation, _ = reserve_operation(
         integration='telegram', operation_type='staff_onboarding_welcome',
         deduplication_key=f'telegram:staff-onboarding:{onboarding.pk}:welcome:{onboarding.revision}',

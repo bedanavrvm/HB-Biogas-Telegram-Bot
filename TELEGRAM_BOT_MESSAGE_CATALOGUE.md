@@ -1022,22 +1022,23 @@ Private chats receive the union of the workflow command lists.
 
 ## 12. Proactive group notifications
 
-### Final Jawabu decision approved
+### Final Decision Approved
 
 **Audience:** the first enabled/configured Jawabu workflow group found by the registry; otherwise `TELEGRAM_DEFAULT_CHAT_ID`.
 **Trigger:** Head of Rural final approval.
 
 ```text
-🎉 Final Decision Approved for:
-👤 Farmer: {customer|Unknown}
-🆔 ID: {national_id|—}
-📞 Phone: {phone|—}
-📍 County: {county|—}
+🎉 Final Decision Approved
 
-This record is ready for order batching in the Pipeline Portal!
+Farmer: {customer|Not provided}
+ID: {national_id|Not provided}
+Phone: {phone|Not provided}
+County: {county|Not provided}
+
+The farmer’s application has received final approval and is ready for order batching in the Pipeline Portal.
 ```
 
-The labels are sent using Telegram Markdown bold formatting.
+The notification is sent as plain text so customer-supplied punctuation cannot affect Telegram formatting. Routing configuration remains internal and is not included in the staff message.
 
 There are currently no new public TAT action/escalation posts. Legacy public TAT exception messages are actively deleted; current TAT tasks are delivered privately.
 
@@ -1048,52 +1049,104 @@ There are currently no new public TAT action/escalation posts. Legacy public TAT
 New staff:
 
 ```text
-Welcome to JBL Field Workflow, {name}. Your Telegram identity is verified and your staff access is active. Use the buttons below to open the tools assigned to you. Use each private group link below to join the JBL groups selected by your administrator. Each group link works once and expires after 24 hours. If anything is missing, contact your administrator.
+Welcome to JBL Field Workflow, {name}! 👋
+
+Your staff account has been verified and your access is now active.
+
+Use the buttons below to open the tools available to you.
+
+You can also use the group links below to join the JBL groups assigned to you by your administrator.
+
+⚠️ Each group link can only be used once and expires after 24 hours.
+
+If you are missing access to a tool or group, please contact your administrator.
 ```
 
 Existing staff receiving more access:
 
 ```text
-New JBL workflow access is available, {name}. Your existing Telegram identity remains verified. Use the Mini App buttons below to open the newly assigned tools. Use each private group link to join the additional JBL group selected by your administrator. Each group link works once and expires after 24 hours. If anything is missing, contact your administrator.
+Additional JBL Tools Are Ready, {name}! 🎉
+
+You have been given access to additional JBL workflow tools.
+
+Your existing account remains active.
+
+Use the buttons below to open the newly assigned tools.
+
+You can also use the group links below to join the additional JBL groups assigned to you.
+
+⚠️ Each group link can only be used once and expires after 24 hours.
+
+If you are missing access to a tool or group, please contact your administrator.
 ```
 
-Possible app buttons: `TAT Tracker`, `SPIN / CRB`, `Order Approval`, `Pipeline Portal`, `Complaint Cases`, and `Loan Origination`.
+Invitation paragraphs are included only when the welcome contains group invitation buttons.
+
+Possible app buttons: `TAT Tracker`, `SPIN / CRB`, `Order Approvals`, `Pipeline Portal`, `Complaints`, and `Loan Applications`.
 
 Group invitation buttons use:
 
 ```text
-Join {group display name or chat ID}
+Join {group display name}
 ```
+
+If no display name is configured, the private button uses `Join assigned JBL group` (numbered when there are multiple unnamed groups). Staff messages never expose the Telegram chat ID.
 
 The activation UI can report this result, but it is an HTTP/Mini App response rather than a Telegram bot message:
 
 ```text
-Telegram identity verified, but the assigned Mini App access is not ready. Your administrator must correct the access scope.
+Your account has been verified, but your assigned tools are not ready yet.
+
+Please contact your administrator to check your access.
 ```
 
 ### TAT private tasks
 
 ```text
-TAT action needed: {stage_label}
-Branch: {branch}
-Product: {product}
+⏰ Action Required
+
+A TAT task requires your attention.
+
+Stage: {stage_label}
+Branch: {branch|Not provided}
+Product: {product|Not provided}
 Reference: {case_id}
 
-Open the secure task to review and confirm.
+Open the task to review the details and confirm the required action.
 ```
 
-Button: `Open TAT task`
+Button: `Open TAT Task`
 
 Connection confirmation:
 
 ```text
-Private TAT alerts are connected. Future assigned actions can appear in this chat.
+✅ Task Alerts Connected
+
+You will receive your assigned TAT tasks and alerts in this chat.
 ```
 
 Delivery test:
 
 ```text
-JBL TAT private-alert test: delivery is working. No task or escalation was created.
+✅ Alert Test Successful
+
+Your private task alerts are working correctly.
+
+No real task or escalation was created.
+```
+
+Group-mode next-role alert:
+
+```text
+⏰ Action Required
+
+Assigned to: {role_label}
+Reference: {case_id}
+Customer: {client_name|Not provided}
+Branch: {branch|Not provided}
+Next Step: {stage_label}
+
+Open TAT Tracker to review the task and confirm the required action.
 ```
 
 ### Access-control governance
