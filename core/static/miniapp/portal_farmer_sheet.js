@@ -604,6 +604,7 @@
 
     const sheetOverlay = el('sheet-overlay');
     sheetOverlay?.classList.toggle('jbl-visit-sheet', mode === 'jbl_visit');
+    sheetOverlay?.classList.toggle('credit-analysis-sheet', mode === 'credit');
     el('sheet-name').textContent = farmer.customer_name || 'Unknown Farmer';
     const location = deps.locationText(farmer);
     el('sheet-sub').textContent = location !== '-' ? location : (farmer.primary_phone || '');
@@ -611,9 +612,11 @@
     const infoFields = summaryFields(farmer, mode);
 
     const mediaCount = Number(farmer.jbl_media_count || 0);
-    el('sheet-info').innerHTML = infoFields.map(([label, value]) =>
-      `<li class="info-row${mode === 'jbl_visit' && label === 'JBL Status' ? ' info-row-status' : ''}"><span class="ir-label">${deps.escapeHtml(label)}</span><span class="ir-value">${mode === 'jbl_visit' && label === 'JBL Status' ? `<span class="visit-status-pill">${value}</span>` : value}</span></li>`
-    ).join('');
+    el('sheet-info').innerHTML = infoFields.map(([label, value]) => {
+      const isJblStatus = label === 'JBL Status' && ['jbl_visit', 'credit'].includes(mode);
+      const statusClass = mode === 'jbl_visit' && isJblStatus ? ' info-row-status' : isJblStatus ? ' info-row-credit-status' : '';
+      return `<li class="info-row${statusClass}"><span class="ir-label">${deps.escapeHtml(label)}</span><span class="ir-value">${isJblStatus ? `<span class="visit-status-pill">${value}</span>` : value}</span></li>`;
+    }).join('');
     const mediaSection = el('sheet-client-media');
     if (mediaSection) {
       const canViewMedia = hasCapability('portal.jbl_media.view') && mediaCount >= 1;
@@ -1716,9 +1719,9 @@
       baseUrl: config.endpoint(farmer.id),
       initData: () => deps.tg?.initData || '',
       requestId,
-      onSaving: () => setWorkflowDraftState('Saving draft…', 'saving'),
-      onSaved: () => setWorkflowDraftState('Draft saved securely.', 'saved'),
-      onError: () => setWorkflowDraftState('Draft is kept on this device. Keep the form open and retry when connected.', 'local-only'),
+      onSaving: () => setWorkflowDraftState('Saving…', 'saving'),
+      onSaved: () => setWorkflowDraftState('Saved', 'saved'),
+      onError: () => setWorkflowDraftState('Saved on this device', 'local-only'),
       onCleared: () => setWorkflowDraftState('', ''),
     });
     return workflowServerDraft;
@@ -1754,19 +1757,19 @@
       ) {
         applyWorkflowDraft(remote, mode);
         sessionStorage.setItem(workflowDraftKey(mode, farmer.id), JSON.stringify(remote));
-        setWorkflowDraftState('Details restored from your secure draft.', 'restored');
+        setWorkflowDraftState('Draft restored', 'restored');
       } else if (!localDraft) {
-        setWorkflowDraftState('Draft saves automatically.', 'ready');
+        setWorkflowDraftState('Autosave on', 'ready');
       }
     } catch (_error) {
-      if (!localDraft) setWorkflowDraftState('Draft will save when your connection is available.', 'offline');
+      if (!localDraft) setWorkflowDraftState('Waiting for connection', 'offline');
     }
   }
 
   function wireWorkflowDraft(farmer, mode) {
     workflowDraftInputVersion = 0;
     const localDraft = localWorkflowDraft(farmer, mode);
-    if (applyWorkflowDraft(localDraft, mode)) setWorkflowDraftState('Details restored on this device.', 'restored');
+    if (applyWorkflowDraft(localDraft, mode)) setWorkflowDraftState('Draft restored', 'restored');
     restoreWorkflowServerDraft(farmer, mode, localDraft, workflowDraftInputVersion);
     const recordEdit = () => {
       workflowDraftInputVersion += 1;
@@ -1869,19 +1872,19 @@
       return `<article class="credit-reference"><div><strong>${deps.escapeHtml(reference.request_type || `SPIN/CRB request ${index + 1}`)}</strong><small>${deps.escapeHtml(reference.status || '')}${reference.created_at ? ` · ${deps.escapeHtml(deps.fmtDate(reference.created_at))}` : ''}</small></div>${links || (names ? `<small>Uploaded: ${names}</small>` : '<small>No report link recorded yet.</small>')}</article>`;
     }).join('');
     return `
-      <div class="form-section">
+      <div class="form-section form-grid credit-analysis-form">
         ${spinReferences ? `<div class="credit-reference-panel"><div class="field-help"><strong>SPIN / CRB reference</strong> · reports already uploaded for this customer</div>${spinReferences}</div>` : ''}
-        <div class="form-row"><label>Credit decision</label><select id="credit-decision"><option value="">- Select a decision -</option>${decisionOptions}</select></div>
-        <div class="form-row"><label>IS CUSTOMER CREATED ON IMAB?</label><select id="credit-imab">${imabOptions}</select></div>
-        <div class="form-row">
-          <label>CUSTOMER NO</label>
+        <div class="form-row"><label>Credit Decision <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="credit-decision" aria-required="true"><option value="">- Select a decision -</option>${decisionOptions}</select></div>
+        <div class="form-row"><label>Created on IMAB?</label><select id="credit-imab">${imabOptions}</select></div>
+        <div class="form-row form-row-wide">
+          <label>Customer No.</label>
           <input type="text" id="credit-customer-no" inputmode="numeric" pattern="[0-9]*" placeholder="IMAB customer number" value="${deps.escapeHtml(customerNoDisabled ? '' : (farmer.customer_no || ''))}"${customerNoDisabled ? ' disabled' : ''}>
           <small id="credit-imab-help" class="field-help">${customerNoDisabled ? 'Select Yes after IMAB creation before entering a customer number.' : 'Required before this case can move to Head of Rural review.'}</small>
         </div>
-        <p id="workflow-draft-state" class="field-help jbl-draft-state" aria-live="polite">Draft saves automatically.</p>
+        <p id="workflow-draft-state" class="field-help jbl-draft-state form-row-wide" aria-live="polite" title="Form fields save automatically.">Autosave on</p>
       </div>
       ${productConfigurationMarkup(farmer, 'credit_decision')}
-      ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">JBL Comment</span><span class="ir-value">${deps.escapeHtml(farmer.jbl_visit_comment)}</span></div>` : ''}
+      ${farmer.jbl_visit_comment ? `<section class="credit-jbl-comment"><span>JBL Comment</span><p>${deps.escapeHtml(farmer.jbl_visit_comment)}</p></section>` : ''}
     `;
   }
 
@@ -2151,7 +2154,7 @@
     if (case360CounterCleanup) case360CounterCleanup();
     case360CounterCleanup = null;
     resetJblMediaSelections();
-    el('sheet-overlay')?.classList.remove('open', 'jbl-visit-sheet');
+    el('sheet-overlay')?.classList.remove('open', 'jbl-visit-sheet', 'credit-analysis-sheet');
     state().selectedFarmer = null;
     state().activeMode = null;
     destroyMap();

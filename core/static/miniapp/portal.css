@@ -1165,6 +1165,151 @@ body.portal-compact-cards .operational-farmer-card { padding: 9px 10px; }
   letter-spacing: .035em;
   text-transform: uppercase;
 }
+
+/* Compact Credit Analysis workspace. */
+.credit-analysis-sheet .sheet-header {
+  position: relative;
+  z-index: 2;
+  padding: 9px 14px;
+  background: var(--bg-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+}
+.credit-analysis-sheet .sheet-header h2 { font-size: 14px; line-height: 1.25; text-transform: uppercase; }
+.credit-analysis-sheet .sheet-header .sheet-sub {
+  color: var(--brand-primary);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .045em;
+  text-transform: uppercase;
+}
+.credit-analysis-sheet .sheet-close-button { background: var(--bg-muted); color: var(--text-muted); }
+.credit-analysis-sheet .sheet-close-button svg { width: 16px; height: 16px; stroke: currentColor; }
+.credit-analysis-sheet .sheet-body { padding: 10px 14px 12px; }
+.credit-analysis-sheet .info-list {
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 11px;
+  background: var(--bg-muted);
+}
+.credit-analysis-sheet .info-row { padding: 7px 9px; background: transparent; }
+.credit-analysis-sheet .info-row .ir-label { font-size: 8px; font-weight: 800; letter-spacing: .06em; }
+.credit-analysis-sheet .info-row .ir-value { font-size: 11px; font-weight: 700; }
+.credit-analysis-sheet .info-row-credit-status .visit-status-pill {
+  display: inline-flex;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--status-success-bg);
+  color: var(--status-success);
+  font-size: 9px;
+  font-weight: 800;
+}
+.credit-analysis-sheet .sheet-quick-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 9px;
+}
+.credit-analysis-sheet .sheet-client-media { display: contents; margin: 0; }
+.credit-analysis-sheet .sheet-client-media[hidden] { display: none; }
+.credit-analysis-sheet .sheet-client-media .client-media-links { grid-column: 1 / -1; margin: 0; }
+.credit-analysis-sheet .sheet-client-media-toggle,
+.credit-analysis-sheet .case360-toggle {
+  width: 100%;
+  min-height: 34px;
+  margin: 0;
+  padding: 6px 8px;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 8px;
+  background: var(--bg-muted);
+  color: var(--text-primary);
+  font-size: 10px;
+  font-weight: 700;
+}
+.credit-analysis-sheet .sheet-client-media-toggle svg,
+.credit-analysis-sheet .case360-toggle svg { width: 14px; height: 14px; color: var(--text-muted); stroke: currentColor; }
+.credit-analysis-sheet .sheet-quick-actions:not(.has-client-media) .case360-toggle { grid-column: 1 / -1; }
+.credit-analysis-sheet #sheet-map-container {
+  margin: 9px 0 !important;
+  border-radius: 10px;
+  box-shadow: none;
+}
+.credit-analysis-sheet #sheet-map { height: 112px; }
+.credit-analysis-sheet .sheet-map-heading { padding: 7px 9px; }
+.credit-analysis-sheet .sheet-map-heading strong { font-size: 10px; }
+.credit-analysis-sheet .sheet-map-heading a { display: inline-flex; align-items: center; gap: 4px; font-size: 9px; text-decoration: none; }
+.credit-analysis-sheet .sheet-map-heading a svg { width: 12px; height: 12px; stroke: currentColor; }
+.credit-analysis-sheet #sheet-form { margin-top: 9px !important; }
+.credit-analysis-sheet .credit-analysis-form {
+  gap: 8px;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+}
+.credit-analysis-sheet .credit-analysis-form .form-row {
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.credit-analysis-sheet .credit-analysis-form .credit-reference-panel { grid-column: 1 / -1; margin: 0; }
+.credit-analysis-sheet .form-row label { font-size: 9px; font-weight: 800; letter-spacing: .055em; }
+.credit-analysis-sheet .form-row input,
+.credit-analysis-sheet .form-row select {
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-muted);
+  font-size: 11px;
+}
+.credit-analysis-sheet .form-row input:focus,
+.credit-analysis-sheet .form-row select:focus {
+  border-color: var(--brand-primary);
+  outline: 2px solid color-mix(in srgb, var(--brand-primary) 14%, transparent);
+}
+.credit-analysis-sheet .form-row input:disabled { opacity: .65; }
+.credit-analysis-sheet .field-help { font-size: 9px; }
+.credit-analysis-sheet .jbl-draft-state { margin-top: -2px; }
+.credit-analysis-sheet .credit-jbl-comment {
+  display: grid;
+  gap: 5px;
+  margin-top: 9px;
+  padding: 9px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-muted);
+}
+.credit-analysis-sheet .credit-jbl-comment > span {
+  color: var(--text-muted);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+.credit-analysis-sheet .credit-jbl-comment p {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.credit-analysis-sheet .sheet-footer {
+  position: relative;
+  z-index: 2;
+  padding: 9px 14px;
+  background: var(--bg-surface);
+  box-shadow: 0 -4px 12px rgba(15, 23, 42, .06);
+}
+.credit-analysis-sheet .sheet-footer button {
+  height: 40px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .035em;
+  text-transform: uppercase;
+}
 .media-links {
   display: grid;
   gap: 6px;

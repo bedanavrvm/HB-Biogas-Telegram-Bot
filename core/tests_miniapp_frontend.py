@@ -637,6 +637,8 @@ class MiniAppFrontendSmokeTests(TestCase):
 
     def test_credit_form_excludes_unrequested_approval_controls(self):
         source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
+        stylesheet = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
+        template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')
         form = source[source.index('function buildCreditForm'):source.index('function wireCreditImabFields')]
         submit = source[source.index('async function submitCreditDecision'):source.index('async function submitFinalDecision')]
 
@@ -649,6 +651,14 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertNotIn('reason_code:', submit)
         self.assertNotIn('conditions }', submit)
         self.assertNotIn('Approved with Conditions', source)
+        self.assertIn('form-section form-grid credit-analysis-form', form)
+        self.assertIn('Credit Decision <span class="required-marker" aria-hidden="true">*</span>', form)
+        self.assertIn('Created on IMAB?', form)
+        self.assertIn('class="credit-jbl-comment"', form)
+        self.assertIn("sheetOverlay?.classList.toggle('credit-analysis-sheet', mode === 'credit')", source)
+        self.assertIn('.credit-analysis-sheet .credit-analysis-form', stylesheet)
+        self.assertIn('.credit-analysis-sheet #sheet-map { height: 112px; }', stylesheet)
+        self.assertIn('data-lucide="external-link"', template)
 
     def test_final_review_form_uses_client_media_without_reason_or_condition_controls(self):
         source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
