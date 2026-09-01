@@ -39,6 +39,15 @@ PUBLIC_RATE_LIMIT_SETTINGS = (
     ('manual-api-auth-failure', 'MANUAL_API_AUTH_FAILURE_RATE_LIMIT'),
 )
 
+NON_PRODUCTION_ENVIRONMENTS = frozenset({
+    'development',
+    'dev',
+    'local',
+    'test',
+    'testing',
+    'staging',
+})
+
 
 @dataclass(frozen=True)
 class ReadinessIssue:
@@ -176,22 +185,37 @@ def production_security_readiness_issues(
         application_environment = str(
             getattr(settings, 'SENTRY_ENVIRONMENT', '') or ''
         ).strip().casefold()
+        release_environment = str(
+            getattr(settings, 'RELEASE_ENVIRONMENT', '') or ''
+        ).strip().casefold()
         username = str(getattr(settings, 'AFRICASTALKING_USERNAME', '') or '').strip()
-        if application_environment != 'production':
-            error(
-                'origination-esign-application-environment',
-                'SENTRY_ENVIRONMENT must be production when Origination e-signing is enabled in production.',
-            )
-        if provider_environment != 'production':
-            error(
-                'origination-esign-environment',
-                'AFRICASTALKING_SMS_ENVIRONMENT must be production when Origination e-signing is enabled in production.',
-            )
-        if _blank_or_placeholder(username) or username.casefold() == 'sandbox':
-            error(
-                'origination-esign-username',
-                'AFRICASTALKING_USERNAME must be a production account when Origination e-signing is enabled.',
-            )
+        sandbox_readiness = bool(
+            application_environment in NON_PRODUCTION_ENVIRONMENTS
+            and release_environment in NON_PRODUCTION_ENVIRONMENTS
+            and provider_environment == 'sandbox'
+        )
+        if sandbox_readiness:
+            if username.casefold() != 'sandbox':
+                error(
+                    'origination-esign-username',
+                    'AFRICASTALKING_USERNAME must be sandbox for an explicitly non-production Sandbox release.',
+                )
+        else:
+            if application_environment != 'production':
+                error(
+                    'origination-esign-application-environment',
+                    'SENTRY_ENVIRONMENT must be production unless both application and release environments are explicitly non-production.',
+                )
+            if provider_environment != 'production':
+                error(
+                    'origination-esign-environment',
+                    'AFRICASTALKING_SMS_ENVIRONMENT must be production unless an explicitly non-production release uses Sandbox.',
+                )
+            if _blank_or_placeholder(username) or username.casefold() == 'sandbox':
+                error(
+                    'origination-esign-username',
+                    'AFRICASTALKING_USERNAME must be a production account unless an explicitly non-production release uses Sandbox.',
+                )
         if _blank_or_placeholder(getattr(settings, 'AFRICASTALKING_API_KEY', '')):
             error(
                 'origination-esign-api-key',

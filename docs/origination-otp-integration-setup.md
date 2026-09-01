@@ -101,6 +101,7 @@ AFRICASTALKING_SENDER_ID=
 ORIGINATION_SIGNING_LINK_TTL_HOURS=48
 ORIGINATION_SIGNING_BASE_URL=
 SENTRY_ENVIRONMENT=staging
+RELEASE_ENVIRONMENT=staging
 APP_BASE_URL=https://<public-staging-host>
 ```
 
@@ -111,8 +112,9 @@ Important rules:
 - `ORIGINATION_SIGNING_BASE_URL` is optional. When set, it must be an approved
   HTTPS origin routing to this Django service and its host must be included in
   `ALLOWED_HOSTS`. Leave it blank to use `APP_BASE_URL`.
-- Sandbox works only when `SENTRY_ENVIRONMENT` is one of `development`, `dev`,
-  `local`, `test`, `testing`, or `staging`.
+- Sandbox runtime works only when `SENTRY_ENVIRONMENT` is one of `development`,
+  `dev`, `local`, `test`, `testing`, or `staging`. Readiness additionally
+  requires `RELEASE_ENVIRONMENT` to use one of those non-production values.
 - Sandbox requires `AFRICASTALKING_USERNAME=sandbox`.
 - Production requires `AFRICASTALKING_SMS_ENVIRONMENT=production`, a live
   non-sandbox username/API key, and `SENTRY_ENVIRONMENT=production`.

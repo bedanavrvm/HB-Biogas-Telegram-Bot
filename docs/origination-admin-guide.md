@@ -404,11 +404,13 @@ AFRICASTALKING_SENDER_ID=
 ORIGINATION_SIGNING_LINK_TTL_HOURS=48
 ORIGINATION_SIGNING_BASE_URL=
 SENTRY_ENVIRONMENT=staging
+RELEASE_ENVIRONMENT=staging
 APP_BASE_URL=https://<staging-host>
 ```
 
-The service fails closed unless the settings agree. Sandbox is accepted only
-in an explicitly non-production environment with username `sandbox`.
+The service fails closed unless the settings agree. Sandbox readiness is
+accepted only when both `SENTRY_ENVIRONMENT` and `RELEASE_ENVIRONMENT` are
+explicitly non-production and the username is `sandbox`.
 Production requires `AFRICASTALKING_SMS_ENVIRONMENT=production`, a non-sandbox
 username, credentials, `SENTRY_ENVIRONMENT=production`, and the explicit
 enable flag.

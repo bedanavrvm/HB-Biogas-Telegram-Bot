@@ -200,6 +200,44 @@ class ProductionReadinessTests(SimpleTestCase):
             'access-grant-governance',
         }.issubset(codes))
 
+    def test_explicit_non_production_release_accepts_sandbox_esign(self):
+        configured = self._settings(
+            '/missing/service-account.json',
+            ORIGINATION_ESIGN_ENABLED=True,
+            SENTRY_ENVIRONMENT='development',
+            RELEASE_ENVIRONMENT='development',
+            AFRICASTALKING_SMS_ENVIRONMENT='sandbox',
+            AFRICASTALKING_USERNAME='sandbox',
+            AFRICASTALKING_API_KEY='sandbox-api-key',
+        )
+
+        codes = {
+            issue.code for issue in production_security_readiness_issues(configured)
+        }
+
+        self.assertFalse(any(code.startswith('origination-esign-') for code in codes))
+
+    def test_sandbox_esign_cannot_bypass_production_release_classification(self):
+        configured = self._settings(
+            '/missing/service-account.json',
+            ORIGINATION_ESIGN_ENABLED=True,
+            SENTRY_ENVIRONMENT='development',
+            RELEASE_ENVIRONMENT='production',
+            AFRICASTALKING_SMS_ENVIRONMENT='sandbox',
+            AFRICASTALKING_USERNAME='sandbox',
+            AFRICASTALKING_API_KEY='sandbox-api-key',
+        )
+
+        codes = {
+            issue.code for issue in production_security_readiness_issues(configured)
+        }
+
+        self.assertTrue({
+            'origination-esign-application-environment',
+            'origination-esign-environment',
+            'origination-esign-username',
+        }.issubset(codes))
+
     def test_webhook_and_conditional_approval_dependency_are_required(self):
         configured = self._settings(
             '/missing/service-account.json',
