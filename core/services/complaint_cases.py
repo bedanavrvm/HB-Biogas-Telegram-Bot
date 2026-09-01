@@ -654,7 +654,7 @@ def create_request_id(value: Any) -> str:
 
 
 def validate_new_case_fields(group_config, fields: dict[str, Any]) -> dict[str, Any]:
-    client_name = required_case_text(fields.get('client_name'), 'Client name')
+    client_name = normalize_customer_name(fields.get('client_name'))
     branch_region = required_case_text(fields.get('branch_region'), 'Branch')
     category_text = required_case_text(fields.get('complaint_category'), 'Complaint category')
     complaint_description = required_description(fields.get('complaint_description'))
@@ -730,6 +730,19 @@ def limited_case_text(value: Any, label: str) -> str:
     if len(text) > 255:
         raise ComplaintCaseError(f'{label} must be 255 characters or fewer.')
     return text
+
+
+def normalize_customer_name(value: Any) -> str:
+    """Cap ordinary all-lower/all-upper name parts while preserving intentional mixed case."""
+    text = ' '.join(required_case_text(value, 'Customer name').split())
+
+    def capitalize_part(match):
+        part = match.group(0)
+        if part.islower() or part.isupper():
+            return part[:1].upper() + part[1:].lower()
+        return part
+
+    return re.sub(r'[^\W\d_]+', capitalize_part, text, flags=re.UNICODE)
 
 
 def numeric_customer_id(value: Any) -> str:
@@ -1431,7 +1444,7 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
         'reported_at': format_datetime(case.timestamp),
         'recorded_at': format_datetime(case.created_at),
         'days_open': age_days,
-        'age_label': ('Resolved' if resolved else ('Waiting for action today' if age_days == 0 else f'Waiting for action for {age_days} day' + ('s' if age_days != 1 else ''))),
+        'age_label': ('Resolved' if resolved else ('Pending today' if age_days == 0 else f'Pending for {age_days} day' + ('s' if age_days != 1 else ''))),
         'source_attribution': source,
         'risk_level': case.risk_level,
         'revision': control.revision,

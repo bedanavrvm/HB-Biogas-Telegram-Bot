@@ -7,7 +7,7 @@
   <title>Complaints</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=13">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=14">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
   <main class="complaint-app" aria-label="Complaints">
@@ -18,14 +18,14 @@
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <section id="loadingState" class="loading-state" aria-live="polite"><span class="spinner-inline" aria-hidden="true"></span><span>Loading complaints...</span></section>
     <nav id="workspaceTabs" class="workspace-tabs" aria-label="Complaint workspace" hidden>
-      <button id="queueWorkspaceBtn" type="button" class="active">Waiting for Action</button>
+      <button id="queueWorkspaceBtn" type="button" class="active">Pending</button>
       <button id="globalWorkspaceBtn" type="button">All Complaints</button>
     </nav>
 
     <section id="queueView" hidden>
-      <div class="queue-head"><div><p class="eyebrow">Complaints</p><h2>Waiting for Action</h2><p id="queueResultCount" class="muted">0 complaints</p></div><button id="newCaseBtn" class="primary" type="button" hidden>+ New Complaint</button></div>
+      <div class="queue-head"><div><p class="eyebrow">Complaints</p><h2>Pending Complaints</h2><p id="queueResultCount" class="muted">0 complaints</p></div><button id="newCaseBtn" class="primary" type="button" hidden>+ New Complaint</button></div>
       <nav class="status-tabs" aria-label="Complaint status">
-        <button type="button" class="active" data-status="pending">Waiting for Action <span id="pendingCount">0</span></button>
+        <button type="button" class="active" data-status="pending">Pending <span id="pendingCount">0</span></button>
         <button type="button" data-status="resolved">Resolved <span id="resolvedCount">0</span></button>
         <button type="button" data-status="all">All Complaints <span id="totalCount">0</span></button>
       </nav>
@@ -38,9 +38,9 @@
       <div class="queue-head"><div><p class="eyebrow">Overview</p><h2>All Complaints</h2><p class="muted">View and manage all complaints</p></div><button id="exportAllBtn" class="primary" type="button" hidden>Download Complaints</button></div>
       <div id="globalMetrics" class="metric-grid" aria-label="Global complaint metrics"></div>
       <form id="globalFilters" class="register-filters">
-        <label>Search<input name="query" type="search" autocomplete="off" placeholder="Search by complaint, customer name, or phone number"></label>
-        <label>Status<select name="status"><option value="">Any Status</option><option value="pending">Waiting for Action</option><option value="resolved">Resolved</option></select></label>
-        <label>Category<select name="category"><option value="">Any Category</option></select></label>
+        <label class="filter-search">Search<input name="query" type="search" autocomplete="off" placeholder="Search by complaint, customer name, or phone number"></label>
+        <label class="filter-status">Status<select name="status"><option value="">Any Status</option><option value="pending">Pending</option><option value="resolved">Resolved</option></select></label>
+        <label class="filter-category">Category<select name="category"><option value="">Any Category</option></select></label>
         <fieldset class="date-filter"><legend>Date Reported</legend><label>Start Date<input name="reported_from" type="date"></label><label>End Date<input name="reported_to" type="date"></label></fieldset>
         <div class="filter-actions"><button class="primary" type="submit">Show Results</button><button id="clearGlobalFiltersBtn" type="button">Reset Filters</button></div>
       </form>
@@ -55,16 +55,16 @@
     </section>
 
     <section id="createView" hidden>
-      <button class="back-button" type="button" data-back>&larr; Waiting for Action</button>
+      <button class="back-button" type="button" data-back>&larr; Pending Complaints</button>
       <form id="createCaseForm" class="panel" novalidate>
         <div class="panel-heading"><p class="eyebrow">Complaint Details</p><h2>Record a New Complaint</h2><p class="muted">Enter the customer&rsquo;s complaint details below.</p></div>
         <div class="form-grid">
-          <label class="full">Customer name<input name="client_name" maxlength="255" autocomplete="name" required></label>
+          <label class="full">Customer name<input name="client_name" maxlength="255" autocomplete="name" autocapitalize="words" required></label>
           <label>Phone Number<input name="customer_phone" type="tel" maxlength="20" inputmode="tel" autocomplete="tel"></label>
           <label>Customer ID<input name="customer_id" type="text" maxlength="255" inputmode="numeric" pattern="[0-9]*" autocomplete="off"></label>
-          <label>Branch<select name="branch_region" required><option value="">Select branch</option></select></label>
+          <label class="full">Branch<select name="branch_region" required><option value="">Select branch</option></select></label>
           <label class="full"><span class="label-line"><span>What happened?</span><button id="categorySuggestion" class="category-suggestion" type="button" role="status" aria-live="polite" hidden></button></span><textarea name="complaint_description" rows="4" maxlength="5000" required></textarea></label>
-          <label>Complaint Type<select name="complaint_category" required><option value="">Select complaint type</option></select><small id="categoryGuidance" class="muted">What is the complaint about?</small></label>
+          <label class="full">Complaint Type<select name="complaint_category" required><option value="">Select complaint type</option></select><small id="categoryGuidance" class="muted">What is the complaint about?</small></label>
         </div>
         <div class="optional-row"><button id="captureLocationBtn" type="button">Use My Current Location</button><span id="captureState" class="muted">Optional</span></div>
         <section class="evidence-picker" aria-labelledby="createEvidenceTitle"><div><p id="createEvidenceTitle" class="field-label">Supporting Documents or Photos</p><p id="createEvidenceHint" class="muted">Optional: photos or PDF</p></div><div class="evidence-actions"><button type="button" data-camera-target="create">Take a Photo</button><button type="button" data-files-target="create">Upload Files</button></div><input id="createEvidenceInput" class="sr-only" type="file" multiple accept="image/jpeg,image/png,image/webp,.pdf"></section>
@@ -74,11 +74,11 @@
     </section>
 
     <section id="detailView" hidden>
-      <button id="detailBackBtn" class="back-button" type="button" data-back>&larr; Waiting for Action</button>
+      <button id="detailBackBtn" class="back-button" type="button" data-back>&larr; Pending Complaints</button>
       <article class="panel case-summary">
         <p class="eyebrow section-kicker">Complaint Details</p>
         <div class="case-title"><div><p id="detailCaseId" class="case-reference"></p><h2 id="detailName"></h2><p id="detailGroup" class="muted"></p></div><div class="status-stack"><span id="detailStatus" class="status-pill"></span><span id="detailNeedsDetails" class="needs-details-pill" hidden>Needs More Information</span></div></div>
-        <div id="detailIdentifiers" class="identifiers"></div><p id="detailDescription" class="description"></p><div id="detailMeta" class="meta"></div><p id="detailSource" class="source-line"></p><p id="detailSync" class="source-line"></p><button id="retrySyncBtn" type="button" hidden>Retry Reporting Update</button>
+        <div id="detailIdentifiers" class="identifiers"></div><p id="detailDescription" class="description"></p><div id="detailMeta" class="meta"></div><p id="detailSource" class="source-line"></p><p id="detailSync" class="source-line"></p><button id="retrySyncBtn" type="button" hidden>Retry Sheet Sync</button>
       </article>
       <section id="previousResolution" class="panel resolution-history" hidden><h2>Resolution History</h2><p id="previousResolutionText"></p><small id="previousResolutionMeta" class="muted"></small><div id="previousReopen" hidden><p class="field-label">Reason for Reopening</p><p id="previousReopenText"></p><small id="previousReopenMeta" class="muted"></small></div></section>
       <section id="conflictPanel" class="panel conflict-panel" role="alert" hidden><h2>This complaint changed while you were working</h2><p id="conflictMessage"></p><p class="eyebrow">Resolution recorded first</p><blockquote id="conflictWinningNote"></blockquote><p class="eyebrow">Your retained draft</p><blockquote id="conflictDraft"></blockquote><div class="conflict-actions"><button id="copyConflictDraftBtn" type="button">Copy My Draft</button><button id="reviewConflictBtn" type="button">Review Latest Complaint</button></div></section>
@@ -103,6 +103,6 @@
   <script src="{% static 'miniapp/utils.js' %}?v=9"></script>
   <script src="{% static 'miniapp/secure_media_viewer.js' %}?v=1"></script>
   <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=4"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=19"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=20"></script>
 </body>
 </html>

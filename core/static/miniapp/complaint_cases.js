@@ -64,7 +64,7 @@
     return stack;
   }
   function displayStatus(status) {
-    return ({ Pending: 'Waiting for Action', Open: 'Reopened', Closed: 'Resolved', 'Review Needed': 'Needs More Information' })[status] || status || 'Update';
+    return ({ Pending: 'Pending', Open: 'Reopened', Closed: 'Resolved', 'Review Needed': 'Needs More Information' })[status] || status || 'Update';
   }
 
   function setView(name) {
@@ -176,7 +176,7 @@
     } catch (error) { notify(error.message, true); }
   }
   function syncLabel(value) {
-    return ({ success: 'Up to date', pending: 'Waiting to update', failed: 'Failed', not_required: 'Not enabled', suspended: 'Not enabled' })[value] || value || 'Not recorded';
+    return ({ success: 'Synced', pending: 'Pending', failed: 'Failed', not_required: 'Not enabled', suspended: 'Not enabled' })[value] || value || 'Not recorded';
   }
 
   function renderDetail(item, preserveDraft) {
@@ -200,7 +200,7 @@
     $('detailSource').textContent = item.global_read
       ? 'Available to authorized complaint staff'
       : (source.type === 'batch' ? `${source.label} · Uploaded by ${source.actor} · ${source.created_at}` : (source.label || 'Source unavailable'));
-    $('detailSync').textContent = `Reporting copy: ${syncLabel(item.sync_status)}`;
+    $('detailSync').textContent = `Sheet Sync: ${syncLabel(item.sync_status)}`;
     renderHistory(item); renderEvidence(item.evidence || []); renderActivity(item.updates || []);
     $('evidencePanel').hidden = !!item.global_read; $('activityPanel').hidden = !!item.global_read;
     const actions = item.global_read ? (item.actions || {}) : {
@@ -211,7 +211,7 @@
     $('resolveForm').hidden = item.status !== 'Pending' || !actions.close;
     $('reopenForm').hidden = item.status !== 'Resolved' || !actions.reopen;
     $('retrySyncBtn').hidden = !actions.sync_retry || !['pending', 'failed'].includes(item.sync_status) || item.sheet_projection_enabled === false;
-    $('detailBackBtn').textContent = state.returnWorkspace === 'global' ? '← All Complaints' : '← Waiting for Action';
+    $('detailBackBtn').textContent = state.returnWorkspace === 'global' ? '← All Complaints' : '← Pending Complaints';
     if (!preserveDraft) {
       $('completeDetailsForm').reset(); $('resolveForm').reset(); $('reopenForm').reset();
       clearEvidence('resolve'); $('conflictPanel').hidden = true;
@@ -375,7 +375,9 @@
   }
   async function submitCreate(event) {
     event.preventDefault(); if (state.submitting) return;
-    const formNode = event.currentTarget; const data = new FormData(formNode);
+    const formNode = event.currentTarget;
+    normalizeCustomerNameInput(formNode.elements.client_name);
+    const data = new FormData(formNode);
     const idError = validateCustomerId(formNode.elements.customer_id);
     if (idError) return notify(idError, true);
     data.set('client_request_id', requestId('complaint-create')); appendEvidence(data, 'create');
@@ -399,6 +401,14 @@
       return 'Customer ID must contain numbers only.';
     }
     input?.setCustomValidity?.(''); return '';
+  }
+  function normalizeCustomerNameInput(input) {
+    if (!input) return;
+    input.value = String(input.value || '').trim().replace(/\s+/g, ' ').split(/(\s+|[-'’])/).map(part => {
+      if (!part || /^(\s+|[-'’])$/.test(part)) return part;
+      const upper = part.toLocaleUpperCase(); const lower = part.toLocaleLowerCase();
+      return part === upper || part === lower ? upper.charAt(0) + lower.slice(1) : part;
+    }).join('');
   }
   function captureLocation() {
     if (!navigator.geolocation) return notify('Location is unavailable on this device.', true);
@@ -531,7 +541,7 @@
   }
 
   function renderMetrics(metrics) {
-    const labels = [['total', 'Total Complaints'], ['pending', 'Waiting for Action'], ['resolved', 'Resolved'], ['needs_details', 'Need More Information']];
+    const labels = [['total', 'Total Complaints'], ['pending', 'Pending'], ['resolved', 'Resolved'], ['needs_details', 'Need More Information']];
     const node = $('globalMetrics'); node.replaceChildren();
     labels.forEach(([key, label]) => {
       const card = document.createElement('div'); card.className = `metric-card ${key === 'needs_details' && metrics[key] ? 'attention' : ''}`;
@@ -644,6 +654,7 @@
   $('mediaViewerOverlay').addEventListener('click', event => { if (event.target === event.currentTarget) closeMediaViewer(); });
   $('createCaseForm').elements.complaint_description.addEventListener('input', scheduleCategorySuggestion);
   $('createCaseForm').elements.complaint_category.addEventListener('input', updateCategoryGuidance);
+  $('createCaseForm').elements.client_name.addEventListener('blur', event => normalizeCustomerNameInput(event.currentTarget));
   document.querySelectorAll('input[name="customer_id"]').forEach(input => input.addEventListener('input', () => validateCustomerId(input)));
   $('categorySuggestion').addEventListener('click', () => {
     if (!state.suggestedCategory) return;

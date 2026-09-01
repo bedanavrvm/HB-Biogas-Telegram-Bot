@@ -668,7 +668,7 @@ class ComplaintCaseServiceTests(TestCase):
         append_to_sheet.side_effect = mark_case_synced
         fields = {
             'client_request_id': 'create-complaint-001',
-            'client_name': 'New Client',
+            'client_name': "new o'NEIL client",
             'customer_phone': '0712345678',
             'customer_id': '',
             'branch_region': 'Nakuru',
@@ -683,6 +683,7 @@ class ComplaintCaseServiceTests(TestCase):
 
         case = ParsedMessage.objects.get(message_id=first['case']['case_id'])
         self.assertEqual(first['case']['case_id'], second['case']['case_id'])
+        self.assertEqual(case.customer_name, "New O'Neil Client")
         self.assertRegex(first['case']['case_id'], r'^CMP-\d{4}-001$')
         sequence = ComplaintCaseSequence.objects.get(group_id=self.config.group_id)
         self.assertEqual(sequence.next_number, 2)
@@ -1107,7 +1108,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('secure_media_viewer.js', template)
         self.assertIn('This download includes all ${count} complaints across all complaint groups', script)
         for wording in (
-            '<h1>Complaints</h1>', 'Waiting for Action', 'All Complaints',
+            '<h1>Complaints</h1>', 'Pending Complaints', 'All Complaints',
             'Record a New Complaint', 'Enter the customer&rsquo;s complaint details below.',
             'Complaint Type', 'What is the complaint about?', 'Use My Current Location',
             'Supporting Documents or Photos', 'Take a Photo', 'Upload Files',
@@ -1118,7 +1119,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
             self.assertNotIn(jargon, template)
         self.assertIn("'Branch not provided'", script)
         service = (root / 'services' / 'complaint_cases.py').read_text(encoding='utf-8')
-        self.assertIn("f'Waiting for action for {age_days} day'", service)
+        self.assertIn("f'Pending for {age_days} day'", service)
         for wording in (
             'Overview', 'View and manage all complaints', 'Download Complaints',
             'Any Status', 'Any Category', 'Date Reported', 'Start Date', 'End Date',
@@ -1129,6 +1130,9 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn("'Resolved by'", script)
         self.assertIn("'Reopened by'", script)
         self.assertIn("'Complaint recorded by'", script)
+        self.assertIn('normalizeCustomerNameInput(formNode.elements.client_name)', script)
+        self.assertIn('autocapitalize="words"', template)
+        self.assertIn('Sheet Sync:', script)
         self.assertIn("'the case is now fully resolved': 'Complaint marked as resolved'", script)
         self.assertIn("'the customer is still complaining': 'Customer reported the issue again'", script)
         self.assertIn("miniapp/utils.js", template)
