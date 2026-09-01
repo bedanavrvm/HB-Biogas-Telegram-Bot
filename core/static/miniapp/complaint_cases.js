@@ -106,39 +106,39 @@
       $('newCaseBtn').hidden = !can('complaint.case.create');
       $('exportAllBtn').hidden = !can('complaint.case.export');
       selectOptions($('createCaseForm').elements.branch_region, data.branches, 'Select branch');
-      selectOptions($('createCaseForm').elements.complaint_category, data.categories, 'Select category');
-      selectOptions($('completeDetailsForm').elements.complaint_category, data.categories, 'Select category');
+      selectOptions($('createCaseForm').elements.complaint_category, data.categories, 'Select complaint type');
+      selectOptions($('completeDetailsForm').elements.complaint_category, data.categories, 'Select complaint type');
       state.categoryDescriptions = new Map((data.category_catalogue || []).map(item => [item.label, item.description]));
       updateEvidenceHints();
       setView('queueView');
       await loadCases();
     } catch (error) {
-      $('loadingState').textContent = error.message || 'Complaint Cases could not be opened.';
+      $('loadingState').textContent = error.message || 'Biogas Complaints could not be opened.';
       notify(error.message, true);
     }
   }
 
   async function loadCases() {
-    $('caseList').replaceChildren(loadingNode('Loading cases...'));
+    $('caseList').replaceChildren(loadingNode('Loading complaints...'));
     try {
       const response = await json('cases/', { status: state.status, query: state.query, page: state.page });
       const pagination = response.pagination || { page: 1, pages: 1, total: response.cases.length };
       state.page = pagination.page; state.pages = pagination.pages;
-      $('queueResultCount').textContent = `${pagination.total} case${pagination.total === 1 ? '' : 's'}`;
+      $('queueResultCount').textContent = `${pagination.total} complaint${pagination.total === 1 ? '' : 's'}`;
       renderCases(response.cases || [], response.start_index || 0);
       $('queuePagination').hidden = pagination.pages <= 1;
       $('queuePageLabel').textContent = `Page ${pagination.page} of ${pagination.pages}`;
       $('queuePreviousBtn').disabled = pagination.page <= 1;
       $('queueNextBtn').disabled = pagination.page >= pagination.pages;
     } catch (error) {
-      $('caseList').replaceChildren(textNode('p', 'Cases could not be loaded.', 'empty'));
+      $('caseList').replaceChildren(textNode('p', 'Complaints could not be loaded.', 'empty'));
       notify(error.message, true);
     }
   }
 
   function renderCases(cases, start) {
     const list = $('caseList'); list.replaceChildren();
-    if (!cases.length) { list.appendChild(textNode('p', 'No cases match this view.', 'empty')); return; }
+    if (!cases.length) { list.appendChild(textNode('p', 'No complaints match this view.', 'empty')); return; }
     cases.forEach((item, index) => {
       const button = document.createElement('button');
       button.type = 'button'; button.className = 'case-row'; button.dataset.caseId = item.case_id;
@@ -146,7 +146,7 @@
       body.append(
         textNode('p', `#${start + index} · ${item.case_id}`, 'case-reference'),
         textNode('h2', item.customer_name || 'Unnamed customer'),
-        textNode('p', `${item.customer_phone || item.customer_id || 'Identifier required'} · ${item.category || 'Other Complaint'} · ${item.branch || 'Branch not set'}`, 'case-subtitle'),
+        textNode('p', `${item.customer_phone || item.customer_id || 'Customer details required'} · ${item.category || 'Other Complaint'} · ${item.branch || 'Branch not provided'}`, 'case-subtitle'),
         textNode('p', item.age_label || '', 'case-age'),
       );
       button.append(body, statusStack(item));
@@ -204,7 +204,7 @@
     $('resolveForm').hidden = item.status !== 'Pending' || !actions.close;
     $('reopenForm').hidden = item.status !== 'Resolved' || !actions.reopen;
     $('retrySyncBtn').hidden = !actions.sync_retry || !['pending', 'failed'].includes(item.sync_status) || item.sheet_projection_enabled === false;
-    $('detailBackBtn').textContent = state.returnWorkspace === 'global' ? '← All cases' : '← Queue';
+    $('detailBackBtn').textContent = state.returnWorkspace === 'global' ? '← All Complaints' : '← Complaint Queue';
     if (!preserveDraft) {
       $('completeDetailsForm').reset(); $('resolveForm').reset(); $('reopenForm').reset();
       clearEvidence('resolve'); $('conflictPanel').hidden = true;
@@ -231,7 +231,7 @@
   }
   function renderEvidence(items) {
     const node = $('evidenceList'); node.replaceChildren();
-    if (!items.length) { node.appendChild(textNode('p', 'No evidence attached.', 'muted')); return; }
+    if (!items.length) { node.appendChild(textNode('p', 'No supporting files attached.', 'muted')); return; }
     items.forEach(item => {
       const row = document.createElement('div'); row.className = 'item evidence-item'; row.appendChild(textNode('strong', item.name));
       if (item.preview_url) {
@@ -255,8 +255,8 @@
   }
   function showMediaViewer(name, restoreFocus) {
     closeMediaViewer(); state.mediaViewerRestoreFocus = restoreFocus || null;
-    $('mediaViewerTitle').textContent = 'Evidence preview'; $('mediaViewerSub').textContent = name || '';
-    $('mediaViewerContent').replaceChildren(loadingNode('Loading secure evidence...')); $('mediaViewerOverlay').hidden = false;
+    $('mediaViewerTitle').textContent = 'File Preview'; $('mediaViewerSub').textContent = name || '';
+    $('mediaViewerContent').replaceChildren(loadingNode('Loading secure file...')); $('mediaViewerOverlay').hidden = false;
   }
   async function openPersistedEvidence(event) {
     const button = event.currentTarget; showMediaViewer(button.dataset.name, button);
@@ -289,13 +289,13 @@
   function showConflict(error) {
     const current = error.payload?.current_case;
     if (!current) { notify(error.message, true); return; }
-    const draft = $('resolveForm').elements.resolution_text.value || $('reopenForm').elements.reason.value || (current.needs_details ? 'Your entered case details remain in the form.' : '');
+    const draft = $('resolveForm').elements.resolution_text.value || $('reopenForm').elements.reason.value || (current.needs_details ? 'Your entered complaint details remain in the form.' : '');
     current.group_id = state.currentCase.group_id; current.global_read = state.currentCase.global_read;
     state.currentCase = current; $('conflictMessage').textContent = error.message;
     const resolution = current.latest_resolution;
-    $('conflictWinningNote').textContent = resolution ? `${resolution.note}\n— ${resolution.updated_by}, ${resolution.created_at}` : 'Review the latest case before trying again.';
+    $('conflictWinningNote').textContent = resolution ? `${resolution.note}\n— ${resolution.updated_by}, ${resolution.created_at}` : 'Review the latest complaint before trying again.';
     $('conflictDraft').textContent = draft || 'No draft text was entered.';
-    $('copyConflictDraftBtn').disabled = !draft || draft.startsWith('Your entered case details');
+    $('copyConflictDraftBtn').disabled = !draft || draft.startsWith('Your entered complaint details');
     renderDetail(current, true); $('conflictPanel').hidden = false;
     $('conflictPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -368,7 +368,7 @@
       notify(response.message); await refreshCounts(); state.returnWorkspace = 'queue';
       response.case.group_id = state.groupId; response.case.global_read = false;
       renderDetail(response.case); setView('detailView');
-    } catch (error) { $('createSaveState').textContent = 'Not saved'; notify(error.message, true); }
+    } catch (error) { $('createSaveState').textContent = 'Not Saved'; notify(error.message, true); }
     finally { state.submitting = false; setActionLoading(button, false); utils.setCloseProtection?.('complaint-operation', false); }
   }
   function validateCustomerId(input) {
@@ -460,12 +460,12 @@
     state.cameraTarget = ''; if (options?.restoreFocus !== false) focusTarget?.focus?.();
   }
   async function openCamera(target) {
-    if (!navigator.mediaDevices?.getUserMedia) return notify('This Telegram WebView cannot open the camera directly. Use Choose files instead.', true);
+    if (!navigator.mediaDevices?.getUserMedia) return notify('This Telegram WebView cannot open the camera directly. Use Upload Files instead.', true);
     state.cameraTarget = target; $('cameraOverlay').hidden = false; document.body.classList.add('camera-open');
     try {
       state.cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
       $('cameraVideo').srcObject = state.cameraStream; await $('cameraVideo').play(); $('cameraCaptureBtn').focus();
-    } catch (_) { closeCamera({ restoreFocus: true }); notify('Camera access was unavailable. Allow permission or use Choose files.', true); }
+    } catch (_) { closeCamera({ restoreFocus: true }); notify('Camera access was unavailable. Allow permission or use Upload Files.', true); }
   }
   async function captureCameraPhoto() {
     const video = $('cameraVideo'); const button = $('cameraCaptureBtn');
@@ -506,7 +506,7 @@
   }
   function updateCategoryGuidance() {
     const label = $('createCaseForm').elements.complaint_category.value.trim();
-    $('categoryGuidance').textContent = state.categoryDescriptions.get(label) || 'Choose the primary complaint.';
+    $('categoryGuidance').textContent = state.categoryDescriptions.get(label) || 'What is the complaint about?';
   }
 
   function renderMetrics(metrics) {
@@ -519,7 +519,7 @@
   }
   function populateGlobalFilters(filters) {
     const formNode = $('globalFilters'); const selected = formNode.elements.category.value;
-    selectOptions(formNode.elements.category, filters.categories || [], 'All categories');
+    selectOptions(formNode.elements.category, filters.categories || [], 'All complaint types');
     if (Array.from(formNode.elements.category.options).some(option => option.value === selected)) formNode.elements.category.value = selected;
   }
   async function loadGlobalOverview() {
@@ -535,7 +535,7 @@
     try {
       const response = await json('global/cases/', { filters: globalFilterPayload(), page: state.globalPage });
       const pagination = response.pagination; state.globalPage = pagination.page; state.globalPages = pagination.pages; state.globalStartIndex = response.start_index || 1;
-      $('globalResultCount').textContent = `${pagination.total} case${pagination.total === 1 ? '' : 's'} match the table filters`;
+      $('globalResultCount').textContent = `${pagination.total} complaint${pagination.total === 1 ? '' : 's'} match the table filters`;
       renderGlobalRows(response.items || []); $('globalPagination').hidden = pagination.pages <= 1;
       $('globalPageLabel').textContent = `Page ${pagination.page} of ${pagination.pages}`;
       $('globalPreviousBtn').disabled = pagination.page <= 1; $('globalNextBtn').disabled = pagination.page >= pagination.pages;
@@ -546,7 +546,7 @@
   }
   function renderGlobalRows(items) {
     const body = $('globalCaseRows'); body.replaceChildren();
-    if (!items.length) { const row = document.createElement('tr'); const cell = textNode('td', 'No cases match these filters.'); cell.colSpan = 13; row.appendChild(cell); body.appendChild(row); return; }
+    if (!items.length) { const row = document.createElement('tr'); const cell = textNode('td', 'No complaints match these filters.'); cell.colSpan = 13; row.appendChild(cell); body.appendChild(row); return; }
     items.forEach((item, index) => {
       const row = document.createElement('tr'); const open = textNode('button', item.case_id, 'row-button');
       open.type = 'button'; open.addEventListener('click', () => openGlobalCase(item.id));
@@ -562,7 +562,7 @@
   async function prepareExport() {
     try {
       const overview = await loadGlobalOverview(); const count = overview.metrics.total || 0;
-      $('exportConfirmText').textContent = `This exports all ${count} cases across all complaint groups, not only your current filters. Continue?`;
+      $('exportConfirmText').textContent = `This exports all ${count} complaints across all complaint groups, not only your current filters. Continue?`;
       $('exportConfirm').hidden = false; $('cancelExportBtn').focus();
     } catch (error) { notify(error.message, true); }
   }

@@ -1100,12 +1100,24 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         for removed in ('name="group"', 'name="branch"', 'name="priority"', 'name="sla"', 'name="sync"', 'name="sort"'):
             self.assertNotIn(removed, template)
         self.assertEqual(template.count('<th>') + template.count('<th class='), 13)
-        self.assertIn('<th class="row-number-cell">#</th><th>Case ID</th>', template)
+        self.assertIn('<th class="row-number-cell">#</th><th>Complaint ID</th>', template)
         self.assertIn('type="date"', template)
         self.assertIn('inputmode="numeric" pattern="[0-9]*"', template)
         self.assertIn('id="mediaViewerOverlay"', template)
         self.assertIn('secure_media_viewer.js', template)
-        self.assertIn('This exports all ${count} cases across all complaint groups', script)
+        self.assertIn('This exports all ${count} complaints across all complaint groups', script)
+        for wording in (
+            'Biogas Complaints', 'Complaint Queue', 'All Complaints',
+            'Record a New Complaint', 'Enter the customer&rsquo;s complaint details below.',
+            'Complaint Type', 'What is the complaint about?', 'Use My Current Location',
+            'Supporting Documents or Photos', 'Take a Photo', 'Upload Files',
+            'Not Saved', 'Submit Complaint',
+        ):
+            self.assertIn(wording, template)
+        for jargon in ('Officer Intake', 'Shared queue', 'Choose the primary complaint.', 'Branch not set'):
+            self.assertNotIn(jargon, template)
+        self.assertIn("'Branch not provided'", script)
+        self.assertIn("f'Pending for {age_days} day'", (root / 'services' / 'complaint_cases.py').read_text(encoding='utf-8'))
         self.assertIn("miniapp/utils.js", template)
         self.assertIn("data.set('expected_revision'", script)
         self.assertIn("submitTransition(event, 'resolve')", script)

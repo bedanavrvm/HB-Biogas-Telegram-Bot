@@ -1431,7 +1431,7 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
         'reported_at': format_datetime(case.timestamp),
         'recorded_at': format_datetime(case.created_at),
         'days_open': age_days,
-        'age_label': ('Resolved' if resolved else ('Today' if age_days == 0 else f'{age_days} day' + ('s' if age_days != 1 else '') + ' pending')),
+        'age_label': ('Resolved' if resolved else ('Pending today' if age_days == 0 else f'Pending for {age_days} day' + ('s' if age_days != 1 else ''))),
         'source_attribution': source,
         'risk_level': case.risk_level,
         'revision': control.revision,
