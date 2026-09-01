@@ -56,6 +56,22 @@
     if (utils.setButtonLoading) utils.setButtonLoading(button, loading, label);
     else if (button) button.disabled = !!loading;
   }
+  function bindCollapsingHeader() {
+    const header = $('appHeader');
+    if (!header) return;
+    let previousY = Math.max(0, window.scrollY || 0); let scheduled = false;
+    const update = () => {
+      scheduled = false;
+      const currentY = Math.max(0, window.scrollY || 0); const delta = currentY - previousY;
+      if (currentY <= 12 || delta < -4 || header.contains(document.activeElement)) header.classList.remove('header-hidden');
+      else if (currentY > header.offsetHeight && delta > 4) header.classList.add('header-hidden');
+      previousY = currentY;
+    };
+    window.addEventListener('scroll', () => {
+      if (!scheduled) { scheduled = true; window.requestAnimationFrame(update); }
+    }, { passive: true });
+    header.addEventListener('focusin', () => header.classList.remove('header-hidden'));
+  }
   function statusStack(item) {
     const stack = document.createElement('div');
     stack.className = 'status-stack';
@@ -211,7 +227,7 @@
     $('resolveForm').hidden = item.status !== 'Pending' || !actions.close;
     $('reopenForm').hidden = item.status !== 'Resolved' || !actions.reopen;
     $('retrySyncBtn').hidden = !actions.sync_retry || !['pending', 'failed'].includes(item.sync_status) || item.sheet_projection_enabled === false;
-    $('detailBackBtn').textContent = state.returnWorkspace === 'global' ? '← All Complaints' : '← Pending Complaints';
+    $('detailBackBtn').textContent = state.returnWorkspace === 'global' ? '← Overview' : '← Complaints';
     if (!preserveDraft) {
       $('completeDetailsForm').reset(); $('resolveForm').reset(); $('reopenForm').reset();
       clearEvidence('resolve'); $('conflictPanel').hidden = true;
@@ -677,5 +693,6 @@
   window.addEventListener('beforeunload', () => { stopCamera(); window.SecureMediaViewer?.revoke(state.mediaViewerObjectUrl); });
   telegram?.onEvent?.('deactivated', () => closeCamera({ restoreFocus: false }));
   telegram?.BackButton?.onClick(returnPrevious);
+  bindCollapsingHeader();
   bootstrap();
 }());

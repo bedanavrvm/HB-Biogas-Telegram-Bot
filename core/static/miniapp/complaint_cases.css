@@ -41,7 +41,8 @@ button{min-height:40px;padding-inline:12px;border-radius:9px}input,textarea,sele
 .date-filter{display:grid;grid-template-columns:1fr 1fr;gap:7px;min-width:0;margin:0;padding:0;border:0}.date-filter legend{margin-bottom:4px;padding:0;color:var(--text);font-size:12px;font-weight:800}.section-kicker{margin-bottom:5px}
 
 /* Mobile space recovery and predictable filter rows. */
-.app-top{min-height:50px;flex-wrap:nowrap;padding-block:6px}.app-brand{width:auto!important;min-width:0;flex:1}.app-brand>div{min-width:0}.app-logo{width:54px;height:30px;flex:0 0 54px}.app-top .icon-button{width:40px;min-width:40px;flex:0 0 40px}
+.app-top{position:sticky;min-height:50px;flex-wrap:nowrap;padding-block:6px;padding-right:56px;transition:transform .18s ease,box-shadow .18s ease;will-change:transform}.app-top.header-hidden{transform:translateY(calc(-100% - 2px));pointer-events:none;box-shadow:none}.app-brand{width:auto!important;min-width:0;flex:1}.app-brand>div{min-width:0}.app-logo{width:54px;height:30px;flex:0 0 54px}.app-top .icon-button{position:absolute;top:50%;right:8px;width:40px;min-width:40px;transform:translateY(-50%)}
+@media(prefers-reduced-motion:reduce){.app-top{transition:none}}
 .register-filters .filter-search,.register-filters .date-filter,.register-filters .filter-actions{grid-column:1/-1}.filter-actions{display:grid;grid-template-columns:1fr 1fr}.filter-actions button{width:100%}
 @media(min-width:700px){.register-filters .filter-search,.register-filters .date-filter,.register-filters .filter-actions{grid-column:span 2}}
 @media(max-width:520px){

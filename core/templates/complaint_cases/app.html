@@ -7,23 +7,23 @@
   <title>Complaints</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=14">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=16">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
   <main class="complaint-app" aria-label="Complaints">
-    <header class="app-top">
+    <header id="appHeader" class="app-top">
       <div class="app-brand"><img class="app-logo" src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu"><div><p class="eyebrow">Operations workspace</p><h1>Complaints</h1><p id="actorLine" class="muted">Opening workspace...</p></div></div>
       <button id="refreshBtn" class="icon-button" type="button" aria-label="Refresh complaints">&#8635;</button>
     </header>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <section id="loadingState" class="loading-state" aria-live="polite"><span class="spinner-inline" aria-hidden="true"></span><span>Loading complaints...</span></section>
     <nav id="workspaceTabs" class="workspace-tabs" aria-label="Complaint workspace" hidden>
-      <button id="queueWorkspaceBtn" type="button" class="active">Pending</button>
-      <button id="globalWorkspaceBtn" type="button">All Complaints</button>
+      <button id="queueWorkspaceBtn" type="button" class="active">Complaints</button>
+      <button id="globalWorkspaceBtn" type="button">Overview</button>
     </nav>
 
     <section id="queueView" hidden>
-      <div class="queue-head"><div><p class="eyebrow">Complaints</p><h2>Pending Complaints</h2><p id="queueResultCount" class="muted">0 complaints</p></div><button id="newCaseBtn" class="primary" type="button" hidden>+ New Complaint</button></div>
+      <div class="queue-head"><div><p class="eyebrow">Complaint List</p><h2>Complaints</h2><p id="queueResultCount" class="muted">0 complaints</p></div><button id="newCaseBtn" class="primary" type="button" hidden>+ New Complaint</button></div>
       <nav class="status-tabs" aria-label="Complaint status">
         <button type="button" class="active" data-status="pending">Pending <span id="pendingCount">0</span></button>
         <button type="button" data-status="resolved">Resolved <span id="resolvedCount">0</span></button>
@@ -55,7 +55,7 @@
     </section>
 
     <section id="createView" hidden>
-      <button class="back-button" type="button" data-back>&larr; Pending Complaints</button>
+      <button class="back-button" type="button" data-back>&larr; Complaints</button>
       <form id="createCaseForm" class="panel" novalidate>
         <div class="panel-heading"><p class="eyebrow">Complaint Details</p><h2>Record a New Complaint</h2><p class="muted">Enter the customer&rsquo;s complaint details below.</p></div>
         <div class="form-grid">
@@ -74,7 +74,7 @@
     </section>
 
     <section id="detailView" hidden>
-      <button id="detailBackBtn" class="back-button" type="button" data-back>&larr; Pending Complaints</button>
+      <button id="detailBackBtn" class="back-button" type="button" data-back>&larr; Complaints</button>
       <article class="panel case-summary">
         <p class="eyebrow section-kicker">Complaint Details</p>
         <div class="case-title"><div><p id="detailCaseId" class="case-reference"></p><h2 id="detailName"></h2><p id="detailGroup" class="muted"></p></div><div class="status-stack"><span id="detailStatus" class="status-pill"></span><span id="detailNeedsDetails" class="needs-details-pill" hidden>Needs More Information</span></div></div>
@@ -103,6 +103,6 @@
   <script src="{% static 'miniapp/utils.js' %}?v=9"></script>
   <script src="{% static 'miniapp/secure_media_viewer.js' %}?v=1"></script>
   <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=4"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=20"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=21"></script>
 </body>
 </html>

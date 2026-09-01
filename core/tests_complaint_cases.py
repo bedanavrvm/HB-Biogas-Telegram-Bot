@@ -1108,7 +1108,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('secure_media_viewer.js', template)
         self.assertIn('This download includes all ${count} complaints across all complaint groups', script)
         for wording in (
-            '<h1>Complaints</h1>', 'Pending Complaints', 'All Complaints',
+            '<h1>Complaints</h1>', '>Complaints</button>', '>Overview</button>',
             'Record a New Complaint', 'Enter the customer&rsquo;s complaint details below.',
             'Complaint Type', 'What is the complaint about?', 'Use My Current Location',
             'Supporting Documents or Photos', 'Take a Photo', 'Upload Files',
@@ -1133,6 +1133,9 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('normalizeCustomerNameInput(formNode.elements.client_name)', script)
         self.assertIn('autocapitalize="words"', template)
         self.assertIn('Sheet Sync:', script)
+        self.assertIn('id="appHeader"', template)
+        self.assertIn('function bindCollapsingHeader()', script)
+        self.assertIn("header.classList.add('header-hidden')", script)
         self.assertIn("'the case is now fully resolved': 'Complaint marked as resolved'", script)
         self.assertIn("'the customer is still complaining': 'Customer reported the issue again'", script)
         self.assertIn("miniapp/utils.js", template)
