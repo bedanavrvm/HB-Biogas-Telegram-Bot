@@ -59,9 +59,12 @@
   function statusStack(item) {
     const stack = document.createElement('div');
     stack.className = 'status-stack';
-    stack.appendChild(textNode('span', item.status, `status-pill ${item.status === 'Resolved' ? 'resolved' : ''}`));
-    if (item.needs_details) stack.appendChild(textNode('span', 'Needs details', 'needs-details-pill'));
+    stack.appendChild(textNode('span', displayStatus(item.status), `status-pill ${item.status === 'Resolved' ? 'resolved' : ''}`));
+    if (item.needs_details) stack.appendChild(textNode('span', 'Needs More Information', 'needs-details-pill'));
     return stack;
+  }
+  function displayStatus(status) {
+    return ({ Pending: 'Waiting for Action', Open: 'Reopened', Closed: 'Resolved', 'Review Needed': 'Needs More Information' })[status] || status || 'Update';
   }
 
   function setView(name) {
@@ -113,7 +116,7 @@
       setView('queueView');
       await loadCases();
     } catch (error) {
-      $('loadingState').textContent = error.message || 'Biogas Complaints could not be opened.';
+      $('loadingState').textContent = error.message || 'Complaints could not be opened.';
       notify(error.message, true);
     }
   }
@@ -173,7 +176,7 @@
     } catch (error) { notify(error.message, true); }
   }
   function syncLabel(value) {
-    return ({ success: 'Synced', pending: 'Pending', failed: 'Failed', not_required: 'Django only', suspended: 'Suspended — Sheet projection disabled' })[value] || value || 'Not recorded';
+    return ({ success: 'Up to date', pending: 'Waiting to update', failed: 'Failed', not_required: 'Not enabled', suspended: 'Not enabled' })[value] || value || 'Not recorded';
   }
 
   function renderDetail(item, preserveDraft) {
@@ -181,19 +184,23 @@
     $('detailCaseId').textContent = item.case_id;
     $('detailName').textContent = item.customer_name || 'Unnamed customer';
     $('detailGroup').textContent = item.group_label || '';
-    $('detailStatus').textContent = item.status;
+    $('detailStatus').textContent = displayStatus(item.status);
     $('detailStatus').className = `status-pill ${item.status === 'Resolved' ? 'resolved' : ''}`;
     $('detailNeedsDetails').hidden = !item.needs_details;
     const ids = $('detailIdentifiers'); ids.replaceChildren();
     [item.customer_phone, item.customer_id].filter(Boolean).forEach(value => ids.appendChild(textNode('span', value)));
     $('detailDescription').textContent = item.description || 'No description recorded.';
     const meta = $('detailMeta'); meta.replaceChildren();
-    [item.category, item.branch, item.reported_at].filter(Boolean).forEach(value => meta.appendChild(textNode('span', value)));
+    [
+      item.category ? `Complaint Type: ${item.category}` : '',
+      item.branch ? `Branch: ${item.branch}` : 'Branch not provided',
+      item.reported_at ? `Reported: ${item.reported_at}` : '',
+    ].filter(Boolean).forEach(value => meta.appendChild(textNode('span', value)));
     const source = item.source_attribution || {};
     $('detailSource').textContent = item.global_read
-      ? 'Organization-wide operational view'
-      : (source.type === 'batch' ? `${source.label} · ${source.actor} · ${source.created_at}` : (source.label || 'Source unavailable'));
-    $('detailSync').textContent = `Sheet: ${syncLabel(item.sync_status)}`;
+      ? 'Available to authorized complaint staff'
+      : (source.type === 'batch' ? `${source.label} · Uploaded by ${source.actor} · ${source.created_at}` : (source.label || 'Source unavailable'));
+    $('detailSync').textContent = `Reporting copy: ${syncLabel(item.sync_status)}`;
     renderHistory(item); renderEvidence(item.evidence || []); renderActivity(item.updates || []);
     $('evidencePanel').hidden = !!item.global_read; $('activityPanel').hidden = !!item.global_read;
     const actions = item.global_read ? (item.actions || {}) : {
@@ -204,7 +211,7 @@
     $('resolveForm').hidden = item.status !== 'Pending' || !actions.close;
     $('reopenForm').hidden = item.status !== 'Resolved' || !actions.reopen;
     $('retrySyncBtn').hidden = !actions.sync_retry || !['pending', 'failed'].includes(item.sync_status) || item.sheet_projection_enabled === false;
-    $('detailBackBtn').textContent = state.returnWorkspace === 'global' ? '← All Complaints' : '← Complaint Queue';
+    $('detailBackBtn').textContent = state.returnWorkspace === 'global' ? '← All Complaints' : '← Waiting for Action';
     if (!preserveDraft) {
       $('completeDetailsForm').reset(); $('resolveForm').reset(); $('reopenForm').reset();
       clearEvidence('resolve'); $('conflictPanel').hidden = true;
@@ -221,17 +228,26 @@
     const resolution = item.latest_resolution || (item.resolution_details ? { note: item.resolution_details, updated_by: '', created_at: item.resolved_at || '' } : null);
     $('previousResolution').hidden = !resolution;
     if (!resolution) return;
-    $('previousResolutionText').textContent = resolution.note || 'No resolution note recorded.';
-    $('previousResolutionMeta').textContent = [resolution.updated_by, resolution.created_at].filter(Boolean).join(' · ');
+    $('previousResolutionText').textContent = displayHistoryNote(resolution.note) || 'No resolution note recorded.';
+    $('previousResolutionMeta').textContent = [`Resolved by ${resolution.updated_by || 'Staff'}`, resolution.created_at].filter(Boolean).join(' · ');
     const reopened = item.latest_reopen; $('previousReopen').hidden = !reopened;
     if (reopened) {
-      $('previousReopenText').textContent = reopened.note || '';
-      $('previousReopenMeta').textContent = `${reopened.updated_by || 'Staff'} · ${reopened.created_at || ''}`;
+      $('previousReopenText').textContent = displayHistoryNote(reopened.note) || '';
+      $('previousReopenMeta').textContent = [`Reopened by ${reopened.updated_by || 'Staff'}`, reopened.created_at].filter(Boolean).join(' · ');
     }
+  }
+  function displayHistoryNote(note) {
+    const value = String(note || '');
+    const friendlyLegacyNotes = {
+      'the case is now fully resolved': 'Complaint marked as resolved',
+      'the case was resolved': 'Complaint resolved',
+      'the customer is still complaining': 'Customer reported the issue again',
+    };
+    return friendlyLegacyNotes[value.trim().toLowerCase()] || value;
   }
   function renderEvidence(items) {
     const node = $('evidenceList'); node.replaceChildren();
-    if (!items.length) { node.appendChild(textNode('p', 'No supporting files attached.', 'muted')); return; }
+    if (!items.length) { node.appendChild(textNode('p', 'No attachments available.', 'muted')); return; }
     items.forEach(item => {
       const row = document.createElement('div'); row.className = 'item evidence-item'; row.appendChild(textNode('strong', item.name));
       if (item.preview_url) {
@@ -278,10 +294,15 @@
   }
   function renderActivity(items) {
     const node = $('activityList'); node.replaceChildren();
-    if (!items.length) { node.appendChild(textNode('p', 'No activity recorded.', 'muted')); return; }
+    if (!items.length) { node.appendChild(textNode('p', 'No complaint history available.', 'muted')); return; }
     items.forEach(item => {
       const row = document.createElement('div'); row.className = 'item';
-      row.append(textNode('strong', `${item.status || 'Update'} · ${item.updated_by || 'Staff'}`), textNode('p', item.note || ''), textNode('small', item.created_at || '', 'muted'));
+      let action = 'Updated by';
+      if (item.status === 'Closed') action = 'Resolved by';
+      else if (item.status === 'Open' && item.old_status === 'Closed') action = 'Reopened by';
+      else if (item.status === 'Open') action = 'Complaint recorded by';
+      else if (item.status === 'Review Needed') action = 'More information requested by';
+      row.append(textNode('strong', `${action} ${item.updated_by || 'Staff'}`), textNode('p', displayHistoryNote(item.note)), textNode('small', item.created_at || '', 'muted'));
       node.appendChild(row);
     });
   }
@@ -510,7 +531,7 @@
   }
 
   function renderMetrics(metrics) {
-    const labels = [['total', 'Total'], ['pending', 'Pending'], ['resolved', 'Resolved'], ['needs_details', 'Needs details']];
+    const labels = [['total', 'Total Complaints'], ['pending', 'Waiting for Action'], ['resolved', 'Resolved'], ['needs_details', 'Need More Information']];
     const node = $('globalMetrics'); node.replaceChildren();
     labels.forEach(([key, label]) => {
       const card = document.createElement('div'); card.className = `metric-card ${key === 'needs_details' && metrics[key] ? 'attention' : ''}`;
@@ -519,7 +540,7 @@
   }
   function populateGlobalFilters(filters) {
     const formNode = $('globalFilters'); const selected = formNode.elements.category.value;
-    selectOptions(formNode.elements.category, filters.categories || [], 'All complaint types');
+    selectOptions(formNode.elements.category, filters.categories || [], 'Any Category');
     if (Array.from(formNode.elements.category.options).some(option => option.value === selected)) formNode.elements.category.value = selected;
   }
   async function loadGlobalOverview() {
@@ -535,7 +556,7 @@
     try {
       const response = await json('global/cases/', { filters: globalFilterPayload(), page: state.globalPage });
       const pagination = response.pagination; state.globalPage = pagination.page; state.globalPages = pagination.pages; state.globalStartIndex = response.start_index || 1;
-      $('globalResultCount').textContent = `${pagination.total} complaint${pagination.total === 1 ? '' : 's'} match the table filters`;
+      $('globalResultCount').textContent = `${pagination.total} complaint${pagination.total === 1 ? '' : 's'} found`;
       renderGlobalRows(response.items || []); $('globalPagination').hidden = pagination.pages <= 1;
       $('globalPageLabel').textContent = `Page ${pagination.page} of ${pagination.pages}`;
       $('globalPreviousBtn').disabled = pagination.page <= 1; $('globalNextBtn').disabled = pagination.page >= pagination.pages;
@@ -562,18 +583,18 @@
   async function prepareExport() {
     try {
       const overview = await loadGlobalOverview(); const count = overview.metrics.total || 0;
-      $('exportConfirmText').textContent = `This exports all ${count} complaints across all complaint groups, not only your current filters. Continue?`;
+      $('exportConfirmText').textContent = `This download includes all ${count} complaints across all complaint groups, not only your current filters. Continue?`;
       $('exportConfirm').hidden = false; $('cancelExportBtn').focus();
     } catch (error) { notify(error.message, true); }
   }
   function cancelExport() { $('exportConfirm').hidden = true; $('exportAllBtn').focus(); }
   async function confirmExport() {
-    const button = $('confirmExportBtn'); setActionLoading(button, true, 'Exporting');
+    const button = $('confirmExportBtn'); setActionLoading(button, true, 'Downloading');
     try {
       const result = await apiClient.postBlob('global/export/', { group_id: state.groupId, confirm_all: true, client_request_id: requestId('complaint-export') }, state.initData, utils);
       const url = URL.createObjectURL(result.blob); const link = document.createElement('a');
       link.href = url; link.download = result.filename; document.body.appendChild(link); link.click(); link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 30000); $('exportConfirm').hidden = true; notify('The complete complaint register was exported.');
+      setTimeout(() => URL.revokeObjectURL(url), 30000); $('exportConfirm').hidden = true; notify('The complaints file was downloaded.');
     } catch (error) { notify(error.message, true); }
     finally { setActionLoading(button, false); }
   }

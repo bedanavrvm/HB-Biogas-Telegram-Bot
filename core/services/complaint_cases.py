@@ -283,7 +283,7 @@ def staff_actor_for_payload(group_config, auth_payload: dict) -> ComplaintCaseAc
     telegram_id = str(user.get('id') or '').strip()
     username = str(user.get('username') or '').strip().lower().lstrip('@')
     if not telegram_id and not username:
-        raise ComplaintCaseError('Telegram identity is missing. Reopen Complaint Cases from Telegram.')
+        raise ComplaintCaseError('Telegram identity is missing. Reopen Complaints from Telegram.')
     from core.services.telegram_identity import identity_from_user_payload, resolve_or_bind_telegram_user
     identity = identity_from_user_payload(user)
     canonical_user = resolve_or_bind_telegram_user(identity) if telegram_id else None
@@ -576,7 +576,7 @@ def create_complaint_case(
                         updated_by=actor.name,
                         old_status='',
                         new_status='Open',
-                        resolution_text='Complaint created in Complaint Cases Mini App.',
+                        resolution_text='Complaint recorded.',
                         raw_update_text='Complaint created in Complaint Cases Mini App',
                         source='mini_app_create',
                         client_request_id=request_id,
@@ -793,7 +793,7 @@ def complete_review_details(
     except (TypeError, ValueError):
         raise ComplaintCaseError('Refresh this case before saving; its revision is missing.')
     if case.complaint_status != 'Review Needed':
-        raise ComplaintCaseError('Only a case marked Needs details can use this action.')
+        raise ComplaintCaseError('Only a complaint marked Needs More Information can use this action.')
     if control.revision != expected_revision:
         raise ComplaintCaseConflict(
             'This complaint changed while you were completing its details. Review the latest case and try again.',
@@ -857,7 +857,7 @@ def _persist_review_completion(
             if replay and replay.action == 'details_completed' and replay.payload_hash == payload_hash:
                 update = CaseUpdate.objects.get(parsed_message=case, client_request_id=request_id)
                 return case, control, update, True
-            raise ComplaintCaseError('Only a case marked Needs details can use this action.')
+            raise ComplaintCaseError('Only a complaint marked Needs More Information can use this action.')
         if control.revision != expected_revision:
             raise ComplaintCaseConflict(
                 'This complaint changed while you were completing its details. Review the latest case and try again.',
@@ -1397,7 +1397,7 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
     control = ensure_case_control(case)
     resolved = case.complaint_status == 'Closed'
     source = (
-        {'type': 'officer', 'label': 'Officer-created'}
+        {'type': 'officer', 'label': 'Recorded by an officer'}
         if case.source == 'complaint_mini_app'
         else {'type': 'telegram', 'label': 'Telegram report'}
     )
@@ -1409,12 +1409,12 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
         batch = imported.batch
         source = {
             'type': 'batch',
-            'label': 'Batch upload',
+            'label': 'Imported complaint',
             'actor': batch.actor_label or 'Uploader unavailable',
             'created_at': format_datetime(batch.created_at),
         }
     elif case.source == 'whatsapp_export':
-        source = {'type': 'legacy_batch', 'label': 'Legacy batch import - uploader not recorded'}
+        source = {'type': 'legacy_batch', 'label': 'Imported from another system'}
     age_days = max(0, int((timezone.now() - (case.timestamp or case.created_at)).total_seconds() // 86400))
     return {
         'id': str(case.id),
@@ -1431,7 +1431,7 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
         'reported_at': format_datetime(case.timestamp),
         'recorded_at': format_datetime(case.created_at),
         'days_open': age_days,
-        'age_label': ('Resolved' if resolved else ('Pending today' if age_days == 0 else f'Pending for {age_days} day' + ('s' if age_days != 1 else ''))),
+        'age_label': ('Resolved' if resolved else ('Waiting for action today' if age_days == 0 else f'Waiting for action for {age_days} day' + ('s' if age_days != 1 else ''))),
         'source_attribution': source,
         'risk_level': case.risk_level,
         'revision': control.revision,
@@ -1443,6 +1443,7 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
 
 def serialize_update(update: CaseUpdate) -> dict[str, Any]:
     return {
+        'old_status': update.old_status,
         'status': update.new_status,
         'note': update.resolution_text,
         'updated_by': update.updated_by,

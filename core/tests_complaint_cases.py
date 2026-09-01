@@ -655,7 +655,7 @@ class ComplaintCaseServiceTests(TestCase):
         item = list_cases(self.config, self.actor('100'))[0]
 
         self.assertEqual(item['source_attribution']['type'], 'legacy_batch')
-        self.assertIn('uploader not recorded', item['source_attribution']['label'])
+        self.assertEqual(item['source_attribution']['label'], 'Imported from another system')
 
     @patch('core.services.complaint_cases.append_parsed_message_to_sheet', return_value=True)
     def test_officer_can_create_an_auditable_case_once_with_a_retry_identifier(self, append_to_sheet):
@@ -1105,9 +1105,9 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('inputmode="numeric" pattern="[0-9]*"', template)
         self.assertIn('id="mediaViewerOverlay"', template)
         self.assertIn('secure_media_viewer.js', template)
-        self.assertIn('This exports all ${count} complaints across all complaint groups', script)
+        self.assertIn('This download includes all ${count} complaints across all complaint groups', script)
         for wording in (
-            'Biogas Complaints', 'Complaint Queue', 'All Complaints',
+            '<h1>Complaints</h1>', 'Waiting for Action', 'All Complaints',
             'Record a New Complaint', 'Enter the customer&rsquo;s complaint details below.',
             'Complaint Type', 'What is the complaint about?', 'Use My Current Location',
             'Supporting Documents or Photos', 'Take a Photo', 'Upload Files',
@@ -1117,7 +1117,20 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         for jargon in ('Officer Intake', 'Shared queue', 'Choose the primary complaint.', 'Branch not set'):
             self.assertNotIn(jargon, template)
         self.assertIn("'Branch not provided'", script)
-        self.assertIn("f'Pending for {age_days} day'", (root / 'services' / 'complaint_cases.py').read_text(encoding='utf-8'))
+        service = (root / 'services' / 'complaint_cases.py').read_text(encoding='utf-8')
+        self.assertIn("f'Waiting for action for {age_days} day'", service)
+        for wording in (
+            'Overview', 'View and manage all complaints', 'Download Complaints',
+            'Any Status', 'Any Category', 'Date Reported', 'Start Date', 'End Date',
+            'Show Results', 'Reset Filters', 'Needs More Information',
+            'Resolution History', 'Reason for Reopening', 'Attachments', 'Complaint History',
+        ):
+            self.assertIn(wording, template)
+        self.assertIn("'Resolved by'", script)
+        self.assertIn("'Reopened by'", script)
+        self.assertIn("'Complaint recorded by'", script)
+        self.assertIn("'the case is now fully resolved': 'Complaint marked as resolved'", script)
+        self.assertIn("'the customer is still complaining': 'Customer reported the issue again'", script)
         self.assertIn("miniapp/utils.js", template)
         self.assertIn("data.set('expected_revision'", script)
         self.assertIn("submitTransition(event, 'resolve')", script)

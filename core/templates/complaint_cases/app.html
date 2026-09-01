@@ -4,28 +4,28 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Biogas Complaints</title>
+  <title>Complaints</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=12">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=13">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
-  <main class="complaint-app" aria-label="Biogas Complaints">
+  <main class="complaint-app" aria-label="Complaints">
     <header class="app-top">
-      <div class="app-brand"><img class="app-logo" src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu"><div><p class="eyebrow">Operations workspace</p><h1>Biogas Complaints</h1><p id="actorLine" class="muted">Opening workspace...</p></div></div>
+      <div class="app-brand"><img class="app-logo" src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu"><div><p class="eyebrow">Operations workspace</p><h1>Complaints</h1><p id="actorLine" class="muted">Opening workspace...</p></div></div>
       <button id="refreshBtn" class="icon-button" type="button" aria-label="Refresh complaints">&#8635;</button>
     </header>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <section id="loadingState" class="loading-state" aria-live="polite"><span class="spinner-inline" aria-hidden="true"></span><span>Loading complaints...</span></section>
     <nav id="workspaceTabs" class="workspace-tabs" aria-label="Complaint workspace" hidden>
-      <button id="queueWorkspaceBtn" type="button" class="active">Complaint Queue</button>
+      <button id="queueWorkspaceBtn" type="button" class="active">Waiting for Action</button>
       <button id="globalWorkspaceBtn" type="button">All Complaints</button>
     </nav>
 
     <section id="queueView" hidden>
-      <div class="queue-head"><div><p class="eyebrow">Complaints</p><h2>Complaint Queue</h2><p id="queueResultCount" class="muted">0 complaints</p></div><button id="newCaseBtn" class="primary" type="button" hidden>+ New Complaint</button></div>
+      <div class="queue-head"><div><p class="eyebrow">Complaints</p><h2>Waiting for Action</h2><p id="queueResultCount" class="muted">0 complaints</p></div><button id="newCaseBtn" class="primary" type="button" hidden>+ New Complaint</button></div>
       <nav class="status-tabs" aria-label="Complaint status">
-        <button type="button" class="active" data-status="pending">Pending <span id="pendingCount">0</span></button>
+        <button type="button" class="active" data-status="pending">Waiting for Action <span id="pendingCount">0</span></button>
         <button type="button" data-status="resolved">Resolved <span id="resolvedCount">0</span></button>
         <button type="button" data-status="all">All Complaints <span id="totalCount">0</span></button>
       </nav>
@@ -35,15 +35,14 @@
     </section>
 
     <section id="globalView" hidden>
-      <div class="queue-head"><div><p class="eyebrow">Reporting</p><h2>All Complaints</h2><p class="muted">Organization-wide complaint register</p></div><button id="exportAllBtn" class="primary" type="button" hidden>Export All Complaints</button></div>
+      <div class="queue-head"><div><p class="eyebrow">Overview</p><h2>All Complaints</h2><p class="muted">View and manage all complaints</p></div><button id="exportAllBtn" class="primary" type="button" hidden>Download Complaints</button></div>
       <div id="globalMetrics" class="metric-grid" aria-label="Global complaint metrics"></div>
       <form id="globalFilters" class="register-filters">
-        <label>Search<input name="query" type="search" autocomplete="off" placeholder="Name, ID, phone number or complaint"></label>
-        <label>Status<select name="status"><option value="">All statuses</option><option value="pending">Pending</option><option value="resolved">Resolved</option></select></label>
-        <label>Complaint Type<select name="category"><option value="">All complaint types</option></select></label>
-        <label>Reported from<input name="reported_from" type="date"></label>
-        <label>Reported to<input name="reported_to" type="date"></label>
-        <div class="filter-actions"><button class="primary" type="submit">Apply</button><button id="clearGlobalFiltersBtn" type="button">Clear</button></div>
+        <label>Search<input name="query" type="search" autocomplete="off" placeholder="Search by complaint, customer name, or phone number"></label>
+        <label>Status<select name="status"><option value="">Any Status</option><option value="pending">Waiting for Action</option><option value="resolved">Resolved</option></select></label>
+        <label>Category<select name="category"><option value="">Any Category</option></select></label>
+        <fieldset class="date-filter"><legend>Date Reported</legend><label>Start Date<input name="reported_from" type="date"></label><label>End Date<input name="reported_to" type="date"></label></fieldset>
+        <div class="filter-actions"><button class="primary" type="submit">Show Results</button><button id="clearGlobalFiltersBtn" type="button">Reset Filters</button></div>
       </form>
       <p id="globalResultCount" class="muted">0 complaints</p>
       <div class="register-table-wrap">
@@ -56,7 +55,7 @@
     </section>
 
     <section id="createView" hidden>
-      <button class="back-button" type="button" data-back>&larr; Complaint Queue</button>
+      <button class="back-button" type="button" data-back>&larr; Waiting for Action</button>
       <form id="createCaseForm" class="panel" novalidate>
         <div class="panel-heading"><p class="eyebrow">Complaint Details</p><h2>Record a New Complaint</h2><p class="muted">Enter the customer&rsquo;s complaint details below.</p></div>
         <div class="form-grid">
@@ -75,22 +74,23 @@
     </section>
 
     <section id="detailView" hidden>
-      <button id="detailBackBtn" class="back-button" type="button" data-back>&larr; Complaint Queue</button>
+      <button id="detailBackBtn" class="back-button" type="button" data-back>&larr; Waiting for Action</button>
       <article class="panel case-summary">
-        <div class="case-title"><div><p id="detailCaseId" class="eyebrow"></p><h2 id="detailName"></h2><p id="detailGroup" class="muted"></p></div><div class="status-stack"><span id="detailStatus" class="status-pill"></span><span id="detailNeedsDetails" class="needs-details-pill" hidden>Needs details</span></div></div>
-        <div id="detailIdentifiers" class="identifiers"></div><p id="detailDescription" class="description"></p><div id="detailMeta" class="meta"></div><p id="detailSource" class="source-line"></p><p id="detailSync" class="source-line"></p><button id="retrySyncBtn" type="button" hidden>Retry Sheet publication</button>
+        <p class="eyebrow section-kicker">Complaint Details</p>
+        <div class="case-title"><div><p id="detailCaseId" class="case-reference"></p><h2 id="detailName"></h2><p id="detailGroup" class="muted"></p></div><div class="status-stack"><span id="detailStatus" class="status-pill"></span><span id="detailNeedsDetails" class="needs-details-pill" hidden>Needs More Information</span></div></div>
+        <div id="detailIdentifiers" class="identifiers"></div><p id="detailDescription" class="description"></p><div id="detailMeta" class="meta"></div><p id="detailSource" class="source-line"></p><p id="detailSync" class="source-line"></p><button id="retrySyncBtn" type="button" hidden>Retry Reporting Update</button>
       </article>
-      <section id="previousResolution" class="panel resolution-history" hidden><p class="eyebrow">Previous resolution</p><p id="previousResolutionText"></p><small id="previousResolutionMeta" class="muted"></small><div id="previousReopen" hidden><p class="eyebrow">Reopened because</p><p id="previousReopenText"></p><small id="previousReopenMeta" class="muted"></small></div></section>
+      <section id="previousResolution" class="panel resolution-history" hidden><h2>Resolution History</h2><p id="previousResolutionText"></p><small id="previousResolutionMeta" class="muted"></small><div id="previousReopen" hidden><p class="field-label">Reason for Reopening</p><p id="previousReopenText"></p><small id="previousReopenMeta" class="muted"></small></div></section>
       <section id="conflictPanel" class="panel conflict-panel" role="alert" hidden><h2>This complaint changed while you were working</h2><p id="conflictMessage"></p><p class="eyebrow">Resolution recorded first</p><blockquote id="conflictWinningNote"></blockquote><p class="eyebrow">Your retained draft</p><blockquote id="conflictDraft"></blockquote><div class="conflict-actions"><button id="copyConflictDraftBtn" type="button">Copy My Draft</button><button id="reviewConflictBtn" type="button">Review Latest Complaint</button></div></section>
       <form id="completeDetailsForm" class="panel action-panel" hidden novalidate><div class="panel-heading"><p class="eyebrow">Complaint Details</p><h2>Complete Required Details</h2><p class="muted">Confirm the customer identifiers and complaint type.</p></div><div class="form-grid"><label>Phone Number<input name="customer_phone" type="tel" maxlength="20" inputmode="tel"></label><label>Customer ID<input name="customer_id" type="text" maxlength="255" inputmode="numeric" pattern="[0-9]*"></label><label class="full">Complaint Type<select name="complaint_category" required><option value="">Select complaint type</option></select></label></div><div class="sticky-action"><span class="muted">Returns to Pending</span><button class="primary" type="submit">Complete Details</button></div></form>
       <form id="resolveForm" class="panel action-panel" hidden novalidate><div class="panel-heading"><p class="eyebrow">HomeBiogas Action</p><h2>Resolve Complaint</h2><p class="muted">Explain what was done and the outcome for the customer.</p></div><label>Resolution Note<textarea name="resolution_text" rows="4" maxlength="5000" required></textarea></label><section class="evidence-picker" aria-labelledby="resolveEvidenceTitle"><div><p id="resolveEvidenceTitle" class="field-label">Supporting Documents or Photos</p><p id="resolveEvidenceHint" class="muted">Optional: photos or PDF</p></div><div class="evidence-actions"><button type="button" data-camera-target="resolve">Take a Photo</button><button type="button" data-files-target="resolve">Upload Files</button></div><input id="resolveEvidenceInput" class="sr-only" type="file" multiple accept="image/jpeg,image/png,image/webp,.pdf"></section><ul id="resolveSelectedEvidence" class="file-list"></ul><div class="sticky-action"><span class="muted">One audited action</span><button class="primary" type="submit">Resolve Complaint</button></div></form>
-      <form id="reopenForm" class="panel" hidden novalidate><div class="panel-heading"><p class="eyebrow">Manager Review</p><h2>Reopen Complaint</h2><p class="muted">A Complaint Manager may return an insufficient resolution to Pending.</p></div><label>Why is the resolution insufficient?<textarea name="reason" rows="4" maxlength="5000" required></textarea></label><div class="sticky-action"><span class="muted">Previous resolution remains in history</span><button class="primary" type="submit">Reopen Complaint</button></div></form>
-      <section id="evidencePanel" class="panel"><div class="panel-heading"><h2>Supporting Documents or Photos</h2></div><div id="evidenceList" class="item-list"></div></section>
-      <section id="activityPanel" class="panel"><div class="panel-heading"><h2>Activity</h2></div><div id="activityList" class="item-list"></div></section>
+      <form id="reopenForm" class="panel" hidden novalidate><div class="panel-heading"><h2>Reopen Complaint</h2><p class="muted">If the complaint was not resolved, explain why before reopening it.</p></div><label>Why are you reopening this complaint?<textarea name="reason" rows="4" maxlength="5000" required></textarea></label><div class="sticky-action"><span class="muted">Previous updates will remain in the complaint history.</span><button class="primary" type="submit">Reopen Complaint</button></div></form>
+      <section id="evidencePanel" class="panel"><div class="panel-heading"><h2>Attachments</h2></div><div id="evidenceList" class="item-list"></div></section>
+      <section id="activityPanel" class="panel"><div class="panel-heading"><h2>Complaint History</h2></div><div id="activityList" class="item-list"></div></section>
     </section>
 
     <div id="exportConfirm" class="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="exportConfirmTitle" hidden>
-      <div class="confirm-card"><h2 id="exportConfirmTitle">Export every complaint?</h2><p id="exportConfirmText"></p><div class="confirm-actions"><button id="cancelExportBtn" type="button">Cancel</button><button id="confirmExportBtn" class="primary" type="button">Export All Complaints</button></div></div>
+      <div class="confirm-card"><h2 id="exportConfirmTitle">Download every complaint?</h2><p id="exportConfirmText"></p><div class="confirm-actions"><button id="cancelExportBtn" type="button">Cancel</button><button id="confirmExportBtn" class="primary" type="button">Download Complaints</button></div></div>
     </div>
     <div id="cameraOverlay" class="sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="cameraTitle" hidden>
       <section class="camera-sheet"><div class="sheet-handle" aria-hidden="true"></div><div class="camera-head"><div><p class="eyebrow">Photo Capture</p><h2 id="cameraTitle">Take a Photo</h2><p class="muted">Nothing uploads until you submit the complaint.</p></div><button id="cameraCloseBtn" class="icon-button" type="button" aria-label="Close camera">&times;</button></div><div class="camera-stage"><video id="cameraVideo" autoplay playsinline muted></video><canvas id="cameraCanvas" hidden></canvas></div><div class="camera-footer"><button id="cameraCancelBtn" type="button">Cancel</button><button id="cameraCaptureBtn" class="primary" type="button">Use Photo</button></div></section>
@@ -103,6 +103,6 @@
   <script src="{% static 'miniapp/utils.js' %}?v=9"></script>
   <script src="{% static 'miniapp/secure_media_viewer.js' %}?v=1"></script>
   <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=4"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=18"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=19"></script>
 </body>
 </html>
