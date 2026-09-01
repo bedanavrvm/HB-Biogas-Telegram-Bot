@@ -834,6 +834,7 @@ class PortalMiniAppAuthTestCase(TestCase):
     def test_jbl_visit_form_uses_hybrid_numeric_date_and_native_picker(self):
         script = (Path(__file__).resolve().parent / 'static' / 'miniapp' / 'portal_farmer_sheet.js').read_text(encoding='utf-8')
         stylesheet = (Path(__file__).resolve().parent / 'static' / 'miniapp' / 'portal.css').read_text(encoding='utf-8')
+        template = (Path(__file__).resolve().parent / 'templates' / 'portal' / 'portal.html').read_text(encoding='utf-8')
 
         self.assertIn('id="jbl-date-display"', script)
         self.assertIn('placeholder="dd-mm-yy"', script)
@@ -847,6 +848,15 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertIn("display.addEventListener('blur', () => commitJblDisplayDate({ showError: false }))", script)
         self.assertIn('.jbl-form-errors[hidden]', stylesheet)
         self.assertIn('.jbl-workflow-conflict[hidden] { display: none !important; }', stylesheet)
+        self.assertIn("sheetOverlay?.classList.toggle('jbl-visit-sheet', mode === 'jbl_visit')", script)
+        self.assertIn("['HBG Visit Date', deps.fmtDate(farmer.hbg_visit_date || farmer.sign_date)]", script)
+        self.assertIn('class="visit-status-pill"', script)
+        self.assertIn('class="voice-record-visible-label"', script)
+        self.assertIn('id="btn-gps" class="secondary"><i data-lucide="map-pin"', script)
+        self.assertIn('<div class="sheet-quick-actions">', template)
+        self.assertIn('id="case360-toggle" class="btn btn-secondary case360-toggle"><i data-lucide="history"', template)
+        self.assertIn('.jbl-visit-sheet .form-section.form-grid', stylesheet)
+        self.assertIn('.jbl-visit-sheet .sheet-footer', stylesheet)
 
     def grant_portal_access(self, role='JBL_OFFICER', branches=None):
         user = get_user_model().objects.create_user(

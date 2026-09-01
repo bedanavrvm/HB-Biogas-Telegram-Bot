@@ -71,7 +71,7 @@
     const language = savedVoiceLanguage();
     return `<div class="voice-input" data-voice-field="${fieldName}" data-input-id="${inputId}" data-language-mode="${language}">
       <button type="button" class="voice-record-button" data-voice-action="record" aria-pressed="false" aria-label="Dictate comment" title="Dictate comment">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg><span class="voice-record-label sr-only">Dictate</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg><span class="voice-record-label sr-only">Dictate</span><span class="voice-record-visible-label" aria-hidden="true">Voice Input</span>
       </button>
       <div class="voice-language-switch" role="group" aria-label="Recording language">
         ${VOICE_LANGUAGE_ORDER.map(mode => `<button type="button" class="voice-language-button${mode === language ? ' active' : ''}" data-voice-action="language" data-language-mode-value="${mode}" aria-pressed="${mode === language ? 'true' : 'false'}">${VOICE_LANGUAGE_LABELS[mode]}</button>`).join('')}
@@ -572,9 +572,9 @@
     ];
     const byMode = {
       jbl_visit: [
-        ['HBG Visit', deps.fmtDate(farmer.sign_date)],
+        ['HBG Visit Date', deps.fmtDate(farmer.hbg_visit_date || farmer.sign_date)],
         ['HB Sales Person', deps.fmt(farmer.hb_sales_person)],
-        ['Current JBL Status', jblStatusLabel(farmer)],
+        ['JBL Status', jblStatusLabel(farmer)],
       ],
       credit: [
         ['JBL Visit', deps.fmtDate(farmer.jbl_visit_date)],
@@ -602,6 +602,8 @@
     activeVoiceAttempt = null;
     Object.keys(acceptedVoiceAttempts).forEach(key => delete acceptedVoiceAttempts[key]);
 
+    const sheetOverlay = el('sheet-overlay');
+    sheetOverlay?.classList.toggle('jbl-visit-sheet', mode === 'jbl_visit');
     el('sheet-name').textContent = farmer.customer_name || 'Unknown Farmer';
     const location = deps.locationText(farmer);
     el('sheet-sub').textContent = location !== '-' ? location : (farmer.primary_phone || '');
@@ -610,19 +612,20 @@
 
     const mediaCount = Number(farmer.jbl_media_count || 0);
     el('sheet-info').innerHTML = infoFields.map(([label, value]) =>
-      `<li class="info-row"><span class="ir-label">${deps.escapeHtml(label)}</span><span class="ir-value">${value}</span></li>`
+      `<li class="info-row${mode === 'jbl_visit' && label === 'JBL Status' ? ' info-row-status' : ''}"><span class="ir-label">${deps.escapeHtml(label)}</span><span class="ir-value">${mode === 'jbl_visit' && label === 'JBL Status' ? `<span class="visit-status-pill">${value}</span>` : value}</span></li>`
     ).join('');
     const mediaSection = el('sheet-client-media');
     if (mediaSection) {
       const canViewMedia = hasCapability('portal.jbl_media.view') && mediaCount >= 1;
+      document.querySelector('.sheet-quick-actions')?.classList.toggle('has-client-media', canViewMedia);
       mediaSection.hidden = !canViewMedia;
       mediaSection.innerHTML = canViewMedia
-        ? `<button type="button" class="btn btn-secondary sheet-client-media-toggle" id="btn-view-client-media" aria-expanded="false" data-collapsed-label="View ${mediaCount} media file${mediaCount === 1 ? '' : 's'}">View ${mediaCount} media file${mediaCount === 1 ? '' : 's'}</button><div id="final-client-media" class="media-links client-media-links" hidden></div>`
+        ? `<button type="button" class="btn btn-secondary sheet-client-media-toggle" id="btn-view-client-media" aria-expanded="false" data-collapsed-label="View ${mediaCount} media file${mediaCount === 1 ? '' : 's'}"><i data-lucide="image" aria-hidden="true"></i><span class="sheet-action-label">View ${mediaCount} media file${mediaCount === 1 ? '' : 's'}</span></button><div id="final-client-media" class="media-links client-media-links" hidden></div>`
         : '';
       el('btn-view-client-media')?.addEventListener('click', () => toggleClientMedia(farmer.id));
     }
     const caseToggle = el('case360-toggle');
-    caseToggle.textContent = 'Open Case History';
+    caseToggle.innerHTML = '<i data-lucide="history" aria-hidden="true"></i><span>Open Case History</span>';
     caseToggle.onclick = () => {
       window.PortalAppShell?.openCaseHistory(farmer.id);
     };
@@ -665,7 +668,7 @@
     } else if (mode === 'requisition') {
       formEl.innerHTML = buildRequisitionBatchNotice();
     }
-    el('sheet-overlay').classList.add('open');
+    sheetOverlay?.classList.add('open');
     const lat = parseFloat(farmer.latitude);
     const lng = parseFloat(farmer.longitude);
     // Leaflet measures its container when it is created. The sheet is hidden
@@ -892,7 +895,7 @@
         <div class="form-row form-row-wide"><label>Comment</label><textarea id="jbl-comment" rows="2" placeholder="Additional notes...">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea>${voiceWidget('jbl_visit_comment', 'jbl-comment')}</div>
         ${mediaFields}
         <div class="form-row form-row-wide gps-capture-row" data-jbl-field="capture_location">
-          <button type="button" id="btn-gps" class="secondary">Capture GPS Location</button>
+          <button type="button" id="btn-gps" class="secondary"><i data-lucide="map-pin" aria-hidden="true"></i><span>Capture GPS Location</span></button>
           <div id="gps-coords" class="field-help">Not captured</div>
           <input type="hidden" id="jbl-lat" value="">
           <input type="hidden" id="jbl-lng" value="">
@@ -1975,14 +1978,16 @@
       target.hidden = true;
       if (button) {
         button.setAttribute('aria-expanded', 'false');
-        button.textContent = button.dataset.collapsedLabel || 'View client media';
+        const label = button.querySelector('.sheet-action-label');
+        if (label) label.textContent = button.dataset.collapsedLabel || 'View client media';
       }
       return;
     }
     target.hidden = false;
     if (button) {
       button.setAttribute('aria-expanded', 'true');
-      button.textContent = 'Hide client media';
+      const label = button.querySelector('.sheet-action-label');
+      if (label) label.textContent = 'Hide client media';
     }
     if (target.dataset.loaded === 'true') return;
     loadClientMedia(farmerId);
@@ -2146,7 +2151,7 @@
     if (case360CounterCleanup) case360CounterCleanup();
     case360CounterCleanup = null;
     resetJblMediaSelections();
-    el('sheet-overlay')?.classList.remove('open');
+    el('sheet-overlay')?.classList.remove('open', 'jbl-visit-sheet');
     state().selectedFarmer = null;
     state().activeMode = null;
     destroyMap();
