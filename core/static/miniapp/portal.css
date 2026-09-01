@@ -441,6 +441,107 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
   margin-top: 4px;
 }
 
+/* JBL Visit queue cards keep all essential field information visible even
+   when the user's compact-card preference is enabled. */
+#page-jbl .farmer-list { gap: 7px; }
+#page-jbl .farmer-card {
+  padding: 10px 11px;
+  gap: 0;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+}
+#page-jbl .farmer-card:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+.jbl-queue-card-content { min-width: 0; width: 100%; }
+.jbl-queue-card-heading,
+.jbl-queue-card-details,
+.jbl-queue-card-bottom {
+  display: flex;
+  align-items: center;
+}
+.jbl-queue-card-heading {
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--border-color);
+}
+.jbl-queue-card-identity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.jbl-queue-card-identity .farmer-card-number {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 20px;
+  margin-right: 0;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--brand-primary) 11%, var(--bg-surface));
+  color: var(--brand-primary);
+  font-weight: 800;
+}
+.jbl-queue-card-identity .fc-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  letter-spacing: .025em;
+  text-transform: uppercase;
+}
+.jbl-pending-visit-badge {
+  flex: 0 0 auto;
+  background: var(--status-info-bg);
+  color: var(--status-info);
+}
+.jbl-queue-card-details {
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0 7px;
+}
+.jbl-queue-card-meta,
+.jbl-queue-card-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.jbl-queue-card-meta svg,
+.jbl-queue-card-date svg {
+  flex: 0 0 13px;
+  width: 13px;
+  height: 13px;
+  stroke: currentColor;
+}
+.jbl-queue-card-meta > span,
+.jbl-queue-card-date > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jbl-queue-card-phone { justify-content: flex-end; font-variant-numeric: tabular-nums; }
+.jbl-queue-card-bottom {
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border-color);
+}
+.jbl-queue-card-date { color: var(--brand-primary); font-weight: 700; }
+body.portal-compact-cards #page-jbl .farmer-card { padding: 9px 10px; }
+
+@media (max-width: 360px) {
+  .jbl-queue-card-details { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .jbl-queue-card-phone { justify-content: flex-start; }
+  .jbl-queue-card-bottom { flex-wrap: wrap; }
+}
+
 /* ── Badges ─────────────────────────────────────────────────────────────────── */
 .badge {
   display: inline-flex;
@@ -495,6 +596,27 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
   background: var(--bg-surface);
 }
 .queue-search-row input:focus { outline: none; border-color: var(--brand-primary); }
+.jbl-queue-search-row { position: relative; gap: 0; }
+.jbl-queue-search-row .queue-search-icon {
+  position: absolute;
+  left: 12px;
+  z-index: 1;
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.jbl-queue-search-row input { padding-left: 36px; padding-right: 44px; }
+.jbl-queue-search-row .queue-search-clear {
+  position: absolute;
+  right: 4px;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  border-color: transparent;
+  background: transparent;
+}
 .queue-search-clear,
 .dashboard-refresh-button {
   display: inline-grid;
@@ -751,10 +873,13 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
   line-height: 1.35;
 }
 .jbl-draft-state {
-  margin: 0;
-  padding: 8px 12px;
-  border-top: 1px solid var(--border-color);
-  background: var(--bg-muted);
+  justify-self: end;
+  margin: -2px 0 0;
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  font-size: 9px;
+  line-height: 1.2;
 }
 .jbl-draft-state[data-state="saved"] { color: var(--color-success); }
 .jbl-draft-state[data-state="local-only"],
@@ -2072,23 +2197,17 @@ body.portal-report-editor-active #bottom-tabs { display: none; }
   .batch-summary-grid { grid-template-columns: 1fr 1fr; }
 }
 
-.jbl-visit-requirements,
 .jbl-form-errors,
 .jbl-workflow-conflict { display: grid; gap: 5px; margin-bottom: 8px; border: 1px solid var(--border-color); border-radius: 11px; padding: 10px 12px; background: var(--bg-muted); }
-.jbl-visit-requirements p,
+.jbl-form-errors[hidden],
+.jbl-workflow-conflict[hidden] { display: none !important; }
 .jbl-workflow-conflict p { margin: 0; color: var(--text-muted); font-size: 10px; line-height: 1.4; }
-.jbl-visit-requirements.forwarding { border-color: color-mix(in srgb, var(--color-primary) 45%, var(--border-color)); background: color-mix(in srgb, var(--color-primary) 8%, var(--bg-surface)); }
 .jbl-form-errors { border-color: color-mix(in srgb, var(--status-danger) 55%, var(--border-color)); background: color-mix(in srgb, var(--status-danger) 8%, var(--bg-surface)); color: var(--status-danger); }
 .jbl-form-errors ul { margin: 0; padding-left: 18px; font-size: 10px; }
 .jbl-workflow-conflict { border-color: color-mix(in srgb, var(--portal-status-warning) 55%, var(--border-color)); background: color-mix(in srgb, var(--portal-status-warning) 9%, var(--bg-surface)); }
 .jbl-workflow-conflict button { min-height: 40px; justify-self: start; }
 .jbl-conflict-actions { display: flex; flex-wrap: wrap; gap: 7px; }
-.required-marker,
-.optional-marker,
-.conditional-marker { display: inline-flex; margin-left: 4px; border-radius: 999px; padding: 2px 5px; font-size: 7px; font-weight: 800; line-height: 1; text-transform: uppercase; }
-.required-marker { background: color-mix(in srgb, var(--status-danger) 12%, transparent); color: var(--status-danger); }
-.optional-marker { background: var(--bg-muted); color: var(--text-muted); }
-.conditional-marker { background: color-mix(in srgb, var(--portal-status-warning) 14%, transparent); color: var(--portal-status-warning); }
+.required-marker { display: inline; margin-left: 2px; color: var(--status-danger); font-size: 13px; font-weight: 800; line-height: .8; }
 [data-jbl-field].invalid { outline: 2px solid color-mix(in srgb, var(--status-danger) 70%, transparent); outline-offset: -2px; }
 .jbl-field-error { display: block; color: var(--status-danger); font-size: 9px; font-weight: 700; }
 .jbl-field-error:empty { display: none; }

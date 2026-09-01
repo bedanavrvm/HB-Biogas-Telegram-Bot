@@ -828,7 +828,9 @@
     display.addEventListener('input', () => {
       if (isoDateFromDisplay(display.value)) commitJblDisplayDate();
     });
-    display.addEventListener('blur', () => commitJblDisplayDate({ showError: Boolean(display.value.trim()) }));
+    // Keep entry interruption-free. Full date validation and visible errors
+    // belong to the explicit Log JBL Visit submission path.
+    display.addEventListener('blur', () => commitJblDisplayDate({ showError: false }));
     picker.addEventListener('change', () => {
       if (picker.value) syncJblDateControls(picker.value);
     });
@@ -862,12 +864,12 @@
           <label>Visit Media</label>
           <div class="media-upload-control">
             ${jblMediaCategoryMarkup({
-              category: 'LAF', title: 'LAF document(s)', help: 'PDF, JPG or PNG. Required before forwarding.',
+              category: 'LAF', title: 'LAF document(s)', help: 'PDF, JPG or PNG.',
               pickerId: 'jbl-laf-media', cameraId: 'jbl-laf-camera',
               accept: 'application/pdf,.pdf,image/jpeg,image/png,.jpg,.jpeg,.png',
             })}
             ${jblMediaCategoryMarkup({
-              category: 'JBL_VISIT_PHOTO', title: 'JBL visit photo(s)', help: 'Image only. Required before forwarding.',
+              category: 'JBL_VISIT_PHOTO', title: 'JBL visit photo(s)', help: 'Images only.',
               pickerId: 'jbl-visit-photo-media', cameraId: 'jbl-visit-photo-camera',
               accept: 'image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp',
             })}
@@ -877,22 +879,17 @@
           </div>
         </div>` : '';
     return `
-      <section id="jbl-visit-requirements" class="jbl-visit-requirements" aria-live="polite">
-        <strong>Before you log this visit</strong>
-        <p>Visit Date and Status / Outcome are always required.</p>
-        <p id="jbl-forward-requirements">For Approved or Awaiting Analysis, also add an LAF, a visit photo, and GPS or a reason GPS was unavailable.</p>
-      </section>
       <section id="jbl-form-errors" class="jbl-form-errors" role="alert" tabindex="-1" hidden><strong>Correct the following before logging the visit:</strong><ul></ul></section>
       <section id="jbl-workflow-conflict" class="jbl-workflow-conflict" role="alert" tabindex="-1" hidden><strong>This case changed since you opened it.</strong><p id="jbl-workflow-conflict-message"></p><p>Your draft and selected files are still here. Review the latest case before retrying.</p><button type="button" id="jbl-review-latest">Review latest case and keep my draft</button></section>
       <section id="jbl-draft-conflict" class="jbl-workflow-conflict" role="alert" tabindex="-1" hidden><strong>This draft changed on another device.</strong><p>Choose which field-only draft to continue with. Files are never included.</p><div class="jbl-conflict-actions"><button type="button" id="jbl-use-local-draft">Use this device</button><button type="button" id="jbl-use-server-draft">Use saved draft</button></div></section>
       <div class="form-section form-grid">
-        <div class="form-row" data-jbl-field="visit_date"><label title="JBL visits follow the HBG visit and cannot be future-dated.">Visit Date <span class="required-marker">Required</span></label><div class="jbl-date-control"><input type="text" id="jbl-date-display" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="dd-mm-yy" aria-describedby="jbl-date-help" value="${deps.escapeHtml(displayDateFromIso(defaultVisitDate))}"><button type="button" id="jbl-date-open" class="jbl-date-open" aria-label="Open native visit date picker" title="Choose visit date">${calendarIcon()}</button><input type="date" id="jbl-date-picker" class="native-date-proxy" min="${deps.escapeHtml(hbgVisitDate)}" max="${deps.escapeHtml(today)}" value="${deps.escapeHtml(defaultVisitDate)}" tabindex="-1" aria-hidden="true"><input type="hidden" id="jbl-date" value="${deps.escapeHtml(defaultVisitDate)}"></div><small id="jbl-date-help" class="field-help">Use dd-mm-yy. Earliest: ${deps.escapeHtml(displayDateFromIso(hbgVisitDate) || 'recorded HBG visit')}; latest: ${deps.escapeHtml(displayDateFromIso(today))}.</small><small class="jbl-field-error" data-error-message-for="visit_date"></small></div>
-        <div class="form-row" data-jbl-field="visit_status"><label>Status / Outcome <span class="required-marker">Required</span></label><select id="jbl-status"><option value="">- Select -</option>${statusOptions}</select><small class="jbl-field-error" data-error-message-for="visit_status"></small></div>
-        <div class="form-row"><label>Officer Name <span class="optional-marker">Optional</span></label><input type="text" id="jbl-officer" placeholder="Uses your staff identity when blank" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
-        <div class="form-row" data-jbl-field="county"><label>County <span class="optional-marker">Optional</span></label><select id="jbl-county"><option value="">- Select county -</option>${countyOptions}</select><small class="jbl-field-error" data-error-message-for="county"></small></div>
-        <div class="form-row" data-jbl-field="sub_county"><label>Sub-county <span class="optional-marker">Optional</span></label><select id="jbl-sub-county"><option value="">- Select sub-county -</option>${legacySubCounty}</select><small class="jbl-field-error" data-error-message-for="sub_county"></small></div>
-        <div class="form-row"><label>Village <span class="optional-marker">Optional</span></label><input type="text" id="jbl-village" placeholder="Village / area" value="${deps.escapeHtml(farmer.village || '')}"></div>
-        <div class="form-row form-row-wide"><label>Comment (optional)</label><textarea id="jbl-comment" rows="2" placeholder="Additional notes...">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea>${voiceWidget('jbl_visit_comment', 'jbl-comment')}</div>
+        <div class="form-row" data-jbl-field="visit_date"><label title="JBL visits follow the HBG visit and cannot be future-dated.">Visit Date <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><div class="jbl-date-control"><input type="text" id="jbl-date-display" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="dd-mm-yy" aria-describedby="jbl-date-help" aria-required="true" value="${deps.escapeHtml(displayDateFromIso(defaultVisitDate))}"><button type="button" id="jbl-date-open" class="jbl-date-open" aria-label="Open native visit date picker" title="Choose visit date">${calendarIcon()}</button><input type="date" id="jbl-date-picker" class="native-date-proxy" min="${deps.escapeHtml(hbgVisitDate)}" max="${deps.escapeHtml(today)}" value="${deps.escapeHtml(defaultVisitDate)}" tabindex="-1" aria-hidden="true"><input type="hidden" id="jbl-date" value="${deps.escapeHtml(defaultVisitDate)}"></div><small id="jbl-date-help" class="field-help">Use dd-mm-yy. Earliest: ${deps.escapeHtml(displayDateFromIso(hbgVisitDate) || 'recorded HBG visit')}; latest: ${deps.escapeHtml(displayDateFromIso(today))}.</small><small class="jbl-field-error" data-error-message-for="visit_date"></small></div>
+        <div class="form-row" data-jbl-field="visit_status"><label>Status / Outcome <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="jbl-status" aria-required="true"><option value="">- Select -</option>${statusOptions}</select><small class="jbl-field-error" data-error-message-for="visit_status"></small></div>
+        <div class="form-row"><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Uses your staff identity when blank" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
+        <div class="form-row" data-jbl-field="county"><label>County</label><select id="jbl-county"><option value="">- Select county -</option>${countyOptions}</select><small class="jbl-field-error" data-error-message-for="county"></small></div>
+        <div class="form-row" data-jbl-field="sub_county"><label>Sub-county</label><select id="jbl-sub-county"><option value="">- Select sub-county -</option>${legacySubCounty}</select><small class="jbl-field-error" data-error-message-for="sub_county"></small></div>
+        <div class="form-row"><label>Village</label><input type="text" id="jbl-village" placeholder="Village / area" value="${deps.escapeHtml(farmer.village || '')}"></div>
+        <div class="form-row form-row-wide"><label>Comment</label><textarea id="jbl-comment" rows="2" placeholder="Additional notes...">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea>${voiceWidget('jbl_visit_comment', 'jbl-comment')}</div>
         ${mediaFields}
         <div class="form-row form-row-wide gps-capture-row" data-jbl-field="capture_location">
           <button type="button" id="btn-gps" class="secondary">Capture GPS Location</button>
@@ -905,7 +902,7 @@
           </div>
           <small class="jbl-field-error" data-error-message-for="capture_location"></small>
         </div>
-        <p id="jbl-draft-state" class="field-help jbl-draft-state" aria-live="polite">Draft saves automatically. Files are never stored in a draft.</p>
+        <p id="jbl-draft-state" class="field-help jbl-draft-state form-row-wide" aria-live="polite" title="Form fields save automatically. Files are not included.">Autosave on</p>
       </div>
     `;
   }
@@ -969,7 +966,7 @@
     const fieldKey = category === 'LAF' ? 'laf_files' : 'jbl_visit_photo_files';
     return `<section class="media-category-upload" data-media-category="${category}" data-jbl-field="${fieldKey}">
       <div class="jbl-media-category-heading">
-        <span>${safeTitle} <small class="conditional-marker">Required for forwarding</small></span>
+        <span>${safeTitle}</span>
         <div class="jbl-media-source-actions">
           <button type="button" class="jbl-media-icon-button" id="${cameraId}" data-camera-category="${category}" aria-label="Open live camera for ${safeTitle}" title="Open camera">${cameraIcon()}<span class="sr-only">Open camera</span></button>
           <label class="jbl-media-icon-button" for="${pickerId}" data-input-id="${pickerId}" role="button" tabindex="0" aria-label="Choose files for ${safeTitle}" title="Choose files">${pickerIcon()}<span class="sr-only">Choose files</span></label>
@@ -1362,8 +1359,8 @@
       baseUrl: `/api/portal/jbl-queue/${encodeURIComponent(farmer.id)}/draft/`,
       initData: () => deps.tg?.initData || '',
       requestId,
-      onSaving: () => setJblDraftState('Saving draft…', 'saving'),
-      onSaved: () => setJblDraftState('Draft saved securely. Files must be selected again after Telegram closes.', 'saved'),
+      onSaving: () => setJblDraftState('Saving…', 'saving'),
+      onSaved: () => setJblDraftState('Saved', 'saved'),
       onError: error => handleJblDraftSaveError(farmer, error),
       onCleared: () => setJblDraftState('', ''),
     });
@@ -1373,7 +1370,7 @@
   function saveJblVisitDraft(farmer, { immediate = false } = {}) {
     if (!farmer?.id || !el('jbl-date')) return;
     if (!(state().jblVisitDraftFields || []).length) {
-      setJblDraftState('Secure draft fields are unavailable. Keep this form open.', 'local-only');
+      setJblDraftState('Autosave unavailable', 'local-only');
       return null;
     }
     const draft = {
@@ -1392,7 +1389,7 @@
 
   async function handleJblDraftSaveError(farmer, error) {
     if (!error?.conflict || !jblServerDraft) {
-      setJblDraftState('Draft is kept on this device. Keep the form open and retry when connected.', 'local-only');
+      setJblDraftState('Saved on this device', 'local-only');
       return;
     }
     const localDraft = jblLocalDraft(farmer);
@@ -1401,9 +1398,9 @@
       pendingJblDraftConflict = { farmer, localDraft, remoteDraft };
       const panel = el('jbl-draft-conflict');
       if (panel) { panel.hidden = false; panel.focus(); }
-      setJblDraftState('Choose which draft to keep before continuing.', 'conflict');
+      setJblDraftState('Draft conflict', 'conflict');
     } catch (_loadError) {
-      setJblDraftState('Draft changed elsewhere. Your device copy is preserved; reconnect and reopen this case.', 'local-only');
+      setJblDraftState('Saved on this device', 'local-only');
     }
   }
 
@@ -1414,13 +1411,13 @@
       if (applyJblVisitDraft(conflict.remoteDraft?.payload)) {
         try { sessionStorage.setItem(jblDraftKey(conflict.farmer.id), JSON.stringify(conflict.remoteDraft.payload)); } catch (_error) {}
       }
-      setJblDraftState('Saved draft restored. Files must be selected again.', 'restored');
+      setJblDraftState('Draft restored · reselect files', 'restored');
     } else if (conflict.localDraft && jblServerDraft) {
       try {
         await jblServerDraft.save(conflict.localDraft);
-        setJblDraftState('This device draft is now saved securely.', 'saved');
+        setJblDraftState('Saved', 'saved');
       } catch (_error) {
-        setJblDraftState('This device draft is preserved locally. Retry when connected.', 'local-only');
+        setJblDraftState('Saved on this device', 'local-only');
         return;
       }
     }
@@ -1431,7 +1428,7 @@
   function restoreJblVisitDraft(farmer) {
     const draft = jblLocalDraft(farmer);
     if (applyJblVisitDraft(draft)) {
-      setJblDraftState('Details restored on this device. Files must be selected again.', 'restored');
+      setJblDraftState('Draft restored · reselect files', 'restored');
     }
     return draft;
   }
@@ -1455,7 +1452,7 @@
       ) {
         applyJblVisitDraft(remote);
         try { sessionStorage.setItem(jblDraftKey(farmer.id), JSON.stringify(remote)); } catch (_error) {}
-        setJblDraftState('Details restored from your secure draft. Files must be selected again.', 'restored');
+        setJblDraftState('Draft restored · reselect files', 'restored');
         if (Number(remote.workflow_revision || 1) !== Number(farmer.workflow_revision || 1)) {
           showJblWorkflowConflict(
             Number(remote.workflow_revision || 1),
@@ -1465,12 +1462,12 @@
           );
         }
       } else if (!localDraft) {
-        setJblDraftState('Draft saves automatically. Files are never stored in a draft.', 'ready');
+        setJblDraftState('Autosave on', 'ready');
       }
     } catch (_error) {
       // A local copy still protects the current session. The status below is
       // deliberately informative rather than a disruptive autosave toast.
-      if (!localDraft) setJblDraftState('Draft will save when your connection is available.', 'offline');
+      if (!localDraft) setJblDraftState('Waiting for connection', 'offline');
     }
   }
 
@@ -1550,15 +1547,6 @@
     return true;
   }
 
-  function updateJblRequirements() {
-    const forwarding = JBL_FORWARD_VISIT_STATUSES.has(el('jbl-status')?.value || '');
-    const message = el('jbl-forward-requirements');
-    if (message) message.textContent = forwarding
-      ? 'This outcome moves to Credit: add an LAF, a visit photo, and GPS or explain why GPS was unavailable.'
-      : 'If you select Approved or Awaiting Analysis, LAF, visit photo and visit location requirements will apply.';
-    el('jbl-visit-requirements')?.classList.toggle('forwarding', forwarding);
-  }
-
   function validateJblVisitFields() {
     const errors = {};
     const status = el('jbl-status')?.value || '';
@@ -1606,8 +1594,6 @@
     jblDraftInputVersion = 0;
     const localDraft = restoreJblVisitDraft(farmer);
     restoreJblVisitServerDraft(farmer, localDraft, jblDraftInputVersion);
-    updateJblRequirements();
-    el('jbl-status')?.addEventListener('change', updateJblRequirements);
     el('jbl-review-latest')?.addEventListener('click', reviewLatestJblCase);
     el('jbl-use-local-draft')?.addEventListener('click', () => resolveJblDraftConflict('local'));
     el('jbl-use-server-draft')?.addEventListener('click', () => resolveJblDraftConflict('server'));

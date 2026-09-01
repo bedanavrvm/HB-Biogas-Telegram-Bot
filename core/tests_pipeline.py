@@ -828,16 +828,25 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertNotIn('hx-get=', card_markup)
         self.assertIn('id="dashboard-refresh" aria-label="Refresh dashboard"', source)
         self.assertIn('id="jbl-search-clear" aria-label="Clear JBL queue search"', source)
+        self.assertIn('class="queue-search-icon" data-lucide="search"', source)
         self.assertNotIn('id="dash-scope"', source)
 
     def test_jbl_visit_form_uses_hybrid_numeric_date_and_native_picker(self):
         script = (Path(__file__).resolve().parent / 'static' / 'miniapp' / 'portal_farmer_sheet.js').read_text(encoding='utf-8')
+        stylesheet = (Path(__file__).resolve().parent / 'static' / 'miniapp' / 'portal.css').read_text(encoding='utf-8')
 
         self.assertIn('id="jbl-date-display"', script)
         self.assertIn('placeholder="dd-mm-yy"', script)
         self.assertIn('id="jbl-date-picker"', script)
         self.assertIn('max="${deps.escapeHtml(today)}"', script)
         self.assertIn("formData.set('visit_date', el('jbl-date')?.value || '');", script)
+        self.assertIn('Visit Date <span class="required-marker" aria-hidden="true">*</span>', script)
+        self.assertIn('Status / Outcome <span class="required-marker" aria-hidden="true">*</span>', script)
+        self.assertNotIn('optional-marker', script)
+        self.assertNotIn('Before you log this visit', script)
+        self.assertIn("display.addEventListener('blur', () => commitJblDisplayDate({ showError: false }))", script)
+        self.assertIn('.jbl-form-errors[hidden]', stylesheet)
+        self.assertIn('.jbl-workflow-conflict[hidden] { display: none !important; }', stylesheet)
 
     def grant_portal_access(self, role='JBL_OFFICER', branches=None):
         user = get_user_model().objects.create_user(
@@ -1754,6 +1763,8 @@ class JblPipelineApiTestCase(TestCase):
         self.assertNotContains(response, 'Kiambu | Kieni | Mweiga | Ruiru')
         self.assertContains(response, 'htmx-farmer-card')
         self.assertContains(response, 'HB visit: 24-06-26')
+        self.assertContains(response, 'Pending Visit')
+        self.assertContains(response, 'data-lucide="calendar-days"')
         self.assertContains(response, 'aria-label="Queue position 1"')
 
     def test_portal_jbl_queue_exposes_ephemeral_page_relative_card_numbers(self):

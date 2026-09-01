@@ -1092,6 +1092,34 @@
     }
   }
 
+  function renderJblQueueCard(f) {
+    const displayNumber = f.display_number
+      ? `<span class="farmer-card-number" aria-label="Queue position ${escapeHtml(String(f.display_number))}">#${escapeHtml(String(f.display_number))}</span>`
+      : '';
+    const name = escapeHtml(f.customer_name || f.national_id || f.primary_phone || 'Unknown');
+    const locationValue = locationText(f);
+    const location = escapeHtml(locationValue === '-' ? 'Location not provided' : locationValue);
+    const phone = escapeHtml(f.primary_phone || 'Phone not provided');
+    const unit = escapeHtml(f.unit_number || 'not provided');
+    const visitDate = escapeHtml(f.hbg_visit_date_label || (f.hbg_visit_date ? fmtDate(f.hbg_visit_date) : 'Date not provided'));
+
+    return `
+      <div class="jbl-queue-card-content">
+        <div class="jbl-queue-card-heading">
+          <div class="jbl-queue-card-identity">${displayNumber}<span class="fc-name">${name}</span></div>
+          <span class="badge jbl-pending-visit-badge">Pending Visit</span>
+        </div>
+        <div class="jbl-queue-card-details">
+          <span class="jbl-queue-card-meta"><i data-lucide="map-pin" aria-hidden="true"></i><span>${location}</span></span>
+          <span class="jbl-queue-card-meta jbl-queue-card-phone"><i data-lucide="phone" aria-hidden="true"></i><span>${phone}</span></span>
+        </div>
+        <div class="jbl-queue-card-bottom">
+          <span class="badge badge-grey">Unit ${unit}</span>
+          <span class="jbl-queue-card-date"><i data-lucide="calendar-days" aria-hidden="true"></i><span>HB visit: ${visitDate}</span></span>
+        </div>
+      </div>`;
+  }
+
 
   function renderFarmerList(listEl, farmers, cfg, qKey) {
     if (!farmers.length) {
@@ -1103,11 +1131,10 @@
         ${qKey === 'requisition' && hasCapability('portal.requisition.write') ? `
           <input type="checkbox" class="farmer-card-checkbox" data-id="${escapeHtml(f.id || '')}" data-revision="${escapeHtml(String(f.workflow_revision || 1))}" ${state.selectedRequisitions.has(f.id) ? 'checked' : ''} onclick="event.stopPropagation();">
         ` : ''}
-        <div style="flex: 1;">
+        ${qKey === 'jbl' ? renderJblQueueCard(f) : `<div style="flex: 1;">
           <div class="fc-name">${f.display_number ? `<span class="farmer-card-number" aria-label="Queue position ${escapeHtml(String(f.display_number))}">${escapeHtml(String(f.display_number))}</span>` : ''}${escapeHtml(f.customer_name || f.national_id || f.primary_phone || 'Unknown')}</div>
           <div class="fc-sub">${escapeHtml(locationText(f))}</div>
           <div class="fc-sub">${escapeHtml(f.primary_phone || '')}</div>
-          ${qKey === 'jbl' && f.hbg_visit_date ? `<div class="fc-sub fc-visit-date">HB visit: ${escapeHtml(f.hbg_visit_date_label || fmtDate(f.hbg_visit_date))}</div>` : ''}
           <div class="fc-badges">
             ${stageBadge(f)}
             ${jblBadge(f)}
@@ -1115,7 +1142,7 @@
             ${paymentReviewMarkup(f)}
             ${f.order_number ? `<span class="badge badge-green">Order: ${f.order_number}</span>` : ''}
           </div>
-        </div>
+        </div>`}
       </div>
     `).join('');
 

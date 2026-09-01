@@ -11,6 +11,34 @@
       onclick="event.stopPropagation();"
     >
   {% endif %}
+  {% if queue_key == "jbl" %}
+  <div class="jbl-queue-card-content">
+    <div class="jbl-queue-card-heading">
+      <div class="jbl-queue-card-identity">
+        {% if farmer.display_number %}<span class="farmer-card-number" aria-label="Queue position {{ farmer.display_number }}">#{{ farmer.display_number }}</span>{% endif %}
+        <span class="fc-name">{{ farmer.customer_name|default:farmer.national_id|default:farmer.primary_phone|default:"Unknown" }}</span>
+      </div>
+      <span class="badge jbl-pending-visit-badge">Pending Visit</span>
+    </div>
+    <div class="jbl-queue-card-details">
+      <span class="jbl-queue-card-meta">
+        <i data-lucide="map-pin" aria-hidden="true"></i>
+        <span>{{ farmer.location_label|default:"Location not provided" }}</span>
+      </span>
+      <span class="jbl-queue-card-meta jbl-queue-card-phone">
+        <i data-lucide="phone" aria-hidden="true"></i>
+        <span>{{ farmer.primary_phone|default:"Phone not provided" }}</span>
+      </span>
+    </div>
+    <div class="jbl-queue-card-bottom">
+      <span class="badge badge-grey">Unit {{ farmer.unit_number|default:"not provided" }}</span>
+      <span class="jbl-queue-card-date">
+        <i data-lucide="calendar-days" aria-hidden="true"></i>
+        <span>HB visit: {{ farmer.hbg_visit_date_label|default:"Date not provided" }}</span>
+      </span>
+    </div>
+  </div>
+  {% else %}
   <div style="flex: 1;">
     <div class="fc-name">{% if farmer.display_number %}<span class="farmer-card-number" aria-label="Queue position {{ farmer.display_number }}">{{ farmer.display_number }}</span>{% endif %}{{ farmer.customer_name|default:farmer.national_id|default:farmer.primary_phone|default:"Unknown" }}</div>
     <div class="fc-sub">{{ farmer.location_label|default:"-" }}</div>
@@ -48,4 +76,5 @@
       <button type="button" class="btn btn-secondary btn-open-payment-review" data-payment-document-id="{{ farmer.payment_review_document_id }}" onclick="event.stopPropagation();">Open payment review</button>
     {% endif %}
   </div>
+  {% endif %}
 </div>
