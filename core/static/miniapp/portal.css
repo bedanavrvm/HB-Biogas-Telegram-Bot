@@ -1071,7 +1071,28 @@ body.portal-compact-cards .operational-farmer-card { padding: 9px 10px; }
 .jbl-visit-sheet .sheet-client-media-toggle svg,
 .jbl-visit-sheet .case360-toggle svg { width: 14px; height: 14px; color: var(--text-muted); stroke: currentColor; }
 .jbl-visit-sheet .sheet-client-media-toggle svg { color: var(--brand-primary); }
+#sheet-overlay.client-media-open .sheet-client-media-toggle {
+  background: var(--bg-surface);
+  color: var(--brand-primary);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .08);
+}
+#sheet-overlay.client-media-open #sheet-info .info-row:nth-child(n + 3),
+#sheet-overlay.client-media-open #sheet-form,
+#sheet-overlay.client-media-open .sheet-footer { display: none !important; }
+#sheet-overlay.client-media-open #sheet-map-container { margin: 9px 0 !important; border-radius: 10px; box-shadow: none; }
+#sheet-overlay.client-media-open #sheet-map { height: 112px; }
+#sheet-overlay.client-media-open .sheet-map-heading { padding: 7px 9px; }
 .jbl-visit-sheet .sheet-quick-actions:not(.has-client-media) .case360-toggle { grid-column: 1 / -1; }
+.jbl-visit-sheet #sheet-map-container {
+  margin: 9px 0 !important;
+  border-radius: 10px;
+  box-shadow: none;
+}
+.jbl-visit-sheet #sheet-map { height: 112px; }
+.jbl-visit-sheet .sheet-map-heading { padding: 7px 9px; }
+.jbl-visit-sheet .sheet-map-heading strong { font-size: 10px; }
+.jbl-visit-sheet .sheet-map-heading a { display: inline-flex; align-items: center; gap: 4px; font-size: 9px; text-decoration: none; }
+.jbl-visit-sheet .sheet-map-heading a svg { width: 12px; height: 12px; stroke: currentColor; }
 .jbl-visit-sheet #sheet-form { margin-top: 10px !important; }
 .jbl-visit-sheet .form-section.form-grid {
   gap: 8px;
@@ -1397,18 +1418,34 @@ body.portal-compact-cards .operational-farmer-card { padding: 9px 10px; }
 .media-preview-link span { flex: 0 0 auto; font-size: 10px; font-weight: 800; text-transform: uppercase; }
 .media-link-unavailable { color: var(--text-muted); cursor: default; }
 .media-link-unavailable span { font-size: 10px; text-align: right; }
-.client-media-item { padding: 9px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-surface); }
+.client-media-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-muted); }
 .sheet-client-media { display: grid; gap: 9px; width: 100%; margin: 12px 0; }
 .sheet-client-media[hidden] { display: none; }
 .sheet-client-media-toggle { width: 100%; min-height: 44px; justify-content: center; white-space: normal; }
 .sheet-client-media .client-media-links { width: 100%; }
 .sheet-client-media .client-media-links[hidden] { display: none; }
-.client-media-name { margin: 0 0 8px; color: var(--text-primary); font-size: 12px; font-weight: 700; overflow-wrap: anywhere; }
-.client-media-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
-.client-media-actions .media-link { width: 100%; min-height: 44px; justify-content: center; font: inherit; text-align: center; cursor: pointer; }
+.client-media-summary { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.client-media-type-icon { display: grid; width: 36px; height: 36px; flex: 0 0 36px; place-items: center; border: 1px solid color-mix(in srgb, var(--brand-primary) 16%, var(--border-color)); border-radius: 9px; background: color-mix(in srgb, var(--brand-primary) 8%, var(--bg-surface)); color: var(--brand-primary); }
+.client-media-laf .client-media-type-icon { border-color: color-mix(in srgb, var(--status-success) 18%, var(--border-color)); background: color-mix(in srgb, var(--status-success) 9%, var(--bg-surface)); color: var(--status-success); }
+.client-media-type-icon svg { width: 16px; height: 16px; stroke: currentColor; }
+.client-media-copy { display: grid; min-width: 0; }
+.client-media-category { color: var(--brand-primary); font-size: 8px; font-weight: 800; letter-spacing: .055em; text-transform: uppercase; }
+.client-media-laf .client-media-category { color: var(--status-success); }
+.client-media-name { overflow: hidden; margin: 1px 0 0; color: var(--text-primary); font-size: 10px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.client-media-actions { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.client-media-actions .media-link { width: auto; min-height: 28px; justify-content: center; padding: 5px 7px; font: inherit; text-align: center; cursor: pointer; }
+.client-media-actions .media-preview-link { gap: 4px; border-color: var(--brand-primary); background: var(--brand-primary); color: #fff; font-size: 9px; font-weight: 700; }
+.client-media-actions .media-preview-link svg { width: 12px; height: 12px; stroke: currentColor; }
+.client-media-actions .media-external-link { min-width: 28px; padding: 5px; border: 0; background: transparent; color: var(--text-muted); }
+.client-media-actions .media-external-link svg { width: 14px; height: 14px; stroke: currentColor; }
 .media-external-link { color: var(--text-primary); border-color: var(--border-color-strong, var(--border-color)); }
 .media-external-link:disabled { opacity: .65; cursor: wait; }
-@media (max-width: 360px) { .client-media-actions { grid-template-columns: 1fr; } }
+@media (max-width: 360px) {
+  .client-media-item { align-items: flex-start; }
+  .client-media-type-icon { width: 32px; height: 32px; flex-basis: 32px; }
+  .client-media-actions .media-preview-link span { display: none; }
+  .client-media-actions .media-preview-link { min-width: 28px; padding: 5px; }
+}
 
 /* Secure media is fetched from the protected Portal API and rendered here,
    keeping the WebView and active case open instead of launching Chrome/Drive. */

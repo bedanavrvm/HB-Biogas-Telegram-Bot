@@ -623,7 +623,7 @@
       const compactMediaLabel = `${mediaCount} Media File${mediaCount === 1 ? '' : 's'}`;
       const fullMediaLabel = `View ${mediaCount} media file${mediaCount === 1 ? '' : 's'}`;
       const collapsedMediaLabel = mode === 'jbl_visit' ? compactMediaLabel : fullMediaLabel;
-      const expandedMediaLabel = mode === 'jbl_visit' ? 'Hide Media Files' : 'Hide client media';
+      const expandedMediaLabel = `Client Media (${mediaCount})`;
       const mediaIcon = mode === 'jbl_visit' ? 'paperclip' : 'image';
       document.querySelector('.sheet-quick-actions')?.classList.toggle('has-client-media', canViewMedia);
       mediaSection.hidden = !canViewMedia;
@@ -632,6 +632,7 @@
         : '';
       el('btn-view-client-media')?.addEventListener('click', () => toggleClientMedia(farmer.id));
     }
+    sheetOverlay?.classList.remove('client-media-open');
     const caseToggle = el('case360-toggle');
     caseToggle.innerHTML = `<i data-lucide="history" aria-hidden="true"></i><span>${mode === 'jbl_visit' ? 'Case History' : 'Open Case History'}</span>`;
     caseToggle.onclick = () => {
@@ -1985,6 +1986,7 @@
     if (!farmerId || !target) return;
     if (!target.hidden) {
       target.hidden = true;
+      el('sheet-overlay')?.classList.remove('client-media-open');
       if (button) {
         button.setAttribute('aria-expanded', 'false');
         const label = button.querySelector('.sheet-action-label');
@@ -1993,6 +1995,7 @@
       return;
     }
     target.hidden = false;
+    el('sheet-overlay')?.classList.add('client-media-open');
     if (button) {
       button.setAttribute('aria-expanded', 'true');
       const label = button.querySelector('.sheet-action-label');
@@ -2015,10 +2018,6 @@
         target.innerHTML = `<span class="field-help">${deps.escapeHtml(result.data?.error || 'Could not load client media.')}</span>`;
         return;
       }
-      media.forEach((item, index) => {
-        const category = item.category === 'JBL_VISIT_PHOTO' ? 'JBL visit photo' : 'Signed LAF document';
-        item.name = `${category} — ${item.name || `${category} ${index + 1}`}`;
-      });
       target.dataset.farmerId = farmerId;
       target.dataset.loaded = 'true';
       renderClientMediaLinks(media, target);
@@ -2032,19 +2031,29 @@
 
   function renderClientMediaLinks(media, target) {
     target.innerHTML = media.length
-      ? media.map((item, index) => `
-        <article class="client-media-item">
-          <p class="client-media-name">${deps.escapeHtml(item.name || `Client media ${index + 1}`)}</p>
+      ? media.map((item, index) => {
+        const isPhoto = item.category === 'JBL_VISIT_PHOTO';
+        const isLaf = item.category === 'LAF';
+        const categoryLabel = isPhoto ? 'JBL Visit Photo' : isLaf ? 'Signed LAF Document' : 'Client Media';
+        const icon = isPhoto ? 'image' : isLaf ? 'file-text' : 'paperclip';
+        const categoryClass = isPhoto ? ' client-media-photo' : isLaf ? ' client-media-laf' : ' client-media-legacy';
+        return `
+        <article class="client-media-item${categoryClass}">
+          <div class="client-media-summary">
+            <span class="client-media-type-icon"><i data-lucide="${icon}" aria-hidden="true"></i></span>
+            <span class="client-media-copy"><span class="client-media-category">${categoryLabel}</span><span class="client-media-name">${deps.escapeHtml(item.name || `Client media ${index + 1}`)}</span></span>
+          </div>
           <div class="client-media-actions">
             ${item.preview_url
-              ? `<button type="button" class="media-link media-preview-link" data-media-index="${index}">View in app</button>`
+              ? `<button type="button" class="media-link media-preview-link" data-media-index="${index}"><i data-lucide="eye" aria-hidden="true"></i><span>View</span></button>`
               : '<span class="media-link media-link-unavailable">In-app preview unavailable for this older upload</span>'}
             ${item.open_url
-              ? `<button type="button" class="media-link media-external-link" data-media-external-index="${index}" title="Open in your phone's external viewer to download">Open externally</button>`
+              ? `<button type="button" class="media-link media-external-link" data-media-external-index="${index}" title="Open externally" aria-label="Open externally"><i data-lucide="external-link" aria-hidden="true"></i></button>`
               : ''}
           </div>
         </article>
-      `).join('')
+      `;
+      }).join('')
       : '<span class="field-help">No signed LAF document or JBL visit photo has been uploaded for this client.</span>';
     target.querySelectorAll('.media-preview-link').forEach(link => {
       link.addEventListener('click', () => {
@@ -2058,14 +2067,15 @@
         if (item) openClientMediaExternally(item, target, link);
       });
     });
+    if (window.lucide) window.lucide.createIcons();
   }
 
   async function openClientMediaExternally(item, target, button) {
     const farmerId = target.dataset.farmerId;
     if (!farmerId) return;
-    const originalLabel = button.textContent;
+    const originalContent = button.innerHTML;
     button.disabled = true;
-    button.textContent = 'Preparing…';
+    button.innerHTML = '<span class="spinner-inline" aria-hidden="true"></span><span class="sr-only">Preparing media</span>';
     try {
       // Refresh immediately before launching because the short-lived external
       // link is intentionally not reusable after a staff member waits in the
@@ -2080,7 +2090,8 @@
       deps.showToast(error.message || 'Could not open this media externally.', 'error');
     } finally {
       button.disabled = false;
-      button.textContent = originalLabel;
+      button.innerHTML = originalContent;
+      if (window.lucide) window.lucide.createIcons();
     }
   }
 
