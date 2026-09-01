@@ -17,8 +17,10 @@
     evidence: { create: [], resolve: [] },
     categoryDescriptions: new Map(),
     evidenceLimits: { max_files: 10, max_file_size_mb: 10, max_total_upload_mb: 30 },
-    cameraStream: null, cameraTarget: '',
+    cameraStream: null, cameraTarget: '', cameraReplaceId: '', cameraSessionStartCount: 0,
     mediaViewerObjectUrl: '', mediaViewerRestoreFocus: null,
+    mediaViewerMode: '', mediaViewerTarget: '', mediaViewerItemId: '',
+    mediaViewerRequestSequence: 0, persistedEvidence: [],
   };
 
   function requestId(prefix) {
@@ -263,13 +265,13 @@
   }
   function renderEvidence(items) {
     const node = $('evidenceList'); node.replaceChildren();
+    state.persistedEvidence = (items || []).filter(item => item.preview_url);
     if (!items.length) { node.appendChild(textNode('p', 'No attachments available.', 'muted')); return; }
     items.forEach(item => {
       const row = document.createElement('div'); row.className = 'item evidence-item'; row.appendChild(textNode('strong', item.name));
       if (item.preview_url) {
         const button = textNode('button', 'View in app', 'media-link'); button.type = 'button';
-        button.dataset.previewUrl = item.preview_url; button.dataset.mimeType = item.mime_type || '';
-        button.dataset.name = item.name || 'Complaint evidence'; button.addEventListener('click', openPersistedEvidence);
+        button.addEventListener('click', () => openPersistedEvidence(item, button));
         row.appendChild(button);
       } else if (item.status === 'success') {
         row.appendChild(textNode('small', 'In-app preview unavailable for this older file.', 'muted'));
@@ -281,30 +283,66 @@
     return { 'X-Telegram-Init-Data': state.initData, 'X-Request-ID': accessRequestId || requestId('complaint-evidence') };
   }
   function closeMediaViewer() {
+    state.mediaViewerRequestSequence += 1;
     $('mediaViewerOverlay').hidden = true; $('mediaViewerContent').replaceChildren();
+    $('mediaViewerActions').hidden = true;
     window.SecureMediaViewer?.revoke(state.mediaViewerObjectUrl); state.mediaViewerObjectUrl = '';
+    state.mediaViewerMode = ''; state.mediaViewerTarget = ''; state.mediaViewerItemId = '';
     const restore = state.mediaViewerRestoreFocus; state.mediaViewerRestoreFocus = null; restore?.focus?.();
   }
-  function showMediaViewer(name, restoreFocus) {
-    closeMediaViewer(); state.mediaViewerRestoreFocus = restoreFocus || null;
-    $('mediaViewerTitle').textContent = 'File Preview'; $('mediaViewerSub').textContent = name || '';
+  function showMediaViewer(restoreFocus) {
+    if (!$('mediaViewerOverlay').hidden) {
+      window.SecureMediaViewer?.revoke(state.mediaViewerObjectUrl); state.mediaViewerObjectUrl = '';
+      $('mediaViewerContent').replaceChildren();
+    } else {
+      state.mediaViewerRestoreFocus = restoreFocus || null;
+    }
+    $('mediaViewerTitle').textContent = 'File Preview';
     $('mediaViewerContent').replaceChildren(loadingNode('Loading secure file...')); $('mediaViewerOverlay').hidden = false;
   }
-  async function openPersistedEvidence(event) {
-    const button = event.currentTarget; showMediaViewer(button.dataset.name, button);
+  function mediaViewerEntries() {
+    if (state.mediaViewerMode === 'selected') return state.evidence[state.mediaViewerTarget] || [];
+    if (state.mediaViewerMode === 'persisted') return state.persistedEvidence || [];
+    return [];
+  }
+  function updateMediaViewerControls(item) {
+    const entries = mediaViewerEntries();
+    const index = entries.findIndex(entry => state.mediaViewerMode === 'selected'
+      ? entry.id === state.mediaViewerItemId
+      : entry.preview_url === state.mediaViewerItemId);
+    $('mediaViewerSub').textContent = index >= 0
+      ? `${index + 1} of ${entries.length} · ${item?.file?.name || item?.name || 'Attachment'}`
+      : (item?.file?.name || item?.name || 'Attachment');
+    $('mediaViewerActions').hidden = entries.length === 0;
+    $('mediaViewerPrevious').disabled = index <= 0;
+    $('mediaViewerNext').disabled = index < 0 || index >= entries.length - 1;
+    const selected = state.mediaViewerMode === 'selected';
+    $('mediaViewerActions').dataset.mode = selected
+      ? (String(item?.file?.type || '').startsWith('image/') ? 'selected-image' : 'selected-file')
+      : 'persisted';
+    $('mediaViewerDelete').hidden = !selected;
+    $('mediaViewerRetake').hidden = !selected || !String(item?.file?.type || '').startsWith('image/');
+  }
+  async function openPersistedEvidence(item, button) {
+    state.mediaViewerMode = 'persisted'; state.mediaViewerTarget = '';
+    state.mediaViewerItemId = item.preview_url; showMediaViewer(button);
+    updateMediaViewerControls(item);
+    const requestSequence = ++state.mediaViewerRequestSequence;
     try {
       const viewer = window.SecureMediaViewer;
       if (!viewer) throw new Error('The secure evidence viewer is unavailable. Refresh and retry.');
       const groupId = state.currentCase.group_id || state.groupId; const accessRequestId = requestId('complaint-evidence');
-      const blob = await viewer.fetchAuthorizedBlob(button.dataset.previewUrl, {
+      const blob = await viewer.fetchAuthorizedBlob(item.preview_url, {
         method: 'POST',
         headers: { ...mediaHeaders(accessRequestId), 'Content-Type': 'application/json', 'Idempotency-Key': accessRequestId },
         body: JSON.stringify({ group_id: groupId, client_request_id: accessRequestId }),
       });
+      if (requestSequence !== state.mediaViewerRequestSequence || state.mediaViewerItemId !== item.preview_url) return;
       state.mediaViewerObjectUrl = viewer.renderBlob($('mediaViewerContent'), blob, {
-        mimeType: button.dataset.mimeType, name: button.dataset.name,
+        mimeType: item.mime_type || '', name: item.name || 'Complaint evidence',
       });
     } catch (error) {
+      if (requestSequence !== state.mediaViewerRequestSequence) return;
       $('mediaViewerContent').replaceChildren(textNode('p', `${error.message || 'The evidence could not be opened.'} Close this view and retry.`, 'media-viewer-error'));
     }
   }
@@ -482,13 +520,17 @@
       else row.appendChild(textNode('span', item.file.name.split('.').pop()?.toUpperCase() || 'FILE', 'file-icon'));
       row.appendChild(textNode('span', item.file.name, 'file-name'));
       const view = textNode('button', 'View', 'view-file'); view.type = 'button';
-      view.addEventListener('click', () => openSelectedEvidence(item, view)); row.appendChild(view);
+      view.addEventListener('click', () => openSelectedEvidence(target, item.id, view)); row.appendChild(view);
       const remove = textNode('button', 'Remove', 'remove-file'); remove.type = 'button';
       remove.addEventListener('click', () => removeEvidence(target, item.id)); row.appendChild(remove); list.appendChild(row);
     });
   }
-  function openSelectedEvidence(item, button) {
-    const viewer = window.SecureMediaViewer; showMediaViewer(item.file.name, button);
+  function openSelectedEvidence(target, itemId, button) {
+    const item = state.evidence[target].find(entry => entry.id === itemId);
+    if (!item) return;
+    state.mediaViewerMode = 'selected'; state.mediaViewerTarget = target; state.mediaViewerItemId = item.id;
+    const viewer = window.SecureMediaViewer; showMediaViewer(button);
+    updateMediaViewerControls(item);
     if (!viewer) {
       $('mediaViewerContent').replaceChildren(textNode('p', 'The secure evidence viewer is unavailable. Refresh and retry.', 'media-viewer-error'));
       return;
@@ -504,11 +546,25 @@
   function closeCamera(options) {
     stopCamera(); $('cameraOverlay').hidden = true; document.body.classList.remove('camera-open');
     const focusTarget = options?.focusTarget || (state.cameraTarget ? document.querySelector(`[data-camera-target="${state.cameraTarget}"]`) : null);
-    state.cameraTarget = ''; if (options?.restoreFocus !== false) focusTarget?.focus?.();
+    state.cameraTarget = ''; state.cameraReplaceId = ''; if (options?.restoreFocus !== false) focusTarget?.focus?.();
   }
-  async function openCamera(target) {
+  function updateCameraCaptureState() {
+    const count = Math.max(0, (state.evidence[state.cameraTarget]?.length || 0) - state.cameraSessionStartCount);
+    $('cameraCaptureState').textContent = state.cameraReplaceId
+      ? 'The original stays selected until the replacement is captured.'
+      : (count ? `${count} photo${count === 1 ? '' : 's'} added this session` : 'No photos added yet');
+  }
+  async function openCamera(target, options) {
     if (!navigator.mediaDevices?.getUserMedia) return notify('This Telegram WebView cannot open the camera directly. Use Upload Files instead.', true);
-    state.cameraTarget = target; $('cameraOverlay').hidden = false; document.body.classList.add('camera-open');
+    if (!options?.replaceId && state.evidence[target].length >= state.evidenceLimits.max_files) return notify(`You can attach up to ${state.evidenceLimits.max_files} files. Delete one before taking another photo.`, true);
+    state.cameraTarget = target; state.cameraReplaceId = options?.replaceId || '';
+    state.cameraSessionStartCount = state.evidence[target].length;
+    $('cameraTitle').textContent = state.cameraReplaceId ? 'Retake Photo' : 'Take Photos';
+    $('cameraHelp').textContent = state.cameraReplaceId
+      ? 'The existing photo will be replaced only after a new photo is captured.'
+      : 'Take as many photos as needed, then tap Done. Nothing uploads until you submit.';
+    $('cameraCaptureBtn').textContent = state.cameraReplaceId ? 'Retake Photo' : 'Take Photo';
+    updateCameraCaptureState(); $('cameraOverlay').hidden = false; document.body.classList.add('camera-open');
     try {
       state.cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
       $('cameraVideo').srcObject = state.cameraStream; await $('cameraVideo').play(); $('cameraCaptureBtn').focus();
@@ -525,9 +581,56 @@
     const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', .88));
     button.disabled = false;
     if (!blob) return notify('The photo could not be captured. Try again.', true);
-    const target = state.cameraTarget;
+    const target = state.cameraTarget; const replaceId = state.cameraReplaceId;
     const file = new File([blob], `complaint-evidence-${Date.now()}.jpg`, { type: 'image/jpeg' });
-    if (addFiles(target, [file])) { closeCamera({ restoreFocus: false }); notify('Photo added. Submit the form when ready.'); }
+    if (replaceId) {
+      const items = state.evidence[target]; const index = items.findIndex(item => item.id === replaceId);
+      if (index < 0) { closeCamera({ restoreFocus: false }); return notify('That photo is no longer selected.', true); }
+      const oldItem = items[index];
+      const totalBytes = items.reduce((sum, item) => sum + item.file.size, 0) - oldItem.file.size + file.size;
+      if (file.size > state.evidenceLimits.max_file_size_mb * 1024 * 1024 || totalBytes > state.evidenceLimits.max_total_upload_mb * 1024 * 1024) {
+        return notify('The replacement photo exceeds the configured attachment limits.', true);
+      }
+      if (oldItem.preview) URL.revokeObjectURL(oldItem.preview);
+      const replacement = { id: requestId('evidence-file'), file, preview: URL.createObjectURL(file) };
+      items.splice(index, 1, replacement); renderSelectedEvidence(target);
+      closeCamera({ restoreFocus: false }); openSelectedEvidence(target, replacement.id, null);
+      notify('Photo retaken. Review it or retake it again.');
+      return;
+    }
+    if (addFiles(target, [file])) {
+      updateCameraCaptureState();
+      notify('Photo added. Take another photo or tap Done.');
+    }
+  }
+
+  function navigateMediaViewer(offset) {
+    const entries = mediaViewerEntries();
+    const index = entries.findIndex(entry => state.mediaViewerMode === 'selected'
+      ? entry.id === state.mediaViewerItemId
+      : entry.preview_url === state.mediaViewerItemId);
+    const target = entries[index + offset];
+    if (!target) return;
+    if (state.mediaViewerMode === 'selected') openSelectedEvidence(state.mediaViewerTarget, target.id, null);
+    else openPersistedEvidence(target, null);
+  }
+  function deleteSelectedMediaFromViewer() {
+    if (state.mediaViewerMode !== 'selected') return;
+    const target = state.mediaViewerTarget; const entries = mediaViewerEntries();
+    const index = entries.findIndex(item => item.id === state.mediaViewerItemId);
+    if (index < 0) return;
+    removeEvidence(target, state.mediaViewerItemId);
+    const remaining = state.evidence[target];
+    if (!remaining.length) { closeMediaViewer(); notify('Attachment deleted.'); return; }
+    openSelectedEvidence(target, remaining[Math.min(index, remaining.length - 1)].id, null);
+    notify('Attachment deleted.');
+  }
+  function retakeSelectedMediaFromViewer() {
+    if (state.mediaViewerMode !== 'selected') return;
+    const target = state.mediaViewerTarget; const itemId = state.mediaViewerItemId;
+    const item = state.evidence[target]?.find(entry => entry.id === itemId);
+    if (!item || !String(item.file.type || '').startsWith('image/')) return;
+    closeMediaViewer(); openCamera(target, { replaceId: itemId });
   }
 
   function hideSuggestion() { state.suggestedCategory = null; $('categorySuggestion').hidden = true; $('categorySuggestion').classList.remove('checking', 'ambiguous'); }
@@ -667,6 +770,10 @@
   $('cameraCloseBtn').addEventListener('click', () => closeCamera()); $('cameraCancelBtn').addEventListener('click', () => closeCamera()); $('cameraCaptureBtn').addEventListener('click', captureCameraPhoto);
   $('cameraOverlay').addEventListener('click', event => { if (event.target === event.currentTarget) closeCamera(); });
   $('mediaViewerClose').addEventListener('click', closeMediaViewer);
+  $('mediaViewerPrevious').addEventListener('click', () => navigateMediaViewer(-1));
+  $('mediaViewerNext').addEventListener('click', () => navigateMediaViewer(1));
+  $('mediaViewerDelete').addEventListener('click', deleteSelectedMediaFromViewer);
+  $('mediaViewerRetake').addEventListener('click', retakeSelectedMediaFromViewer);
   $('mediaViewerOverlay').addEventListener('click', event => { if (event.target === event.currentTarget) closeMediaViewer(); });
   $('createCaseForm').elements.complaint_description.addEventListener('input', scheduleCategorySuggestion);
   $('createCaseForm').elements.complaint_category.addEventListener('input', updateCategoryGuidance);

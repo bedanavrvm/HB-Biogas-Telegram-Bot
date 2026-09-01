@@ -58,6 +58,7 @@ test('Complaint camera stops when Telegram deactivates the Mini App', async ({ p
     };
   });
   await page.addScriptTag({ path: asset('complaint_cases.js') });
+  await page.locator('#newCaseBtn').click();
   await page.locator('[data-camera-target="create"]').click();
   await expect(page.locator('#cameraOverlay')).toBeVisible();
 
@@ -68,6 +69,108 @@ test('Complaint camera stops when Telegram deactivates the Mini App', async ({ p
 
   expect(stopped).toBe(1);
   await expect(page.locator('#cameraOverlay')).toBeHidden();
+});
+
+test('Complaint camera captures multiple photos and the viewer navigates deletes and retakes', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  const template = fs.readFileSync(path.join(root, 'core', 'templates', 'complaint_cases', 'app.html'), 'utf8')
+    .replace(/{% load static %}/g, '')
+    .replace(/{% include [^%]+%}/g, '')
+    .replace(/{% static '[^']+' %}/g, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/g, '')
+    .replace(/<link[^>]*>/g, '');
+  await page.setContent(template);
+  await page.evaluate(() => {
+    document.body.dataset.groupId = '-100-camera-gallery-test';
+    Object.defineProperty(HTMLMediaElement.prototype, 'srcObject', {
+      configurable: true,
+      get() { return this.__syntheticStream || null; },
+      set(value) { this.__syntheticStream = value; },
+    });
+    HTMLMediaElement.prototype.play = async function () {};
+    const cameraVideo = document.getElementById('cameraVideo');
+    Object.defineProperty(cameraVideo, 'videoWidth', { configurable: true, get: () => 1280 });
+    Object.defineProperty(cameraVideo, 'videoHeight', { configurable: true, get: () => 960 });
+    const cameraCanvas = document.getElementById('cameraCanvas');
+    Object.defineProperty(cameraCanvas, 'getContext', {
+      configurable: true, value: () => ({ drawImage() {} }),
+    });
+    Object.defineProperty(cameraCanvas, 'toBlob', {
+      configurable: true,
+      value: callback => callback(new Blob(['synthetic-photo'], { type: 'image/jpeg' })),
+    });
+    navigator.mediaDevices = {
+      async getUserMedia() { return { getTracks: () => [{ stop() {} }] }; },
+    };
+    const webApp = {
+      initData: 'synthetic-signed-init-data',
+      BackButton: { onClick() {}, show() {}, hide() {} },
+      onEvent() {},
+    };
+    window.Telegram = { WebApp: webApp };
+    window.__requestSequence = 0;
+    window.MiniAppUtils = {
+      initTelegram: () => webApp,
+      createRequestId: prefix => `${prefix}-synthetic-${++window.__requestSequence}`,
+      setCloseProtection() {},
+    };
+    window.SecureMediaViewer = {
+      renderBlob(container, blob, options) {
+        const image = document.createElement('img');
+        image.className = 'media-viewer-image'; image.alt = options?.name || ''; container.replaceChildren(image);
+        return URL.createObjectURL(blob);
+      },
+      revoke(url) { if (url) URL.revokeObjectURL(url); },
+    };
+    window.ComplaintCasesMiniAppApi = {
+      async postJson(path) {
+        if (path === 'bootstrap/') return { data: {
+          actor: { name: 'Officer', role: 'OFFICER', capabilities: ['complaint.case.create'] },
+          counts: { pending: 0, resolved: 0, total: 0 }, branches: [], categories: [],
+          evidence_limits: { max_files: 10, max_file_size_mb: 10, max_total_upload_mb: 30 },
+        } };
+        if (path === 'cases/') return { cases: [], pagination: { page: 1, pages: 1, total: 0 }, start_index: 0 };
+        return { data: {} };
+      },
+    };
+  });
+  await page.addScriptTag({ path: asset('complaint_cases.js') });
+
+  await page.locator('#newCaseBtn').click();
+  await page.locator('[data-camera-target="create"]').click();
+  expect(await page.locator('#cameraVideo').evaluate(video => [video.videoWidth, video.videoHeight])).toEqual([1280, 960]);
+  await page.locator('#cameraCaptureBtn').click();
+  await page.waitForTimeout(100);
+  expect(pageErrors).toEqual([]);
+  await expect(page.locator('#toast')).toContainText('Photo added');
+  await expect(page.locator('#createSelectedEvidence li')).toHaveCount(1);
+  await page.locator('#cameraCaptureBtn').click();
+  await expect(page.locator('#createSelectedEvidence li')).toHaveCount(2);
+  expect(pageErrors).toEqual([]);
+  await expect(page.locator('#cameraOverlay')).toBeVisible();
+  await expect(page.locator('#cameraCaptureState')).toContainText('2 photos added this session');
+  await page.locator('#cameraCancelBtn').click();
+  await expect(page.locator('#createSelectedEvidence li')).toHaveCount(2);
+
+  await page.locator('#createSelectedEvidence .view-file').first().click();
+  await expect(page.locator('#mediaViewerOverlay')).toBeVisible();
+  await expect(page.locator('#mediaViewerSub')).toContainText('1 of 2');
+  await page.locator('#mediaViewerNext').click();
+  await expect(page.locator('#mediaViewerSub')).toContainText('2 of 2');
+  await page.locator('#mediaViewerDelete').click();
+  await expect(page.locator('#createSelectedEvidence li')).toHaveCount(1);
+  await expect(page.locator('#mediaViewerSub')).toContainText('1 of 1');
+
+  await page.locator('#mediaViewerRetake').click();
+  await expect(page.locator('#cameraOverlay')).toBeVisible();
+  await expect(page.locator('#cameraTitle')).toHaveText('Retake Photo');
+  await expect(page.locator('#createSelectedEvidence li')).toHaveCount(1);
+  await page.locator('#cameraCaptureBtn').click();
+  await expect(page.locator('#cameraOverlay')).toBeHidden();
+  await expect(page.locator('#mediaViewerOverlay')).toBeVisible();
+  await expect(page.locator('#createSelectedEvidence li')).toHaveCount(1);
+  await expect(page.locator('#mediaViewerSub')).toContainText('1 of 1');
 });
 
 test('Mini App bootstrap initializes Telegram once', async ({ page }) => {

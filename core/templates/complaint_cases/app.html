@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=17">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=18">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
   <main class="complaint-app" aria-label="Complaints">
@@ -96,16 +96,16 @@
       <div class="confirm-card"><h2 id="exportConfirmTitle">Download every complaint?</h2><p id="exportConfirmText"></p><div class="confirm-actions"><button id="cancelExportBtn" type="button">Cancel</button><button id="confirmExportBtn" class="primary" type="button">Download Complaints</button></div></div>
     </div>
     <div id="cameraOverlay" class="sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="cameraTitle" hidden>
-      <section class="camera-sheet"><div class="sheet-handle" aria-hidden="true"></div><div class="camera-head"><div><p class="eyebrow">Photo Capture</p><h2 id="cameraTitle">Take a Photo</h2><p class="muted">Nothing uploads until you submit the complaint.</p></div><button id="cameraCloseBtn" class="icon-button" type="button" aria-label="Close camera">&times;</button></div><div class="camera-stage"><video id="cameraVideo" autoplay playsinline muted></video><canvas id="cameraCanvas" hidden></canvas></div><div class="camera-footer"><button id="cameraCancelBtn" type="button">Cancel</button><button id="cameraCaptureBtn" class="primary" type="button">Use Photo</button></div></section>
+      <section class="camera-sheet"><div class="sheet-handle" aria-hidden="true"></div><div class="camera-head"><div><p class="eyebrow">Photo Capture</p><h2 id="cameraTitle">Take Photos</h2><p id="cameraHelp" class="muted">Take as many photos as needed, then tap Done. Nothing uploads until you submit.</p></div><button id="cameraCloseBtn" class="icon-button" type="button" aria-label="Close camera">&times;</button></div><div class="camera-stage"><video id="cameraVideo" autoplay playsinline muted></video><canvas id="cameraCanvas" hidden></canvas></div><div class="camera-footer"><span id="cameraCaptureState" class="muted" role="status" aria-live="polite">No photos added yet</span><div><button id="cameraCancelBtn" type="button">Done</button><button id="cameraCaptureBtn" class="primary" type="button">Take Photo</button></div></div></section>
     </div>
     <div id="mediaViewerOverlay" class="sheet-overlay media-viewer-overlay" role="dialog" aria-modal="true" aria-labelledby="mediaViewerTitle" hidden>
-      <section class="media-viewer-sheet"><div class="camera-head"><div><p class="eyebrow">Secure File</p><h2 id="mediaViewerTitle">File Preview</h2><p id="mediaViewerSub" class="muted"></p></div><button id="mediaViewerClose" class="icon-button" type="button" aria-label="Close file preview">&times;</button></div><div id="mediaViewerContent" class="media-viewer-content" aria-live="polite"></div></section>
+      <section class="media-viewer-sheet"><div class="camera-head"><div><p class="eyebrow">Secure File</p><h2 id="mediaViewerTitle">File Preview</h2><p id="mediaViewerSub" class="muted"></p></div><button id="mediaViewerClose" class="icon-button" type="button" aria-label="Close file preview">&times;</button></div><div id="mediaViewerContent" class="media-viewer-content" aria-live="polite"></div><div id="mediaViewerActions" class="media-viewer-actions" hidden><button id="mediaViewerPrevious" type="button" aria-label="Previous file" title="Previous file">&#8249;<span class="sr-only">Previous file</span></button><button id="mediaViewerRetake" type="button" aria-label="Retake this photo" title="Retake photo">Retake</button><button id="mediaViewerDelete" class="danger-action" type="button" aria-label="Delete this selected file" title="Delete selected file">Delete</button><button id="mediaViewerNext" type="button" aria-label="Next file" title="Next file">&#8250;<span class="sr-only">Next file</span></button></div></section>
     </div>
   </main>
   {% include "miniapp_diagnostics.html" %}
   <script src="{% static 'miniapp/utils.js' %}?v=9"></script>
   <script src="{% static 'miniapp/secure_media_viewer.js' %}?v=1"></script>
   <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=4"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=22"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=23"></script>
 </body>
 </html>
