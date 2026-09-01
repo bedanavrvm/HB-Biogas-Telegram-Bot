@@ -277,6 +277,7 @@ This is a template of variables this class of system typically needs. Treat it a
 | `API_AUTH_TOKEN` | Token protecting manual/admin/script-facing endpoints | Yes |
 | `APP_RELEASE` | Immutable Git commit or deployment identifier used as the release audit key | No |
 | `RELEASE_BACKUP_REFERENCE` | Required immutable provider backup/snapshot reference verified before migration | No; store only the reference, never a credential or URL token |
+| `RELEASE_ALLOW_NO_BACKUP` | Explicit non-production-only release exception when no database snapshot exists; records `no-backup:<environment>` and is rejected for production | No |
 | `RELEASE_ACTOR` / `RELEASE_ENVIRONMENT` | Non-secret deployment actor and environment attribution stored with release evidence | No |
 | `SENTRY_DSN` | Production error-monitoring endpoint; configure only in Render secrets | Yes |
 | `SENTRY_ENVIRONMENT` / `SENTRY_TRACES_SAMPLE_RATE` | Sentry environment label and approved performance-sampling rate | No |

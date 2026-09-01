@@ -19,6 +19,7 @@ from core.services.tat_production import tat_production_readiness_issues
 RELEASE_SETTINGS = {
     'APP_RELEASE': 'release-20260831-a',
     'RELEASE_BACKUP_REFERENCE': 'render-backup-12345',
+    'RELEASE_ALLOW_NO_BACKUP': False,
     'RELEASE_ACTOR': 'render-predeploy',
     'RELEASE_ENVIRONMENT': 'production',
     'TAT_NOTIFICATION_SCHEDULER_REQUIRED': True,
@@ -107,6 +108,35 @@ class ProductionReleaseCommandTests(TestCase):
         with override_settings(RELEASE_BACKUP_REFERENCE=''):
             with self.assertRaisesMessage(CommandError, 'Backup reference'):
                 call_command('release_production', stdout=io.StringIO())
+        django_command.assert_not_called()
+        self.assertFalse(ProductionReleaseAudit.objects.exists())
+
+    def test_explicit_non_production_release_can_record_no_backup(self):
+        _, _, _, django_command, _ = self._successful_patches()
+        stdout = io.StringIO()
+        with override_settings(
+            RELEASE_BACKUP_REFERENCE='',
+            RELEASE_ALLOW_NO_BACKUP=True,
+            RELEASE_ENVIRONMENT='development',
+        ):
+            call_command('release_production', stdout=stdout)
+
+        django_command.assert_any_call('migrate', interactive=False)
+        audit = ProductionReleaseAudit.objects.get(pk=settings.APP_RELEASE)
+        self.assertEqual(audit.backup_reference, 'no-backup:development')
+        self.assertIn('No database backup is available', stdout.getvalue())
+
+    def test_production_release_rejects_no_backup_override(self):
+        _, _, _, django_command, _ = self._successful_patches()
+        with override_settings(
+            RELEASE_ALLOW_NO_BACKUP=True,
+            RELEASE_ENVIRONMENT='production',
+        ):
+            with self.assertRaisesMessage(
+                CommandError, 'may be enabled only for an explicitly non-production',
+            ):
+                call_command('release_production', stdout=io.StringIO())
+
         django_command.assert_not_called()
         self.assertFalse(ProductionReleaseAudit.objects.exists())
 

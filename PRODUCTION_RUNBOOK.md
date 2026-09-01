@@ -25,6 +25,10 @@ Protect `main`: use a feature branch and pull request for every change, require 
    `RELEASE_ACTOR` to the deployment actor or automation identity, and
    `RELEASE_ENVIRONMENT=production`. These values are audit metadata, not
    secrets. Never put a signed backup URL, credential, or access token in them.
+   An explicitly non-production environment with no available snapshot may set
+   `RELEASE_ALLOW_NO_BACKUP=True` and leave `RELEASE_BACKUP_REFERENCE` blank;
+   release evidence then records `no-backup:<environment>`. Production rejects
+   this exception even when the flag is accidentally left enabled.
 6. Configure the production Telegram webhook secret and service-account access only after the application has passed its readiness check.
 
 `release.sh` delegates to `release_production`. The command runs general,

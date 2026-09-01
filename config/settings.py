@@ -261,6 +261,9 @@ APP_DISPLAY_NAME = config('APP_DISPLAY_NAME', default='Telegram Workflow Bot')
 APP_BASE_URL = config('APP_BASE_URL', default='').rstrip('/')
 APP_RELEASE = config('APP_RELEASE', default='').strip()
 RELEASE_BACKUP_REFERENCE = config('RELEASE_BACKUP_REFERENCE', default='').strip()
+RELEASE_ALLOW_NO_BACKUP = config(
+    'RELEASE_ALLOW_NO_BACKUP', default=False, cast=bool,
+)
 RELEASE_ACTOR = config('RELEASE_ACTOR', default='deployment').strip()
 RELEASE_ENVIRONMENT = config(
     'RELEASE_ENVIRONMENT', default='production' if not DEBUG else 'development',

@@ -8,7 +8,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from core.models import ProductionReleaseAudit
-from core.production import production_readiness_issues
+from core.production import NON_PRODUCTION_ENVIRONMENTS, production_readiness_issues
 from core.services.origination_production import origination_signing_readiness_issues
 from core.services.production_release import (
     existing_release,
@@ -100,13 +100,6 @@ class Command(BaseCommand):
                 min_length=3,
                 max_length=160,
             )
-            backup_reference = validate_release_reference(
-                options['backup_reference']
-                or getattr(settings, 'RELEASE_BACKUP_REFERENCE', ''),
-                field_name='Backup reference',
-                min_length=8,
-                max_length=255,
-            )
             actor = validate_release_reference(
                 options['actor'] or getattr(settings, 'RELEASE_ACTOR', ''),
                 field_name='Release actor',
@@ -117,6 +110,27 @@ class Command(BaseCommand):
                 field_name='Release environment',
                 max_length=80,
             )
+            allow_no_backup = bool(
+                getattr(settings, 'RELEASE_ALLOW_NO_BACKUP', False)
+            )
+            if allow_no_backup and environment.casefold() not in NON_PRODUCTION_ENVIRONMENTS:
+                raise ValueError(
+                    'RELEASE_ALLOW_NO_BACKUP may be enabled only for an explicitly '
+                    'non-production release environment.'
+                )
+            raw_backup_reference = (
+                options['backup_reference']
+                or getattr(settings, 'RELEASE_BACKUP_REFERENCE', '')
+            )
+            if not str(raw_backup_reference or '').strip() and allow_no_backup:
+                backup_reference = f'no-backup:{environment.casefold()}'
+            else:
+                backup_reference = validate_release_reference(
+                    raw_backup_reference,
+                    field_name='Backup reference',
+                    min_length=8,
+                    max_length=255,
+                )
         except ValueError as exc:
             raise CommandError(str(exc)) from exc
         previous = existing_release(release_id)
@@ -129,7 +143,13 @@ class Command(BaseCommand):
                 raise CommandError('The existing release evidence has different immutable attribution.')
             if planned and previous.migration_names and previous.migration_names != planned:
                 raise CommandError('Use a new release ID for a different migration plan.')
-        self.stdout.write(self.style.SUCCESS(f'Backup evidence accepted: {backup_reference}'))
+        if backup_reference.startswith('no-backup:'):
+            self.stdout.write(self.style.WARNING(
+                'No database backup is available for this explicitly non-production '
+                f'release. Audit reference recorded: {backup_reference}'
+            ))
+        else:
+            self.stdout.write(self.style.SUCCESS(f'Backup evidence accepted: {backup_reference}'))
 
         context = {
             'release_id': release_id,

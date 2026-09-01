@@ -12,6 +12,8 @@ the completed record in the approved private operations location, not in Git.
 - Previous known-good production commit / Render deploy ID:
 - Production database migration state before release:
 - `RELEASE_BACKUP_REFERENCE` (immutable provider ID; no signed URL or secret):
+- If non-production has no backup, `RELEASE_ALLOW_NO_BACKUP=True` approval and
+  recorded `no-backup:<environment>` evidence:
 - Backup timestamp, provider, and restore-to-staging evidence:
 - `RELEASE_ACTOR` and `RELEASE_ENVIRONMENT`:
 
