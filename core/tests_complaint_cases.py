@@ -121,7 +121,17 @@ class ComplaintCaseServiceTests(TestCase):
     def test_list_is_group_scoped(self):
         cases = list_cases(self.config)
         self.assertEqual([case['case_id'] for case in cases], ['CASE-1'])
+        self.assertRegex(cases[0]['reference_number'], r'^CMP\d{6}$')
         self.assertTrue(cases[0]['recorded_at'])
+
+        by_reference = list_cases(self.config, query=cases[0]['reference_number'])
+        self.assertEqual([case['case_id'] for case in by_reference], ['CASE-1'])
+
+        sequence = ComplaintCaseSequence.objects.get(group_id='__complaint_global__', year=0)
+        next_number = sequence.next_number
+        self.assertEqual(list_cases(self.config)[0]['reference_number'], cases[0]['reference_number'])
+        sequence.refresh_from_db()
+        self.assertEqual(sequence.next_number, next_number)
 
     def test_legacy_status_filter_remains_compatible_but_branch_filter_is_ignored(self):
         self.case.branch_region = 'Nakuru'
@@ -836,7 +846,9 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
             complaint_status='Open',
         )
         ComplaintCaseControl.objects.create(
-            parsed_message=case, category=self.category, priority='high',
+            parsed_message=case,
+            reference_number='CMP900001' if group == self.group_a else 'CMP900002',
+            category=self.category, priority='high',
             sla_target_hours=24, sla_started_at=case.timestamp,
             sla_due_at=case.timestamp - timedelta(hours=1), sync_status='pending',
         )
@@ -868,6 +880,10 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
         self.assertEqual(listing.status_code, 200)
         self.assertEqual({row['group_label'] for row in listing.json()['items']}, {'Nakuru complaints', 'Embu complaints'})
         self.assertEqual({row['case_id'] for row in listing.json()['items']}, {'CMP-2026-001'})
+        self.assertEqual(
+            {row['reference_number'] for row in listing.json()['items']},
+            {'CMP900001', 'CMP900002'},
+        )
 
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
     def test_cross_group_detail_is_allowlisted_and_actions_are_target_scoped(self):
@@ -914,7 +930,7 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
         rows = list(sheet.iter_rows(values_only=True))
         self.assertEqual(len(rows), 3)
         self.assertEqual(rows[0], (
-            'Case ID', 'Customer Name', 'Phone Number', 'Customer ID', 'Branch',
+            'Complaint ID', 'Customer Name', 'Phone Number', 'Customer ID', 'Branch',
             'Category', 'Complaint', 'Status', 'Reported At', 'Resolved At',
             'Days Open', 'Resolution',
         ))
@@ -922,6 +938,7 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
         phone_column = rows[0].index('Phone Number')
         self.assertIn("'=HYPERLINK(\"bad\")", {row[customer_column] for row in rows[1:]})
         self.assertTrue(all(str(row[phone_column]).startswith("'") for row in rows[1:]))
+        self.assertEqual({row[0] for row in rows[1:]}, {'CMP900001', 'CMP900002'})
         audit = ComplianceAuditEvent.objects.get(
             workflow='complaint_cases', action='register.exported', request_id='global-export-confirmed-1',
         )
@@ -949,6 +966,12 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
         self.assertEqual(set(overview['filters']), {'categories', 'statuses'})
         self.assertEqual(listing['pagination']['total'], 1)
         self.assertEqual(listing['items'][0]['id'], str(self.case_a.pk))
+
+        reference_search = self.post('complaint_cases_global_list', {
+            'filters': {'query': 'CMP900001'}, 'page': 1,
+        }).json()
+        self.assertEqual(reference_search['pagination']['total'], 1)
+        self.assertEqual(reference_search['items'][0]['id'], str(self.case_a.pk))
 
     def test_disabled_projection_keeps_backlog_visible_as_suspended(self):
         self.group_b.complaint_sheet_projection_enabled = False
@@ -1136,6 +1159,9 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('id="appHeader"', template)
         self.assertIn('function bindCollapsingHeader()', script)
         self.assertIn("header.classList.add('header-hidden')", script)
+        self.assertIn('item.reference_number || item.case_id', script)
+        self.assertIn('Search by complaint ID', template)
+        self.assertIn('family=Plus+Jakarta+Sans', template)
         self.assertIn("'the case is now fully resolved': 'Complaint marked as resolved'", script)
         self.assertIn("'the customer is still complaining': 'Customer reported the issue again'", script)
         self.assertIn("miniapp/utils.js", template)

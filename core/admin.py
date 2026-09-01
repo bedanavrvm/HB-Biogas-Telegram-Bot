@@ -4629,9 +4629,9 @@ class ComplaintCategoryAvailabilityAdmin(SuperuserComplaintConfigurationAdmin):
 
 @admin.register(ComplaintCaseControl)
 class ComplaintCaseControlAdmin(ReadOnlyAuditAdmin):
-    list_display = ('parsed_message', 'category', 'branch_ref', 'revision', 'sync_status')
+    list_display = ('reference_number', 'parsed_message', 'category', 'branch_ref', 'revision', 'sync_status')
     list_filter = ('sync_status', 'customer_match_status', 'category', 'branch_ref')
-    search_fields = ('parsed_message__message_id', 'parsed_message__customer_name')
+    search_fields = ('reference_number', 'parsed_message__message_id', 'parsed_message__customer_name')
     readonly_fields = [field.name for field in ComplaintCaseControl._meta.fields]
 
 
@@ -4639,7 +4639,7 @@ class ComplaintCaseControlAdmin(ReadOnlyAuditAdmin):
 class ComplaintCaseEventAdmin(ReadOnlyAuditAdmin):
     list_display = ('case', 'revision', 'action', 'actor', 'request_id', 'created_at')
     list_filter = ('action', 'created_at')
-    search_fields = ('case__parsed_message__message_id', 'actor_label', 'request_id', 'payload_hash')
+    search_fields = ('case__reference_number', 'case__parsed_message__message_id', 'actor_label', 'request_id', 'payload_hash')
     readonly_fields = [field.name for field in ComplaintCaseEvent._meta.fields]
 
 

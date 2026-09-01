@@ -211,7 +211,8 @@ def match_customer(customer_id: str, customer_phone: str) -> tuple[JawabuCustome
 
 def ensure_case_control(case: ParsedMessage, group_config=None) -> ComplaintCaseControl:
     try:
-        return case.complaint_control
+        control = case.complaint_control
+        return ensure_control_reference(control)
     except ComplaintCaseControl.DoesNotExist:
         pass
     category = None
@@ -241,7 +242,7 @@ def ensure_case_control(case: ParsedMessage, group_config=None) -> ComplaintCase
             ),
         },
     )
-    return control
+    return ensure_control_reference(control)
 
 
 def staff_actor_for_user(group_config, canonical_user, *, identity=None) -> ComplaintCaseActor:
@@ -690,13 +691,15 @@ def create_case_control(case: ParsedMessage, values: dict[str, Any], group_confi
     priority = values['category'].default_priority
     target = {'high': 24, 'normal': 72, 'low': 120}[priority]
     started = case.timestamp or timezone.now()
-    return ComplaintCaseControl.objects.create(
-        parsed_message=case, category=values['category'], branch_ref=values['branch_ref'],
+    control = ComplaintCaseControl.objects.create(
+        parsed_message=case,
+        category=values['category'], branch_ref=values['branch_ref'],
         customer=values['customer'], customer_match_status=values['customer_match_status'],
         priority=priority, sla_target_hours=target, sla_started_at=started,
         sla_due_at=started + timedelta(hours=target),
         sync_status='pending' if complaint_sheet_projection_enabled(group_config) else 'not_required',
     )
+    return ensure_control_reference(control)
 
 
 def mutation_payload_hash(values: dict[str, Any]) -> str:
@@ -780,6 +783,28 @@ def next_complaint_case_id(group_config_or_id, *, reference_at=None) -> str:
         case_id = f'CMP-{year}-{number:03d}'
         if not ParsedMessage.objects.filter(group_id=group_id, message_id=case_id).exists():
             return case_id
+
+
+@transaction.atomic
+def next_complaint_reference() -> str:
+    """Allocate one globally unique, short reference without exposing source message IDs."""
+    sequence, _ = ComplaintCaseSequence.objects.select_for_update().get_or_create(
+        group_id='__complaint_global__', year=0, defaults={'next_number': 1},
+    )
+    number = sequence.next_number
+    sequence.next_number = number + 1
+    sequence.save(update_fields=['next_number', 'updated_at'])
+    return f'CMP{number:06d}'
+
+
+@transaction.atomic
+def ensure_control_reference(control: ComplaintCaseControl) -> ComplaintCaseControl:
+    """Assign a reference once under a row lock; retries return the existing value."""
+    locked = ComplaintCaseControl.objects.select_for_update().get(pk=control.pk)
+    if not locked.reference_number:
+        locked.reference_number = next_complaint_reference()
+        locked.save(update_fields=['reference_number', 'updated_at'])
+    return locked
 
 
 def complete_review_details(
@@ -1432,6 +1457,7 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
     return {
         'id': str(case.id),
         'case_id': case.message_id,
+        'reference_number': control.reference_number,
         'customer_name': case.customer_name,
         'customer_phone': case.customer_phone,
         'customer_id': case.customer_id,
@@ -1553,6 +1579,7 @@ def _filter_query(cases, query: str):
         return cases
     return cases.filter(
         Q(message_id__icontains=text)
+        | Q(complaint_control__reference_number__icontains=text)
         | Q(customer_name__icontains=text)
         | Q(customer_phone__icontains=text)
         | Q(customer_id__icontains=text)

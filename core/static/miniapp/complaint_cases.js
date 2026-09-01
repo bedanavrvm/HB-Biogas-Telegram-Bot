@@ -163,7 +163,7 @@
       button.type = 'button'; button.className = 'case-row'; button.dataset.caseId = item.case_id;
       const body = document.createElement('div');
       body.append(
-        textNode('p', `#${start + index} · ${item.case_id}`, 'case-reference'),
+        textNode('p', `#${start + index} · ${item.reference_number || item.case_id}`, 'case-reference'),
         textNode('h2', item.customer_name || 'Unnamed customer'),
         textNode('p', `${item.customer_phone || item.customer_id || 'Customer details required'} · ${item.category || 'Other Complaint'} · ${item.branch || 'Branch not provided'}`, 'case-subtitle'),
         textNode('p', item.age_label || '', 'case-age'),
@@ -197,7 +197,7 @@
 
   function renderDetail(item, preserveDraft) {
     state.currentCase = item;
-    $('detailCaseId').textContent = item.case_id;
+    $('detailCaseId').textContent = item.reference_number || item.case_id;
     $('detailName').textContent = item.customer_name || 'Unnamed customer';
     $('detailGroup').textContent = item.group_label || '';
     $('detailStatus').textContent = displayStatus(item.status);
@@ -595,7 +595,7 @@
     const body = $('globalCaseRows'); body.replaceChildren();
     if (!items.length) { const row = document.createElement('tr'); const cell = textNode('td', 'No complaints match these filters.'); cell.colSpan = 13; row.appendChild(cell); body.appendChild(row); return; }
     items.forEach((item, index) => {
-      const row = document.createElement('tr'); const open = textNode('button', item.case_id, 'row-button');
+      const row = document.createElement('tr'); const open = textNode('button', item.reference_number || item.case_id, 'row-button');
       open.type = 'button'; open.addEventListener('click', () => openGlobalCase(item.id));
       const numberCell = textNode('td', state.globalStartIndex + index, 'row-number-cell');
       const caseCell = document.createElement('td'); caseCell.appendChild(open); const statusCell = document.createElement('td'); statusCell.appendChild(statusStack(item));

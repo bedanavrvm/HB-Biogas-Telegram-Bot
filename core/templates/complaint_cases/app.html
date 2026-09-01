@@ -6,8 +6,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Complaints</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=16">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=17">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
   <main class="complaint-app" aria-label="Complaints">
@@ -29,7 +32,7 @@
         <button type="button" data-status="resolved">Resolved <span id="resolvedCount">0</span></button>
         <button type="button" data-status="all">All Complaints <span id="totalCount">0</span></button>
       </nav>
-      <label class="search-box"><span class="sr-only">Search complaints</span><input id="caseSearch" type="search" autocomplete="off" placeholder="Search by name, ID, phone number or complaint"></label>
+      <label class="search-box"><span class="sr-only">Search complaints</span><input id="caseSearch" type="search" autocomplete="off" placeholder="Search by complaint ID, name, customer ID, phone number or complaint"></label>
       <div id="caseList" class="case-list" aria-live="polite"></div>
       <nav id="queuePagination" class="pagination" aria-label="Complaint pages" hidden><button id="queuePreviousBtn" type="button">Previous</button><span id="queuePageLabel">Page 1 of 1</span><button id="queueNextBtn" type="button">Next</button></nav>
     </section>
@@ -38,7 +41,7 @@
       <div class="queue-head"><div><p class="eyebrow">Overview</p><h2>All Complaints</h2><p class="muted">View and manage all complaints</p></div><button id="exportAllBtn" class="primary" type="button" hidden>Download Complaints</button></div>
       <div id="globalMetrics" class="metric-grid" aria-label="Global complaint metrics"></div>
       <form id="globalFilters" class="register-filters">
-        <label class="filter-search">Search<input name="query" type="search" autocomplete="off" placeholder="Search by complaint, customer name, or phone number"></label>
+        <label class="filter-search">Search<input name="query" type="search" autocomplete="off" placeholder="Search by complaint ID, complaint, customer name, or phone number"></label>
         <label class="filter-status">Status<select name="status"><option value="">Any Status</option><option value="pending">Pending</option><option value="resolved">Resolved</option></select></label>
         <label class="filter-category">Category<select name="category"><option value="">Any Category</option></select></label>
         <fieldset class="date-filter"><legend>Date Reported</legend><label>Start Date<input name="reported_from" type="date"></label><label>End Date<input name="reported_to" type="date"></label></fieldset>
@@ -103,6 +106,6 @@
   <script src="{% static 'miniapp/utils.js' %}?v=9"></script>
   <script src="{% static 'miniapp/secure_media_viewer.js' %}?v=1"></script>
   <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=4"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=21"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=22"></script>
 </body>
 </html>

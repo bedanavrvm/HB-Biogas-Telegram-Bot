@@ -16,7 +16,7 @@ from core.services.complaint_cases import ComplaintCaseError, format_datetime, s
 
 
 EXPORT_FIELDS = (
-    'Case ID', 'Customer Name', 'Phone Number', 'Customer ID', 'Branch',
+    'Complaint ID', 'Customer Name', 'Phone Number', 'Customer ID', 'Branch',
     'Category', 'Complaint', 'Status', 'Reported At', 'Resolved At',
     'Days Open', 'Resolution',
 )
@@ -25,7 +25,7 @@ SORT_FIELDS = {
     'reported_at': 'timestamp',
     'recorded_at': 'created_at',
     'resolved_at': 'date_resolved',
-    'case_id': 'message_id',
+    'case_id': 'complaint_control__reference_number',
     'customer': 'customer_name',
     'branch': 'branch_region',
     'category': 'complaint_category',
@@ -133,6 +133,7 @@ def _apply_filters(queryset, filters: dict[str, Any], groups: dict[str, GroupShe
     if search:
         queryset = queryset.filter(
             Q(message_id__icontains=search)
+            | Q(complaint_control__reference_number__icontains=search)
             | Q(customer_name__icontains=search)
             | Q(customer_phone__icontains=search)
             | Q(customer_id__icontains=search)
@@ -163,6 +164,7 @@ def serialize_register_case(case: ParsedMessage, groups: dict[str, GroupSheetCon
     projection_enabled = _projection_enabled(case.group_id, groups)
     return {
         'id': str(case.pk), 'case_id': case.message_id,
+        'reference_number': control.reference_number,
         'group_id': str(case.group_id), 'group_label': _group_label(case.group_id, groups),
         'customer_name': case.customer_name, 'customer_phone': case.customer_phone,
         'customer_id': case.customer_id, 'branch': case.branch_region,
@@ -289,7 +291,7 @@ def export_register_xlsx(*, actor, request_id: str) -> tuple[bytes, int]:
     for case in queryset.iterator(chunk_size=500):
         row = serialize_register_case(case, groups)
         sheet.append(tuple(_excel_text(value) for value in (
-            row['case_id'], row['customer_name'], row['customer_phone'],
+            row['reference_number'], row['customer_name'], row['customer_phone'],
             row['customer_id'], row['branch'], row['category'], row['description'],
             row['status'], row['reported_at'], row['resolved_at'],
             row['days_open'], row['resolution_details'],

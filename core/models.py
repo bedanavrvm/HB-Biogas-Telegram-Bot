@@ -305,7 +305,7 @@ class CaseUpdate(models.Model):
 
 
 class ComplaintCaseSequence(models.Model):
-    """Durable per-group/year sequence for staff-facing complaint references."""
+    """Durable sequence scope for complaint identifiers and staff-facing references."""
 
     group_id = models.CharField(max_length=100, db_index=True)
     year = models.PositiveIntegerField(db_index=True)
@@ -464,6 +464,10 @@ class ComplaintCaseControl(models.Model):
     parsed_message = models.OneToOneField(
         ParsedMessage, on_delete=models.CASCADE, related_name='complaint_control',
     )
+    reference_number = models.CharField(
+        max_length=16, unique=True, null=True, blank=True, db_index=True,
+        help_text='Short global staff-facing complaint reference, for example CMP000001.',
+    )
     category = models.ForeignKey(
         ComplaintCategory, null=True, blank=True, on_delete=models.PROTECT, related_name='cases',
     )
@@ -505,7 +509,7 @@ class ComplaintCaseControl(models.Model):
         ]
 
     def __str__(self):
-        return f'{self.parsed_message.message_id} control r{self.revision}'
+        return f'{self.reference_number or self.parsed_message.message_id} control r{self.revision}'
 
 
 class ComplaintCaseEvent(models.Model):
