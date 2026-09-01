@@ -159,6 +159,10 @@ class ParsedMessage(models.Model):
             models.Index(fields=['message_id']),
             models.Index(fields=['group_id', 'sheet_id']),
             models.Index(fields=['synced_to_sheets']),
+            models.Index(
+                fields=['complaint_status', 'timestamp'],
+                name='core_parsed_complaint_time_idx',
+            ),
         ]
 
     def __str__(self):
@@ -246,6 +250,7 @@ class CaseUpdate(models.Model):
         ('pending', 'Pending'),
         ('success', 'Synced'),
         ('failed', 'Failed'),
+        ('not_required', 'Django only'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -450,7 +455,10 @@ class ComplaintCaseControl(models.Model):
         ('exact_id', 'Exact national ID'), ('exact_phone', 'Exact phone'),
         ('ambiguous', 'Ambiguous'), ('conflict', 'Conflicting identifiers'), ('unmatched', 'Unmatched'),
     ]
-    SYNC_CHOICES = [('pending', 'Pending'), ('success', 'Synced'), ('failed', 'Failed')]
+    SYNC_CHOICES = [
+        ('pending', 'Pending'), ('success', 'Synced'), ('failed', 'Failed'),
+        ('not_required', 'Django only'),
+    ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     parsed_message = models.OneToOneField(
@@ -7170,6 +7178,13 @@ class GroupSheetConfiguration(models.Model):
         default=False,
         help_text='Publish the canonical TAT register to Google Sheets for this group.',
     )
+    complaint_sheet_projection_enabled = models.BooleanField(
+        default=True,
+        help_text=(
+            'Publish Complaint Cases to Google Sheets as a best-effort projection. '
+            'Django remains canonical when this is disabled.'
+        ),
+    )
     tat_sheet_projection_disabled_at = models.DateTimeField(null=True, blank=True)
     sheet_id = models.CharField(
         max_length=255,
@@ -7215,8 +7230,12 @@ class GroupSheetConfiguration(models.Model):
         self.group_id = str(self.group_id or '').strip()
         self.sheet_id = str(self.sheet_id or '').strip()
         self.sheet_name = str(self.sheet_name or '').strip()
-        is_tat = str((self.workflow or {}).get('type') or '') == 'tat_tracker'
-        if self.enabled and not self.sheet_id and (not is_tat or self.tat_sheet_projection_enabled):
+        workflow_type = str((self.workflow or {}).get('type') or 'case')
+        projection_required = not (
+            (workflow_type == 'tat_tracker' and not self.tat_sheet_projection_enabled)
+            or (workflow_type == 'case' and not self.complaint_sheet_projection_enabled)
+        )
+        if self.enabled and not self.sheet_id and projection_required:
             from django.core.exceptions import ValidationError
             raise ValidationError({'sheet_id': 'Enabled groups need a sheet ID.'})
 
@@ -7237,6 +7256,7 @@ class GroupSheetConfiguration(models.Model):
             'workflow': workflow,
             'parser_rules': self.parser_rules or {},
             'tat_sheet_projection_enabled': self.tat_sheet_projection_enabled,
+            'complaint_sheet_projection_enabled': self.complaint_sheet_projection_enabled,
         }
     def sheet_url(self) -> str:
         if not self.sheet_id:

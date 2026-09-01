@@ -223,6 +223,8 @@ def process_and_store_message(
         rejection = _complaint_rejection(parsed_result)
         if rejection:
             raise rejection
+        intent_value = getattr(parsed_result, 'intent', '')
+        parsed_intent = getattr(intent_value, 'value', intent_value)
 
         # ── 5. Store parsed ──────────────────────────────────────────
         parsed_message = store_parsed_message(
@@ -235,11 +237,28 @@ def process_and_store_message(
             sheet_name=sheet_name or '',
         )
 
+        complaint_group_config = None
+        complaint_projection_enabled = True
+        if parsed_intent == 'complaint':
+            from core.services.complaint_cases import (
+                complaint_sheet_projection_enabled,
+                ensure_case_control,
+            )
+            from core.services.group_config import GroupRegistry
+
+            complaint_group_config = GroupRegistry.get_instance().get_group(group_id or 'default')
+            complaint_projection_enabled = complaint_sheet_projection_enabled(complaint_group_config)
+            ensure_case_control(parsed_message, complaint_group_config)
+
         # Batch imports can defer this and append all rows in one Sheets
         # request after all messages are validated and stored.
         sync_success = False
         sync_error = ''
-        if defer_sheet_sync:
+        if not complaint_projection_enabled:
+            # Django is canonical; a disabled projection is a successful local
+            # ingestion, not a partial processing failure.
+            sync_success = True
+        elif defer_sheet_sync:
             sync_success = True
         else:
             try:
@@ -259,8 +278,6 @@ def process_and_store_message(
                 )
 
         # ── 7. Determine final status ─────────────────────────────────
-        intent_value = getattr(parsed_result, 'intent', '')
-        parsed_intent = getattr(intent_value, 'value', intent_value)
         final_status = 'success'
         # Complaint acceptance is governed by explicit mandatory-field
         # validation above. Its confidence score also tracks useful optional
@@ -386,6 +403,14 @@ def repair_case_sheet_sync(parsed_message, group_config=None) -> dict:
 
         group_config = GroupRegistry.get_instance().get_group(parsed_message.group_id)
 
+    from core.services.complaint_cases import complaint_sheet_projection_enabled, is_complaint_workflow
+    if group_config and is_complaint_workflow(group_config) and not complaint_sheet_projection_enabled(group_config):
+        return {
+            'status': 'publication_suspended', 'synced': False,
+            'message_id': parsed_message.message_id,
+            'error': 'Sheet projection is disabled for this complaint group.',
+        }
+
     sheet_id = getattr(group_config, 'sheet_id', '') or parsed_message.sheet_id or ''
     sheet_name = getattr(group_config, 'sheet_name', '') or parsed_message.sheet_name or ''
     sheet_schema = getattr(group_config, 'sheet_schema_config', None) if group_config else None
@@ -463,12 +488,14 @@ def bulk_resync_to_sheets(limit: int = 100, max_attempts: int = 5) -> dict:
         return {
             'success_count': 0,
             'failed_count': 0,
+            'suspended_count': 0,
             'errors': ['No eligible unsynced messages'],
             'attempted': 0,
         }
 
     success_count = 0
     failed_count = 0
+    suspended_count = 0
     errors = []
 
     for msg in unsynced:
@@ -478,6 +505,10 @@ def bulk_resync_to_sheets(limit: int = 100, max_attempts: int = 5) -> dict:
         sheet_schema = None
         if msg.group_id:
             group_config = GroupRegistry.get_instance().get_group(msg.group_id)
+            from core.services.complaint_cases import complaint_sheet_projection_enabled, is_complaint_workflow
+            if group_config and is_complaint_workflow(group_config) and not complaint_sheet_projection_enabled(group_config):
+                suspended_count += 1
+                continue
             sheet_id = group_config.sheet_id if group_config else msg.sheet_id
             sheet_name = group_config.sheet_name if group_config else msg.sheet_name
             sheet_schema = (
@@ -512,7 +543,8 @@ def bulk_resync_to_sheets(limit: int = 100, max_attempts: int = 5) -> dict:
         'success_count': success_count,
         'failed_count': failed_count,
         'errors': errors,
-        'attempted': len(unsynced),
+        'attempted': len(unsynced) - suspended_count,
+        'suspended_count': suspended_count,
     }
     logger.info(f"Resync complete: {result}")
     return result

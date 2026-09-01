@@ -44,6 +44,7 @@ class GroupConfig:
         workflow: Dict[str, Any] = None,
         parser_rules: Dict[str, Any] = None,
         tat_sheet_projection_enabled: bool = True,
+        complaint_sheet_projection_enabled: bool = True,
     ):
         self.group_id = str(group_id)
         self.sheet_id = sheet_id
@@ -66,8 +67,14 @@ class GroupConfig:
         self.sheet_schema = SheetSchema.from_config(self.sheet_schema_config)
         self.parser_rules = parser_rules or self.metadata.get('parser_rules') or {}
         self.tat_sheet_projection_enabled = bool(tat_sheet_projection_enabled)
+        self.complaint_sheet_projection_enabled = bool(complaint_sheet_projection_enabled)
 
-        if not self.sheet_id:
+        workflow_type = str((self.workflow or {}).get('type') or 'case')
+        projection_required = not (
+            (workflow_type == 'tat_tracker' and not self.tat_sheet_projection_enabled)
+            or (workflow_type == 'case' and not self.complaint_sheet_projection_enabled)
+        )
+        if not self.sheet_id and projection_required:
             logger.warning(f"Group {group_id} has no sheet_id configured")
 
     def __repr__(self):
@@ -224,21 +231,30 @@ class GroupRegistry:
         group_id = str(group_id).strip()
         config = self._groups.get(group_id)
 
-        if not config:
-            # A process may have built its registry before an administrator
-            # created a new group configuration. Resolve that exact database
-            # row before falling back to a wildcard or rejecting the request.
-            # This keeps group context strict while avoiding a stale-cache
-            # denial (and never substitutes another group's configuration).
-            try:
-                from core.models import GroupSheetConfiguration
+        # Admin configuration is mutable operational state. Refresh the exact
+        # row on lookup so projection cutovers apply across every web worker,
+        # not only the process that handled the Admin save.
+        try:
+            from core.models import GroupSheetConfiguration
 
-                admin_config = GroupSheetConfiguration.objects.filter(group_id=group_id).first()
-                if admin_config:
-                    config = GroupConfig(**admin_config.as_group_config_kwargs())
-                    self._groups[group_id] = config
-            except (OperationalError, ProgrammingError) as exc:
-                logger.debug('Could not resolve missing group %r from admin configuration: %s', group_id, exc)
+            admin_config = GroupSheetConfiguration.objects.filter(group_id=group_id).first()
+            if admin_config:
+                config = GroupConfig(**admin_config.as_group_config_kwargs())
+                self._groups[group_id] = config
+            else:
+                # Admin rows may be deleted or rolled back after this process
+                # cached them. Retain only an explicit settings-backed entry;
+                # otherwise a removed Admin configuration could keep routing
+                # traffic (and preserving an old projection policy) forever.
+                settings_group_ids = {
+                    str(raw_group_id).strip()
+                    for raw_group_id in getattr(settings, 'GROUP_MAPPING', {})
+                }
+                if group_id not in settings_group_ids:
+                    self._groups.pop(group_id, None)
+                    config = None
+        except (OperationalError, ProgrammingError) as exc:
+            logger.debug('Could not refresh group %r from admin configuration: %s', group_id, exc)
 
         if not config:
             # Try the wildcard default before giving up
@@ -259,7 +275,13 @@ class GroupRegistry:
             logger.warning(f"Group {group_id} is disabled")
             return None
 
-        if not config.sheet_id:
+        workflow_type = str((config.workflow or {}).get('type') or 'case')
+        sheet_optional = (
+            workflow_type == 'tat_tracker' and not config.tat_sheet_projection_enabled
+        ) or (
+            workflow_type == 'case' and not config.complaint_sheet_projection_enabled
+        )
+        if not config.sheet_id and not sheet_optional:
             logger.error(f"Group {group_id} has no sheet_id configured")
             return None
 

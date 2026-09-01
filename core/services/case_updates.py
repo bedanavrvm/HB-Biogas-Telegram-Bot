@@ -236,6 +236,9 @@ def apply_case_update(
         ).first()
         if existing:
             return {'status': 'command', 'reply_text': f'Update for {parsed_message.message_id} was already recorded.'}
+    group_config = GroupRegistry.get_instance().get_group(parsed_message.group_id)
+    from core.services.complaint_cases import complaint_sheet_projection_enabled
+    projection_enabled = complaint_sheet_projection_enabled(group_config)
     now = timezone.now()
     date_resolved = now if parsed_update.new_status == 'Closed' else None
 
@@ -256,7 +259,7 @@ def apply_case_update(
             old_status=old_status, new_status=parsed_update.new_status,
             resolution_text=parsed_update.resolution_text, risk_level=parsed_update.risk_level,
             loan_at_risk=parsed_update.loan_at_risk, raw_update_text=raw_update_text,
-            sync_status='pending', source='telegram',
+            sync_status='pending' if projection_enabled else 'not_required', source='telegram',
         )
         parsed_message.complaint_status = parsed_update.new_status
         parsed_message.resolution_details = resolution_details
@@ -270,10 +273,11 @@ def apply_case_update(
         ])
         from core.services.complaint_cases import control_snapshot, ensure_case_control
         from core.models import ComplaintCaseEvent
-        control = ensure_case_control(parsed_message, GroupRegistry.get_instance().get_group(parsed_message.group_id))
+        control = ensure_case_control(parsed_message, group_config)
         control.revision += 1
-        control.sync_status = 'pending'
-        control.save(update_fields=['revision', 'sync_status', 'updated_at'])
+        control.sync_status = 'pending' if projection_enabled else 'not_required'
+        control.sync_error = ''
+        control.save(update_fields=['revision', 'sync_status', 'sync_error', 'updated_at'])
         ComplaintCaseEvent.objects.create(
             case=control, revision=control.revision, action='telegram_updated', actor=actor,
             actor_label=update_record.updated_by, request_id=f'telegram-{update_telegram_message_id}' if update_telegram_message_id else '',
@@ -281,6 +285,13 @@ def apply_case_update(
             before_values={'status': old_status}, after_values=control_snapshot(control, parsed_message),
             reason=parsed_update.resolution_text,
         )
+
+    if not projection_enabled:
+        record_command_case_update(update_record, parsed_message, action='complaint.case.updated')
+        return {
+            'status': 'command',
+            'reply_text': _format_success_reply(parsed_message, parsed_update, date_resolved),
+        }
 
     sheet_success = _update_sheet(parsed_message, parsed_update, resolution_details, date_resolved)
     if not sheet_success:
@@ -359,6 +370,9 @@ def _update_sheet(
     group_config = registry.get_group(str(parsed_message.group_id))
     if not group_config and not parsed_message.sheet_id:
         return False
+    from core.services.complaint_cases import complaint_sheet_projection_enabled, is_complaint_workflow
+    if group_config and is_complaint_workflow(group_config) and not complaint_sheet_projection_enabled(group_config):
+        return True
 
     updates = {
         'status': parsed_update.new_status,

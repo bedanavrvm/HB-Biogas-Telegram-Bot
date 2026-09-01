@@ -3,6 +3,7 @@ import hmac
 import json
 import time
 from datetime import timedelta
+from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlencode
 from unittest.mock import patch
@@ -10,6 +11,7 @@ from unittest.mock import patch
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.exceptions import ValidationError
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -29,6 +31,7 @@ from core.models import (
     ProcessedMessage,
     RawMessage,
     UserProfile,
+    ComplianceAuditEvent,
 )
 from core.services.complaint_cases import (
     ComplaintCaseConflict,
@@ -43,7 +46,9 @@ from core.services.complaint_cases import (
     staff_actor_for_payload,
     update_case,
     ensure_case_control,
+    staff_actor_for_user,
 )
+from core.services.complaint_register import register_overview
 from core.services.complaint_imports import (
     ComplaintImportAuthorizationError,
     ComplaintImportConflict,
@@ -586,6 +591,238 @@ class ComplaintCaseServiceTests(TestCase):
         append_to_sheet.assert_called_once()
 
 
+class ComplaintCaseGlobalRegisterTests(TestCase):
+    def setUp(self):
+        self.group_a = GroupSheetConfiguration.objects.create(
+            group_id='-100global-a', display_name='Nakuru complaints', sheet_id='sheet-a',
+            sheet_name='Complaints', workflow={'type': 'case'},
+        )
+        self.group_b = GroupSheetConfiguration.objects.create(
+            group_id='-100global-b', display_name='Embu complaints', sheet_id='sheet-b',
+            sheet_name='Complaints', workflow={'type': 'case'},
+        )
+        self.category = ComplaintCategory.objects.create(
+            key='global-product', label='Product issue', default_priority='high', default_sla_hours=24,
+        )
+        User = get_user_model()
+        self.officer = User.objects.create_user(username='global-officer', is_active=True)
+        UserProfile.objects.create(user=self.officer, telegram_id='801', telegram_username='global_officer')
+        AccessGrant.objects.create(
+            user=self.officer, workflow='complaint_cases', role='OFFICER',
+            group_configuration=self.group_a,
+        )
+        self.case_a = self.create_case(self.group_a, 'CMP-2026-001', 'Alice Client')
+        self.case_b = self.create_case(self.group_b, 'CMP-2026-001', '=HYPERLINK("bad")')
+
+    def create_case(self, group, case_id, customer_name):
+        raw = RawMessage.objects.create(telegram_message_id=case_id, content='private raw source')
+        processed = ProcessedMessage.objects.create(
+            message_hash=f'{group.group_id}-{case_id}', raw_message=raw,
+        )
+        case = ParsedMessage.objects.create(
+            processed_message=processed, message_id=case_id, group_id=group.group_id,
+            timestamp=timezone.now(), sender='Field officer', raw_message='private raw source',
+            customer_name=customer_name, customer_phone='+254712345678', customer_id='ID-123',
+            branch_region='Nakuru' if group == self.group_a else 'Embu',
+            complaint_category=self.category.label, complaint_description='Unit is not producing gas.',
+            complaint_status='Open',
+        )
+        ComplaintCaseControl.objects.create(
+            parsed_message=case, category=self.category, priority='high',
+            sla_target_hours=24, sla_started_at=case.timestamp,
+            sla_due_at=case.timestamp - timedelta(hours=1), sync_status='pending',
+        )
+        return case
+
+    def signed_init_data(self):
+        pairs = {'auth_date': str(int(time.time())), 'user': json.dumps({'id': 801})}
+        check = '\n'.join(f'{key}={value}' for key, value in sorted(pairs.items()))
+        secret = hmac.new(b'WebAppData', b'test-bot-token', hashlib.sha256).digest()
+        pairs['hash'] = hmac.new(secret, check.encode('utf-8'), hashlib.sha256).hexdigest()
+        return urlencode(pairs)
+
+    def post(self, name, payload=None, args=None):
+        values = {'group_id': self.group_a.group_id, **(payload or {})}
+        request_id = values.setdefault('client_request_id', f'global-test-{name}')
+        return self.client.post(
+            reverse(name, args=args or []), data=json.dumps(values), content_type='application/json',
+            HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data(), HTTP_X_REQUEST_ID=request_id,
+            HTTP_IDEMPOTENCY_KEY=request_id,
+        )
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_any_authorized_complaint_officer_sees_every_group(self):
+        overview = self.post('complaint_cases_global_overview')
+        listing = self.post('complaint_cases_global_list', {'filters': {}, 'page': 1})
+
+        self.assertEqual(overview.status_code, 200)
+        self.assertEqual(overview.json()['data']['metrics']['total'], 2)
+        self.assertEqual(listing.status_code, 200)
+        self.assertEqual({row['group_label'] for row in listing.json()['items']}, {'Nakuru complaints', 'Embu complaints'})
+        self.assertEqual({row['case_id'] for row in listing.json()['items']}, {'CMP-2026-001'})
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_cross_group_detail_is_allowlisted_and_actions_are_target_scoped(self):
+        response = self.post('complaint_cases_global_detail', args=[self.case_b.pk])
+
+        self.assertEqual(response.status_code, 200)
+        item = response.json()['case']
+        self.assertEqual(item['description'], 'Unit is not producing gas.')
+        self.assertNotIn('raw_message', item)
+        self.assertNotIn('evidence', item)
+        self.assertNotIn('updates', item)
+        self.assertEqual(item['actions'], {'close': False, 'reopen': False, 'sync_retry': False})
+
+        AccessGrant.objects.create(
+            user=self.officer, workflow='complaint_cases', role='OFFICER',
+            group_configuration=self.group_b,
+        )
+        allowed = self.post('complaint_cases_global_detail', args=[self.case_b.pk]).json()['case']['actions']
+        self.assertTrue(allowed['reopen'])
+        self.assertFalse(allowed['close'])
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_export_requires_all_case_confirmation_and_audits_safe_workbook(self):
+        denied = self.post('complaint_cases_global_export', {'confirm_all': False})
+        self.assertEqual(denied.status_code, 400)
+
+        response = self.post('complaint_cases_global_export', {
+            'confirm_all': True, 'client_request_id': 'global-export-confirmed-1',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['X-Export-Row-Count'], '2')
+        from openpyxl import load_workbook
+        sheet = load_workbook(BytesIO(response.content), read_only=True).active
+        rows = list(sheet.iter_rows(values_only=True))
+        self.assertEqual(len(rows), 3)
+        customer_column = rows[0].index('Customer name')
+        phone_column = rows[0].index('Phone number')
+        self.assertIn("'=HYPERLINK(\"bad\")", {row[customer_column] for row in rows[1:]})
+        self.assertTrue(all(str(row[phone_column]).startswith("'") for row in rows[1:]))
+        audit = ComplianceAuditEvent.objects.get(
+            workflow='complaint_cases', action='register.exported', request_id='global-export-confirmed-1',
+        )
+        self.assertEqual(audit.after_values['row_count'], 2)
+        self.assertNotIn('private raw source', json.dumps(audit.after_values))
+
+    def test_disabled_projection_keeps_backlog_visible_as_suspended(self):
+        self.group_b.complaint_sheet_projection_enabled = False
+        self.group_b.save(update_fields=['complaint_sheet_projection_enabled'])
+        self.case_b.complaint_control.sync_status = 'failed'
+        self.case_b.complaint_control.save(update_fields=['sync_status'])
+
+        overview = register_overview()
+
+        self.assertEqual(overview['metrics']['suspended'], 1)
+        self.assertEqual(overview['metrics']['sync_attention'], 1)
+        self.group_b.complaint_sheet_projection_enabled = True
+        self.group_b.save(update_fields=['complaint_sheet_projection_enabled'])
+        restored = register_overview()
+        self.assertEqual(restored['metrics']['suspended'], 0)
+        self.assertEqual(restored['metrics']['sync_attention'], 2)
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_global_register_filters_and_paginates_fifty_rows(self):
+        for index in range(49):
+            self.create_case(self.group_a, f'CMP-GLOBAL-{index:03d}', f'Client {index:03d}')
+        first = self.post('complaint_cases_global_list', {'filters': {}, 'page': 1})
+        second = self.post('complaint_cases_global_list', {'filters': {}, 'page': 2})
+        filtered = self.post('complaint_cases_global_list', {
+            'filters': {'group': self.group_b.group_id, 'branch': 'Embu'}, 'page': 1,
+        })
+
+        self.assertEqual(first.json()['pagination'], {'page': 1, 'pages': 2, 'page_size': 50, 'total': 51})
+        self.assertEqual(len(first.json()['items']), 50)
+        self.assertEqual(len(second.json()['items']), 1)
+        self.assertEqual(filtered.json()['pagination']['total'], 1)
+        self.assertEqual(filtered.json()['items'][0]['id'], str(self.case_b.pk))
+
+
+class ComplaintCaseOptionalSheetTests(TestCase):
+    def setUp(self):
+        self.group = GroupSheetConfiguration.objects.create(
+            group_id='-100django-only', display_name='Django only complaints',
+            sheet_id='', sheet_name='Complaints', workflow={'type': 'case'},
+            complaint_sheet_projection_enabled=False,
+        )
+        self.config = GroupConfig(
+            group_id=self.group.group_id, sheet_id='', sheet_name='Complaints',
+            workflow={'type': 'case'}, complaint_sheet_projection_enabled=False,
+        )
+        self.category = ComplaintCategory.objects.create(
+            key='django-only-product', label='Product issue', default_priority='normal', default_sla_hours=72,
+        )
+        User = get_user_model()
+        self.officer = User.objects.create_user(username='django-only-officer', is_active=True)
+        self.manager = User.objects.create_user(username='django-only-manager', is_active=True)
+        UserProfile.objects.create(user=self.officer, telegram_id='901')
+        UserProfile.objects.create(user=self.manager, telegram_id='902')
+        AccessGrant.objects.create(user=self.officer, workflow='complaint_cases', role='OFFICER', group_configuration=self.group)
+        AccessGrant.objects.create(user=self.manager, workflow='complaint_cases', role='MANAGER', group_configuration=self.group)
+
+    @patch('core.services.complaint_cases.get_sheets_service')
+    @patch('core.services.complaint_cases.append_parsed_message_to_sheet')
+    def test_disabled_projection_never_calls_sheets_for_create_or_resolution(self, append_to_sheet, get_service):
+        officer = staff_actor_for_user(self.config, self.officer)
+        result = create_complaint_case(
+            self.config, officer, {
+                'client_request_id': 'django-only-create-1', 'client_name': 'Local Client',
+                'customer_id': 'LOCAL-1', 'branch_region': 'Nakuru',
+                'complaint_category': 'Product issue', 'complaint_description': 'Saved in Django only.',
+            }, [],
+        )
+        case = ParsedMessage.objects.get(pk=result['case']['id'])
+        manager = staff_actor_for_user(self.config, self.manager)
+        resolved = resolve_case(
+            self.config, manager, case.message_id, {
+                'client_request_id': 'django-only-resolve-1', 'expected_revision': 1,
+                'resolution_text': 'Resolved without a spreadsheet.',
+            }, [],
+        )
+
+        self.assertFalse(result['sheet_projection_enabled'])
+        self.assertEqual(resolved['sync_status'], 'not_required')
+        self.assertEqual(case.case_updates.order_by('-created_at').first().sync_status, 'not_required')
+        append_to_sheet.assert_not_called()
+        get_service.assert_not_called()
+
+    def test_disabled_projection_allows_an_enabled_group_without_sheet_id(self):
+        self.group.full_clean()
+        from core.services.group_config import GroupRegistry
+        registry = GroupRegistry.get_instance()
+        registry.reload()
+        self.assertEqual(registry.get_group(self.group.group_id).group_id, self.group.group_id)
+
+        invalid = GroupSheetConfiguration(
+            group_id='-100missing-required-sheet', workflow={'type': 'case'},
+            complaint_sheet_projection_enabled=True,
+        )
+        with self.assertRaises(ValidationError):
+            invalid.full_clean()
+
+    @patch('core.services.complaint_cases.append_parsed_message_to_sheet')
+    def test_cached_create_retry_does_not_erase_a_suspended_failure(self, append_to_sheet):
+        officer = staff_actor_for_user(self.config, self.officer)
+        payload = {
+            'client_request_id': 'django-only-retry-1', 'client_name': 'Retry Client',
+            'customer_id': 'LOCAL-RETRY', 'branch_region': 'Nakuru',
+            'complaint_category': 'Product issue', 'complaint_description': 'Retain old sync evidence.',
+        }
+        first = create_complaint_case(self.config, officer, payload, [])
+        control = ComplaintCaseControl.objects.get(parsed_message_id=first['case']['id'])
+        control.sync_status = 'failed'
+        control.sync_error = 'Pre-cutover publication failed.'
+        control.save(update_fields=['sync_status', 'sync_error'])
+
+        retried = create_complaint_case(self.config, officer, payload, [])
+
+        control.refresh_from_db()
+        self.assertFalse(retried['created'])
+        self.assertEqual(control.sync_status, 'failed')
+        self.assertEqual(control.sync_error, 'Pre-cutover publication failed.')
+        append_to_sheet.assert_not_called()
+
+
 class ComplaintCaseMiniAppAssetTests(TestCase):
     def test_compact_two_state_workspace_has_only_supported_actions(self):
         root = Path(__file__).resolve().parent
@@ -594,6 +831,9 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
 
         for expected in ('class="app-top"', 'class="status-tabs"', 'id="createCaseForm"', 'name="client_name"', 'name="customer_phone"', 'name="customer_id"', 'name="branch_region"', 'name="complaint_category"', 'name="complaint_description"', 'id="createEvidenceInput"', 'data-status="pending"', 'data-status="resolved"', 'data-status="all"', 'id="resolveForm"', 'id="reopenForm"', 'id="conflictPanel"', 'id="queuePagination"'):
             self.assertIn(expected, template)
+        for expected in ('id="globalView"', 'id="globalFilters"', 'id="globalCaseRows"', 'id="exportConfirm"'):
+            self.assertIn(expected, template)
+        self.assertIn('This exports all ${count} cases across all complaint groups', script)
         self.assertIn("miniapp/utils.js", template)
         self.assertIn("data.set('expected_revision'", script)
         self.assertIn("submitTransition(event, 'resolve')", script)

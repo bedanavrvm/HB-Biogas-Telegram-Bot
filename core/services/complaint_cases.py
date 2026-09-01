@@ -85,6 +85,11 @@ def is_complaint_workflow(group_config) -> bool:
     return str((getattr(group_config, 'workflow', None) or {}).get('type') or 'case') == 'case'
 
 
+def complaint_sheet_projection_enabled(group_config) -> bool:
+    """Return the backwards-compatible Complaint Cases publication gate."""
+    return bool(getattr(group_config, 'complaint_sheet_projection_enabled', True))
+
+
 def available_categories(group_config):
     """Return active global categories not restricted away from this group."""
     group_id = str(getattr(group_config, 'group_id', '') or '')
@@ -166,7 +171,10 @@ def ensure_case_control(case: ParsedMessage, group_config=None) -> ComplaintCase
             'customer_match_status': match_status, 'priority': priority,
             'sla_target_hours': target, 'sla_started_at': started,
             'sla_due_at': started + timedelta(hours=target),
-            'sync_status': 'success' if case.synced_to_sheets and not case.last_sync_error else 'pending',
+            'sync_status': (
+                'success' if case.synced_to_sheets and not case.last_sync_error
+                else ('pending' if complaint_sheet_projection_enabled(group_config) else 'not_required')
+            ),
         },
     )
     return control
@@ -333,6 +341,9 @@ def list_cases(group_config, actor: ComplaintCaseActor | None = None, **filters)
 def case_detail(group_config, case_id: str, actor: ComplaintCaseActor | None = None) -> dict[str, Any]:
     case = _case_for_group(group_config.group_id, case_id, actor=actor)
     payload = serialize_case(case)
+    payload['sheet_projection_enabled'] = complaint_sheet_projection_enabled(group_config)
+    if not payload['sheet_projection_enabled'] and payload['sync_status'] in {'pending', 'failed'}:
+        payload['sync_status'] = 'suspended'
     payload['raw_message'] = case.raw_message
     payload['resolution_details'] = case.resolution_details
     updates = list(case.case_updates.all())
@@ -481,7 +492,8 @@ def create_complaint_case(
                         sheet_id=str(getattr(group_config, 'sheet_id', '') or ''),
                         sheet_name=str(getattr(group_config, 'sheet_name', '') or ''),
                     )
-                    control = create_case_control(case, values)
+                    projection_enabled = complaint_sheet_projection_enabled(group_config)
+                    control = create_case_control(case, values, group_config)
                     create_update = CaseUpdate.objects.create(
                         parsed_message=case,
                         group_id=case.group_id,
@@ -495,7 +507,7 @@ def create_complaint_case(
                         gps_link=values['gps_link'],
                         latitude=values['latitude'],
                         longitude=values['longitude'],
-                        sync_status='pending',
+                        sync_status='pending' if projection_enabled else 'not_required',
                     )
                     ComplaintCaseEvent.objects.create(
                         case=control, revision=control.revision, action='created', actor=actor.user,
@@ -520,23 +532,41 @@ def create_complaint_case(
         create_update = CaseUpdate.objects.filter(parsed_message=case, client_request_id=request_id).first()
     if create_update and uploaded_files:
         store_evidence(group_config, case, create_update, actor, uploaded_files)
-    try:
-        synced = sync_new_case_to_sheet(group_config, case)
-    except Exception:
-        logger.exception('Complaint creation publication failed for case %s.', case.pk)
+    projection_enabled = complaint_sheet_projection_enabled(group_config)
+    if not projection_enabled and not created:
+        # A cached create retry after cutover must not erase a real pre-cutover
+        # pending/failed publication. It remains suspended until re-enabled.
+        return {
+            'case': case_detail(group_config, case.message_id),
+            'created': False,
+            'synced_to_sheet': control.sync_status == 'success',
+            'sheet_projection_enabled': False,
+        }
+    if projection_enabled:
+        try:
+            synced = sync_new_case_to_sheet(group_config, case)
+        except Exception:
+            logger.exception('Complaint creation publication failed for case %s.', case.pk)
+            synced = False
+        sync_status = 'success' if synced else 'failed'
+        sync_error = '' if synced else (case.last_sync_error or 'Complaint register publication is pending.')
+    else:
         synced = False
-    control.sync_status = 'success' if synced else 'failed'
-    control.sync_error = '' if synced else (case.last_sync_error or 'Complaint register publication is pending.')
+        sync_status = 'not_required'
+        sync_error = ''
+    control.sync_status = sync_status
+    control.sync_error = sync_error
     control.last_sync_at = timezone.now() if synced else control.last_sync_at
     control.save(update_fields=['sync_status', 'sync_error', 'last_sync_at', 'updated_at'])
     if create_update:
-        create_update.sync_status = 'success' if synced else 'failed'
-        create_update.sync_error = '' if synced else control.sync_error
+        create_update.sync_status = sync_status
+        create_update.sync_error = sync_error
         create_update.save(update_fields=['sync_status', 'sync_error'])
     return {
         'case': case_detail(group_config, case.message_id),
         'created': created,
         'synced_to_sheet': synced,
+        'sheet_projection_enabled': projection_enabled,
     }
 
 
@@ -580,7 +610,7 @@ def validate_new_case_fields(group_config, fields: dict[str, Any]) -> dict[str, 
     }
 
 
-def create_case_control(case: ParsedMessage, values: dict[str, Any]) -> ComplaintCaseControl:
+def create_case_control(case: ParsedMessage, values: dict[str, Any], group_config=None) -> ComplaintCaseControl:
     priority = values['category'].default_priority
     target = {'high': 24, 'normal': 72, 'low': 120}[priority]
     started = case.timestamp or timezone.now()
@@ -588,7 +618,8 @@ def create_case_control(case: ParsedMessage, values: dict[str, Any]) -> Complain
         parsed_message=case, category=values['category'], branch_ref=values['branch_ref'],
         customer=values['customer'], customer_match_status=values['customer_match_status'],
         priority=priority, sla_target_hours=target, sla_started_at=started,
-        sla_due_at=started + timedelta(hours=target), sync_status='pending',
+        sla_due_at=started + timedelta(hours=target),
+        sync_status='pending' if complaint_sheet_projection_enabled(group_config) else 'not_required',
     )
 
 
@@ -667,6 +698,8 @@ def new_case_raw_content(values: dict[str, Any], actor: ComplaintCaseActor) -> s
 
 
 def sync_new_case_to_sheet(group_config, case: ParsedMessage) -> bool:
+    if not complaint_sheet_projection_enabled(group_config):
+        raise ComplaintCaseError('Sheet projection is disabled for this complaint group.')
     if case.synced_to_sheets and not case.last_sync_error:
         return True
     return append_parsed_message_to_sheet(
@@ -740,6 +773,7 @@ def apply_case_update(
         resolved_at = timezone.now() if values['status'] == 'Closed' else None
         resolution_details = append_resolution_note(case.resolution_details, actor.name, values['note'])
         before = control_snapshot(control, case)
+        projection_enabled = complaint_sheet_projection_enabled(group_config)
         update = CaseUpdate.objects.create(
             parsed_message=case,
             group_id=case.group_id,
@@ -753,13 +787,13 @@ def apply_case_update(
             gps_link=values['gps_link'],
             latitude=values['latitude'],
             longitude=values['longitude'],
-            sync_status='pending',
+            sync_status='pending' if projection_enabled else 'not_required',
         )
         update_case_fields(case, values, resolution_details, resolved_at)
         reopened = before['status'] == 'Closed' and values['status'] == 'Open'
         action = 'reopened' if reopened else 'resolved'
         control.revision += 1
-        control.sync_status = 'pending'
+        control.sync_status = 'pending' if projection_enabled else 'not_required'
         control.sync_error = ''
         control.save(update_fields=['revision', 'sync_status', 'sync_error', 'updated_at'])
         ComplaintCaseEvent.objects.create(
@@ -768,13 +802,18 @@ def apply_case_update(
             before_values=before, after_values=control_snapshot(control, case), reason=values['note'],
         )
         record_complaint_update(update, case, actor, action=f'complaint.case.{action}')
-    try:
-        synced = update_sheet_case(group_config, case, sheet_updates(values, resolution_details, resolved_at))
-    except Exception:
-        logger.exception('Complaint update publication failed for case %s.', case.pk)
+    if projection_enabled:
+        try:
+            synced = update_sheet_case(group_config, case, sheet_updates(values, resolution_details, resolved_at))
+        except Exception:
+            logger.exception('Complaint update publication failed for case %s.', case.pk)
+            synced = False
+        update.sync_status = 'success' if synced else 'failed'
+        update.sync_error = '' if synced else 'The local update is saved; complaint register publication is pending.'
+    else:
         synced = False
-    update.sync_status = 'success' if synced else 'failed'
-    update.sync_error = '' if synced else 'The local update is saved; complaint register publication is pending.'
+        update.sync_status = 'not_required'
+        update.sync_error = ''
     update.save(update_fields=['sync_status', 'sync_error'])
     control.sync_status = update.sync_status
     control.sync_error = update.sync_error
@@ -841,6 +880,8 @@ def sheet_updates(values: dict[str, Any], resolution_details: str, resolved_at) 
 
 
 def update_sheet_case(group_config, case: ParsedMessage, updates: dict[str, str]) -> bool:
+    if not complaint_sheet_projection_enabled(group_config):
+        raise ComplaintCaseError('Sheet projection is disabled for this complaint group.')
     service = get_sheets_service(
         sheet_id=group_config.sheet_id,
         sheet_name=group_config.sheet_name,
@@ -850,6 +891,10 @@ def update_sheet_case(group_config, case: ParsedMessage, updates: dict[str, str]
 
 
 def retry_case_sync(group_config, actor: ComplaintCaseActor, case_id: str) -> dict[str, Any]:
+    if not complaint_sheet_projection_enabled(group_config):
+        raise ComplaintCaseError(
+            'Sheet projection is disabled. Re-enable it before retrying suspended publications.'
+        )
     case = _case_for_group(group_config.group_id, case_id, actor=actor)
     if not actor_can(group_config, actor, 'complaint.case.sync.retry', case):
         raise ComplaintCaseError('Your role cannot retry publication for this case.')

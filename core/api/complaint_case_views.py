@@ -6,7 +6,7 @@ import logging
 from functools import wraps
 
 from django.conf import settings
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -15,12 +15,14 @@ from core.services.complaint_cases import (
     ComplaintCaseConflict,
     ComplaintCaseError,
     actor_can_access_case,
+    actor_can,
     bootstrap_data,
     case_detail,
     create_complaint_case,
     decode_complaint_start_param,
     evidence_access,
     is_complaint_workflow,
+    complaint_sheet_projection_enabled,
     list_cases_page,
     reopen_case,
     resolve_case,
@@ -269,6 +271,124 @@ def complaint_cases_list_fragment(request):
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
 @require_http_methods(['POST'])
 @miniapp_write_response
+def complaint_cases_global_overview(request):
+    payload = _request_payload(request)
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    capability_error = _capability_error(actor, 'complaint.queue.view', group_config)
+    if capability_error:
+        return capability_error
+    from core.services.complaint_register import register_overview
+    return JsonResponse({'ok': True, 'data': register_overview()})
+
+
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(['POST'])
+@miniapp_write_response
+def complaint_cases_global_list(request):
+    payload = _request_payload(request)
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    capability_error = _capability_error(actor, 'complaint.queue.view', group_config)
+    if capability_error:
+        return capability_error
+    from core.services.complaint_register import register_page
+    try:
+        result = register_page(
+            filters=payload.get('filters') or {}, page=payload.get('page') or 1,
+            page_size=50, sort=str(payload.get('sort') or '-reported_at'),
+        )
+    except ComplaintCaseError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, **result})
+
+
+def _global_target_actions(actor, item: dict) -> dict[str, bool]:
+    """Re-resolve target-group grants; launch-group authority never leaks into writes."""
+    from core.models import GroupSheetConfiguration
+    from core.services.group_config import GroupConfig
+
+    row = GroupSheetConfiguration.objects.filter(group_id=item['group_id'], enabled=True).first()
+    if not row or str((row.workflow or {}).get('type') or 'case') != 'case':
+        return {'close': False, 'reopen': False, 'sync_retry': False}
+    target_config = GroupConfig(**row.as_group_config_kwargs())
+    try:
+        target_actor = staff_actor_for_user(target_config, actor.user)
+    except ComplaintCaseError:
+        return {'close': False, 'reopen': False, 'sync_retry': False}
+    return {
+        'close': actor_can(target_config, target_actor, 'complaint.case.close'),
+        'reopen': actor_can(target_config, target_actor, 'complaint.case.reopen'),
+        'sync_retry': (
+            complaint_sheet_projection_enabled(target_config)
+            and actor_can(target_config, target_actor, 'complaint.case.sync.retry')
+        ),
+    }
+
+
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(['POST'])
+@miniapp_write_response
+def complaint_cases_global_detail(request, case_uuid):
+    payload = _request_payload(request)
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    capability_error = _capability_error(actor, 'complaint.queue.view', group_config)
+    if capability_error:
+        return capability_error
+    from core.services.complaint_register import register_case
+    try:
+        item = register_case(str(case_uuid))
+    except ComplaintCaseError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=404)
+    item['actions'] = _global_target_actions(actor, item)
+    return JsonResponse({'ok': True, 'case': item})
+
+
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(['POST'])
+@miniapp_write_response
+def complaint_cases_global_export(request):
+    payload = _request_payload(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    capability_error = _capability_error(actor, 'complaint.case.export', group_config)
+    if capability_error:
+        return capability_error
+    if payload.get('confirm_all') is not True:
+        return JsonResponse({
+            'ok': False,
+            'code': 'export_confirmation_required',
+            'message': 'Confirm that you intend to export every complaint case across all groups.',
+        }, status=400)
+    from core.services.complaint_register import export_filename, export_register_xlsx
+    try:
+        workbook, row_count = export_register_xlsx(
+            actor=actor.user,
+            request_id=str(payload.get('client_request_id') or request.headers.get('X-Request-ID') or ''),
+        )
+    except Exception:
+        logger.exception('Global Complaint Cases export failed for user %s.', actor.user.pk)
+        return JsonResponse({'ok': False, 'error': 'The complaint register could not be exported. Try again.'}, status=500)
+    response = HttpResponse(
+        workbook,
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f'attachment; filename="{export_filename()}"'
+    response['X-Export-Row-Count'] = str(row_count)
+    return response
+
+
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(['POST'])
+@miniapp_write_response
 def complaint_cases_create(request):
     payload = _request_payload(request)
     key_error = _bind_miniapp_write_request(request, payload)
@@ -295,7 +415,7 @@ def complaint_cases_create(request):
     if not actor_can_access_case(group_config, actor, 'complaint.case.source.view', result['case']['case_id']):
         result['case'].pop('raw_message', None)
     message = 'Complaint created.' if result['created'] else 'Existing complaint opened.'
-    if not result['synced_to_sheet']:
+    if result['sheet_projection_enabled'] and not result['synced_to_sheet']:
         message += ' The Sheet sync is pending.'
     return JsonResponse({'ok': True, 'case': result['case'], 'message': message}, status=201 if result['created'] else 200)
 

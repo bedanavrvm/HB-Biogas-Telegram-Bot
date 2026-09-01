@@ -66,6 +66,35 @@
     return result;
   }
 
+  async function postBlob(path, payload, initData, utils) {
+    const body = payload || {};
+    const requestId = utils && utils.ensureRequestId
+      ? utils.ensureRequestId(body, 'complaint-export')
+      : (body.client_request_id || `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const response = await fetch(`/api/complaints/${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Telegram-Init-Data': initData || '',
+        'X-Request-ID': requestId,
+        'Idempotency-Key': requestId,
+        'X-MiniApp-Message-Contract': '2',
+      },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      const normalized = utils?.normalizeResponsePayload ? utils.normalizeResponsePayload(response, result) : result;
+      const error = new Error(normalized.message || normalized.error || 'The export could not be downloaded.');
+      error.status = response.status;
+      error.payload = normalized;
+      throw error;
+    }
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    return { blob: await response.blob(), filename: match ? match[1] : 'Complaint-Cases.xlsx' };
+  }
+
   async function postFragment(path, payload, initData, utils) {
     const body = payload || {};
     const requestId = utils?.ensureRequestId
@@ -100,6 +129,7 @@
   window.ComplaintCasesMiniAppApi = {
     postJson,
     postForm,
+    postBlob,
     postFragment,
   };
 })();

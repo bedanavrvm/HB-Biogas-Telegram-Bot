@@ -247,11 +247,19 @@ _add(
 _COMPLAINT_AUTH = 'Canonical Telegram initData resolved to an active Django user'
 _COMPLAINT_SCOPE = 'Complaint AccessGrant plus configured group and case scope'
 _add(
-    'complaint_cases_bootstrap complaint_cases_list complaint_cases_list_fragment complaint_cases_detail',
+    'complaint_cases_bootstrap complaint_cases_list complaint_cases_list_fragment complaint_cases_detail '
+    'complaint_cases_global_overview complaint_cases_global_list complaint_cases_global_detail',
     authentication=_COMPLAINT_AUTH,
     capability='complaint.queue.view / complaint.case.source.view', scope=_COMPLAINT_SCOPE,
     request_key_binding='complaint miniapp_write_response',
     domain_replay='Read-only POST; no canonical workflow mutation',
+)
+_add(
+    'complaint_cases_global_export',
+    authentication=_COMPLAINT_AUTH, capability='complaint.case.export',
+    scope='Organization-wide Complaint Cases allowlist after explicit all-case confirmation',
+    request_key_binding='Canonical Mini App request identity',
+    domain_replay='Idempotent sensitive export audit event keyed by actor and request ID',
 )
 _add(
     'complaint_cases_settings_personal',

@@ -271,6 +271,32 @@ class CaseUpdateServiceTest(TestCase):
         update = CaseUpdate.objects.get(parsed_message=case)
         self.assertEqual(update.sync_status, 'failed')
 
+    @patch('core.services.case_updates.get_sheets_service')
+    def test_reply_status_update_skips_sheet_when_complaint_projection_is_disabled(self, get_service):
+        from core.services.case_updates import handle_case_status_reply
+
+        GroupSheetConfiguration.objects.create(
+            group_id='-100123', enabled=True, workflow={'type': 'case'},
+            complaint_sheet_projection_enabled=False,
+        )
+        case = create_parsed_case('MSG_DJANGO_ONLY_UPDATE', complaint_status='Open')
+        case.processed_message.raw_message.telegram_message_id = 'django-only-original'
+        case.processed_message.raw_message.source_telegram_message_id = 'django-only-original'
+        case.processed_message.raw_message.save()
+
+        result = handle_case_status_reply(
+            group_id='-100123', reply_to_telegram_message_id='django-only-original',
+            update_telegram_message_id='django-only-update', sender='Peter',
+            content='Status: resolved - handled in Django',
+        )
+
+        update = CaseUpdate.objects.get(parsed_message=case)
+        self.assertEqual(result['status'], 'command')
+        self.assertNotIn('publication is pending', result['reply_text'])
+        self.assertEqual(update.sync_status, 'not_required')
+        self.assertEqual(case.complaint_control.sync_status, 'not_required')
+        get_service.assert_not_called()
+
     def test_reply_status_update_requires_case_id_for_batch_ambiguity(self):
         from core.services.case_updates import handle_case_status_reply
 
@@ -3011,6 +3037,44 @@ class StorageServiceTest(TestCase):
         mock_sheet.assert_not_called()
 
     @patch('core.services.sheets.append_parsed_message_to_sheet')
+    def test_complaint_ingestion_skips_sheet_when_projection_is_disabled(self, mock_sheet):
+        GroupSheetConfiguration.objects.create(
+            group_id='-100django-ingestion', enabled=True, workflow={'type': 'case'},
+            complaint_sheet_projection_enabled=False,
+        )
+        parsed = process_and_store_message(
+            telegram_message_id='django_only_ingestion',
+            content=(
+                'CUSTOMER COMPLAINT\nNAME: Jane Doe\nTEL: 0712345678\n'
+                'ID: A12345\nNATURE OF THE PROBLEM: No gas supply'
+            ),
+            sender='Agent', received_at=timezone.now(),
+            group_id='-100django-ingestion', sheet_id='', sheet_name='Complaints',
+        )
+
+        self.assertEqual(getattr(parsed, '_processing_status'), 'success')
+        self.assertEqual(parsed.complaint_control.sync_status, 'not_required')
+        mock_sheet.assert_not_called()
+
+    @patch('core.services.storage.append_parsed_message_to_sheet')
+    def test_repair_and_bulk_resync_suspend_disabled_complaint_projection(self, mock_sheet):
+        from core.services.storage import repair_case_sheet_sync
+
+        group = GroupSheetConfiguration.objects.create(
+            group_id='-100django-repair', enabled=True, workflow={'type': 'case'},
+            complaint_sheet_projection_enabled=False,
+        )
+        parsed = create_parsed_case('MSG_DJANGO_ONLY_REPAIR', group_id=group.group_id)
+
+        repaired = repair_case_sheet_sync(parsed)
+        bulk = bulk_resync_to_sheets(limit=10, max_attempts=5)
+
+        self.assertEqual(repaired['status'], 'publication_suspended')
+        self.assertEqual(bulk['attempted'], 0)
+        self.assertEqual(bulk['suspended_count'], 1)
+        mock_sheet.assert_not_called()
+
+    @patch('core.services.sheets.append_parsed_message_to_sheet')
     def test_complete_headerless_complaint_is_not_marked_partial(self, mock_sheet):
         """The CUSTOMER COMPLAINT heading is optional when required fields are clear."""
         parsed = process_and_store_message(
@@ -3971,6 +4035,29 @@ class GroupConfigurationServiceTest(TestCase):
 
         self.assertEqual(config.sheet_id, 'admin_sheet')
         self.assertEqual(config.sheet_name, 'Admin Cases')
+
+    @override_settings(GROUP_MAPPING={}, GOOGLE_SHEET_ID='')
+    def test_registry_refreshes_and_evicts_mutable_admin_projection_policy(self):
+        """Workers must not retain an old projection toggle or a deleted group."""
+        from core.services.group_config import GroupRegistry
+
+        row = GroupSheetConfiguration.objects.create(
+            group_id='-100projection-refresh', sheet_id='sheet-before',
+            workflow={'type': 'case'}, complaint_sheet_projection_enabled=True,
+        )
+        GroupRegistry._instance = None
+        registry = GroupRegistry.get_instance()
+        self.assertTrue(registry.get_group(row.group_id).complaint_sheet_projection_enabled)
+
+        row.complaint_sheet_projection_enabled = False
+        row.sheet_id = ''
+        row.save(update_fields=['complaint_sheet_projection_enabled', 'sheet_id'])
+        refreshed = registry.get_group(row.group_id)
+        self.assertFalse(refreshed.complaint_sheet_projection_enabled)
+        self.assertEqual(refreshed.sheet_id, '')
+
+        row.delete()
+        self.assertIsNone(registry.get_group('-100projection-refresh'))
 
     @override_settings(
         STORAGES={

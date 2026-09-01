@@ -4935,11 +4935,15 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
     inlines = []
     actions = ['publish_jbl_apps_launchers', 'preview_jbl_apps_launchers']
     list_display = [
-        'display_label', 'group_id', 'enabled', 'tat_sheet_projection_enabled', 'sheet_name',
+        'display_label', 'group_id', 'enabled', 'complaint_sheet_projection_enabled',
+        'tat_sheet_projection_enabled', 'sheet_name',
         'sheet_link', 'sheet_coverage_link', 'live_records_link', 'data_records_link',
         'media_records_link', 'tat_repair_link', 'tat_duplicate_link', 'updated_at',
     ]
-    list_filter = ['enabled', 'sheet_name', 'updated_at']
+    list_filter = [
+        'enabled', 'complaint_sheet_projection_enabled',
+        'tat_sheet_projection_enabled', 'sheet_name', 'updated_at',
+    ]
     search_fields = ['group_id', 'display_name', 'sheet_id', 'sheet_name']
     readonly_fields = [
         'created_at', 'updated_at', 'sheet_link', 'sheet_analyzer_link',
@@ -4955,7 +4959,8 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 'tat_repair_link', 'tat_duplicate_link',
             ),
             'description': (
-                'Map one Telegram group to one Google Sheet tab. '
+                'Map one Telegram group to its workflow and optional Google Sheet tab. '
+                'Complaint and TAT projections may be disabled in their settings. '
                 'This admin configuration overrides GROUP_MAPPING_JSON for '
                 'the same group ID.'
             ),
@@ -4990,6 +4995,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
         }),
         ('Case / Complaints Settings', {
             'fields': (
+                'complaint_sheet_projection_enabled',
                 'case_header_row',
                 'case_field_headers',
             ),
