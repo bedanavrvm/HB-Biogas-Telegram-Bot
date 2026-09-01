@@ -653,11 +653,14 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertNotIn('Approved with Conditions', source)
         self.assertIn('form-section form-grid credit-analysis-form', form)
         self.assertIn('Credit Decision <span class="required-marker" aria-hidden="true">*</span>', form)
-        self.assertIn('Created on IMAB?', form)
+        self.assertIn('Created on iMAB? <span class="required-marker"', form)
         self.assertIn('class="credit-jbl-comment"', form)
+        self.assertIn('class="credit-comment-type"', form)
+        self.assertIn('class="credit-customer-number-heading"', form)
         self.assertIn("sheetOverlay?.classList.toggle('credit-analysis-sheet', mode === 'credit')", source)
         self.assertIn('.credit-analysis-sheet .credit-analysis-form', stylesheet)
         self.assertIn('.credit-analysis-sheet #sheet-map { height: 112px; }', stylesheet)
+        self.assertIn('.credit-analysis-sheet .credit-gps-summary #sheet-map', stylesheet)
         self.assertIn('data-lucide="external-link"', template)
 
     def test_final_review_form_uses_client_media_without_reason_or_condition_controls(self):

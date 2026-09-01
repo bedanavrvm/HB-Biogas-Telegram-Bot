@@ -580,7 +580,6 @@
         ['JBL Visit', deps.fmtDate(farmer.jbl_visit_date)],
         ['JBL Officer', deps.fmt(farmer.jbl_officer)],
         ['JBL Status', jblStatusLabel(farmer)],
-        ['Customer No.', deps.fmt(farmer.customer_no)],
       ],
       final_review: [
         ['Credit Decision', deps.fmt(farmer.credit_decision)],
@@ -620,11 +619,12 @@
     const mediaSection = el('sheet-client-media');
     if (mediaSection) {
       const canViewMedia = hasCapability('portal.jbl_media.view') && mediaCount >= 1;
+      const isCompactOperationsMode = ['jbl_visit', 'credit'].includes(mode);
       const compactMediaLabel = `${mediaCount} Media File${mediaCount === 1 ? '' : 's'}`;
       const fullMediaLabel = `View ${mediaCount} media file${mediaCount === 1 ? '' : 's'}`;
-      const collapsedMediaLabel = mode === 'jbl_visit' ? compactMediaLabel : fullMediaLabel;
+      const collapsedMediaLabel = isCompactOperationsMode ? compactMediaLabel : fullMediaLabel;
       const expandedMediaLabel = `Client Media (${mediaCount})`;
-      const mediaIcon = mode === 'jbl_visit' ? 'paperclip' : 'image';
+      const mediaIcon = isCompactOperationsMode ? 'paperclip' : 'image';
       document.querySelector('.sheet-quick-actions')?.classList.toggle('has-client-media', canViewMedia);
       mediaSection.hidden = !canViewMedia;
       mediaSection.innerHTML = canViewMedia
@@ -634,7 +634,7 @@
     }
     sheetOverlay?.classList.remove('client-media-open');
     const caseToggle = el('case360-toggle');
-    caseToggle.innerHTML = `<i data-lucide="history" aria-hidden="true"></i><span>${mode === 'jbl_visit' ? 'Case History' : 'Open Case History'}</span>`;
+    caseToggle.innerHTML = `<i data-lucide="history" aria-hidden="true"></i><span>${['jbl_visit', 'credit'].includes(mode) ? 'Case History' : 'Open Case History'}</span>`;
     caseToggle.onclick = () => {
       window.PortalAppShell?.openCaseHistory(farmer.id);
     };
@@ -700,11 +700,18 @@
     mapContainer.style.display = 'block';
     const mapLink = el('sheet-map-link');
     const mapMeta = el('sheet-map-meta');
+    const mapTitle = mapContainer.querySelector('.sheet-map-heading strong');
+    const isCreditSummary = state().activeMode === 'credit';
+    mapContainer.classList.toggle('credit-gps-summary', isCreditSummary);
+    if (mapTitle) mapTitle.textContent = isCreditSummary ? 'Recorded GPS' : 'Recorded location';
     if (mapMeta) mapMeta.textContent = `GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
     if (mapLink) {
       mapLink.href = `https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}`;
       mapLink.hidden = false;
     }
+    // Credit Analysis needs the recorded coordinates and Maps action, not an
+    // embedded interactive map competing with the decision form for height.
+    if (isCreditSummary) return;
     if (!window.L) {
       const fallback = el('sheet-map-fallback');
       if (fallback) fallback.hidden = false;
@@ -1879,19 +1886,18 @@
       return `<article class="credit-reference"><div><strong>${deps.escapeHtml(reference.request_type || `SPIN/CRB request ${index + 1}`)}</strong><small>${deps.escapeHtml(reference.status || '')}${reference.created_at ? ` · ${deps.escapeHtml(deps.fmtDate(reference.created_at))}` : ''}</small></div>${links || (names ? `<small>Uploaded: ${names}</small>` : '<small>No report link recorded yet.</small>')}</article>`;
     }).join('');
     return `
+      ${farmer.jbl_visit_comment ? `<section class="credit-jbl-comment"><span class="credit-jbl-comment-heading"><span>JBL Comment</span><span class="credit-comment-type"><i data-lucide="message-square-text" aria-hidden="true"></i>Visit Note</span></span><p>${deps.escapeHtml(farmer.jbl_visit_comment)}</p></section>` : ''}
       <div class="form-section form-grid credit-analysis-form">
         ${spinReferences ? `<div class="credit-reference-panel"><div class="field-help"><strong>SPIN / CRB reference</strong> · reports already uploaded for this customer</div>${spinReferences}</div>` : ''}
         <div class="form-row"><label>Credit Decision <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="credit-decision" aria-required="true"><option value="">- Select a decision -</option>${decisionOptions}</select></div>
-        <div class="form-row"><label>Created on IMAB?</label><select id="credit-imab">${imabOptions}</select></div>
-        <div class="form-row form-row-wide">
-          <label>Customer No.</label>
+        <div class="form-row"><label>Created on iMAB? <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="credit-imab" aria-required="true">${imabOptions}</select></div>
+        <div class="form-row form-row-wide credit-customer-number-row">
+          <span class="credit-customer-number-heading"><label>Customer No.</label><span id="credit-imab-help" class="field-help credit-customer-requirement">${customerNoDisabled ? 'Available after iMAB creation' : 'Required before Head of Rural review'}</span></span>
           <input type="text" id="credit-customer-no" inputmode="numeric" pattern="[0-9]*" placeholder="IMAB customer number" value="${deps.escapeHtml(customerNoDisabled ? '' : (farmer.customer_no || ''))}"${customerNoDisabled ? ' disabled' : ''}>
-          <small id="credit-imab-help" class="field-help">${customerNoDisabled ? 'Select Yes after IMAB creation before entering a customer number.' : 'Required before this case can move to Head of Rural review.'}</small>
         </div>
         <p id="workflow-draft-state" class="field-help jbl-draft-state form-row-wide" aria-live="polite" title="Form fields save automatically.">Autosave on</p>
       </div>
       ${productConfigurationMarkup(farmer, 'credit_decision')}
-      ${farmer.jbl_visit_comment ? `<section class="credit-jbl-comment"><span>JBL Comment</span><p>${deps.escapeHtml(farmer.jbl_visit_comment)}</p></section>` : ''}
     `;
   }
 
@@ -1906,8 +1912,8 @@
       if (!enabled) customerNo.value = '';
       if (help) {
         help.textContent = enabled
-          ? 'Required before this case can move to Head of Rural review.'
-          : 'Select Yes after IMAB creation before entering a customer number.';
+          ? 'Required before Head of Rural review'
+          : 'Available after iMAB creation';
       }
     };
     imab.addEventListener('change', sync);
