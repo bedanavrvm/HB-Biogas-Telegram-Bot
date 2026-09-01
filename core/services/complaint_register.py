@@ -255,6 +255,7 @@ def register_page(*, filters: dict[str, Any], page: Any = 1, page_size: Any = 50
     return {
         'items': [serialize_register_case(case, groups) for case in queryset[offset:offset + bounded_size]],
         'pagination': {'page': current, 'pages': pages, 'page_size': bounded_size, 'total': total},
+        'start_index': offset + 1,
     }
 
 

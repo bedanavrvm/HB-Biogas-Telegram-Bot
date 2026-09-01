@@ -2119,22 +2119,13 @@
     content.innerHTML = '<div class="media-viewer-loading" role="status"><span class="spinner-inline" aria-hidden="true"></span> Loading secure media…</div>';
     overlay.classList.add('open');
     try {
-      const response = await fetch(item.preview_url, {
-        headers: mediaPreviewHeaders(),
-        cache: 'no-store',
+      const viewer = window.SecureMediaViewer;
+      if (!viewer) throw new Error('The secure media viewer is unavailable. Refresh the Portal and retry.');
+      const blob = await viewer.fetchAuthorizedBlob(item.preview_url, { headers: mediaPreviewHeaders() });
+      activeMediaObjectUrl = viewer.renderBlob(content, blob, {
+        mimeType: item.mime_type,
+        name: item.name || 'Client media',
       });
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.error || 'Could not open this client media.');
-      }
-      const blob = await response.blob();
-      if (!blob.size) throw new Error('The media file was empty.');
-      activeMediaObjectUrl = URL.createObjectURL(blob);
-      const mimeType = String(blob.type || item.mime_type || '').toLowerCase();
-      const safeName = deps.escapeHtml(item.name || 'Client media');
-      content.innerHTML = mimeType.startsWith('image/')
-        ? `<img class="media-viewer-image" src="${activeMediaObjectUrl}" alt="${safeName}">`
-        : `<iframe class="media-viewer-document" sandbox="" src="${activeMediaObjectUrl}" title="${safeName}"></iframe>`;
     } catch (error) {
       content.innerHTML = `<p class="media-viewer-error">${deps.escapeHtml(error.message || 'Could not open this client media.')} The Portal remains open; close this view and retry.</p>`;
     }

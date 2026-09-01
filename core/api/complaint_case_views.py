@@ -21,11 +21,12 @@ from core.services.complaint_cases import (
     complete_review_details,
     create_complaint_case,
     decode_complaint_start_param,
-    evidence_access,
+    evidence_for_preview,
     is_complaint_workflow,
     complaint_sheet_projection_enabled,
     list_cases_page,
     reopen_case,
+    record_evidence_preview,
     resolve_case,
     retry_case_sync,
     staff_actor_for_user,
@@ -33,6 +34,7 @@ from core.services.complaint_cases import (
     update_case,
 )
 from core.services.group_config import GroupRegistry
+from core.services.order_approval import GoogleDriveMediaStorage
 
 
 logger = logging.getLogger(__name__)
@@ -340,7 +342,7 @@ def _global_target_actions(actor, item: dict) -> dict[str, bool]:
     return {
         'close': actor_can(target_config, target_actor, 'complaint.case.close'),
         'reopen': actor_can(target_config, target_actor, 'complaint.case.reopen'),
-        'complete_details': actor_can(target_config, target_actor, 'complaint.case.update'),
+        'complete_details': actor_can(target_config, target_actor, 'complaint.case.details.complete'),
         'sync_retry': (
             complaint_sheet_projection_enabled(target_config)
             and actor_can(target_config, target_actor, 'complaint.case.sync.retry')
@@ -512,7 +514,7 @@ def complaint_cases_complete_details(request, case_id: str):
     group_config, actor, error = _context(request, payload)
     if error:
         return error
-    capability_error = _capability_error(actor, 'complaint.case.update', group_config)
+    capability_error = _capability_error(actor, 'complaint.case.details.complete', group_config)
     if capability_error:
         return capability_error
     try:
@@ -603,10 +605,42 @@ def complaint_cases_evidence_access(request, evidence_id: str):
     if capability_error:
         return capability_error
     try:
-        url = evidence_access(group_config, actor, evidence_id)
+        evidence = evidence_for_preview(group_config, actor, evidence_id)
     except ComplaintCaseError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=404)
-    return JsonResponse({'ok': True, 'url': url})
+    try:
+        content = GoogleDriveMediaStorage().download(evidence.drive_file_id)
+    except Exception:
+        logger.exception('Could not stream complaint evidence %s.', evidence.pk)
+        return JsonResponse({
+            'ok': False,
+            'error': 'The evidence could not be loaded from secure storage. Please retry shortly.',
+        }, status=503)
+
+    mime_type = str(evidence.mime_type or '').lower().split(';', 1)[0]
+    if mime_type == 'application/pdf':
+        try:
+            from core.services.secure_media_preview import pdf_preview_html
+
+            content = pdf_preview_html(content, evidence.original_filename or 'Complaint evidence.pdf')
+            mime_type = 'text/html; charset=utf-8'
+        except Exception:
+            logger.exception('Could not prepare complaint PDF evidence %s.', evidence.pk)
+            return JsonResponse({
+                'ok': False,
+                'error': 'This PDF could not be prepared for in-app viewing. Please retry shortly.',
+            }, status=503)
+
+    record_evidence_preview(group_config, actor, evidence)
+    from django.utils.http import content_disposition_header
+
+    response = HttpResponse(content, content_type=mime_type)
+    response['Content-Disposition'] = content_disposition_header(
+        False, evidence.original_filename or 'complaint-evidence'
+    )
+    response['Cache-Control'] = 'private, no-store, max-age=0'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.

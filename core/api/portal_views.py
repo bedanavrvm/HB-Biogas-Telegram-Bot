@@ -10,14 +10,12 @@ branch, product, and group grants.
 """
 from __future__ import annotations
 
-import base64
 import json
 import logging
 import re
 import time
 import uuid
 from functools import wraps
-from html import escape as html_escape
 from urllib.parse import parse_qsl, quote
 
 from django.conf import settings
@@ -816,69 +814,11 @@ def _jbl_media_access_audit_error(
     return None
 
 
-_PORTAL_PDF_PREVIEW_MAX_SOURCE_BYTES = 16 * 1024 * 1024
-_PORTAL_PDF_PREVIEW_MAX_PAGES = 8
-_PORTAL_PDF_PREVIEW_MAX_RENDERED_BYTES = 10 * 1024 * 1024
-_PORTAL_PDF_PREVIEW_SCALE = 1.25
-
-
 def _portal_pdf_preview_html(content: bytes, filename: str) -> bytes:
-    """Render bounded PDF pages to a self-contained, WebView-safe document.
+    """Compatibility wrapper around the shared Telegram-safe PDF renderer."""
+    from core.services.secure_media_preview import pdf_preview_html
 
-    Telegram Android WebView cannot reliably paint a protected PDF blob. The
-    server returns static image pages instead of asking the phone to hand the
-    document to Chrome or Drive. Limits keep an unusual PDF from consuming
-    unbounded memory or creating an oversized Mini App response.
-    """
-    if not content or len(content) > _PORTAL_PDF_PREVIEW_MAX_SOURCE_BYTES:
-        raise ValueError('This PDF is too large for an in-app preview.')
-
-    import pypdfium2 as pdfium
-
-    document = pdfium.PdfDocument(content)
-    total_pages = len(document)
-    if not total_pages:
-        raise ValueError('This PDF has no pages to preview.')
-    page_count = min(total_pages, _PORTAL_PDF_PREVIEW_MAX_PAGES)
-    rendered_bytes = 0
-    page_images: list[str] = []
-    try:
-        from io import BytesIO
-
-        for page_index in range(page_count):
-            page = document[page_index]
-            bitmap = page.render(scale=_PORTAL_PDF_PREVIEW_SCALE)
-            image = bitmap.to_pil().convert('RGB')
-            output = BytesIO()
-            image.save(output, format='JPEG', quality=82, optimize=True)
-            encoded = output.getvalue()
-            rendered_bytes += len(encoded)
-            if rendered_bytes > _PORTAL_PDF_PREVIEW_MAX_RENDERED_BYTES:
-                raise ValueError('This PDF is too detailed for an in-app preview.')
-            page_images.append(base64.b64encode(encoded).decode('ascii'))
-    finally:
-        document.close()
-
-    continuation = (
-        f'<p class="notice">Showing the first {page_count} of {total_pages} pages.</p>'
-        if total_pages > page_count else ''
-    )
-    image_markup = ''.join(
-        f'<figure><figcaption>Page {index}</figcaption>'
-        f'<img src="data:image/jpeg;base64,{encoded}" alt="{html_escape(filename)} - page {index}"></figure>'
-        for index, encoded in enumerate(page_images, start=1)
-    )
-    return f'''<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-  * {{ box-sizing: border-box; }}
-  body {{ margin: 0; padding: 12px; background: #f2f4f7; color: #1d2939; font: 14px system-ui, sans-serif; }}
-  header {{ position: sticky; top: 0; z-index: 1; padding: 8px 4px 10px; background: #f2f4f7; font-weight: 700; }}
-  figure {{ margin: 0 auto 14px; max-width: 980px; background: #fff; box-shadow: 0 1px 3px rgba(16,24,40,.16); }}
-  figcaption {{ padding: 7px 10px; color: #667085; font-size: 12px; }}
-  img {{ display: block; width: 100%; height: auto; }}
-  .notice {{ max-width: 980px; margin: 0 auto 12px; padding: 8px 10px; border-radius: 6px; background: #fff4e5; color: #7a4d00; }}
-</style></head><body><header>{html_escape(filename)}</header>{continuation}{image_markup}</body></html>'''.encode('utf-8')
+    return pdf_preview_html(content, filename)
 
 
 def _upload_generated_workbook_to_drive(data: bytes, filename: str, order_number: str) -> tuple[str, str]:

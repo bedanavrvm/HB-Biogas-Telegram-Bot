@@ -7,7 +7,11 @@ from django.db import transaction
 
 from core.models import (
     CaseUpdate,
+    ComplaintCaseControl,
     ComplaintCaseEvidence,
+    ComplaintCaseEvent,
+    ComplaintCaseImportBatch,
+    ComplaintCaseImportItem,
     FcaImportRecord,
     InvoiceUploadBatch,
     JawabuCustomer,
@@ -47,6 +51,10 @@ def group_data_counts(
         'order_updates': OrderApprovalUpdate.objects.filter(group_id=group_id).count(),
         'media_attachments': MediaAttachment.objects.filter(group_id=group_id).count(),
         'complaint_case_evidence': ComplaintCaseEvidence.objects.filter(group_id=group_id).count(),
+        'complaint_case_controls': ComplaintCaseControl.objects.filter(parsed_message__group_id=group_id).count(),
+        'complaint_case_events': ComplaintCaseEvent.objects.filter(case__parsed_message__group_id=group_id).count(),
+        'complaint_import_batches': ComplaintCaseImportBatch.objects.filter(group_id=group_id).count(),
+        'complaint_import_items': ComplaintCaseImportItem.objects.filter(batch__group_id=group_id).count(),
         'jawabu_records': JawabuVisitRecord.objects.filter(group_id=group_id).count(),
         'farmer_upload_batches': JawabuFarmerUploadBatch.objects.filter(group_id=group_id).count(),
         'linked_farmer_master_records': _linked_farmer_master_queryset(group_id).count(),
@@ -118,6 +126,13 @@ def reset_group_data(
         _spin_legacy_queryset(group_id, spin_legacy_name).delete()
     TatTrackerCase.objects.filter(group_id=group_id).delete()
     LiveSheetRecordChange.objects.filter(group_id=group_id).delete()
+    # Complaint events and import attribution intentionally use PROTECT during
+    # normal operation. This explicitly confirmed reset is the sole destructive
+    # path, so clear group-owned dependants before their cases and source rows.
+    ComplaintCaseEvent.objects.filter(case__parsed_message__group_id=group_id).delete()
+    ComplaintCaseImportItem.objects.filter(batch__group_id=group_id).delete()
+    ComplaintCaseImportBatch.objects.filter(group_id=group_id).delete()
+    ComplaintCaseControl.objects.filter(parsed_message__group_id=group_id).delete()
     CaseUpdate.objects.filter(group_id=group_id).delete()
     ParsedMessage.objects.filter(group_id=group_id).delete()
 

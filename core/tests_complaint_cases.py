@@ -92,6 +92,12 @@ class ComplaintCaseServiceTests(TestCase):
             user=self.manager, workflow='complaint_cases', role='MANAGER',
             group_configuration=self.group,
         )
+        self.hb_staff = User.objects.create_user(username='hb-resolver', first_name='HB', last_name='Resolver', is_active=True)
+        UserProfile.objects.create(user=self.hb_staff, telegram_id='300', telegram_username='hb_resolver')
+        AccessGrant.objects.create(
+            user=self.hb_staff, workflow='complaint_cases', role='HB_STAFF',
+            group_configuration=self.group,
+        )
 
     def create_case(self, group_id, message_id):
         raw = RawMessage.objects.create(telegram_message_id=message_id, content='raw complaint')
@@ -188,8 +194,8 @@ class ComplaintCaseServiceTests(TestCase):
 
         self.assertEqual([case['case_id'] for case in cases], ['CASE-1', 'CASE-3'])
 
-    def test_branch_scoped_officer_can_reopen_any_resolved_case_in_the_group(self):
-        AccessGrant.objects.filter(user=self.officer, workflow='complaint_cases').update(branch='Nakuru')
+    def test_branch_scoped_manager_can_reopen_any_resolved_case_in_the_group(self):
+        AccessGrant.objects.filter(user=self.manager, workflow='complaint_cases').update(branch='Nakuru')
         self.case.branch_region = 'Embu'
         self.case.complaint_status = 'Closed'
         self.case.save(update_fields=['branch_region', 'complaint_status'])
@@ -197,7 +203,7 @@ class ComplaintCaseServiceTests(TestCase):
         with patch('core.services.complaint_cases.get_sheets_service') as get_service:
             get_service.return_value.update_case_row.return_value = True
             reopened = reopen_case(
-                self.config, self.actor('100'), 'CASE-1',
+                self.config, self.actor('200'), 'CASE-1',
                 {'client_request_id': 'cross-branch-reopen-1', 'expected_revision': 1, 'reason': 'Resolution was insufficient.'},
             )
 
@@ -238,7 +244,7 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(payload['start_index'], 1)
 
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
-    def test_manager_resolves_and_any_officer_reopens_through_dedicated_endpoints(self):
+    def test_hb_resolves_and_manager_reopens_through_dedicated_endpoints(self):
         with patch('core.services.complaint_cases.get_sheets_service') as get_service:
             get_service.return_value.update_case_row.return_value = True
             resolved = self.client.post(
@@ -246,14 +252,14 @@ class ComplaintCaseServiceTests(TestCase):
                 data=json.dumps({
                     'group_id': self.group.group_id, 'client_request_id': 'api-resolve-1',
                     'expected_revision': 1, 'resolution_text': 'Customer remedy completed.',
-                }), content_type='application/json', HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('200'),
+                }), content_type='application/json', HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('300'),
             )
             reopened = self.client.post(
                 reverse('complaint_cases_reopen', args=['CASE-1']),
                 data=json.dumps({
                     'group_id': self.group.group_id, 'client_request_id': 'api-reopen-1',
                     'expected_revision': 2, 'reason': 'The remedy was incomplete.',
-                }), content_type='application/json', HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('100'),
+                }), content_type='application/json', HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('200'),
             )
 
         self.assertEqual(resolved.status_code, 200)
@@ -291,14 +297,14 @@ class ComplaintCaseServiceTests(TestCase):
                 data=json.dumps({
                     'group_id': self.group.group_id, 'client_request_id': 'api-winner-1',
                     'expected_revision': 1, 'resolution_text': 'Winning resolution.',
-                }), content_type='application/json', HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('200'),
+                }), content_type='application/json', HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('300'),
             )
             conflict = self.client.post(
                 reverse('complaint_cases_resolve', args=['CASE-1']),
                 data=json.dumps({
                     'group_id': self.group.group_id, 'client_request_id': 'api-loser-1',
                     'expected_revision': 1, 'resolution_text': 'Losing draft.',
-                }), content_type='application/json', HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('200'),
+                }), content_type='application/json', HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('300'),
             )
 
         self.assertEqual(conflict.status_code, 409)
@@ -333,8 +339,32 @@ class ComplaintCaseServiceTests(TestCase):
                 {'client_request_id': 'request-2', 'expected_revision': 1, 'resolution_text': 'Done'}, [],
             )
 
+    def test_manager_cannot_resolve_and_officer_cannot_reopen(self):
+        with self.assertRaisesMessage(ComplaintCaseError, 'does not permit this complaint transition'):
+            resolve_case(
+                self.config, self.actor('200'), 'CASE-1',
+                {'client_request_id': 'manager-resolve-denied', 'expected_revision': 1, 'resolution_text': 'Done'}, [],
+            )
+        self.case.complaint_status = 'Closed'
+        self.case.save(update_fields=['complaint_status'])
+        with self.assertRaisesMessage(ComplaintCaseError, 'does not permit this complaint transition'):
+            reopen_case(
+                self.config, self.actor('100'), 'CASE-1',
+                {'client_request_id': 'officer-reopen-denied', 'expected_revision': 1, 'reason': 'Insufficient'},
+            )
+
+    def test_hb_resolver_cannot_create_complaints(self):
+        with self.assertRaisesMessage(ComplaintCaseError, 'does not permit creating complaints'):
+            create_complaint_case(
+                self.config, self.actor('300'), {
+                    'client_request_id': 'hb-create-denied', 'client_name': 'Denied',
+                    'customer_id': '123456', 'branch_region': 'Nakuru',
+                    'complaint_category': 'Product issue', 'complaint_description': 'Not allowed.',
+                }, [],
+            )
+
     @patch('core.services.complaint_cases.append_parsed_message_to_sheet', return_value=True)
-    def test_manager_completes_review_details_idempotently(self, append_to_sheet):
+    def test_officer_completes_review_details_idempotently(self, append_to_sheet):
         self.case.complaint_status = 'Review Needed'
         self.case.customer_id = ''
         self.case.complaint_category = self.category.label
@@ -343,32 +373,32 @@ class ComplaintCaseServiceTests(TestCase):
         fields = {
             'client_request_id': 'complete-details-1',
             'expected_revision': 1,
-            'customer_id': 'CUSTOMER-100',
+            'customer_id': '100100',
             'complaint_category': self.category.label,
         }
 
-        first = complete_review_details(self.config, self.actor('200'), 'CASE-1', fields)
-        replay = complete_review_details(self.config, self.actor('200'), 'CASE-1', fields)
+        first = complete_review_details(self.config, self.actor('100'), 'CASE-1', fields)
+        replay = complete_review_details(self.config, self.actor('100'), 'CASE-1', fields)
 
         self.case.refresh_from_db()
         self.assertEqual(self.case.complaint_status, 'Open')
-        self.assertEqual(self.case.customer_id, 'CUSTOMER-100')
+        self.assertEqual(self.case.customer_id, '100100')
         self.assertFalse(first['needs_details'])
         self.assertFalse(replay['needs_details'])
         self.assertEqual(self.case.case_updates.filter(source='mini_app_review_completion').count(), 1)
         self.assertEqual(self.case.complaint_control.events.filter(action='details_completed').count(), 1)
         append_to_sheet.assert_called_once()
 
-    def test_officer_cannot_complete_review_details(self):
+    def test_hb_staff_cannot_complete_review_details(self):
         self.case.complaint_status = 'Review Needed'
         self.case.customer_id = ''
         self.case.complaint_category = self.category.label
         self.case.save(update_fields=['complaint_status', 'customer_id', 'complaint_category'])
 
         with self.assertRaisesMessage(ComplaintCaseError, 'does not permit completing complaint details'):
-            complete_review_details(self.config, self.actor('100'), 'CASE-1', {
+            complete_review_details(self.config, self.actor('300'), 'CASE-1', {
                 'client_request_id': 'complete-details-2', 'expected_revision': 1,
-                'customer_id': 'CUSTOMER-101', 'complaint_category': self.category.label,
+                'customer_id': '100101', 'complaint_category': self.category.label,
             })
 
     def test_category_suggestion_is_deterministic_and_never_assigns(self):
@@ -399,7 +429,7 @@ class ComplaintCaseServiceTests(TestCase):
         ):
             get_service.return_value.update_case_row.return_value = True
             resolve_case(
-                self.config, self.actor('200'), 'CASE-1',
+                self.config, self.actor('300'), 'CASE-1',
                 {'client_request_id': 'request-3', 'resolution_text': 'Resolved with photo.', 'expected_revision': 1}, [evidence],
             )
         self.assertEqual(ComplaintCaseEvidence.objects.get().upload_status, 'failed')
@@ -409,7 +439,7 @@ class ComplaintCaseServiceTests(TestCase):
         with patch('core.services.complaint_cases.get_sheets_service') as get_service:
             get_service.return_value.update_case_row.return_value = False
             result = resolve_case(
-                self.config, self.actor('200'), 'CASE-1',
+                self.config, self.actor('300'), 'CASE-1',
                 {'client_request_id': 'local-first-1', 'expected_revision': 1, 'resolution_text': 'Resolved locally.'}, [],
             )
         self.case.refresh_from_db()
@@ -421,8 +451,19 @@ class ComplaintCaseServiceTests(TestCase):
         evidence = SimpleUploadedFile('photo.jpg', b'not-an-image', content_type='image/jpeg')
         with self.assertRaisesMessage(ComplaintCaseError, 'genuine JPEG'):
             resolve_case(
-                self.config, self.actor('200'), 'CASE-1',
+                self.config, self.actor('300'), 'CASE-1',
                 {'client_request_id': 'spoofed-file-1', 'expected_revision': 1, 'resolution_text': 'Evidence.'}, [evidence],
+            )
+
+    def test_new_docx_evidence_is_rejected(self):
+        evidence = SimpleUploadedFile(
+            'legacy.docx', b'PK\x03\x04legacy-docx',
+            content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        )
+        with self.assertRaisesMessage(ComplaintCaseError, 'JPEG, PNG, WebP, or PDF'):
+            resolve_case(
+                self.config, self.actor('300'), 'CASE-1',
+                {'client_request_id': 'docx-denied-1', 'expected_revision': 1, 'resolution_text': 'Evidence.'}, [evidence],
             )
 
     def test_evidence_filename_does_not_expose_customer_id(self):
@@ -434,7 +475,7 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertTrue(filename.endswith('-01-site_photo.jpg'))
 
     def test_stale_revision_is_rejected_without_overwriting_the_first_update(self):
-        actor = self.actor('200')
+        actor = self.actor('300')
         with patch('core.services.complaint_cases.get_sheets_service') as get_service:
             get_service.return_value.update_case_row.return_value = True
             resolve_case(self.config, actor, 'CASE-1', {
@@ -450,15 +491,15 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(self.case.complaint_status, 'Closed')
         self.assertEqual(ComplaintCaseEvent.objects.filter(case__parsed_message=self.case).count(), 1)
 
-    def test_any_authorized_officer_can_reopen_a_resolved_case(self):
+    def test_manager_can_reopen_a_resolved_case(self):
         with patch('core.services.complaint_cases.get_sheets_service') as get_service:
             get_service.return_value.update_case_row.return_value = True
-            resolve_case(self.config, self.actor('200'), 'CASE-1', {
+            resolve_case(self.config, self.actor('300'), 'CASE-1', {
                 'client_request_id': 'resolve-before-reopen', 'expected_revision': 1,
                 'resolution_text': 'Initial remedy.',
             }, [])
-            result = reopen_case(self.config, self.actor('100'), 'CASE-1', {
-                'client_request_id': 'officer-reopen', 'expected_revision': 2,
+            result = reopen_case(self.config, self.actor('200'), 'CASE-1', {
+                'client_request_id': 'manager-reopen', 'expected_revision': 2,
                 'reason': 'The remedy did not address the reported fault.',
             })
         self.case.refresh_from_db()
@@ -473,8 +514,8 @@ class ComplaintCaseServiceTests(TestCase):
         }
         with patch('core.services.complaint_cases.get_sheets_service') as get_service:
             get_service.return_value.update_case_row.return_value = True
-            first = resolve_case(self.config, self.actor('200'), 'CASE-1', fields, [])
-            replay = resolve_case(self.config, self.actor('200'), 'CASE-1', fields, [])
+            first = resolve_case(self.config, self.actor('300'), 'CASE-1', fields, [])
+            replay = resolve_case(self.config, self.actor('300'), 'CASE-1', fields, [])
 
         self.assertEqual(first['revision'], replay['revision'])
         self.assertEqual(self.case.case_updates.filter(client_request_id='resolve-retry-1').count(), 1)
@@ -680,6 +721,60 @@ class ComplaintCaseServiceTests(TestCase):
                 [],
             )
 
+    def test_customer_id_is_digits_only_and_preserves_leading_zeroes(self):
+        with self.assertRaisesMessage(ComplaintCaseError, 'numbers only'):
+            create_complaint_case(
+                self.config, self.actor('100'), {
+                    'client_request_id': 'create-invalid-id', 'client_name': 'Invalid ID',
+                    'customer_phone': '0712345678', 'customer_id': 'ID-300',
+                    'branch_region': 'Nakuru', 'complaint_category': 'Product issue',
+                    'complaint_description': 'Invalid identifier should not be saved.',
+                }, [],
+            )
+
+        with patch('core.services.complaint_cases.append_parsed_message_to_sheet', return_value=False):
+            result = create_complaint_case(
+                self.config, self.actor('100'), {
+                    'client_request_id': 'create-leading-zero-id', 'client_name': 'Leading Zero',
+                    'customer_id': '00123456', 'branch_region': 'Nakuru',
+                    'complaint_category': 'Product issue',
+                    'complaint_description': 'Identifier should preserve leading zeroes.',
+                }, [],
+            )
+        self.assertEqual(ParsedMessage.objects.get(pk=result['case']['id']).customer_id, '00123456')
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_evidence_is_streamed_in_app_without_exposing_drive_url(self):
+        update = CaseUpdate.objects.create(
+            parsed_message=self.case, group_id=self.group.group_id,
+            updated_by='Officer One', raw_update_text='Evidence uploaded.',
+        )
+        evidence = ComplaintCaseEvidence.objects.create(
+            parsed_message=self.case, case_update=update, group_id=self.group.group_id,
+            original_filename='site-photo.jpg', mime_type='image/jpeg', size=8,
+            content_hash='e' * 64, drive_file_id='drive-file-id',
+            drive_url='https://drive.example/private', upload_status='success',
+        )
+
+        with patch('core.api.complaint_case_views.GoogleDriveMediaStorage.download', return_value=b'jpeg-data'):
+            response = self.client.post(
+                reverse('complaint_cases_evidence_access', args=[evidence.pk]),
+                data=json.dumps({'group_id': self.group.group_id, 'client_request_id': 'evidence-open-1'}),
+                content_type='application/json',
+                HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('100'),
+                HTTP_X_REQUEST_ID='evidence-open-1',
+                HTTP_IDEMPOTENCY_KEY='evidence-open-1',
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b'jpeg-data')
+        self.assertEqual(response['Content-Type'], 'image/jpeg')
+        self.assertIn('no-store', response['Cache-Control'])
+        self.assertNotIn('drive.example', response.content.decode('latin1'))
+        self.assertTrue(ComplaintCaseEvent.objects.filter(
+            case__parsed_message=self.case, action='evidence_opened',
+        ).exists())
+
     @patch('core.services.complaint_cases.append_parsed_message_to_sheet', return_value=False)
     def test_new_case_keeps_the_audit_record_when_sheet_sync_is_deferred(self, append_to_sheet):
         result = create_complaint_case(
@@ -688,7 +783,7 @@ class ComplaintCaseServiceTests(TestCase):
             {
                 'client_request_id': 'create-complaint-003',
                 'client_name': 'Deferred Sync Client',
-                'customer_id': 'ID-300',
+                'customer_id': '00300',
                 'branch_region': 'Nakuru',
                 'complaint_category': 'Product issue',
                 'complaint_description': 'Create locally and retry the Sheet sync later.',
@@ -792,15 +887,16 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
             group_configuration=self.group_b,
         )
         allowed = self.post('complaint_cases_global_detail', args=[self.case_b.pk]).json()['case']['actions']
-        self.assertTrue(allowed['reopen'])
+        self.assertFalse(allowed['reopen'])
         self.assertFalse(allowed['close'])
-        self.assertFalse(allowed['complete_details'])
+        self.assertTrue(allowed['complete_details'])
 
         AccessGrant.objects.filter(
             user=self.officer, workflow='complaint_cases', group_configuration=self.group_b,
         ).update(role='MANAGER')
         manager_actions = self.post('complaint_cases_global_detail', args=[self.case_b.pk]).json()['case']['actions']
         self.assertTrue(manager_actions['complete_details'])
+        self.assertTrue(manager_actions['reopen'])
 
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
     def test_export_requires_all_case_confirmation_and_audits_safe_workbook(self):
@@ -918,10 +1014,13 @@ class ComplaintCaseOptionalSheetTests(TestCase):
         User = get_user_model()
         self.officer = User.objects.create_user(username='django-only-officer', is_active=True)
         self.manager = User.objects.create_user(username='django-only-manager', is_active=True)
+        self.hb_staff = User.objects.create_user(username='django-only-hb', is_active=True)
         UserProfile.objects.create(user=self.officer, telegram_id='901')
         UserProfile.objects.create(user=self.manager, telegram_id='902')
+        UserProfile.objects.create(user=self.hb_staff, telegram_id='903')
         AccessGrant.objects.create(user=self.officer, workflow='complaint_cases', role='OFFICER', group_configuration=self.group)
         AccessGrant.objects.create(user=self.manager, workflow='complaint_cases', role='MANAGER', group_configuration=self.group)
+        AccessGrant.objects.create(user=self.hb_staff, workflow='complaint_cases', role='HB_STAFF', group_configuration=self.group)
 
     @patch('core.services.complaint_cases.get_sheets_service')
     @patch('core.services.complaint_cases.append_parsed_message_to_sheet')
@@ -930,14 +1029,14 @@ class ComplaintCaseOptionalSheetTests(TestCase):
         result = create_complaint_case(
             self.config, officer, {
                 'client_request_id': 'django-only-create-1', 'client_name': 'Local Client',
-                'customer_id': 'LOCAL-1', 'branch_region': 'Nakuru',
+                'customer_id': '000001', 'branch_region': 'Nakuru',
                 'complaint_category': 'Product issue', 'complaint_description': 'Saved in Django only.',
             }, [],
         )
         case = ParsedMessage.objects.get(pk=result['case']['id'])
-        manager = staff_actor_for_user(self.config, self.manager)
+        resolver = staff_actor_for_user(self.config, self.hb_staff)
         resolved = resolve_case(
-            self.config, manager, case.message_id, {
+            self.config, resolver, case.message_id, {
                 'client_request_id': 'django-only-resolve-1', 'expected_revision': 1,
                 'resolution_text': 'Resolved without a spreadsheet.',
             }, [],
@@ -968,7 +1067,7 @@ class ComplaintCaseOptionalSheetTests(TestCase):
         officer = staff_actor_for_user(self.config, self.officer)
         payload = {
             'client_request_id': 'django-only-retry-1', 'client_name': 'Retry Client',
-            'customer_id': 'LOCAL-RETRY', 'branch_region': 'Nakuru',
+            'customer_id': '000002', 'branch_region': 'Nakuru',
             'complaint_category': 'Product issue', 'complaint_description': 'Retain old sync evidence.',
         }
         first = create_complaint_case(self.config, officer, payload, [])
@@ -1000,7 +1099,12 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
             self.assertIn(expected, template)
         for removed in ('name="group"', 'name="branch"', 'name="priority"', 'name="sla"', 'name="sync"', 'name="sort"'):
             self.assertNotIn(removed, template)
-        self.assertEqual(template.count('<th>'), 12)
+        self.assertEqual(template.count('<th>') + template.count('<th class='), 13)
+        self.assertIn('<th class="row-number-cell">#</th><th>Case ID</th>', template)
+        self.assertIn('type="date"', template)
+        self.assertIn('inputmode="numeric" pattern="[0-9]*"', template)
+        self.assertIn('id="mediaViewerOverlay"', template)
+        self.assertIn('secure_media_viewer.js', template)
         self.assertIn('This exports all ${count} cases across all complaint groups', script)
         self.assertIn("miniapp/utils.js", template)
         self.assertIn("data.set('expected_revision'", script)
@@ -1011,6 +1115,10 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn("telegram?.onEvent?.('deactivated'", script)
         self.assertIn("document.addEventListener('visibilitychange'", script)
         self.assertIn('state.evidenceLimits.max_total_upload_mb', script)
+        self.assertIn('openSelectedEvidence', script)
+        self.assertIn('openPersistedEvidence', script)
+        self.assertNotIn('telegram.openLink(response.url)', script)
+        self.assertNotIn('.docx', template)
         self.assertIn("json('categories/suggest/'", script)
         self.assertIn('function showConflict(error)', script)
         self.assertIn("telegram?.BackButton?.onClick", script)

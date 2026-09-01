@@ -1,16 +1,48 @@
 from django.test import TestCase
 
 from core.models import (
+    ComplaintCaseControl,
+    ComplaintCaseEvent,
+    ComplaintCaseImportBatch,
+    ComplaintCaseImportItem,
     JawabuCustomer,
     JawabuFarmerMaster,
     JawabuFarmerUploadBatch,
     JawabuPipelineEvent,
     SpinCreditRequest,
+    ParsedMessage,
+    ProcessedMessage,
+    RawMessage,
 )
 from core.services.group_reset import group_data_counts, reset_group_data
 
 
 class GroupResetSpinTests(TestCase):
+    def test_reset_removes_protected_complaint_records_in_dependency_order(self):
+        raw = RawMessage.objects.create(telegram_message_id='reset-complaint-raw', content='complaint')
+        processed = ProcessedMessage.objects.create(message_hash='reset-complaint-hash', raw_message=raw)
+        case = ParsedMessage.objects.create(
+            processed_message=processed, message_id='CMP-RESET-1', group_id='-100complaintreset',
+            customer_name='Reset Customer', complaint_description='Reset test', complaint_status='Open',
+        )
+        control = ComplaintCaseControl.objects.create(parsed_message=case)
+        ComplaintCaseEvent.objects.create(case=control, revision=1, action='created')
+        batch = ComplaintCaseImportBatch.objects.create(
+            group_id='-100complaintreset', source_telegram_message_id='reset-source',
+            source_hash='reset-source-hash',
+        )
+        ComplaintCaseImportItem.objects.create(batch=batch, parsed_message=case, source_index=1)
+
+        result = reset_group_data('-100complaintreset')
+
+        self.assertEqual(result['after']['parsed_messages'], 0)
+        self.assertEqual(result['after']['complaint_case_controls'], 0)
+        self.assertEqual(result['after']['complaint_case_events'], 0)
+        self.assertEqual(result['after']['complaint_import_batches'], 0)
+        self.assertEqual(result['after']['complaint_import_items'], 0)
+        self.assertFalse(ProcessedMessage.objects.filter(pk=processed.pk).exists())
+        self.assertFalse(RawMessage.objects.filter(pk=raw.pk).exists())
+
     def test_clear_all_farmer_master_works_without_upload_batch_option(self):
         upload = JawabuFarmerUploadBatch.objects.create(
             group_id='-100jawabureset',

@@ -2,13 +2,11 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import logging
 import re
 import base64
 import binascii
-import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -48,11 +46,6 @@ logger = logging.getLogger(__name__)
 ACTIVE_STATUSES = {'Open', 'In Progress', 'Review Needed', ''}
 STATUS_VALUES = {'Open', 'In Progress', 'Closed'}
 MANAGER_ROLE = 'MANAGER'
-ALLOWED_DOCUMENT_TYPES = {
-    'application/pdf',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-}
-
 CATEGORY_SUGGESTION_RULES = (
     ('relocation-request', (
         r'\brelocat(?:e|ed|ing|ion)\b', r'\b(?:move|moving|shift)\b.{0,30}\b(?:system|digester|unit)\b',
@@ -267,7 +260,9 @@ def staff_actor_for_user(group_config, canonical_user, *, identity=None) -> Comp
     if not access['authorized']:
         raise ComplaintCaseError('Your Telegram account is not configured for complaint cases in this group.')
     roles = {str(role).upper() for role in access['roles']}
-    role = MANAGER_ROLE if MANAGER_ROLE in roles else ('OFFICER' if 'OFFICER' in roles else ('IT' if 'IT' in roles else ''))
+    role = MANAGER_ROLE if MANAGER_ROLE in roles else (
+        'OFFICER' if 'OFFICER' in roles else ('HB_STAFF' if 'HB_STAFF' in roles else ('IT' if 'IT' in roles else ''))
+    )
     if not role:
         raise ComplaintCaseError('Your user has no complaint-case role for this group.')
     from core.services.workflow_capabilities import effective_capability_keys
@@ -517,6 +512,8 @@ def create_complaint_case(
     fields: dict[str, Any],
     uploaded_files: list,
 ) -> dict[str, Any]:
+    if not actor_can(group_config, actor, 'complaint.case.create'):
+        raise ComplaintCaseError('Your role does not permit creating complaints in this group.')
     request_id = create_request_id(fields.get('client_request_id'))
     validate_uploaded_files(uploaded_files)
     values = validate_new_case_fields(group_config, fields)
@@ -661,7 +658,7 @@ def validate_new_case_fields(group_config, fields: dict[str, Any]) -> dict[str, 
     branch_region = required_case_text(fields.get('branch_region'), 'Branch')
     category_text = required_case_text(fields.get('complaint_category'), 'Complaint category')
     complaint_description = required_description(fields.get('complaint_description'))
-    customer_id = limited_case_text(fields.get('customer_id'), 'Customer ID')
+    customer_id = numeric_customer_id(fields.get('customer_id'))
     phone_input = str(fields.get('customer_phone') or '').strip()
     customer_phone = normalize_kenyan_phone(phone_input) if phone_input else ''
     if phone_input and not customer_phone:
@@ -735,6 +732,14 @@ def limited_case_text(value: Any, label: str) -> str:
     return text
 
 
+def numeric_customer_id(value: Any) -> str:
+    """Validate an optional national ID as digits while preserving leading zeros."""
+    text = limited_case_text(value, 'Customer ID')
+    if text and (not text.isascii() or not text.isdigit()):
+        raise ComplaintCaseError('Customer ID must contain numbers only.')
+    return text
+
+
 def complaint_case_message_id(group_id: str, request_id: str) -> str:
     return f'CMP-MA-{hashlib.sha256(f"{group_id}:{request_id}".encode()).hexdigest()[:24]}'
 
@@ -773,7 +778,7 @@ def complete_review_details(
     """Complete identifiers on a Review Needed case and return it to Pending."""
     request_id = create_request_id(fields.get('client_request_id'))
     case = _case_for_group(group_config.group_id, case_id, actor=actor)
-    if not actor_can(group_config, actor, 'complaint.case.update', case):
+    if not actor_can(group_config, actor, 'complaint.case.details.complete', case):
         raise ComplaintCaseError('Your role does not permit completing complaint details in this group.')
     control = ensure_case_control(case, group_config)
     values = validate_review_completion_fields(group_config, case, fields)
@@ -915,10 +920,12 @@ def validate_review_completion_fields(group_config, case: ParsedMessage, fields:
     customer_phone = normalize_kenyan_phone(phone_input) if phone_input else ''
     if not customer_phone:
         raise ComplaintCaseError('Enter the missing valid Kenyan phone number.')
-    submitted_id = limited_case_text(fields.get('customer_id'), 'Customer ID')
-    if case.customer_id and submitted_id and submitted_id.casefold() != case.customer_id.casefold():
+    submitted_id = numeric_customer_id(fields.get('customer_id'))
+    existing_id = str(case.customer_id or '').strip()
+    existing_id_is_numeric = bool(existing_id and existing_id.isascii() and existing_id.isdigit())
+    if existing_id_is_numeric and submitted_id and submitted_id != existing_id:
         raise ComplaintCaseError('The existing customer ID cannot be changed in this completion action.')
-    customer_id = case.customer_id or submitted_id
+    customer_id = existing_id if existing_id_is_numeric else submitted_id
     if not customer_id:
         raise ComplaintCaseError('Enter the missing customer ID.')
     category = resolve_category(group_config, fields.get('complaint_category') or case.complaint_category)
@@ -972,7 +979,7 @@ def validate_update_fields(group_config, case: ParsedMessage, actor: ComplaintCa
     if status not in {'Open', 'Closed'}:
         raise ComplaintCaseError('Complaint cases can only be Pending or Resolved.')
     if status == 'Closed' and case.complaint_status != 'Closed' and not actor_can(group_config, actor, 'complaint.case.close'):
-        raise ComplaintCaseError('Only a case manager can close a complaint.')
+        raise ComplaintCaseError('Only authorized HomeBiogas resolution staff can resolve a complaint.')
     if case.complaint_status == 'Closed' and status != 'Closed' and not actor_can(group_config, actor, 'complaint.case.reopen'):
         raise ComplaintCaseError('Your role cannot reopen this complaint.')
     if case.complaint_status == 'Closed' and status == 'Closed':
@@ -1178,19 +1185,25 @@ def retry_case_sync(group_config, actor: ComplaintCaseActor, case_id: str) -> di
     return case_detail(group_config, case_id, actor)
 
 
-def evidence_access(group_config, actor: ComplaintCaseActor, evidence_id: str) -> str:
+def evidence_for_preview(group_config, actor: ComplaintCaseActor, evidence_id: str) -> ComplaintCaseEvidence:
     evidence = ComplaintCaseEvidence.objects.select_related('parsed_message').filter(pk=evidence_id).first()
-    if not evidence or evidence.upload_status != 'success' or not evidence.drive_url:
+    if not evidence or evidence.upload_status != 'success' or not evidence.drive_file_id:
         raise ComplaintCaseError('Evidence is unavailable.')
     case = _case_for_group(group_config.group_id, evidence.parsed_message.message_id, actor=actor)
     if not actor_can(group_config, actor, 'complaint.case.evidence.view', case):
         raise ComplaintCaseError('Your role cannot view evidence for this case.')
+    if evidence.mime_type not in {'image/jpeg', 'image/png', 'image/webp', 'application/pdf'}:
+        raise ComplaintCaseError('This older evidence type cannot be previewed inside the Mini App.')
+    return evidence
+
+
+def record_evidence_preview(group_config, actor: ComplaintCaseActor, evidence: ComplaintCaseEvidence) -> None:
+    case = _case_for_group(group_config.group_id, evidence.parsed_message.message_id, actor=actor)
     control = ensure_case_control(case, group_config)
     ComplaintCaseEvent.objects.create(
         case=control, revision=control.revision, action='evidence_opened', actor=actor.user,
         actor_label=actor.name, after_values={'evidence_id': str(evidence.pk)},
     )
-    return evidence.drive_url
 
 
 def append_resolution_note(existing: str, actor_name: str, note: str) -> str:
@@ -1213,7 +1226,7 @@ def validate_uploaded_files(uploaded_files: list) -> None:
         if int(getattr(file_obj, 'size', 0) or 0) > max_file_bytes:
             raise ComplaintCaseError(f'Each evidence file must be {max_file_bytes // (1024 * 1024)} MB or smaller.')
         if not detected_upload_type(file_obj):
-            raise ComplaintCaseError('Evidence must be a genuine JPEG, PNG, WebP, PDF, or DOCX file.')
+            raise ComplaintCaseError('Evidence must be a genuine JPEG, PNG, WebP, or PDF file.')
 
 
 def allowed_upload(file_obj) -> bool:
@@ -1235,14 +1248,6 @@ def detected_upload_type(file_obj) -> str:
         return 'image/webp'
     if suffix == '.pdf' and content.startswith(b'%PDF-'):
         return 'application/pdf'
-    if suffix == '.docx' and content.startswith(b'PK'):
-        try:
-            with zipfile.ZipFile(io.BytesIO(content)) as archive:
-                names = set(archive.namelist())
-            if '[Content_Types].xml' in names and 'word/document.xml' in names:
-                return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-        except (OSError, zipfile.BadZipFile):
-            return ''
     return ''
 
 
@@ -1447,10 +1452,17 @@ def serialize_update(update: CaseUpdate) -> dict[str, Any]:
 
 
 def serialize_evidence(evidence: ComplaintCaseEvidence) -> dict[str, Any]:
+    previewable = (
+        evidence.upload_status == 'success'
+        and bool(evidence.drive_file_id)
+        and evidence.mime_type in {'image/jpeg', 'image/png', 'image/webp', 'application/pdf'}
+    )
     return {
         'id': str(evidence.id),
         'name': evidence.original_filename,
-        'url': f'/api/complaints/evidence/{evidence.id}/open/' if evidence.upload_status == 'success' else '',
+        'mime_type': evidence.mime_type,
+        'preview_url': f'/api/complaints/evidence/{evidence.id}/open/' if previewable else '',
+        'previewable': previewable,
         'status': evidence.upload_status,
         'created_at': format_datetime(evidence.created_at),
     }

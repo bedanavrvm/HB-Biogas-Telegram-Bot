@@ -34,6 +34,7 @@ WORKFLOW_ROLES = {
     'complaint_cases': (
         ('OFFICER', 'Complaint Case Officer'),
         ('MANAGER', 'Complaint Case Manager'),
+        ('HB_STAFF', 'HomeBiogas Resolution Staff'),
         ('IT', 'IT / Platform Support'),
     ),
     'tat_tracker': (

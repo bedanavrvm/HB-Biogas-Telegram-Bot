@@ -16,7 +16,7 @@
       <button id="refreshBtn" class="icon-button" type="button" aria-label="Refresh cases">&#8635;</button>
     </header>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <section id="loadingState" class="loading-state" aria-live="polite">Loading complaint cases...</section>
+    <section id="loadingState" class="loading-state" aria-live="polite"><span class="spinner-inline" aria-hidden="true"></span><span>Loading complaint cases...</span></section>
     <nav id="workspaceTabs" class="workspace-tabs" aria-label="Complaint workspace" hidden>
       <button id="queueWorkspaceBtn" type="button" class="active">Queue</button>
       <button id="globalWorkspaceBtn" type="button">All cases</button>
@@ -48,8 +48,8 @@
       <p id="globalResultCount" class="muted">0 cases</p>
       <div class="register-table-wrap">
         <table class="register-table">
-          <thead><tr><th>Case ID</th><th>Customer Name</th><th>Phone Number</th><th>Customer ID</th><th>Branch</th><th>Category</th><th>Complaint</th><th>Status</th><th>Reported At</th><th>Resolved At</th><th>Days Open</th><th>Resolution</th></tr></thead>
-          <tbody id="globalCaseRows"><tr><td colspan="12">Open All cases to load the register.</td></tr></tbody>
+          <thead><tr><th class="row-number-cell">#</th><th>Case ID</th><th>Customer Name</th><th>Phone Number</th><th>Customer ID</th><th>Branch</th><th>Category</th><th>Complaint</th><th>Status</th><th>Reported At</th><th>Resolved At</th><th>Days Open</th><th>Resolution</th></tr></thead>
+          <tbody id="globalCaseRows"><tr><td colspan="13">Open All cases to load the register.</td></tr></tbody>
         </table>
       </div>
       <nav id="globalPagination" class="pagination" aria-label="Global case pages" hidden><button id="globalPreviousBtn" type="button">Previous</button><span id="globalPageLabel">Page 1 of 1</span><button id="globalNextBtn" type="button">Next</button></nav>
@@ -58,19 +58,17 @@
     <section id="createView" hidden>
       <button class="back-button" type="button" data-back>&larr; Queue</button>
       <form id="createCaseForm" class="panel" novalidate>
-        <div class="panel-heading"><p class="eyebrow">Officer intake</p><h2>New complaint</h2><p class="muted">Record the customer report. A Manager will resolve it from the shared queue.</p></div>
+        <div class="panel-heading"><p class="eyebrow">Complaint intake</p><h2>New complaint</h2><p class="muted">Record the customer report. HomeBiogas resolution staff will resolve it from the shared queue.</p></div>
         <div class="form-grid">
           <label class="full">Customer name<input name="client_name" maxlength="255" autocomplete="name" required></label>
           <label>Phone number<input name="customer_phone" type="tel" maxlength="20" inputmode="tel" autocomplete="tel"></label>
-          <label>Customer ID<input name="customer_id" maxlength="255" autocomplete="off"></label>
-          <label>Branch<input name="branch_region" list="branchOptions" maxlength="255" required></label>
-          <label class="full">What happened?<textarea name="complaint_description" rows="4" maxlength="5000" required></textarea></label>
-          <label>Category<input name="complaint_category" list="categoryOptions" maxlength="255" required><small id="categoryGuidance" class="muted">Choose the primary complaint.</small></label>
-          <div id="categorySuggestion" class="category-suggestion full" role="status" aria-live="polite" hidden><div><strong id="categorySuggestionTitle"></strong><p id="categorySuggestionText"></p></div><button id="applyCategorySuggestionBtn" type="button" hidden>Use suggestion</button></div>
+          <label>Customer national ID<input name="customer_id" type="text" maxlength="255" inputmode="numeric" pattern="[0-9]*" autocomplete="off"></label>
+          <label>Branch<select name="branch_region" required><option value="">Select branch</option></select></label>
+          <label class="full"><span class="label-line"><span>What happened?</span><button id="categorySuggestion" class="category-suggestion" type="button" role="status" aria-live="polite" hidden></button></span><textarea name="complaint_description" rows="4" maxlength="5000" required></textarea></label>
+          <label>Category<select name="complaint_category" required><option value="">Select category</option></select><small id="categoryGuidance" class="muted">Choose the primary complaint.</small></label>
         </div>
-        <datalist id="branchOptions"></datalist><datalist id="categoryOptions"></datalist>
         <div class="optional-row"><button id="captureLocationBtn" type="button">Use current location</button><span id="captureState" class="muted">Optional</span></div>
-        <section class="evidence-picker" aria-labelledby="createEvidenceTitle"><div><p id="createEvidenceTitle" class="field-label">Evidence</p><p id="createEvidenceHint" class="muted">Optional: photos, PDF or DOCX</p></div><div class="evidence-actions"><button type="button" data-camera-target="create">Take photo</button><button type="button" data-files-target="create">Choose files</button></div><input id="createEvidenceInput" class="sr-only" type="file" multiple accept="image/jpeg,image/png,image/webp,.pdf,.docx"></section>
+        <section class="evidence-picker" aria-labelledby="createEvidenceTitle"><div><p id="createEvidenceTitle" class="field-label">Evidence</p><p id="createEvidenceHint" class="muted">Optional: photos or PDF</p></div><div class="evidence-actions"><button type="button" data-camera-target="create">Take photo</button><button type="button" data-files-target="create">Choose files</button></div><input id="createEvidenceInput" class="sr-only" type="file" multiple accept="image/jpeg,image/png,image/webp,.pdf"></section>
         <ul id="createSelectedEvidence" class="file-list"></ul>
         <div class="sticky-action"><span id="createSaveState" class="muted">Not saved</span><button id="createSaveBtn" class="primary" type="submit">Create complaint</button></div>
       </form>
@@ -84,9 +82,9 @@
       </article>
       <section id="previousResolution" class="panel resolution-history" hidden><p class="eyebrow">Previous resolution</p><p id="previousResolutionText"></p><small id="previousResolutionMeta" class="muted"></small><div id="previousReopen" hidden><p class="eyebrow">Reopened because</p><p id="previousReopenText"></p><small id="previousReopenMeta" class="muted"></small></div></section>
       <section id="conflictPanel" class="panel conflict-panel" role="alert" hidden><h2>This case changed while you were working</h2><p id="conflictMessage"></p><p class="eyebrow">Resolution recorded first</p><blockquote id="conflictWinningNote"></blockquote><p class="eyebrow">Your retained draft</p><blockquote id="conflictDraft"></blockquote><div class="conflict-actions"><button id="copyConflictDraftBtn" type="button">Copy my draft</button><button id="reviewConflictBtn" type="button">Review latest case</button></div></section>
-      <form id="completeDetailsForm" class="panel action-panel" hidden novalidate><div class="panel-heading"><p class="eyebrow">Manager review</p><h2>Complete required details</h2><p class="muted">Confirm both customer identifiers and the primary complaint category.</p></div><div class="form-grid"><label>Phone number<input name="customer_phone" type="tel" maxlength="20" inputmode="tel"></label><label>Customer ID<input name="customer_id" maxlength="255"></label><label class="full">Category<input name="complaint_category" list="categoryOptions" maxlength="255" required></label></div><div class="sticky-action"><span class="muted">Returns to ordinary Pending</span><button class="primary" type="submit">Complete details</button></div></form>
-      <form id="resolveForm" class="panel action-panel" hidden novalidate><div class="panel-heading"><p class="eyebrow">Manager action</p><h2>Resolve complaint</h2><p class="muted">Explain what was done and the outcome for the customer.</p></div><label>Resolution note<textarea name="resolution_text" rows="4" maxlength="5000" required></textarea></label><section class="evidence-picker" aria-labelledby="resolveEvidenceTitle"><div><p id="resolveEvidenceTitle" class="field-label">Resolution evidence</p><p id="resolveEvidenceHint" class="muted">Optional: photos, PDF or DOCX</p></div><div class="evidence-actions"><button type="button" data-camera-target="resolve">Take photo</button><button type="button" data-files-target="resolve">Choose files</button></div><input id="resolveEvidenceInput" class="sr-only" type="file" multiple accept="image/jpeg,image/png,image/webp,.pdf,.docx"></section><ul id="resolveSelectedEvidence" class="file-list"></ul><div class="sticky-action"><span class="muted">One audited action</span><button class="primary" type="submit">Resolve case</button></div></form>
-      <form id="reopenForm" class="panel" hidden novalidate><div class="panel-heading"><p class="eyebrow">Resolution review</p><h2>Reopen complaint</h2><p class="muted">Any authorized Officer or Manager may return an insufficient resolution to Pending.</p></div><label>Why is the resolution insufficient?<textarea name="reason" rows="4" maxlength="5000" required></textarea></label><div class="sticky-action"><span class="muted">Previous resolution remains in history</span><button class="primary" type="submit">Reopen case</button></div></form>
+      <form id="completeDetailsForm" class="panel action-panel" hidden novalidate><div class="panel-heading"><p class="eyebrow">Intake correction</p><h2>Complete required details</h2><p class="muted">Confirm both customer identifiers and the primary complaint category.</p></div><div class="form-grid"><label>Phone number<input name="customer_phone" type="tel" maxlength="20" inputmode="tel"></label><label>Customer national ID<input name="customer_id" type="text" maxlength="255" inputmode="numeric" pattern="[0-9]*"></label><label class="full">Category<select name="complaint_category" required><option value="">Select category</option></select></label></div><div class="sticky-action"><span class="muted">Returns to ordinary Pending</span><button class="primary" type="submit">Complete details</button></div></form>
+      <form id="resolveForm" class="panel action-panel" hidden novalidate><div class="panel-heading"><p class="eyebrow">HomeBiogas action</p><h2>Resolve complaint</h2><p class="muted">Explain what was done and the outcome for the customer.</p></div><label>Resolution note<textarea name="resolution_text" rows="4" maxlength="5000" required></textarea></label><section class="evidence-picker" aria-labelledby="resolveEvidenceTitle"><div><p id="resolveEvidenceTitle" class="field-label">Resolution evidence</p><p id="resolveEvidenceHint" class="muted">Optional: photos or PDF</p></div><div class="evidence-actions"><button type="button" data-camera-target="resolve">Take photo</button><button type="button" data-files-target="resolve">Choose files</button></div><input id="resolveEvidenceInput" class="sr-only" type="file" multiple accept="image/jpeg,image/png,image/webp,.pdf"></section><ul id="resolveSelectedEvidence" class="file-list"></ul><div class="sticky-action"><span class="muted">One audited action</span><button class="primary" type="submit">Resolve case</button></div></form>
+      <form id="reopenForm" class="panel" hidden novalidate><div class="panel-heading"><p class="eyebrow">Manager review</p><h2>Reopen complaint</h2><p class="muted">A Complaint Case Manager may return an insufficient resolution to Pending.</p></div><label>Why is the resolution insufficient?<textarea name="reason" rows="4" maxlength="5000" required></textarea></label><div class="sticky-action"><span class="muted">Previous resolution remains in history</span><button class="primary" type="submit">Reopen case</button></div></form>
       <section id="evidencePanel" class="panel"><div class="panel-heading"><h2>Evidence</h2></div><div id="evidenceList" class="item-list"></div></section>
       <section id="activityPanel" class="panel"><div class="panel-heading"><h2>Activity</h2></div><div id="activityList" class="item-list"></div></section>
     </section>
@@ -97,10 +95,14 @@
     <div id="cameraOverlay" class="sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="cameraTitle" hidden>
       <section class="camera-sheet"><div class="sheet-handle" aria-hidden="true"></div><div class="camera-head"><div><p class="eyebrow">Evidence capture</p><h2 id="cameraTitle">Take photo</h2><p class="muted">Nothing uploads until you submit the case.</p></div><button id="cameraCloseBtn" class="icon-button" type="button" aria-label="Close camera">&times;</button></div><div class="camera-stage"><video id="cameraVideo" autoplay playsinline muted></video><canvas id="cameraCanvas" hidden></canvas></div><div class="camera-footer"><button id="cameraCancelBtn" type="button">Cancel</button><button id="cameraCaptureBtn" class="primary" type="button">Use photo</button></div></section>
     </div>
+    <div id="mediaViewerOverlay" class="sheet-overlay media-viewer-overlay" role="dialog" aria-modal="true" aria-labelledby="mediaViewerTitle" hidden>
+      <section class="media-viewer-sheet"><div class="camera-head"><div><p class="eyebrow">Secure evidence</p><h2 id="mediaViewerTitle">Evidence preview</h2><p id="mediaViewerSub" class="muted"></p></div><button id="mediaViewerClose" class="icon-button" type="button" aria-label="Close evidence preview">&times;</button></div><div id="mediaViewerContent" class="media-viewer-content" aria-live="polite"></div></section>
+    </div>
   </main>
   {% include "miniapp_diagnostics.html" %}
   <script src="{% static 'miniapp/utils.js' %}?v=9"></script>
+  <script src="{% static 'miniapp/secure_media_viewer.js' %}?v=1"></script>
   <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=4"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=16"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=17"></script>
 </body>
 </html>
