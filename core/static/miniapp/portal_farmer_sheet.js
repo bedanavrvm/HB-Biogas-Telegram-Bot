@@ -10,6 +10,9 @@
   let jblServerDraft = null;
   let jblServerDraftFarmerId = '';
   let jblDraftInputVersion = 0;
+  let pendingJblDraftConflict = null;
+  let pendingJblWorkflowConflict = null;
+  let case360CounterCleanup = null;
   let jblMediaSelections = { LAF: [], JBL_VISIT_PHOTO: [] };
   let jblThumbnailQueue = Promise.resolve();
   let jblCameraStream = null;
@@ -28,8 +31,8 @@
   let activeVoiceAttempt = null;
   const acceptedVoiceAttempts = {};
   const VOICE_LANGUAGE_KEY = 'portal:voice-language';
-  const VOICE_LANGUAGE_ORDER = ['auto', 'sw', 'en'];
-  const VOICE_LANGUAGE_LABELS = { auto: 'Auto language', sw: 'Swahili', en: 'English' };
+  const VOICE_LANGUAGE_ORDER = ['auto', 'en', 'sw'];
+  const VOICE_LANGUAGE_LABELS = { auto: 'Auto', en: 'ENG', sw: 'KIS' };
 
   const MODE_WRITE_CAPABILITIES = {
     jbl_visit: 'portal.jbl_visit.write',
@@ -56,8 +59,11 @@
     }
   }
 
-  function voiceLanguageBadge(language) {
-    return language === 'auto' ? 'A' : language.toUpperCase();
+  function detectedLanguageLabel(language) {
+    const value = String(language || '').trim().toLowerCase();
+    if (value === 'en' || value.startsWith('english')) return 'English';
+    if (value === 'sw' || value.startsWith('swahili') || value.startsWith('kiswahili')) return 'Kiswahili';
+    return value ? humanLabel(value) : '';
   }
 
   function voiceWidget(fieldName, inputId) {
@@ -67,12 +73,12 @@
       <button type="button" class="voice-record-button" data-voice-action="record" aria-pressed="false" aria-label="Dictate comment" title="Dictate comment">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg><span class="voice-record-label sr-only">Dictate</span>
       </button>
-      <button type="button" class="voice-language-button" data-voice-action="language" aria-label="Language: ${VOICE_LANGUAGE_LABELS[language]}" title="Language: ${VOICE_LANGUAGE_LABELS[language]}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg><span class="voice-language-badge">${voiceLanguageBadge(language)}</span>
-      </button>
+      <div class="voice-language-switch" role="group" aria-label="Recording language">
+        ${VOICE_LANGUAGE_ORDER.map(mode => `<button type="button" class="voice-language-button${mode === language ? ' active' : ''}" data-voice-action="language" data-language-mode-value="${mode}" aria-pressed="${mode === language ? 'true' : 'false'}">${VOICE_LANGUAGE_LABELS[mode]}</button>`).join('')}
+      </div>
       <small class="voice-status" aria-live="polite" hidden></small>
       <div class="voice-review" hidden>
-        <p class="voice-transcript" aria-label="Transcription to review"></p>
+        <div><p class="voice-transcript" aria-label="Transcription to review"></p><small class="voice-detected-language"></small></div>
         <div class="voice-review-actions" aria-label="Transcription actions">
           <button type="button" class="voice-action-button" data-voice-action="append" aria-label="Append transcription" title="Append"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="sr-only">Append</span></button>
           <button type="button" class="voice-action-button" data-voice-action="replace" aria-label="Replace field with transcription" title="Replace"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7h-9a4 4 0 0 0-4 4v1M4 17h9a4 4 0 0 0 4-4v-1"/><path d="m17 4 3 3-3 3M7 14l-3 3 3 3"/></svg><span class="sr-only">Replace</span></button>
@@ -139,10 +145,17 @@
         inputId: widget.dataset.inputId, transcript: data.text,
         retryAvailable: Boolean(data.retry_available), durationMs,
         requestedLanguage: data.requested_language || widget.dataset.languageMode || 'auto',
+        detectedLanguage: data.detected_language || '',
       };
       widget.querySelector('.voice-transcript').textContent = data.text;
       widget.querySelector('.voice-review').hidden = false;
       widget.querySelector('[data-voice-action="retry"]').disabled = !data.retry_available;
+      const detected = detectedLanguageLabel(data.detected_language);
+      const selected = activeVoiceAttempt.requestedLanguage;
+      const detectedNode = widget.querySelector('.voice-detected-language');
+      if (detectedNode) detectedNode.textContent = selected === 'auto'
+        ? (detected ? `Auto detected: ${detected}` : 'Auto detection used')
+        : `Recorded as ${selected === 'sw' ? 'Kiswahili' : 'English'}`;
       setVoiceStatus(widget, '', 'review');
     } catch (error) {
       setVoiceStatus(widget, error.message || 'Transcription is unavailable. Please type the comment.', 'error');
@@ -226,15 +239,14 @@
       const action = event.target.closest('[data-voice-action]')?.dataset.voiceAction;
       if (!action) return;
       if (action === 'language') {
-        const current = widget.dataset.languageMode || 'auto';
-        const next = VOICE_LANGUAGE_ORDER[(VOICE_LANGUAGE_ORDER.indexOf(current) + 1) % VOICE_LANGUAGE_ORDER.length];
+        const next = event.target.closest('[data-language-mode-value]')?.dataset.languageModeValue || 'auto';
         widget.dataset.languageMode = next;
-        const languageButton = widget.querySelector('[data-voice-action="language"]');
         const label = VOICE_LANGUAGE_LABELS[next];
-        languageButton?.setAttribute('aria-label', `Language: ${label}`);
-        languageButton?.setAttribute('title', `Language: ${label}`);
-        const badge = languageButton?.querySelector('.voice-language-badge');
-        if (badge) badge.textContent = voiceLanguageBadge(next);
+        widget.querySelectorAll('[data-language-mode-value]').forEach(button => {
+          const selected = button.dataset.languageModeValue === next;
+          button.classList.toggle('active', selected);
+          button.setAttribute('aria-pressed', String(selected));
+        });
         try { localStorage.setItem(VOICE_LANGUAGE_KEY, next); } catch (_error) {}
         setVoiceStatus(widget, '', 'language');
         deps.showToast(`${label} voice mode`, 'info');
@@ -278,6 +290,12 @@
 
   function humanLabel(value) {
     return String(value || '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+  }
+
+  function jblStatusLabel(farmer) {
+    return farmer?.jbl_visit_date || farmer?.jbl_visit_status
+      ? deps.fmt(farmer.jbl_visit_status || 'Visit logged')
+      : 'Pending Visit';
   }
 
   function formatTatMinutes(value) {
@@ -372,6 +390,94 @@
     </header>${caseStageFlow(sections, workflowState)}`;
   }
 
+  function caseTatCounter(record, key) {
+    const elapsed = Number(record?.elapsed_seconds);
+    if (!Number.isFinite(elapsed)) return '-';
+    const label = window.MiniAppRuntime?.formatElapsedSeconds?.(elapsed) || formatTatMinutes(elapsed / 60);
+    return `<span class="live-tat-counter" data-server-counter data-case360-counter="${deps.escapeHtml(key)}" data-elapsed-seconds="${elapsed}" data-calculated-at="${deps.escapeHtml(record.calculated_at || '')}" data-running="${record.running ? 'true' : 'false'}" data-target-seconds="${record.target_seconds == null ? '' : deps.escapeHtml(record.target_seconds)}">${deps.escapeHtml(label)}</span>`;
+  }
+
+  function updateCase360Counter(node, elapsed) {
+    const target = Number(node.dataset.targetSeconds);
+    const badge = node.closest('.case360-tat-row, .case360-tat-total')?.querySelector('.case360-sla');
+    if (!badge || !Number.isFinite(target) || target <= 0) return;
+    const status = elapsed > target ? 'over' : elapsed >= target * 0.8 ? 'near' : 'within';
+    badge.classList.remove('within', 'near', 'over');
+    badge.classList.add(status);
+    badge.textContent = humanLabel(status);
+  }
+
+  function caseDocumentKind(item) {
+    const mime = String(item?.mime_type || '').toLowerCase();
+    if (mime.includes('pdf')) return 'PDF';
+    if (mime.startsWith('image/')) return 'IMG';
+    if (mime.includes('spreadsheet') || mime.includes('excel')) return 'XLSX';
+    return 'DOC';
+  }
+
+  function renderCaseDocumentList(items, target) {
+    if (!target) return;
+    target._caseDocuments = items;
+    target.innerHTML = items.length ? items.map((item, index) => `
+      <article class="case360-document">
+        <span>${deps.escapeHtml(caseDocumentKind(item))}</span>
+        <strong title="${deps.escapeHtml(item.name || 'Document')}">${deps.escapeHtml(item.name || 'Document')}</strong>
+        <div class="case360-document-actions">
+          ${item.preview_url ? `<button type="button" class="media-link case360-document-preview" data-document-index="${index}">View in app</button>` : ''}
+          ${item.open_url ? `<button type="button" class="media-link case360-document-open" data-document-index="${index}">Open externally</button>` : ''}
+        </div>
+      </article>`).join('') : '<div class="empty-state">No linked documents.</div>';
+    target.querySelectorAll('.case360-document-preview').forEach(button => button.addEventListener('click', () => {
+      const item = items[Number(button.dataset.documentIndex)];
+      if (item) openClientMediaPreview(item);
+    }));
+    target.querySelectorAll('.case360-document-open').forEach(button => button.addEventListener('click', async () => {
+      const item = items[Number(button.dataset.documentIndex)];
+      if (!item) return;
+      if (item.kind === 'visit_media') openClientMediaExternally(item, target, button);
+      else if (item.prepare_external) {
+        const label = button.textContent;
+        button.disabled = true;
+        button.textContent = 'Preparing...';
+        try {
+          const result = await deps.apiFetch(item.open_url);
+          if (!result.ok || !result.data?.open_url) throw new Error(result.data?.error || 'Could not prepare this document.');
+          deps.openPortalLink(result.data.open_url);
+        } catch (error) {
+          deps.showToast(error.message || 'Could not open this document externally.', 'error');
+        } finally {
+          button.disabled = false;
+          button.textContent = label;
+        }
+      } else deps.openPortalLink(item.open_url);
+    }));
+  }
+
+  async function loadCase360Documents(documents, target) {
+    if (!target || target.dataset.loaded === 'true') return;
+    const farmerId = String(documents?.farmer_id || state().selectedFarmer?.id || '');
+    const retained = Array.isArray(documents?.items) ? documents.items : [];
+    target.dataset.farmerId = farmerId;
+    if (!farmerId) {
+      renderCaseDocumentList(retained, target);
+      return;
+    }
+    target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div> Loading secure evidence...</div>';
+    try {
+      const result = await deps.apiFetch('/jbl-queue/' + encodeURIComponent(farmerId) + '/media/list/');
+      if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not load visit evidence.');
+      const visitMedia = (result.data.media || []).map(item => ({ ...item, kind: 'visit_media' }));
+      target.dataset.loaded = 'true';
+      renderCaseDocumentList([...visitMedia, ...retained], target);
+    } catch (error) {
+      renderCaseDocumentList(retained, target);
+      const warning = document.createElement('div');
+      warning.className = 'batch-warning';
+      warning.textContent = error.message || 'Visit evidence could not be loaded. Retry by reopening Documents.';
+      target.prepend(warning);
+    }
+  }
+
   function renderCase360(data, target) {
     const root = target || el('case360');
     if (!root || !data) return;
@@ -384,18 +490,17 @@
     const invoiceNameChanges = data.invoice_name_changes || [];
     const documents = data.documents || {};
     const validation = data.validation || [];
-    const stageRows = (tat.stages || []).map((stage, index) => `<article class="case360-tat-row"><span class="case360-stage-number">${index + 1}</span><div><strong>${deps.escapeHtml(stage.label)}</strong><small>${stage.completed_at ? 'Completed' : stage.started_at ? 'In progress' : 'Not tracked'}</small>${stage.business_minutes != null ? `<details class="tat-business-time"><summary>Show business-hours time</summary><small>${deps.escapeHtml(formatTatMinutes(stage.business_minutes))}</small></details>` : ''}</div><div><strong>${stage.wall_clock_minutes == null ? '-' : deps.escapeHtml(formatTatMinutes(stage.wall_clock_minutes))}</strong><span class="case360-sla ${deps.escapeHtml(stage.status || '')}">${deps.escapeHtml(humanLabel(stage.status || ''))}</span></div></article>`).join('');
-    const docLinks = [
-      ...(documents.visit_media || []).map((url, index) => ({ name: `Visit media ${index + 1}`, url })),
+    const stageRows = (tat.stages || []).map((stage, index) => `<article class="case360-tat-row"><span class="case360-stage-number">${index + 1}</span><div><strong>${deps.escapeHtml(stage.label)}</strong><small>${stage.completed_at ? 'Completed' : stage.started_at ? 'In progress' : 'Not tracked'}</small></div><div><strong>${caseTatCounter(stage, `stage-${index}`)}</strong><span class="case360-sla ${deps.escapeHtml(stage.status || '')}">${deps.escapeHtml(humanLabel(stage.status || ''))}</span></div></article>`).join('');
+    const docLinks = Array.isArray(documents.items) ? documents.items : [
       documents.requisition,
       documents.invoice,
       ...(documents.payments || []),
-    ].filter(Boolean);
+    ].filter(Boolean).map(item => ({ ...item, open_url: item.open_url || item.url || '' }));
     const tabs = [
       ['overview', 'Overview', ''],
       ['timeline', 'Timeline', timeline.length],
       ['tat', 'TAT', (tat.stages || []).length],
-      ['documents', 'Documents', docLinks.length],
+      ['documents', 'Documents', docLinks.length + Number(documents.visit_media_count || (documents.visit_media || []).length || 0)],
       ['quality', 'Data Quality', validation.length],
     ];
     const sectionCards = Object.entries(sections).map(([name, values]) => {
@@ -419,17 +524,26 @@
       <section class="case360-panel" role="tabpanel" data-case360-panel="tat" hidden>
         <div class="case360-panel-heading"><div><h3>Turnaround Time</h3><p>Time spent at each tracked workflow stage</p></div></div>
         ${tat.historical_timestamps_available ? '' : '<div class="batch-warning">Historical stage timestamps were not inferred. TAT begins with exact events recorded after tracking was enabled.</div>'}
-        <div class="case360-tat-total"><div><span>Official TAT (wall clock)</span><strong>${tat.wall_clock_minutes == null ? '-' : deps.escapeHtml(formatTatMinutes(tat.wall_clock_minutes))}</strong>${tat.business_minutes != null ? `<details class="tat-business-time"><summary>Show business-hours time</summary><small>${deps.escapeHtml(formatTatMinutes(tat.business_minutes))}</small></details>` : ''}</div><span class="case360-sla ${deps.escapeHtml(tat.status || '')}">${deps.escapeHtml(humanLabel(tat.status || ''))}</span></div><div class="case360-tat-list">${stageRows}</div>
+        <div class="case360-tat-total"><div><span>Official TAT (wall clock)</span><strong>${caseTatCounter(tat, 'overall')}</strong></div><span class="case360-sla ${deps.escapeHtml(tat.status || '')}">${deps.escapeHtml(humanLabel(tat.status || ''))}</span></div><div class="case360-tat-list">${stageRows}</div>
       </section>
-      <section class="case360-panel" role="tabpanel" data-case360-panel="documents" hidden><div class="case360-panel-heading"><div><h3>Case Documents</h3><p>Files connected to this customer and order</p></div></div><div class="case360-documents">${docLinks.length ? docLinks.map(doc => `<a class="case360-document" href="${deps.escapeHtml(doc.url)}" target="_blank" rel="noopener"><span>DOC</span><strong>${deps.escapeHtml(doc.name || 'Document')}</strong><b>Open</b></a>`).join('') : '<div class="empty-state">No linked documents.</div>'}</div></section>
+      <section class="case360-panel" role="tabpanel" data-case360-panel="documents" hidden><div class="case360-panel-heading"><div><h3>Case Documents</h3><p>View supported evidence without leaving Portal, or open a file in its external app.</p></div></div><div class="case360-documents" data-case360-documents></div></section>
       <section class="case360-panel" role="tabpanel" data-case360-panel="quality" hidden><div class="case360-panel-heading"><div><h3>Data Quality</h3><p>Validation checks requiring staff attention</p></div></div>${validation.length ? `<div class="case360-quality-list">${validation.map(issue => `<article><span>!</span><div><strong>${deps.escapeHtml(humanLabel(issue.field))}</strong><p>${deps.escapeHtml(issue.message)}</p></div></article>`).join('')}</div>` : '<div class="case360-valid"><strong>All checks passed</strong><span>All monitored business fields are valid.</span></div>'}</section>`;
     root.hidden = false;
+    renderCaseDocumentList(docLinks, root.querySelector('[data-case360-documents]'));
+    if (case360CounterCleanup) case360CounterCleanup();
+    case360CounterCleanup = window.MiniAppRuntime?.bindServerCounters?.(root, {
+      selector: '[data-server-counter]',
+      onTick: updateCase360Counter,
+    }) || null;
     root.querySelectorAll('[data-case360-tab]').forEach(button => button.addEventListener('click', () => {
       root.querySelectorAll('[data-case360-tab]').forEach(item => {
         item.classList.toggle('active', item === button);
         item.setAttribute('aria-selected', String(item === button));
       });
       root.querySelectorAll('[data-case360-panel]').forEach(panel => { panel.hidden = panel.dataset.case360Panel !== button.dataset.case360Tab; });
+      if (button.dataset.case360Tab === 'documents') {
+        loadCase360Documents(documents, root.querySelector('[data-case360-documents]'));
+      }
     }));
     root.querySelectorAll('[data-related-farmer]').forEach(button => button.addEventListener('click', () => {
       window.location.assign('/portal/cases/' + encodeURIComponent(button.dataset.relatedFarmer) + '/');
@@ -460,12 +574,12 @@
       jbl_visit: [
         ['HBG Visit', deps.fmtDate(farmer.sign_date)],
         ['HB Sales Person', deps.fmt(farmer.hb_sales_person)],
-        ['Current JBL Status', deps.fmt(farmer.jbl_visit_status)],
+        ['Current JBL Status', jblStatusLabel(farmer)],
       ],
       credit: [
         ['JBL Visit', deps.fmtDate(farmer.jbl_visit_date)],
         ['JBL Officer', deps.fmt(farmer.jbl_officer)],
-        ['JBL Status', deps.fmt(farmer.jbl_visit_status)],
+        ['JBL Status', jblStatusLabel(farmer)],
         ['Customer No.', deps.fmt(farmer.customer_no)],
       ],
       final_review: [
@@ -743,9 +857,6 @@
     const legacySubCounty = farmer.sub_county
       ? `<option value="${deps.escapeHtml(farmer.sub_county)}" selected>${deps.escapeHtml(farmer.sub_county)}</option>`
       : '';
-    const overrideField = state().metaLocationCatalog?.override_available
-      ? '<div class="form-row form-row-wide"><label>Service-area override reason</label><input type="text" id="jbl-location-override-reason" maxlength="500" placeholder="Required only when selecting an area outside the branch service area"><small class="field-help">Technical Superuser override; the reason is permanently audit-logged.</small></div>'
-      : '';
     const mediaFields = hasCapability('portal.jbl_media.write') ? `
         <div class="form-row media-upload-row form-row-wide">
           <label>Visit Media</label>
@@ -766,17 +877,24 @@
           </div>
         </div>` : '';
     return `
+      <section id="jbl-visit-requirements" class="jbl-visit-requirements" aria-live="polite">
+        <strong>Before you log this visit</strong>
+        <p>Visit Date and Status / Outcome are always required.</p>
+        <p id="jbl-forward-requirements">For Approved or Awaiting Analysis, also add an LAF, a visit photo, and GPS or a reason GPS was unavailable.</p>
+      </section>
+      <section id="jbl-form-errors" class="jbl-form-errors" role="alert" tabindex="-1" hidden><strong>Correct the following before logging the visit:</strong><ul></ul></section>
+      <section id="jbl-workflow-conflict" class="jbl-workflow-conflict" role="alert" tabindex="-1" hidden><strong>This case changed since you opened it.</strong><p id="jbl-workflow-conflict-message"></p><p>Your draft and selected files are still here. Review the latest case before retrying.</p><button type="button" id="jbl-review-latest">Review latest case and keep my draft</button></section>
+      <section id="jbl-draft-conflict" class="jbl-workflow-conflict" role="alert" tabindex="-1" hidden><strong>This draft changed on another device.</strong><p>Choose which field-only draft to continue with. Files are never included.</p><div class="jbl-conflict-actions"><button type="button" id="jbl-use-local-draft">Use this device</button><button type="button" id="jbl-use-server-draft">Use saved draft</button></div></section>
       <div class="form-section form-grid">
-        <div class="form-row"><label title="JBL visits follow the HBG visit and cannot be future-dated.">Visit Date <span class="label-help" aria-hidden="true">?</span></label><div class="jbl-date-control"><input type="text" id="jbl-date-display" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="dd-mm-yy" aria-describedby="jbl-date-help" value="${deps.escapeHtml(displayDateFromIso(defaultVisitDate))}"><button type="button" id="jbl-date-open" class="jbl-date-open" aria-label="Open native visit date picker" title="Choose visit date">${calendarIcon()}</button><input type="date" id="jbl-date-picker" class="native-date-proxy" min="${deps.escapeHtml(hbgVisitDate)}" max="${deps.escapeHtml(today)}" value="${deps.escapeHtml(defaultVisitDate)}" tabindex="-1" aria-hidden="true"><input type="hidden" id="jbl-date" value="${deps.escapeHtml(defaultVisitDate)}"></div><small id="jbl-date-help" class="field-help">Use dd-mm-yy. Earliest: ${deps.escapeHtml(displayDateFromIso(hbgVisitDate) || 'recorded HBG visit')}; latest: ${deps.escapeHtml(displayDateFromIso(today))}.</small></div>
-        <div class="form-row"><label>Status / Outcome</label><select id="jbl-status"><option value="">- Select -</option>${statusOptions}</select></div>
-        <div class="form-row"><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Your name" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
-        <div class="form-row"><label>County</label><select id="jbl-county"><option value="">- Select county -</option>${countyOptions}</select></div>
-        <div class="form-row"><label>Sub-county</label><select id="jbl-sub-county"><option value="">- Select sub-county -</option>${legacySubCounty}</select></div>
-        <div class="form-row"><label>Village</label><input type="text" id="jbl-village" placeholder="Village / area" value="${deps.escapeHtml(farmer.village || '')}"></div>
-        ${overrideField}
+        <div class="form-row" data-jbl-field="visit_date"><label title="JBL visits follow the HBG visit and cannot be future-dated.">Visit Date <span class="required-marker">Required</span></label><div class="jbl-date-control"><input type="text" id="jbl-date-display" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="dd-mm-yy" aria-describedby="jbl-date-help" value="${deps.escapeHtml(displayDateFromIso(defaultVisitDate))}"><button type="button" id="jbl-date-open" class="jbl-date-open" aria-label="Open native visit date picker" title="Choose visit date">${calendarIcon()}</button><input type="date" id="jbl-date-picker" class="native-date-proxy" min="${deps.escapeHtml(hbgVisitDate)}" max="${deps.escapeHtml(today)}" value="${deps.escapeHtml(defaultVisitDate)}" tabindex="-1" aria-hidden="true"><input type="hidden" id="jbl-date" value="${deps.escapeHtml(defaultVisitDate)}"></div><small id="jbl-date-help" class="field-help">Use dd-mm-yy. Earliest: ${deps.escapeHtml(displayDateFromIso(hbgVisitDate) || 'recorded HBG visit')}; latest: ${deps.escapeHtml(displayDateFromIso(today))}.</small><small class="jbl-field-error" data-error-message-for="visit_date"></small></div>
+        <div class="form-row" data-jbl-field="visit_status"><label>Status / Outcome <span class="required-marker">Required</span></label><select id="jbl-status"><option value="">- Select -</option>${statusOptions}</select><small class="jbl-field-error" data-error-message-for="visit_status"></small></div>
+        <div class="form-row"><label>Officer Name <span class="optional-marker">Optional</span></label><input type="text" id="jbl-officer" placeholder="Uses your staff identity when blank" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
+        <div class="form-row" data-jbl-field="county"><label>County <span class="optional-marker">Optional</span></label><select id="jbl-county"><option value="">- Select county -</option>${countyOptions}</select><small class="jbl-field-error" data-error-message-for="county"></small></div>
+        <div class="form-row" data-jbl-field="sub_county"><label>Sub-county <span class="optional-marker">Optional</span></label><select id="jbl-sub-county"><option value="">- Select sub-county -</option>${legacySubCounty}</select><small class="jbl-field-error" data-error-message-for="sub_county"></small></div>
+        <div class="form-row"><label>Village <span class="optional-marker">Optional</span></label><input type="text" id="jbl-village" placeholder="Village / area" value="${deps.escapeHtml(farmer.village || '')}"></div>
         <div class="form-row form-row-wide"><label>Comment (optional)</label><textarea id="jbl-comment" rows="2" placeholder="Additional notes...">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea>${voiceWidget('jbl_visit_comment', 'jbl-comment')}</div>
         ${mediaFields}
-        <div class="form-row form-row-wide gps-capture-row">
+        <div class="form-row form-row-wide gps-capture-row" data-jbl-field="capture_location">
           <button type="button" id="btn-gps" class="secondary">Capture GPS Location</button>
           <div id="gps-coords" class="field-help">Not captured</div>
           <input type="hidden" id="jbl-lat" value="">
@@ -785,6 +903,7 @@
             <label class="field-help" for="jbl-location-unavailable">GPS could not be captured. Explain why before forwarding.</label>
             <input type="text" id="jbl-location-unavailable" maxlength="255" placeholder="e.g. phone location was disabled">
           </div>
+          <small class="jbl-field-error" data-error-message-for="capture_location"></small>
         </div>
         <p id="jbl-draft-state" class="field-help jbl-draft-state" aria-live="polite">Draft saves automatically. Files are never stored in a draft.</p>
       </div>
@@ -847,9 +966,10 @@
 
   function jblMediaCategoryMarkup({ category, title, help, pickerId, cameraId, accept }) {
     const safeTitle = deps.escapeHtml(title);
-    return `<section class="media-category-upload" data-media-category="${category}">
+    const fieldKey = category === 'LAF' ? 'laf_files' : 'jbl_visit_photo_files';
+    return `<section class="media-category-upload" data-media-category="${category}" data-jbl-field="${fieldKey}">
       <div class="jbl-media-category-heading">
-        <span>${safeTitle}</span>
+        <span>${safeTitle} <small class="conditional-marker">Required for forwarding</small></span>
         <div class="jbl-media-source-actions">
           <button type="button" class="jbl-media-icon-button" id="${cameraId}" data-camera-category="${category}" aria-label="Open live camera for ${safeTitle}" title="Open camera">${cameraIcon()}<span class="sr-only">Open camera</span></button>
           <label class="jbl-media-icon-button" for="${pickerId}" data-input-id="${pickerId}" role="button" tabindex="0" aria-label="Choose files for ${safeTitle}" title="Choose files">${pickerIcon()}<span class="sr-only">Choose files</span></label>
@@ -859,6 +979,7 @@
       <strong class="jbl-media-selection-summary" id="${pickerId}-name" aria-live="polite">No files selected</strong>
       <div class="jbl-media-preview-list" id="${pickerId}-previews"></div>
       <input class="sr-only" type="file" id="${pickerId}" data-media-category="${category}" multiple accept="${accept}">
+      <small class="jbl-field-error" data-error-message-for="${fieldKey}"></small>
     </section>`;
   }
 
@@ -1190,7 +1311,7 @@
 
   function jblVisitDraftValues() {
     const values = {};
-    ['jbl-date', 'jbl-status', 'jbl-officer', 'jbl-county', 'jbl-sub-county', 'jbl-village', 'jbl-comment', 'jbl-lat', 'jbl-lng', 'jbl-location-unavailable', 'jbl-location-override-reason'].forEach(id => {
+    (state().jblVisitDraftFields || []).forEach(id => {
       values[id] = el(id)?.value || '';
     });
     return values;
@@ -1243,7 +1364,7 @@
       requestId,
       onSaving: () => setJblDraftState('Saving draft…', 'saving'),
       onSaved: () => setJblDraftState('Draft saved securely. Files must be selected again after Telegram closes.', 'saved'),
-      onError: () => setJblDraftState('Draft is kept on this device. Keep the form open and retry when connected.', 'local-only'),
+      onError: error => handleJblDraftSaveError(farmer, error),
       onCleared: () => setJblDraftState('', ''),
     });
     return jblServerDraft;
@@ -1251,13 +1372,60 @@
 
   function saveJblVisitDraft(farmer, { immediate = false } = {}) {
     if (!farmer?.id || !el('jbl-date')) return;
-    const draft = { farmer_id: farmer.id, values: jblVisitDraftValues(), saved_at: Date.now() };
+    if (!(state().jblVisitDraftFields || []).length) {
+      setJblDraftState('Secure draft fields are unavailable. Keep this form open.', 'local-only');
+      return null;
+    }
+    const draft = {
+      farmer_id: farmer.id,
+      values: jblVisitDraftValues(),
+      saved_at: Date.now(),
+      workflow_revision: Number(farmer.workflow_revision || 1),
+    };
     try { sessionStorage.setItem(jblDraftKey(farmer.id), JSON.stringify(draft)); } catch (_error) {}
     const serverDraft = ensureJblServerDraft(farmer);
     if (!serverDraft || !navigator.onLine) return draft;
     const save = immediate ? serverDraft.save(draft) : serverDraft.schedule(draft);
     if (immediate && save?.catch) save.catch(() => {});
     return draft;
+  }
+
+  async function handleJblDraftSaveError(farmer, error) {
+    if (!error?.conflict || !jblServerDraft) {
+      setJblDraftState('Draft is kept on this device. Keep the form open and retry when connected.', 'local-only');
+      return;
+    }
+    const localDraft = jblLocalDraft(farmer);
+    try {
+      const remoteDraft = await jblServerDraft.load();
+      pendingJblDraftConflict = { farmer, localDraft, remoteDraft };
+      const panel = el('jbl-draft-conflict');
+      if (panel) { panel.hidden = false; panel.focus(); }
+      setJblDraftState('Choose which draft to keep before continuing.', 'conflict');
+    } catch (_loadError) {
+      setJblDraftState('Draft changed elsewhere. Your device copy is preserved; reconnect and reopen this case.', 'local-only');
+    }
+  }
+
+  async function resolveJblDraftConflict(choice) {
+    const conflict = pendingJblDraftConflict;
+    if (!conflict) return;
+    if (choice === 'server') {
+      if (applyJblVisitDraft(conflict.remoteDraft?.payload)) {
+        try { sessionStorage.setItem(jblDraftKey(conflict.farmer.id), JSON.stringify(conflict.remoteDraft.payload)); } catch (_error) {}
+      }
+      setJblDraftState('Saved draft restored. Files must be selected again.', 'restored');
+    } else if (conflict.localDraft && jblServerDraft) {
+      try {
+        await jblServerDraft.save(conflict.localDraft);
+        setJblDraftState('This device draft is now saved securely.', 'saved');
+      } catch (_error) {
+        setJblDraftState('This device draft is preserved locally. Retry when connected.', 'local-only');
+        return;
+      }
+    }
+    pendingJblDraftConflict = null;
+    if (el('jbl-draft-conflict')) el('jbl-draft-conflict').hidden = true;
   }
 
   function restoreJblVisitDraft(farmer) {
@@ -1288,6 +1456,14 @@
         applyJblVisitDraft(remote);
         try { sessionStorage.setItem(jblDraftKey(farmer.id), JSON.stringify(remote)); } catch (_error) {}
         setJblDraftState('Details restored from your secure draft. Files must be selected again.', 'restored');
+        if (Number(remote.workflow_revision || 1) !== Number(farmer.workflow_revision || 1)) {
+          showJblWorkflowConflict(
+            Number(remote.workflow_revision || 1),
+            Number(farmer.workflow_revision || 1),
+            'This restored draft was created before the latest case update.',
+            { saveDraft: false },
+          );
+        }
       } else if (!localDraft) {
         setJblDraftState('Draft saves automatically. Files are never stored in a draft.', 'ready');
       }
@@ -1340,10 +1516,101 @@
     return true;
   }
 
+  const JBL_FORWARD_VISIT_STATUSES = new Set(['Approved', 'Awaiting Analysis']);
+
+  function clearJblFieldErrors() {
+    document.querySelectorAll('[data-jbl-field]').forEach(node => {
+      node.classList.remove('invalid');
+      node.querySelectorAll('[aria-invalid="true"]').forEach(control => control.removeAttribute('aria-invalid'));
+    });
+    document.querySelectorAll('[data-error-message-for]').forEach(node => { node.textContent = ''; });
+    const summary = el('jbl-form-errors');
+    if (summary) { summary.hidden = true; summary.querySelector('ul')?.replaceChildren(); }
+  }
+
+  function showJblFieldErrors(errors) {
+    clearJblFieldErrors();
+    const entries = Object.entries(errors || {}).filter(([, message]) => Boolean(message));
+    if (!entries.length) return false;
+    const summary = el('jbl-form-errors');
+    const list = summary?.querySelector('ul');
+    entries.forEach(([field, message]) => {
+      const wrapper = document.querySelector(`[data-jbl-field="${field}"]`);
+      wrapper?.classList.add('invalid');
+      const control = wrapper?.querySelector('input:not([type="hidden"]), select, textarea, button');
+      control?.setAttribute('aria-invalid', 'true');
+      const detail = document.querySelector(`[data-error-message-for="${field}"]`);
+      if (detail) detail.textContent = message;
+      if (list) { const item = document.createElement('li'); item.textContent = message; list.appendChild(item); }
+    });
+    if (summary) { summary.hidden = false; summary.focus(); }
+    const first = document.querySelector('[data-jbl-field].invalid');
+    first?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    window.setTimeout(() => first?.querySelector('input:not([type="hidden"]), select, textarea, button')?.focus(), 180);
+    return true;
+  }
+
+  function updateJblRequirements() {
+    const forwarding = JBL_FORWARD_VISIT_STATUSES.has(el('jbl-status')?.value || '');
+    const message = el('jbl-forward-requirements');
+    if (message) message.textContent = forwarding
+      ? 'This outcome moves to Credit: add an LAF, a visit photo, and GPS or explain why GPS was unavailable.'
+      : 'If you select Approved or Awaiting Analysis, LAF, visit photo and visit location requirements will apply.';
+    el('jbl-visit-requirements')?.classList.toggle('forwarding', forwarding);
+  }
+
+  function validateJblVisitFields() {
+    const errors = {};
+    const status = el('jbl-status')?.value || '';
+    if (!status) errors.visit_status = 'Select the JBL visit outcome.';
+    if (!el('jbl-date')?.value) errors.visit_date = 'Enter the JBL visit date.';
+    if (JBL_FORWARD_VISIT_STATUSES.has(status)) {
+      if (!jblMediaSelections.LAF.length) errors.laf_files = 'Add at least one LAF document for this outcome.';
+      if (!jblMediaSelections.JBL_VISIT_PHOTO.length) errors.jbl_visit_photo_files = 'Add at least one JBL visit photo for this outcome.';
+      const hasCoordinates = Boolean(el('jbl-lat')?.value && el('jbl-lng')?.value);
+      if (!hasCoordinates && !el('jbl-location-unavailable')?.value.trim()) {
+        errors.capture_location = 'Capture GPS or explain why the visit location was unavailable.';
+        setGpsUnavailableReasonVisible(true);
+      }
+    }
+    return errors;
+  }
+
+  function showJblWorkflowConflict(expected, actual, message, options = {}) {
+    pendingJblWorkflowConflict = { expected, actual };
+    const panel = el('jbl-workflow-conflict');
+    const detail = el('jbl-workflow-conflict-message');
+    if (detail) detail.textContent = `${message || 'Another staff member updated this case.'} You opened revision ${expected}; the case is now revision ${actual}.`;
+    if (panel) { panel.hidden = false; panel.focus(); }
+    if (el('btn-submit-jbl')) el('btn-submit-jbl').disabled = true;
+    if (options.saveDraft !== false) saveJblVisitDraft(state().selectedFarmer, { immediate: true });
+  }
+
+  async function reviewLatestJblCase() {
+    const farmer = state().selectedFarmer;
+    if (!farmer || !pendingJblWorkflowConflict) return;
+    const result = await deps.apiFetch(`/farmers/${encodeURIComponent(farmer.id)}/`);
+    if (!result.ok || !result.data?.farmer) {
+      deps.showToast(result.data?.error || 'The latest case could not be loaded. Retry before submitting.', 'error');
+      return;
+    }
+    Object.assign(farmer, result.data.farmer);
+    pendingJblWorkflowConflict = null;
+    if (el('jbl-workflow-conflict')) el('jbl-workflow-conflict').hidden = true;
+    if (el('btn-submit-jbl')) el('btn-submit-jbl').disabled = false;
+    saveJblVisitDraft(farmer, { immediate: true });
+    deps.showToast('Latest case loaded. Your draft remains in the form; review it before submitting.', 'info');
+  }
+
   function wireJblVisitDraft(farmer) {
     jblDraftInputVersion = 0;
     const localDraft = restoreJblVisitDraft(farmer);
     restoreJblVisitServerDraft(farmer, localDraft, jblDraftInputVersion);
+    updateJblRequirements();
+    el('jbl-status')?.addEventListener('change', updateJblRequirements);
+    el('jbl-review-latest')?.addEventListener('click', reviewLatestJblCase);
+    el('jbl-use-local-draft')?.addEventListener('click', () => resolveJblDraftConflict('local'));
+    el('jbl-use-server-draft')?.addEventListener('click', () => resolveJblDraftConflict('server'));
     ['jbl-laf-media', 'jbl-visit-photo-media'].forEach(id => {
       el(id)?.addEventListener('change', () => {
         const input = el(id);
@@ -1899,6 +2166,8 @@
     });
     stopJblLiveCamera();
     closeMediaViewer();
+    if (case360CounterCleanup) case360CounterCleanup();
+    case360CounterCleanup = null;
     resetJblMediaSelections();
     el('sheet-overlay')?.classList.remove('open');
     state().selectedFarmer = null;
@@ -1909,12 +2178,17 @@
   async function submitJblVisit() {
     const farmer = state().selectedFarmer;
     if (!farmer) return;
-    const visitStatus = el('jbl-status')?.value || '';
-    if (!visitStatus) {
-      deps.showToast('Please select a visit status', 'error');
+    if (pendingJblWorkflowConflict) {
+      el('jbl-workflow-conflict')?.focus();
+      deps.showToast('Review the latest case before submitting this draft.', 'error');
       return;
     }
-    if (!commitJblDisplayDate({ showError: true })) return;
+    const visitStatus = el('jbl-status')?.value || '';
+    if (!commitJblDisplayDate({ showError: false })) {
+      showJblFieldErrors({ visit_date: 'Enter a valid visit date in dd-mm-yy format.' });
+      return;
+    }
+    if (showJblFieldErrors(validateJblVisitFields())) return;
 
     stopJblLiveCamera();
     if (!selectedJblFilesAreValid()) return;
@@ -1932,7 +2206,6 @@
     formData.set('officer', el('jbl-officer')?.value || '');
     formData.set('county', el('jbl-county')?.value || '');
     formData.set('sub_county', el('jbl-sub-county')?.value || '');
-    formData.set('location_override_reason', el('jbl-location-override-reason')?.value || '');
     formData.set('village', el('jbl-village')?.value || '');
     formData.set('comment', el('jbl-comment')?.value || '');
     if (acceptedVoiceAttempts.jbl_visit_comment) formData.set('voice_transcription_id', acceptedVoiceAttempts.jbl_visit_comment);
@@ -1976,6 +2249,15 @@
     }
     const { ok, data } = response;
     if (!ok) {
+      if (data.code === 'workflow_revision_conflict') {
+        showJblWorkflowConflict(
+          Number(data.expected_revision || farmer.workflow_revision || 1),
+          Number(data.actual_revision || farmer.workflow_revision || 1),
+          data.error,
+        );
+        return;
+      }
+      if (data.field_errors && showJblFieldErrors(data.field_errors)) return;
       const recovered = data.evidence_saved ? ' Evidence was saved; retry to log the visit.' : '';
       deps.showToast((data.error || 'Visit could not be saved.') + recovered, 'error');
       return;
@@ -2116,6 +2398,15 @@
   function init(initialDeps) {
     deps = initialDeps;
     bindEvents();
+    deps.tg?.onEvent?.('deactivated', () => {
+      if (state().activeMode === 'jbl_visit') {
+        saveJblVisitDraft(state().selectedFarmer, { immediate: true });
+        stopJblLiveCamera();
+      }
+      if (WORKFLOW_DRAFT_CONFIG[state().activeMode]) {
+        saveWorkflowDraft(state().selectedFarmer, state().activeMode, { immediate: true });
+      }
+    });
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden' && state().activeMode === 'jbl_visit') {
         saveJblVisitDraft(state().selectedFarmer, { immediate: true });

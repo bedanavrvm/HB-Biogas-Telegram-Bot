@@ -307,6 +307,7 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
 
     stages = []
     total_minutes = Decimal('0')
+    total_elapsed_seconds = 0
     total_business_minutes = Decimal('0')
     total_sla_minutes = Decimal('0')
     complete_stage_count = 0
@@ -323,9 +324,10 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
                     'key': f'{start_action}_to_{end_action}', 'label': f'{start_label} to {end_label}',
                     'started_at': start_event.occurred_at.isoformat(), 'completed_at': None,
                     'minutes': None, 'wall_clock_minutes': None,
+                    'elapsed_seconds': None, 'calculated_at': now.isoformat(), 'running': False,
                     'business_minutes': None, 'sla_minutes': None,
                     'excluded_deferred_minutes': '0', 'excluded_business_minutes': '0',
-                    'target_minutes': None, 'status': '',
+                    'target_minutes': None, 'target_seconds': None, 'status': '',
                 })
                 continue
             end_at = end_event.occurred_at if end_event else (terminal_at or now)
@@ -338,6 +340,11 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
                 Decimal('0'),
             )
             minutes = max(Decimal('0'), raw_wall_clock_minutes - (excluded_seconds / Decimal('60'))).quantize(Decimal('0.01'))
+            elapsed_seconds = max(
+                0,
+                int((end_at - start_event.occurred_at).total_seconds() - float(excluded_seconds)),
+            )
+            total_elapsed_seconds += elapsed_seconds
             business_minutes = raw_business_minutes.quantize(Decimal('0.01'))
             sla_minutes = max(Decimal('0'), business_minutes - excluded_business_minutes).quantize(Decimal('0.01'))
             excluded = (excluded_seconds / Decimal('60')).quantize(Decimal('0.01'))
@@ -347,6 +354,7 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
             if end_event:
                 complete_stage_count += 1
         else:
+            elapsed_seconds = None
             business_minutes = None
             sla_minutes = None
             excluded_business_minutes = Decimal('0')
@@ -362,11 +370,15 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
             # available as an optional diagnostic view.
             'minutes': str(minutes) if minutes is not None else None,
             'wall_clock_minutes': str(minutes) if minutes is not None else None,
+            'elapsed_seconds': elapsed_seconds,
+            'calculated_at': now.isoformat(),
+            'running': bool(start_event and not end_event and terminal_at is None),
             'business_minutes': str(business_minutes) if business_minutes is not None else None,
             'sla_minutes': str(minutes) if minutes is not None else None,
             'excluded_deferred_minutes': str(excluded),
             'excluded_business_minutes': str(excluded_business_minutes),
             'target_minutes': str(target) if target not in (None, '') else None,
+            'target_seconds': int(Decimal(str(target)) * Decimal('60')) if target not in (None, '') else None,
             'status': _sla_status(minutes, target),
         })
     overall_target = targets.get('overall')
@@ -377,11 +389,15 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
         'historical_timestamps_available': bool(milestone_events.get('application_imported')),
         'total_minutes': str(total_minutes) if milestone_events else None,
         'wall_clock_minutes': str(total_minutes) if milestone_events else None,
+        'elapsed_seconds': total_elapsed_seconds if milestone_events else None,
+        'calculated_at': now.isoformat(),
+        'running': any(stage['running'] for stage in stages),
         'business_minutes': str(total_business_minutes) if milestone_events else None,
         'sla_minutes': str(total_minutes) if milestone_events else None,
         'excluded_deferred_minutes': str(sum(Decimal(stage['excluded_deferred_minutes']) for stage in stages)),
         'excluded_business_minutes': str(sum(Decimal(stage['excluded_business_minutes']) for stage in stages)),
         'target_minutes': str(overall_target) if overall_target not in (None, '') else None,
+        'target_seconds': int(Decimal(str(overall_target)) * Decimal('60')) if overall_target not in (None, '') else None,
         'status': _sla_status(total_minutes if milestone_events else None, overall_target),
         'completed_stage_count': complete_stage_count,
         'stages': stages,
@@ -453,6 +469,39 @@ def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
         'escalation': latest_escalation('jawabu_pipeline', str(farmer.pk)),
         'validation': validation,
         'documents': {
+            'farmer_id': str(farmer.pk),
+            'visit_media_count': len([url for url in farmer.jbl_media_urls.splitlines() if url.strip()]),
+            'items': [item for item in [
+                {
+                    'id': str(requisition.pk),
+                    'kind': 'requisition',
+                    'name': requisition.filename,
+                    'mime_type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'preview_url': '',
+                    'open_url': requisition.drive_url,
+                    'version': requisition.version,
+                    'generated_at': _case_datetime(requisition.updated_at),
+                } if requisition and requisition.drive_url else None,
+                {
+                    'id': str(invoice.batch_id),
+                    'kind': 'invoice',
+                    'name': invoice.batch.original_filename,
+                    'mime_type': 'application/pdf',
+                    'preview_url': f'/api/portal/farmers/{farmer.pk}/documents/invoice/{invoice.batch_id}/preview/',
+                    'open_url': f'/api/portal/farmers/{farmer.pk}/documents/invoice/{invoice.batch_id}/open/',
+                    'prepare_external': True,
+                } if invoice and invoice.batch.drive_url else None,
+            ] if item] + [{
+                'id': str(item.pk),
+                'kind': 'payment',
+                'name': item.filename,
+                'mime_type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'preview_url': '',
+                'open_url': item.drive_url,
+                'version': item.version,
+                'status': item.status,
+                'generated_at': _case_datetime(item.finalized_at or item.updated_at or item.created_at),
+            } for item in payments if item.drive_url],
             'visit_media': [url.strip() for url in farmer.jbl_media_urls.splitlines() if url.strip()],
             'requisition': {
                 'name': requisition.filename,

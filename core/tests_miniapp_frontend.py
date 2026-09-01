@@ -47,10 +47,10 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_payments.js'), html.index('miniapp/portal.js'))
         self.assertLess(html.index('miniapp/portal_imports.js'), html.index('miniapp/portal.js'))
         self.assertIn('miniapp/portal_queues.js?v=9', html)
-        self.assertIn('miniapp/portal_farmer_sheet.js?v=45', html)
+        self.assertIn('miniapp/portal_farmer_sheet.js?v=46', html)
         self.assertIn('miniapp/utils.js?v=9', html)
         self.assertIn('miniapp/portal_helpers.js?v=6', html)
-        self.assertIn('miniapp/portal.css?v=77', html)
+        self.assertIn('miniapp/portal.css?v=78', html)
         self.assertIn('miniapp/portal_filters.js?v=9', html)
         self.assertIn('miniapp/portal_imports.js?v=7', html)
         self.assertNotIn('portal-import-group', html)
@@ -59,7 +59,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/portal_invoices.js?v=16', html)
         self.assertIn('miniapp/portal_payments.js?v=7', html)
         self.assertIn('miniapp/portal_reports.js?v=14', html)
-        self.assertIn('miniapp/portal.js?v=69', html)
+        self.assertIn('miniapp/portal.js?v=70', html)
         self.assertIn('miniapp/portal_case_history.js?v=1', html)
         self.assertLess(html.index('miniapp/portal_case_history.js'), html.index('miniapp/portal.js'))
 
@@ -125,6 +125,22 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('Closing a sheet, opening case history, or Telegram temporarily replacing', source)
         self.assertIn("const baseUrl = settings.baseUrl ||", utilities)
         self.assertIn('Object.assign(result, idempotencyHeaders(key));', utilities)
+        self.assertIn('state().jblVisitDraftFields', source)
+        self.assertNotIn("'jbl-location-override-reason'", source)
+        self.assertIn("deps.tg?.onEvent?.('deactivated'", source)
+
+    def test_portal_case360_reuses_shared_server_clock_and_secure_media_viewer(self):
+        source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
+        runtime = Path('core/static/miniapp/runtime.js').read_text(encoding='utf-8')
+        tat = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
+
+        self.assertIn('bindServerCounters', runtime)
+        self.assertIn('tickServerCounters', tat)
+        self.assertIn("selector: '[data-server-counter]'", source)
+        self.assertIn('openClientMediaPreview(item)', source)
+        self.assertIn('Open externally', source)
+        self.assertNotIn('Show business-hours time', source)
+        self.assertIn("'Pending Visit'", source)
 
     def test_origination_draft_saves_are_serialized_and_conflicts_are_recoverable(self):
         source = Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
@@ -372,7 +388,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('function toggleClientMedia(farmerId)', farmer_sheet)
         self.assertIn("button.setAttribute('aria-expanded', 'false')", farmer_sheet)
         self.assertIn('Official TAT (wall clock)', farmer_sheet)
-        self.assertIn('Show business-hours time', farmer_sheet)
+        self.assertNotIn('Show business-hours time', farmer_sheet)
 
     def test_portal_cards_filters_imab_and_workflow_drafts_are_consistent(self):
         template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')

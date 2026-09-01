@@ -43,6 +43,7 @@
     jblVisitMediaMaxBytes: 20 * 1024 * 1024,
     jblVisitMediaMaxFiles: 6,
     jblVisitMediaMaxTotalBytes: 40 * 1024 * 1024,
+    jblVisitDraftFields: [],
     voiceInput: { enabled: false, maxSeconds: 30, fields: [] },
     personalPreference: null,
     portalSettings: null,
@@ -1244,6 +1245,7 @@
     state.jblVisitMediaMaxBytes = Number(data.jbl_visit_media_max_bytes || state.jblVisitMediaMaxBytes);
     state.jblVisitMediaMaxFiles = Number(data.jbl_visit_media_max_files || state.jblVisitMediaMaxFiles);
     state.jblVisitMediaMaxTotalBytes = Number(data.jbl_visit_media_max_total_bytes || state.jblVisitMediaMaxTotalBytes);
+    state.jblVisitDraftFields = Array.isArray(data.jbl_visit_draft_fields) ? data.jbl_visit_draft_fields : [];
     state.voiceInput = data.voice_input || state.voiceInput;
     if (portalApi.schedulePublication && Array.isArray(data.due_publication_operation_ids)) {
       portalApi.schedulePublication({ pending_operation_ids: data.due_publication_operation_ids }, tg);

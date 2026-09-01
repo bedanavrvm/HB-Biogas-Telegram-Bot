@@ -2051,6 +2051,20 @@ def portal_dashboard(request):
 
 # ── Meta / dropdown lists ─────────────────────────────────────────────────────
 
+PORTAL_JBL_VISIT_DRAFT_FIELDS = (
+    'jbl-date',
+    'jbl-status',
+    'jbl-officer',
+    'jbl-county',
+    'jbl-sub-county',
+    'jbl-village',
+    'jbl-comment',
+    'jbl-lat',
+    'jbl-lng',
+    'jbl-location-unavailable',
+)
+
+
 @csrf_exempt
 @require_http_methods(["GET"])
 def portal_meta(request):
@@ -2088,6 +2102,7 @@ def portal_meta(request):
         'counties': [item['name'] for item in location_catalog['counties']],
         'location_catalog': location_catalog,
         'jbl_visit_statuses': [c[0] for c in JawabuFarmerMaster.JBL_VISIT_STATUS_CHOICES],
+        'jbl_visit_draft_fields': list(PORTAL_JBL_VISIT_DRAFT_FIELDS),
         'credit_decisions': [c[0] for c in JawabuFarmerMaster.CREDIT_DECISION_CHOICES],
         'imab_created_options': ['Yes', 'No', 'Pending'],
         'final_decisions': [c[0] for c in JawabuFarmerMaster.FINAL_DECISION_CHOICES],
@@ -2994,7 +3009,43 @@ def _portal_jbl_visit_draft_payload(body: dict) -> dict:
         saved_at = int(raw.get('saved_at') or 0)
     except (TypeError, ValueError) as exc:
         raise ValueError('Draft timestamp is invalid.') from exc
-    return {'values': cleaned, 'saved_at': max(saved_at, 0)}
+    try:
+        workflow_revision = max(1, int(raw.get('workflow_revision') or 1))
+    except (TypeError, ValueError) as exc:
+        raise ValueError('Draft workflow revision is invalid.') from exc
+    return {
+        'values': cleaned,
+        'saved_at': max(saved_at, 0),
+        'workflow_revision': workflow_revision,
+    }
+
+
+def _portal_jbl_visit_field_errors(error: str, result: dict | None = None) -> dict[str, str]:
+    """Map stable JBL validation failures to the controls staff can correct."""
+    message = str(error or '').strip()
+    lowered = message.casefold()
+    payload = result or {}
+    errors = {}
+    missing = set(payload.get('missing_evidence') or [])
+    if 'LAF' in missing:
+        errors['laf_files'] = 'Add at least one LAF document for this outcome.'
+    if 'JBL_VISIT_PHOTO' in missing:
+        errors['jbl_visit_photo_files'] = 'Add at least one JBL visit photo for this outcome.'
+    if 'status' in lowered or 'outcome' in lowered:
+        errors.setdefault('visit_status', message)
+    if 'visit date' in lowered or 'yyyy-mm-dd' in lowered:
+        errors.setdefault('visit_date', message)
+    if 'coordinate' in lowered or 'location was unavailable' in lowered or 'capture the visit location' in lowered:
+        errors.setdefault('capture_location', message)
+    if 'sub-county' in lowered:
+        errors.setdefault('sub_county', message)
+    elif 'service area' in lowered or 'county' in lowered or 'location choice' in lowered:
+        errors.setdefault('county', message)
+    if 'laf document' in lowered and 'laf_files' not in errors:
+        errors['laf_files'] = message
+    if 'visit photo' in lowered and 'jbl_visit_photo_files' not in errors:
+        errors['jbl_visit_photo_files'] = message
+    return errors
 
 
 @csrf_exempt  # Verified Telegram initData, capability, and branch scope authorize this personal draft.
@@ -3197,14 +3248,22 @@ def portal_complete_jbl_visit(request, farmer_id: str):
     try:
         visit_date = _date.fromisoformat(visit_date_raw) if visit_date_raw else timezone.localdate()
     except ValueError:
-        return JsonResponse({'ok': False, 'error': 'Visit date must use YYYY-MM-DD.'}, status=400)
+        error = 'Visit date must use YYYY-MM-DD.'
+        return JsonResponse({
+            'ok': False, 'error': error, 'code': 'invalid_visit_date',
+            'field_errors': {'visit_date': error},
+        }, status=400)
     latitude = body.get('capture_latitude') or body.get('latitude')
     longitude = body.get('capture_longitude') or body.get('longitude')
     try:
         latitude = float(latitude) if latitude is not None and str(latitude).strip() else None
         longitude = float(longitude) if longitude is not None and str(longitude).strip() else None
     except (ValueError, TypeError):
-        return JsonResponse({'ok': False, 'error': 'Invalid coordinates format.'}, status=400)
+        error = 'The captured GPS coordinates are invalid. Capture the visit location again.'
+        return JsonResponse({
+            'ok': False, 'error': error, 'code': 'invalid_coordinates',
+            'field_errors': {'capture_location': error},
+        }, status=400)
     getlist = getattr(request.FILES, 'getlist', None)
     categorized_files = {
         'LAF': getlist('laf_files') if getlist else [],
@@ -3220,7 +3279,13 @@ def portal_complete_jbl_visit(request, farmer_id: str):
             return media_error
     valid_batch, batch_error, batch_code = validate_jbl_visit_upload_batch(categorized_files)
     if not valid_batch:
-        return JsonResponse({'ok': False, 'error': batch_error, 'code': batch_code}, status=400)
+        return JsonResponse({
+            'ok': False, 'error': batch_error, 'code': batch_code,
+            'field_errors': {
+                'laf_files': batch_error,
+                'jbl_visit_photo_files': batch_error,
+            },
+        }, status=400)
     sender = _portal_sender_from_request(request)
     try:
         ok, error, result = complete_jbl_visit(
@@ -3240,13 +3305,22 @@ def portal_complete_jbl_visit(request, farmer_id: str):
             request_id=_portal_request_id(request, body),
             expected_revision=expected_revision,
             actor_user=getattr(request, 'portal_user', None),
-            location_override_reason=str(body.get('location_override_reason') or '').strip(),
+            # Service-area override remains available to controlled backend
+            # callers, but is deliberately not accepted from the Portal JBL
+            # visit form or a hand-crafted Portal request.
+            location_override_reason='',
         )
     except ValueError as exc:
         response = _portal_workflow_error(exc)
         return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     if not ok:
-        return JsonResponse({'ok': False, 'error': error, **result}, status=409 if result.get('evidence_saved') else 400)
+        return JsonResponse({
+            'ok': False,
+            'error': error,
+            'code': result.get('code') or 'jbl_visit_validation_failed',
+            'field_errors': _portal_jbl_visit_field_errors(error, result),
+            **result,
+        }, status=409 if result.get('evidence_saved') else 400)
     farmer.refresh_from_db()
     voice_cleanup_pending = False
     if voice_attempt_id:
@@ -3680,6 +3754,181 @@ def portal_open_legacy_jbl_media(request, farmer_id: str, media_index: int):
         revision_after=farmer.workflow_revision,
     )
     return HttpResponseRedirect(links[media_index])
+
+
+def _portal_case_invoice(farmer_id: str, batch_id: str):
+    """Resolve an invoice PDF only when it belongs to the requested case."""
+    from core.models import InvoiceUploadBatch, JawabuFarmerMaster
+
+    farmer = JawabuFarmerMaster.objects.filter(pk=farmer_id).first()
+    if not farmer:
+        return None, None
+    batch = InvoiceUploadBatch.objects.filter(
+        pk=batch_id,
+        invoices__matched_farmer=farmer,
+        invoices__status='matched',
+    ).exclude(drive_url='').distinct().first()
+    return farmer, batch
+
+
+def _portal_case_invoice_audit_error(request, *, farmer, batch, action: str):
+    try:
+        from core.services.compliance_audit import record_sensitive_access
+
+        request_id = str(
+            getattr(request, 'portal_request_id', '')
+            or request.headers.get('X-Request-ID')
+            or uuid.uuid4().hex
+        )
+        request.portal_request_id = request_id
+        record_sensitive_access(
+            workflow='portal',
+            action=action,
+            subject_type='invoice_upload_batch',
+            subject_id=str(batch.pk),
+            actor=getattr(request, 'portal_user', None),
+            actor_label=_portal_sender_from_request(request),
+            request_id=request_id,
+            metadata={'farmer_id': str(farmer.pk), 'route': action.rsplit('.', 1)[-1]},
+        )
+    except Exception:
+        logger.exception(
+            'Could not audit Portal case invoice access batch_id=%s farmer_id=%s',
+            batch.pk,
+            farmer.pk,
+        )
+        return JsonResponse({
+            'ok': False,
+            'error': 'The invoice cannot be opened safely because its audit record is unavailable. Please retry shortly.',
+        }, status=503)
+    return None
+
+
+@require_http_methods(["GET"])
+def portal_preview_case_invoice(request, farmer_id: str, batch_id: str):
+    """Stream an authorized invoice PDF as bounded WebView-safe HTML pages."""
+    from django.utils.http import content_disposition_header
+
+    farmer, batch = _portal_case_invoice(farmer_id, batch_id)
+    if not farmer or not batch:
+        return JsonResponse({'ok': False, 'error': 'Invoice document not found for this case.'}, status=404)
+    access_error = _portal_read_access_error(request, farmer, capability='portal.case.read')
+    if access_error:
+        return access_error
+    if not batch.drive_file_id:
+        return JsonResponse({
+            'ok': False,
+            'error': 'This older invoice is available externally but cannot be previewed in the Portal.',
+        }, status=404)
+    try:
+        from core.services.order_approval import GoogleDriveMediaStorage
+
+        source = GoogleDriveMediaStorage().download(batch.drive_file_id)
+        content = _portal_pdf_preview_html(source, batch.original_filename or 'Invoice.pdf')
+    except Exception:
+        logger.exception(
+            'Could not prepare Portal invoice preview batch_id=%s farmer_id=%s',
+            batch.pk,
+            farmer.pk,
+        )
+        return JsonResponse({
+            'ok': False,
+            'error': 'The invoice could not be prepared for in-app viewing. Open it externally or retry shortly.',
+        }, status=503)
+    audit_error = _portal_case_invoice_audit_error(
+        request, farmer=farmer, batch=batch, action='portal.case_invoice.preview',
+    )
+    if audit_error:
+        return audit_error
+    response = HttpResponse(content, content_type='text/html; charset=utf-8')
+    response['Content-Disposition'] = content_disposition_header(
+        False, batch.original_filename or 'Invoice.pdf',
+    )
+    response['Cache-Control'] = 'private, no-store, max-age=0'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
+@require_http_methods(["GET"])
+def portal_prepare_case_invoice_open(request, farmer_id: str, batch_id: str):
+    """Issue a short-lived external-browser redirect for one case invoice."""
+    farmer, batch = _portal_case_invoice(farmer_id, batch_id)
+    if not farmer or not batch:
+        return JsonResponse({'ok': False, 'error': 'Invoice document not found for this case.'}, status=404)
+    access_error = _portal_read_access_error(request, farmer, capability='portal.case.read')
+    if access_error:
+        return access_error
+    actor = getattr(request, 'portal_user', None)
+    request_id = str(
+        getattr(request, 'portal_request_id', '')
+        or request.headers.get('X-Request-ID')
+        or uuid.uuid4().hex
+    )
+    request.portal_request_id = request_id
+    token = TimestampSigner(salt='portal-case-invoice-open').sign(json.dumps({
+        'farmer_id': str(farmer.pk),
+        'batch_id': str(batch.pk),
+        'user_id': str(getattr(actor, 'pk', '') or ''),
+        'request_id': request_id,
+    }, separators=(',', ':')))
+    response = JsonResponse({
+        'ok': True,
+        'open_url': request.build_absolute_uri(f'/api/portal/case-invoice-open/{quote(token, safe="")}/'),
+        'expires_in_seconds': 120,
+    })
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+@require_http_methods(["GET"])
+def portal_open_case_invoice_signed(request, token: str):
+    """Validate the short-lived case-scoped token before redirecting to Drive."""
+    try:
+        payload = json.loads(
+            TimestampSigner(salt='portal-case-invoice-open').unsign(token, max_age=120)
+        )
+        farmer_id = str(payload['farmer_id'])
+        batch_id = str(payload['batch_id'])
+    except (BadSignature, KeyError, TypeError, ValueError):
+        return JsonResponse({
+            'ok': False,
+            'error': 'This invoice link is invalid or has expired. Return to the Portal and open it again.',
+        }, status=404)
+    farmer, batch = _portal_case_invoice(farmer_id, batch_id)
+    if not farmer or not batch:
+        return JsonResponse({'ok': False, 'error': 'Invoice document not found for this case.'}, status=404)
+    actor = None
+    actor_id = str(payload.get('user_id') or '').strip()
+    if actor_id:
+        from django.contrib.auth import get_user_model
+
+        actor = get_user_model().objects.filter(pk=actor_id, is_active=True).first()
+    from core.services.telegram_auth import authentication_bypass_allowed
+
+    local_auth_bypass = bool(
+        not getattr(settings, 'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True)
+        and authentication_bypass_allowed()
+        and not actor_id
+    )
+    if actor is None and not local_auth_bypass:
+        return JsonResponse({'ok': False, 'error': 'This invoice link is no longer authorized.'}, status=403)
+    if actor is not None:
+        from core.services.telegram_identity import user_access
+
+        request.portal_user = actor
+        request.portal_access = user_access(actor, 'jawabu_portal')
+        access_error = _portal_read_access_error(request, farmer, capability='portal.case.read')
+        if access_error:
+            return access_error
+    request.portal_request_id = str(payload.get('request_id') or '')
+    audit_error = _portal_case_invoice_audit_error(
+        request, farmer=farmer, batch=batch, action='portal.case_invoice.external_open',
+    )
+    if audit_error:
+        return audit_error
+    response = HttpResponseRedirect(batch.drive_url)
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 @csrf_exempt

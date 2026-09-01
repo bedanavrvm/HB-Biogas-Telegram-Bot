@@ -901,6 +901,7 @@ class PortalMiniAppAuthTestCase(TestCase):
         payload = {
             'payload': {
                 'saved_at': 1_754_000_000_000,
+                'workflow_revision': 7,
                 'values': {
                     'jbl-date': '2026-08-03',
                     'jbl-status': 'JBL Visit Completed',
@@ -923,8 +924,18 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertEqual(restored.status_code, 200)
         self.assertEqual(restored.json()['draft']['payload']['values']['jbl-comment'], 'Draft note')
         self.assertEqual(restored.json()['draft']['payload']['saved_at'], 1_754_000_000_000)
+        self.assertEqual(restored.json()['draft']['payload']['workflow_revision'], 7)
         self.assertEqual(restored.json()['draft']['revision'], 1)
         self.assertEqual(user.miniapp_drafts.filter(workflow='portal_jbl_visit').count(), 1)
+
+        meta = self.client.get(
+            reverse('portal_meta'),
+            HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
+        ).json()
+        self.assertEqual(
+            set(meta['jbl_visit_draft_fields']),
+            set(payload['payload']['values']),
+        )
 
         rejected_attachment = self.client.post(
             url,
@@ -1911,6 +1922,7 @@ class JblPipelineApiTestCase(TestCase):
                 'officer': 'JBL Officer Alpha',
                 'capture_latitude': '-1.2921',
                 'capture_longitude': '36.8219',
+                'location_override_reason': 'must not be accepted from Portal',
                 'laf_files': laf,
                 'jbl_visit_photo_files': photo,
             },
@@ -1921,6 +1933,68 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(set(categorized), {'LAF', 'JBL_VISIT_PHOTO'})
         self.assertEqual(len(categorized['LAF']), 1)
         self.assertEqual(len(categorized['JBL_VISIT_PHOTO']), 1)
+        self.assertEqual(mock_complete.call_args.kwargs['location_override_reason'], '')
+
+    @patch('core.services.jawabu_pipeline.complete_jbl_visit')
+    def test_atomic_jbl_visit_completion_returns_field_specific_coordinate_error(self, mock_complete):
+        response = self.client.post(
+            reverse('portal_complete_jbl_visit', args=[self.farmer.id]),
+            {
+                'client_request_id': 'atomic-visit-invalid-gps',
+                'workflow_revision': self.farmer.workflow_revision,
+                'visit_date': '2026-07-01',
+                'visit_status': 'Rescheduled',
+                'capture_latitude': 'not-a-coordinate',
+                'capture_longitude': '36.8219',
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['code'], 'invalid_coordinates')
+        self.assertIn('capture_location', response.json()['field_errors'])
+        mock_complete.assert_not_called()
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage.download', return_value=b'%PDF-test')
+    @patch('core.api.portal_views._portal_pdf_preview_html', return_value=b'<html>invoice preview</html>')
+    def test_case_invoice_uses_protected_preview_and_expiring_external_open(self, mock_preview, mock_download):
+        batch = InvoiceUploadBatch.objects.create(
+            original_filename='invoice.pdf',
+            content_type='application/pdf',
+            drive_file_id='invoice-drive-id',
+            drive_url='https://drive.test/invoice',
+            status='matched',
+        )
+        ParsedInvoice.objects.create(
+            batch=batch,
+            page=1,
+            invoice_no='INV-001',
+            customer_name=self.farmer.customer_name,
+            status='matched',
+            matched_farmer=self.farmer,
+        )
+
+        from core.services.jawabu_case360 import serialize_case360
+
+        descriptor = next(
+            item for item in serialize_case360(self.farmer)['documents']['items']
+            if item['kind'] == 'invoice'
+        )
+        self.assertTrue(descriptor['preview_url'].endswith('/preview/'))
+        self.assertTrue(descriptor['prepare_external'])
+
+        preview = self.client.get(descriptor['preview_url'])
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview['Cache-Control'], 'private, no-store, max-age=0')
+        self.assertEqual(preview.content, b'<html>invoice preview</html>')
+
+        prepared = self.client.get(descriptor['open_url'])
+        self.assertEqual(prepared.status_code, 200)
+        self.assertEqual(prepared['Cache-Control'], 'no-store')
+        opened = self.client.get(urlsplit(prepared.json()['open_url']).path)
+        self.assertEqual(opened.status_code, 302)
+        self.assertEqual(opened.url, 'https://drive.test/invoice')
+        mock_download.assert_called_once_with('invoice-drive-id')
+        mock_preview.assert_called_once()
 
     @override_settings(PORTAL_JBL_VISIT_MAX_FILES=6)
     @patch('core.services.jawabu_pipeline.complete_jbl_visit')
@@ -3658,6 +3732,8 @@ class JawabuCase360Tests(TestCase):
         tat = calculate_case_tat(farmer, now=start + timedelta(minutes=180))
 
         self.assertEqual(tat['stages'][0]['minutes'], '60.00')
+        self.assertEqual(tat['stages'][0]['elapsed_seconds'], 3600)
+        self.assertFalse(tat['stages'][0]['running'])
         self.assertEqual(tat['stages'][0]['excluded_deferred_minutes'], '60.00')
 
     def test_new_unit_application_starts_a_fresh_tat_cycle(self):
@@ -3675,6 +3751,9 @@ class JawabuCase360Tests(TestCase):
         self.assertEqual(tat['previous_cycle_count'], 1)
         self.assertEqual(tat['stages'][0]['completed_at'], None)
         self.assertEqual(tat['stages'][0]['minutes'], '120.00')
+        self.assertEqual(tat['stages'][0]['elapsed_seconds'], 7200)
+        self.assertTrue(tat['stages'][0]['running'])
+        self.assertEqual(tat['elapsed_seconds'], 7200)
 
     def test_case360_exposes_business_sections_without_raw_payload(self):
         from core.services.jawabu_case360 import record_pipeline_event, serialize_case360

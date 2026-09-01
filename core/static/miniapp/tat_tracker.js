@@ -472,6 +472,9 @@
   }
 
   function formatElapsedSeconds(value) {
+    if (window.MiniAppRuntime?.formatElapsedSeconds) {
+      return window.MiniAppRuntime.formatElapsedSeconds(value);
+    }
     let seconds = Math.max(0, Math.floor(Number(value) || 0));
     const days = Math.floor(seconds / 86400);
     seconds %= 86400;
@@ -496,23 +499,27 @@
   }
 
   function hydrateTatCounters(root) {
-    (root || document).querySelectorAll('[data-counter-key]').forEach((node) => {
-      node._tatClock = window.MiniAppRuntime?.createServerClock(node.dataset.calculatedAt);
+    const scope = root || document;
+    scope.querySelectorAll('[data-counter-key]').forEach((node) => {
       window.setTimeout(() => node.classList.remove('reconciled'), 1600);
       const note = node.parentElement?.querySelector('.tat-reconciled-note');
       if (note) window.setTimeout(() => note.remove(), 2200);
     });
-    tickTatCounters();
+    if (window.MiniAppRuntime?.hydrateServerCounters) {
+      window.MiniAppRuntime.hydrateServerCounters(scope, {
+        selector: '[data-counter-key]',
+        onTick: updateTatCounterPresentation,
+      });
+    } else {
+      scope.querySelectorAll('[data-counter-key]').forEach((node) => {
+        node._serverClock = window.MiniAppRuntime?.createServerClock(node.dataset.calculatedAt);
+      });
+      tickTatCounters();
+    }
   }
 
-  function tickTatCounters() {
-    document.querySelectorAll('[data-counter-key]').forEach((node) => {
-      let elapsed = Math.max(0, Number(node.dataset.elapsedSeconds) || 0);
-      if (node.dataset.running === 'true' && node._tatClock) {
-        elapsed += Math.max(0, Math.floor((node._tatClock.nowMs() - node._tatClock.serverEpochMs) / 1000));
-      }
-      state.counterDisplayedSeconds[node.dataset.counterKey] = elapsed;
-      node.textContent = formatElapsedSeconds(elapsed);
+  function updateTatCounterPresentation(node, elapsed) {
+    state.counterDisplayedSeconds[node.dataset.counterKey] = elapsed;
       const target = Number(node.dataset.targetSeconds);
       const badge = node.closest('.tat-badge');
       if (badge && Number.isFinite(target) && target > 0) {
@@ -522,6 +529,23 @@
         const label = badge.parentElement?.querySelector('.live-tat-sla-label');
         if (label) label.textContent = slaLabel(status);
       }
+  }
+
+  function tickTatCounters() {
+    if (window.MiniAppRuntime?.tickServerCounters) {
+      window.MiniAppRuntime.tickServerCounters(document, {
+        selector: '[data-counter-key]',
+        onTick: updateTatCounterPresentation,
+      });
+      return;
+    }
+    document.querySelectorAll('[data-counter-key]').forEach((node) => {
+      let elapsed = Math.max(0, Number(node.dataset.elapsedSeconds) || 0);
+      if (node.dataset.running === 'true' && node._serverClock) {
+        elapsed += Math.max(0, Math.floor((node._serverClock.nowMs() - node._serverClock.serverEpochMs) / 1000));
+      }
+      node.textContent = formatElapsedSeconds(elapsed);
+      updateTatCounterPresentation(node, elapsed);
     });
   }
 
