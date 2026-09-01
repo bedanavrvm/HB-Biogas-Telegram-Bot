@@ -21,6 +21,7 @@
     mediaViewerObjectUrl: '', mediaViewerRestoreFocus: null,
     mediaViewerMode: '', mediaViewerTarget: '', mediaViewerItemId: '',
     mediaViewerRequestSequence: 0, persistedEvidence: [],
+    exportObjectUrl: '', exportFilename: '',
   };
 
   function requestId(prefix) {
@@ -34,6 +35,7 @@
     node.textContent = message || '';
     node.classList.toggle('error', !!error);
     node.classList.add('visible');
+    utils.haptic?.(error ? 'error' : 'success');
     clearTimeout(node._timer);
     node._timer = setTimeout(() => node.classList.remove('visible'), 4000);
   }
@@ -752,15 +754,37 @@
     } catch (error) { notify(error.message, true); }
   }
   function cancelExport() { $('exportConfirm').hidden = true; $('exportAllBtn').focus(); }
+  function releaseExportDownload() {
+    if (state.exportObjectUrl) URL.revokeObjectURL(state.exportObjectUrl);
+    state.exportObjectUrl = ''; state.exportFilename = '';
+  }
+  function startExportDownload() {
+    if (!state.exportObjectUrl || !state.exportFilename) return false;
+    const link = document.createElement('a');
+    link.href = state.exportObjectUrl; link.download = state.exportFilename;
+    document.body.appendChild(link); link.click(); link.remove();
+    return true;
+  }
+  function showExportDownload(filename) {
+    $('downloadFilename').textContent = filename;
+    $('downloadResult').hidden = false;
+  }
   async function confirmExport() {
     const button = $('confirmExportBtn'); setActionLoading(button, true, 'Downloading');
     try {
       const result = await apiClient.postBlob('global/export/', { group_id: state.groupId, confirm_all: true, client_request_id: requestId('complaint-export') }, state.initData, utils);
-      const url = URL.createObjectURL(result.blob); const link = document.createElement('a');
-      link.href = url; link.download = result.filename; document.body.appendChild(link); link.click(); link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 30000); $('exportConfirm').hidden = true; notify('The complaints file was downloaded.');
+      releaseExportDownload();
+      state.exportObjectUrl = URL.createObjectURL(result.blob);
+      state.exportFilename = result.filename || 'complaints.xlsx';
+      startExportDownload(); showExportDownload(state.exportFilename);
+      $('exportConfirm').hidden = true;
+      notify(`Download started. Check Downloads for ${state.exportFilename}.`);
     } catch (error) { notify(error.message, true); }
     finally { setActionLoading(button, false); }
+  }
+  function downloadAgain() {
+    if (!startExportDownload()) return notify('That download is no longer available. Create a new complaints download.', true);
+    notify(`Download started again. Check Downloads for ${state.exportFilename}.`);
   }
   async function retrySync() {
     if (!state.currentCase) return; const button = $('retrySyncBtn'); setActionLoading(button, true, 'Retrying');
@@ -789,6 +813,7 @@
   $('globalFilters').addEventListener('submit', event => { event.preventDefault(); state.globalPage = 1; loadGlobalCases(); });
   $('clearGlobalFiltersBtn').addEventListener('click', () => { $('globalFilters').reset(); state.globalPage = 1; loadGlobalCases(); });
   $('exportAllBtn').addEventListener('click', prepareExport); $('cancelExportBtn').addEventListener('click', cancelExport); $('confirmExportBtn').addEventListener('click', confirmExport);
+  $('downloadAgainBtn').addEventListener('click', downloadAgain);
   $('retrySyncBtn').addEventListener('click', retrySync);
   $('newCaseBtn').addEventListener('click', () => { state.returnWorkspace = 'queue'; setView('createView'); });
   document.querySelectorAll('[data-back]').forEach(button => button.addEventListener('click', returnPrevious));
@@ -830,6 +855,10 @@
   $('createCaseForm').addEventListener('input', () => utils.setCloseProtection?.('complaint-create-draft', true));
   $('createCaseForm').addEventListener('change', () => utils.setCloseProtection?.('complaint-create-draft', true));
   ['completeDetailsForm', 'resolveForm', 'reopenForm'].forEach(id => $(id).addEventListener('input', () => utils.setCloseProtection?.('complaint-transition-draft', true)));
+  document.addEventListener('click', event => {
+    const button = event.target.closest?.('button');
+    if (button && !button.disabled) utils.haptic?.('light');
+  }, { capture: true });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') closeCamera({ restoreFocus: false }); });
   window.addEventListener('pagehide', () => { closeCamera({ restoreFocus: false }); closeMediaViewer(); });
   window.addEventListener('beforeunload', () => { stopCamera(); window.SecureMediaViewer?.revoke(state.mediaViewerObjectUrl); });

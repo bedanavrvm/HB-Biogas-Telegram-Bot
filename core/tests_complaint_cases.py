@@ -1115,6 +1115,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         template = (root / 'templates' / 'complaint_cases' / 'app.html').read_text(encoding='utf-8')
         icons = (root / 'templates' / 'complaint_cases' / 'lucide_icons.html').read_text(encoding='utf-8')
         script = (root / 'static' / 'miniapp' / 'complaint_cases.js').read_text(encoding='utf-8')
+        styles = (root / 'static' / 'miniapp' / 'complaint_cases.css').read_text(encoding='utf-8')
 
         for expected in ('class="app-top"', 'class="status-tabs"', 'id="createCaseForm"', 'name="client_name"', 'name="customer_phone"', 'name="customer_id"', 'name="branch_region"', 'name="complaint_category"', 'name="complaint_description"', 'id="createEvidenceInput"', 'data-status="pending"', 'data-status="resolved"', 'data-status="all"', 'id="completeDetailsForm"', 'id="resolveForm"', 'id="reopenForm"', 'id="conflictPanel"', 'id="queuePagination"'):
             self.assertIn(expected, template)
@@ -1129,6 +1130,9 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('type="date"', template)
         self.assertIn('inputmode="numeric" pattern="[0-9]*"', template)
         self.assertIn('id="mediaViewerOverlay"', template)
+        self.assertIn('class="filter-search-control"', template)
+        self.assertIn('id="downloadResult"', template)
+        self.assertIn('id="downloadAgainBtn"', template)
         self.assertIn('secure_media_viewer.js', template)
         self.assertIn('complaint_cases/lucide_icons.html', template)
         self.assertIn('href="#lucide-refresh-cw"', template)
@@ -1137,6 +1141,9 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
             self.assertIn(f'id="lucide-{icon}"', icons)
         self.assertNotIn('unpkg.com/lucide', template)
         self.assertIn('This download includes all ${count} complaints across all complaint groups', script)
+        self.assertIn('Check Downloads for ${state.exportFilename}', script)
+        self.assertIn("utils.haptic?.(error ? 'error' : 'success')", script)
+        self.assertIn('grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)', styles)
         for wording in (
             '<h1>Complaints</h1>', '<span>Complaints</span>', '<span>Overview</span>',
             'Record a New Complaint', 'Enter the customer&rsquo;s complaint details below.',
@@ -1155,6 +1162,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
             'Any Status', 'Any Category', 'Date Reported', 'Start Date', 'End Date',
             'Show Results', 'Reset Filters', 'Needs More Information',
             'Resolution History', 'Reason for Reopening', 'Attachments', 'Complaint History',
+            'Include what was fixed or completed, when it was done',
         ):
             self.assertIn(wording, template)
         self.assertIn("'Resolved by'", script)
