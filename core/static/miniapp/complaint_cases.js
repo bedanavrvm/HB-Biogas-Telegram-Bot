@@ -853,7 +853,11 @@
   }
   function formatReportDate(value) {
     if (!value) return '';
-    const parsed = new Date(value); return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString();
+    const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) return `${match[3]}-${match[2]}-${match[1].slice(-2)}`;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return [String(parsed.getDate()).padStart(2, '0'), String(parsed.getMonth() + 1).padStart(2, '0'), String(parsed.getFullYear()).slice(-2)].join('-');
   }
   function reportStatusRenderer(params) {
     const needsDetails = !!params.data?.needs_details;
@@ -872,7 +876,7 @@
     state.reportGridApi = window.agGrid.createGrid($('complaintReportGrid'), {
       theme: 'legacy', rowData: [], animateRows: false, suppressMultiSort: true,
       suppressCellFocus: false, ensureDomOrder: true, overlayNoRowsTemplate: 'No complaints match these filters.',
-      defaultColDef: { sortable: true, resizable: true, suppressHeaderMenuButton: true },
+      defaultColDef: { sortable: true, resizable: true, suppressHeaderMenuButton: true, unSortIcon: true },
       columnDefs: [
         { headerName: '#', colId: 'row_number', width: 52, minWidth: 52, maxWidth: 52, sortable: false, resizable: false, pinned: 'left', valueGetter: p => ((state.globalPage - 1) * state.globalPageSize) + p.node.rowIndex + 1 },
         { headerName: 'Complaint ID', field: 'complaint_id', width: 125, sortable: false },

@@ -1329,6 +1329,10 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('Check Downloads for ${state.exportFilename}', script)
         self.assertIn("navigator.canShare({ files: [state.exportFile] })", script)
         self.assertIn("navigator.share({ files: [state.exportFile]", script)
+        self.assertIn("match[3]}-${match[2]}-${match[1].slice(-2)", script)
+        self.assertIn('unSortIcon: true', script)
+        self.assertIn('.report-status{font-size:11px;font-weight:850;white-space:nowrap}', styles)
+        self.assertNotIn('.report-status{display:inline-flex', styles)
         self.assertIn("utils.haptic?.(error ? 'error' : 'success')", script)
         self.assertIn('grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)', styles)
         for wording in (

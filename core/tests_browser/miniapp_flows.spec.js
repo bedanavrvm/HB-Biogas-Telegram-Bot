@@ -60,7 +60,7 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
           complaint_id: 'CMP000001', date_reported: '2026-09-01T10:00:00+03:00', status: 'Pending', needs_details: false,
           customer_name: 'TEST CUSTOMER', customer_id: '12345678', phone_number: '254700000000', reported_by: 'Officer',
           branch_region: 'Nakuru', complaint_category: 'Leakage', complaint_description: 'A sufficiently wide complaint description',
-          source: 'complaint_mini_app', gps_link: '', attachments: 0, resolution_details: '', date_resolved: '', days_open: 1,
+          source: 'complaint_mini_app', gps_link: '', attachments: 0, resolution_details: '', date_resolved: '2026-09-02T14:00:00+03:00', days_open: 1,
         }], count: 1, page: 1, page_size: 50 };
       },
       async postBlob() {
@@ -87,6 +87,14 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   await page.locator('#globalWorkspaceBtn').click();
   await expect(page.locator('#globalView')).toBeVisible();
   await expect(page.locator('.ag-row')).toHaveCount(1);
+  await expect(page.locator('.ag-cell[col-id="date_reported"]')).toHaveText('01-09-26');
+  await expect(page.locator('.report-status')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(page.locator('.ag-header-cell[col-id="date_reported"] .ag-sort-indicator-container')).toBeVisible();
+  await page.locator('.ag-body-horizontal-scroll-viewport').evaluate(node => {
+    node.scrollLeft = node.scrollWidth;
+    node.dispatchEvent(new Event('scroll'));
+  });
+  await expect(page.locator('.ag-cell[col-id="date_resolved"]')).toHaveText('02-09-26');
 
   await page.locator('#reportDateMode').selectOption('month');
   await page.locator('input[name="report_month"]').fill('2026-07');
