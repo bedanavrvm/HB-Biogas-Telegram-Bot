@@ -24,7 +24,7 @@
     mediaViewerObjectUrl: '', mediaViewerRestoreFocus: null,
     mediaViewerMode: '', mediaViewerTarget: '', mediaViewerItemId: '',
     mediaViewerRequestSequence: 0, persistedEvidence: [],
-    exportObjectUrl: '', exportFilename: '',
+    exportObjectUrl: '', exportFilename: '', exportFile: null,
   };
 
   function requestId(prefix) {
@@ -931,6 +931,7 @@
 
   async function prepareExport() {
     try {
+      $('downloadResult').hidden = true;
       const overview = await getJson('reports/summary/', { granularity: 'year' }); const count = overview.total || 0;
       $('exportConfirmText').textContent = `This download includes all ${count} complaints across all complaint groups, not only your current filters. Continue?`;
       $('exportConfirm').hidden = false; $('cancelExportBtn').focus();
@@ -939,7 +940,7 @@
   function cancelExport() { $('exportConfirm').hidden = true; $('exportAllBtn').focus(); }
   function releaseExportDownload() {
     if (state.exportObjectUrl) URL.revokeObjectURL(state.exportObjectUrl);
-    state.exportObjectUrl = ''; state.exportFilename = '';
+    state.exportObjectUrl = ''; state.exportFilename = ''; state.exportFile = null;
   }
   function startExportDownload() {
     if (!state.exportObjectUrl || !state.exportFilename) return false;
@@ -948,9 +949,36 @@
     document.body.appendChild(link); link.click(); link.remove();
     return true;
   }
-  function showExportDownload(filename) {
+  function mobileNativeExportAvailable() {
+    const platform = String(telegram?.platform || '').toLowerCase();
+    const mobile = ['android', 'ios'].includes(platform) || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+    if (!mobile || typeof navigator.share !== 'function' || typeof navigator.canShare !== 'function' || !state.exportFile) return false;
+    try { return navigator.canShare({ files: [state.exportFile] }); } catch (_) { return false; }
+  }
+  function showExportDownload(filename, nativeAvailable) {
     $('downloadFilename').textContent = filename;
+    $('downloadResultTitle').textContent = nativeAvailable ? 'Excel file ready' : 'Download started';
+    const message = $('downloadResultMessage'); const filenameNode = $('downloadFilename');
+    message.replaceChildren(filenameNode, document.createTextNode(nativeAvailable
+      ? ' is ready. Choose Excel, Google Sheets, or another compatible app.'
+      : ' was sent to your device. Check Downloads or your browser’s download list.'));
+    $('openExportBtn').hidden = !nativeAvailable;
     $('downloadResult').hidden = false;
+  }
+  async function openExportNatively(options) {
+    const settings = options || {};
+    if (!mobileNativeExportAvailable()) {
+      if (!settings.quiet) notify('This Telegram version cannot open Excel files directly. Use Download Again or open the Mini App in your phone browser.', true);
+      return false;
+    }
+    try {
+      await navigator.share({ files: [state.exportFile], title: 'Complaints Report', text: 'Open the JBL complaints report.' });
+      if (!settings.quiet) notify('Choose your Excel or spreadsheet app to view the report.');
+      return true;
+    } catch (error) {
+      if (!settings.quiet && error?.name !== 'AbortError') notify('The phone blocked the app chooser. Tap Open Excel File to try again.', true);
+      return false;
+    }
   }
   async function confirmExport() {
     const button = $('confirmExportBtn'); setActionLoading(button, true, 'Downloading');
@@ -959,9 +987,20 @@
       releaseExportDownload();
       state.exportObjectUrl = URL.createObjectURL(result.blob);
       state.exportFilename = result.filename || 'complaints.xlsx';
-      startExportDownload(); showExportDownload(state.exportFilename);
+      state.exportFile = typeof File === 'function' ? new File([result.blob], state.exportFilename, {
+        type: result.blob.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }) : null;
+      const nativeAvailable = mobileNativeExportAvailable();
+      showExportDownload(state.exportFilename, nativeAvailable);
       $('exportConfirm').hidden = true;
-      notify(`Download started. Check Downloads for ${state.exportFilename}.`);
+      if (nativeAvailable) {
+        const opened = await openExportNatively({ quiet: true });
+        notify(opened
+          ? 'The phone app chooser is open. Select Excel, Google Sheets, or another spreadsheet app.'
+          : 'Excel file ready. Tap Open Excel File to choose a spreadsheet app.');
+      } else {
+        startExportDownload(); notify(`Download started. Check Downloads for ${state.exportFilename}.`);
+      }
     } catch (error) { notify(error.message, true); }
     finally { setActionLoading(button, false); }
   }
@@ -1020,6 +1059,7 @@
     state.reportGranularity = event.target.value; refreshReport({ table: false }); utils.haptic?.('light');
   });
   $('exportAllBtn').addEventListener('click', prepareExport); $('cancelExportBtn').addEventListener('click', cancelExport); $('confirmExportBtn').addEventListener('click', confirmExport);
+  $('openExportBtn').addEventListener('click', () => openExportNatively());
   $('downloadAgainBtn').addEventListener('click', downloadAgain);
   $('retrySyncBtn').addEventListener('click', retrySync);
   $('newCaseBtn').addEventListener('click', () => { state.returnWorkspace = 'queue'; setView('createView'); });

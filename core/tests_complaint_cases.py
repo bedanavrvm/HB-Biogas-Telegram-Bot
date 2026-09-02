@@ -1316,6 +1316,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('id="mediaViewerOverlay"', template)
         self.assertIn('class="filter-search-control"', template)
         self.assertIn('id="downloadResult"', template)
+        self.assertIn('id="openExportBtn"', template)
         self.assertIn('id="downloadAgainBtn"', template)
         self.assertIn('secure_media_viewer.js', template)
         self.assertIn('complaint_cases/lucide_icons.html', template)
@@ -1326,6 +1327,8 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertNotIn('unpkg.com/lucide', template)
         self.assertIn('This download includes all ${count} complaints across all complaint groups', script)
         self.assertIn('Check Downloads for ${state.exportFilename}', script)
+        self.assertIn("navigator.canShare({ files: [state.exportFile] })", script)
+        self.assertIn("navigator.share({ files: [state.exportFile]", script)
         self.assertIn("utils.haptic?.(error ? 'error' : 'success')", script)
         self.assertIn('grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)', styles)
         for wording in (

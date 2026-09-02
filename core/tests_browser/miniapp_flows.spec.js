@@ -25,9 +25,10 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   await page.addStyleTag({ path: asset('complaint_cases.css') });
   await page.evaluate(() => {
     document.body.dataset.groupId = '-100-report-test';
-    window.__backVisible = false; window.__backHandler = null; window.__reportRequests = [];
+    window.__backVisible = false; window.__backHandler = null; window.__reportRequests = []; window.__sharedFiles = [];
     const webApp = {
       initData: 'synthetic-signed-init-data',
+      platform: 'android',
       BackButton: {
         onClick(callback) { window.__backHandler = callback; },
         show() { window.__backVisible = true; },
@@ -40,7 +41,7 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
     window.ComplaintCasesMiniAppApi = {
       async postJson(path) {
         if (path === 'bootstrap/') return { data: {
-          actor: { name: 'IT Manager', role: 'IT', capabilities: ['complaint.queue.view', 'complaint.reports.view'] },
+          actor: { name: 'IT Manager', role: 'IT', capabilities: ['complaint.queue.view', 'complaint.reports.view', 'complaint.case.export'] },
           counts: { pending: 1, resolved: 0, total: 1 }, branches: [], categories: [], category_catalogue: [],
           evidence_limits: { max_files: 10, max_file_size_mb: 10, max_total_upload_mb: 30 },
         } };
@@ -62,7 +63,23 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
           source: 'complaint_mini_app', gps_link: '', attachments: 0, resolution_details: '', date_resolved: '', days_open: 1,
         }], count: 1, page: 1, page_size: 50 };
       },
+      async postBlob() {
+        return {
+          blob: new Blob(['synthetic-xlsx'], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+          filename: 'Complaint-Cases-Test.xlsx',
+        };
+      },
     };
+    Object.defineProperty(navigator, 'canShare', {
+      configurable: true,
+      value: payload => Boolean(payload?.files?.length),
+    });
+    Object.defineProperty(navigator, 'share', {
+      configurable: true,
+      value: async payload => {
+        window.__sharedFiles = payload.files.map(file => ({ name: file.name, type: file.type, size: file.size }));
+      },
+    });
   });
   await page.addScriptTag({ path: asset('vendor-ag-grid-community-36.1.0.min.js') });
   await page.addScriptTag({ path: asset('vendor-chartjs-4.5.1.umd.min.js') });
@@ -105,6 +122,17 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   await page.emulateMedia({ colorScheme: 'dark' });
   const darkSurface = await page.locator('#complaintReportGrid').evaluate(node => getComputedStyle(node).getPropertyValue('--ag-background-color'));
   expect(darkSurface).not.toBe(lightSurface);
+
+  await page.locator('#exportAllBtn').click();
+  await expect(page.locator('#exportConfirm')).toBeVisible();
+  await page.locator('#confirmExportBtn').click();
+  await expect.poll(() => page.evaluate(() => window.__sharedFiles.length)).toBe(1);
+  expect(await page.evaluate(() => window.__sharedFiles[0])).toMatchObject({
+    name: 'Complaint-Cases-Test.xlsx',
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  await expect(page.locator('#downloadResultTitle')).toHaveText('Excel file ready');
+  await expect(page.locator('#openExportBtn')).toBeVisible();
 
   await page.evaluate(() => window.__backHandler());
   await expect(page.locator('#queueView')).toBeVisible();

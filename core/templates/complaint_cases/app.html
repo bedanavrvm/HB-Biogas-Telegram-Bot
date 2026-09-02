@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=24">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=25">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
   {% include "complaint_cases/lucide_icons.html" %}
@@ -43,7 +43,7 @@
     <section id="globalView" hidden>
       <button id="reportBackBtn" class="back-button" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-arrow-left"></use></svg><span>Complaints</span></button>
       <div class="queue-head"><div><p class="eyebrow">Management Report</p><h2>Complaints Data Overview</h2><p class="muted">Read-only organization-wide complaint data</p></div><button id="exportAllBtn" class="primary" type="button" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-download"></use></svg><span>Download Complaints</span></button></div>
-      <section id="downloadResult" class="download-result" role="status" aria-live="polite" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-circle-check"></use></svg><div><strong>Download started</strong><p><span id="downloadFilename"></span> was sent to your device. Check Downloads or your browser&rsquo;s download list. Telegram controls the final save location.</p></div><button id="downloadAgainBtn" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-download"></use></svg><span>Download Again</span></button></section>
+      <section id="downloadResult" class="download-result" role="status" aria-live="polite" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-circle-check"></use></svg><div><strong id="downloadResultTitle">Download ready</strong><p id="downloadResultMessage"><span id="downloadFilename"></span> is ready.</p></div><div class="download-result-actions"><button id="openExportBtn" class="primary" type="button" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-external-link"></use></svg><span>Open Excel File</span></button><button id="downloadAgainBtn" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-download"></use></svg><span>Download Again</span></button></div></section>
       <div id="globalMetrics" class="metric-grid" aria-label="Global complaint metrics"></div>
       <p id="reportPeriodLabel" class="report-period muted">All reporting dates</p>
       <div class="report-charts" aria-label="Complaint charts">
@@ -116,6 +116,6 @@
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
   <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=5"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=28"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=29"></script>
 </body>
 </html>
