@@ -228,6 +228,11 @@ for the Portal reporting workspace. Chart.js 4.5.1 provides responsive charts
 without a build step; a runtime CDN was rejected for unreliable field/offline
 connectivity, and hand-written canvas charting was rejected for maintenance risk.
 
+`core/static/miniapp/vendor-ag-grid-community-36.1.0.min.js` and its styles are
+intentionally vendored for the management-only Complaints Data Overview. Only
+AG Grid Community is permitted; Enterprise packages and features are excluded.
+The checked-in license file must remain beside these assets.
+
 The Mini Apps use Django templates and mostly vanilla JavaScript. Preserve Telegram Web App compatibility and mobile-first behaviour.
 
 ### Tests

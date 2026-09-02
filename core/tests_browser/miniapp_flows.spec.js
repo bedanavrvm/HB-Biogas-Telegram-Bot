@@ -11,6 +11,85 @@ async function loadUtilities(page) {
   await page.addScriptTag({ path: asset('utils.js') });
 }
 
+test('Complaint management report contains horizontal grid scrolling and Telegram back navigation', async ({ page }) => {
+  const template = fs.readFileSync(path.join(root, 'core', 'templates', 'complaint_cases', 'app.html'), 'utf8')
+    .replace(/{% load static %}/g, '')
+    .replace(/{% include [^%]+%}/g, '')
+    .replace(/{% static '[^']+' %}/g, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/g, '')
+    .replace(/<link[^>]*>/g, '');
+  await page.setViewportSize({ width: 360, height: 780 });
+  await page.setContent(template);
+  await page.addStyleTag({ path: asset('vendor-ag-grid-community-36.1.0.min.css') });
+  await page.addStyleTag({ path: asset('vendor-ag-grid-theme-quartz-36.1.0.min.css') });
+  await page.addStyleTag({ path: asset('complaint_cases.css') });
+  await page.evaluate(() => {
+    document.body.dataset.groupId = '-100-report-test';
+    window.__backVisible = false; window.__backHandler = null;
+    const webApp = {
+      initData: 'synthetic-signed-init-data',
+      BackButton: {
+        onClick(callback) { window.__backHandler = callback; },
+        show() { window.__backVisible = true; },
+        hide() { window.__backVisible = false; },
+      },
+      onEvent() {}, disableVerticalSwipes() {},
+    };
+    window.Telegram = { WebApp: webApp };
+    window.MiniAppUtils = { initTelegram: () => webApp, haptic() {}, setCloseProtection() {} };
+    window.ComplaintCasesMiniAppApi = {
+      async postJson(path) {
+        if (path === 'bootstrap/') return { data: {
+          actor: { name: 'IT Manager', role: 'IT', capabilities: ['complaint.queue.view', 'complaint.reports.view'] },
+          counts: { pending: 1, resolved: 0, total: 1 }, branches: [], categories: [], category_catalogue: [],
+          evidence_limits: { max_files: 10, max_file_size_mb: 10, max_total_upload_mb: 30 },
+        } };
+        if (path === 'cases/') return { cases: [], pagination: { page: 1, pages: 1, total: 0 }, start_index: 0 };
+        return { data: {} };
+      },
+      async getJson(path) {
+        if (path === 'reports/summary/') return {
+          total: 1, pending: 1, resolved: 0, needs_details: 0,
+          by_branch: [{ label: 'Nakuru', count: 1 }], by_category: [{ label: 'Leakage', count: 1 }],
+          by_month: [{ label: '2026-09', count: 1 }],
+        };
+        return { results: [{
+          complaint_id: 'CMP000001', date_reported: '2026-09-01T10:00:00+03:00', status: 'Pending', needs_details: false,
+          customer_name: 'TEST CUSTOMER', customer_id: '12345678', phone_number: '254700000000', reported_by: 'Officer',
+          branch_region: 'Nakuru', complaint_category: 'Leakage', complaint_description: 'A sufficiently wide complaint description',
+          source: 'complaint_mini_app', gps_link: '', attachments: 0, resolution_details: '', date_resolved: '', days_open: 1,
+        }], count: 1, page: 1, page_size: 50 };
+      },
+    };
+  });
+  await page.addScriptTag({ path: asset('vendor-ag-grid-community-36.1.0.min.js') });
+  await page.addScriptTag({ path: asset('vendor-chartjs-4.5.1.umd.min.js') });
+  await page.addScriptTag({ path: asset('complaint_cases.js') });
+  await page.locator('#globalWorkspaceBtn').click();
+  await expect(page.locator('#globalView')).toBeVisible();
+  await expect(page.locator('.ag-row')).toHaveCount(1);
+
+  for (const width of [320, 360, 390]) {
+    await page.setViewportSize({ width, height: 780 });
+    const overflow = await page.evaluate(() => ({
+      document: document.documentElement.scrollWidth - window.innerWidth,
+      grid: document.querySelector('.ag-body-horizontal-scroll-viewport').scrollWidth - document.querySelector('.ag-body-horizontal-scroll-viewport').clientWidth,
+      backVisible: window.__backVisible,
+    }));
+    expect(overflow.document).toBeLessThanOrEqual(1);
+    expect(overflow.grid).toBeGreaterThan(0);
+    expect(overflow.backVisible).toBe(true);
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
+  const lightSurface = await page.locator('#complaintReportGrid').evaluate(node => getComputedStyle(node).getPropertyValue('--ag-background-color'));
+  await page.emulateMedia({ colorScheme: 'dark' });
+  const darkSurface = await page.locator('#complaintReportGrid').evaluate(node => getComputedStyle(node).getPropertyValue('--ag-background-color'));
+  expect(darkSurface).not.toBe(lightSurface);
+
+  await page.evaluate(() => window.__backHandler());
+  await expect(page.locator('#queueView')).toBeVisible();
+});
+
 test('Complaint camera stops when Telegram deactivates the Mini App', async ({ page }) => {
   const template = fs.readFileSync(path.join(root, 'core', 'templates', 'complaint_cases', 'app.html'), 'utf8')
     .replace(/{% load static %}/g, '')

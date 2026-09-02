@@ -829,6 +829,10 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
             user=self.officer, workflow='complaint_cases', role='OFFICER',
             group_configuration=self.group_a,
         )
+        AccessGrant.objects.create(
+            user=self.officer, workflow='complaint_cases', role='IT',
+            group_configuration=self.group_a,
+        )
         self.case_a = self.create_case(self.group_a, 'CMP-2026-001', 'Alice Client')
         self.case_b = self.create_case(self.group_b, 'CMP-2026-001', '=HYPERLINK("bad")')
 
@@ -847,15 +851,15 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
         )
         ComplaintCaseControl.objects.create(
             parsed_message=case,
-            reference_number='CMP900001' if group == self.group_a else 'CMP900002',
+            reference_number=f'CMP{900001 + ComplaintCaseControl.objects.count():06d}',
             category=self.category, priority='high',
             sla_target_hours=24, sla_started_at=case.timestamp,
             sla_due_at=case.timestamp - timedelta(hours=1), sync_status='pending',
         )
         return case
 
-    def signed_init_data(self):
-        pairs = {'auth_date': str(int(time.time())), 'user': json.dumps({'id': 801})}
+    def signed_init_data(self, telegram_id=801):
+        pairs = {'auth_date': str(int(time.time())), 'user': json.dumps({'id': telegram_id})}
         check = '\n'.join(f'{key}={value}' for key, value in sorted(pairs.items()))
         secret = hmac.new(b'WebAppData', b'test-bot-token', hashlib.sha256).digest()
         pairs['hash'] = hmac.new(secret, check.encode('utf-8'), hashlib.sha256).hexdigest()
@@ -870,8 +874,15 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
             HTTP_IDEMPOTENCY_KEY=request_id,
         )
 
+    def get(self, name, params=None, *, telegram_id=801):
+        values = {'group_id': self.group_a.group_id, **(params or {})}
+        return self.client.get(
+            reverse(name), data=values,
+            HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data(telegram_id),
+        )
+
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
-    def test_any_authorized_complaint_officer_sees_every_group(self):
+    def test_management_report_user_sees_every_group(self):
         overview = self.post('complaint_cases_global_overview')
         listing = self.post('complaint_cases_global_list', {'filters': {}, 'page': 1})
 
@@ -884,6 +895,108 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
             {row['reference_number'] for row in listing.json()['items']},
             {'CMP900001', 'CMP900002'},
         )
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_ordinary_officer_and_manager_are_denied_management_reports(self):
+        ordinary = get_user_model().objects.create_user(username='ordinary-officer', is_active=True)
+        UserProfile.objects.create(user=ordinary, telegram_id='802')
+        AccessGrant.objects.create(
+            user=ordinary, workflow='complaint_cases', role='OFFICER',
+            group_configuration=self.group_a,
+        )
+        manager = get_user_model().objects.create_user(username='ordinary-manager', is_active=True)
+        UserProfile.objects.create(user=manager, telegram_id='803')
+        AccessGrant.objects.create(
+            user=manager, workflow='complaint_cases', role='MANAGER',
+            group_configuration=self.group_a,
+        )
+
+        bootstrap = self.client.post(
+            reverse('complaint_cases_bootstrap'),
+            data=json.dumps({'group_id': self.group_a.group_id}), content_type='application/json',
+            HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data(802),
+            HTTP_X_REQUEST_ID='ordinary-bootstrap-1',
+            HTTP_IDEMPOTENCY_KEY='ordinary-bootstrap-1',
+        )
+        self.assertEqual(bootstrap.status_code, 200)
+        self.assertNotIn('complaint.reports.view', bootstrap.json()['data']['actor']['capabilities'])
+        for telegram_id in (802, 803):
+            self.assertEqual(self.get('complaint_reports_data', telegram_id=telegram_id).status_code, 403)
+            self.assertEqual(self.get('complaint_reports_summary', telegram_id=telegram_id).status_code, 403)
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_report_data_is_allowlisted_capped_and_counts_only_successful_attachments(self):
+        self.case_a.complaint_status = 'Review Needed'
+        self.case_a.save(update_fields=['complaint_status'])
+        update = CaseUpdate.objects.create(
+            parsed_message=self.case_a, group_id=self.group_a.group_id,
+            raw_update_text='attachment test', new_status='Open',
+        )
+        for status in ('success', 'failed', 'pending'):
+            ComplaintCaseEvidence.objects.create(
+                parsed_message=self.case_a, case_update=update, group_id=self.group_a.group_id,
+                original_filename=f'private-{status}.jpg', mime_type='image/jpeg',
+                drive_file_id=f'private-{status}', drive_url=f'https://drive.invalid/{status}',
+                upload_status=status,
+            )
+
+        response = self.get('complaint_reports_data', {
+            'page_size': 1000, 'search': 'CMP900001', 'sort': '-days_open',
+            'branch': 'Nakuru', 'category': 'Product issue', 'status': 'pending',
+            'date_from': timezone.localdate().isoformat(),
+            'date_to': timezone.localdate().isoformat(),
+        })
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload['page_size'], 100)
+        self.assertEqual(payload['count'], 1)
+        row = payload['results'][0]
+        self.assertEqual(row['attachments'], 1)
+        self.assertEqual(row['status'], 'Pending')
+        self.assertTrue(row['needs_details'])
+        self.assertEqual(set(row), {
+            'complaint_id', 'date_reported', 'status', 'needs_details',
+            'customer_name', 'customer_id', 'phone_number', 'reported_by',
+            'branch_region', 'complaint_category', 'complaint_description',
+            'source', 'gps_link', 'attachments', 'resolution_details',
+            'date_resolved', 'days_open',
+        })
+        forbidden = {
+            'raw_message', 'message_id', 'loan_status', 'loan_at_risk', 'risk_level',
+            'drive_url', 'drive_file_id', 'original_filename', 'mime_type', 'content_hash',
+        }
+        self.assertFalse(forbidden.intersection(row))
+        self.assertNotIn('Open', row.values())
+        self.assertNotIn('private-success.jpg', json.dumps(row))
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_report_rejects_unknown_sort_and_summary_matches_database(self):
+        rejected = self.get('complaint_reports_data', {'sort': 'customer_name'})
+        summary = self.get('complaint_reports_summary')
+
+        self.assertEqual(rejected.status_code, 400)
+        self.assertEqual(summary.status_code, 200)
+        payload = summary.json()
+        self.assertEqual(payload['total'], ParsedMessage.objects.filter(complaint_control__isnull=False).count())
+        self.assertEqual(payload['pending'], 2)
+        self.assertEqual(payload['resolved'], 0)
+        self.assertEqual(len(payload['by_month']), 12)
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_report_maps_every_legacy_status_without_exposing_raw_values(self):
+        for stored, expected, needs_details in (
+            ('', 'Pending', False), ('Open', 'Pending', False),
+            ('In Progress', 'Pending', False), ('Review Needed', 'Pending', True),
+            ('Closed', 'Resolved', False),
+        ):
+            self.case_a.complaint_status = stored
+            self.case_a.date_resolved = timezone.now() if stored == 'Closed' else None
+            self.case_a.save(update_fields=['complaint_status', 'date_resolved'])
+            row = self.get('complaint_reports_data', {'search': 'CMP900001'}).json()['results'][0]
+            self.assertEqual(row['status'], expected)
+            self.assertEqual(row['needs_details'], needs_details)
+            self.assertNotEqual(row['status'], stored or 'blank')
 
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
     def test_cross_group_detail_is_allowlisted_and_actions_are_target_scoped(self):
@@ -1116,17 +1229,26 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         icons = (root / 'templates' / 'complaint_cases' / 'lucide_icons.html').read_text(encoding='utf-8')
         script = (root / 'static' / 'miniapp' / 'complaint_cases.js').read_text(encoding='utf-8')
         styles = (root / 'static' / 'miniapp' / 'complaint_cases.css').read_text(encoding='utf-8')
+        package_lock = (root.parent / 'package-lock.json').read_text(encoding='utf-8')
+        ag_grid_license = (
+            root / 'static' / 'miniapp' / 'vendor-ag-grid-community-36.1.0.LICENSE.txt'
+        ).read_text(encoding='utf-8')
 
         for expected in ('class="app-top"', 'class="status-tabs"', 'id="createCaseForm"', 'name="client_name"', 'name="customer_phone"', 'name="customer_id"', 'name="branch_region"', 'name="complaint_category"', 'name="complaint_description"', 'id="createEvidenceInput"', 'data-status="pending"', 'data-status="resolved"', 'data-status="all"', 'id="completeDetailsForm"', 'id="resolveForm"', 'id="reopenForm"', 'id="conflictPanel"', 'id="queuePagination"'):
             self.assertIn(expected, template)
-        for expected in ('id="globalView"', 'id="globalFilters"', 'id="globalCaseRows"', 'id="exportConfirm"'):
+        for expected in ('id="globalView"', 'id="globalFilters"', 'id="complaintReportGrid"', 'id="exportConfirm"'):
             self.assertIn(expected, template)
-        for expected in ('name="query"', 'name="status"', 'name="category"', 'name="reported_from"', 'name="reported_to"'):
+        for expected in ('name="search"', 'name="status"', 'name="branch"', 'name="category"', 'name="date_from"', 'name="date_to"'):
             self.assertIn(expected, template)
-        for removed in ('name="group"', 'name="branch"', 'name="priority"', 'name="sla"', 'name="sync"', 'name="sort"'):
+        for removed in ('name="group"', 'name="priority"', 'name="sla"', 'name="sync"', 'name="sort"'):
             self.assertNotIn(removed, template)
-        self.assertEqual(template.count('<th>') + template.count('<th class='), 13)
-        self.assertIn('<th class="row-number-cell">#</th><th>Complaint ID</th>', template)
+        self.assertNotIn('<table class="register-table">', template)
+        self.assertIn('vendor-ag-grid-community-36.1.0.min.js', template)
+        self.assertIn('vendor-chartjs-4.5.1.umd.min.js', template)
+        self.assertIn('MIT License', ag_grid_license)
+        self.assertIn('"ag-grid-community"', package_lock)
+        self.assertNotIn('"ag-grid-enterprise"', package_lock)
+        self.assertNotIn('"@ag-grid-enterprise/', package_lock)
         self.assertIn('type="date"', template)
         self.assertIn('inputmode="numeric" pattern="[0-9]*"', template)
         self.assertIn('id="mediaViewerOverlay"', template)
@@ -1145,7 +1267,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn("utils.haptic?.(error ? 'error' : 'success')", script)
         self.assertIn('grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)', styles)
         for wording in (
-            '<h1>Complaints</h1>', '<span>Complaints</span>', '<span>Overview</span>',
+            '<h1>Complaints</h1>', '<span>Complaints</span>', '<span>Data Overview</span>',
             'Record a New Complaint', 'Enter the customer&rsquo;s complaint details below.',
             'Complaint Type', 'What is the complaint about?', 'Use My Current Location',
             'Supporting Documents or Photos', 'Take Photos', 'Upload Files',
@@ -1158,7 +1280,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         service = (root / 'services' / 'complaint_cases.py').read_text(encoding='utf-8')
         self.assertIn("f'Pending for {age_days} day'", service)
         for wording in (
-            'Overview', 'View and manage all complaints', 'Download Complaints',
+            'Management Report', 'Read-only organization-wide complaint data', 'Download Complaints',
             'Any Status', 'Any Category', 'Date Reported', 'Start Date', 'End Date',
             'Show Results', 'Reset Filters', 'Needs More Information',
             'Resolution History', 'Reason for Reopening', 'Attachments', 'Complaint History',
@@ -1177,6 +1299,11 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('item.reference_number || item.case_id', script)
         self.assertIn('Search by complaint ID', template)
         self.assertIn('family=Plus+Jakarta+Sans', template)
+        self.assertIn("can('complaint.reports.view')", script)
+        self.assertIn("getJson('reports/data/'", script)
+        self.assertIn('overflow-x:hidden', styles)
+        self.assertIn('AG Grid owns horizontal scrolling', styles)
+        self.assertNotIn('ag-grid-enterprise', template.casefold())
         self.assertIn("'the case is now fully resolved': 'Complaint marked as resolved'", script)
         self.assertIn("'the customer is still complaining': 'Customer reported the issue again'", script)
         self.assertIn("miniapp/utils.js", template)
@@ -1194,7 +1321,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('id="mediaViewerNext"', template)
         self.assertIn('id="mediaViewerDelete"', template)
         self.assertIn('id="mediaViewerRetake"', template)
-        self.assertIn('>Take Photo</button>', template)
+        self.assertIn('<span>Take Photo</span>', template)
         self.assertNotIn('>Use Photo</button>', template)
         self.assertIn("notify('Photo added. Take another photo or tap Done.')", script)
         self.assertIn('function navigateMediaViewer(offset)', script)

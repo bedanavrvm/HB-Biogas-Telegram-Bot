@@ -10,7 +10,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=21">
+  <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
+  <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=22">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
   {% include "complaint_cases/lucide_icons.html" %}
@@ -23,7 +25,7 @@
     <section id="loadingState" class="loading-state" aria-live="polite"><span class="spinner-inline" aria-hidden="true"></span><span>Loading complaints...</span></section>
     <nav id="workspaceTabs" class="workspace-tabs" aria-label="Complaint workspace" hidden>
       <button id="queueWorkspaceBtn" type="button" class="active"><svg class="lucide" aria-hidden="true"><use href="#lucide-clipboard-list"></use></svg><span>Complaints</span></button>
-      <button id="globalWorkspaceBtn" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-layout-dashboard"></use></svg><span>Overview</span></button>
+      <button id="globalWorkspaceBtn" type="button" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-layout-dashboard"></use></svg><span>Data Overview</span></button>
     </nav>
 
     <section id="queueView" hidden>
@@ -39,23 +41,24 @@
     </section>
 
     <section id="globalView" hidden>
-      <div class="queue-head"><div><p class="eyebrow">Overview</p><h2>All Complaints</h2><p class="muted">View and manage all complaints</p></div><button id="exportAllBtn" class="primary" type="button" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-download"></use></svg><span>Download Complaints</span></button></div>
+      <button id="reportBackBtn" class="back-button" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-arrow-left"></use></svg><span>Complaints</span></button>
+      <div class="queue-head"><div><p class="eyebrow">Management Report</p><h2>Complaints Data Overview</h2><p class="muted">Read-only organization-wide complaint data</p></div><button id="exportAllBtn" class="primary" type="button" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-download"></use></svg><span>Download Complaints</span></button></div>
       <section id="downloadResult" class="download-result" role="status" aria-live="polite" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-circle-check"></use></svg><div><strong>Download started</strong><p><span id="downloadFilename"></span> was sent to your device. Check Downloads or your browser&rsquo;s download list. Telegram controls the final save location.</p></div><button id="downloadAgainBtn" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-download"></use></svg><span>Download Again</span></button></section>
       <div id="globalMetrics" class="metric-grid" aria-label="Global complaint metrics"></div>
+      <div class="report-charts" aria-label="Complaint charts">
+        <section class="report-chart"><h3>Complaints by Type</h3><div><canvas id="categoryChart"></canvas></div></section>
+        <section class="report-chart"><h3>Complaints by Month</h3><div><canvas id="monthChart"></canvas></div></section>
+      </div>
       <form id="globalFilters" class="register-filters">
-        <label class="filter-search"><span>Search</span><span class="filter-search-control"><svg class="lucide search-icon" aria-hidden="true"><use href="#lucide-search"></use></svg><input name="query" type="search" autocomplete="off" placeholder="Search by complaint ID, complaint, customer name, or phone number"></span></label>
+        <label class="filter-search"><span>Search</span><span class="filter-search-control"><svg class="lucide search-icon" aria-hidden="true"><use href="#lucide-search"></use></svg><input name="search" type="search" autocomplete="off" placeholder="Search by complaint ID, complaint, customer name, ID or phone"></span></label>
         <label class="filter-status">Status<select name="status"><option value="">Any Status</option><option value="pending">Pending</option><option value="resolved">Resolved</option></select></label>
+        <label class="filter-branch">Branch<select name="branch"><option value="">Any Branch</option></select></label>
         <label class="filter-category">Category<select name="category"><option value="">Any Category</option></select></label>
-        <fieldset class="date-filter"><legend>Date Reported</legend><label>Start Date<input name="reported_from" type="date"></label><label>End Date<input name="reported_to" type="date"></label></fieldset>
+        <fieldset class="date-filter"><legend>Date Reported</legend><label>Start Date<input name="date_from" type="date"></label><label>End Date<input name="date_to" type="date"></label></fieldset>
         <div class="filter-actions"><button id="globalApplyFiltersBtn" class="primary" type="submit"><svg class="lucide" aria-hidden="true"><use href="#lucide-filter"></use></svg><span>Show Results</span></button><button id="clearGlobalFiltersBtn" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-rotate-ccw"></use></svg><span>Reset Filters</span></button></div>
       </form>
       <p id="globalResultCount" class="muted">0 complaints</p>
-      <div class="register-table-wrap">
-        <table class="register-table">
-          <thead><tr><th class="row-number-cell">#</th><th>Complaint ID</th><th>Customer Name</th><th>Phone Number</th><th>Customer ID</th><th>Branch</th><th>Complaint Type</th><th>Complaint</th><th>Status</th><th>Reported At</th><th>Resolved At</th><th>Days Open</th><th>Resolution</th></tr></thead>
-          <tbody id="globalCaseRows"><tr><td colspan="13">Open All Complaints to load the register.</td></tr></tbody>
-        </table>
-      </div>
+      <div id="complaintReportGridWrap" class="report-grid-wrap" role="region" aria-label="Complaints report table" tabindex="0"><div id="complaintReportGrid" class="ag-theme-quartz report-grid"></div></div>
       <nav id="globalPagination" class="pagination" aria-label="All complaint pages" hidden><button id="globalPreviousBtn" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-chevron-left"></use></svg><span>Previous</span></button><span id="globalPageLabel">Page 1 of 1</span><button id="globalNextBtn" type="button"><span>Next</span><svg class="lucide" aria-hidden="true"><use href="#lucide-chevron-right"></use></svg></button></nav>
     </section>
 
@@ -107,7 +110,9 @@
   {% include "miniapp_diagnostics.html" %}
   <script src="{% static 'miniapp/utils.js' %}?v=9"></script>
   <script src="{% static 'miniapp/secure_media_viewer.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=4"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=25"></script>
+  <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
+  <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
+  <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=5"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=26"></script>
 </body>
 </html>

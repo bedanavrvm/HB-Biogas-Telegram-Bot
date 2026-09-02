@@ -502,6 +502,7 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         for expected in (
             'window.ComplaintCasesMiniAppApi',
+            'getJson',
             'postJson',
             'postForm',
             'postFragment',

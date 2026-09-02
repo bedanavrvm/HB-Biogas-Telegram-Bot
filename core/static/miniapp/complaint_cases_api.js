@@ -66,6 +66,33 @@
     return result;
   }
 
+  async function getJson(path, params, initData, utils) {
+    const query = new URLSearchParams();
+    Object.entries(params || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
+    });
+    const options = {
+      method: 'GET',
+      headers: {
+        'X-Telegram-Init-Data': initData || '',
+        'X-MiniApp-Message-Contract': '2',
+      },
+    };
+    const queryString = query.toString();
+    const url = `/api/complaints/${path}${queryString ? `?${queryString}` : ''}`;
+    if (utils && utils.fetchJson) return utils.fetchJson(url, options);
+    const response = await fetch(url, options);
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const normalized = utils?.normalizeResponsePayload ? utils.normalizeResponsePayload(response, result) : result;
+      const error = new Error(normalized.message || normalized.error || 'The complaints report could not be loaded.');
+      error.status = response.status;
+      error.payload = normalized;
+      throw error;
+    }
+    return result;
+  }
+
   async function postBlob(path, payload, initData, utils) {
     const body = payload || {};
     const requestId = utils && utils.ensureRequestId
@@ -127,6 +154,7 @@
   }
 
   window.ComplaintCasesMiniAppApi = {
+    getJson,
     postJson,
     postForm,
     postBlob,

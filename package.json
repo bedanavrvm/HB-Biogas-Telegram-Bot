@@ -12,5 +12,8 @@
   },
   "devDependencies": {
     "playwright": "1.62.1"
+  },
+  "dependencies": {
+    "ag-grid-community": "36.1.0"
   }
 }

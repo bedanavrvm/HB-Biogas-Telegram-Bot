@@ -79,6 +79,7 @@ node_modules/
 coverage.json
 coverage-subsystems.json
 .coverage
+.npm-cache/
 
 # Reviewed public application asset. Its exact bytes are pinned by the
 # tracked-artifact allowlist rather than trusted by path alone.

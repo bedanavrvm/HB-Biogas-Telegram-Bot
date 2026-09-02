@@ -87,6 +87,7 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     CapabilityDefinition('complaint.case.evidence.manage', 'complaint_cases', 'Upload complaint evidence', 'Evidence', _roles('OFFICER', 'MANAGER', 'HB_STAFF'), ('complaint.queue.view',)),
     CapabilityDefinition('complaint.case.sync.retry', 'complaint_cases', 'Retry complaint register publication', 'Operations', _roles('MANAGER', 'IT'), ('complaint.queue.view',)),
     CapabilityDefinition('complaint.case.export', 'complaint_cases', 'Export the global complaint register', 'Cases', _roles('OFFICER', 'MANAGER', 'IT'), ('complaint.queue.view',)),
+    CapabilityDefinition('complaint.reports.view', 'complaint_cases', 'View complaint management reports', 'Reporting', _roles('IT'), ('complaint.queue.view',)),
     CapabilityDefinition('complaint.case.manage', 'complaint_cases', 'Legacy complaint manager access', 'Cases', _roles('MANAGER'), ('complaint.queue.view',)),
     # TAT tracker.  Individual stages are appended dynamically below.
     CapabilityDefinition('tat.home.view', 'tat_tracker', 'View TAT queue', 'Queue', _roles('BRO', BUSINESS_ADMIN_ROLE, 'CA', 'BM', 'SECRETARY', 'CHAIR', 'LOAN_APPROVER', 'FINANCE', 'IT', 'MANAGEMENT')),

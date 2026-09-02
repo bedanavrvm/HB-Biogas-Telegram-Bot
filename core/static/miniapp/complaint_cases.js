@@ -13,7 +13,9 @@
     debounce: null, suggestionTimer: null, suggestionSequence: 0,
     suggestedCategory: null, latitude: '', longitude: '',
     workspace: 'queue', returnWorkspace: 'queue', globalLoaded: false,
-    globalOverview: null, globalPage: 1, globalPages: 1, globalStartIndex: 1,
+    globalOverview: null, globalPage: 1, globalPages: 1, globalPageSize: 50,
+    globalSort: '-date_reported', reportGridApi: null, reportGridLoading: false,
+    categoryChart: null, monthChart: null,
     evidence: { create: [], resolve: [] },
     categoryDescriptions: new Map(),
     evidenceLimits: { max_files: 10, max_file_size_mb: 10, max_total_upload_mb: 30 },
@@ -41,6 +43,9 @@
   }
   function json(path, payload) {
     return apiClient.postJson(path, Object.assign({ group_id: state.groupId }, payload || {}), state.initData, utils);
+  }
+  function getJson(path, params) {
+    return apiClient.getJson(path, Object.assign({ group_id: state.groupId }, params || {}), state.initData, utils);
   }
   function form(path, data, groupId) {
     return apiClient.postForm(path, data, state.initData, groupId || state.groupId, utils);
@@ -116,14 +121,12 @@
     if (!$('mediaViewerOverlay').hidden) closeMediaViewer();
     ['queueView', 'globalView', 'createView', 'detailView'].forEach(id => { $(id).hidden = id !== name; });
     $('loadingState').hidden = true;
-    const workspaceView = name === 'queueView' || name === 'globalView';
-    $('workspaceTabs').hidden = !workspaceView;
-    if (workspaceView) {
-      state.workspace = name === 'globalView' ? 'global' : 'queue';
-      $('queueWorkspaceBtn').classList.toggle('active', state.workspace === 'queue');
-      $('globalWorkspaceBtn').classList.toggle('active', state.workspace === 'global');
-    }
-    telegram?.BackButton?.[workspaceView ? 'hide' : 'show']();
+    const queueWorkspace = name === 'queueView';
+    $('workspaceTabs').hidden = !queueWorkspace;
+    if (queueWorkspace) state.workspace = 'queue';
+    $('queueWorkspaceBtn').classList.toggle('active', queueWorkspace);
+    $('globalWorkspaceBtn').classList.remove('active');
+    telegram?.BackButton?.[queueWorkspace ? 'hide' : 'show']();
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
 
@@ -151,7 +154,9 @@
       $('actorLine').textContent = `${data.actor.name} · ${data.actor.role}`;
       updateCounts(data.counts || {});
       $('newCaseBtn').hidden = !can('complaint.case.create');
-      $('exportAllBtn').hidden = !can('complaint.case.export');
+      $('globalWorkspaceBtn').hidden = !can('complaint.reports.view');
+      $('workspaceTabs').classList.toggle('single-tab', !can('complaint.reports.view'));
+      $('exportAllBtn').hidden = !(can('complaint.reports.view') && can('complaint.case.export'));
       selectOptions($('createCaseForm').elements.branch_region, data.branches, 'Select branch');
       selectOptions($('createCaseForm').elements.complaint_category, data.categories, 'Select complaint type');
       selectOptions($('completeDetailsForm').elements.complaint_category, data.categories, 'Select complaint type');
@@ -704,51 +709,124 @@
       card.append(iconNode(icons[key], 'metric-icon'), textNode('strong', metrics[key] || 0), textNode('span', label)); node.appendChild(card);
     });
   }
-  function populateGlobalFilters(filters) {
-    const formNode = $('globalFilters'); const selected = formNode.elements.category.value;
-    selectOptions(formNode.elements.category, filters.categories || [], 'Any Category');
-    if (Array.from(formNode.elements.category.options).some(option => option.value === selected)) formNode.elements.category.value = selected;
+  function chartColor(token, fallback) {
+    return getComputedStyle(document.documentElement).getPropertyValue(token).trim() || fallback;
+  }
+  function renderReportCharts(summary) {
+    if (!window.Chart) return;
+    state.categoryChart?.destroy(); state.monthChart?.destroy();
+    const categories = summary.by_category || []; const months = summary.by_month || [];
+    const shared = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } };
+    state.categoryChart = new window.Chart($('categoryChart'), {
+      type: 'bar', data: {
+        labels: categories.map(item => item.label),
+        datasets: [{ data: categories.map(item => item.count), backgroundColor: chartColor('--accent', '#087f5b'), borderRadius: 4 }],
+      }, options: Object.assign({}, shared, { indexAxis: 'y', scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }),
+    });
+    state.monthChart = new window.Chart($('monthChart'), {
+      type: 'line', data: {
+        labels: months.map(item => item.label),
+        datasets: [{ data: months.map(item => item.count), borderColor: chartColor('--accent', '#087f5b'), backgroundColor: chartColor('--soft', 'rgba(8,127,91,.12)'), fill: true, tension: .25, pointRadius: 2 }],
+      }, options: Object.assign({}, shared, { scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }),
+    });
+  }
+  function preserveSelectOptions(select, items, placeholder) {
+    const selected = select.value;
+    selectOptions(select, items.map(item => item.label), placeholder);
+    if (Array.from(select.options).some(option => option.value === selected)) select.value = selected;
+  }
+  function populateGlobalFilters(summary) {
+    const formNode = $('globalFilters');
+    preserveSelectOptions(formNode.elements.branch, summary.by_branch || [], 'Any Branch');
+    preserveSelectOptions(formNode.elements.category, summary.by_category || [], 'Any Category');
   }
   async function loadGlobalOverview() {
-    const response = await json('global/overview/'); state.globalOverview = response.data;
-    renderMetrics(response.data.metrics); populateGlobalFilters(response.data.filters); state.globalLoaded = true; return response.data;
+    const summary = await getJson('reports/summary/'); state.globalOverview = summary;
+    renderMetrics(summary); populateGlobalFilters(summary); renderReportCharts(summary);
+    state.globalLoaded = true; return summary;
   }
   function globalFilterPayload() {
     const values = {}; for (const [key, value] of new FormData($('globalFilters')).entries()) if (value) values[key] = value; return values;
   }
-  async function loadGlobalCases() {
-    const rows = $('globalCaseRows'); rows.replaceChildren();
-    const loading = document.createElement('tr'); const cell = document.createElement('td'); cell.colSpan = 13; cell.appendChild(loadingNode('Loading global register...')); loading.appendChild(cell); rows.appendChild(loading);
-    try {
-      const response = await json('global/cases/', { filters: globalFilterPayload(), page: state.globalPage });
-      const pagination = response.pagination; state.globalPage = pagination.page; state.globalPages = pagination.pages; state.globalStartIndex = response.start_index || 1;
-      $('globalResultCount').textContent = `${pagination.total} complaint${pagination.total === 1 ? '' : 's'} found`;
-      renderGlobalRows(response.items || []); $('globalPagination').hidden = pagination.pages <= 1;
-      $('globalPageLabel').textContent = `Page ${pagination.page} of ${pagination.pages}`;
-      $('globalPreviousBtn').disabled = pagination.page <= 1; $('globalNextBtn').disabled = pagination.page >= pagination.pages;
-    } catch (error) {
-      rows.replaceChildren(); const row = document.createElement('tr'); const errorCell = textNode('td', 'The global register could not be loaded.');
-      errorCell.colSpan = 13; row.appendChild(errorCell); rows.appendChild(row); notify(error.message, true);
-    }
+  function formatReportDate(value) {
+    if (!value) return '';
+    const parsed = new Date(value); return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString();
   }
-  function renderGlobalRows(items) {
-    const body = $('globalCaseRows'); body.replaceChildren();
-    if (!items.length) { const row = document.createElement('tr'); const cell = textNode('td', 'No complaints match these filters.'); cell.colSpan = 13; row.appendChild(cell); body.appendChild(row); return; }
-    items.forEach((item, index) => {
-      const row = document.createElement('tr'); const open = textNode('button', item.reference_number || item.case_id, 'row-button');
-      open.type = 'button'; open.addEventListener('click', () => openGlobalCase(item.id));
-      const numberCell = textNode('td', state.globalStartIndex + index, 'row-number-cell');
-      const caseCell = document.createElement('td'); caseCell.appendChild(open); const statusCell = document.createElement('td'); statusCell.appendChild(statusStack(item));
-      [numberCell, caseCell, textNode('td', item.customer_name), textNode('td', item.customer_phone), textNode('td', item.customer_id), textNode('td', item.branch), textNode('td', item.category), textNode('td', item.description), statusCell, textNode('td', item.reported_at), textNode('td', item.resolved_at), textNode('td', item.days_open), textNode('td', item.resolution_details)].forEach(tableCell => row.appendChild(tableCell));
-      body.appendChild(row);
+  function reportStatusRenderer(params) {
+    const needsDetails = !!params.data?.needs_details;
+    const label = needsDetails ? 'Needs More Information' : (params.value || 'Pending');
+    return textNode('span', label, `report-status ${needsDetails ? 'needs-details' : String(params.value || 'pending').toLowerCase()}`);
+  }
+  function reportGpsRenderer(params) {
+    if (!params.value) return '';
+    const link = textNode('a', 'Open Map', 'report-gps');
+    link.href = params.value; link.target = '_blank'; link.rel = 'noopener noreferrer';
+    return link;
+  }
+  function initializeReportGrid() {
+    if (state.reportGridApi || !window.agGrid) return;
+    window.agGrid.ModuleRegistry.registerModules([window.agGrid.AllCommunityModule]);
+    state.reportGridApi = window.agGrid.createGrid($('complaintReportGrid'), {
+      theme: 'legacy', rowData: [], animateRows: false, suppressMultiSort: true,
+      suppressCellFocus: false, ensureDomOrder: true, overlayNoRowsTemplate: 'No complaints match these filters.',
+      defaultColDef: { sortable: true, resizable: true, suppressHeaderMenuButton: true },
+      columnDefs: [
+        { headerName: '#', colId: 'row_number', width: 52, minWidth: 52, maxWidth: 52, sortable: false, resizable: false, pinned: 'left', valueGetter: p => ((state.globalPage - 1) * state.globalPageSize) + p.node.rowIndex + 1 },
+        { headerName: 'Complaint ID', field: 'complaint_id', width: 125, sortable: false },
+        { headerName: 'Date Reported', field: 'date_reported', width: 130, valueFormatter: p => formatReportDate(p.value) },
+        { headerName: 'Status', field: 'status', width: 170, cellRenderer: reportStatusRenderer },
+        { headerName: 'Customer Name', field: 'customer_name', width: 190, sortable: false },
+        { headerName: 'Customer ID', field: 'customer_id', width: 125, sortable: false },
+        { headerName: 'Phone Number', field: 'phone_number', width: 145, sortable: false },
+        { headerName: 'Reported By', field: 'reported_by', width: 150, sortable: false },
+        { headerName: 'Branch', field: 'branch_region', width: 145 },
+        { headerName: 'Complaint Type', field: 'complaint_category', width: 180, sortable: false },
+        { headerName: 'Complaint', field: 'complaint_description', width: 280, sortable: false },
+        { headerName: 'Source', field: 'source', width: 130, sortable: false },
+        { headerName: 'Location', field: 'gps_link', width: 105, sortable: false, cellRenderer: reportGpsRenderer },
+        { headerName: 'Attachments', field: 'attachments', width: 105, sortable: false, type: 'numericColumn' },
+        { headerName: 'Resolution', field: 'resolution_details', width: 260, sortable: false },
+        { headerName: 'Date Resolved', field: 'date_resolved', width: 130, valueFormatter: p => formatReportDate(p.value) },
+        { headerName: 'Days Open', field: 'days_open', width: 105, type: 'numericColumn' },
+      ],
+      onSortChanged: event => {
+        if (state.reportGridLoading) return;
+        const selected = event.api.getColumnState().find(column => column.sort);
+        const allowed = { date_reported: 'date_reported', status: 'status', branch_region: 'branch_region', days_open: 'days_open', date_resolved: 'date_resolved' };
+        state.globalSort = selected && allowed[selected.colId]
+          ? `${selected.sort === 'desc' ? '-' : ''}${allowed[selected.colId]}` : '-date_reported';
+        state.globalPage = 1; loadGlobalCases();
+      },
     });
   }
-  async function openGlobalWorkspace() { setView('globalView'); try { if (!state.globalLoaded) await loadGlobalOverview(); await loadGlobalCases(); } catch (error) { notify(error.message, true); } }
+  async function loadGlobalCases() {
+    initializeReportGrid();
+    state.reportGridLoading = true; state.reportGridApi?.showLoadingOverlay();
+    try {
+      const response = await getJson('reports/data/', Object.assign(globalFilterPayload(), {
+        page: state.globalPage, page_size: state.globalPageSize, sort: state.globalSort,
+      }));
+      state.globalPage = response.page; state.globalPages = Math.max(1, Math.ceil(response.count / response.page_size));
+      $('globalResultCount').textContent = `${response.count} complaint${response.count === 1 ? '' : 's'} found`;
+      state.reportGridApi?.setGridOption('rowData', response.results || []);
+      if (!response.results?.length) state.reportGridApi?.showNoRowsOverlay();
+      $('globalPagination').hidden = state.globalPages <= 1;
+      $('globalPageLabel').textContent = `Page ${state.globalPage} of ${state.globalPages}`;
+      $('globalPreviousBtn').disabled = state.globalPage <= 1; $('globalNextBtn').disabled = state.globalPage >= state.globalPages;
+    } catch (error) {
+      state.reportGridApi?.showNoRowsOverlay(); notify(error.message, true);
+    } finally { state.reportGridLoading = false; }
+  }
+  async function openGlobalWorkspace() {
+    if (!can('complaint.reports.view')) return notify('Management report access is not assigned to your account.', true);
+    state.returnWorkspace = 'queue'; setView('globalView');
+    try { if (!state.globalLoaded) await loadGlobalOverview(); await loadGlobalCases(); } catch (error) { notify(error.message, true); }
+  }
   async function refreshGlobal() { await loadGlobalOverview(); await loadGlobalCases(); }
 
   async function prepareExport() {
     try {
-      const overview = await loadGlobalOverview(); const count = overview.metrics.total || 0;
+      const overview = await loadGlobalOverview(); const count = overview.total || 0;
       $('exportConfirmText').textContent = `This download includes all ${count} complaints across all complaint groups, not only your current filters. Continue?`;
       $('exportConfirm').hidden = false; $('cancelExportBtn').focus();
     } catch (error) { notify(error.message, true); }
@@ -797,7 +875,12 @@
     } catch (error) { notify(error.message, true); }
     finally { setActionLoading(button, false); }
   }
-  function returnPrevious() { if (state.returnWorkspace === 'global') { setView('globalView'); loadGlobalCases(); } else { setView('queueView'); loadCases(); } }
+  function returnPrevious() {
+    if (!$('exportConfirm').hidden) { cancelExport(); return; }
+    if (!$('globalView').hidden) { setView('queueView'); loadCases(); return; }
+    if (state.returnWorkspace === 'global') { setView('globalView'); loadGlobalCases(); }
+    else { setView('queueView'); loadCases(); }
+  }
 
   document.querySelectorAll('[data-status]').forEach(button => button.addEventListener('click', () => {
     state.status = button.dataset.status; state.page = 1;
@@ -810,8 +893,14 @@
   $('globalNextBtn').addEventListener('click', () => { if (state.globalPage < state.globalPages) { state.globalPage += 1; loadGlobalCases(); } });
   $('queueWorkspaceBtn').addEventListener('click', () => { setView('queueView'); loadCases(); });
   $('globalWorkspaceBtn').addEventListener('click', openGlobalWorkspace);
+  $('reportBackBtn').addEventListener('click', () => { setView('queueView'); loadCases(); });
   $('globalFilters').addEventListener('submit', event => { event.preventDefault(); state.globalPage = 1; loadGlobalCases(); });
   $('clearGlobalFiltersBtn').addEventListener('click', () => { $('globalFilters').reset(); state.globalPage = 1; loadGlobalCases(); });
+  $('globalFilters').addEventListener('change', () => { state.globalPage = 1; loadGlobalCases(); });
+  $('globalFilters').elements.search.addEventListener('input', () => {
+    clearTimeout(state.debounce); state.globalPage = 1;
+    state.debounce = setTimeout(loadGlobalCases, 300);
+  });
   $('exportAllBtn').addEventListener('click', prepareExport); $('cancelExportBtn').addEventListener('click', cancelExport); $('confirmExportBtn').addEventListener('click', confirmExport);
   $('downloadAgainBtn').addEventListener('click', downloadAgain);
   $('retrySyncBtn').addEventListener('click', retrySync);

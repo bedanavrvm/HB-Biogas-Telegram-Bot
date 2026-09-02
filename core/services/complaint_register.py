@@ -6,8 +6,10 @@ from collections import Counter
 from datetime import datetime, time, timedelta
 from io import BytesIO
 from typing import Any
+from urllib.parse import urlparse
 
-from django.db.models import Count, Q
+from django.db.models import Case, Count, IntegerField, Q, Value, When
+from django.db.models.functions import TruncMonth
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
@@ -34,6 +36,14 @@ SORT_FIELDS = {
     'sla_due': 'complaint_control__sla_due_at',
     'sync': 'complaint_control__sync_status',
     'group': 'group_id',
+}
+
+REPORT_SORT_FIELDS = {
+    'date_reported': 'timestamp',
+    'status': 'complaint_status',
+    'branch_region': 'branch_region',
+    'days_open': 'timestamp',
+    'date_resolved': 'date_resolved',
 }
 
 
@@ -155,6 +165,191 @@ def _days_open(case: ParsedMessage) -> int:
     started = case.timestamp or case.created_at
     ended = case.date_resolved if case.complaint_status == 'Closed' and case.date_resolved else timezone.now()
     return max(0, int((ended - started).total_seconds() // 86400)) if started else 0
+
+
+def _report_datetime(value) -> str:
+    if not value:
+        return ''
+    return timezone.localtime(value).isoformat()
+
+
+def _report_status(case: ParsedMessage) -> tuple[str, bool]:
+    return ('Resolved', False) if case.complaint_status == 'Closed' else (
+        'Pending', case.complaint_status == 'Review Needed'
+    )
+
+
+def _safe_report_link(value: Any) -> str:
+    text = str(value or '').strip()
+    return text if urlparse(text).scheme.casefold() in {'http', 'https'} else ''
+
+
+def serialize_report_case(case: ParsedMessage) -> dict[str, Any]:
+    """Return only the explicitly approved management-report fields."""
+    status, needs_details = _report_status(case)
+    control = case.complaint_control
+    return {
+        'complaint_id': control.reference_number or '',
+        'date_reported': _report_datetime(case.timestamp or case.created_at),
+        'status': status,
+        'needs_details': needs_details,
+        'customer_name': case.customer_name,
+        'customer_id': case.customer_id,
+        'phone_number': case.customer_phone,
+        'reported_by': case.sender,
+        'branch_region': (
+            control.branch_ref.name if control.branch_ref_id else case.branch_region
+        ),
+        'complaint_category': (
+            control.category.label if control.category_id else case.complaint_category
+        ),
+        'complaint_description': case.complaint_description,
+        'source': case.source,
+        'gps_link': _safe_report_link(case.gps_link),
+        'attachments': int(getattr(case, 'successful_attachment_count', 0) or 0),
+        'resolution_details': case.resolution_details,
+        'date_resolved': _report_datetime(case.date_resolved),
+        'days_open': _days_open(case),
+    }
+
+
+def _report_queryset():
+    return _base_queryset().annotate(
+        successful_attachment_count=Count(
+            'complaint_evidence',
+            filter=Q(complaint_evidence__upload_status='success'),
+            distinct=True,
+        ),
+    )
+
+
+def _apply_report_filters(queryset, filters: dict[str, Any]):
+    status = str(filters.get('status') or '').strip().casefold()
+    if status == 'pending':
+        queryset = queryset.exclude(complaint_status='Closed')
+    elif status == 'resolved':
+        queryset = queryset.filter(complaint_status='Closed')
+    elif status:
+        raise ComplaintCaseError('Status must be Pending or Resolved.')
+    branch = str(filters.get('branch') or '').strip()
+    if branch:
+        queryset = queryset.filter(
+            Q(complaint_control__branch_ref__name__iexact=branch)
+            | Q(complaint_control__branch_ref__isnull=True, branch_region__iexact=branch)
+        )
+    category = str(filters.get('category') or '').strip()
+    if category:
+        queryset = queryset.filter(
+            Q(complaint_control__category__label__iexact=category)
+            | Q(complaint_control__category__isnull=True, complaint_category__iexact=category)
+        )
+    date_from = _parse_filter_date(filters.get('date_from'), 'Start date')
+    date_to = _parse_filter_date(filters.get('date_to'), 'End date', end=True)
+    if date_from:
+        queryset = queryset.filter(timestamp__gte=date_from)
+    if date_to:
+        queryset = queryset.filter(timestamp__lte=date_to)
+    search = str(filters.get('search') or '').strip()
+    if search:
+        queryset = queryset.filter(
+            Q(complaint_control__reference_number__icontains=search)
+            | Q(customer_name__icontains=search)
+            | Q(customer_id__icontains=search)
+            | Q(customer_phone__icontains=search)
+            | Q(complaint_description__icontains=search)
+        )
+    return queryset
+
+
+def complaint_report_page(
+    *, filters: dict[str, Any], page: Any = 1, page_size: Any = 50,
+    sort: str = '-date_reported',
+) -> dict[str, Any]:
+    queryset = _apply_report_filters(_report_queryset(), filters)
+    requested_sort = str(sort or '-date_reported').strip()
+    descending = requested_sort.startswith('-')
+    sort_key = requested_sort.lstrip('-')
+    if sort_key not in REPORT_SORT_FIELDS:
+        raise ComplaintCaseError('The selected report ordering is unavailable.')
+    try:
+        requested_page = max(1, int(page or 1))
+        bounded_size = max(1, min(int(page_size or 50), 100))
+    except (TypeError, ValueError):
+        raise ComplaintCaseError('The requested report page is invalid.')
+    if sort_key == 'days_open':
+        # Days open is the inverse of the start timestamp for every open case.
+        ordering = 'timestamp' if descending else '-timestamp'
+    elif sort_key == 'status':
+        queryset = queryset.annotate(report_status_order=Case(
+            When(complaint_status='Closed', then=Value(1)),
+            default=Value(0), output_field=IntegerField(),
+        ))
+        ordering = ('-' if descending else '') + 'report_status_order'
+    else:
+        ordering = ('-' if descending else '') + REPORT_SORT_FIELDS[sort_key]
+    queryset = queryset.order_by(ordering, '-pk')
+    count = queryset.count()
+    pages = max(1, (count + bounded_size - 1) // bounded_size)
+    current_page = min(requested_page, pages)
+    offset = (current_page - 1) * bounded_size
+    return {
+        'results': [serialize_report_case(case) for case in queryset[offset:offset + bounded_size]],
+        'count': count,
+        'page': current_page,
+        'page_size': bounded_size,
+    }
+
+
+def _source_breakdown(queryset, *, canonical: str, legacy: str) -> list[dict[str, Any]]:
+    counts = Counter()
+    for canonical_value, legacy_value in queryset.values_list(canonical, legacy):
+        counts[str(canonical_value or legacy_value or 'Not provided')] += 1
+    return [
+        {'label': label, 'count': count}
+        for label, count in sorted(counts.items(), key=lambda item: (-item[1], item[0].casefold()))
+    ]
+
+
+def complaint_report_summary() -> dict[str, Any]:
+    queryset = _base_queryset()
+    metrics = queryset.aggregate(
+        total=Count('pk'),
+        pending=Count('pk', filter=~Q(complaint_status='Closed')),
+        resolved=Count('pk', filter=Q(complaint_status='Closed')),
+        needs_details=Count('pk', filter=Q(complaint_status='Review Needed')),
+    )
+    today = timezone.localdate()
+    month_start = today.replace(day=1)
+    start_index = month_start.year * 12 + month_start.month - 12
+    first_month = month_start.replace(
+        year=start_index // 12, month=(start_index % 12) + 1,
+    )
+    first_month_at = timezone.make_aware(
+        datetime.combine(first_month, time.min), timezone.get_current_timezone(),
+    )
+    month_rows = queryset.filter(timestamp__gte=first_month_at).annotate(
+        month=TruncMonth('timestamp'),
+    ).values('month').annotate(count=Count('pk')).order_by('month')
+    month_counts = {
+        timezone.localtime(row['month']).strftime('%Y-%m'): row['count']
+        for row in month_rows if row['month']
+    }
+    months = []
+    for offset in range(12):
+        index = start_index + offset
+        value = first_month.replace(year=index // 12, month=(index % 12) + 1)
+        key = value.strftime('%Y-%m')
+        months.append({'label': key, 'count': month_counts.get(key, 0)})
+    return {
+        **metrics,
+        'by_branch': _source_breakdown(
+            queryset, canonical='complaint_control__branch_ref__name', legacy='branch_region',
+        ),
+        'by_category': _source_breakdown(
+            queryset, canonical='complaint_control__category__label', legacy='complaint_category',
+        ),
+        'by_month': months,
+    }
 
 
 def serialize_register_case(case: ParsedMessage, groups: dict[str, GroupSheetConfiguration]) -> dict[str, Any]:

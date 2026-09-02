@@ -97,6 +97,8 @@ def _json_body(request) -> dict:
 
 
 def _request_payload(request) -> dict:
+    if request.method == 'GET':
+        return request.GET.dict()
     return request.POST.dict() if request.content_type.startswith('multipart/') else _json_body(request)
 
 
@@ -297,7 +299,7 @@ def complaint_cases_global_overview(request):
     group_config, actor, error = _context(request, payload)
     if error:
         return error
-    capability_error = _capability_error(actor, 'complaint.queue.view', group_config)
+    capability_error = _capability_error(actor, 'complaint.reports.view', group_config)
     if capability_error:
         return capability_error
     from core.services.complaint_register import register_overview
@@ -312,7 +314,7 @@ def complaint_cases_global_list(request):
     group_config, actor, error = _context(request, payload)
     if error:
         return error
-    capability_error = _capability_error(actor, 'complaint.queue.view', group_config)
+    capability_error = _capability_error(actor, 'complaint.reports.view', group_config)
     if capability_error:
         return capability_error
     from core.services.complaint_register import register_page
@@ -358,7 +360,7 @@ def complaint_cases_global_detail(request, case_uuid):
     group_config, actor, error = _context(request, payload)
     if error:
         return error
-    capability_error = _capability_error(actor, 'complaint.queue.view', group_config)
+    capability_error = _capability_error(actor, 'complaint.reports.view', group_config)
     if capability_error:
         return capability_error
     from core.services.complaint_register import register_case
@@ -381,6 +383,9 @@ def complaint_cases_global_export(request):
     group_config, actor, error = _context(request, payload)
     if error:
         return error
+    capability_error = _capability_error(actor, 'complaint.reports.view', group_config)
+    if capability_error:
+        return capability_error
     capability_error = _capability_error(actor, 'complaint.case.export', group_config)
     if capability_error:
         return capability_error
@@ -405,6 +410,56 @@ def complaint_cases_global_export(request):
     )
     response['Content-Disposition'] = f'attachment; filename="{export_filename()}"'
     response['X-Export-Row-Count'] = str(row_count)
+    return response
+
+
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(['GET'])
+@miniapp_write_response
+def complaint_reports_data(request):
+    payload = _request_payload(request)
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    capability_error = _capability_error(actor, 'complaint.reports.view', group_config)
+    if capability_error:
+        return capability_error
+    from core.services.complaint_register import complaint_report_page
+    try:
+        result = complaint_report_page(
+            filters={
+                'branch': payload.get('branch'),
+                'category': payload.get('category'),
+                'status': payload.get('status'),
+                'date_from': payload.get('date_from'),
+                'date_to': payload.get('date_to'),
+                'search': payload.get('search'),
+            },
+            page=payload.get('page') or 1,
+            page_size=payload.get('page_size') or 50,
+            sort=payload.get('sort') or '-date_reported',
+        )
+    except ComplaintCaseError as exc:
+        return JsonResponse({'ok': False, 'message': str(exc), 'code': 'invalid_report_query'}, status=400)
+    response = JsonResponse(result)
+    response['Cache-Control'] = 'private, no-store'
+    return response
+
+
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(['GET'])
+@miniapp_write_response
+def complaint_reports_summary(request):
+    payload = _request_payload(request)
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    capability_error = _capability_error(actor, 'complaint.reports.view', group_config)
+    if capability_error:
+        return capability_error
+    from core.services.complaint_register import complaint_report_summary
+    response = JsonResponse(complaint_report_summary())
+    response['Cache-Control'] = 'private, no-store'
     return response
 
 
