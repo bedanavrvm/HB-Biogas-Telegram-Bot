@@ -685,9 +685,29 @@ body.tat-sheet-open { overflow: hidden; }
   width: 100%;
   min-width: 0;
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
+}
+.case-title {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: baseline;
+  gap: 5px;
+}
+.case-number {
+  flex: 0 0 auto;
+  color: var(--tat-accent);
+  font-size: 10px;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+}
+.case-side {
+  display: grid;
+  flex: 0 0 auto;
+  justify-items: end;
+  gap: 3px;
 }
 .case-name {
   min-width: 0;
@@ -827,6 +847,9 @@ body.tat-sheet-open { overflow: hidden; }
 .form-heading p, .search-title-block p { font-size: 11px; color: var(--tat-muted); margin-top: 1px; }
 
 .form-grid { display: grid; gap: 6px; }
+.new-case-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.new-case-grid > label { min-width: 0; }
+.new-case-grid .new-case-full, .new-case-grid .product-configuration-panel { grid-column: 1 / -1; }
 .form-actions { display: flex; margin-top: 4px; }
 .form-actions button { width: 100%; }
 .settings-eyebrow { display: block; color: var(--tat-accent); font-size: 9px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
@@ -867,8 +890,10 @@ body.tat-sheet-open { overflow: hidden; }
   text-transform: uppercase;
 }
 .target-input-grid {
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+.target-input-grid > label { min-width: 0; }
+.target-input-grid--odd label:last-child { grid-column: 1 / -1; }
 .settings-row-list { display: grid; gap: 7px; }
 .settings-row {
   display: grid;
@@ -1185,11 +1210,7 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
   font-weight: 650;
 }
 .queue-freshness.refresh-failing { color: var(--tat-warn); }
-.tat-business-time { margin-top: 5px; color: var(--text-muted); font-size: 11px; }
-body.hide-business-hours-time .tat-business-time,
 .check-label[hidden] { display: none !important; }
-.tat-business-time summary { cursor: pointer; font-weight: 700; }
-.tat-business-time[open] summary { margin-bottom: 3px; }
 .tat-target {
   color: var(--tat-muted);
   font-size: 10px;
@@ -1349,12 +1370,9 @@ body.hide-business-hours-time .tat-business-time,
   .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .search-row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
   .search-row .primary { width: auto; min-width: 96px; }
-  .target-input-grid--odd label:last-child { grid-column: 1 / -1; }
-  .amount-field { grid-column: span 2; }
 }
 
 @media (max-width: 380px) {
-  .product-configuration-panel { grid-template-columns: 1fr; }
   .overview-strip { gap: 4px; }
   .metric-tile { flex-basis: 96px; padding: 4px 6px; }
   .metric-tile span { font-size: 13px; }

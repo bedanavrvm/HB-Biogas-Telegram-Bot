@@ -28,7 +28,6 @@
     lastSuccessfulRefreshPerformance: null,
     consecutiveRefreshFailures: 0,
     counterDisplayedSeconds: {},
-    businessTimeEnabled: true,
     detailRequestNumber: 0,
     detailRequestsInFlight: 0,
     pendingDetail: null,
@@ -42,7 +41,7 @@
     directTask: null,
     filterSheetOpen: false,
     filterSheetReturnFocus: null,
-    personalPreference: { show_business_hours_time: true },
+    personalPreference: {},
   };
 
   const $ = (id) => document.getElementById(id);
@@ -393,15 +392,15 @@
     }
   }
 
-  function renderCaseButton(item) {
+  function renderCaseButton(item, position) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'case-card';
     const next = item.next_stage ? `<span class="next-chip">Next: ${escapeHtml(item.next_stage)}</span>` : '';
     button.innerHTML = `
       <div class="case-header">
-        <strong class="case-name">${escapeHtml(item.client_name || 'Unnamed client')}</strong>
-        <span class="case-amount">KES ${escapeHtml(formatMoney(item.amount || ''))}</span>
+        <div class="case-title"><span class="case-number">#${Number(position || 0) + 1}</span><strong class="case-name">${escapeHtml(item.client_name || 'Unnamed client')}</strong></div>
+        <div class="case-side"><span class="case-amount">KES ${escapeHtml(formatMoney(item.amount || ''))}</span><span class="status-chip ${statusClass(item.status)}">${escapeHtml(item.status || 'Active')}</span></div>
       </div>
       <div class="case-details">
         <span class="case-id-badge">${escapeHtml(item.case_id)}</span>
@@ -412,7 +411,6 @@
       </div>
       ${caseIdentifierMarkup(item)}
       <div class="case-tags">
-        <span class="status-chip ${statusClass(item.status)}">${escapeHtml(item.status || 'Active')}</span>
         ${next}
         <span class="case-time">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="10" height="10">
@@ -439,14 +437,14 @@
     return empty;
   }
 
-  function renderList(id, items, emptyTitle, emptyDetail) {
+  function renderList(id, items, emptyTitle, emptyDetail, startIndex) {
     const list = $(id);
     list.innerHTML = '';
     if (!items || !items.length) {
       list.appendChild(renderEmpty(emptyTitle, emptyDetail));
       return;
     }
-    items.forEach((item) => list.appendChild(renderCaseButton(item)));
+    items.forEach((item, index) => list.appendChild(renderCaseButton(item, Number(startIndex || 0) + index)));
   }
 
   function hydrateHtmxCaseCards(root) {
@@ -662,7 +660,7 @@
     const presentation = queuePresentation(state.homeQueue);
     const total = Number(state.home.pagination.total ?? state.home.items.length);
     $('activeQueueCount').textContent = `${total} ${total === 1 ? 'case' : 'cases'}`;
-    renderList('queueList', state.home.items, presentation[1], presentation[2]);
+    renderList('queueList', state.home.items, presentation[1], presentation[2], Number(state.home.pagination.offset || 0));
     const pages = Number(state.home.pagination.pages || 1);
     const currentPage = Number(state.home.pagination.page || 1);
     $('queuePagination').hidden = pages <= 1;
@@ -795,7 +793,6 @@
       && !newCaseProtection?.isDirty?.()
       && !personalSettingsProtection?.isDirty?.()
       && !targetSettingsProtection?.isDirty?.()
-      && !holidaySettingsProtection?.isDirty?.()
       && !escalationSettingsProtection?.isDirty?.();
   }
 
@@ -929,7 +926,7 @@
   }
 
   function homePayload(extra) {
-    return Object.assign({ page_size: 25 }, currentHomeFilters(), extra || {});
+    return Object.assign({ page_size: 10 }, currentHomeFilters(), extra || {});
   }
 
   function focusableSheetElements() {
@@ -1069,57 +1066,6 @@
     return row;
   }
 
-  function appendHolidaySetting(container, holiday) {
-    const row = settingsRow('settings-holiday-row');
-    const dateLabel = document.createElement('label');
-    dateLabel.textContent = 'Date';
-    const dateInput = document.createElement('input');
-    dateInput.type = 'date';
-    dateInput.value = holiday && holiday.date ? holiday.date : '';
-    dateInput.required = true;
-    dateLabel.appendChild(dateInput);
-    const nameLabel = document.createElement('label');
-    nameLabel.textContent = 'Holiday name';
-    const nameInput = document.createElement('input');
-    nameInput.type = 'text';
-    nameInput.maxLength = 160;
-    nameInput.value = holiday && holiday.name ? holiday.name : '';
-    nameInput.required = true;
-    nameLabel.appendChild(nameInput);
-    const activeLabel = document.createElement('label');
-    activeLabel.className = 'check-label';
-    const activeInput = document.createElement('input');
-    activeInput.type = 'checkbox';
-    activeInput.checked = !holiday || holiday.active !== false;
-    activeLabel.append(activeInput, document.createTextNode('Exclude from SLA'));
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.className = 'ghost-btn settings-remove-row';
-    remove.textContent = 'Remove';
-    remove.addEventListener('click', () => row.remove());
-    row.append(dateLabel, nameLabel, activeLabel, remove);
-    container.appendChild(row);
-  }
-
-  function renderHolidaySettings(holidays) {
-    const list = $('holidaySettingsList');
-    list.replaceChildren();
-    (holidays || []).forEach((holiday) => appendHolidaySetting(list, holiday));
-    if (!list.childElementCount) {
-      const empty = document.createElement('p');
-      empty.className = 'settings-empty-copy';
-      empty.textContent = 'No future holidays are configured.';
-      list.appendChild(empty);
-    }
-  }
-
-  function holidaySettingsPayload() {
-    return { holidays: [...document.querySelectorAll('#holidaySettingsList .settings-holiday-row')].map((row) => {
-      const inputs = row.querySelectorAll('input');
-      return { date: inputs[0].value, name: inputs[1].value.trim(), active: inputs[2].checked };
-    }) };
-  }
-
   function appendEscalationSetting(container, rule) {
     const row = settingsRow('settings-escalation-row');
     const thresholdLabel = document.createElement('label');
@@ -1220,7 +1166,6 @@
     const result = await api('/api/tat-tracker/settings/', {});
     const personal = result.data.personal || {};
     const configuration = result.data.configuration || {};
-    applyBusinessPresentation((configuration.presentation || {}).business_time_enabled !== false);
     if (utils.renderSettingsAccount) utils.renderSettingsAccount($('tatSettingsAccount'), result.data.account || {});
     if ($('tatSettingsRelease')) $('tatSettingsRelease').textContent = result.data.account?.app_release || 'Current release';
     const workflowMode = result.data.workflow_mode || state.workflowMode || {};
@@ -1237,13 +1182,9 @@
     }
     $('preferenceDefaultScreen').value = personal.default_screen || 'home';
     $('preferenceCompactCards').checked = Boolean(personal.compact_cards);
-    $('preferenceBusinessHours').checked = state.businessTimeEnabled && personal.show_business_hours_time !== false;
     const targetCard = (configuration.cards || {}).tat_targets || {};
     $('targetSettingsForm').classList.toggle('hidden', !targetCard.can_propose);
     if (targetCard.can_propose) renderTargetSettings(configuration.targets || []);
-    const holidayCard = (configuration.cards || {}).business_calendar || {};
-    $('holidaySettingsForm').classList.toggle('hidden', !state.businessTimeEnabled || !holidayCard.can_propose);
-    if (state.businessTimeEnabled && holidayCard.can_propose) renderHolidaySettings((configuration.holidays || {}).holidays || []);
     const escalationCard = (configuration.cards || {}).tat_escalation || {};
     $('escalationSettingsForm').classList.toggle('hidden', !escalationCard.can_propose);
     if (escalationCard.can_propose) renderEscalationSettings((configuration.escalation || {}).rules || []);
@@ -1269,7 +1210,6 @@
     const personal = preference || {};
     state.personalPreference = personal;
     document.body.classList.toggle('compact-cards', Boolean(personal.compact_cards));
-    document.body.classList.toggle('hide-business-hours-time', !state.businessTimeEnabled || personal.show_business_hours_time === false);
     const savedFilters = personal.default_filters || {};
     setCheckedFilterValues('queueProductFilters', savedFilters.product_keys || savedFilters.product_key || []);
     setCheckedFilterValues('queueBranchFilters', savedFilters.branches || savedFilters.branch || []);
@@ -1278,23 +1218,9 @@
     return personal.default_screen === 'new' && canCreate ? 'new' : 'queue';
   }
 
-  function applyBusinessPresentation(enabled) {
-    state.businessTimeEnabled = Boolean(enabled);
-    const row = $('businessTimePreferenceRow');
-    if (row) row.hidden = !state.businessTimeEnabled;
-    if ($('preferenceBusinessHours')) $('preferenceBusinessHours').disabled = !state.businessTimeEnabled;
-    document.body.classList.toggle(
-      'hide-business-hours-time',
-      !state.businessTimeEnabled || state.personalPreference.show_business_hours_time === false,
-    );
-    if (!state.businessTimeEnabled) $('holidaySettingsForm')?.classList.add('hidden');
-  }
-
   function bootstrap(data) {
     state.data = data;
     state.workflowMode = data.workflow_mode || null;
-    state.businessTimeEnabled = (data.presentation || {}).business_time_enabled !== false;
-    applyBusinessPresentation(state.businessTimeEnabled);
     if (!data.authorized) throw new Error(data.reason || 'Unauthorized.');
     $('loadingBrand').classList.add('hidden');
     const user = data.user || {};
@@ -1373,8 +1299,9 @@
     const requirementRows = requirements.map(item => `<label>${escapeHtml(item.label)}${item.required ? ' *' : ''}${item.description ? `<small>${escapeHtml(item.description)}</small>` : ''}${productConfigurationControl(item, '', 'data-product-requirement')}</label>`).join('');
     const attributeRows = attributes.map(item => `<label>${escapeHtml(item.label)}${item.required ? ' *' : ''}${item.help_text ? `<small>${escapeHtml(item.help_text)}</small>` : ''}${productConfigurationControl(item, item.default, 'data-product-custom')}</label>`).join('');
     const feeRows = fees.map(item => `<label>${escapeHtml(item.label)}<label class="checkbox-row"><input type="checkbox" data-product-fee="${escapeHtml(item.key)}"><span>Include optional ${escapeHtml(item.collection_mode)} fee</span></label></label>`).join('');
-    container.innerHTML = `<h3>${escapeHtml(product.label)} terms</h3><label>Tenor (${escapeHtml(terms.tenor_unit || 'month')}s)<input name="tenor" type="number" inputmode="numeric" min="${escapeHtml(terms.min_tenor || 1)}" max="${escapeHtml(terms.max_tenor || '')}" required></label>${requirementRows}${attributeRows}${feeRows}`;
-    container.hidden = false;
+    const controls = `${requirementRows}${attributeRows}${feeRows}`;
+    container.innerHTML = controls ? `<h3>${escapeHtml(product.label)} details</h3>${controls}` : '';
+    container.hidden = !controls;
   }
 
   function collectProductConfiguration(container) {
@@ -1415,7 +1342,6 @@
       if (String(nextHome.queue || '') !== requestedQueue) {
         throw new Error('The requested queue could not be loaded. Tap the queue again to retry.');
       }
-      applyBusinessPresentation((nextHome.presentation || {}).business_time_enabled !== false);
       const cachedHome = state.lastSuccessfulHome;
       if (
         cachedHome
@@ -1563,7 +1489,6 @@
         <div class="fact">
           <small>Official TAT (wall clock)</small>
           <span class="tat-badge ${escapeHtml(summary.sla_status || '')}">${tatCounterMarkup(summary, `case:${summary.case_id}`)}</span>
-          ${state.businessTimeEnabled && summary.business_minutes && state.personalPreference.show_business_hours_time !== false ? `<details class="tat-business-time"><summary>Show business-hours time</summary><small>${escapeHtml(formatMinutes(summary.business_minutes))}</small></details>` : ''}
         </div>
         <div class="fact fact-activity">
           <small>Activity</small>
@@ -1594,7 +1519,6 @@
       }
 
       const valueText = field.value || (field.locked_reason ? 'Pending previous stages' : 'Not started');
-      const businessText = formatMinutes(field.business_minutes);
       const targetText = formatMinutes(field.target_minutes);
       const slaText = slaLabel(field.sla_status);
       const hasTat = Number.isFinite(Number(field.elapsed_seconds)) || Boolean(formatMinutes(field.wall_clock_minutes || field.tat_minutes));
@@ -1603,7 +1527,6 @@
           <span class="tat-badge ${escapeHtml(field.sla_status || '')}">${tatCounterMarkup(field, `stage:${summary.case_id}:${field.key}`)}</span>
           ${targetText ? `<span class="tat-target">Target ${escapeHtml(targetText)}</span>` : ''}
           ${slaText ? `<span class="tat-target live-tat-sla-label">${escapeHtml(slaText)}</span>` : ''}
-          ${state.businessTimeEnabled && businessText && state.personalPreference.show_business_hours_time !== false ? `<details class="tat-business-time"><summary>Business-hours time</summary><span class="tat-target">${escapeHtml(businessText)}</span></details>` : ''}
         </div>
       ` : '';
       const certificateMeta = field.certificate_status ? `<div class="stage-tat-row"><span class="tat-target">Certificate: ${escapeHtml(field.certificate_status.replace(/_/g, ' '))}</span></div>` : '';
@@ -2002,7 +1925,6 @@
   $('caseCorrectionForm').addEventListener('submit', submitCaseCorrection);
   const caseCorrectionProtection = utils.bindFormCloseProtection?.($('caseCorrectionForm'), 'tat-case-correction');
   const targetSettingsProtection = utils.bindFormCloseProtection?.($('targetSettingsForm'), 'tat-target-settings');
-  const holidaySettingsProtection = utils.bindFormCloseProtection?.($('holidaySettingsForm'), 'tat-holiday-settings');
   const escalationSettingsProtection = utils.bindFormCloseProtection?.($('escalationSettingsForm'), 'tat-escalation-settings');
   const newCaseProtection = utils.bindFormCloseProtection?.($('newCaseForm'), 'tat-new-case');
   const personalSettingsProtection = utils.bindFormCloseProtection?.($('personalSettingsForm'), 'tat-personal-settings');
@@ -2020,25 +1942,6 @@
     } finally {
       state.savingTargets = false;
       setButtonLoading($('saveTargetSettingsBtn'), false);
-    }
-  });
-  $('addHolidaySettingBtn').addEventListener('click', () => {
-    const list = $('holidaySettingsList');
-    list.querySelector('.settings-empty-copy')?.remove();
-    appendHolidaySetting(list, null);
-  });
-  $('holidaySettingsForm').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const button = $('saveHolidaySettingsBtn');
-    try {
-      setButtonLoading(button, true, 'Saving');
-      await saveConfigurationSettings('business_calendar', holidaySettingsPayload(), $('holidaySettingsReason').value.trim());
-      $('holidaySettingsReason').value = '';
-      holidaySettingsProtection?.markClean();
-    } catch (error) {
-      setStatus(error.message, 'error');
-    } finally {
-      setButtonLoading(button, false);
     }
   });
   $('addEscalationSettingBtn').addEventListener('click', () => appendEscalationSetting($('escalationSettingsList'), null));
@@ -2167,16 +2070,12 @@
         default_screen: $('preferenceDefaultScreen').value,
         compact_cards: $('preferenceCompactCards').checked,
       };
-      if (state.businessTimeEnabled) {
-        preferences.show_business_hours_time = $('preferenceBusinessHours').checked;
-      }
       const result = await api('/api/tat-tracker/settings/personal/', {
         preferences,
       });
       applyPersonalPreference(result.data || {
         compact_cards: $('preferenceCompactCards').checked,
         default_screen: $('preferenceDefaultScreen').value,
-        show_business_hours_time: $('preferenceBusinessHours').checked,
       });
       personalSettingsProtection?.markClean();
       setStatus($('preferenceCompactCards').checked
@@ -2197,13 +2096,6 @@
       : 'Standard queue preview on. Save my settings to keep it.', 'ok');
   });
 
-  $('preferenceBusinessHours').addEventListener('change', () => {
-    const enabled = $('preferenceBusinessHours').checked;
-    state.personalPreference.show_business_hours_time = enabled;
-    document.body.classList.toggle('hide-business-hours-time', !enabled);
-    if (state.detail) renderDetail(state.detail);
-    setStatus(`${enabled ? 'Business-hours comparison shown' : 'Business-hours comparison hidden'}. Save my settings to keep it.`, 'ok');
-  });
 
   ['national_id', 'primary_phone'].forEach((fieldName) => {
     const input = $('newCaseForm')?.elements[fieldName];

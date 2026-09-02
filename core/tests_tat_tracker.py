@@ -194,15 +194,20 @@ class TatTrackerWorkflowTest(TestCase):
         second_page = home_data(self.config, user, queue='role', page=2)
         legacy_page = home_data(self.config, user, action_offset=10, recent_offset=10, page_size=10)
 
-        self.assertEqual(len(first_page['items']), 25)
+        self.assertEqual(len(first_page['items']), 10)
         self.assertEqual(first_page['pagination']['total'], 30)
-        self.assertEqual(first_page['pagination']['pages'], 2)
-        self.assertEqual(len(second_page['items']), 5)
+        self.assertEqual(first_page['pagination']['pages'], 3)
+        self.assertEqual(len(second_page['items']), 10)
         self.assertEqual(second_page['pagination']['page'], 2)
+        self.assertEqual(second_page['pagination']['offset'], 10)
         self.assertEqual(len(legacy_page['action_required']), 10)
         self.assertEqual(first_page['pagination']['action_required']['total'], 30)
         self.assertTrue(first_page['pagination']['action_required']['has_more'])
         self.assertEqual(len(legacy_page['recent']), 10)
+
+        oversized_page = home_data(self.config, user, queue='all', page=1, page_size=50)
+        self.assertEqual(len(oversized_page['items']), 10)
+        self.assertEqual(oversized_page['pagination']['page_size'], 10)
 
     def test_home_metrics_follow_filters_and_deduplicate_stalled_cases(self):
         self.config.workflow['tat_targets_minutes'] = {
@@ -389,6 +394,36 @@ class TatTrackerWorkflowTest(TestCase):
         )
 
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token')
+    def test_home_api_caps_queue_pages_at_ten_cases(self):
+        for index in range(12):
+            TatTrackerCase.objects.create(
+                group_id=self.config.group_id,
+                case_id=f'JBL-PAGE-CAP-{index:02d}',
+                product_key='business', product_label='Business',
+                client_name=f'Page Client {index}', branch='Nakuru', status='Active',
+                stage_values={'created': timezone.now().isoformat()},
+            )
+
+        response = self.client.post(
+            reverse('tat_tracker_home'),
+            data=json.dumps({
+                'group_id': self.config.group_id,
+                'init_data': self.signed_init_data(),
+                'queue': 'all',
+                'page': 1,
+                'page_size': 50,
+                'client_request_id': 'tat-page-cap-request',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()['data']
+        self.assertEqual(len(payload['items']), 10)
+        self.assertEqual(payload['pagination']['page_size'], 10)
+        self.assertEqual(payload['pagination']['pages'], 2)
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token')
     def test_home_fragment_renders_recent_cases(self):
         TatTrackerCase.objects.create(
             group_id=self.config.group_id,
@@ -554,12 +589,13 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Assigned to me', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn('?v=53', template)
+        self.assertIn('?v=55', template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
         stylesheet = Path('core/static/miniapp/tat_tracker.css').read_text(encoding='utf-8')
         template = Path('core/templates/tat_tracker/app.html').read_text(encoding='utf-8')
+        case_list_template = Path('core/templates/tat_tracker/partials/case_list.html').read_text(encoding='utf-8')
 
         for label in ['Assigned to me', 'Ready for my role', 'Total cases', 'Completed', 'Stalled']:
             self.assertIn(label, template)
@@ -568,12 +604,25 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('queueNextBtn', template)
         self.assertIn('function applyQueueFilters()', source)
         self.assertIn('function trapFilterSheetFocus(event)', source)
-        self.assertIn('state.personalPreference.show_business_hours_time !== false', source)
-        self.assertIn('preferenceBusinessHours', template)
+        self.assertNotIn('show_business_hours_time', source)
+        self.assertNotIn('preferenceBusinessHours', template)
+        self.assertNotIn('holidaySettingsForm', template)
+        self.assertNotIn('name="tenor"', source)
+        self.assertIn('Object.assign({ page_size: 10 }', source)
+        self.assertIn('class="form-grid new-case-grid"', template)
+        self.assertIn('class="new-case-full">Client Name', template)
+        self.assertIn('.new-case-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }', stylesheet)
+        self.assertIn('.target-input-grid {', stylesheet)
+        self.assertIn('grid-template-columns: repeat(2, minmax(0, 1fr));', stylesheet)
+        self.assertIn('class="case-number"', source)
+        self.assertIn('class="case-side"', source)
+        self.assertIn('Number(state.home.pagination.offset || 0)', source)
+        self.assertIn('class="case-number">#{{ forloop.counter }}', case_list_template)
+        self.assertIn('class="case-side"', case_list_template)
         self.assertIn('.tat-sheet-overlay', stylesheet)
         self.assertIn('class="notice-close tat-sheet-close"', template)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
-        self.assertIn("miniapp/tat_tracker.css' %}?v=29", template)
+        self.assertIn("miniapp/tat_tracker.css' %}?v=30", template)
         self.assertIn('id="appHeader" class="app-top"', template)
         self.assertIn('class="refresh-label"', template)
         self.assertIn('function bindCollapsingHeader()', source)
@@ -589,7 +638,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('if (forceHomeRender || queueRenderIsSafe())', source)
         self.assertIn("if (state.currentView === 'queue')", source)
         self.assertIn('.queue-pagination', stylesheet)
-        self.assertIn('body.hide-business-hours-time .tat-business-time', stylesheet)
+        self.assertNotIn('.tat-business-time', stylesheet)
         self.assertIn('.check-label[hidden]', stylesheet)
 
     def test_queue_polling_uses_shared_visibility_runtime_and_health_feedback(self):

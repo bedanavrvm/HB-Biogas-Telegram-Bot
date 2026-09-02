@@ -714,9 +714,9 @@ def _tat_home_page(value) -> int:
 
 def _tat_home_page_size(value) -> int:
     try:
-        return max(1, min(int(value or 25), 50))
+        return max(1, min(int(value or 10), 10))
     except (TypeError, ValueError):
-        return 25
+        return 10
 
 
 @csrf_exempt

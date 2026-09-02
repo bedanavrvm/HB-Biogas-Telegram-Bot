@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=29">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=30">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}" data-task-token="{{ task_token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -125,14 +125,14 @@
           <h2>Create new loan case</h2>
           <p>This creates a new TAT loan. To correct an existing case, open it from Queue or Find.</p>
         </div>
-        <div class="form-grid">
+        <div class="form-grid new-case-grid">
           <label>Product<select name="product_key" required></select></label>
           <label>Branch<select name="branch" required></select></label>
-          <label>Client Name<input class="tat-paste-field" name="client_name" autocomplete="name" autocapitalize="words" spellcheck="false" required placeholder="Customer name"></label>
+          <label class="new-case-full">Client Name<input class="tat-paste-field" name="client_name" autocomplete="name" autocapitalize="words" spellcheck="false" required placeholder="Customer name"></label>
           <label>ID Number<input class="tat-paste-field" name="national_id" inputmode="numeric" autocomplete="off" spellcheck="false" data-paste-normalize="digits" required pattern="[0-9]{7,8}" placeholder="7 or 8 digits"></label>
           <label>Phone Number<input class="tat-paste-field" name="primary_phone" type="tel" inputmode="tel" autocomplete="tel" spellcheck="false" required placeholder="0712 345 678"></label>
           <label>BRO Name<select name="bro_name" required></select></label>
-          <label class="amount-field">Amount (KES)<input class="tat-paste-field" name="amount" type="number" inputmode="decimal" autocomplete="off" data-paste-normalize="amount" min="0" step="1" required placeholder="0"></label>
+          <label>Amount (KES)<input class="tat-paste-field" name="amount" type="number" inputmode="decimal" autocomplete="off" data-paste-normalize="amount" min="0" step="1" required placeholder="0"></label>
           <div id="newCaseProductConfiguration" class="product-configuration-panel" hidden></div>
         </div>
         <section id="existingLoanContext" class="identity-context hidden" aria-live="polite"></section>
@@ -184,7 +184,6 @@
         <div class="form-grid">
           <label>Start on<select id="preferenceDefaultScreen"><option value="home">Queue</option><option value="new">Create case</option></select></label>
           <label class="check-label"><input id="preferenceCompactCards" type="checkbox"><span>Use compact case cards<small>Queue cards show the client, amount, product, branch, and next action only. Open a case for identifiers and timestamps.</small></span></label>
-          <label id="businessTimePreferenceRow" class="check-label"><input id="preferenceBusinessHours" type="checkbox"><span>Show business-hours time<small>Keep the optional Nairobi business-hours comparison visible alongside official wall-clock TAT.</small></span></label>
         </div>
         <div class="form-actions"><button id="savePersonalSettingsBtn" type="submit" class="secondary">Save my settings</button></div>
       </form>
@@ -218,16 +217,6 @@
         <div class="form-actions">
           <button id="saveTargetSettingsBtn" type="submit" class="primary">Propose target change</button>
         </div>
-      </form>
-      <form id="holidaySettingsForm" class="form-card hidden">
-        <div class="form-heading">
-          <h2>Business calendar</h2>
-          <p>JBL business hours are fixed at Monday–Friday, 08:00–17:00 Nairobi. Propose only future public-holiday changes; past dates remain audit evidence.</p>
-        </div>
-        <div id="holidaySettingsList" class="settings-row-list" aria-live="polite"></div>
-        <button id="addHolidaySettingBtn" type="button" class="secondary">Add future holiday</button>
-        <label>Reason for change<textarea id="holidaySettingsReason" required placeholder="Why is this calendar changing?"></textarea></label>
-        <div class="form-actions"><button id="saveHolidaySettingsBtn" type="submit" class="primary">Propose calendar change</button></div>
       </form>
       <form id="escalationSettingsForm" class="form-card hidden">
         <div class="form-heading">
@@ -345,6 +334,6 @@
   {% include "miniapp_diagnostics.html" %}
   <script src="{% static 'miniapp/utils.js' %}?v=9"></script>
   <script src="{% static 'miniapp/tat_api.js' %}?v=4"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=54"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=55"></script>
 </body>
 </html>

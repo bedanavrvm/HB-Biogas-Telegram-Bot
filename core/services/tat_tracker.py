@@ -76,7 +76,7 @@ DEFAULT_TAT_TARGETS_MINUTES = {
 NEAR_SLA_RATIO = Decimal('0.8')
 TAT_TARGET_MANAGER_ROLES = frozenset({'IT'})
 TAT_CASE_CORRECTION_ROLES = frozenset({'BRO', 'IT', BUSINESS_ADMIN_ROLE})
-TAT_HOME_PAGE_SIZE = 25
+TAT_HOME_PAGE_SIZE = 10
 TAT_HOME_QUEUES = frozenset({'assigned', 'role', 'all'})
 TAT_COMPLETED_STATUSES = frozenset({'Disbursed', 'Rejected', 'Declined'})
 TAT_CREATE_INTENT_NEW_LOAN = 'new_loan'
@@ -582,7 +582,7 @@ def home_data(
             queryset = queryset.none()
     action_offset = max(0, int(action_offset or 0))
     recent_offset = max(0, int(recent_offset or 0))
-    page_size = max(1, min(int(page_size or TAT_HOME_PAGE_SIZE), 50))
+    page_size = max(1, min(int(page_size or TAT_HOME_PAGE_SIZE), TAT_HOME_PAGE_SIZE))
     queue_key = str(queue or 'role').strip().lower()
     if queue_key not in TAT_HOME_QUEUES:
         queue_key = 'role'

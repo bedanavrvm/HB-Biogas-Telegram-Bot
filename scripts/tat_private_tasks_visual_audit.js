@@ -35,10 +35,10 @@ const bootstrap = {
   bro_names: ['Synthetic Officer'], action_required: [], recent: [],
   queue: 'assigned', items: [task],
   metrics: { assigned: 1, role: 1, total: 1, completed: 0, stalled: 0 },
-  pagination: { page: 1, pages: 1, total: 1, page_size: 25, action_required: { total: 1 }, recent: { total: 1 } },
+  pagination: { page: 1, pages: 1, total: 1, page_size: 10, offset: 0, action_required: { total: 1 }, recent: { total: 1 } },
   task_inbox: { items: [task], unread_count: 1, total: 1 },
   private_alerts: { status: 'connected', connected: true },
-  personal: { default_screen: 'home', compact_cards: true, show_business_hours_time: true, default_filters: {} },
+  personal: { default_screen: 'home', compact_cards: true, default_filters: {} },
 };
 
 function homeData() {
@@ -124,7 +124,6 @@ async function installMocks(page) {
   try {
     for (const viewport of viewports) {
       stamped = false;
-      bootstrap.personal.show_business_hours_time = viewport.width >= 390;
       currentKind = viewport.width >= 390 ? 'dropdown' : 'timestamp';
       detail.fields[0].value = '';
       detail.fields[0].editable = true;
@@ -176,11 +175,8 @@ async function installMocks(page) {
       await page.locator('#queueList .case-card').click();
       const control = page.locator(currentKind === 'dropdown' ? '.stage-action-wrap select' : '.stage-action-wrap button');
       await control.waitFor();
-      const businessTimeCount = await page.getByText('Business-hours time', { exact: true }).count();
-      assert(
-        viewport.width >= 390 ? businessTimeCount > 0 : businessTimeCount === 0,
-        `${viewport.name}: business-hours visibility preference was not applied`,
-      );
+      assert(await page.locator('#queueList .case-number').first().textContent() === '#1', `${viewport.name}: queue numbering is missing`);
+      assert(await page.getByText('Business-hours time', { exact: true }).count() === 0, `${viewport.name}: business-hours time is still visible`);
       assert(await page.locator('#stageConfirmSheet').count() === 0, `${viewport.name}: redundant confirmation card remains in the Mini App`);
       const callsBefore = updateCalls;
       if (currentKind === 'dropdown') await control.selectOption('Approved');
