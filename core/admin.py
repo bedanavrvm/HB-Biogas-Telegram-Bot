@@ -169,6 +169,7 @@ from .models import (
     TatPresentationSettings,
     TatGroupExceptionStatus,
     TatNotificationProcessorRun,
+    TatUpdateSideEffectDispatch,
     TatRepairJob,
     WorkflowDataModeEvent,
     WorkflowDataModeState,
@@ -3277,7 +3278,8 @@ class TatNotificationProcessorRunAdmin(GovernedConfigurationAuditAdmin):
     change_list_template = 'admin/core/tatnotificationprocessorrun/change_list.html'
     list_display = (
         'started_at', 'trigger_source', 'triggered_by_username_snapshot', 'status',
-        'completed_at', 'processed_task_count',
+        'completed_at', 'processed_task_count', 'processed_dispatch_count',
+        'dispatch_attention_count',
         'retry_recipient_count', 'overdue_recipient_count',
         'unreachable_recipient_count', 'error_code',
     )
@@ -3308,15 +3310,17 @@ class TatNotificationProcessorRunAdmin(GovernedConfigurationAuditAdmin):
         request_id = str(request.POST.get('request_id') or uuid.uuid4())
         if request.method == 'POST':
             reason = str(request.POST.get('reason') or '').strip()
-            if request.POST.get('confirmation_phrase') != 'RUN PRIVATE ALERTS':
-                messages.error(request, 'Type RUN PRIVATE ALERTS exactly to confirm live delivery.')
+            # Keep the previous phrase valid for bookmarked/cached Admin forms
+            # while presenting the broader processor name to new runs.
+            if request.POST.get('confirmation_phrase') not in {'RUN TAT PROCESSOR', 'RUN PRIVATE ALERTS'}:
+                messages.error(request, 'Type RUN TAT PROCESSOR exactly to confirm live processing.')
             elif not reason:
                 messages.error(request, 'Give a reason for this manual processor run.')
             else:
                 try:
-                    limit = max(1, min(int(request.POST.get('limit') or 100), 1000))
+                    limit = max(1, min(int(request.POST.get('limit') or 100), 500))
                 except (TypeError, ValueError):
-                    messages.error(request, 'Maximum tasks must be a number from 1 to 1000.')
+                    messages.error(request, 'Maximum items must be a number from 1 to 500.')
                     return TemplateResponse(request, 'admin/core/tatnotificationprocessorrun/run_now.html', {
                         **self.admin_site.each_context(request), 'opts': self.model._meta,
                         'title': 'Process private TAT alerts now',
@@ -3335,15 +3339,24 @@ class TatNotificationProcessorRunAdmin(GovernedConfigurationAuditAdmin):
                         messages.warning(request, 'Another notification processor is already running. No duplicate run was started.')
                 else:
                     count = 0
+                    dispatch_count = 0
                     try:
                         count = process_due_tasks(limit=limit)
-                        finish_notification_processor_run(run, processed_task_count=count)
+                        from core.services.tat_update_dispatch import process_dispatches
+                        dispatch_count = process_dispatches(limit=min(limit, 500))
+                        finish_notification_processor_run(
+                            run, processed_task_count=count,
+                            processed_dispatch_count=dispatch_count,
+                        )
                     except Exception as exc:
-                        finish_notification_processor_run(run, processed_task_count=count, error=exc)
+                        finish_notification_processor_run(
+                            run, processed_task_count=count,
+                            processed_dispatch_count=dispatch_count, error=exc,
+                        )
                         logger.exception('Manual TAT notification processing failed; run=%s', run.pk)
                         messages.error(request, 'The manual run failed. Review its processor record and server monitoring.')
                     else:
-                        messages.success(request, f'Processed {count} due TAT task(s).')
+                        messages.success(request, f'Processed {count} due TAT task(s) and {dispatch_count} update dispatch(es).')
                 return HttpResponseRedirect(reverse('admin:core_tatnotificationprocessorrun_changelist'))
         return TemplateResponse(request, 'admin/core/tatnotificationprocessorrun/run_now.html', {
             **self.admin_site.each_context(request), 'opts': self.model._meta,
@@ -3358,6 +3371,50 @@ class TatNotificationProcessorRunAdmin(GovernedConfigurationAuditAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(TatUpdateSideEffectDispatch)
+class TatUpdateSideEffectDispatchAdmin(GovernedConfigurationAuditAdmin):
+    list_display = (
+        'case', 'workflow_revision', 'effect_type', 'status', 'cycle_attempts',
+        'total_attempts', 'next_retry_at', 'updated_at', 'retry_link',
+    )
+    list_filter = ('status', 'effect_type', 'created_at', 'updated_at')
+    search_fields = ('case__case_id', 'request_id', 'last_error_code')
+
+    def get_urls(self):
+        return [path(
+            '<uuid:dispatch_id>/retry/', self.admin_site.admin_view(self.retry_view),
+            name='core_tatupdatesideeffectdispatch_retry',
+        )] + super().get_urls()
+
+    @admin.display(description='Action')
+    def retry_link(self, obj):
+        if obj.status != TatUpdateSideEffectDispatch.STATUS_NEEDS_ATTENTION:
+            return '—'
+        return format_html(
+            '<a href="{}">Retry with reason</a>',
+            reverse('admin:core_tatupdatesideeffectdispatch_retry', args=[obj.pk]),
+        )
+
+    def retry_view(self, request, dispatch_id):
+        if not request.user.is_active or not request.user.is_superuser:
+            raise PermissionDenied
+        dispatch = TatUpdateSideEffectDispatch.objects.select_related('case').get(pk=dispatch_id)
+        if request.method == 'POST':
+            from core.services.tat_update_dispatch import retry_dispatch
+            try:
+                retry_dispatch(dispatch, actor=request.user, reason=request.POST.get('reason') or '')
+            except (PermissionError, ValueError) as exc:
+                messages.error(request, str(exc))
+            else:
+                messages.success(request, 'The existing dispatch was returned to the pending queue.')
+                return HttpResponseRedirect(reverse('admin:core_tatupdatesideeffectdispatch_changelist'))
+        return TemplateResponse(request, 'admin/core/tatupdatesideeffectdispatch/retry.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta,
+            'title': 'Retry TAT update dispatch', 'dispatch': dispatch,
+            'back_url': reverse('admin:core_tatupdatesideeffectdispatch_changelist'),
+        })
 
 
 @admin.register(TatActionTaskLocator)

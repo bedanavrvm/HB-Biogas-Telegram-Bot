@@ -795,6 +795,8 @@ def tat_tracker_settings(request):
         return capability_error
     from django.contrib.auth import get_user_model
     from core.services.miniapp_settings import account_summary_payload, preference_payload, tat_settings_payload
+    from core.services.tat_update_dispatch import attention_count
+    from core.services.workflow_data_mode import WORKFLOW_TAT, serialize_mode
     actor = get_user_model().objects.filter(pk=user.get('user_id')).first()
     if not actor:
         return JsonResponse({'ok': False, 'error': 'Your staff account could not be resolved.'}, status=403)
@@ -809,6 +811,11 @@ def tat_tracker_settings(request):
                 products=user.get('products') or [],
             ),
             'configuration': tat_settings_payload(group_config, user),
+            'workflow_mode': serialize_mode(WORKFLOW_TAT),
+            'dispatch_attention_count': (
+                attention_count(group_id=group_id)
+                if actor.is_superuser or 'IT' in set(user.get('roles') or []) else 0
+            ),
         }})
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=409)
@@ -1006,9 +1013,17 @@ def tat_tracker_update(request):
             custom_values=payload.get('product_custom_values'),
             selected_fee_keys=payload.get('product_selected_fee_keys'),
         )
-        _dispatch_tat_approval_certificate(payload.get('case_id', ''), user)
-        _send_tat_next_role_alert(group_config, data)
-        return JsonResponse({'ok': True, 'data': data})
+        from core.models import TatTrackerCase
+        from core.services.tat_update_dispatch import dispatch_ids_for_case_revision
+        case = TatTrackerCase.objects.get(
+            group_id=str(group_config.group_id), case_id=str(payload.get('case_id') or ''), is_deleted=False,
+        )
+        return JsonResponse({
+            'ok': True,
+            'data': data,
+            'dispatch_ids': dispatch_ids_for_case_revision(case),
+            'dispatch_status': 'pending',
+        })
     except WorkflowModeChanged as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'code': exc.code}, status=409)
     except WorkflowRevisionConflict as exc:
@@ -1026,6 +1041,42 @@ def tat_tracker_update(request):
     except Exception:
         logger.exception('TAT Tracker update failed for group %s.', group_id)
         return JsonResponse({'ok': False, 'error': 'The TAT case could not be updated. Try again.'}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@miniapp_write_response
+def tat_tracker_process_update_dispatches(request):
+    """Best-effort client kick; the scheduled processor remains authoritative."""
+    payload = _tat_json_body(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    group_id, group_config, user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    capability_error = _tat_capability_error(user, 'tat.home.view', group_config)
+    if capability_error:
+        return capability_error
+    raw_ids = payload.get('dispatch_ids') or []
+    if not isinstance(raw_ids, list) or len(raw_ids) > 3:
+        return JsonResponse({'ok': False, 'error': 'Choose up to three update dispatches.'}, status=400)
+    try:
+        dispatch_ids = [str(uuid.UUID(str(value))) for value in raw_ids]
+    except (TypeError, ValueError, AttributeError):
+        return JsonResponse({'ok': False, 'error': 'One or more update dispatch identifiers are invalid.'}, status=400)
+    from core.models import TatUpdateSideEffectDispatch
+    rows = list(TatUpdateSideEffectDispatch.objects.select_related('case').filter(
+        pk__in=dispatch_ids, case__group_id=str(group_config.group_id),
+    ))
+    if len(rows) != len(set(dispatch_ids)):
+        return JsonResponse({'ok': False, 'error': 'One or more update dispatches are unavailable.'}, status=404)
+    from core.services.tat_tracker import get_case_detail
+    for case_id in {row.case.case_id for row in rows}:
+        get_case_detail(group_config, user, case_id)
+    from core.services.tat_update_dispatch import process_dispatches
+    processed = process_dispatches(limit=3, dispatch_ids=[str(row.pk) for row in rows])
+    return JsonResponse({'ok': True, 'processed': processed})
 
 
 def _dispatch_tat_approval_certificate(case_id: str, user: dict) -> None:
@@ -4449,7 +4500,7 @@ def _post_telegram_reply(
     message_data: dict,
     text: str,
     reply_markup: dict = None,
-) -> None:
+) -> bool:
     try:
         bot_token = settings.TELEGRAM_BOT_TOKEN
         url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
@@ -4489,10 +4540,14 @@ def _post_telegram_reply(
                         fallback.status_code,
                         fallback.text[:500],
                     )
+                return bool(fallback.ok)
+            return False
+        return True
     except requests.Timeout:
         logger.warning(f"Timeout sending Telegram reply to chat {chat_id}")
     except Exception as exc:
         logger.error(f"Failed to send Telegram reply: {exc}")
+    return False
 
 
 # ---------------------------------------------------------------------------

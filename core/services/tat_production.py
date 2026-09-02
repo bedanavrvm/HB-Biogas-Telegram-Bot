@@ -17,6 +17,7 @@ from core.models import (
     TatPrivateAlertConnection,
     TatResponsibilityAssignment,
     TatTrackerCase,
+    TatUpdateSideEffectDispatch,
     WorkflowDataModeState,
     WORKFLOW_DATA_MODE_PRODUCTION,
 )
@@ -256,5 +257,13 @@ def tat_production_readiness_issues(
         ).exists()
         if active:
             error('tat-notification-stale-lock', 'The TAT notification processor holds an expired lock.')
+        attention_count = TatUpdateSideEffectDispatch.objects.filter(
+            status=TatUpdateSideEffectDispatch.STATUS_NEEDS_ATTENTION,
+        ).count()
+        if attention_count:
+            error(
+                'tat-update-dispatch-attention',
+                f'{attention_count} TAT background update dispatch(es) need Superuser attention.',
+            )
 
     return issues

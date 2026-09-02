@@ -148,6 +148,25 @@
     }
   }
 
+  function kickUpdateDispatches(dispatchIds) {
+    if (!Array.isArray(dispatchIds) || !dispatchIds.length || !window.fetch) return;
+    const requestId = newRequestId();
+    const payload = basePayload({ dispatch_ids: dispatchIds, request_id: requestId });
+    window.fetch('/api/tat-tracker/update/process-dispatches/', {
+      method: 'POST',
+      keepalive: true,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Request-ID': requestId,
+        'Idempotency-Key': requestId,
+      },
+      body: JSON.stringify(payload),
+    }).catch(() => {
+      // This only accelerates durable work. The scheduled processor remains
+      // responsible if the WebView closes or connectivity drops.
+    });
+  }
+
   async function fragmentPost(path, payload) {
     const body = basePayload(payload);
     const requestId = utils.ensureRequestId
@@ -1204,6 +1223,18 @@
     applyBusinessPresentation((configuration.presentation || {}).business_time_enabled !== false);
     if (utils.renderSettingsAccount) utils.renderSettingsAccount($('tatSettingsAccount'), result.data.account || {});
     if ($('tatSettingsRelease')) $('tatSettingsRelease').textContent = result.data.account?.app_release || 'Current release';
+    const workflowMode = result.data.workflow_mode || state.workflowMode || {};
+    if ($('tatSettingsDataMode')) {
+      $('tatSettingsDataMode').textContent = workflowMode.is_pilot ? 'Pilot (test records)' : 'Production';
+    }
+    const dispatchAttention = $('tatDispatchAttention');
+    if (dispatchAttention) {
+      const attentionCount = Number(result.data.dispatch_attention_count || 0);
+      dispatchAttention.textContent = attentionCount === 1
+        ? '1 background update needs administrator attention.'
+        : `${attentionCount} background updates need administrator attention.`;
+      dispatchAttention.classList.toggle('hidden', attentionCount < 1);
+    }
     $('preferenceDefaultScreen').value = personal.default_screen || 'home';
     $('preferenceCompactCards').checked = Boolean(personal.compact_cards);
     $('preferenceBusinessHours').checked = state.businessTimeEnabled && personal.show_business_hours_time !== false;
@@ -1266,14 +1297,6 @@
     applyBusinessPresentation(state.businessTimeEnabled);
     if (!data.authorized) throw new Error(data.reason || 'Unauthorized.');
     $('loadingBrand').classList.add('hidden');
-    const modeBanner = $('workflowModeBanner');
-    if (modeBanner && state.workflowMode) {
-      modeBanner.hidden = !state.workflowMode.is_pilot;
-      modeBanner.classList.toggle('pilot', Boolean(state.workflowMode.is_pilot));
-      modeBanner.textContent = state.workflowMode.is_pilot
-        ? 'PILOT MODE · Entries are test data in the active pilot cycle.'
-        : 'PRODUCTION MODE · New entries are official operational records.';
-    }
     const user = data.user || {};
     const capabilities = new Set(user.capabilities || []);
     document.querySelectorAll('[data-required-capability]').forEach((node) => {
@@ -1655,21 +1678,19 @@
     });
     hydrateTatCounters($('detailView'));
 
-    // Raw audit events deliberately stay out of the staff-facing case screen.
-    // They remain available to authorized administrators through the immutable
-    // server-side audit/timeline records; workflow stages above are the useful
-    // operational summary for an officer handling this case.
+    // The server projection omits only duplicate technical transition receipts.
     const events = $('eventList');
     if (!events) return;
     events.innerHTML = '';
     const timelineEvents = detail.timeline || detail.events || [];
+    if ($('activityCount')) $('activityCount').textContent = String(timelineEvents.length);
     if (!timelineEvents.length) {
       events.appendChild(renderEmpty('No audit events yet', 'Updates will appear here after the case starts moving.'));
     } else {
       timelineEvents.forEach((event) => {
-        const eventTitle = event.title || event.stage || 'Case event';
+        const eventTitle = event.stage || event.title || 'Case event';
         const eventValue = event.detail || event.value || '';
-        const eventActor = [event.actor, event.authority && `Authority: ${event.authority}`, event.origin || event.source].filter(Boolean).join(' · ');
+        const eventActor = [event.actor, event.authority && `Authority: ${event.authority}`].filter(Boolean).join(' · ');
         const eventAt = event.occurred_at ? (utils.formatDateTime ? utils.formatDateTime(event.occurred_at) : event.occurred_at) : event.at;
         const row = document.createElement('div');
         row.className = 'event-item';
@@ -1678,8 +1699,8 @@
           <div class="event-body">
             <div class="event-header">
               <strong class="event-stage">${escapeHtml(eventTitle)}</strong>
-              ${eventValue ? `<span class="event-value-badge">${escapeHtml(eventValue)}</span>` : ''}
             </div>
+            ${eventValue ? `<div class="event-detail">${escapeHtml(eventValue)}</div>` : ''}
             <div class="event-meta">${escapeHtml(eventActor || 'System')} &middot; ${escapeHtml(eventAt || '')}</div>
             ${event.artifact?.url ? `<a class="event-artifact-link" href="${escapeHtml(event.artifact.url)}" target="_blank" rel="noopener">${escapeHtml(event.artifact.name || 'Open linked document')} ↗</a>` : ''}
           </div>
@@ -1867,6 +1888,7 @@
     const pending = state.pendingStageUpdate;
     const isButton = control.tagName === 'BUTTON';
     try {
+      utils.haptic?.('light');
       if (isButton) setButtonLoading(control, true, 'Stamping');
       else control.disabled = true;
       await submitUpdate([{ field: field.key, value }], {
@@ -1875,7 +1897,7 @@
         requestId: pending.requestId,
       });
       state.pendingStageUpdate = null;
-      await loadTaskInbox();
+      loadTaskInbox().catch(() => {});
       refresh({ background: true }).catch(() => {});
       setStatus(value === 'STAMP' ? `${field.label} stamped.` : `${field.label} recorded.`, 'ok');
     } catch (error) {
@@ -1901,6 +1923,7 @@
     });
     state.detail = result.data;
     renderDetail(result.data);
+    kickUpdateDispatches(result.dispatch_ids || []);
     setStatus('Saved.', 'ok');
     return result.data;
   }

@@ -1501,7 +1501,9 @@ def update_case(
         raise ValueError('This TAT case is outside your assigned access scope.')
     if request_id and case.events.filter(request_id=str(request_id), source='workflow_transition').exists():
         from core.services.tat_notifications import synchronize_case_task
-        synchronize_case_task(group_config, case)
+        synchronize_case_task(group_config, case, dispatch_on_commit=False)
+        from core.services.tat_update_dispatch import reserve_update_dispatches
+        reserve_update_dispatches(group_config, case, request_id=request_id)
         return serialize_case_detail(case, user, workflow=workflow)
     validate_workflow_revision(case, expected_revision)
     if not updates:
@@ -1570,8 +1572,10 @@ def update_case(
         group_config,
         case,
         actor_user=user.get('_canonical_user'),
+        dispatch_on_commit=False,
     )
-    sync_case_to_sheet(group_config, case)
+    from core.services.tat_update_dispatch import reserve_update_dispatches
+    reserve_update_dispatches(group_config, case, request_id=request_id)
     return serialize_case_detail(case, user, workflow=workflow)
 
 

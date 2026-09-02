@@ -26,6 +26,7 @@ from core.models import (
     TatResponsibilityAssignment,
     TatTaskRerouteEvent,
     TatTrackerCase,
+    TatUpdateSideEffectDispatch,
 )
 from core.services.telegram_identity import database_group_configuration
 
@@ -187,6 +188,7 @@ def finish_notification_processor_run(
     run: TatNotificationProcessorRun,
     *,
     processed_task_count: int = 0,
+    processed_dispatch_count: int = 0,
     error: Exception | None = None,
 ) -> TatNotificationProcessorRun:
     """Release the runner lock and persist privacy-safe aggregate health."""
@@ -201,6 +203,10 @@ def finish_notification_processor_run(
         locked.active_lock_key = None
         locked.completed_at = now
         locked.processed_task_count = max(0, int(processed_task_count))
+        locked.processed_dispatch_count = max(0, int(processed_dispatch_count))
+        locked.dispatch_attention_count = TatUpdateSideEffectDispatch.objects.filter(
+            status=TatUpdateSideEffectDispatch.STATUS_NEEDS_ATTENTION,
+        ).count()
         locked.retry_recipient_count = counts['retry_recipient_count']
         locked.overdue_recipient_count = counts['overdue_recipient_count']
         locked.unreachable_recipient_count = counts['unreachable_recipient_count']
@@ -209,6 +215,7 @@ def finish_notification_processor_run(
             locked.error_message = 'Notification processor failed; inspect server error monitoring.'
         locked.save(update_fields=[
             'status', 'active_lock_key', 'completed_at', 'processed_task_count',
+            'processed_dispatch_count', 'dispatch_attention_count',
             'retry_recipient_count', 'overdue_recipient_count',
             'unreachable_recipient_count', 'error_code', 'error_message',
         ])
@@ -467,7 +474,9 @@ def _routing_recipients(*, group, case: TatTrackerCase, role: str, stage_key: st
 
 
 @transaction.atomic
-def synchronize_case_task(group_config, case: TatTrackerCase, *, actor_user=None) -> TatActionTask | None:
+def synchronize_case_task(
+    group_config, case: TatTrackerCase, *, actor_user=None, dispatch_on_commit: bool = True,
+) -> TatActionTask | None:
     """Supersede stale work and create exactly one task for the current revision."""
     mode = notification_mode(group_config)
     if mode == MODE_GROUP:
@@ -550,7 +559,8 @@ def synchronize_case_task(group_config, case: TatTrackerCase, *, actor_user=None
         if old.status == TatActionTask.STATUS_SUPERSEDED:
             old.superseded_by = task
             old.save(update_fields=['superseded_by', 'updated_at'])
-    transaction.on_commit(lambda task_id=task.pk: safe_dispatch_task(task_id))
+    if dispatch_on_commit:
+        transaction.on_commit(lambda task_id=task.pk: safe_dispatch_task(task_id))
     if group:
         transaction.on_commit(lambda group_id=group.pk: safe_refresh_group_exception(group_id))
     return task

@@ -845,6 +845,7 @@ body.tat-sheet-open { overflow: hidden; }
 .miniapp-settings-account-note { margin: 0; }
 .tat-settings-about-row { display: flex; justify-content: space-between; gap: 8px; padding: 8px; border: 1px solid var(--tat-line); border-radius: var(--radius-sm); background: var(--tat-surface-2); color: var(--tat-muted); font-size: 10px; }
 .tat-settings-about-row strong { color: var(--tat-text); }
+.settings-attention { padding: 8px; border: 1px solid var(--tat-danger); border-radius: var(--radius-sm); background: var(--tat-danger-soft); color: var(--tat-danger); font-size: 10px; font-weight: 700; }
 
 .target-settings-list {
   display: grid;
@@ -1214,7 +1215,12 @@ body.hide-business-hours-time .tat-business-time,
 .remarks-box { margin-bottom: 4px; }
 
 /* Audit Event List Timeline */
+.activity-panel { margin-top: 8px; border: 1px solid var(--tat-line); border-radius: var(--radius-sm); background: var(--tat-surface-2); }
+.activity-panel > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px; cursor: pointer; color: var(--tat-text); font-size: 11px; font-weight: 750; }
+.activity-panel > summary strong { min-width: 22px; padding: 1px 6px; border-radius: 999px; background: var(--tat-accent-soft); color: var(--tat-accent); text-align: center; font-size: 9px; }
+.activity-panel[open] > summary { border-bottom: 1px solid var(--tat-line); }
 .event-list { display: grid; gap: 8px; position: relative; margin-top: 6px; }
+.activity-panel .event-list { margin: 0; padding: 9px; }
 .event-item {
   display: flex;
   gap: 8px;
@@ -1259,6 +1265,7 @@ body.hide-business-hours-time .tat-business-time,
   font-size: 9.5px;
   color: var(--tat-muted);
 }
+.event-detail { color: var(--tat-text); font-size: 10px; line-height: 1.35; overflow-wrap: anywhere; }
 
 .identity-context {
   display: grid;
@@ -1354,22 +1361,6 @@ body.hide-business-hours-time .tat-business-time,
   .metric-tile small { font-size: 8px; }
   .queue-filter-btn span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .queue-filter-btn { width: 34px; padding: 0; }
-}
-
-.workflow-mode-banner {
-  margin: 6px 0;
-  padding: 7px 10px;
-  border: 1px solid color-mix(in srgb, #0f766e 35%, var(--tat-line));
-  border-radius: 9px;
-  background: color-mix(in srgb, #0f766e 8%, var(--tat-surface));
-  color: var(--tat-text);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: .035em;
-}
-.workflow-mode-banner.pilot {
-  border-color: color-mix(in srgb, #f59e0b 50%, var(--tat-line));
-  background: color-mix(in srgb, #f59e0b 11%, var(--tat-surface));
 }
 
 .closed-pilot-notice {

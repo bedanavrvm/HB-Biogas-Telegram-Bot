@@ -3,9 +3,9 @@
 {% block content %}
   <div class="max-w-3xl">
     <div class="rounded border border-orange-300 bg-orange-50 p-6 text-orange-950 shadow-sm dark:border-orange-800 dark:bg-orange-950 dark:text-orange-100">
-      <h1 class="text-xl font-semibold">Process due private alerts and escalations</h1>
+      <h1 class="text-xl font-semibold">Process due TAT background work</h1>
       <p class="mt-2 text-sm">
-        This is a live delivery action. It will process due task recipients using the same lock, access checks, retry rules, and escalation rules as the scheduled runner.
+        This is a live action. It processes due task recipients and post-update Sheet, notification, and signature dispatches using the scheduled runner's lock and retry rules.
       </p>
       <div class="mt-4 rounded border border-orange-200 bg-white/70 p-4 text-sm dark:border-orange-800 dark:bg-black/20">
         <h2 class="font-semibold">How to test escalation safely</h2>
@@ -22,13 +22,13 @@
       <form method="post" class="mt-6 grid gap-4">
         {% csrf_token %}
         <input type="hidden" name="request_id" value="{{ request_id }}">
-        <label class="grid gap-1 text-sm font-medium">Maximum tasks
-          <input type="number" name="limit" value="100" min="1" max="1000" required class="w-full rounded border border-orange-300 px-3 py-2 dark:border-orange-800 dark:bg-orange-950">
+        <label class="grid gap-1 text-sm font-medium">Maximum items
+          <input type="number" name="limit" value="100" min="1" max="500" required class="w-full rounded border border-orange-300 px-3 py-2 dark:border-orange-800 dark:bg-orange-950">
         </label>
         <label class="grid gap-1 text-sm font-medium">Reason for manual run
           <textarea name="reason" rows="3" required class="w-full rounded border border-orange-300 px-3 py-2 dark:border-orange-800 dark:bg-orange-950"></textarea>
         </label>
-        <label class="grid gap-1 text-sm font-medium">Type <code>RUN PRIVATE ALERTS</code> to confirm
+        <label class="grid gap-1 text-sm font-medium">Type <code>RUN TAT PROCESSOR</code> to confirm
           <input name="confirmation_phrase" autocomplete="off" required class="w-full rounded border border-orange-300 px-3 py-2 dark:border-orange-800 dark:bg-orange-950">
         </label>
         <div class="flex flex-wrap gap-2">

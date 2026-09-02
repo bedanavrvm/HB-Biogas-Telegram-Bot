@@ -35,8 +35,6 @@
       <img src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu">
       <span>Loading tracker...</span>
     </div>
-    <div id="workflowModeBanner" class="workflow-mode-banner" role="status" aria-live="polite" hidden></div>
-
     <section class="overview-strip" aria-label="Tracker summary">
       <div class="metric-tile priority">
         <span id="statAssigned">0</span>
@@ -205,6 +203,8 @@
       <section class="form-card tat-settings-about">
         <div class="form-heading"><span class="settings-eyebrow">ABOUT &amp; SUPPORT</span><h2>TAT access</h2><p>Telegram verifies sign-in. Assignment, approval, security, and overdue-breach alerts remain mandatory.</p></div>
         <div class="tat-settings-about-row"><span>App release</span><strong id="tatSettingsRelease">Current release</strong></div>
+        <div class="tat-settings-about-row"><span>Data mode</span><strong id="tatSettingsDataMode">Checking...</strong></div>
+        <div id="tatDispatchAttention" class="settings-attention hidden" role="status"></div>
         <p class="settings-help">Contact a JBL administrator to correct your account details or access scope.</p>
       </section>
 
@@ -292,7 +292,10 @@
           <aside class="side-panel">
             <label class="remarks-box">Remarks / Delays<textarea id="remarksInput" placeholder="Add context for delays, missing documents, or follow-up notes."></textarea></label>
             <button id="saveRemarksBtn" type="button" class="secondary full-width">Save Remarks</button>
-
+            <details class="activity-panel">
+              <summary><span>Activity</span><strong id="activityCount">0</strong></summary>
+              <div id="eventList" class="event-list" aria-live="polite"></div>
+            </details>
           </aside>
         </div>
       </section>
@@ -342,6 +345,6 @@
   {% include "miniapp_diagnostics.html" %}
   <script src="{% static 'miniapp/utils.js' %}?v=9"></script>
   <script src="{% static 'miniapp/tat_api.js' %}?v=4"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=53"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=54"></script>
 </body>
 </html>

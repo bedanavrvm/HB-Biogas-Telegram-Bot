@@ -264,6 +264,15 @@ def tat_case_timeline(case: TatTrackerCase) -> dict[str, Any]:
     redactions, annotations = _annotations('tat_tracker', str(case.pk))
     entries = []
     for event in case.events.select_related('actor_user', 'authority_user').order_by('-created_at'):
+        # These two rows are idempotency/transition receipts created alongside
+        # the actual staff event. Keep them in the immutable audit store while
+        # omitting the duplicate, technical entry from the staff timeline.
+        if (
+            event.source == 'workflow_transition'
+            and event.stage_key == 'workflow_transition'
+            and event.transition_code in {'tat.stage.advance', 'tat.case.update'}
+        ):
+            continue
         source_id = f'tat:{event.id}'
         entries.append(_entry(
             source_id=source_id,

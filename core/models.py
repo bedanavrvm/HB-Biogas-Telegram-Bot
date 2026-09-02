@@ -1809,6 +1809,8 @@ class TatNotificationProcessorRun(models.Model):
     started_at = models.DateTimeField(default=timezone.now, db_index=True)
     completed_at = models.DateTimeField(null=True, blank=True, db_index=True)
     processed_task_count = models.PositiveIntegerField(default=0)
+    processed_dispatch_count = models.PositiveIntegerField(default=0)
+    dispatch_attention_count = models.PositiveIntegerField(default=0)
     retry_recipient_count = models.PositiveIntegerField(default=0)
     overdue_recipient_count = models.PositiveIntegerField(default=0)
     unreachable_recipient_count = models.PositiveIntegerField(default=0)
@@ -1834,6 +1836,73 @@ class TatNotificationProcessorRun(models.Model):
 
     def __str__(self):
         return f'{self.get_status_display()} at {self.started_at}'
+
+
+class TatUpdateSideEffectDispatch(models.Model):
+    """Durable, privacy-safe work created after an authoritative TAT update."""
+
+    EFFECT_SHEET = 'sheet_projection'
+    EFFECT_SIGNATURE = 'signature_delivery'
+    EFFECT_NOTIFICATION = 'next_role_alert'
+    EFFECT_CHOICES = [
+        (EFFECT_SHEET, 'Sheet projection'),
+        (EFFECT_SIGNATURE, 'Signature delivery'),
+        (EFFECT_NOTIFICATION, 'Next-role alert'),
+    ]
+    STATUS_PENDING = 'pending'
+    STATUS_RUNNING = 'running'
+    STATUS_RETRYABLE = 'retryable'
+    STATUS_SUCCEEDED = 'succeeded'
+    STATUS_SUPERSEDED = 'superseded'
+    STATUS_NEEDS_ATTENTION = 'needs_attention'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_RUNNING, 'Running'),
+        (STATUS_RETRYABLE, 'Retryable'),
+        (STATUS_SUCCEEDED, 'Succeeded'),
+        (STATUS_SUPERSEDED, 'Superseded'),
+        (STATUS_NEEDS_ATTENTION, 'Needs attention'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    case = models.ForeignKey(
+        TatTrackerCase, on_delete=models.PROTECT, related_name='update_dispatches',
+    )
+    workflow_revision = models.PositiveIntegerField()
+    request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    effect_type = models.CharField(max_length=32, choices=EFFECT_CHOICES, db_index=True)
+    status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    cycle_attempts = models.PositiveSmallIntegerField(default=0)
+    total_attempts = models.PositiveIntegerField(default=0)
+    next_retry_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    lease_token = models.UUIDField(null=True, blank=True, editable=False)
+    lease_started_at = models.DateTimeField(null=True, blank=True)
+    last_error_code = models.CharField(max_length=80, blank=True, default='')
+    last_error_message = models.CharField(max_length=255, blank=True, default='')
+    manual_retry_reason = models.CharField(max_length=500, blank=True, default='')
+    manual_retry_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='retried_tat_update_dispatches',
+    )
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['created_at', 'effect_type']
+        constraints = [models.UniqueConstraint(
+            fields=['case', 'workflow_revision', 'effect_type'],
+            name='unique_tat_update_effect_per_revision',
+        )]
+        indexes = [
+            models.Index(fields=['status', 'next_retry_at'], name='tat_update_dispatch_due_idx'),
+            models.Index(fields=['case', 'workflow_revision'], name='tat_update_dispatch_case_idx'),
+        ]
+        verbose_name = 'TAT update dispatch'
+        verbose_name_plural = 'TAT update dispatches'
+
+    def __str__(self):
+        return f'{self.case.case_id} r{self.workflow_revision} {self.effect_type}'
 
 
 class TatRepairJob(models.Model):
