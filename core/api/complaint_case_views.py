@@ -102,6 +102,17 @@ def _request_payload(request) -> dict:
     return request.POST.dict() if request.content_type.startswith('multipart/') else _json_body(request)
 
 
+def _complaint_report_filters(payload: dict) -> dict:
+    return {
+        'branch': payload.get('branch'),
+        'category': payload.get('category'),
+        'status': payload.get('status'),
+        'date_from': payload.get('date_from'),
+        'date_to': payload.get('date_to'),
+        'search': payload.get('search'),
+    }
+
+
 def _context(request, payload: dict):
     init_data = request.headers.get('X-Telegram-Init-Data', '') or payload.get('init_data', '')
     require_auth = bool(
@@ -427,14 +438,7 @@ def complaint_reports_data(request):
     from core.services.complaint_register import complaint_report_page
     try:
         result = complaint_report_page(
-            filters={
-                'branch': payload.get('branch'),
-                'category': payload.get('category'),
-                'status': payload.get('status'),
-                'date_from': payload.get('date_from'),
-                'date_to': payload.get('date_to'),
-                'search': payload.get('search'),
-            },
+            filters=_complaint_report_filters(payload),
             page=payload.get('page') or 1,
             page_size=payload.get('page_size') or 50,
             sort=payload.get('sort') or '-date_reported',
@@ -458,7 +462,14 @@ def complaint_reports_summary(request):
     if capability_error:
         return capability_error
     from core.services.complaint_register import complaint_report_summary
-    response = JsonResponse(complaint_report_summary())
+    try:
+        result = complaint_report_summary(
+            filters=_complaint_report_filters(payload),
+            granularity=payload.get('granularity') or 'month',
+        )
+    except ComplaintCaseError as exc:
+        return JsonResponse({'ok': False, 'message': str(exc), 'code': 'invalid_report_query'}, status=400)
+    response = JsonResponse(result)
     response['Cache-Control'] = 'private, no-store'
     return response
 

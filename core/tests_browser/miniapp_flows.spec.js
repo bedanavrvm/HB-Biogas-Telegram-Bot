@@ -25,7 +25,7 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   await page.addStyleTag({ path: asset('complaint_cases.css') });
   await page.evaluate(() => {
     document.body.dataset.groupId = '-100-report-test';
-    window.__backVisible = false; window.__backHandler = null;
+    window.__backVisible = false; window.__backHandler = null; window.__reportRequests = [];
     const webApp = {
       initData: 'synthetic-signed-init-data',
       BackButton: {
@@ -47,11 +47,13 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
         if (path === 'cases/') return { cases: [], pagination: { page: 1, pages: 1, total: 0 }, start_index: 0 };
         return { data: {} };
       },
-      async getJson(path) {
+      async getJson(path, params) {
+        window.__reportRequests.push({ path, params: Object.assign({}, params || {}) });
         if (path === 'reports/summary/') return {
           total: 1, pending: 1, resolved: 0, needs_details: 0,
           by_branch: [{ label: 'Nakuru', count: 1 }], by_category: [{ label: 'Leakage', count: 1 }],
-          by_month: [{ label: '2026-09', count: 1 }],
+          by_time: [{ label: '2026-09', count: 1 }], time_granularity: params?.granularity || 'month',
+          filter_options: { branches: [{ label: 'Nakuru', count: 1 }], categories: [{ label: 'Leakage', count: 1 }] },
         };
         return { results: [{
           complaint_id: 'CMP000001', date_reported: '2026-09-01T10:00:00+03:00', status: 'Pending', needs_details: false,
@@ -68,6 +70,24 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   await page.locator('#globalWorkspaceBtn').click();
   await expect(page.locator('#globalView')).toBeVisible();
   await expect(page.locator('.ag-row')).toHaveCount(1);
+
+  await page.locator('#reportDateMode').selectOption('month');
+  await page.locator('input[name="report_month"]').fill('2026-07');
+  await page.locator('input[name="report_month"]').dispatchEvent('change');
+  await expect.poll(() => page.evaluate(() => window.__reportRequests.filter(item => item.params.date_from === '2026-07-01').length)).toBe(2);
+  const julyRequests = await page.evaluate(() => window.__reportRequests.filter(item => item.params.date_from === '2026-07-01'));
+  expect(julyRequests.map(item => item.path).sort()).toEqual(['reports/data/', 'reports/summary/']);
+  expect(julyRequests.every(item => item.params.date_to === '2026-07-31')).toBe(true);
+  await expect(page.locator('#reportPeriodLabel')).toContainText('July 2026');
+
+  const requestsBeforePie = await page.evaluate(() => window.__reportRequests.length);
+  await page.locator('[data-category-chart="pie"]').click();
+  await expect(page.locator('[data-category-chart="pie"]')).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(() => window.__reportRequests.length)).toBe(requestsBeforePie);
+  const dataRequestsBeforeGrouping = await page.evaluate(() => window.__reportRequests.filter(item => item.path === 'reports/data/').length);
+  await page.locator('#reportGranularity').selectOption('week');
+  await expect.poll(() => page.evaluate(() => window.__reportRequests.some(item => item.path === 'reports/summary/' && item.params.granularity === 'week'))).toBe(true);
+  expect(await page.evaluate(() => window.__reportRequests.filter(item => item.path === 'reports/data/').length)).toBe(dataRequestsBeforeGrouping);
 
   for (const width of [320, 360, 390]) {
     await page.setViewportSize({ width, height: 780 });

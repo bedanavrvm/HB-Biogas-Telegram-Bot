@@ -9,7 +9,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from django.db.models import Case, Count, IntegerField, Q, Value, When
-from django.db.models.functions import TruncMonth
+from django.db.models.functions import Coalesce, TruncDay, TruncMonth, TruncWeek, TruncYear
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
@@ -39,12 +39,20 @@ SORT_FIELDS = {
 }
 
 REPORT_SORT_FIELDS = {
-    'date_reported': 'timestamp',
+    'date_reported': 'report_date',
     'status': 'complaint_status',
     'branch_region': 'branch_region',
-    'days_open': 'timestamp',
+    'days_open': 'report_date',
     'date_resolved': 'date_resolved',
 }
+
+REPORT_TIME_GROUPS = {
+    'day': (TruncDay, '%Y-%m-%d'),
+    'week': (TruncWeek, '%Y-%m-%d'),
+    'month': (TruncMonth, '%Y-%m'),
+    'year': (TruncYear, '%Y'),
+}
+REPORT_MAX_TIME_BUCKETS = 500
 
 
 def _group_rows() -> dict[str, GroupSheetConfiguration]:
@@ -68,7 +76,9 @@ def _projection_enabled(group_id: str, groups: dict[str, GroupSheetConfiguration
 def _base_queryset():
     # ComplaintCaseControl is the durable marker that a ParsedMessage belongs
     # to the Complaint Cases workflow; reads never create controls implicitly.
-    return ParsedMessage.objects.filter(complaint_control__isnull=False).select_related(
+    return ParsedMessage.objects.filter(complaint_control__isnull=False).annotate(
+        report_date=Coalesce('timestamp', 'created_at'),
+    ).select_related(
         'complaint_control__category', 'complaint_control__branch_ref',
         'complaint_control__customer', 'complaint_control__assigned_to',
     )
@@ -232,13 +242,21 @@ def _apply_report_filters(queryset, filters: dict[str, Any]):
     elif status:
         raise ComplaintCaseError('Status must be Pending or Resolved.')
     branch = str(filters.get('branch') or '').strip()
-    if branch:
+    if branch.casefold() == 'not provided':
+        queryset = queryset.filter(
+            complaint_control__branch_ref__isnull=True,
+        ).filter(Q(branch_region='') | Q(branch_region__isnull=True))
+    elif branch:
         queryset = queryset.filter(
             Q(complaint_control__branch_ref__name__iexact=branch)
             | Q(complaint_control__branch_ref__isnull=True, branch_region__iexact=branch)
         )
     category = str(filters.get('category') or '').strip()
-    if category:
+    if category.casefold() == 'not provided':
+        queryset = queryset.filter(
+            complaint_control__category__isnull=True,
+        ).filter(Q(complaint_category='') | Q(complaint_category__isnull=True))
+    elif category:
         queryset = queryset.filter(
             Q(complaint_control__category__label__iexact=category)
             | Q(complaint_control__category__isnull=True, complaint_category__iexact=category)
@@ -246,9 +264,9 @@ def _apply_report_filters(queryset, filters: dict[str, Any]):
     date_from = _parse_filter_date(filters.get('date_from'), 'Start date')
     date_to = _parse_filter_date(filters.get('date_to'), 'End date', end=True)
     if date_from:
-        queryset = queryset.filter(timestamp__gte=date_from)
+        queryset = queryset.filter(report_date__gte=date_from)
     if date_to:
-        queryset = queryset.filter(timestamp__lte=date_to)
+        queryset = queryset.filter(report_date__lte=date_to)
     search = str(filters.get('search') or '').strip()
     if search:
         queryset = queryset.filter(
@@ -278,7 +296,7 @@ def complaint_report_page(
         raise ComplaintCaseError('The requested report page is invalid.')
     if sort_key == 'days_open':
         # Days open is the inverse of the start timestamp for every open case.
-        ordering = 'timestamp' if descending else '-timestamp'
+        ordering = 'report_date' if descending else '-report_date'
     elif sort_key == 'status':
         queryset = queryset.annotate(report_status_order=Case(
             When(complaint_status='Closed', then=Value(1)),
@@ -310,36 +328,38 @@ def _source_breakdown(queryset, *, canonical: str, legacy: str) -> list[dict[str
     ]
 
 
-def complaint_report_summary() -> dict[str, Any]:
-    queryset = _base_queryset()
+def complaint_report_summary(
+    *, filters: dict[str, Any] | None = None, granularity: str = 'month',
+) -> dict[str, Any]:
+    granularity = str(granularity or 'month').strip().casefold()
+    if granularity not in REPORT_TIME_GROUPS:
+        raise ComplaintCaseError('Time grouping must be Day, Week, Month or Year.')
+    base_queryset = _base_queryset()
+    queryset = _apply_report_filters(base_queryset, filters or {})
     metrics = queryset.aggregate(
         total=Count('pk'),
         pending=Count('pk', filter=~Q(complaint_status='Closed')),
         resolved=Count('pk', filter=Q(complaint_status='Closed')),
         needs_details=Count('pk', filter=Q(complaint_status='Review Needed')),
     )
-    today = timezone.localdate()
-    month_start = today.replace(day=1)
-    start_index = month_start.year * 12 + month_start.month - 12
-    first_month = month_start.replace(
-        year=start_index // 12, month=(start_index % 12) + 1,
-    )
-    first_month_at = timezone.make_aware(
-        datetime.combine(first_month, time.min), timezone.get_current_timezone(),
-    )
-    month_rows = queryset.filter(timestamp__gte=first_month_at).annotate(
-        month=TruncMonth('timestamp'),
-    ).values('month').annotate(count=Count('pk')).order_by('month')
-    month_counts = {
-        timezone.localtime(row['month']).strftime('%Y-%m'): row['count']
-        for row in month_rows if row['month']
-    }
-    months = []
-    for offset in range(12):
-        index = start_index + offset
-        value = first_month.replace(year=index // 12, month=(index % 12) + 1)
-        key = value.strftime('%Y-%m')
-        months.append({'label': key, 'count': month_counts.get(key, 0)})
+    truncation, label_format = REPORT_TIME_GROUPS[granularity]
+    time_rows = list(queryset.annotate(
+        report_time_bucket=truncation('report_date', tzinfo=timezone.get_current_timezone()),
+    ).values('report_time_bucket').annotate(count=Count('pk')).order_by(
+        'report_time_bucket',
+    )[:REPORT_MAX_TIME_BUCKETS + 1])
+    if len(time_rows) > REPORT_MAX_TIME_BUCKETS:
+        raise ComplaintCaseError(
+            'This chart contains too many time periods. Narrow the reported date range '
+            'or choose a broader time grouping.'
+        )
+    by_time = [
+        {
+            'label': timezone.localtime(row['report_time_bucket']).strftime(label_format),
+            'count': row['count'],
+        }
+        for row in time_rows if row['report_time_bucket']
+    ]
     return {
         **metrics,
         'by_branch': _source_breakdown(
@@ -348,7 +368,18 @@ def complaint_report_summary() -> dict[str, Any]:
         'by_category': _source_breakdown(
             queryset, canonical='complaint_control__category__label', legacy='complaint_category',
         ),
-        'by_month': months,
+        'by_time': by_time,
+        'time_granularity': granularity,
+        'filter_options': {
+            'branches': _source_breakdown(
+                base_queryset,
+                canonical='complaint_control__branch_ref__name', legacy='branch_region',
+            ),
+            'categories': _source_breakdown(
+                base_queryset,
+                canonical='complaint_control__category__label', legacy='complaint_category',
+            ),
+        },
     }
 
 

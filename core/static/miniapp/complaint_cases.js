@@ -15,7 +15,8 @@
     workspace: 'queue', returnWorkspace: 'queue', globalLoaded: false,
     globalOverview: null, globalPage: 1, globalPages: 1, globalPageSize: 50,
     globalSort: '-date_reported', reportGridApi: null, reportGridLoading: false,
-    categoryChart: null, monthChart: null,
+    categoryChart: null, timeChart: null, categoryChartType: 'bar', reportGranularity: 'month',
+    reportSummarySequence: 0, reportTableSequence: 0, reportFilterTimer: null,
     evidence: { create: [], resolve: [] },
     categoryDescriptions: new Map(),
     evidenceLimits: { max_files: 10, max_file_size_mb: 10, max_total_upload_mb: 30 },
@@ -712,22 +713,44 @@
   function chartColor(token, fallback) {
     return getComputedStyle(document.documentElement).getPropertyValue(token).trim() || fallback;
   }
+  function categoryColorMap(summary) {
+    const labels = (summary.filter_options?.categories || summary.by_category || [])
+      .map(item => item.label).sort((left, right) => left.localeCompare(right));
+    return new Map(labels.map((label, index) => [label, `hsl(${Math.round((index * 137.508) % 360)} 65% 48%)`]));
+  }
+  function setChartState(name, message) {
+    const canvas = $(name === 'category' ? 'categoryChart' : 'timeChart');
+    const status = $(name === 'category' ? 'categoryChartState' : 'timeChartState');
+    status.textContent = message || ''; status.hidden = !message; canvas.hidden = !!message;
+  }
   function renderReportCharts(summary) {
     if (!window.Chart) return;
-    state.categoryChart?.destroy(); state.monthChart?.destroy();
-    const categories = summary.by_category || []; const months = summary.by_month || [];
-    const shared = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } };
+    state.categoryChart?.destroy(); state.timeChart?.destroy(); state.categoryChart = null; state.timeChart = null;
+    const categories = summary.by_category || []; const periods = summary.by_time || [];
+    const textColor = chartColor('--muted', '#667085');
+    setChartState('category', categories.length ? '' : 'No complaint types match these filters.');
+    setChartState('time', periods.length ? '' : 'No complaints match this time period.');
+    if (!categories.length && !periods.length) return;
+    const colorMap = categoryColorMap(summary);
+    const categoryColors = categories.map(item => colorMap.get(item.label) || 'hsl(210 65% 48%)');
+    const categoryIsPie = state.categoryChartType === 'pie';
+    if (categories.length) {
     state.categoryChart = new window.Chart($('categoryChart'), {
-      type: 'bar', data: {
+      type: state.categoryChartType, data: {
         labels: categories.map(item => item.label),
-        datasets: [{ data: categories.map(item => item.count), backgroundColor: chartColor('--accent', '#087f5b'), borderRadius: 4 }],
-      }, options: Object.assign({}, shared, { indexAxis: 'y', scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }),
+        datasets: [{ data: categories.map(item => item.count), backgroundColor: categoryColors, borderColor: categoryIsPie ? chartColor('--surface', '#fff') : categoryColors, borderWidth: categoryIsPie ? 2 : 0, borderRadius: categoryIsPie ? 0 : 4 }],
+      }, options: {
+        responsive: true, maintainAspectRatio: false, indexAxis: categoryIsPie ? 'x' : 'y',
+        plugins: { legend: { display: categoryIsPie, position: 'bottom', labels: { color: textColor, boxWidth: 10, boxHeight: 10, font: { size: 9 } } } },
+        scales: categoryIsPie ? {} : { x: { beginAtZero: true, ticks: { precision: 0, color: textColor } }, y: { ticks: { color: textColor } } },
+      },
     });
-    state.monthChart = new window.Chart($('monthChart'), {
+    }
+    if (periods.length) state.timeChart = new window.Chart($('timeChart'), {
       type: 'line', data: {
-        labels: months.map(item => item.label),
-        datasets: [{ data: months.map(item => item.count), borderColor: chartColor('--accent', '#087f5b'), backgroundColor: chartColor('--soft', 'rgba(8,127,91,.12)'), fill: true, tension: .25, pointRadius: 2 }],
-      }, options: Object.assign({}, shared, { scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }),
+        labels: periods.map(item => item.label),
+        datasets: [{ data: periods.map(item => item.count), borderColor: chartColor('--accent', '#087f5b'), backgroundColor: chartColor('--soft', 'rgba(8,127,91,.12)'), fill: true, tension: .25, pointRadius: 2 }],
+      }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: textColor, maxRotation: 45, minRotation: 0 } }, y: { beginAtZero: true, ticks: { precision: 0, color: textColor } } } },
     });
   }
   function preserveSelectOptions(select, items, placeholder) {
@@ -737,16 +760,75 @@
   }
   function populateGlobalFilters(summary) {
     const formNode = $('globalFilters');
-    preserveSelectOptions(formNode.elements.branch, summary.by_branch || [], 'Any Branch');
-    preserveSelectOptions(formNode.elements.category, summary.by_category || [], 'Any Category');
+    preserveSelectOptions(formNode.elements.branch, summary.filter_options?.branches || [], 'Any Branch');
+    preserveSelectOptions(formNode.elements.category, summary.filter_options?.categories || [], 'Any Category');
   }
-  async function loadGlobalOverview() {
-    const summary = await getJson('reports/summary/'); state.globalOverview = summary;
-    renderMetrics(summary); populateGlobalFilters(summary); renderReportCharts(summary);
-    state.globalLoaded = true; return summary;
+  function showChartLoading() { setChartState('category', 'Loading complaint types...'); setChartState('time', 'Loading complaint history...'); }
+  async function loadGlobalOverview(filters) {
+    const sequence = ++state.reportSummarySequence; showChartLoading();
+    try {
+      const summary = await getJson('reports/summary/', Object.assign({}, filters, { granularity: state.reportGranularity }));
+      if (sequence !== state.reportSummarySequence) return null;
+      state.globalOverview = summary; renderMetrics(summary); populateGlobalFilters(summary); renderReportCharts(summary);
+      state.globalLoaded = true; return summary;
+    } catch (error) {
+      if (sequence === state.reportSummarySequence) {
+        setChartState('category', error.message); setChartState('time', error.message); notify(error.message, true);
+      }
+      return null;
+    }
+  }
+  function updateReportDateControls() {
+    const formNode = $('globalFilters'); const mode = formNode.elements.date_mode.value;
+    $('reportMonthField').hidden = mode !== 'month'; $('reportCustomDates').hidden = mode !== 'custom';
+    formNode.elements.report_month.disabled = mode !== 'month';
+    formNode.elements.date_from.disabled = mode !== 'custom'; formNode.elements.date_to.disabled = mode !== 'custom';
+  }
+  function monthBoundaries(value) {
+    const match = /^(\d{4})-(\d{2})$/.exec(value || '');
+    if (!match) throw new Error('Select the month you want to report on.');
+    const year = Number(match[1]); const month = Number(match[2]);
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    return [`${value}-01`, `${value}-${String(lastDay).padStart(2, '0')}`];
   }
   function globalFilterPayload() {
-    const values = {}; for (const [key, value] of new FormData($('globalFilters')).entries()) if (value) values[key] = value; return values;
+    const formNode = $('globalFilters'); const values = {};
+    for (const name of ['search', 'status', 'branch', 'category']) if (formNode.elements[name].value) values[name] = formNode.elements[name].value;
+    const mode = formNode.elements.date_mode.value;
+    if (mode === 'month') [values.date_from, values.date_to] = monthBoundaries(formNode.elements.report_month.value);
+    if (mode === 'custom') {
+      values.date_from = formNode.elements.date_from.value; values.date_to = formNode.elements.date_to.value;
+      if (!values.date_from && !values.date_to) throw new Error('Select a start date, an end date, or both.');
+      if (values.date_from && values.date_to && values.date_from > values.date_to) throw new Error('Start Date must be on or before End Date.');
+    }
+    return values;
+  }
+  function reportPeriodText(filters) {
+    const formNode = $('globalFilters'); const mode = formNode.elements.date_mode.value;
+    if (mode === 'month' && formNode.elements.report_month.value) {
+      const [year, month] = formNode.elements.report_month.value.split('-').map(Number);
+      return new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, 1)));
+    }
+    if (mode === 'custom') {
+      const format = value => value ? new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`)) : '';
+      if (filters.date_from && filters.date_to) return `Reported ${format(filters.date_from)} – ${format(filters.date_to)}`;
+      return filters.date_from ? `Reported from ${format(filters.date_from)}` : `Reported through ${format(filters.date_to)}`;
+    }
+    return 'All reporting dates';
+  }
+  function currentReportFilters() {
+    const filters = globalFilterPayload(); $('reportPeriodLabel').textContent = reportPeriodText(filters); return filters;
+  }
+  async function refreshReport(options) {
+    let filters; try { filters = currentReportFilters(); } catch (error) { notify(error.message, true); return; }
+    const settings = Object.assign({ summary: true, table: true }, options || {}); const requests = [];
+    if (settings.summary) requests.push(loadGlobalOverview(filters));
+    if (settings.table) requests.push(loadGlobalCases(filters));
+    await Promise.all(requests);
+  }
+  function scheduleReportRefresh(delay) {
+    clearTimeout(state.reportFilterTimer);
+    state.reportFilterTimer = setTimeout(() => refreshReport(), delay == null ? 75 : delay);
   }
   function formatReportDate(value) {
     if (!value) return '';
@@ -795,17 +877,19 @@
         const allowed = { date_reported: 'date_reported', status: 'status', branch_region: 'branch_region', days_open: 'days_open', date_resolved: 'date_resolved' };
         state.globalSort = selected && allowed[selected.colId]
           ? `${selected.sort === 'desc' ? '-' : ''}${allowed[selected.colId]}` : '-date_reported';
-        state.globalPage = 1; loadGlobalCases();
+        state.globalPage = 1; refreshReport({ summary: false });
       },
     });
   }
-  async function loadGlobalCases() {
+  async function loadGlobalCases(filters) {
+    const sequence = ++state.reportTableSequence;
     initializeReportGrid();
     state.reportGridLoading = true; state.reportGridApi?.showLoadingOverlay();
     try {
-      const response = await getJson('reports/data/', Object.assign(globalFilterPayload(), {
+      const response = await getJson('reports/data/', Object.assign({}, filters, {
         page: state.globalPage, page_size: state.globalPageSize, sort: state.globalSort,
       }));
+      if (sequence !== state.reportTableSequence) return;
       state.globalPage = response.page; state.globalPages = Math.max(1, Math.ceil(response.count / response.page_size));
       $('globalResultCount').textContent = `${response.count} complaint${response.count === 1 ? '' : 's'} found`;
       state.reportGridApi?.setGridOption('rowData', response.results || []);
@@ -814,19 +898,19 @@
       $('globalPageLabel').textContent = `Page ${state.globalPage} of ${state.globalPages}`;
       $('globalPreviousBtn').disabled = state.globalPage <= 1; $('globalNextBtn').disabled = state.globalPage >= state.globalPages;
     } catch (error) {
-      state.reportGridApi?.showNoRowsOverlay(); notify(error.message, true);
-    } finally { state.reportGridLoading = false; }
+      if (sequence === state.reportTableSequence) { state.reportGridApi?.showNoRowsOverlay(); notify(error.message, true); }
+    } finally { if (sequence === state.reportTableSequence) state.reportGridLoading = false; }
   }
   async function openGlobalWorkspace() {
     if (!can('complaint.reports.view')) return notify('Management report access is not assigned to your account.', true);
     state.returnWorkspace = 'queue'; setView('globalView');
-    try { if (!state.globalLoaded) await loadGlobalOverview(); await loadGlobalCases(); } catch (error) { notify(error.message, true); }
+    await refreshReport();
   }
-  async function refreshGlobal() { await loadGlobalOverview(); await loadGlobalCases(); }
+  async function refreshGlobal() { await refreshReport(); }
 
   async function prepareExport() {
     try {
-      const overview = await loadGlobalOverview(); const count = overview.total || 0;
+      const overview = await getJson('reports/summary/', { granularity: 'year' }); const count = overview.total || 0;
       $('exportConfirmText').textContent = `This download includes all ${count} complaints across all complaint groups, not only your current filters. Continue?`;
       $('exportConfirm').hidden = false; $('cancelExportBtn').focus();
     } catch (error) { notify(error.message, true); }
@@ -878,7 +962,7 @@
   function returnPrevious() {
     if (!$('exportConfirm').hidden) { cancelExport(); return; }
     if (!$('globalView').hidden) { setView('queueView'); loadCases(); return; }
-    if (state.returnWorkspace === 'global') { setView('globalView'); loadGlobalCases(); }
+    if (state.returnWorkspace === 'global') { setView('globalView'); refreshReport(); }
     else { setView('queueView'); loadCases(); }
   }
 
@@ -889,17 +973,30 @@
   $('caseSearch').addEventListener('input', event => { state.query = event.target.value; state.page = 1; clearTimeout(state.debounce); state.debounce = setTimeout(loadCases, state.query ? 250 : 0); });
   $('queuePreviousBtn').addEventListener('click', () => { if (state.page > 1) { state.page -= 1; loadCases(); } });
   $('queueNextBtn').addEventListener('click', () => { if (state.page < state.pages) { state.page += 1; loadCases(); } });
-  $('globalPreviousBtn').addEventListener('click', () => { if (state.globalPage > 1) { state.globalPage -= 1; loadGlobalCases(); } });
-  $('globalNextBtn').addEventListener('click', () => { if (state.globalPage < state.globalPages) { state.globalPage += 1; loadGlobalCases(); } });
+  $('globalPreviousBtn').addEventListener('click', () => { if (state.globalPage > 1) { state.globalPage -= 1; refreshReport({ summary: false }); } });
+  $('globalNextBtn').addEventListener('click', () => { if (state.globalPage < state.globalPages) { state.globalPage += 1; refreshReport({ summary: false }); } });
   $('queueWorkspaceBtn').addEventListener('click', () => { setView('queueView'); loadCases(); });
   $('globalWorkspaceBtn').addEventListener('click', openGlobalWorkspace);
   $('reportBackBtn').addEventListener('click', () => { setView('queueView'); loadCases(); });
-  $('globalFilters').addEventListener('submit', event => { event.preventDefault(); state.globalPage = 1; loadGlobalCases(); });
-  $('clearGlobalFiltersBtn').addEventListener('click', () => { $('globalFilters').reset(); state.globalPage = 1; loadGlobalCases(); });
-  $('globalFilters').addEventListener('change', () => { state.globalPage = 1; loadGlobalCases(); });
+  $('globalFilters').addEventListener('submit', event => { event.preventDefault(); clearTimeout(state.reportFilterTimer); state.globalPage = 1; refreshReport(); });
+  $('clearGlobalFiltersBtn').addEventListener('click', () => { $('globalFilters').reset(); updateReportDateControls(); clearTimeout(state.reportFilterTimer); state.globalPage = 1; refreshReport(); });
+  $('globalFilters').addEventListener('change', event => {
+    updateReportDateControls(); state.globalPage = 1;
+    if (event.target.name === 'date_mode' && event.target.value !== 'all') return;
+    scheduleReportRefresh();
+  });
   $('globalFilters').elements.search.addEventListener('input', () => {
-    clearTimeout(state.debounce); state.globalPage = 1;
-    state.debounce = setTimeout(loadGlobalCases, 300);
+    state.globalPage = 1; scheduleReportRefresh(300);
+  });
+  document.querySelectorAll('[data-category-chart]').forEach(button => button.addEventListener('click', () => {
+    state.categoryChartType = button.dataset.categoryChart;
+    document.querySelectorAll('[data-category-chart]').forEach(option => {
+      const active = option === button; option.classList.toggle('active', active); option.setAttribute('aria-pressed', String(active));
+    });
+    if (state.globalOverview) renderReportCharts(state.globalOverview);
+  }));
+  $('reportGranularity').addEventListener('change', event => {
+    state.reportGranularity = event.target.value; refreshReport({ table: false }); utils.haptic?.('light');
   });
   $('exportAllBtn').addEventListener('click', prepareExport); $('cancelExportBtn').addEventListener('click', cancelExport); $('confirmExportBtn').addEventListener('click', confirmExport);
   $('downloadAgainBtn').addEventListener('click', downloadAgain);
@@ -953,6 +1050,7 @@
   window.addEventListener('beforeunload', () => { stopCamera(); window.SecureMediaViewer?.revoke(state.mediaViewerObjectUrl); });
   telegram?.onEvent?.('deactivated', () => closeCamera({ restoreFocus: false }));
   telegram?.BackButton?.onClick(returnPrevious);
+  updateReportDateControls();
   bindCollapsingHeader();
   bootstrap();
 }());

@@ -981,7 +981,64 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
         self.assertEqual(payload['total'], ParsedMessage.objects.filter(complaint_control__isnull=False).count())
         self.assertEqual(payload['pending'], 2)
         self.assertEqual(payload['resolved'], 0)
-        self.assertEqual(len(payload['by_month']), 12)
+        self.assertEqual(payload['time_granularity'], 'month')
+        self.assertEqual(len(payload['by_time']), 1)
+        self.assertEqual(set(payload['filter_options']), {'branches', 'categories'})
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_report_summary_and_table_share_filters_and_time_grouping(self):
+        july = timezone.make_aware(datetime(2026, 7, 10, 9, 30))
+        august = timezone.make_aware(datetime(2026, 8, 2, 9, 30))
+        self.case_a.timestamp = july
+        self.case_a.save(update_fields=['timestamp'])
+        self.case_b.timestamp = august
+        self.case_b.complaint_status = 'Closed'
+        self.case_b.date_resolved = august + timedelta(days=2)
+        self.case_b.save(update_fields=['timestamp', 'complaint_status', 'date_resolved'])
+        filters = {
+            'search': 'Alice', 'status': 'pending', 'branch': 'Nakuru',
+            'category': 'Product issue', 'date_from': '2026-07-01', 'date_to': '2026-07-31',
+        }
+
+        table = self.get('complaint_reports_data', filters).json()
+        summary = self.get('complaint_reports_summary', {**filters, 'granularity': 'day'}).json()
+
+        self.assertEqual(table['count'], 1)
+        self.assertEqual(summary['total'], table['count'])
+        self.assertEqual(summary['pending'], 1)
+        self.assertEqual(summary['resolved'], 0)
+        self.assertEqual(summary['by_time'], [{'label': '2026-07-10', 'count': 1}])
+        self.assertEqual(summary['time_granularity'], 'day')
+        self.assertEqual(
+            {item['label'] for item in summary['filter_options']['branches']},
+            {'Nakuru', 'Embu'},
+        )
+        self.assertNotIn('customer_name', summary)
+        self.assertNotIn('phone_number', json.dumps(summary))
+
+        expected = {
+            'week': '2026-07-06', 'month': '2026-07', 'year': '2026',
+        }
+        for granularity, label in expected.items():
+            grouped = self.get(
+                'complaint_reports_summary', {**filters, 'granularity': granularity},
+            ).json()
+            self.assertEqual(grouped['by_time'], [{'label': label, 'count': 1}])
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_report_summary_rejects_invalid_or_excessive_time_grouping(self):
+        invalid = self.get('complaint_reports_summary', {'granularity': 'quarter'})
+        self.case_a.timestamp = timezone.make_aware(datetime(2026, 7, 10, 9, 30))
+        self.case_b.timestamp = timezone.make_aware(datetime(2026, 7, 11, 9, 30))
+        self.case_a.save(update_fields=['timestamp'])
+        self.case_b.save(update_fields=['timestamp'])
+        with patch('core.services.complaint_register.REPORT_MAX_TIME_BUCKETS', 1):
+            excessive = self.get('complaint_reports_summary', {'granularity': 'day'})
+
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(invalid.json()['code'], 'invalid_report_query')
+        self.assertEqual(excessive.status_code, 400)
+        self.assertIn('too many time periods', excessive.json()['message'])
 
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
     def test_report_maps_every_legacy_status_without_exposing_raw_values(self):
@@ -1238,7 +1295,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
             self.assertIn(expected, template)
         for expected in ('id="globalView"', 'id="globalFilters"', 'id="complaintReportGrid"', 'id="exportConfirm"'):
             self.assertIn(expected, template)
-        for expected in ('name="search"', 'name="status"', 'name="branch"', 'name="category"', 'name="date_from"', 'name="date_to"'):
+        for expected in ('name="search"', 'name="status"', 'name="branch"', 'name="category"', 'name="date_mode"', 'name="report_month"', 'name="date_from"', 'name="date_to"'):
             self.assertIn(expected, template)
         for removed in ('name="group"', 'name="priority"', 'name="sla"', 'name="sync"', 'name="sort"'):
             self.assertNotIn(removed, template)
@@ -1250,6 +1307,11 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertNotIn('"ag-grid-enterprise"', package_lock)
         self.assertNotIn('"@ag-grid-enterprise/', package_lock)
         self.assertIn('type="date"', template)
+        self.assertIn('type="month"', template)
+        self.assertIn('Complaints over Time', template)
+        self.assertIn('data-category-chart="bar"', template)
+        self.assertIn('data-category-chart="pie"', template)
+        self.assertIn('id="reportGranularity"', template)
         self.assertIn('inputmode="numeric" pattern="[0-9]*"', template)
         self.assertIn('id="mediaViewerOverlay"', template)
         self.assertIn('class="filter-search-control"', template)
@@ -1301,6 +1363,9 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('family=Plus+Jakarta+Sans', template)
         self.assertIn("can('complaint.reports.view')", script)
         self.assertIn("getJson('reports/data/'", script)
+        self.assertIn("getJson('reports/summary/'", script)
+        self.assertIn('function monthBoundaries(value)', script)
+        self.assertIn('filter_options?.branches', script)
         self.assertIn('overflow-x:hidden', styles)
         self.assertIn('AG Grid owns horizontal scrolling', styles)
         self.assertNotIn('ag-grid-enterprise', template.casefold())
