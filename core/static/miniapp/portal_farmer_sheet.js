@@ -574,7 +574,6 @@
       jbl_visit: [
         ['HBG Visit Date', deps.fmtDate(farmer.hbg_visit_date || farmer.sign_date)],
         ['HB Sales Person', deps.fmt(farmer.hb_sales_person)],
-        ['JBL Status', jblStatusLabel(farmer)],
       ],
       credit: [
         ['JBL Visit', deps.fmtDate(farmer.jbl_visit_date)],
@@ -595,6 +594,12 @@
     return common.concat(byMode[mode] || []);
   }
 
+  function farmerInitials(name) {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return 'JB';
+    return `${parts[0][0] || ''}${parts.length > 1 ? parts[parts.length - 1][0] || '' : ''}`.toUpperCase();
+  }
+
   function openFarmerSheet(farmer, mode) {
     state().selectedFarmer = farmer;
     state().activeMode = mode;
@@ -602,17 +607,36 @@
     Object.keys(acceptedVoiceAttempts).forEach(key => delete acceptedVoiceAttempts[key]);
 
     const sheetOverlay = el('sheet-overlay');
-    sheetOverlay?.classList.toggle('jbl-visit-sheet', mode === 'jbl_visit');
+    const isJblVisit = mode === 'jbl_visit';
+    sheetOverlay?.classList.toggle('jbl-visit-sheet', isJblVisit);
     sheetOverlay?.classList.toggle('credit-analysis-sheet', mode === 'credit');
     el('sheet-name').textContent = farmer.customer_name || 'Unknown Farmer';
     const location = deps.locationText(farmer);
     el('sheet-sub').textContent = location !== '-' ? location : (farmer.primary_phone || '');
+    const navigation = el('sheet-navigation');
+    if (navigation) navigation.hidden = !isJblVisit;
+    const headerState = el('sheet-header-state');
+    if (headerState) {
+      headerState.textContent = isJblVisit ? 'Autosave on' : '';
+      headerState.dataset.state = '';
+    }
+    const avatar = el('sheet-avatar');
+    if (avatar) {
+      avatar.hidden = !isJblVisit;
+      avatar.textContent = isJblVisit ? farmerInitials(farmer.customer_name) : '';
+    }
+    const headerStatus = el('sheet-header-status');
+    if (headerStatus) {
+      headerStatus.hidden = !isJblVisit;
+      headerStatus.textContent = isJblVisit ? jblStatusLabel(farmer) : '';
+    }
+    if (el('sheet-close')) el('sheet-close').hidden = isJblVisit;
 
     const infoFields = summaryFields(farmer, mode);
 
     const mediaCount = Number(farmer.jbl_media_count || 0);
     el('sheet-info').innerHTML = infoFields.map(([label, value]) => {
-      const isJblStatus = label === 'JBL Status' && ['jbl_visit', 'credit'].includes(mode);
+      const isJblStatus = label === 'JBL Status' && mode === 'credit';
       const statusClass = mode === 'jbl_visit' && isJblStatus ? ' info-row-status' : isJblStatus ? ' info-row-credit-status' : '';
       return `<li class="info-row${statusClass}"><span class="ir-label">${deps.escapeHtml(label)}</span><span class="ir-value">${isJblStatus ? `<span class="visit-status-pill">${value}</span>` : value}</span></li>`;
     }).join('');
@@ -697,6 +721,12 @@
     const mapContainer = el('sheet-map-container');
     if (!mapContainer) return;
     currentMapLocation = { lat, lng };
+    // The visit workspace confirms capture with compact coordinates beside
+    // the GPS action. Avoid constructing an off-screen Leaflet map there.
+    if (state().activeMode === 'jbl_visit') {
+      mapContainer.style.display = 'none';
+      return;
+    }
     mapContainer.style.display = 'block';
     const mapLink = el('sheet-map-link');
     const mapMeta = el('sheet-map-meta');
@@ -879,39 +909,42 @@
       ? `<option value="${deps.escapeHtml(farmer.sub_county)}" selected>${deps.escapeHtml(farmer.sub_county)}</option>`
       : '';
     const maximumMediaFiles = Number(state().jblVisitMediaMaxFiles || 6);
-    const mediaFields = hasCapability('portal.jbl_media.write') ? `
-        <div class="form-row media-upload-row form-row-wide">
-          <div class="jbl-media-section-heading"><label>Visit Media</label><span>Up to ${maximumMediaFiles} files</span></div>
-          <div class="media-upload-control">
-            ${jblMediaCategoryMarkup({
-              category: 'LAF', title: 'LAF Document(s)', help: 'PDF, JPG, PNG',
-              pickerId: 'jbl-laf-media', cameraId: 'jbl-laf-camera',
-              accept: 'application/pdf,.pdf,image/jpeg,image/png,.jpg,.jpeg,.png',
-            })}
-            ${jblMediaCategoryMarkup({
-              category: 'JBL_VISIT_PHOTO', title: 'Visit Photo(s)', help: 'Images only',
-              pickerId: 'jbl-visit-photo-media', cameraId: 'jbl-visit-photo-camera',
-              accept: 'image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp',
-            })}
-            ${jblLiveCameraMarkup()}
-            <small class="form-row-wide jbl-media-limit-help">${Math.round(Number(state().jblVisitMediaMaxTotalBytes || 40 * 1024 * 1024) / (1024 * 1024))} MB combined. Tap a selected item to review it full-size.</small>
-            ${farmer.jbl_media_count ? `<small class="form-row-wide">${farmer.jbl_media_count} existing Drive link${farmer.jbl_media_count === 1 ? '' : 's'} on this record.</small>` : ''}
-          </div>
-        </div>` : '';
+    const canWriteMedia = hasCapability('portal.jbl_media.write');
+    const mediaFields = canWriteMedia ? `
+      <div class="jbl-media-grid">
+        ${jblMediaCategoryMarkup({
+          category: 'LAF', title: 'LAF Documents', help: 'PDF, JPG or PNG',
+          pickerId: 'jbl-laf-media', cameraId: 'jbl-laf-camera',
+          accept: 'application/pdf,.pdf,image/jpeg,image/png,.jpg,.jpeg,.png',
+        })}
+        ${jblMediaCategoryMarkup({
+          category: 'JBL_VISIT_PHOTO', title: 'Visit Photos', help: 'JPG, PNG or WebP',
+          pickerId: 'jbl-visit-photo-media', cameraId: 'jbl-visit-photo-camera',
+          accept: 'image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp',
+        })}
+      </div>
+      ${jblLiveCameraMarkup()}
+      <small class="jbl-media-limit-help">Up to ${maximumMediaFiles} files and ${Math.round(Number(state().jblVisitMediaMaxTotalBytes || 40 * 1024 * 1024) / (1024 * 1024))} MB combined. Tap a selected file to preview it.</small>
+      ${farmer.jbl_media_count ? `<small class="jbl-existing-media-help">${farmer.jbl_media_count} existing media file${farmer.jbl_media_count === 1 ? '' : 's'} on this visit record.</small>` : ''}` : '';
     return `
       <section id="jbl-form-errors" class="jbl-form-errors" role="alert" tabindex="-1" hidden><strong>Correct the following before logging the visit:</strong><ul></ul></section>
       <section id="jbl-workflow-conflict" class="jbl-workflow-conflict" role="alert" tabindex="-1" hidden><strong>This case changed since you opened it.</strong><p id="jbl-workflow-conflict-message"></p><p>Your draft and selected files are still here. Review the latest case before retrying.</p><button type="button" id="jbl-review-latest">Review latest case and keep my draft</button></section>
       <section id="jbl-draft-conflict" class="jbl-workflow-conflict" role="alert" tabindex="-1" hidden><strong>This draft changed on another device.</strong><p>Choose which field-only draft to continue with. Files are never included.</p><div class="jbl-conflict-actions"><button type="button" id="jbl-use-local-draft">Use this device</button><button type="button" id="jbl-use-server-draft">Use saved draft</button></div></section>
-      <div class="form-section form-grid">
+      <p class="jbl-section-label">Visit details</p>
+      <div class="form-section form-grid jbl-details-grid">
         <div class="form-row" data-jbl-field="visit_date"><label title="JBL visits follow the HBG visit and cannot be future-dated.">Visit Date <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><div class="jbl-date-control"><input type="text" id="jbl-date-display" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="dd-mm-yy" aria-describedby="jbl-date-help" aria-required="true" value="${deps.escapeHtml(displayDateFromIso(defaultVisitDate))}"><button type="button" id="jbl-date-open" class="jbl-date-open" aria-label="Open native visit date picker" title="Choose visit date">${calendarIcon()}</button><input type="date" id="jbl-date-picker" class="native-date-proxy" min="${deps.escapeHtml(hbgVisitDate)}" max="${deps.escapeHtml(today)}" value="${deps.escapeHtml(defaultVisitDate)}" tabindex="-1" aria-hidden="true"><input type="hidden" id="jbl-date" value="${deps.escapeHtml(defaultVisitDate)}"></div><small id="jbl-date-help" class="field-help">Use dd-mm-yy. Earliest: ${deps.escapeHtml(displayDateFromIso(hbgVisitDate) || 'recorded HBG visit')}; latest: ${deps.escapeHtml(displayDateFromIso(today))}.</small><small class="jbl-field-error" data-error-message-for="visit_date"></small></div>
         <div class="form-row" data-jbl-field="visit_status"><label>Outcome <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="jbl-status" aria-required="true"><option value="">- Select -</option>${statusOptions}</select><small class="jbl-field-error" data-error-message-for="visit_status"></small></div>
         <div class="form-row"><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Uses your staff identity" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
         <div class="form-row" data-jbl-field="county"><label>County</label><select id="jbl-county"><option value="">- Select county -</option>${countyOptions}</select><small class="jbl-field-error" data-error-message-for="county"></small></div>
         <div class="form-row" data-jbl-field="sub_county"><label>Sub-county</label><select id="jbl-sub-county"><option value="">- Select sub-county -</option>${legacySubCounty}</select><small class="jbl-field-error" data-error-message-for="sub_county"></small></div>
         <div class="form-row"><label>Village</label><input type="text" id="jbl-village" placeholder="Village / area" value="${deps.escapeHtml(farmer.village || '')}"></div>
-        <div class="form-row form-row-wide jbl-comment-row"><label>Comment</label><div class="jbl-comment-control"><textarea id="jbl-comment" rows="2" placeholder="Additional notes...">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea>${voiceWidget('jbl_visit_comment', 'jbl-comment')}</div></div>
+      </div>
+      <p class="jbl-section-label">Comment</p>
+      <section class="jbl-comment-section"><div class="jbl-comment-control"><textarea id="jbl-comment" rows="2" placeholder="Additional notes">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea>${voiceWidget('jbl_visit_comment', 'jbl-comment')}</div></section>
+      <p class="jbl-section-label">${canWriteMedia ? `Visit media and location` : `Visit location`}</p>
+      <section class="jbl-support-card">
         ${mediaFields}
-        <div class="form-row form-row-wide gps-capture-row" data-jbl-field="capture_location">
+        <div class="gps-capture-row" data-jbl-field="capture_location">
           <div class="gps-capture-summary"><span class="gps-capture-icon"><i data-lucide="map-pin" aria-hidden="true"></i></span><span><strong>GPS Location</strong><small id="gps-coords" class="field-help">Not captured yet</small></span></div>
           <button type="button" id="btn-gps" class="secondary"><span>Capture</span></button>
           <input type="hidden" id="jbl-lat" value="">
@@ -922,8 +955,7 @@
           </div>
           <small class="jbl-field-error" data-error-message-for="capture_location"></small>
         </div>
-        <p id="jbl-draft-state" class="field-help jbl-draft-state form-row-wide" aria-live="polite" title="Form fields save automatically. Files are not included.">Autosave on</p>
-      </div>
+      </section>
     `;
   }
 
@@ -988,8 +1020,8 @@
       <div class="jbl-media-category-heading">
         <span>${safeTitle}</span>
         <div class="jbl-media-source-actions">
-          <button type="button" class="jbl-media-icon-button" id="${cameraId}" data-camera-category="${category}" aria-label="Open live camera for ${safeTitle}" title="Open camera">${cameraIcon()}<span class="sr-only">Open camera</span></button>
-          <label class="jbl-media-icon-button" for="${pickerId}" data-input-id="${pickerId}" role="button" tabindex="0" aria-label="Choose files for ${safeTitle}" title="Choose files">${pickerIcon()}<span class="sr-only">Choose files</span></label>
+          <button type="button" class="jbl-media-icon-button" id="${cameraId}" data-camera-category="${category}" aria-label="Open live camera for ${safeTitle}" title="Open camera">${cameraIcon()}<span>Camera</span></button>
+          <label class="jbl-media-icon-button" for="${pickerId}" data-input-id="${pickerId}" role="button" tabindex="0" aria-label="Choose files for ${safeTitle}" title="Choose files">${pickerIcon()}<span>Upload</span></label>
         </div>
       </div>
       <small>${deps.escapeHtml(help)}</small>
@@ -1336,9 +1368,15 @@
 
   function setJblDraftState(message, stateName) {
     const status = el('jbl-draft-state');
-    if (!status) return;
-    status.textContent = message;
-    status.dataset.state = stateName || '';
+    if (status) {
+      status.textContent = message;
+      status.dataset.state = stateName || '';
+    }
+    const headerStatus = el('sheet-header-state');
+    if (headerStatus && state().activeMode === 'jbl_visit') {
+      headerStatus.textContent = message || 'Autosave on';
+      headerStatus.dataset.state = stateName || '';
+    }
   }
 
   function jblLocalDraft(farmer) {
@@ -1361,7 +1399,10 @@
     if (draft.values['jbl-date']) syncJblDateControls(draft.values['jbl-date']);
     const help = el('gps-coords');
     if (help && draft.values['jbl-lat'] && draft.values['jbl-lng']) {
-      help.textContent = `Location restored: ${draft.values['jbl-lat']}, ${draft.values['jbl-lng']}`;
+      help.textContent = `Captured: ${draft.values['jbl-lat']}, ${draft.values['jbl-lng']}`;
+      help.classList.add('gps-captured');
+      const button = el('btn-gps');
+      if (button) button.innerHTML = '<i data-lucide="check" aria-hidden="true"></i><span>Recapture</span>';
     }
     setGpsUnavailableReasonVisible(
       !draft.values['jbl-lat'] && !draft.values['jbl-lng'] && !!draft.values['jbl-location-unavailable'],
@@ -1819,7 +1860,7 @@
         return;
       }
       btn.disabled = true;
-      btn.innerHTML = 'Capturing Location...';
+      btn.innerHTML = '<span class="spinner-inline" aria-hidden="true"></span><span>Capturing</span>';
       navigator.geolocation.getCurrentPosition(
         position => {
           const lat = position.coords.latitude;
@@ -1827,10 +1868,13 @@
           el('jbl-lat').value = lat;
           el('jbl-lng').value = lng;
           setGpsUnavailableReasonVisible(false);
-          el('gps-coords').innerHTML = `Location captured<br><span style="font-family: monospace; font-size: 12px; color: var(--color-success)">Lat: ${lat.toFixed(6)}, Lng: ${lng.toFixed(6)}</span>`;
+          const coords = el('gps-coords');
+          coords.textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+          coords.classList.add('gps-captured');
           initMap(lat, lng);
-          btn.innerHTML = 'Location Captured';
+          btn.innerHTML = '<i data-lucide="check" aria-hidden="true"></i><span>Recapture</span>';
           btn.disabled = false;
+          if (window.lucide) window.lucide.createIcons();
           deps.showToast('GPS location captured', 'success');
         },
         error => {
@@ -1842,6 +1886,7 @@
           else if (error.code === error.TIMEOUT) msg = 'Location request timed out';
           const coords = el('gps-coords');
           if (coords) {
+            coords.classList.remove('gps-captured');
             coords.innerHTML = `${deps.escapeHtml(msg)}${error.code === error.PERMISSION_DENIED ? ' <button type="button" class="btn btn-secondary gps-settings-button" id="gps-open-settings">Open location settings</button>' : ''}`;
             coords.querySelector('#gps-open-settings')?.addEventListener('click', openLocationSettings);
           }
@@ -2228,7 +2273,7 @@
       if (control.matches('button')) control.disabled = true;
     });
     el('sheet-form')?.querySelectorAll('input[type="file"]').forEach(input => { input.disabled = true; });
-    deps.setButtonLoading(btn, true, 'Saving visit and evidence…');
+    deps.setButtonLoading(btn, true, 'Logging visit…');
     // Do not abort a slow multipart request: it may already be committing on
     // the server. The stable request key makes an explicit retry safe instead.
     const slowUploadNotice = window.setTimeout(() => {
@@ -2349,6 +2394,10 @@
     document.documentElement.dataset.portalSheetCloseBound = 'true';
     document.addEventListener('click', event => {
       if (event.target.closest('#sheet-close')) {
+        closeSheet();
+        return;
+      }
+      if (event.target.closest('#sheet-back')) {
         closeSheet();
         return;
       }
