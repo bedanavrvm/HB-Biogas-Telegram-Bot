@@ -496,6 +496,17 @@
     ];
   }
 
+  function renderHomeQueueSelection(queue, loading) {
+    const presentation = queuePresentation(queue);
+    document.querySelectorAll('[data-home-queue]').forEach((button) => {
+      const selected = button.dataset.homeQueue === queue;
+      button.classList.toggle('active', selected);
+      button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      button.toggleAttribute('aria-busy', selected && Boolean(loading));
+    });
+    $('activeQueueHeading').textContent = presentation[0];
+  }
+
   function formatElapsedSeconds(value) {
     if (window.MiniAppRuntime?.formatElapsedSeconds) {
       return window.MiniAppRuntime.formatElapsedSeconds(value);
@@ -628,11 +639,8 @@
       allTabCount: metrics.total,
     };
     Object.entries(values).forEach(([id, value]) => { $(id).textContent = Number(value || 0); });
-    document.querySelectorAll('[data-home-queue]').forEach((button) => {
-      button.classList.toggle('active', button.dataset.homeQueue === state.homeQueue);
-    });
+    renderHomeQueueSelection(state.homeQueue, false);
     const presentation = queuePresentation(state.homeQueue);
-    $('activeQueueHeading').textContent = presentation[0];
     const total = Number(state.home.pagination.total ?? state.home.items.length);
     $('activeQueueCount').textContent = `${total} ${total === 1 ? 'case' : 'cases'}`;
     renderList('queueList', state.home.items, presentation[1], presentation[2]);
@@ -754,6 +762,12 @@
 
   function queueRenderIsSafe() {
     const correctionOpen = !$('caseCorrectionPanel')?.classList.contains('hidden');
+    const operationalWriteInFlight = state.creatingCase || state.pendingStageUpdate || state.pendingCorrection || correctionOpen;
+    if (state.currentView === 'queue') {
+      // Queue responses only replace metrics, tabs, filters and queue cards.
+      // Hidden Create/Settings drafts must not freeze explicit queue changes.
+      return !state.filterSheetOpen && !operationalWriteInFlight;
+    }
     return !state.filterSheetOpen
       && !state.creatingCase
       && !state.pendingStageUpdate
@@ -951,9 +965,16 @@
   async function selectHomeQueue(queue) {
     if (!['assigned', 'role', 'all'].includes(queue) || queue === state.homeQueue) return;
     state.autoSelectHomeQueue = false;
+    state.pendingHome = null;
     state.homeQueue = queue;
+    state.homePages[queue] = state.homePages[queue] || 1;
+    renderHomeQueueSelection(queue, true);
     window.scrollTo(0, 0);
-    await refresh();
+    try {
+      await refresh({ requestedQueue: queue, forceHomeRender: true });
+    } finally {
+      renderHomeQueueSelection(state.homeQueue, false);
+    }
   }
 
   async function changeHomePage(delta) {
@@ -1350,16 +1371,26 @@
   async function refresh(options) {
     const background = Boolean(options && options.background);
     const periodic = Boolean(options && options.periodic);
+    const requestedQueue = ['assigned', 'role', 'all'].includes(options && options.requestedQueue)
+      ? options.requestedQueue
+      : state.homeQueue;
+    const forceHomeRender = Boolean(options && options.forceHomeRender);
     if (periodic && state.homeRequestsInFlight > 0) return null;
     const requestNumber = (state.homeRequestNumber || 0) + 1;
     state.homeRequestNumber = requestNumber;
     state.homeRequestsInFlight += 1;
     if (!background) setStatus('Refreshing queue...', 'busy');
     try {
-      const result = await api('/api/tat-tracker/home/', homePayload());
+      const result = await api('/api/tat-tracker/home/', homePayload({
+        queue: requestedQueue,
+        page: state.homePages[requestedQueue] || 1,
+      }));
       const nextHome = result && result.data;
       if (!nextHome || typeof nextHome !== 'object') {
         throw new Error('Queue refresh returned an invalid response. Tap Refresh to retry.');
+      }
+      if (String(nextHome.queue || '') !== requestedQueue) {
+        throw new Error('The requested queue could not be loaded. Tap the queue again to retry.');
       }
       applyBusinessPresentation((nextHome.presentation || {}).business_time_enabled !== false);
       const cachedHome = state.lastSuccessfulHome;
@@ -1375,7 +1406,7 @@
       // A slower request started before this one must not overwrite the
       // current queue with stale (or empty) data.
       if (requestNumber !== state.homeRequestNumber) return result;
-      if (queueRenderIsSafe()) {
+      if (forceHomeRender || queueRenderIsSafe()) {
         // A newer response applied immediately supersedes any older snapshot
         // that was held while a form or dialog was unsafe to re-render.
         state.pendingHome = null;

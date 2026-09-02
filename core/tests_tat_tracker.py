@@ -554,7 +554,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Assigned to me', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn('?v=52', template)
+        self.assertIn('?v=53', template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -581,6 +581,13 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('bindCollapsingHeader();', source)
         self.assertIn('.app-top.header-hidden', stylesheet)
         self.assertIn('@media (prefers-reduced-motion: reduce)', stylesheet)
+        self.assertIn('id="homeQueueTabs"', template)
+        self.assertIn('function renderHomeQueueSelection(queue, loading)', source)
+        self.assertIn('renderHomeQueueSelection(queue, true)', source)
+        self.assertIn('refresh({ requestedQueue: queue, forceHomeRender: true })', source)
+        self.assertIn('queue: requestedQueue', source)
+        self.assertIn('if (forceHomeRender || queueRenderIsSafe())', source)
+        self.assertIn("if (state.currentView === 'queue')", source)
         self.assertIn('.queue-pagination', stylesheet)
         self.assertIn('body.hide-business-hours-time .tat-business-time', stylesheet)
         self.assertIn('.check-label[hidden]', stylesheet)

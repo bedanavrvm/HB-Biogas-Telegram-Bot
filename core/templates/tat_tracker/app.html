@@ -95,10 +95,10 @@
     </nav>
 
     <section id="queueView" class="view active" aria-label="Queue">
-      <nav class="home-queue-tabs" aria-label="TAT work queues">
-        <button type="button" class="active" data-home-queue="assigned"><span>Assigned</span><strong id="assignedTabCount">0</strong></button>
-        <button type="button" data-home-queue="role"><span>Ready for my role</span><strong id="roleTabCount">0</strong></button>
-        <button type="button" data-home-queue="all"><span>All cases</span><strong id="allTabCount">0</strong></button>
+      <nav id="homeQueueTabs" class="home-queue-tabs" aria-label="TAT work queues">
+        <button type="button" class="active" data-home-queue="assigned" aria-pressed="true"><span>Assigned</span><strong id="assignedTabCount">0</strong></button>
+        <button type="button" data-home-queue="role" aria-pressed="false"><span>Ready for my role</span><strong id="roleTabCount">0</strong></button>
+        <button type="button" data-home-queue="all" aria-pressed="false"><span>All cases</span><strong id="allTabCount">0</strong></button>
       </nav>
 
       <div class="queue-tools">
@@ -342,6 +342,6 @@
   {% include "miniapp_diagnostics.html" %}
   <script src="{% static 'miniapp/utils.js' %}?v=9"></script>
   <script src="{% static 'miniapp/tat_api.js' %}?v=4"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=52"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=53"></script>
 </body>
 </html>
