@@ -482,7 +482,7 @@
     utils.setCloseProtection?.('complaint-operation', true); $('createSaveState').textContent = 'Saving…';
     try {
       const response = await form('cases/create/', data); formNode.reset(); clearEvidence('create');
-      state.latitude = ''; state.longitude = ''; hideSuggestion();
+      state.latitude = ''; state.longitude = ''; resetLocationCapture(); hideSuggestion();
       utils.setCloseProtection?.('complaint-create-draft', false); $('createSaveState').textContent = 'Saved';
       notify(response.message); await refreshCounts(); state.returnWorkspace = 'queue';
       response.case.group_id = state.groupId; response.case.global_read = false;
@@ -506,13 +506,34 @@
       return part === upper || part === lower ? upper.charAt(0) + lower.slice(1) : part;
     }).join('');
   }
+  function setLocationCaptureState(kind, buttonLabel, detail) {
+    const button = $('captureLocationBtn'); const status = $('captureState');
+    button.disabled = kind === 'capturing';
+    button.classList.toggle('location-capturing', kind === 'capturing');
+    button.classList.toggle('location-success', kind === 'success');
+    button.classList.toggle('location-error', kind === 'error');
+    const label = button.querySelector('span'); if (label) label.textContent = buttonLabel;
+    status.classList.toggle('location-coordinate', kind === 'success');
+    status.classList.toggle('location-error-text', kind === 'error');
+    status.textContent = detail;
+  }
+  function resetLocationCapture() {
+    setLocationCaptureState('idle', 'Use My Current Location', 'Location not added');
+  }
   function captureLocation() {
-    if (!navigator.geolocation) return notify('Location is unavailable on this device.', true);
-    $('captureState').textContent = 'Capturing…';
+    if (!navigator.geolocation) {
+      setLocationCaptureState('error', 'Location Unavailable', 'This device cannot provide a GPS location.');
+      notify('Location is unavailable on this device.', true); return;
+    }
+    setLocationCaptureState('capturing', 'Capturing Location…', 'Waiting for an accurate GPS position…');
     navigator.geolocation.getCurrentPosition(position => {
       state.latitude = position.coords.latitude.toFixed(6); state.longitude = position.coords.longitude.toFixed(6);
-      $('captureState').textContent = 'Location captured';
-    }, () => { $('captureState').textContent = 'Location not captured'; notify('Location permission was not available.', true); }, { enableHighAccuracy: true, timeout: 12000 });
+      setLocationCaptureState('success', 'Location Captured', `GPS: ${state.latitude}, ${state.longitude}`);
+      utils.haptic?.('success');
+    }, () => {
+      setLocationCaptureState('error', 'Try Location Again', 'Location was not captured. Check location permission and try again.');
+      notify('Location permission was not available.', true);
+    }, { enableHighAccuracy: true, timeout: 12000 });
   }
 
   function updateEvidenceHints() {

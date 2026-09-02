@@ -180,6 +180,7 @@ test('Complaint camera captures multiple photos and the viewer navigates deletes
     .replace(/<script[^>]*>[\s\S]*?<\/script>/g, '')
     .replace(/<link[^>]*>/g, '');
   await page.setContent(template);
+  await page.addStyleTag({ path: asset('complaint_cases.css') });
   await page.evaluate(() => {
     document.body.dataset.groupId = '-100-camera-gallery-test';
     Object.defineProperty(HTMLMediaElement.prototype, 'srcObject', {
@@ -202,6 +203,10 @@ test('Complaint camera captures multiple photos and the viewer navigates deletes
     navigator.mediaDevices = {
       async getUserMedia() { return { getTracks: () => [{ stop() {} }] }; },
     };
+    Object.defineProperty(navigator, 'geolocation', {
+      configurable: true,
+      value: { getCurrentPosition(success) { success({ coords: { latitude: -1.2612164, longitude: 36.8423884 } }); } },
+    });
     const webApp = {
       initData: 'synthetic-signed-init-data',
       BackButton: { onClick() {}, show() {}, hide() {} },
@@ -237,6 +242,11 @@ test('Complaint camera captures multiple photos and the viewer navigates deletes
   await page.addScriptTag({ path: asset('complaint_cases.js') });
 
   await page.locator('#newCaseBtn').click();
+  await page.locator('#captureLocationBtn').click();
+  await expect(page.locator('#captureLocationBtn')).toContainText('Location Captured');
+  await expect(page.locator('#captureLocationBtn')).toHaveClass(/location-success/);
+  await expect(page.locator('#captureState')).toHaveText('GPS: -1.261216, 36.842388');
+  await expect(page.locator('#captureState')).toHaveClass(/location-coordinate/);
   await page.locator('[data-camera-target="create"]').click();
   expect(await page.locator('#cameraVideo').evaluate(video => [video.videoWidth, video.videoHeight])).toEqual([1280, 960]);
   await page.locator('#cameraCaptureBtn').click();
@@ -255,6 +265,21 @@ test('Complaint camera captures multiple photos and the viewer navigates deletes
   await page.locator('#createSelectedEvidence .view-file').first().click();
   await expect(page.locator('#mediaViewerOverlay')).toBeVisible();
   await expect(page.locator('#mediaViewerSub')).toContainText('1 of 2');
+  const viewerHeader = await page.evaluate(() => {
+    const subtitle = document.getElementById('mediaViewerSub');
+    const close = document.getElementById('mediaViewerClose');
+    subtitle.textContent = `${'very-long-evidence-file-name-'.repeat(20)}.jpg`;
+    const closeBox = close.getBoundingClientRect();
+    return {
+      closeWidth: closeBox.width,
+      closeRight: closeBox.right,
+      viewportWidth: window.innerWidth,
+      filenameClipped: subtitle.scrollWidth > subtitle.clientWidth,
+    };
+  });
+  expect(viewerHeader.closeWidth).toBe(40);
+  expect(viewerHeader.closeRight).toBeLessThanOrEqual(viewerHeader.viewportWidth);
+  expect(viewerHeader.filenameClipped).toBe(true);
   await page.locator('#mediaViewerNext').click();
   await expect(page.locator('#mediaViewerSub')).toContainText('2 of 2');
   await page.locator('#mediaViewerDelete').click();
