@@ -880,11 +880,13 @@
   }
   function initializeReportGrid() {
     if (state.reportGridApi || !window.agGrid) return;
+    const touchManagedColumns = window.matchMedia('(max-width: 700px), (pointer: coarse)').matches;
     window.agGrid.ModuleRegistry.registerModules([window.agGrid.AllCommunityModule]);
     state.reportGridApi = window.agGrid.createGrid($('complaintReportGrid'), {
       theme: 'legacy', rowData: [], animateRows: false, suppressMultiSort: true,
+      suppressMovableColumns: true, suppressColumnMoveAnimation: true,
       suppressCellFocus: false, ensureDomOrder: true, overlayNoRowsTemplate: 'No complaints match these filters.',
-      defaultColDef: { sortable: true, resizable: true, suppressHeaderMenuButton: true, unSortIcon: true },
+      defaultColDef: { sortable: true, resizable: !touchManagedColumns, suppressHeaderMenuButton: true, unSortIcon: true },
       columnDefs: [
         { headerName: '#', colId: 'row_number', width: 52, minWidth: 52, maxWidth: 52, sortable: false, resizable: false, pinned: 'left', valueGetter: p => ((state.globalPage - 1) * state.globalPageSize) + p.node.rowIndex + 1 },
         { headerName: 'Complaint ID', field: 'complaint_id', width: 125, sortable: false },

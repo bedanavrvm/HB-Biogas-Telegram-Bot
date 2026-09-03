@@ -91,6 +91,8 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   await page.locator('#globalWorkspaceBtn').click();
   await expect(page.locator('#globalView')).toBeVisible();
   await expect(page.locator('.ag-row')).toHaveCount(1);
+  await expect(page.locator('.ag-header-cell-movable')).toHaveCount(0);
+  await expect(page.locator('.ag-header-cell-resize:visible')).toHaveCount(0);
   await expect(page.locator('.ag-cell[col-id="date_reported"]')).toHaveText('01-09-26');
   await expect(page.locator('.report-status')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await expect.poll(() => page.evaluate(() => document.fonts.check('16px agGridQuartz'))).toBe(true);
