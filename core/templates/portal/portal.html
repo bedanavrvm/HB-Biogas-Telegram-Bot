@@ -105,9 +105,9 @@
   <!-- JBL Queue -->
   {% if active_screen == 'jbl' %}
   <section id="page-jbl" class="page{% if active_screen == 'jbl' %} active{% endif %}">
-    <header>
-      <h1>JBL Visit Queue</h1>
-      <p class="meta">Farmers visited by HB, not yet visited by JBL</p>
+    <header class="portal-queue-header">
+      <div><h1>JBL Visit Queue</h1><p class="meta">Farmers visited by HB, not yet visited by JBL</p></div>
+      <button type="button" class="queue-refresh-button" data-queue-refresh="jbl" aria-label="Refresh JBL visit queue" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
     <div class="queue-search-row jbl-queue-search-row">
       <label class="sr-only" for="jbl-search">Search JBL visit queue</label>
@@ -124,9 +124,9 @@
 
   {% if active_screen == 'my_visits' %}
   <section id="page-my_visits" class="page{% if active_screen == 'my_visits' %} active{% endif %}">
-    <header>
-      <h1>My Submitted Visits</h1>
-      <p class="meta">Your latest JBL visit submissions and their current progress</p>
+    <header class="portal-queue-header">
+      <div><h1>My Submitted Visits</h1><p class="meta">Your latest JBL visit submissions and their current progress</p></div>
+      <button type="button" class="queue-refresh-button" data-queue-refresh="my_visits" aria-label="Refresh my visits" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
     <div id="my-visits-list" class="farmer-list">
       <div class="empty-state"><div class="spinner-inline"></div></div>
@@ -138,9 +138,9 @@
   <!-- Credit Queue -->
   {% if active_screen == 'credit' %}
   <section id="page-credit" class="page{% if active_screen == 'credit' %} active{% endif %}">
-    <header>
-      <h1>Credit Analysis Queue</h1>
-      <p class="meta">JBL visited - awaiting credit decision</p>
+    <header class="portal-queue-header">
+      <div><h1>Credit Analysis Queue</h1><p class="meta">JBL visited - awaiting credit decision</p></div>
+      <button type="button" class="queue-refresh-button" data-queue-refresh="credit" aria-label="Refresh credit analysis queue" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
     <div id="credit-list" class="farmer-list">
       <div class="empty-state"><div class="spinner-inline"></div></div>
@@ -152,9 +152,9 @@
   <!-- Requisition Queue -->
   {% if active_screen == 'final' %}
   <section id="page-final" class="page{% if active_screen == 'final' %} active{% endif %}">
-    <header>
-      <h1>Head of Rural Review</h1>
-      <p class="meta">Make final decisions and review payment batches. Approved cases move automatically to Orders.</p>
+    <header class="portal-queue-header">
+      <div><h1>Head of Rural Review</h1><p class="meta">Make final decisions and review payment batches. Approved cases move automatically to Orders.</p></div>
+      <button type="button" class="queue-refresh-button" data-queue-refresh="final" aria-label="Refresh Head of Rural review" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
     <div class="review-stage-toolbar" aria-label="Head of Rural review queue">
       <div class="review-stage-tabs" role="tablist" aria-label="Choose review queue">
@@ -178,9 +178,9 @@
 
   {% if active_screen == 'requisition' %}
   <section id="page-requisition" class="page{% if active_screen == 'requisition' %} active{% endif %}">
-    <header>
-      <h1>Requisition Queue</h1>
-      <p class="meta">Final decision approved - assign order number</p>
+    <header class="portal-queue-header">
+      <div><h1>Requisition Queue</h1><p class="meta">Final decision approved - assign order number</p></div>
+      <button type="button" class="queue-refresh-button" data-queue-refresh="requisition" aria-label="Refresh requisition queue" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
     <div id="requisition-batch-panel" class="batch-panel" data-required-capability="portal.requisition.write" style="display: none;">
       <div class="batch-title">
@@ -364,9 +364,9 @@
   <!-- Deferred -->
   {% if active_screen == 'deferred' %}
   <section id="page-deferred" class="page{% if active_screen == 'deferred' %} active{% endif %}">
-    <header>
-      <h1>Deferred / Reappraisal Required</h1>
-      <p class="meta">Rejected by JBL, credit declined, or on hold</p>
+    <header class="portal-queue-header">
+      <div><h1>Deferred / Reappraisal Required</h1><p class="meta">Rejected by JBL, credit declined, or on hold</p></div>
+      <button type="button" class="queue-refresh-button" data-queue-refresh="deferred" aria-label="Refresh deferred cases" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
     <div id="deferred-list" class="farmer-list">
       <div class="empty-state"><div class="spinner-inline"></div></div>
@@ -378,11 +378,12 @@
   <!-- All Cases -->
   {% if active_screen == 'all' %}
   <section id="page-all" class="page{% if active_screen == 'all' %} active{% endif %}">
-    <header>
-      <h1>All Cases</h1>
-      <p class="meta">Full farmer list across all groups</p>
+    <header class="portal-queue-header">
+      <div><h1>All Cases</h1><p class="meta">Full farmer list across all groups</p></div>
+      <button type="button" class="queue-refresh-button" data-queue-refresh="all" aria-label="Refresh all cases" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
-    <div class="search-bar">
+    <div class="search-bar portal-search-control">
+      <i data-lucide="search" aria-hidden="true"></i>
       <input id="all-search" type="search" placeholder="Search name, phone, or ID..." autocomplete="off" enterkeyhint="search">
     </div>
     <div id="all-list" class="farmer-list">
@@ -395,9 +396,9 @@
   <!-- Batches -->
   {% if active_screen == 'batches' %}
   <section id="page-batches" class="page{% if active_screen == 'batches' %} active{% endif %}">
-    <header>
-      <h1>Requisition Batches</h1>
-      <p class="meta">Generated order batches and archives</p>
+    <header class="portal-queue-header">
+      <div><h1>Requisition Batches</h1><p class="meta">Generated order batches and archives</p></div>
+      <button type="button" class="queue-refresh-button" data-queue-refresh="batches" aria-label="Refresh requisition batches" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
     <div id="batches-list" class="farmer-list">
       <div class="empty-state">
@@ -550,7 +551,7 @@
         <button type="button" id="case360-toggle" class="btn btn-secondary case360-toggle"><i data-lucide="history" aria-hidden="true"></i><span>Open Case History</span></button>
       </div>
       <div id="sheet-map-container" style="display:none; margin: 12px 0;">
-        <div class="sheet-map-heading"><span class="sheet-map-location-icon"><i data-lucide="map-pin" aria-hidden="true"></i></span><span class="sheet-map-copy"><strong>Recorded location</strong><span id="sheet-map-meta">GPS unavailable</span></span><span class="sheet-map-actions"><button type="button" id="sheet-map-refresh" class="map-refresh-button" title="Refresh map" aria-label="Refresh map">↻</button><a id="sheet-map-link" href="#" target="_blank" rel="noopener" hidden><span>Open Maps</span><i data-lucide="external-link" aria-hidden="true"></i></a></span></div>
+        <div class="sheet-map-heading"><span class="sheet-map-location-icon"><i data-lucide="map-pin" aria-hidden="true"></i></span><span class="sheet-map-copy"><strong>Recorded location</strong><span id="sheet-map-meta">GPS unavailable</span></span><span class="sheet-map-actions"><button type="button" id="sheet-map-refresh" class="map-refresh-button" title="Refresh map" aria-label="Refresh map"><i data-lucide="refresh-cw" aria-hidden="true"></i></button><a id="sheet-map-link" href="#" target="_blank" rel="noopener" hidden><span>Open Maps</span><i data-lucide="external-link" aria-hidden="true"></i></a></span></div>
         <div id="sheet-map"></div>
         <div id="sheet-map-fallback" class="sheet-map-fallback" hidden>Map tiles are unavailable. Use “Open in Maps” to view this location.</div>
       </div>
@@ -588,7 +589,7 @@
           <h2>Preview Requisition Batch</h2>
           <p class="sheet-sub" id="requisition-preview-sub">Review selected clients before generation</p>
         </div>
-        <button id="requisition-preview-close" class="sheet-close-button" aria-label="Close">x</button>
+        <button id="requisition-preview-close" class="sheet-close-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
       </div>
     </div>
     <div class="sheet-body">
@@ -616,7 +617,7 @@
           <h2 id="batch-detail-title">Batch</h2>
           <p class="sheet-sub" id="batch-detail-sub">Generated output details</p>
         </div>
-        <button id="batch-detail-close" class="sheet-close-button" aria-label="Close">x</button>
+        <button id="batch-detail-close" class="sheet-close-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
       </div>
     </div>
     <div class="sheet-body">
@@ -637,7 +638,7 @@
           <h2>Upload Invoice PDF</h2>
           <p class="sheet-sub" id="invoice-overlay-sub">Batch: -</p>
         </div>
-        <button id="invoice-overlay-close" class="sheet-close-button" aria-label="Close">x</button>
+        <button id="invoice-overlay-close" class="sheet-close-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
       </div>
     </div>
     <div class="sheet-body">
@@ -675,7 +676,7 @@
           <h2>Match Invoice</h2>
           <p class="sheet-sub" id="invoice-match-sub">Search and select the correct farmer record</p>
         </div>
-        <button id="invoice-match-close" class="sheet-close-button" aria-label="Close">x</button>
+        <button id="invoice-match-close" class="sheet-close-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
       </div>
     </div>
     <div class="sheet-body">
@@ -704,7 +705,7 @@
           <h2>Invoice Detail</h2>
           <p class="sheet-sub">Parsed fields, duplicate checks, and reconciliation history</p>
         </div>
-        <button id="invoice-detail-close" class="sheet-close-button" aria-label="Close">x</button>
+        <button id="invoice-detail-close" class="sheet-close-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
       </div>
     </div>
     <div class="sheet-body">
@@ -722,7 +723,7 @@
           <h2 id="payment-preview-title">Payment Preview</h2>
           <p class="sheet-sub" id="payment-preview-sub">Printable payment details</p>
         </div>
-        <button id="payment-preview-close" class="sheet-close-button" aria-label="Close">x</button>
+        <button id="payment-preview-close" class="sheet-close-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
       </div>
     </div>
     <div class="sheet-body" id="payment-preview-content"></div>

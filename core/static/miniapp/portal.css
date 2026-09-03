@@ -2982,3 +2982,200 @@ body.portal-report-editor-active #bottom-tabs { display: none; }
   .jbl-visit-sheet .sheet-body { padding-inline:9px; }
   .jbl-visit-sheet .jbl-media-icon-button { padding-inline:4px; }
 }
+
+/* Shared Portal queue chrome. Each workflow keeps its own controls and data,
+   while headings and refresh feedback occupy the same compact visual rhythm. */
+.portal-queue-header {
+  display:flex;
+  min-width:0;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:10px;
+  margin:0 0 10px;
+}
+.portal-queue-header > div { min-width:0; }
+.portal-queue-header h1 { margin:0; font-size:17px; line-height:1.25; }
+.portal-queue-header .meta { margin-top:2px; font-size:11px; line-height:1.35; }
+.queue-refresh-button {
+  display:inline-grid;
+  width:40px;
+  min-width:40px;
+  height:40px;
+  min-height:40px;
+  flex:0 0 40px;
+  padding:0;
+  place-items:center;
+  border:1px solid var(--border-color);
+  border-radius:10px;
+  background:var(--bg-surface);
+  color:var(--text-muted);
+  box-shadow:none;
+}
+.queue-refresh-button svg { width:17px; height:17px; stroke:currentColor; }
+.queue-refresh-button.is-loading svg { animation:portal-refresh-spin .7s linear infinite; }
+.queue-refresh-button:focus-visible { outline:2px solid var(--brand-primary); outline-offset:2px; }
+@keyframes portal-refresh-spin { to { transform:rotate(360deg); } }
+.portal-search-control { position:relative; }
+.portal-search-control > svg {
+  position:absolute;
+  left:12px;
+  z-index:1;
+  width:16px;
+  height:16px;
+  color:var(--text-muted);
+  pointer-events:none;
+}
+.portal-search-control input { padding-left:36px; }
+
+/* Credit and final review use the same compact operational-detail frame as
+   the JBL visit without inheriting visit-only fields or camera layout. */
+.operational-detail-sheet:not(.jbl-visit-sheet) { background:var(--bg-base); }
+.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-panel { padding-bottom:0; background:var(--bg-base); }
+.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-header {
+  padding:max(8px, env(safe-area-inset-top)) 0 0;
+  border-bottom:1px solid var(--border-color);
+  background:var(--bg-surface);
+  box-shadow:none;
+}
+.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-navigation {
+  display:flex;
+  min-height:38px;
+  align-items:center;
+  justify-content:space-between;
+  padding:0 12px 7px;
+  border-bottom:1px solid var(--border-color);
+}
+.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-back-button {
+  display:inline-flex;
+  width:auto;
+  min-width:0;
+  min-height:34px;
+  align-items:center;
+  justify-content:flex-start;
+  gap:2px;
+  padding:0 4px 0 0;
+  border:0;
+  background:transparent;
+  color:var(--brand-primary);
+  font-size:14px;
+  font-weight:650;
+}
+.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-back-button svg { width:19px; height:19px; stroke:currentColor; }
+.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-header-state { color:var(--text-muted); font-size:11px; font-weight:650; }
+.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-header-main { min-height:58px; align-items:center; padding:8px 14px; }
+.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-avatar {
+  display:grid;
+  width:42px;
+  height:42px;
+  flex:0 0 42px;
+  place-items:center;
+  border-radius:50%;
+  background:var(--brand-primary);
+  color:var(--button-text, #fff);
+  font-size:14px;
+  font-weight:800;
+}
+.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-header h2 {
+  overflow:hidden;
+  margin:0;
+  color:var(--text-primary);
+  font-size:15px;
+  line-height:1.25;
+  text-overflow:ellipsis;
+  text-transform:none;
+  white-space:nowrap;
+}
+.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-header .sheet-sub {
+  overflow:hidden;
+  margin-top:2px;
+  color:var(--text-muted);
+  font-size:11px;
+  font-weight:550;
+  letter-spacing:0;
+  text-overflow:ellipsis;
+  text-transform:none;
+  white-space:nowrap;
+}
+.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-header-status {
+  flex:0 1 auto;
+  max-width:34%;
+  color:var(--brand-primary);
+  font-size:10px;
+  font-weight:750;
+  text-align:right;
+}
+.operational-detail-sheet:not(.jbl-visit-sheet) #sheet-close { display:none !important; }
+.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-body { padding:9px 12px 14px; }
+.operational-detail-sheet:not(.jbl-visit-sheet) .info-list {
+  overflow:hidden;
+  border:1px solid var(--border-color);
+  border-radius:11px;
+  background:var(--bg-surface);
+}
+.operational-detail-sheet:not(.jbl-visit-sheet) .info-row { justify-items:start; min-height:50px; padding:7px 10px; text-align:left; }
+.operational-detail-sheet:not(.jbl-visit-sheet) .info-row .ir-label,
+.operational-detail-sheet:not(.jbl-visit-sheet) .info-row .ir-value { width:100%; text-align:left; }
+.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-quick-actions {
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0, 1fr));
+  gap:7px;
+  margin-top:8px;
+}
+.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-client-media { display:contents; margin:0; }
+.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-client-media[hidden] { display:none; }
+.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-client-media .client-media-links { grid-column:1 / -1; margin:0; }
+.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-client-media-toggle,
+.operational-detail-sheet:not(.jbl-visit-sheet) .case360-toggle {
+  width:100%;
+  min-height:40px;
+  margin:0;
+  justify-content:flex-start;
+  gap:6px;
+  padding:7px 9px;
+  border-radius:9px;
+  background:var(--bg-surface);
+  color:var(--text-primary);
+  font-size:11px;
+  font-weight:700;
+  text-align:left;
+}
+.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-quick-actions:not(.has-client-media) .case360-toggle { grid-column:1 / -1; }
+.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-footer {
+  padding:9px 12px calc(9px + env(safe-area-inset-bottom));
+  border-top:1px solid var(--border-color);
+  background:var(--bg-surface);
+  box-shadow:0 -4px 12px rgba(15, 23, 42, .06);
+}
+.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-footer button { height:42px; border-radius:10px; font-size:13px; font-weight:750; text-transform:none; }
+
+.final-review-sheet #sheet-form { margin-top:9px !important; }
+.final-review-sheet .final-review-grid { gap:0; overflow:hidden; margin:0; border-radius:11px; background:var(--bg-surface); }
+.final-review-sheet .final-review-grid .form-row { min-width:0; min-height:66px; justify-content:center; padding:8px 10px; background:var(--bg-surface); }
+.final-review-sheet .form-row label { color:color-mix(in srgb, var(--text-primary) 64%, var(--bg-surface)); font-size:10px; font-weight:650; letter-spacing:0; text-transform:none; }
+.final-review-sheet .form-row input,
+.final-review-sheet .form-row select,
+.final-review-sheet .form-row textarea { width:100%; min-height:32px; padding:5px 7px; border:1px solid var(--border-color); border-radius:8px; background:var(--bg-base); font-size:12px; }
+.final-review-sheet .form-row input:focus,
+.final-review-sheet .form-row select:focus,
+.final-review-sheet .form-row textarea:focus { border-color:var(--brand-primary); outline:0; box-shadow:0 0 0 2px color-mix(in srgb, var(--brand-primary) 14%, transparent); }
+.final-review-sheet .final-comment-row { min-height:132px; }
+.final-review-sheet .final-comment-row textarea { min-height:82px; padding:9px; }
+.final-review-sheet .phone-action-field input { min-width:0; }
+.final-review-sheet .credit-jbl-comment,
+.final-review-sheet #sheet-form > .info-row { margin-top:9px; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-surface); }
+
+@media (min-width:760px) {
+  .sheet-overlay.operational-detail-sheet { align-items:center; justify-content:center; padding:24px; }
+  .operational-detail-sheet .sheet-panel { width:min(680px, 100%); height:min(840px, calc(var(--miniapp-viewport-height, 100dvh) - 48px)); border:1px solid var(--border-color); border-radius:18px; box-shadow:0 18px 55px rgba(15, 23, 42, .24); }
+  .operational-detail-sheet .sheet-header { border-radius:18px 18px 0 0; }
+}
+
+@media (max-width:360px) {
+  .portal-queue-header h1 { font-size:16px; }
+  .portal-queue-header .meta { font-size:10px; }
+  .final-review-sheet .form-section.form-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+}
+
+@media (prefers-reduced-motion:reduce) {
+  .queue-refresh-button.is-loading svg { animation:none; }
+}

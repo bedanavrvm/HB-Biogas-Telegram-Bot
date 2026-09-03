@@ -868,7 +868,8 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertNotIn('VOICE_LANGUAGE_ORDER.map(mode =>', script)
         self.assertIn("VOICE_LANGUAGE_ORDER[(VOICE_LANGUAGE_ORDER.indexOf(current) + 1) % VOICE_LANGUAGE_ORDER.length]", script)
         self.assertIn('No preview', script)
-        self.assertIn("window.MiniAppUtils?.haptic?.('success')", script)
+        self.assertIn("window.MiniAppUtils.impactWithFallback('medium', 35)", script)
+        self.assertNotIn("window.MiniAppUtils?.haptic?.('success')", script)
         self.assertIn('id="media-viewer-close" class="sheet-close-button" aria-label="Close client media"><i data-lucide="x"', template)
         self.assertIn("headerStatus.textContent = message || 'Autosave on'", script)
         self.assertIn('id="sheet-navigation" class="sheet-navigation" hidden', template)
@@ -884,6 +885,24 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertIn('.jbl-visit-sheet .jbl-media-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); }', stylesheet)
         self.assertIn('.jbl-visit-sheet .gps-capture-summary .gps-captured', stylesheet)
         self.assertIn('.jbl-visit-sheet [data-jbl-field].invalid { outline:0;', stylesheet)
+
+    def test_portal_operational_screens_share_compact_chrome_without_changing_workflow_modes(self):
+        root = Path(__file__).resolve().parent
+        template = (root / 'templates' / 'portal' / 'portal.html').read_text(encoding='utf-8')
+        script = (root / 'static' / 'miniapp' / 'portal_farmer_sheet.js').read_text(encoding='utf-8')
+        utils = (root / 'static' / 'miniapp' / 'utils.js').read_text(encoding='utf-8')
+        stylesheet = (root / 'static' / 'miniapp' / 'portal.css').read_text(encoding='utf-8')
+
+        for queue in ('jbl', 'my_visits', 'credit', 'final', 'requisition', 'deferred', 'all', 'batches'):
+            self.assertIn(f'data-queue-refresh="{queue}"', template)
+        self.assertIn('class="search-bar portal-search-control"', template)
+        self.assertIn("['jbl_visit', 'credit', 'final_review'].includes(mode)", script)
+        self.assertIn("sheetOverlay?.classList.toggle('final-review-sheet', mode === 'final_review')", script)
+        self.assertIn("const backLabels = { jbl_visit: 'Visits', credit: 'Credit', final_review: 'Reviews' }", script)
+        self.assertIn('.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-navigation', stylesheet)
+        self.assertIn('.final-review-sheet .final-comment-row textarea', stylesheet)
+        self.assertIn('function impactWithFallback(kind, durationMs)', utils)
+        self.assertIn("window.navigator?.vibrate === 'function'", utils)
 
     def grant_portal_access(self, role='JBL_OFFICER', branches=None):
         user = get_user_model().objects.create_user(

@@ -395,17 +395,32 @@
 
   function haptic(kind) {
     const feedback = window.Telegram?.WebApp?.HapticFeedback;
-    if (!feedback) return;
+    if (!feedback) return false;
     try {
       if (kind === 'error' || kind === 'warning' || kind === 'success') {
         feedback.notificationOccurred(kind === 'warning' ? 'warning' : kind);
       } else {
         feedback.impactOccurred(kind || 'light');
       }
+      return true;
     } catch (_) {
       // Haptics are an optional Telegram enhancement. Never affect the
       // completed server-side action if a client does not support them.
+      return false;
     }
+  }
+
+  function impactWithFallback(kind, durationMs) {
+    if (haptic(kind || 'medium')) return true;
+    try {
+      if (typeof window.navigator?.vibrate === 'function') {
+        return Boolean(window.navigator.vibrate(Math.max(1, Number(durationMs || 35))));
+      }
+    } catch (_) {
+      // Browser vibration is also best-effort. It must never interrupt the
+      // action that requested physical feedback.
+    }
+    return false;
   }
 
   function skeletonCards(count) {
@@ -587,6 +602,7 @@
     protectWhile: protectWhile,
     bindFormCloseProtection: bindFormCloseProtection,
     haptic: haptic,
+    impactWithFallback: impactWithFallback,
     skeletonCards: skeletonCards,
     createServerDraft: createServerDraft,
     createUiContext: createUiContext,

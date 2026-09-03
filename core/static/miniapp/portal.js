@@ -605,6 +605,23 @@
     event.preventDefault();
     navigateToUrl(routeLink.href);
   });
+  document.addEventListener('click', async event => {
+    const button = event.target.closest('[data-queue-refresh]');
+    if (!button) return;
+    event.preventDefault();
+    const queueKey = button.dataset.queueRefresh;
+    if (!queueConfig[queueKey] || button.disabled) return;
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    button.classList.add('is-loading');
+    try {
+      await loadQueue(queueKey, state.pages[queueKey] || 1);
+    } finally {
+      button.disabled = false;
+      button.removeAttribute('aria-busy');
+      button.classList.remove('is-loading');
+    }
+  });
   // Generic queue loader
   const queueConfig = portalQueues.config ? portalQueues.config() : {
     jbl: { endpoint: '/jbl-queue/', fragmentEndpoint: '/queues/jbl/fragment/', listId: 'jbl-list', pageKey: 'jbl', mode: 'jbl_visit', emptyTitle: 'JBL visit queue is clear', emptySub: 'No farmer is waiting for a JBL visit.' },

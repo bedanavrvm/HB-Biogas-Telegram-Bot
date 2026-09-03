@@ -34,6 +34,11 @@ function assert(condition, message) {
 async function installMocks(page) {
   await page.addInitScript(() => {
     window.__jblAuditHaptics = [];
+    window.__jblAuditVibrations = [];
+    Object.defineProperty(navigator, 'vibrate', {
+      configurable: true,
+      value(duration) { window.__jblAuditVibrations.push(duration); return true; },
+    });
     window.Telegram = { WebApp: {
       initData: 'synthetic', colorScheme: 'light', themeParams: {},
       ready() {}, expand() {}, disableVerticalSwipes() {}, openLink() {},
@@ -67,8 +72,11 @@ async function installMocks(page) {
   await page.route('**/api/portal/**', route => {
     const apiPath = new URL(route.request().url()).pathname.replace('/api/portal', '');
     if (apiPath === '/meta/') return json(route, {
-      capabilities: ['portal.jbl_queue.view', 'portal.jbl_visit.write', 'portal.jbl_media.view', 'portal.jbl_media.write'],
+      capabilities: ['portal.jbl_queue.view', 'portal.jbl_visit.write', 'portal.jbl_media.view', 'portal.jbl_media.write', 'portal.credit.write', 'portal.final_review.write'],
       jbl_visit_statuses: ['Approved', 'Awaiting Analysis', 'Rejected', 'Rescheduled'],
+      credit_decisions: ['Approved', 'Rejected', 'Deferred', 'Pending'],
+      imab_created_options: ['Yes', 'No', 'Pending'],
+      final_decisions: ['Approved', 'Rejected', 'Deferred', 'Under Review'],
       branches: ['Embu'], counties: ['Embu'], business_date: '2026-09-03',
       location_catalog: { counties: [{ code: 'EMBU', name: 'Embu' }] },
       jbl_visit_media_max_bytes: 20 * 1024 * 1024,
@@ -198,7 +206,15 @@ async function openVisit(page) {
       const captureSummary = (await page.locator('#jbl-visit-photo-media-name').textContent()).trim();
       assert(captureSummary.startsWith('1 selected'), `${viewport.name}: camera shutter did not add the photo (${captureSummary})`);
       const captureHaptics = await page.evaluate(() => window.__jblAuditHaptics || []);
-      assert(captureHaptics.includes('notification:success'), `${viewport.name}: camera capture has no success haptic`);
+      assert(captureHaptics.includes('impact:medium'), `${viewport.name}: camera capture has no immediate shutter haptic`);
+      assert(!captureHaptics.includes('notification:success'), `${viewport.name}: camera capture vibrates twice`);
+      const fallbackFeedback = await page.evaluate(() => {
+        window.Telegram.WebApp.HapticFeedback = null;
+        const before = window.__jblAuditVibrations.length;
+        const handled = window.MiniAppUtils.impactWithFallback('medium', 35);
+        return { handled, values: window.__jblAuditVibrations.slice(before) };
+      });
+      assert(fallbackFeedback.handled && fallbackFeedback.values.includes(35), `${viewport.name}: browser vibration fallback was not used`);
       await page.locator('#jbl-camera-close').click();
       const capturedActions = await page.locator('#jbl-visit-photo-media-previews .jbl-media-preview-open, #jbl-visit-photo-media-previews .jbl-media-remove').evaluateAll(nodes => nodes.map(node => {
         const box = node.getBoundingClientRect();
@@ -222,6 +238,41 @@ async function openVisit(page) {
       const unavailable = (await page.locator('.media-link-unavailable').textContent()).trim();
       assert(unavailable === 'No preview', `${viewport.name}: unavailable-preview copy is too long`);
       await page.screenshot({ path: path.join(outputDir, `jbl-client-media-${viewport.name}.png`), fullPage: true });
+
+      await page.evaluate(value => window.PortalMiniAppFarmerSheet.openFarmerSheet({
+        ...value, jbl_visit_status: 'Approved', credit_decision: 'Pending', imab_created: 'Pending',
+        jbl_visit_date: '2026-09-01', jbl_officer: 'Field Officer',
+        jbl_visit_comment: 'Farm conditions and customer cash flow were reviewed during the visit.',
+      }, 'credit'), farmer);
+      await page.locator('#sheet-overlay.credit-analysis-sheet.operational-detail-sheet.open').waitFor();
+      const creditLayout = await page.evaluate(() => ({
+        overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+        back: document.querySelector('#sheet-back span')?.textContent.trim(),
+        navigationHidden: document.querySelector('#sheet-navigation')?.hidden,
+        closeHidden: document.querySelector('#sheet-close')?.hidden,
+      }));
+      assert(!creditLayout.overflow, `${viewport.name}: credit page overflows horizontally`);
+      assert(creditLayout.back === 'Credit' && !creditLayout.navigationHidden && creditLayout.closeHidden, `${viewport.name}: credit detail does not use the operational Back header`);
+      await page.screenshot({ path: path.join(outputDir, `credit-analysis-${viewport.name}.png`), fullPage: true });
+
+      await page.evaluate(value => window.PortalMiniAppFarmerSheet.openFarmerSheet({
+        ...value, jbl_visit_status: 'Approved', credit_decision: 'Approved', imab_created: 'Yes',
+        customer_no: 'JBL-1042', final_decision: 'Under Review', jbl_visit_date: '2026-09-01',
+      }, 'final_review'), farmer);
+      await page.locator('#sheet-overlay.final-review-sheet.operational-detail-sheet.open').waitFor();
+      const finalLayout = await page.evaluate(() => {
+        const comment = document.querySelector('.final-comment-row textarea')?.getBoundingClientRect();
+        return {
+          overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+          back: document.querySelector('#sheet-back span')?.textContent.trim(),
+          commentHeight: Math.round(comment?.height || 0),
+          closeHidden: document.querySelector('#sheet-close')?.hidden,
+        };
+      });
+      assert(!finalLayout.overflow, `${viewport.name}: final review page overflows horizontally`);
+      assert(finalLayout.back === 'Reviews' && finalLayout.closeHidden, `${viewport.name}: final review does not use the operational Back header`);
+      assert(finalLayout.commentHeight >= 82, `${viewport.name}: final review comment is too cramped`);
+      await page.screenshot({ path: path.join(outputDir, `final-review-${viewport.name}.png`), fullPage: true });
       assert(pageErrors.length === 0, `${viewport.name}: page errors: ${pageErrors.join('; ')}`);
       await page.close();
     }

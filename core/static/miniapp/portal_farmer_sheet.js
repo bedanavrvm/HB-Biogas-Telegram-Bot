@@ -606,29 +606,44 @@
 
     const sheetOverlay = el('sheet-overlay');
     const isJblVisit = mode === 'jbl_visit';
+    const isOperationalDetail = ['jbl_visit', 'credit', 'final_review'].includes(mode);
     sheetOverlay?.classList.toggle('jbl-visit-sheet', isJblVisit);
     sheetOverlay?.classList.toggle('credit-analysis-sheet', mode === 'credit');
+    sheetOverlay?.classList.toggle('final-review-sheet', mode === 'final_review');
+    sheetOverlay?.classList.toggle('operational-detail-sheet', isOperationalDetail);
     el('sheet-name').textContent = farmer.customer_name || 'Unknown Farmer';
     const location = deps.locationText(farmer);
     el('sheet-sub').textContent = location !== '-' ? location : (farmer.primary_phone || '');
     const navigation = el('sheet-navigation');
-    if (navigation) navigation.hidden = !isJblVisit;
+    if (navigation) navigation.hidden = !isOperationalDetail;
+    const backButton = el('sheet-back');
+    if (backButton) {
+      const backLabels = { jbl_visit: 'Visits', credit: 'Credit', final_review: 'Reviews' };
+      const label = backButton.querySelector('span');
+      if (label) label.textContent = backLabels[mode] || 'Back';
+      backButton.setAttribute('aria-label', `Back to ${backLabels[mode] || 'queue'}`);
+    }
     const headerState = el('sheet-header-state');
     if (headerState) {
-      headerState.textContent = isJblVisit ? 'Autosave on' : '';
+      headerState.textContent = isOperationalDetail ? 'Autosave on' : '';
       headerState.dataset.state = '';
     }
     const avatar = el('sheet-avatar');
     if (avatar) {
-      avatar.hidden = !isJblVisit;
-      avatar.textContent = isJblVisit ? farmerInitials(farmer.customer_name) : '';
+      avatar.hidden = !isOperationalDetail;
+      avatar.textContent = isOperationalDetail ? farmerInitials(farmer.customer_name) : '';
     }
     const headerStatus = el('sheet-header-status');
     if (headerStatus) {
-      headerStatus.hidden = !isJblVisit;
-      headerStatus.textContent = isJblVisit ? jblStatusLabel(farmer) : '';
+      const statusByMode = {
+        jbl_visit: jblStatusLabel(farmer),
+        credit: farmer.credit_decision || 'Pending',
+        final_review: farmer.final_decision || 'Under Review',
+      };
+      headerStatus.hidden = !isOperationalDetail;
+      headerStatus.textContent = isOperationalDetail ? statusByMode[mode] : '';
     }
-    if (el('sheet-close')) el('sheet-close').hidden = isJblVisit;
+    if (el('sheet-close')) el('sheet-close').hidden = isOperationalDetail;
 
     const infoFields = summaryFields(farmer, mode);
 
@@ -1129,6 +1144,14 @@
     const video = el('jbl-camera-video');
     const shutter = el('jbl-camera-shutter');
     if (!video || !jblCameraStream || !jblCameraCategory || shutter?.disabled) return;
+    // Request the shutter pulse while this handler still owns the user's
+    // activation. Waiting for canvas compression first is unreliable in real
+    // Telegram Android WebViews and was the reason capture appeared silent.
+    if (window.MiniAppUtils?.impactWithFallback) {
+      window.MiniAppUtils.impactWithFallback('medium', 35);
+    } else if (!window.MiniAppUtils?.haptic?.('medium')) {
+      try { navigator.vibrate?.(35); } catch (_error) {}
+    }
     if (shutter) shutter.disabled = true;
     try {
       const blob = await capturedJblPhotoBlob(video);
@@ -1140,7 +1163,6 @@
         lastModified: Date.now(),
       });
       addJblMediaFiles(jblCameraCategory, [file]);
-      window.MiniAppUtils?.haptic?.('success');
     } catch (_error) {
       deps.showToast('The photo could not be captured. Keep the camera open and retry.', 'error');
     } finally {
@@ -2019,11 +2041,11 @@
             ${phone ? `<a class="phone-call-button" href="tel:+${phone}" aria-label="Call ${deps.escapeHtml(farmer.primary_phone || 'client')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.77.63 2.6a2 2 0 0 1-.45 2.11L8.02 9.7a16 16 0 0 0 6.28 6.28l1.27-1.27a2 2 0 0 1 2.11-.45c.83.3 1.7.51 2.6.63A2 2 0 0 1 22 16.92Z"/></svg><span>Call</span></a>` : ''}
           </div>
         </div>
-        <div class="form-row"><label>Final Decision</label><select id="final-decision"><option value="">- Select -</option>${decisionOptions}</select></div>
+        <div class="form-row"><label>Final Decision <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="final-decision" aria-required="true"><option value="">- Select -</option>${decisionOptions}</select></div>
         <div class="form-row"><label>Repayment Dates</label><input type="text" id="final-repayment-date" placeholder="e.g. 10TH" value="${deps.escapeHtml(farmer.repayment_date || '')}"></div>
         <div class="form-row"><label>Tenor</label><input type="text" id="final-repayment-tenor" placeholder="e.g. 6 months" value="${deps.escapeHtml(farmer.repayment_tenor || '')}"></div>
-        <div class="form-row form-row-wide"><label>After-call Comments</label><textarea id="final-comment" rows="4" placeholder="Summarize the call and decision...">${deps.escapeHtml(farmer.final_decision_comment || '')}</textarea>${voiceWidget('final_decision_comment', 'final-comment')}</div>
-        <p id="workflow-draft-state" class="field-help jbl-draft-state form-row-wide" aria-live="polite">Draft saves automatically.</p>
+        <div class="form-row form-row-wide final-comment-row"><label>After-call Comments</label><textarea id="final-comment" rows="4" placeholder="Summarize the call, customer response, and decision...">${deps.escapeHtml(farmer.final_decision_comment || '')}</textarea>${voiceWidget('final_decision_comment', 'final-comment')}</div>
+        <p id="workflow-draft-state" class="field-help jbl-draft-state form-row-wide" aria-live="polite" title="Form fields save automatically.">Autosave on</p>
       </div>
       ${productConfigurationMarkup(farmer, 'final_decision')}
       ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">BRO Comment</span><span class="ir-value">${deps.escapeHtml(farmer.jbl_visit_comment)}</span></div>` : ''}
