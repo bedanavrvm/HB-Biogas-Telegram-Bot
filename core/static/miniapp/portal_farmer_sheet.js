@@ -1140,6 +1140,7 @@
         lastModified: Date.now(),
       });
       addJblMediaFiles(jblCameraCategory, [file]);
+      window.MiniAppUtils?.haptic?.('success');
     } catch (_error) {
       deps.showToast('The photo could not be captured. Keep the camera open and retry.', 'error');
     } finally {

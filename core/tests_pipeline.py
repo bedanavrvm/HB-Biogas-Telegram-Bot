@@ -868,6 +868,8 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertNotIn('VOICE_LANGUAGE_ORDER.map(mode =>', script)
         self.assertIn("VOICE_LANGUAGE_ORDER[(VOICE_LANGUAGE_ORDER.indexOf(current) + 1) % VOICE_LANGUAGE_ORDER.length]", script)
         self.assertIn('No preview', script)
+        self.assertIn("window.MiniAppUtils?.haptic?.('success')", script)
+        self.assertIn('id="media-viewer-close" class="sheet-close-button" aria-label="Close client media"><i data-lucide="x"', template)
         self.assertIn("headerStatus.textContent = message || 'Autosave on'", script)
         self.assertIn('id="sheet-navigation" class="sheet-navigation" hidden', template)
         self.assertIn('id="sheet-back" class="sheet-back-button"', template)

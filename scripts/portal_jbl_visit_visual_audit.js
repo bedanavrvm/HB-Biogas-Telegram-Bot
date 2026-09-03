@@ -33,11 +33,15 @@ function assert(condition, message) {
 
 async function installMocks(page) {
   await page.addInitScript(() => {
+    window.__jblAuditHaptics = [];
     window.Telegram = { WebApp: {
       initData: 'synthetic', colorScheme: 'light', themeParams: {},
       ready() {}, expand() {}, disableVerticalSwipes() {}, openLink() {},
       BackButton: { show() {}, hide() {}, onClick() {}, offClick() {} },
-      HapticFeedback: { impactOccurred() {}, notificationOccurred() {} },
+      HapticFeedback: {
+        impactOccurred(kind) { window.__jblAuditHaptics.push(`impact:${kind}`); },
+        notificationOccurred(kind) { window.__jblAuditHaptics.push(`notification:${kind}`); },
+      },
       onEvent() {}, offEvent() {},
     } };
     const track = { stop() {} };
@@ -176,6 +180,8 @@ async function openVisit(page) {
       await page.locator('#jbl-camera-shutter:not([disabled])').waitFor();
       const closeWidth = await page.locator('#jbl-camera-close').evaluate(node => Math.round(node.getBoundingClientRect().width));
       assert(closeWidth <= 32, `${viewport.name}: camera close control stretches to ${closeWidth}px`);
+      const cameraViewportHeight = await page.locator('.jbl-camera-viewport').evaluate(node => Math.round(node.getBoundingClientRect().height));
+      assert(cameraViewportHeight >= 320, `${viewport.name}: camera viewport is vertically cramped (${cameraViewportHeight}px)`);
       const shutterShape = await page.locator('#jbl-camera-shutter').evaluate(node => {
         const outer = node.getBoundingClientRect();
         const inner = node.querySelector('[aria-hidden="true"]')?.getBoundingClientRect();
@@ -191,7 +197,25 @@ async function openVisit(page) {
       await page.locator('#jbl-visit-photo-media-name').waitFor({ state: 'visible' });
       const captureSummary = (await page.locator('#jbl-visit-photo-media-name').textContent()).trim();
       assert(captureSummary.startsWith('1 selected'), `${viewport.name}: camera shutter did not add the photo (${captureSummary})`);
+      const captureHaptics = await page.evaluate(() => window.__jblAuditHaptics || []);
+      assert(captureHaptics.includes('notification:success'), `${viewport.name}: camera capture has no success haptic`);
       await page.locator('#jbl-camera-close').click();
+      const capturedActions = await page.locator('#jbl-visit-photo-media-previews .jbl-media-preview-open, #jbl-visit-photo-media-previews .jbl-media-remove').evaluateAll(nodes => nodes.map(node => {
+        const box = node.getBoundingClientRect();
+        const icon = node.querySelector('svg')?.getBoundingClientRect();
+        return { width: Math.round(box.width), height: Math.round(box.height), iconWidth: Math.round(icon?.width || 0) };
+      }));
+      assert(capturedActions.length === 2 && capturedActions.every(item => item.width >= 40 && item.height >= 40 && item.iconWidth >= 20), `${viewport.name}: captured-photo View/Delete controls are too small (${JSON.stringify(capturedActions)})`);
+      await page.screenshot({ path: path.join(outputDir, `jbl-captured-photo-${viewport.name}.png`), fullPage: true });
+      await page.locator('#jbl-visit-photo-media-previews .jbl-media-preview-open').click();
+      await page.locator('#media-viewer-overlay.open').waitFor();
+      const viewerClose = await page.locator('#media-viewer-close').evaluate(node => {
+        const box = node.getBoundingClientRect();
+        const icon = node.querySelector('svg')?.getBoundingClientRect();
+        return { width: Math.round(box.width), height: Math.round(box.height), iconWidth: Math.round(icon?.width || 0) };
+      });
+      assert(viewerClose.width >= 40 && viewerClose.height >= 40 && viewerClose.iconWidth >= 20, `${viewport.name}: media viewer Close control is too small (${JSON.stringify(viewerClose)})`);
+      await page.locator('#media-viewer-close').click();
 
       await page.locator('#btn-view-client-media').click();
       await page.locator('.media-link-unavailable').waitFor();
