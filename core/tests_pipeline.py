@@ -901,6 +901,12 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertIn("const backLabels = { jbl_visit: 'Visits', credit: 'Credit', final_review: 'Reviews' }", script)
         self.assertIn('.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-navigation', stylesheet)
         self.assertIn('.final-review-sheet .final-comment-row textarea', stylesheet)
+        self.assertIn('.credit-analysis-sheet .credit-jbl-comment p { font-style:normal; }', stylesheet)
+        self.assertIn('.credit-analysis-sheet .credit-analysis-form {', stylesheet)
+        self.assertIn('.credit-analysis-sheet .credit-gps-summary #sheet-map {', stylesheet)
+        self.assertNotIn('if (isCreditSummary) return;', script)
+        self.assertIn('<span class="sr-only">Call customer</span>', script)
+        self.assertNotIn('<span>Call</span>', script)
         self.assertIn('function impactWithFallback(kind, durationMs)', utils)
         self.assertIn("window.navigator?.vibrate === 'function'", utils)
 

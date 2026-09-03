@@ -83,7 +83,7 @@ async function installMocks(page) {
       jbl_visit_media_max_files: 6,
       jbl_visit_media_max_total_bytes: 40 * 1024 * 1024,
       jbl_visit_draft_fields: ['jbl-date', 'jbl-status', 'jbl-officer', 'jbl-county', 'jbl-sub-county', 'jbl-village', 'jbl-comment', 'jbl-lat', 'jbl-lng', 'jbl-location-unavailable'],
-      voice_input: { enabled: true, fields: ['jbl_visit_comment'] },
+      voice_input: { enabled: true, fields: ['jbl_visit_comment', 'final_decision_comment'] },
     });
     if (apiPath.endsWith('/draft/')) return json(route, { draft: null });
     if (apiPath === '/location-options/') return json(route, {
@@ -242,6 +242,7 @@ async function openVisit(page) {
       await page.evaluate(value => window.PortalMiniAppFarmerSheet.openFarmerSheet({
         ...value, jbl_visit_status: 'Approved', credit_decision: 'Pending', imab_created: 'Pending',
         jbl_visit_date: '2026-09-01', jbl_officer: 'Field Officer',
+        latitude: '-1.261231', longitude: '36.842415',
         jbl_visit_comment: 'Farm conditions and customer cash flow were reviewed during the visit.',
       }, 'credit'), farmer);
       await page.locator('#sheet-overlay.credit-analysis-sheet.operational-detail-sheet.open').waitFor();
@@ -250,9 +251,20 @@ async function openVisit(page) {
         back: document.querySelector('#sheet-back span')?.textContent.trim(),
         navigationHidden: document.querySelector('#sheet-navigation')?.hidden,
         closeHidden: document.querySelector('#sheet-close')?.hidden,
+        commentStyle: getComputedStyle(document.querySelector('.credit-jbl-comment p')).fontStyle,
+        commentGap: Math.round(document.querySelector('.credit-analysis-form').getBoundingClientRect().top - document.querySelector('.credit-jbl-comment').getBoundingClientRect().bottom),
+        formInset: Math.round(document.querySelector('.credit-analysis-form .form-row').getBoundingClientRect().left - document.querySelector('.credit-analysis-form').getBoundingClientRect().left),
+        mapHeight: Math.round(document.querySelector('#sheet-map').getBoundingClientRect().height),
+        mapRefreshSize: Math.round(document.querySelector('#sheet-map-refresh').getBoundingClientRect().width),
+        mapsActionHeight: Math.round(document.querySelector('#sheet-map-link').getBoundingClientRect().height),
+        quickActionBackgrounds: [...document.querySelectorAll('.sheet-client-media-toggle, .case360-toggle')].map(node => getComputedStyle(node).backgroundColor),
       }));
       assert(!creditLayout.overflow, `${viewport.name}: credit page overflows horizontally`);
       assert(creditLayout.back === 'Credit' && !creditLayout.navigationHidden && creditLayout.closeHidden, `${viewport.name}: credit detail does not use the operational Back header`);
+      assert(creditLayout.commentStyle === 'normal' && creditLayout.commentGap >= 9, `${viewport.name}: credit comment styling or card spacing is incorrect`);
+      assert(creditLayout.formInset >= 9, `${viewport.name}: credit fields touch the card border`);
+      assert(creditLayout.mapHeight >= 170 && creditLayout.mapRefreshSize >= 36 && creditLayout.mapsActionHeight >= 36, `${viewport.name}: credit map or controls are too small`);
+      assert(new Set(creditLayout.quickActionBackgrounds).size >= 2, `${viewport.name}: credit quick actions remain visually indistinct`);
       await page.screenshot({ path: path.join(outputDir, `credit-analysis-${viewport.name}.png`), fullPage: true });
 
       await page.evaluate(value => window.PortalMiniAppFarmerSheet.openFarmerSheet({
@@ -267,11 +279,16 @@ async function openVisit(page) {
           back: document.querySelector('#sheet-back span')?.textContent.trim(),
           commentHeight: Math.round(comment?.height || 0),
           closeHidden: document.querySelector('#sheet-close')?.hidden,
+          visibleCallLabels: document.querySelectorAll('.phone-call-button span:not(.sr-only)').length,
+          languageBackground: getComputedStyle(document.querySelector('.voice-language-button')).backgroundColor,
+          sheetBackground: getComputedStyle(document.querySelector('.final-review-sheet .sheet-body')).backgroundColor,
         };
       });
       assert(!finalLayout.overflow, `${viewport.name}: final review page overflows horizontally`);
       assert(finalLayout.back === 'Reviews' && finalLayout.closeHidden, `${viewport.name}: final review does not use the operational Back header`);
       assert(finalLayout.commentHeight >= 82, `${viewport.name}: final review comment is too cramped`);
+      assert(finalLayout.visibleCallLabels === 0, `${viewport.name}: call action repeats its icon with visible text`);
+      assert(finalLayout.languageBackground !== finalLayout.sheetBackground, `${viewport.name}: language selector has insufficient visual contrast`);
       await page.screenshot({ path: path.join(outputDir, `final-review-${viewport.name}.png`), fullPage: true });
       assert(pageErrors.length === 0, `${viewport.name}: page errors: ${pageErrors.join('; ')}`);
       await page.close();

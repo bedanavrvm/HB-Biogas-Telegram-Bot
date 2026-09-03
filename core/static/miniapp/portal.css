@@ -3179,3 +3179,114 @@ body.portal-report-editor-active #bottom-tabs { display: none; }
 @media (prefers-reduced-motion:reduce) {
   .queue-refresh-button.is-loading svg { animation:none; }
 }
+
+/* Credit analysis refinement: clear separation between cards, comfortably
+   inset controls, expressive quick actions, and a usable recorded-location
+   map. These overrides intentionally follow the shared operational frame. */
+.credit-analysis-sheet .credit-jbl-comment { margin:0 0 10px; }
+.credit-analysis-sheet .credit-jbl-comment p { font-style:normal; }
+.credit-analysis-sheet .credit-analysis-form {
+  gap:10px;
+  margin:0;
+  padding:10px;
+  border:1px solid var(--border-color);
+  border-radius:11px;
+  background:var(--bg-surface);
+}
+.credit-analysis-sheet .credit-analysis-form .form-row { min-width:0; }
+.credit-analysis-sheet .credit-analysis-form .form-row input,
+.credit-analysis-sheet .credit-analysis-form .form-row select { box-sizing:border-box; width:100%; }
+.credit-analysis-sheet .credit-analysis-form .credit-customer-number-row { padding-top:2px; }
+.credit-analysis-sheet .sheet-quick-actions { gap:8px; }
+.credit-analysis-sheet .sheet-client-media-toggle,
+.credit-analysis-sheet .case360-toggle {
+  min-height:42px;
+  padding:8px 10px;
+  border:1px solid color-mix(in srgb, var(--brand-primary) 22%, var(--border-color));
+  background:color-mix(in srgb, var(--brand-primary) 8%, var(--bg-surface));
+  color:var(--text-primary);
+}
+.credit-analysis-sheet .case360-toggle {
+  border-color:color-mix(in srgb, var(--text-muted) 26%, var(--border-color));
+  background:var(--bg-muted);
+}
+.credit-analysis-sheet .sheet-client-media-toggle svg,
+.credit-analysis-sheet .case360-toggle svg { width:17px; height:17px; }
+.credit-analysis-sheet #sheet-map-container.credit-gps-summary {
+  overflow:hidden;
+  margin:10px 0 !important;
+  border:1px solid var(--border-color);
+  border-radius:11px;
+  background:var(--bg-surface);
+}
+.credit-analysis-sheet .credit-gps-summary .sheet-map-heading {
+  min-height:50px;
+  padding:8px 10px;
+  border-bottom:1px solid var(--border-color);
+}
+.credit-analysis-sheet .credit-gps-summary #sheet-map {
+  display:block !important;
+  height:190px;
+  min-height:190px;
+}
+.credit-analysis-sheet .credit-gps-summary #sheet-map-fallback:not([hidden]) { display:block !important; }
+.credit-analysis-sheet .credit-gps-summary .map-refresh-button {
+  display:inline-grid !important;
+  width:36px;
+  min-width:36px;
+  height:36px;
+  min-height:36px;
+  padding:0;
+  place-items:center;
+  border:1px solid var(--border-color);
+  border-radius:9px;
+  background:var(--bg-surface);
+  color:var(--brand-primary);
+}
+.credit-analysis-sheet .credit-gps-summary .map-refresh-button svg { width:16px; height:16px; stroke:currentColor; }
+.credit-analysis-sheet .credit-gps-summary .sheet-map-actions { gap:6px; }
+.credit-analysis-sheet .credit-gps-summary .sheet-map-actions a {
+  min-height:36px;
+  margin:0;
+  padding:6px 9px;
+  border:1px solid color-mix(in srgb, var(--brand-primary) 24%, var(--border-color));
+  background:color-mix(in srgb, var(--brand-primary) 8%, var(--bg-surface));
+  color:var(--brand-primary);
+  text-decoration:none;
+}
+.credit-analysis-sheet .credit-gps-summary .sheet-map-actions a svg { width:15px; height:15px; }
+.client-media-actions .media-external-link {
+  display:inline-grid;
+  width:36px;
+  min-width:36px;
+  height:36px;
+  min-height:36px;
+  padding:0;
+  place-items:center;
+  border:1px solid var(--border-color);
+  border-radius:8px;
+  background:var(--bg-surface);
+  color:var(--brand-primary);
+}
+.client-media-actions .media-external-link svg { width:17px; height:17px; }
+.workflow-standard.portal-app .phone-call-button { width:44px; min-width:44px; padding:0; }
+.workflow-standard.portal-app .phone-call-button .sr-only { position:absolute !important; }
+.operational-detail-sheet .voice-language-button,
+.jbl-visit-sheet .voice-language-button {
+  min-width:48px;
+  min-height:32px;
+  border:1px solid color-mix(in srgb, var(--brand-primary) 34%, var(--border-color));
+  border-radius:8px;
+  background:color-mix(in srgb, var(--brand-primary) 12%, var(--bg-surface));
+  color:var(--brand-primary);
+  font-size:10px;
+  font-weight:850;
+}
+.operational-detail-sheet .voice-language-button.active,
+.jbl-visit-sheet .voice-language-button.active { background:var(--brand-primary); color:var(--button-text, #fff); }
+
+@media (max-width:360px) {
+  .credit-analysis-sheet .credit-gps-summary #sheet-map { height:170px; min-height:170px; }
+  .credit-analysis-sheet .credit-gps-summary .sheet-map-actions a span { display:none; }
+  .credit-analysis-sheet .credit-gps-summary .sheet-map-actions a { width:36px; min-width:36px; padding:0; justify-content:center; }
+}
