@@ -91,6 +91,8 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     CapabilityDefinition('complaint.case.manage', 'complaint_cases', 'Legacy complaint manager access', 'Cases', _roles('MANAGER'), ('complaint.queue.view',)),
     # TAT tracker.  Individual stages are appended dynamically below.
     CapabilityDefinition('tat.home.view', 'tat_tracker', 'View TAT queue', 'Queue', _roles('BRO', BUSINESS_ADMIN_ROLE, 'CA', 'BM', 'SECRETARY', 'CHAIR', 'LOAN_APPROVER', 'FINANCE', 'IT', 'MANAGEMENT')),
+    CapabilityDefinition('tat.reports.view', 'tat_tracker', 'View TAT reports', 'Reporting', _roles('BRO', BUSINESS_ADMIN_ROLE, 'CA', 'BM', 'SECRETARY', 'CHAIR', 'LOAN_APPROVER', 'FINANCE', 'IT', 'MANAGEMENT'), ('tat.home.view',)),
+    CapabilityDefinition('tat.reports.people.view', 'tat_tracker', 'View named TAT performance', 'Reporting', _roles('IT'), ('tat.reports.view',)),
     CapabilityDefinition('tat.case.create', 'tat_tracker', 'Create TAT cases', 'Cases', _roles('BRO', BUSINESS_ADMIN_ROLE, 'CA', 'BM', 'SECRETARY', 'CHAIR', 'LOAN_APPROVER', 'FINANCE', 'IT', 'MANAGEMENT'), ('tat.home.view',)),
     CapabilityDefinition('tat.case.search', 'tat_tracker', 'Search TAT cases', 'Cases', _roles('BRO', BUSINESS_ADMIN_ROLE, 'CA', 'BM', 'SECRETARY', 'CHAIR', 'LOAN_APPROVER', 'FINANCE', 'IT', 'MANAGEMENT'), ('tat.home.view',)),
     CapabilityDefinition('tat.case.correct', 'tat_tracker', 'Correct TAT case details', 'Cases', _roles('BRO', 'IT', BUSINESS_ADMIN_ROLE), ('tat.home.view',)),

@@ -17,7 +17,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import AccessGrant, BusinessCalendarHoliday, GroupSheetConfiguration, LiveSheetRecordChange, SheetRegisterContract, SheetSyncAuditSnapshot, TatActionTask, TatActionTaskRecipient, TatConfigurationEvent, TatEscalationRule, TatPresentationSettings, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, UserMiniAppPreference, UserProfile, WorkflowConfigurationChangeRequest, WorkflowSlaEscalation
+from core.models import AccessGrant, BusinessCalendarHoliday, GroupSheetConfiguration, LiveSheetRecordChange, SheetRegisterContract, SheetSyncAuditSnapshot, TatActionTask, TatActionTaskRecipient, TatConfigurationEvent, TatEscalationRule, TatPresentationSettings, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, UserMiniAppPreference, UserProfile, WorkflowConfigurationChangeRequest, WorkflowRoleCapability, WorkflowSlaEscalation, WorkflowTatMetricRebuildRequest
 from core.api.views import _dispatch_tat_approval_certificate, _process_telegram_message, tat_tracker_identity_context, tat_tracker_settings
 from core.services.group_config import GroupConfig, GroupRegistry
 from core.services.tat_tracker import (
@@ -69,6 +69,8 @@ from core.services.workflow_transitions import WorkflowRevisionConflict
 from core.services.workflow_sla import collect_sla_candidates, record_sla_candidates
 from core.services.miniapp_settings import create_tat_configuration_request, preference_payload, review_tat_configuration_request, update_preference
 from core.services.tat_presentation import update_presentation_settings
+from core.services.tat_reporting import report_cases, report_summary
+from core.services.workflow_capabilities import default_enabled_capability_keys
 from core.services.sync_governance import assert_registered_schema_before_publish, audit_sheet_register
 
 
@@ -417,7 +419,7 @@ class TatTrackerWorkflowTest(TestCase):
             content_type='application/json',
         )
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 200, response.content)
         payload = response.json()['data']
         self.assertEqual(len(payload['items']), 10)
         self.assertEqual(payload['pagination']['page_size'], 10)
@@ -590,7 +592,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Assigned to me', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn('?v=56', template)
+        self.assertIn('?v=58', template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -598,8 +600,9 @@ class TatTrackerWorkflowTest(TestCase):
         template = Path('core/templates/tat_tracker/app.html').read_text(encoding='utf-8')
         case_list_template = Path('core/templates/tat_tracker/partials/case_list.html').read_text(encoding='utf-8')
 
-        for label in ['Assigned to me', 'Ready for my role', 'Total cases', 'Completed', 'Stalled']:
+        for label in ['Current Workload', 'Period Performance', 'Near Target']:
             self.assertIn(label, template)
+        self.assertIn('Marked Stalled', source)
         self.assertIn('queueFilterOverlay', template)
         self.assertIn('queuePreviousBtn', template)
         self.assertIn('queueNextBtn', template)
@@ -623,7 +626,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-sheet-overlay', stylesheet)
         self.assertIn('class="notice-close tat-sheet-close"', template)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
-        self.assertIn("miniapp/tat_tracker.css' %}?v=31", template)
+        self.assertIn("miniapp/tat_tracker.css' %}?v=33", template)
         self.assertIn('id="appHeader" class="app-top"', template)
         self.assertIn('class="refresh-label"', template)
         self.assertIn('function bindCollapsingHeader()', source)
@@ -636,8 +639,8 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('id="dashboardView"', template)
         self.assertIn('id="casesWorkspaceBtn"', template)
         self.assertIn('id="dashboardWorkspaceBtn"', template)
-        self.assertLess(template.index('id="dashboardView"'), template.index('id="statAssigned"'))
-        self.assertIn("$('dashboardWorkspaceBtn').addEventListener('click', () => show('dashboard'))", source)
+        self.assertIn('id="tatReportMetrics"', template)
+        self.assertIn("show('dashboard');", source)
         self.assertIn('.home-queue-tabs {', stylesheet)
         self.assertIn('grid-template-columns: repeat(3, minmax(0, 1fr));', stylesheet)
         self.assertIn('grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);', stylesheet)
@@ -653,6 +656,84 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.queue-pagination', stylesheet)
         self.assertNotIn('.tat-business-time', stylesheet)
         self.assertIn('.check-label[hidden]', stylesheet)
+
+    def test_tat_report_ui_reuses_vendored_grid_and_compact_correction_actions(self):
+        source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
+        stylesheet = Path('core/static/miniapp/tat_tracker.css').read_text(encoding='utf-8')
+        template = Path('core/templates/tat_tracker/app.html').read_text(encoding='utf-8')
+
+        self.assertIn('vendor-ag-grid-community-36.1.0.min.js', template)
+        self.assertIn('vendor-chartjs-4.5.1.umd.min.js', template)
+        self.assertIn('data-required-capability="tat.reports.view"', template)
+        self.assertIn("actionWrap.classList.add('correction-open')", source)
+        self.assertIn('.stage-action-wrap.correction-open { grid-template-columns:repeat(2,minmax(0,1fr)); }', stylesheet)
+        self.assertIn('state.report.abortController?.abort()', source)
+        self.assertIn("suppressMovableColumns: touch", source)
+
+    def test_tat_reporting_is_scoped_allowlisted_and_page_size_capped(self):
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='TAT-REPORT-1', product_key='business',
+            product_label='Business', client_name='VISIBLE CLIENT', national_id='12345678',
+            primary_phone='254700000000', branch='Nakuru', status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+        )
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='TAT-REPORT-2', product_key='business',
+            product_label='Business', client_name='OUTSIDE CLIENT', national_id='87654321',
+            primary_phone='254711111111', branch='Embu', status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+        )
+        data = report_cases(self.bro_user, {'view': 'current', 'page_size': 999})
+        self.assertEqual(data['page_size'], 100)
+        self.assertEqual([row['case_id'] for row in data['results']], ['TAT-REPORT-1'])
+        self.assertNotIn('national_id', data['results'][0])
+        self.assertNotIn('primary_phone', data['results'][0])
+        self.assertNotIn('stage_values', data['results'][0])
+        self.assertEqual(data['results'][0]['group'], 'TAT Test')
+        summary = report_summary(self.bro_user, {'view': 'current'})
+        self.assertEqual(summary['metrics']['active'], 1)
+        self.assertEqual(summary['filters']['groups'], [(self.config.group_id, 'TAT Test')])
+
+    def test_tat_report_capabilities_and_correction_rebuild_request(self):
+        self.assertIn('tat.reports.view', default_enabled_capability_keys('tat_tracker', 'BRO'))
+        self.assertNotIn('tat.reports.people.view', default_enabled_capability_keys('tat_tracker', 'BRO'))
+        self.assertIn('tat.reports.people.view', default_enabled_capability_keys('tat_tracker', 'IT'))
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='TAT-CORRECTION-REPORT', product_key='business',
+            product_label='Business', client_name='CORRECTION CLIENT', branch='Nakuru',
+            status='Active', stage_values={'created': (timezone.now() - timedelta(days=2)).isoformat(), 'mpesa_to_admin': (timezone.now() - timedelta(days=1)).isoformat()},
+        )
+        user = staff_user_for_payload(self.config, {'id': 444, 'username': 'it_user'})
+        update_case(
+            self.config, user, case.case_id,
+            [{'field': 'mpesa_to_admin', 'value': timezone.now().isoformat(), 'correction': True}],
+            expected_revision=case.workflow_revision, request_id='report-correction-1',
+        )
+        self.assertEqual(WorkflowTatMetricRebuildRequest.objects.filter(case=case).count(), 1)
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token')
+    def test_tat_report_endpoints_enforce_auth_capability_and_sort_allowlist(self):
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='TAT-API-REPORT', product_key='business',
+            product_label='Business', client_name='API CLIENT', branch='Nakuru', status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+        )
+        payload = {'group_id': self.config.group_id, 'init_data': self.signed_init_data(), 'view': 'current'}
+        headers = {'X-MiniApp-Message-Contract': '2', 'X-Request-ID': 'tat-report-api-1', 'Idempotency-Key': 'tat-report-api-1'}
+        payload['client_request_id'] = 'tat-report-api-1'
+        response = self.client.post(reverse('tat_tracker_reports_cases'), data=json.dumps(payload), content_type='application/json', headers=headers)
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        row = response.json()['data']['results'][0]
+        self.assertNotIn('responsible_person', row)
+        bad_headers = {'X-MiniApp-Message-Contract': '2', 'X-Request-ID': 'tat-report-api-2', 'Idempotency-Key': 'tat-report-api-2'}
+        bad_sort = self.client.post(reverse('tat_tracker_reports_cases'), data=json.dumps({**payload, 'client_request_id': 'tat-report-api-2', 'sort': 'national_id'}), content_type='application/json', headers=bad_headers)
+        self.assertEqual(bad_sort.status_code, 400)
+        WorkflowRoleCapability.objects.filter(
+            workflow='tat_tracker', role='BRO', capability_key='tat.reports.view',
+        ).update(effect=WorkflowRoleCapability.EFFECT_DENY)
+        denied_headers = {'X-MiniApp-Message-Contract': '2', 'X-Request-ID': 'tat-report-api-3', 'Idempotency-Key': 'tat-report-api-3'}
+        denied = self.client.post(reverse('tat_tracker_reports_summary'), data=json.dumps({**payload, 'client_request_id': 'tat-report-api-3'}), content_type='application/json', headers=denied_headers)
+        self.assertEqual(denied.status_code, 403)
 
     def test_queue_polling_uses_shared_visibility_runtime_and_health_feedback(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')

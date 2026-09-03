@@ -1732,6 +1732,10 @@ class TatPresentationSettings(models.Model):
 
     singleton = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
     business_time_enabled = models.BooleanField(default=True)
+    near_target_percent = models.PositiveSmallIntegerField(
+        default=80,
+        help_text='Percentage of the frozen stage target at which a case is shown as Near Target (50-99).',
+    )
     revision = models.PositiveIntegerField(default=1)
     change_reason = models.TextField(blank=True, default='')
     updated_by = models.ForeignKey(
@@ -1746,6 +1750,9 @@ class TatPresentationSettings(models.Model):
         verbose_name_plural = 'TAT presentation settings'
         constraints = [models.CheckConstraint(
             condition=models.Q(singleton=1), name='tat_presentation_singleton_one',
+        ), models.CheckConstraint(
+            condition=models.Q(near_target_percent__gte=50, near_target_percent__lte=99),
+            name='tat_presentation_near_target_range',
         )]
 
     def __str__(self):
@@ -3152,6 +3159,7 @@ class WorkflowTatDailyMetric(models.Model):
     )
     pilot_cycle_id = models.UUIDField(null=True, blank=True, db_index=True)
     data_scope_key = models.CharField(max_length=64, default='production', db_index=True)
+    metric_grain = models.CharField(max_length=32, default='stage_completion_leaf', db_index=True)
     metric_date = models.DateField(db_index=True)
     workflow = models.CharField(max_length=40, choices=WORKFLOW_CHOICES, db_index=True)
     group_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
@@ -3164,9 +3172,21 @@ class WorkflowTatDailyMetric(models.Model):
     stage_key = models.CharField(max_length=120, db_index=True)
     responsible_role = models.CharField(max_length=80, blank=True, default='', db_index=True)
     responsible_actor = models.CharField(max_length=160, blank=True, default='', db_index=True)
+    outcome = models.CharField(max_length=24, blank=True, default='', db_index=True)
     active_count = models.PositiveIntegerField(default=0)
     completed_count = models.PositiveIntegerField(default=0)
     overdue_count = models.PositiveIntegerField(default=0)
+    near_target_count = models.PositiveIntegerField(default=0)
+    stalled_count = models.PositiveIntegerField(default=0)
+    target_unavailable_count = models.PositiveIntegerField(default=0)
+    created_count = models.PositiveIntegerField(default=0)
+    finished_count = models.PositiveIntegerField(default=0)
+    disbursed_count = models.PositiveIntegerField(default=0)
+    rejected_count = models.PositiveIntegerField(default=0)
+    declined_count = models.PositiveIntegerField(default=0)
+    sla_met_count = models.PositiveIntegerField(default=0)
+    near_target_percent = models.PositiveSmallIntegerField(default=80)
+    presentation_revision = models.PositiveIntegerField(default=0)
     sample_count = models.PositiveIntegerField(default=0)
     median_sla_minutes = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     p90_sla_minutes = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
@@ -3178,8 +3198,8 @@ class WorkflowTatDailyMetric(models.Model):
         ordering = ['-metric_date', 'workflow', 'stage_key']
         constraints = [
             models.UniqueConstraint(
-                fields=['metric_date', 'workflow', 'group_id', 'branch', 'product_key', 'stage_key', 'responsible_role', 'responsible_actor', 'data_scope_key'],
-                name='unique_workflow_tat_daily_metric',
+                fields=['metric_date', 'workflow', 'group_id', 'branch', 'product_key', 'stage_key', 'responsible_role', 'responsible_actor', 'outcome', 'metric_grain', 'data_scope_key'],
+                name='unique_workflow_tat_daily_metric_v2',
             ),
         ]
         indexes = [
@@ -3188,6 +3208,45 @@ class WorkflowTatDailyMetric(models.Model):
         ]
         verbose_name = 'workflow TAT daily metric'
         verbose_name_plural = 'workflow TAT daily metrics'
+
+
+class WorkflowTatMetricRebuildRequest(models.Model):
+    """Durable, mergeable request to rebuild corrected TAT report dates."""
+
+    STATUS_PENDING = 'pending'
+    STATUS_PROCESSING = 'processing'
+    STATUS_COMPLETE = 'complete'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_PROCESSING, 'Processing'),
+        (STATUS_COMPLETE, 'Complete'),
+        (STATUS_FAILED, 'Failed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    case = models.ForeignKey(
+        TatTrackerCase, null=True, blank=True, on_delete=models.CASCADE,
+        related_name='metric_rebuild_requests',
+    )
+    request_key = models.CharField(max_length=160, unique=True)
+    correction_revision = models.PositiveIntegerField()
+    date_from = models.DateField()
+    date_to = models.DateField()
+    next_date = models.DateField()
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    last_error = models.CharField(max_length=500, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['created_at']
+        constraints = [models.UniqueConstraint(
+            fields=['case', 'correction_revision'], name='unique_tat_metric_rebuild_revision',
+        )]
+        indexes = [models.Index(fields=['status', 'next_date'])]
 
 
 class JawabuDataQualityIssue(models.Model):

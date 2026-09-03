@@ -18,11 +18,13 @@ def presentation_settings() -> dict:
     if row is None:
         return {
             'business_time_enabled': True,
+            'near_target_percent': 80,
             'revision': 0,
             'updated_at': '',
         }
     return {
         'business_time_enabled': bool(row.business_time_enabled),
+        'near_target_percent': int(row.near_target_percent),
         'revision': int(row.revision),
         'updated_at': row.updated_at.isoformat() if row.updated_at else '',
     }
@@ -43,6 +45,7 @@ def pending_business_calendar_proposals():
 @transaction.atomic
 def update_presentation_settings(
     *, actor, business_time_visible: bool, reason: str, expected_revision: int,
+    near_target_percent: int | None = None,
 ) -> TatPresentationSettings:
     if not actor or not actor.is_active or not actor.is_superuser:
         raise PermissionError('Only an active Superuser may change global TAT presentation settings.')
@@ -54,8 +57,11 @@ def update_presentation_settings(
     if int(expected_revision) != int(row.revision):
         raise ValueError('TAT presentation settings changed. Reload and review the current value before saving.')
     desired = bool(business_time_visible)
-    if desired == bool(row.business_time_enabled):
-        raise ValueError('The global TAT presentation setting is unchanged.')
+    desired_near = int(row.near_target_percent if near_target_percent is None else near_target_percent)
+    if not 50 <= desired_near <= 99:
+        raise ValueError('Near-target percentage must be between 50 and 99.')
+    if desired == bool(row.business_time_enabled) and desired_near == int(row.near_target_percent):
+        raise ValueError('The global TAT presentation settings are unchanged.')
     if not desired and pending_business_calendar_proposals().select_for_update().exists():
         raise ValueError(
             'Resolve the pending Business Calendar proposal(s) before hiding business-hours TAT.'
@@ -63,21 +69,31 @@ def update_presentation_settings(
 
     before = {
         'business_time_enabled': bool(row.business_time_enabled),
+        'near_target_percent': int(row.near_target_percent),
         'revision': int(row.revision),
     }
     row.business_time_enabled = desired
+    row.near_target_percent = desired_near
     row.revision += 1
     row.change_reason = clean_reason
     row.updated_by = actor
     row.save(update_fields=[
-        'business_time_enabled', 'revision', 'change_reason', 'updated_by', 'updated_at',
+        'business_time_enabled', 'near_target_percent', 'revision', 'change_reason', 'updated_by', 'updated_at',
     ])
     after = {
         'business_time_enabled': bool(row.business_time_enabled),
+        'near_target_percent': int(row.near_target_percent),
         'revision': int(row.revision),
     }
+    business_time_changed = before['business_time_enabled'] != after['business_time_enabled']
+    near_target_changed = before['near_target_percent'] != after['near_target_percent']
+    action = (
+        'tat.presentation.changed' if business_time_changed and near_target_changed
+        else 'tat.presentation.business_time.changed' if business_time_changed
+        else 'tat.presentation.near_target.changed'
+    )
     TatConfigurationEvent.objects.create(
-        action='tat.presentation.business_time.changed',
+        action=action,
         actor=actor,
         reason=clean_reason,
         before_snapshot=before,
@@ -87,17 +103,30 @@ def update_presentation_settings(
     from core.services.compliance_audit import record_event
     record_event(
         workflow='tat_tracker',
-        action='tat.presentation.business_time.changed',
+        action=action,
         category='configuration',
         origin='human',
         subject_type='tat_presentation_settings',
         subject_id='1',
         actor=actor,
         authority_user=actor,
-        deduplication_key=f'tat-presentation-business-time:{row.revision}',
+        deduplication_key=f'tat-presentation:{row.revision}',
         before_values=before,
         after_values=after,
         metadata={'reason': clean_reason, 'scope': 'global'},
         sensitive=False,
     )
+    if near_target_changed:
+        from datetime import timedelta
+        from django.utils import timezone
+        from core.models import WorkflowTatMetricRebuildRequest
+        today = timezone.localdate()
+        WorkflowTatMetricRebuildRequest.objects.get_or_create(
+            request_key=f'presentation:{row.revision}',
+            defaults={
+                'case': None, 'correction_revision': row.revision,
+                'date_from': today - timedelta(days=364), 'date_to': today,
+                'next_date': today - timedelta(days=364),
+            },
+        )
     return row

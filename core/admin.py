@@ -171,6 +171,7 @@ from .models import (
     TatNotificationProcessorRun,
     TatUpdateSideEffectDispatch,
     TatRepairJob,
+    WorkflowTatMetricRebuildRequest,
     WorkflowDataModeEvent,
     WorkflowDataModeState,
     WorkflowPilotFormulaReadiness,
@@ -3074,7 +3075,7 @@ class TatPresentationSettingsForm(forms.ModelForm):
 
     class Meta:
         model = TatPresentationSettings
-        fields = ('business_time_enabled', 'change_reason', 'expected_revision')
+        fields = ('business_time_enabled', 'near_target_percent', 'change_reason', 'expected_revision')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -3091,8 +3092,10 @@ class TatPresentationSettingsForm(forms.ModelForm):
         if current and expected_revision != int(current.revision):
             raise ValidationError('TAT presentation settings changed. Reload before saving.')
         desired = cleaned.get('business_time_enabled')
-        if desired is not None and bool(desired) == bool(self.instance.business_time_enabled):
-            raise ValidationError('Change the global business-hours TAT setting before saving.')
+        desired_near = cleaned.get('near_target_percent')
+        if (desired is not None and bool(desired) == bool(self.instance.business_time_enabled)
+                and desired_near == self.instance.near_target_percent):
+            raise ValidationError('Change a global TAT presentation setting before saving.')
         if desired is False:
             from core.services.tat_presentation import pending_business_calendar_proposals
             if pending_business_calendar_proposals().exists():
@@ -3105,7 +3108,7 @@ class TatPresentationSettingsForm(forms.ModelForm):
 @admin.register(TatPresentationSettings)
 class TatPresentationSettingsAdmin(CompactModelAdmin):
     form = TatPresentationSettingsForm
-    list_display = ('business_time_enabled', 'revision', 'updated_by', 'updated_at')
+    list_display = ('business_time_enabled', 'near_target_percent', 'revision', 'updated_by', 'updated_at')
     readonly_fields = ('revision', 'updated_by', 'created_at', 'updated_at')
     fieldsets = (
         ('Global Mini App presentation', {
@@ -3113,7 +3116,7 @@ class TatPresentationSettingsAdmin(CompactModelAdmin):
                 'Official wall-clock TAT remains authoritative. Turning this off removes the optional '
                 'business-hours comparison and Business Calendar controls from every TAT Mini App.'
             ),
-            'fields': ('business_time_enabled', 'change_reason', 'expected_revision'),
+            'fields': ('business_time_enabled', 'near_target_percent', 'change_reason', 'expected_revision'),
         }),
         ('Audit', {'fields': ('revision', 'updated_by', 'created_at', 'updated_at')}),
     )
@@ -3141,10 +3144,12 @@ class TatPresentationSettingsAdmin(CompactModelAdmin):
         updated = update_presentation_settings(
             actor=request.user,
             business_time_visible=form.cleaned_data['business_time_enabled'],
+            near_target_percent=form.cleaned_data['near_target_percent'],
             reason=form.cleaned_data['change_reason'],
             expected_revision=form.cleaned_data['expected_revision'],
         )
         obj.business_time_enabled = updated.business_time_enabled
+        obj.near_target_percent = updated.near_target_percent
         obj.revision = updated.revision
         obj.change_reason = updated.change_reason
         obj.updated_by = updated.updated_by
@@ -6755,9 +6760,16 @@ class AccessGrantInline(StackedInline):
 
 @admin.register(WorkflowTatDailyMetric)
 class WorkflowTatDailyMetricAdmin(ReadOnlyAuditAdmin):
-    list_display = ('metric_date', 'workflow', 'branch', 'product_key', 'stage_key', 'responsible_role', 'responsible_actor', 'active_count', 'completed_count', 'overdue_count', 'median_sla_minutes')
-    list_filter = ('metric_date', 'workflow', 'branch', 'product_key', 'stage_key')
+    list_display = ('metric_date', 'workflow', 'metric_grain', 'branch', 'product_key', 'stage_key', 'responsible_role', 'outcome', 'active_count', 'completed_count', 'overdue_count', 'near_target_count', 'median_sla_minutes')
+    list_filter = ('metric_date', 'workflow', 'metric_grain', 'branch', 'product_key', 'stage_key', 'outcome')
     search_fields = ('group_id', 'branch', 'product_key', 'stage_key', 'responsible_role', 'responsible_actor')
+
+
+@admin.register(WorkflowTatMetricRebuildRequest)
+class WorkflowTatMetricRebuildRequestAdmin(ReadOnlyAuditAdmin):
+    list_display = ('request_key', 'case', 'date_from', 'date_to', 'next_date', 'status', 'attempts', 'updated_at')
+    list_filter = ('status', 'date_from', 'date_to')
+    search_fields = ('request_key', 'case__case_id', 'last_error')
 
 
 @admin.register(WorkflowTimelineAnnotation)

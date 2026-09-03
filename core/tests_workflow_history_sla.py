@@ -183,6 +183,8 @@ class HybridTatAndEscalationTests(TestCase):
         TatTrackerCase.objects.create(
             group_id=self.config.group_id,
             case_id='JBL-BS-2026-902',
+            data_mode='production',
+            data_scope_key='production',
             product_key='business',
             client_name='Snapshot Client',
             branch='Embu',

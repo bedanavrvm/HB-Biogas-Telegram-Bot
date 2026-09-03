@@ -21,7 +21,7 @@ import logging
 import io
 from datetime import datetime, timezone as dt_timezone
 from django.utils import timezone
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -455,6 +455,17 @@ def _tat_capability_error(user: dict, capability: str, group_config):
     return None
 
 
+def _tat_has_capability(user: dict, capability: str, group_config) -> bool:
+    allowed = capability in set(user.get('capabilities') or [])
+    if user.get('_canonical_user') is not None and user.get('_access') is not None:
+        from core.services.workflow_access import workflow_access_decision
+        allowed = workflow_access_decision(
+            user.get('_canonical_user'), 'tat_tracker', capability,
+            access=user.get('_access'), group_configuration=group_config,
+        ).allowed
+    return bool(allowed)
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 @miniapp_write_response
@@ -658,6 +669,82 @@ def tat_tracker_home(request):
             page_size=_tat_home_page_size(payload.get('page_size')),
         ),
     })
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@miniapp_write_response
+def tat_tracker_reports_summary(request):
+    payload = _tat_json_body(request)
+    _group_id, group_config, _user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    capability_error = _tat_capability_error(user, 'tat.reports.view', group_config)
+    if capability_error:
+        return capability_error
+    from core.services.tat_reporting import report_summary
+    try:
+        data = report_summary(
+            user.get('_canonical_user'), payload,
+            include_people=_tat_has_capability(user, 'tat.reports.people.view', group_config),
+        )
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'data': data})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@miniapp_write_response
+def tat_tracker_reports_cases(request):
+    payload = _tat_json_body(request)
+    _group_id, group_config, _user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    capability_error = _tat_capability_error(user, 'tat.reports.view', group_config)
+    if capability_error:
+        return capability_error
+    from core.services.tat_reporting import report_cases
+    try:
+        data = report_cases(
+            user.get('_canonical_user'), payload,
+            include_people=_tat_has_capability(user, 'tat.reports.people.view', group_config),
+        )
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'data': data})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@miniapp_write_response
+def tat_tracker_reports_export(request):
+    payload = _tat_json_body(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    _group_id, group_config, _user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    capability_error = _tat_capability_error(user, 'tat.reports.view', group_config)
+    if capability_error:
+        return capability_error
+    from core.services.tat_reporting import export_report_xlsx
+    try:
+        workbook, _count = export_report_xlsx(
+            user.get('_canonical_user'), payload,
+            include_people=_tat_has_capability(user, 'tat.reports.people.view', group_config),
+            request_id=str(getattr(request, 'miniapp_request_id', '') or ''),
+        )
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    response = HttpResponse(
+        workbook,
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f'attachment; filename="tat-report-{timezone.localdate():%d-%m-%y}.xlsx"'
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 @csrf_exempt

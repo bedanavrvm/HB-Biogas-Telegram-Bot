@@ -1539,6 +1539,15 @@ def update_case(
             raise ValueError('Complete required product evidence: ' + ', '.join(row['label'] for row in missing))
     from_state = str(case.current_stage or '')
     revision_before, revision_after = next_workflow_revision(case)
+    correction_dates = []
+    for item in updates:
+        field = str(item.get('field') or '').strip()
+        if not item.get('correction') or field in {'client_name', 'national_id', 'primary_phone', 'branch', 'bro_name', 'amount', 'remarks'}:
+            continue
+        for raw in ((case.stage_values or {}).get(field), item.get('value')):
+            parsed = parse_iso_datetime(raw)
+            if parsed:
+                correction_dates.append(timezone.localdate(parsed))
     for item in updates:
         apply_update(case, user, item, workflow=workflow)
     next_stage = next_action(case)
@@ -1567,6 +1576,9 @@ def update_case(
         sheet_name=case.sheet_name,
         row_number=case.row_number,
     )
+    if correction_dates:
+        from core.services.tat_reporting import enqueue_metric_rebuild
+        enqueue_metric_rebuild(case, revision_after, correction_dates)
     from core.services.tat_notifications import synchronize_case_task
     synchronize_case_task(
         group_config,
@@ -2548,7 +2560,9 @@ def sla_status(minutes: Decimal | None, target: Decimal | None) -> str:
         return ''
     if minutes > target:
         return 'over'
-    if minutes >= (target * NEAR_SLA_RATIO):
+    from core.services.tat_presentation import presentation_settings
+    near_ratio = Decimal(str(presentation_settings().get('near_target_percent', 80))) / Decimal('100')
+    if minutes >= (target * near_ratio):
         return 'near'
     return 'within'
 
