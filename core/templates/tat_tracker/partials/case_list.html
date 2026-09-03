@@ -1,15 +1,13 @@
 {% for case in cases %}
   <button type="button" class="case-card htmx-tat-case-card" data-case-id="{{ case.case_id }}">
     <div class="case-header">
-      <div class="case-title"><span class="case-number">#{{ forloop.counter }}</span><strong class="case-name">{{ case.client_name|default:"Unnamed client" }}</strong></div>
+      <div class="case-primary">
+        <div class="case-title"><span class="case-number">#{{ forloop.counter }}</span><strong class="case-name">{{ case.client_name|default:"Unnamed client" }}</strong></div>
+        <div class="case-details">
+          <span class="case-id-badge">{{ case.case_id }}</span><span class="case-meta-dot"></span><span class="case-meta-text">{{ case.product|default:"" }}</span><span class="case-meta-dot"></span><span class="case-meta-text">{{ case.branch|default:"" }}</span>
+        </div>
+      </div>
       <div class="case-side"><span class="case-amount">KES {{ case.amount|default:"" }}</span><span class="status-chip {{ case.status|default:'active'|lower|cut:' ' }}">{{ case.status|default:"Active" }}</span></div>
-    </div>
-    <div class="case-details">
-      <span class="case-id-badge">{{ case.case_id }}</span>
-      <span class="case-meta-dot"></span>
-      <span class="case-meta-text">{{ case.product|default:"" }}</span>
-      <span class="case-meta-dot"></span>
-      <span class="case-meta-text">{{ case.branch|default:"" }}</span>
     </div>
     {% if case.national_id or case.primary_phone %}
       <div class="case-identifiers">

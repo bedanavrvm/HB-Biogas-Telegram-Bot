@@ -268,6 +268,12 @@
     state.currentView = view;
     document.querySelectorAll('.view').forEach((node) => node.classList.remove('active'));
     document.querySelectorAll('.tabs button').forEach((node) => node.classList.toggle('active', node.dataset.view === view));
+    const dashboard = view === 'dashboard';
+    $('trackerTabs').hidden = dashboard;
+    $('casesWorkspaceBtn').classList.toggle('active', !dashboard);
+    $('casesWorkspaceBtn').setAttribute('aria-pressed', String(!dashboard));
+    $('dashboardWorkspaceBtn').classList.toggle('active', dashboard);
+    $('dashboardWorkspaceBtn').setAttribute('aria-pressed', String(dashboard));
     const target = $(view + 'View');
     if (target) target.classList.add('active');
     if (tg && tg.BackButton) {
@@ -399,15 +405,17 @@
     const next = item.next_stage ? `<span class="next-chip">Next: ${escapeHtml(item.next_stage)}</span>` : '';
     button.innerHTML = `
       <div class="case-header">
-        <div class="case-title"><span class="case-number">#${Number(position || 0) + 1}</span><strong class="case-name">${escapeHtml(item.client_name || 'Unnamed client')}</strong></div>
+        <div class="case-primary">
+          <div class="case-title"><span class="case-number">#${Number(position || 0) + 1}</span><strong class="case-name">${escapeHtml(item.client_name || 'Unnamed client')}</strong></div>
+          <div class="case-details">
+            <span class="case-id-badge">${escapeHtml(item.case_id)}</span>
+            <span class="case-meta-dot"></span>
+            <span class="case-meta-text">${escapeHtml(item.product || '')}</span>
+            <span class="case-meta-dot"></span>
+            <span class="case-meta-text">${escapeHtml(item.branch || '')}</span>
+          </div>
+        </div>
         <div class="case-side"><span class="case-amount">KES ${escapeHtml(formatMoney(item.amount || ''))}</span><span class="status-chip ${statusClass(item.status)}">${escapeHtml(item.status || 'Active')}</span></div>
-      </div>
-      <div class="case-details">
-        <span class="case-id-badge">${escapeHtml(item.case_id)}</span>
-        <span class="case-meta-dot"></span>
-        <span class="case-meta-text">${escapeHtml(item.product || '')}</span>
-        <span class="case-meta-dot"></span>
-        <span class="case-meta-text">${escapeHtml(item.branch || '')}</span>
       </div>
       ${caseIdentifierMarkup(item)}
       <div class="case-tags">
@@ -1869,6 +1877,8 @@
     show(button.dataset.view);
     if (button.dataset.view === 'settings') loadSettings().catch((error) => setStatus(error.message, 'error'));
   }));
+  $('casesWorkspaceBtn').addEventListener('click', () => show('queue'));
+  $('dashboardWorkspaceBtn').addEventListener('click', () => show('dashboard'));
   $('refreshBtn').addEventListener('click', async () => {
     if (state.refreshing) return;
     state.refreshing = true;
