@@ -861,8 +861,13 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertIn('class="jbl-comment-section"', script)
         self.assertIn('class="jbl-support-card"', script)
         self.assertIn('class="jbl-media-grid"', script)
-        self.assertIn('<span>Camera</span>', script)
-        self.assertIn('<span>Upload</span>', script)
+        self.assertIn('<div class="media-upload-control">${mediaFields}</div>', script)
+        self.assertIn('<span class="sr-only">Open camera</span>', script)
+        self.assertIn('<span class="sr-only">Choose files</span>', script)
+        self.assertIn('class="voice-language-button active"', script)
+        self.assertNotIn('VOICE_LANGUAGE_ORDER.map(mode =>', script)
+        self.assertIn("VOICE_LANGUAGE_ORDER[(VOICE_LANGUAGE_ORDER.indexOf(current) + 1) % VOICE_LANGUAGE_ORDER.length]", script)
+        self.assertIn('No preview', script)
         self.assertIn("headerStatus.textContent = message || 'Autosave on'", script)
         self.assertIn('id="sheet-navigation" class="sheet-navigation" hidden', template)
         self.assertIn('id="sheet-back" class="sheet-back-button"', template)
@@ -876,6 +881,7 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertIn('.jbl-visit-sheet .form-section.form-grid.jbl-details-grid', stylesheet)
         self.assertIn('.jbl-visit-sheet .jbl-media-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); }', stylesheet)
         self.assertIn('.jbl-visit-sheet .gps-capture-summary .gps-captured', stylesheet)
+        self.assertIn('.jbl-visit-sheet [data-jbl-field].invalid { outline:0;', stylesheet)
 
     def grant_portal_access(self, role='JBL_OFFICER', branches=None):
         user = get_user_model().objects.create_user(

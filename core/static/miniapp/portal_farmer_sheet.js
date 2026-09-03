@@ -73,9 +73,7 @@
       <button type="button" class="voice-record-button" data-voice-action="record" aria-pressed="false" aria-label="Dictate comment" title="Dictate comment">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg><span class="voice-record-label sr-only">Dictate</span><span class="voice-record-visible-label" aria-hidden="true">Voice Input</span>
       </button>
-      <div class="voice-language-switch" role="group" aria-label="Recording language">
-        ${VOICE_LANGUAGE_ORDER.map(mode => `<button type="button" class="voice-language-button${mode === language ? ' active' : ''}" data-voice-action="language" data-language-mode-value="${mode}" aria-pressed="${mode === language ? 'true' : 'false'}">${VOICE_LANGUAGE_LABELS[mode]}</button>`).join('')}
-      </div>
+      <button type="button" class="voice-language-button active" data-voice-action="language" data-language-mode-value="${language}" aria-label="Recording language: ${VOICE_LANGUAGE_LABELS[language]}. Tap to change.">${VOICE_LANGUAGE_LABELS[language]}</button>
       <small class="voice-status" aria-live="polite" hidden></small>
       <div class="voice-review" hidden>
         <div><p class="voice-transcript" aria-label="Transcription to review"></p><small class="voice-detected-language"></small></div>
@@ -239,14 +237,14 @@
       const action = event.target.closest('[data-voice-action]')?.dataset.voiceAction;
       if (!action) return;
       if (action === 'language') {
-        const next = event.target.closest('[data-language-mode-value]')?.dataset.languageModeValue || 'auto';
+        const button = event.target.closest('[data-language-mode-value]');
+        const current = widget.dataset.languageMode || 'auto';
+        const next = VOICE_LANGUAGE_ORDER[(VOICE_LANGUAGE_ORDER.indexOf(current) + 1) % VOICE_LANGUAGE_ORDER.length];
         widget.dataset.languageMode = next;
         const label = VOICE_LANGUAGE_LABELS[next];
-        widget.querySelectorAll('[data-language-mode-value]').forEach(button => {
-          const selected = button.dataset.languageModeValue === next;
-          button.classList.toggle('active', selected);
-          button.setAttribute('aria-pressed', String(selected));
-        });
+        button.dataset.languageModeValue = next;
+        button.textContent = label;
+        button.setAttribute('aria-label', `Recording language: ${label}. Tap to change.`);
         try { localStorage.setItem(VOICE_LANGUAGE_KEY, next); } catch (_error) {}
         setVoiceStatus(widget, '', 'language');
         deps.showToast(`${label} voice mode`, 'info');
@@ -913,7 +911,7 @@
     const mediaFields = canWriteMedia ? `
       <div class="jbl-media-grid">
         ${jblMediaCategoryMarkup({
-          category: 'LAF', title: 'LAF Documents', help: 'PDF, JPG or PNG',
+          category: 'LAF', title: 'LAF', help: 'PDF, JPG or PNG',
           pickerId: 'jbl-laf-media', cameraId: 'jbl-laf-camera',
           accept: 'application/pdf,.pdf,image/jpeg,image/png,.jpg,.jpeg,.png',
         })}
@@ -934,16 +932,16 @@
       <div class="form-section form-grid jbl-details-grid">
         <div class="form-row" data-jbl-field="visit_date"><label title="JBL visits follow the HBG visit and cannot be future-dated.">Visit Date <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><div class="jbl-date-control"><input type="text" id="jbl-date-display" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="dd-mm-yy" aria-describedby="jbl-date-help" aria-required="true" value="${deps.escapeHtml(displayDateFromIso(defaultVisitDate))}"><button type="button" id="jbl-date-open" class="jbl-date-open" aria-label="Open native visit date picker" title="Choose visit date">${calendarIcon()}</button><input type="date" id="jbl-date-picker" class="native-date-proxy" min="${deps.escapeHtml(hbgVisitDate)}" max="${deps.escapeHtml(today)}" value="${deps.escapeHtml(defaultVisitDate)}" tabindex="-1" aria-hidden="true"><input type="hidden" id="jbl-date" value="${deps.escapeHtml(defaultVisitDate)}"></div><small id="jbl-date-help" class="field-help">Use dd-mm-yy. Earliest: ${deps.escapeHtml(displayDateFromIso(hbgVisitDate) || 'recorded HBG visit')}; latest: ${deps.escapeHtml(displayDateFromIso(today))}.</small><small class="jbl-field-error" data-error-message-for="visit_date"></small></div>
         <div class="form-row" data-jbl-field="visit_status"><label>Outcome <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="jbl-status" aria-required="true"><option value="">- Select -</option>${statusOptions}</select><small class="jbl-field-error" data-error-message-for="visit_status"></small></div>
-        <div class="form-row"><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Uses your staff identity" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
+        <div class="form-row"><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Your staff identity" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
         <div class="form-row" data-jbl-field="county"><label>County</label><select id="jbl-county"><option value="">- Select county -</option>${countyOptions}</select><small class="jbl-field-error" data-error-message-for="county"></small></div>
-        <div class="form-row" data-jbl-field="sub_county"><label>Sub-county</label><select id="jbl-sub-county"><option value="">- Select sub-county -</option>${legacySubCounty}</select><small class="jbl-field-error" data-error-message-for="sub_county"></small></div>
+        <div class="form-row" data-jbl-field="sub_county"><label>Sub-county</label><select id="jbl-sub-county"><option value="">- Select -</option>${legacySubCounty}</select><small class="jbl-field-error" data-error-message-for="sub_county"></small></div>
         <div class="form-row"><label>Village</label><input type="text" id="jbl-village" placeholder="Village / area" value="${deps.escapeHtml(farmer.village || '')}"></div>
       </div>
       <p class="jbl-section-label">Comment</p>
       <section class="jbl-comment-section"><div class="jbl-comment-control"><textarea id="jbl-comment" rows="2" placeholder="Additional notes">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea>${voiceWidget('jbl_visit_comment', 'jbl-comment')}</div></section>
       <p class="jbl-section-label">${canWriteMedia ? `Visit media and location` : `Visit location`}</p>
       <section class="jbl-support-card">
-        ${mediaFields}
+        ${canWriteMedia ? `<div class="media-upload-control">${mediaFields}</div>` : ''}
         <div class="gps-capture-row" data-jbl-field="capture_location">
           <div class="gps-capture-summary"><span class="gps-capture-icon"><i data-lucide="map-pin" aria-hidden="true"></i></span><span><strong>GPS Location</strong><small id="gps-coords" class="field-help">Not captured yet</small></span></div>
           <button type="button" id="btn-gps" class="secondary"><span>Capture</span></button>
@@ -986,7 +984,7 @@
         return;
       }
       replaceLocationOptions(countySelect, data.counties, data.selected_county?.code || county, '- Select county -');
-      replaceLocationOptions(subCountySelect, data.sub_counties, initialSubCounty, '- Select sub-county -');
+      replaceLocationOptions(subCountySelect, data.sub_counties, initialSubCounty, '- Select -');
       initialCounty = countySelect.value;
       initialSubCounty = subCountySelect.value;
     };
@@ -1020,8 +1018,8 @@
       <div class="jbl-media-category-heading">
         <span>${safeTitle}</span>
         <div class="jbl-media-source-actions">
-          <button type="button" class="jbl-media-icon-button" id="${cameraId}" data-camera-category="${category}" aria-label="Open live camera for ${safeTitle}" title="Open camera">${cameraIcon()}<span>Camera</span></button>
-          <label class="jbl-media-icon-button" for="${pickerId}" data-input-id="${pickerId}" role="button" tabindex="0" aria-label="Choose files for ${safeTitle}" title="Choose files">${pickerIcon()}<span>Upload</span></label>
+          <button type="button" class="jbl-media-icon-button" id="${cameraId}" data-camera-category="${category}" aria-label="Open live camera for ${safeTitle}" title="Open camera">${cameraIcon()}<span class="sr-only">Open camera</span></button>
+          <label class="jbl-media-icon-button" for="${pickerId}" data-input-id="${pickerId}" role="button" tabindex="0" aria-label="Choose files for ${safeTitle}" title="Choose files">${pickerIcon()}<span class="sr-only">Choose files</span></label>
         </div>
       </div>
       <small>${deps.escapeHtml(help)}</small>
@@ -1034,7 +1032,7 @@
 
   function jblLiveCameraMarkup() {
     return `<section class="jbl-live-camera" id="jbl-live-camera" hidden aria-label="Live camera">
-      <div class="jbl-live-camera-heading"><strong id="jbl-live-camera-title">Take evidence photo</strong><button type="button" class="jbl-camera-close" id="jbl-camera-close" aria-label="Close camera" title="Close">${removeIcon()}<span class="sr-only">Close camera</span></button></div>
+      <div class="jbl-live-camera-heading"><strong id="jbl-live-camera-title">Take visit photo</strong><button type="button" class="jbl-camera-close" id="jbl-camera-close" aria-label="Close camera" title="Close">${removeIcon()}<span class="sr-only">Close camera</span></button></div>
       <div class="jbl-camera-viewport"><video id="jbl-camera-video" autoplay muted playsinline></video><div class="jbl-camera-status" id="jbl-camera-status" role="status">Starting camera…</div></div>
       <button type="button" class="jbl-camera-shutter" id="jbl-camera-shutter" aria-label="Take photo" title="Take photo" disabled><span aria-hidden="true"></span><span class="sr-only">Take photo</span></button>
     </section>`;
@@ -2097,7 +2095,7 @@
           <div class="client-media-actions">
             ${item.preview_url
               ? `<button type="button" class="media-link media-preview-link" data-media-index="${index}"><i data-lucide="eye" aria-hidden="true"></i><span>View</span></button>`
-              : '<span class="media-link media-link-unavailable">In-app preview unavailable for this older upload</span>'}
+              : '<span class="media-link media-link-unavailable">No preview</span>'}
             ${item.open_url
               ? `<button type="button" class="media-link media-external-link" data-media-external-index="${index}" title="Open externally" aria-label="Open externally"><i data-lucide="external-link" aria-hidden="true"></i></button>`
               : ''}
@@ -2189,7 +2187,7 @@
         name: item.name || 'Client media',
       });
     } catch (error) {
-      content.innerHTML = `<p class="media-viewer-error">${deps.escapeHtml(error.message || 'Could not open this client media.')} The Portal remains open; close this view and retry.</p>`;
+      content.innerHTML = `<p class="media-viewer-error">${deps.escapeHtml(error.message || 'Could not open this media.')} Close and retry.</p>`;
     }
   }
 
