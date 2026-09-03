@@ -17,6 +17,7 @@
     globalSort: '-date_reported', reportGridApi: null, reportGridLoading: false,
     categoryChart: null, timeChart: null, categoryChartType: 'bar', reportGranularity: 'month',
     reportSummarySequence: 0, reportTableSequence: 0, reportFilterTimer: null,
+    reportTableAbortController: null,
     evidence: { create: [], resolve: [] },
     categoryDescriptions: new Map(),
     evidenceLimits: { max_files: 10, max_file_size_mb: 10, max_total_upload_mb: 30 },
@@ -24,6 +25,8 @@
     mediaViewerObjectUrl: '', mediaViewerRestoreFocus: null,
     mediaViewerMode: '', mediaViewerTarget: '', mediaViewerItemId: '',
     mediaViewerRequestSequence: 0, persistedEvidence: [],
+    mediaViewerPointers: new Map(), mediaViewerSwipe: null,
+    mediaViewerPinch: null, mediaViewerZoom: 100,
     exportObjectUrl: '', exportFilename: '', exportFile: null,
   };
 
@@ -45,8 +48,8 @@
   function json(path, payload) {
     return apiClient.postJson(path, Object.assign({ group_id: state.groupId }, payload || {}), state.initData, utils);
   }
-  function getJson(path, params) {
-    return apiClient.getJson(path, Object.assign({ group_id: state.groupId }, params || {}), state.initData, utils);
+  function getJson(path, params, requestSettings) {
+    return apiClient.getJson(path, Object.assign({ group_id: state.groupId }, params || {}), state.initData, utils, requestSettings);
   }
   function form(path, data, groupId) {
     return apiClient.postForm(path, data, state.initData, groupId || state.groupId, utils);
@@ -322,8 +325,90 @@
   function mediaHeaders(accessRequestId) {
     return { 'X-Telegram-Init-Data': state.initData, 'X-Request-ID': accessRequestId || requestId('complaint-evidence') };
   }
+  function mediaPointDistance(points) {
+    return Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+  }
+  function mediaPointMidpoint(points) {
+    return { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 };
+  }
+  function resetMediaViewerGestures() {
+    state.mediaViewerPointers.clear(); state.mediaViewerSwipe = null;
+    state.mediaViewerPinch = null; state.mediaViewerZoom = 100;
+    const content = $('mediaViewerContent'); const image = content.querySelector('.media-viewer-image');
+    content.classList.remove('image-gestures', 'zoomed'); delete content.dataset.zoom;
+    content.removeAttribute('aria-label'); content.scrollLeft = 0; content.scrollTop = 0;
+    if (image) image.style.width = '';
+  }
+  function activateMediaViewerGestures() {
+    resetMediaViewerGestures();
+    const content = $('mediaViewerContent'); const image = content.querySelector('.media-viewer-image');
+    content.setAttribute('aria-label', image
+      ? 'File preview. Swipe left or right to browse files. Pinch to zoom this image.'
+      : 'File preview. Swipe left or right to browse files.');
+    if (image) { content.classList.add('image-gestures'); content.dataset.zoom = '100'; image.style.width = '100%'; }
+  }
+  function setMediaViewerZoom(value, focalPoint) {
+    const content = $('mediaViewerContent'); const image = content.querySelector('.media-viewer-image');
+    if (!image) return;
+    const previousZoom = state.mediaViewerZoom;
+    const nextZoom = Math.max(50, Math.min(300, Math.round(value)));
+    if (nextZoom === previousZoom) return;
+    const bounds = content.getBoundingClientRect();
+    const localX = (focalPoint?.x ?? (bounds.left + bounds.width / 2)) - bounds.left;
+    const localY = (focalPoint?.y ?? (bounds.top + bounds.height / 2)) - bounds.top;
+    const ratio = nextZoom / previousZoom;
+    state.mediaViewerZoom = nextZoom; content.dataset.zoom = String(nextZoom);
+    content.classList.toggle('zoomed', nextZoom !== 100); image.style.width = `${nextZoom}%`;
+    content.scrollLeft = (content.scrollLeft + localX) * ratio - localX;
+    content.scrollTop = (content.scrollTop + localY) * ratio - localY;
+  }
+  function mediaViewerPointerDown(event) {
+    if (event.pointerType === 'mouse' || $('mediaViewerOverlay').hidden) return;
+    state.mediaViewerPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (state.mediaViewerPointers.size === 1) {
+      state.mediaViewerSwipe = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, startedAt: Date.now(), cancelled: false };
+    }
+    if (state.mediaViewerPointers.size === 2 && $('mediaViewerContent').querySelector('.media-viewer-image')) {
+      if (state.mediaViewerSwipe) state.mediaViewerSwipe.cancelled = true;
+      const points = Array.from(state.mediaViewerPointers.values());
+      state.mediaViewerPinch = { distance: mediaPointDistance(points), zoom: state.mediaViewerZoom };
+    }
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch (_) { /* Synthetic and older WebView events may not capture. */ }
+    event.preventDefault();
+  }
+  function mediaViewerPointerMove(event) {
+    const previous = state.mediaViewerPointers.get(event.pointerId);
+    if (!previous) return;
+    state.mediaViewerPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (state.mediaViewerPointers.size === 2 && state.mediaViewerPinch) {
+      const points = Array.from(state.mediaViewerPointers.values());
+      const distance = mediaPointDistance(points);
+      if (state.mediaViewerPinch.distance) {
+        setMediaViewerZoom(state.mediaViewerPinch.zoom * (distance / state.mediaViewerPinch.distance), mediaPointMidpoint(points));
+      }
+    } else if (state.mediaViewerPointers.size === 1) {
+      event.currentTarget.scrollLeft -= event.clientX - previous.x;
+      event.currentTarget.scrollTop -= event.clientY - previous.y;
+    }
+    event.preventDefault();
+  }
+  function finishMediaViewerPointer(event, cancelled) {
+    if (!state.mediaViewerPointers.has(event.pointerId)) return;
+    const swipe = state.mediaViewerSwipe;
+    if (!cancelled && event.type === 'pointerup' && swipe && swipe.pointerId === event.pointerId && !swipe.cancelled && state.mediaViewerPointers.size === 1) {
+      const deltaX = event.clientX - swipe.startX; const deltaY = event.clientY - swipe.startY;
+      const threshold = Math.max(56, event.currentTarget.clientWidth * .16);
+      const deliberateHorizontalSwipe = Math.abs(deltaX) >= threshold
+        && Math.abs(deltaX) > Math.abs(deltaY) * 1.35
+        && Date.now() - swipe.startedAt <= 900;
+      if (deliberateHorizontalSwipe && navigateMediaViewer(deltaX < 0 ? 1 : -1)) utils.haptic?.('light');
+    }
+    state.mediaViewerPointers.delete(event.pointerId); state.mediaViewerPinch = null;
+    if (!state.mediaViewerPointers.size || swipe?.pointerId === event.pointerId) state.mediaViewerSwipe = null;
+  }
   function closeMediaViewer() {
     state.mediaViewerRequestSequence += 1;
+    resetMediaViewerGestures();
     $('mediaViewerOverlay').hidden = true; $('mediaViewerContent').replaceChildren();
     $('mediaViewerActions').hidden = true;
     window.SecureMediaViewer?.revoke(state.mediaViewerObjectUrl); state.mediaViewerObjectUrl = '';
@@ -331,6 +416,7 @@
     const restore = state.mediaViewerRestoreFocus; state.mediaViewerRestoreFocus = null; restore?.focus?.();
   }
   function showMediaViewer(restoreFocus) {
+    resetMediaViewerGestures();
     if (!$('mediaViewerOverlay').hidden) {
       window.SecureMediaViewer?.revoke(state.mediaViewerObjectUrl); state.mediaViewerObjectUrl = '';
       $('mediaViewerContent').replaceChildren();
@@ -381,6 +467,7 @@
       state.mediaViewerObjectUrl = viewer.renderBlob($('mediaViewerContent'), blob, {
         mimeType: item.mime_type || '', name: item.name || 'Complaint evidence',
       });
+      activateMediaViewerGestures();
     } catch (error) {
       if (requestSequence !== state.mediaViewerRequestSequence) return;
       $('mediaViewerContent').replaceChildren(textNode('p', `${error.message || 'The evidence could not be opened.'} Close this view and retry.`, 'media-viewer-error'));
@@ -599,6 +686,7 @@
       return;
     }
     state.mediaViewerObjectUrl = viewer.renderBlob($('mediaViewerContent'), item.file, { mimeType: item.file.type, name: item.file.name });
+    activateMediaViewerGestures();
   }
 
   function stopCamera() {
@@ -673,9 +761,10 @@
       ? entry.id === state.mediaViewerItemId
       : entry.preview_url === state.mediaViewerItemId);
     const target = entries[index + offset];
-    if (!target) return;
+    if (!target) return false;
     if (state.mediaViewerMode === 'selected') openSelectedEvidence(state.mediaViewerTarget, target.id, null);
     else openPersistedEvidence(target, null);
+    return true;
   }
   function deleteSelectedMediaFromViewer() {
     if (state.mediaViewerMode !== 'selected') return;
@@ -918,23 +1007,45 @@
   }
   async function loadGlobalCases(filters) {
     const sequence = ++state.reportTableSequence;
+    state.reportTableAbortController?.abort();
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    state.reportTableAbortController = controller;
+    let requestTimedOut = false;
+    let timeout;
+    const timeoutPromise = new Promise((resolve, reject) => {
+      timeout = setTimeout(() => {
+        requestTimedOut = true; controller?.abort();
+        reject(new Error('The complaints table request timed out.'));
+      }, 20000);
+    });
     initializeReportGrid();
     state.reportGridLoading = true; state.reportGridApi?.showLoadingOverlay();
     try {
-      const response = await getJson('reports/data/', Object.assign({}, filters, {
+      const response = await Promise.race([getJson('reports/data/', Object.assign({}, filters, {
         page: state.globalPage, page_size: state.globalPageSize, sort: state.globalSort,
-      }));
+      }), controller ? { signal: controller.signal } : undefined), timeoutPromise]);
       if (sequence !== state.reportTableSequence) return;
       state.globalPage = response.page; state.globalPages = Math.max(1, Math.ceil(response.count / response.page_size));
       $('globalResultCount').textContent = `${response.count} complaint${response.count === 1 ? '' : 's'} found`;
-      state.reportGridApi?.setGridOption('rowData', response.results || []);
-      if (!response.results?.length) state.reportGridApi?.showNoRowsOverlay();
+      const rows = response.results || [];
+      state.reportGridApi?.setGridOption('rowData', rows);
+      if (rows.length) state.reportGridApi?.hideOverlay();
+      else state.reportGridApi?.showNoRowsOverlay();
       $('globalPagination').hidden = state.globalPages <= 1;
       $('globalPageLabel').textContent = `Page ${state.globalPage} of ${state.globalPages}`;
       $('globalPreviousBtn').disabled = state.globalPage <= 1; $('globalNextBtn').disabled = state.globalPage >= state.globalPages;
     } catch (error) {
-      if (sequence === state.reportTableSequence) { state.reportGridApi?.showNoRowsOverlay(); notify(error.message, true); }
-    } finally { if (sequence === state.reportTableSequence) state.reportGridLoading = false; }
+      if (sequence === state.reportTableSequence) {
+        state.reportGridApi?.hideOverlay(); state.reportGridApi?.showNoRowsOverlay();
+        notify(requestTimedOut ? 'The complaints table took too long to load. Please try the filter again.' : error.message, true);
+      }
+    } finally {
+      clearTimeout(timeout);
+      if (sequence === state.reportTableSequence) {
+        state.reportGridLoading = false;
+        if (state.reportTableAbortController === controller) state.reportTableAbortController = null;
+      }
+    }
   }
   async function openGlobalWorkspace() {
     if (!can('complaint.reports.view')) return notify('Management report access is not assigned to your account.', true);
@@ -1096,6 +1207,11 @@
   $('mediaViewerDelete').addEventListener('click', deleteSelectedMediaFromViewer);
   $('mediaViewerRetake').addEventListener('click', retakeSelectedMediaFromViewer);
   $('mediaViewerOverlay').addEventListener('click', event => { if (event.target === event.currentTarget) closeMediaViewer(); });
+  $('mediaViewerContent').addEventListener('pointerdown', mediaViewerPointerDown);
+  $('mediaViewerContent').addEventListener('pointermove', mediaViewerPointerMove);
+  $('mediaViewerContent').addEventListener('pointerup', event => finishMediaViewerPointer(event, false));
+  $('mediaViewerContent').addEventListener('pointercancel', event => finishMediaViewerPointer(event, true));
+  $('mediaViewerContent').addEventListener('lostpointercapture', event => finishMediaViewerPointer(event, true));
   $('createCaseForm').elements.complaint_description.addEventListener('input', scheduleCategorySuggestion);
   $('createCaseForm').elements.complaint_category.addEventListener('input', updateCategoryGuidance);
   $('createCaseForm').elements.client_name.addEventListener('blur', event => normalizeCustomerNameInput(event.currentTarget));

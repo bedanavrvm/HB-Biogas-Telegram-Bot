@@ -27,6 +27,7 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   await page.evaluate(() => {
     document.body.dataset.groupId = '-100-report-test';
     window.__backVisible = false; window.__backHandler = null; window.__reportRequests = []; window.__sharedFiles = [];
+    window.__reportDataDelays = []; window.__reportAborted = 0;
     const webApp = {
       initData: 'synthetic-signed-init-data',
       platform: 'android',
@@ -49,7 +50,7 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
         if (path === 'cases/') return { cases: [], pagination: { page: 1, pages: 1, total: 0 }, start_index: 0 };
         return { data: {} };
       },
-      async getJson(path, params) {
+      async getJson(path, params, _initData, _utils, requestSettings) {
         window.__reportRequests.push({ path, params: Object.assign({}, params || {}) });
         if (path === 'reports/summary/') return {
           total: 1, pending: 1, resolved: 0, needs_details: 0,
@@ -60,6 +61,14 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
           time_granularity: params?.granularity || 'month',
           filter_options: { branches: [{ label: 'Nakuru', count: 1 }], categories: [{ label: 'Leakage', count: 1 }] },
         };
+        const delay = path === 'reports/data/' ? (window.__reportDataDelays.shift() || 0) : 0;
+        if (delay) await new Promise((resolve, reject) => {
+          const timer = setTimeout(resolve, delay);
+          requestSettings?.signal?.addEventListener('abort', () => {
+            clearTimeout(timer); window.__reportAborted += 1;
+            reject(new DOMException('The request was cancelled.', 'AbortError'));
+          }, { once: true });
+        });
         return { results: [{
           complaint_id: 'CMP000001', date_reported: '2026-09-01T10:00:00+03:00', status: 'Pending', needs_details: false,
           customer_name: 'TEST CUSTOMER', customer_id: '12345678', phone_number: '254700000000', reported_by: 'Officer',
@@ -138,6 +147,16 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   await page.locator('#reportGranularity').selectOption('year');
   await expect.poll(() => page.evaluate(() => window.Chart.getChart('timeChart')?.data.labels[0])).toBe('01-01-26');
   expect(await page.evaluate(() => window.__reportRequests.filter(item => item.path === 'reports/data/').length)).toBe(dataRequestsBeforeGrouping);
+
+  const dataRequestsBeforeRace = await page.evaluate(() => window.__reportRequests.filter(item => item.path === 'reports/data/').length);
+  await page.evaluate(() => { window.__reportDataDelays = [250, 10]; });
+  await page.locator('select[name="status"]').selectOption('pending');
+  await expect.poll(() => page.evaluate(() => window.__reportRequests.filter(item => item.path === 'reports/data/').length)).toBe(dataRequestsBeforeRace + 1);
+  await page.locator('select[name="status"]').selectOption('resolved');
+  await expect.poll(() => page.evaluate(() => window.__reportRequests.filter(item => item.path === 'reports/data/').length)).toBe(dataRequestsBeforeRace + 2);
+  await expect.poll(() => page.evaluate(() => window.__reportAborted)).toBe(1);
+  await expect(page.locator('.ag-overlay-loading-center:visible')).toHaveCount(0);
+  await expect(page.locator('.ag-row')).toHaveCount(1);
 
   for (const width of [320, 360, 390]) {
     await page.setViewportSize({ width, height: 780 });
@@ -341,8 +360,47 @@ test('Complaint camera captures multiple photos and the viewer navigates deletes
   expect(viewerHeader.closeWidth).toBe(40);
   expect(viewerHeader.closeRight).toBeLessThanOrEqual(viewerHeader.viewportWidth);
   expect(viewerHeader.filenameClipped).toBe(true);
+
+  const dispatchViewerPointers = sequence => page.evaluate(events => {
+    const target = document.getElementById('mediaViewerContent');
+    events.forEach(item => target.dispatchEvent(new PointerEvent(item.type, {
+      bubbles: true, cancelable: true, pointerId: item.id, pointerType: 'touch',
+      clientX: item.x, clientY: item.y, buttons: item.type === 'pointerup' ? 0 : 1,
+    })));
+  }, sequence);
+  await dispatchViewerPointers([
+    { type: 'pointerdown', id: 1, x: 320, y: 300 },
+    { type: 'pointermove', id: 1, x: 90, y: 305 },
+    { type: 'pointerup', id: 1, x: 90, y: 305 },
+  ]);
+  await expect(page.locator('#mediaViewerSub')).toContainText('2 of 2');
+  await dispatchViewerPointers([
+    { type: 'pointerdown', id: 2, x: 80, y: 300 },
+    { type: 'pointermove', id: 2, x: 310, y: 295 },
+    { type: 'pointerup', id: 2, x: 310, y: 295 },
+  ]);
+  await expect(page.locator('#mediaViewerSub')).toContainText('1 of 2');
+
+  await dispatchViewerPointers([
+    { type: 'pointerdown', id: 3, x: 100, y: 300 },
+    { type: 'pointerdown', id: 4, x: 200, y: 300 },
+    { type: 'pointermove', id: 4, x: 300, y: 300 },
+    { type: 'pointerup', id: 4, x: 300, y: 300 },
+    { type: 'pointerup', id: 3, x: 100, y: 300 },
+  ]);
+  await expect(page.locator('#mediaViewerContent')).toHaveAttribute('data-zoom', '200');
+  await expect.poll(() => page.locator('#mediaViewerContent .media-viewer-image').evaluate(image => image.style.width)).toBe('200%');
+  await dispatchViewerPointers([
+    { type: 'pointerdown', id: 5, x: 50, y: 300 },
+    { type: 'pointerdown', id: 6, x: 250, y: 300 },
+    { type: 'pointermove', id: 6, x: 100, y: 300 },
+    { type: 'pointerup', id: 6, x: 100, y: 300 },
+    { type: 'pointerup', id: 5, x: 50, y: 300 },
+  ]);
+  await expect(page.locator('#mediaViewerContent')).toHaveAttribute('data-zoom', '50');
   await page.locator('#mediaViewerNext').click();
   await expect(page.locator('#mediaViewerSub')).toContainText('2 of 2');
+  await expect(page.locator('#mediaViewerContent')).toHaveAttribute('data-zoom', '100');
   await page.locator('#mediaViewerDelete').click();
   await expect(page.locator('#createSelectedEvidence li')).toHaveCount(1);
   await expect(page.locator('#mediaViewerSub')).toContainText('1 of 1');

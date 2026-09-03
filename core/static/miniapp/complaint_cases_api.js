@@ -66,7 +66,7 @@
     return result;
   }
 
-  async function getJson(path, params, initData, utils) {
+  async function getJson(path, params, initData, utils, requestSettings) {
     const query = new URLSearchParams();
     Object.entries(params || {}).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
@@ -78,6 +78,7 @@
         'X-MiniApp-Message-Contract': '2',
       },
     };
+    if (requestSettings?.signal) options.signal = requestSettings.signal;
     const queryString = query.toString();
     const url = `/api/complaints/${path}${queryString ? `?${queryString}` : ''}`;
     if (utils && utils.fetchJson) return utils.fetchJson(url, options);
