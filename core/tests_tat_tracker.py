@@ -592,7 +592,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Assigned to me', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn('?v=60', template)
+        self.assertIn('?v=61', template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -626,7 +626,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-sheet-overlay', stylesheet)
         self.assertIn('class="notice-close tat-sheet-close"', template)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
-        self.assertIn("miniapp/tat_tracker.css' %}?v=33", template)
+        self.assertIn("miniapp/tat_tracker.css' %}?v=34", template)
         self.assertIn('id="appHeader" class="app-top"', template)
         self.assertIn('class="refresh-label"', template)
         self.assertIn('function bindCollapsingHeader()', source)
@@ -669,6 +669,8 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.stage-action-wrap.correction-open { grid-template-columns:repeat(2,minmax(0,1fr)); }', stylesheet)
         self.assertIn('state.report.abortController?.abort()', source)
         self.assertIn("suppressMovableColumns: touch", source)
+        self.assertIn('function formatTatDateTime(value)', source)
+        self.assertIn('data-date-display="date_from"', template)
         self.assertIn("headerName: '#', colId: 'row_number', pinned: 'left', lockPinned: true", source)
         self.assertIn("{ headerName: 'Reference', field: 'case_id', width: 125 }", source)
         self.assertNotIn("field: 'case_id', pinned: 'left'", source)

@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=33">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=34">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
@@ -69,8 +69,8 @@
         <label>Role<select name="role"><option value="">Any Role</option></select></label>
         <label>Status<select name="status"><option value="">Any Status</option><option>Active</option><option>Stalled</option><option>Pending Docs</option><option>Deferred</option><option>Disbursed</option><option>Rejected</option><option>Declined</option></select></label>
         <label>SLA<select name="sla_state"><option value="">Any SLA State</option><option value="within_target">Within Target</option><option value="near_target">Near Target</option><option value="overdue">Overdue</option><option value="target_unavailable">Target Unavailable</option></select></label>
-        <label class="report-date">From<input name="date_from" type="date"></label>
-        <label class="report-date">To<input name="date_to" type="date"></label>
+        <label class="report-date"><span>From</span><span class="native-date-control"><span data-date-display="date_from">dd-mm-yy</span><input name="date_from" type="date" aria-label="Report start date"></span></label>
+        <label class="report-date"><span>To</span><span class="native-date-control"><span data-date-display="date_to">dd-mm-yy</span><input name="date_to" type="date" aria-label="Report end date"></span></label>
         <label class="report-date">Group By<select name="granularity"><option value="day">Day</option><option value="week">Week</option><option value="month" selected>Month</option><option value="year">Year</option></select></label>
         <div class="report-filter-actions"><button type="button" id="tatReportReset" class="secondary">Reset</button><button type="submit" class="primary">Show Results</button></div>
       </form>
@@ -362,6 +362,6 @@
   <script src="{% static 'miniapp/tat_api.js' %}?v=4"></script>
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=60"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=61"></script>
 </body>
 </html>

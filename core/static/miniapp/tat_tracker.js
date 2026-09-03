@@ -426,7 +426,7 @@
             <circle cx="12" cy="12" r="10"/>
             <polyline points="12 6 12 12 16 14"/>
           </svg>
-          ${escapeHtml(utils.formatDateTime ? utils.formatDateTime(item.updated_at) : (item.updated_at || ''))}
+          ${escapeHtml(formatTatDateTime(item.updated_at))}
         </span>
       </div>`;
     button.addEventListener('click', () => openCase(item.case_id, item.stage_key || ''));
@@ -1502,8 +1502,8 @@
         <div class="fact fact-activity">
           <small>Activity</small>
           <div class="activity-times">
-            <div><small>Created</small><span>${escapeHtml(utils.formatDateTime ? utils.formatDateTime(summary.created_at) : (summary.created_at || ''))}</span></div>
-            <div><small>Updated</small><span>${escapeHtml(utils.formatDateTime ? utils.formatDateTime(summary.updated_at) : (summary.updated_at || ''))}</span></div>
+            <div><small>Created</small><span>${escapeHtml(formatTatDateTime(summary.created_at))}</span></div>
+            <div><small>Updated</small><span>${escapeHtml(formatTatDateTime(summary.updated_at))}</span></div>
           </div>
         </div>
       </div>
@@ -1623,7 +1623,7 @@
         const eventTitle = event.stage || event.title || 'Case event';
         const eventValue = event.detail || event.value || '';
         const eventActor = [event.actor, event.authority && `Authority: ${event.authority}`].filter(Boolean).join(' · ');
-        const eventAt = event.occurred_at ? (utils.formatDateTime ? utils.formatDateTime(event.occurred_at) : event.occurred_at) : event.at;
+        const eventAt = formatTatDateTime(event.occurred_at || event.at);
         const row = document.createElement('div');
         row.className = 'event-item';
         row.innerHTML = `
@@ -1880,6 +1880,7 @@
     const end = new Date(); const start = new Date(end); start.setDate(start.getDate() - 29);
     const localIso = value => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
     form.elements.date_from.value = localIso(start); form.elements.date_to.value = localIso(end);
+    syncReportDateDisplays();
   }
 
   function reportPayload(extra) {
@@ -1907,12 +1908,36 @@
 
   function formatReportDate(value) {
     if (!value) return '';
-    const dateOnly = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const text = String(value).trim();
+    const dateOnly = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (dateOnly) return `${dateOnly[3]}-${dateOnly[2]}-${dateOnly[1].slice(-2)}`;
-    const date = new Date(value);
+    const numeric = text.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2}|\d{4})/);
+    if (numeric) return `${numeric[1].padStart(2, '0')}-${numeric[2].padStart(2, '0')}-${numeric[3].slice(-2)}`;
+    const named = text.match(/^(\d{1,2})-([A-Za-z]{3,9})-(\d{4})/);
+    if (named) {
+      const month = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(named[2].slice(0, 3).toLowerCase()) + 1;
+      if (month) return `${named[1].padStart(2, '0')}-${String(month).padStart(2, '0')}-${named[3].slice(-2)}`;
+    }
+    const date = new Date(text);
     if (Number.isNaN(date.getTime())) return String(value);
     const pad = number => String(number).padStart(2, '0');
     return `${pad(date.getDate())}-${pad(date.getMonth() + 1)}-${String(date.getFullYear()).slice(-2)}`;
+  }
+
+  function formatTatDateTime(value) {
+    if (!value) return '';
+    const date = formatReportDate(value);
+    const time = String(value).match(/(?:T|\s)(\d{1,2}):(\d{2})/);
+    return `${date}${time ? ` ${time[1].padStart(2, '0')}:${time[2]}` : ''}`;
+  }
+
+  function syncReportDateDisplays() {
+    const form = $('tatReportFilters');
+    if (!form) return;
+    ['date_from', 'date_to'].forEach(name => {
+      const display = form.querySelector(`[data-date-display="${name}"]`);
+      if (display) display.textContent = formatReportDate(form.elements[name].value) || 'dd-mm-yy';
+    });
   }
 
   function formatMinutes(value) {
@@ -2111,6 +2136,7 @@
   let tatReportFilterTimer = null;
   $('tatReportFilters').elements.search.addEventListener('input', () => { clearTimeout(tatReportFilterTimer); tatReportFilterTimer = setTimeout(() => { state.report.page = 1; refreshTatReport(); }, 350); });
   $('tatReportReset').addEventListener('click', () => { $('tatReportFilters').reset(); setDefaultReportDates(); state.report.page = 1; refreshTatReport(); });
+  ['date_from', 'date_to'].forEach(name => $('tatReportFilters').elements[name].addEventListener('change', syncReportDateDisplays));
   $('tatReportPrevious').addEventListener('click', () => { if (state.report.page > 1) { state.report.page -= 1; refreshTatReport({ summary: false }); } });
   $('tatReportNext').addEventListener('click', () => { if (state.report.page * state.report.pageSize < state.report.count) { state.report.page += 1; refreshTatReport({ summary: false }); } });
   $('tatReportExport').addEventListener('click', exportTatReport);

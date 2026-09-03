@@ -3125,7 +3125,7 @@ def format_datetime(value) -> str:
         return ''
     if timezone.is_aware(value):
         value = timezone.localtime(value)
-    return value.strftime('%d-%b-%Y %H:%M')
+    return value.strftime('%d-%m-%y %H:%M')
 
 
 def tat_hours_formula(product: ProductConfig, row: int) -> str:
