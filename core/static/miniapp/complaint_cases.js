@@ -739,6 +739,14 @@
       .map(item => item.label).sort((left, right) => left.localeCompare(right));
     return new Map(labels.map((label, index) => [label, `hsl(${Math.round((index * 137.508) % 360)} 65% 48%)`]));
   }
+  function formatChartPeriodDate(value, granularity) {
+    const raw = String(value || '').trim();
+    let match;
+    if (granularity === 'year' && (match = raw.match(/^(\d{4})$/))) return `01-01-${match[1].slice(-2)}`;
+    if (granularity === 'month' && (match = raw.match(/^(\d{4})-(\d{2})$/))) return `01-${match[2]}-${match[1].slice(-2)}`;
+    if ((match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/))) return `${match[3]}-${match[2]}-${match[1].slice(-2)}`;
+    return raw;
+  }
   function setChartState(name, message) {
     const canvas = $(name === 'category' ? 'categoryChart' : 'timeChart');
     const status = $(name === 'category' ? 'categoryChartState' : 'timeChartState');
@@ -769,9 +777,9 @@
     }
     if (periods.length) state.timeChart = new window.Chart($('timeChart'), {
       type: 'line', data: {
-        labels: periods.map(item => item.label),
+        labels: periods.map(item => formatChartPeriodDate(item.label, summary.time_granularity || state.reportGranularity)),
         datasets: [{ data: periods.map(item => item.count), borderColor: chartColor('--accent', '#087f5b'), backgroundColor: chartColor('--soft', 'rgba(8,127,91,.12)'), fill: true, tension: .25, pointRadius: 2 }],
-      }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: textColor, maxRotation: 45, minRotation: 0 } }, y: { beginAtZero: true, ticks: { precision: 0, color: textColor } } } },
+      }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: textColor, autoSkip: true, autoSkipPadding: 8, maxTicksLimit: window.innerWidth <= 480 ? 4 : 8, maxRotation: 0, minRotation: 0, padding: 4, font: { size: 9 } } }, y: { beginAtZero: true, ticks: { precision: 0, color: textColor } } } },
     });
   }
   function preserveSelectOptions(select, items, placeholder) {

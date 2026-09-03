@@ -21,6 +21,7 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   await page.setViewportSize({ width: 360, height: 780 });
   await page.setContent(template);
   await page.addStyleTag({ path: asset('vendor-ag-grid-community-36.1.0.min.css') });
+  await page.addStyleTag({ path: asset('vendor-ag-grid-quartz-font-36.1.0.min.css') });
   await page.addStyleTag({ path: asset('vendor-ag-grid-theme-quartz-36.1.0.min.css') });
   await page.addStyleTag({ path: asset('complaint_cases.css') });
   await page.evaluate(() => {
@@ -53,7 +54,10 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
         if (path === 'reports/summary/') return {
           total: 1, pending: 1, resolved: 0, needs_details: 0,
           by_branch: [{ label: 'Nakuru', count: 1 }], by_category: [{ label: 'Leakage', count: 1 }],
-          by_time: [{ label: '2026-09', count: 1 }], time_granularity: params?.granularity || 'month',
+          by_time: (params?.granularity || 'month') === 'day'
+            ? Array.from({ length: 31 }, (_, index) => ({ label: `2026-07-${String(index + 1).padStart(2, '0')}`, count: (index % 4) + 1 }))
+            : [{ label: ({ week: '2026-08-31', month: '2026-09', year: '2026' })[params?.granularity || 'month'], count: 1 }],
+          time_granularity: params?.granularity || 'month',
           filter_options: { branches: [{ label: 'Nakuru', count: 1 }], categories: [{ label: 'Leakage', count: 1 }] },
         };
         return { results: [{
@@ -89,7 +93,14 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   await expect(page.locator('.ag-row')).toHaveCount(1);
   await expect(page.locator('.ag-cell[col-id="date_reported"]')).toHaveText('01-09-26');
   await expect(page.locator('.report-status')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-  await expect(page.locator('.ag-header-cell[col-id="date_reported"] .ag-sort-indicator-container')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.fonts.check('16px agGridQuartz'))).toBe(true);
+  await expect(page.locator('.ag-header-cell[col-id="complaint_id"] .ag-sort-indicator-icon:visible')).toHaveCount(0);
+  await expect(page.locator('.ag-header-cell[col-id="date_reported"] .ag-sort-indicator-icon:visible')).toHaveCount(1);
+  await page.locator('.ag-header-cell[col-id="date_reported"]').click();
+  await expect(page.locator('.ag-header-cell[col-id="date_reported"]')).toHaveAttribute('aria-sort', 'ascending');
+  await expect(page.locator('.ag-header-cell[col-id="date_reported"] .ag-sort-indicator-icon:visible .ag-icon-asc')).toHaveCount(1);
+  await expect.poll(() => page.evaluate(() => window.Chart.getChart('timeChart')?.data.labels[0])).toBe('01-09-26');
+  const monthlyPlotHeight = await page.evaluate(() => window.Chart.getChart('timeChart').chartArea.height);
   await page.locator('.ag-body-horizontal-scroll-viewport').evaluate(node => {
     node.scrollLeft = node.scrollWidth;
     node.dispatchEvent(new Event('scroll'));
@@ -112,6 +123,18 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   const dataRequestsBeforeGrouping = await page.evaluate(() => window.__reportRequests.filter(item => item.path === 'reports/data/').length);
   await page.locator('#reportGranularity').selectOption('week');
   await expect.poll(() => page.evaluate(() => window.__reportRequests.some(item => item.path === 'reports/summary/' && item.params.granularity === 'week'))).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.Chart.getChart('timeChart')?.data.labels[0])).toBe('31-08-26');
+  const timeAxis = await page.evaluate(() => {
+    const ticks = window.Chart.getChart('timeChart').options.scales.x.ticks;
+    return { maxRotation: ticks.maxRotation, minRotation: ticks.minRotation, maxTicksLimit: ticks.maxTicksLimit, fontSize: ticks.font.size };
+  });
+  expect(timeAxis).toEqual({ maxRotation: 0, minRotation: 0, maxTicksLimit: 4, fontSize: 9 });
+  await page.locator('#reportGranularity').selectOption('day');
+  await expect.poll(() => page.evaluate(() => window.Chart.getChart('timeChart')?.data.labels.at(-1))).toBe('31-07-26');
+  const dailyPlotHeight = await page.evaluate(() => window.Chart.getChart('timeChart').chartArea.height);
+  expect(Math.abs(dailyPlotHeight - monthlyPlotHeight)).toBeLessThanOrEqual(2);
+  await page.locator('#reportGranularity').selectOption('year');
+  await expect.poll(() => page.evaluate(() => window.Chart.getChart('timeChart')?.data.labels[0])).toBe('01-01-26');
   expect(await page.evaluate(() => window.__reportRequests.filter(item => item.path === 'reports/data/').length)).toBe(dataRequestsBeforeGrouping);
 
   for (const width of [320, 360, 390]) {
