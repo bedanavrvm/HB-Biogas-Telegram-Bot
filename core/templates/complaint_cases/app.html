@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=28">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=30">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
   {% include "complaint_cases/lucide_icons.html" %}
@@ -90,7 +90,7 @@
       <article class="panel case-summary">
         <p class="eyebrow section-kicker">Complaint Details</p>
         <div class="case-title"><div><p id="detailCaseId" class="case-reference"></p><h2 id="detailName"></h2><p id="detailGroup" class="muted"></p></div><div class="status-stack"><span id="detailStatus" class="status-pill"></span><span id="detailNeedsDetails" class="needs-details-pill" hidden>Needs More Information</span></div></div>
-        <div id="detailIdentifiers" class="identifiers"></div><p id="detailDescription" class="description"></p><div id="detailMeta" class="meta"></div><p id="detailSource" class="source-line"></p><p id="detailSync" class="source-line"></p><button id="retrySyncBtn" type="button" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-refresh-cw"></use></svg><span>Retry Sheet Sync</span></button>
+        <div id="detailIdentifiers" class="identifiers"></div><p id="detailDescription" class="description"></p><div id="detailMeta" class="meta"></div><p id="detailSource" class="source-line"></p><p id="detailSync" class="source-line"></p>
       </article>
       <section id="previousResolution" class="panel resolution-history" hidden><h2>Resolution History</h2><p id="previousResolutionText"></p><small id="previousResolutionMeta" class="muted"></small><div id="previousReopen" hidden><p class="field-label">Reason for Reopening</p><p id="previousReopenText"></p><small id="previousReopenMeta" class="muted"></small></div></section>
       <section id="conflictPanel" class="panel conflict-panel" role="alert" hidden><h2>This complaint changed while you were working</h2><p id="conflictMessage"></p><p class="eyebrow">Resolution recorded first</p><blockquote id="conflictWinningNote"></blockquote><p class="eyebrow">Your retained draft</p><blockquote id="conflictDraft"></blockquote><div class="conflict-actions"><button id="copyConflictDraftBtn" type="button">Copy My Draft</button><button id="reviewConflictBtn" type="button">Review Latest Complaint</button></div></section>
@@ -117,6 +117,6 @@
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
   <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=6"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=34"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=36"></script>
 </body>
 </html>

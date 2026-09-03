@@ -1453,7 +1453,13 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
         }
     elif case.source == 'whatsapp_export':
         source = {'type': 'legacy_batch', 'label': 'Imported from another system'}
-    age_days = max(0, int((timezone.now() - (case.timestamp or case.created_at)).total_seconds() // 86400))
+    reported_at = case.timestamp or case.created_at
+    age_ended_at = case.date_resolved if resolved and case.date_resolved else timezone.now()
+    age_days = max(0, int((age_ended_at - reported_at).total_seconds() // 86400))
+    if resolved:
+        age_label = f'Resolved after {age_days} day' + ('s' if age_days != 1 else '')
+    else:
+        age_label = 'Pending today' if age_days == 0 else f'Pending for {age_days} day' + ('s' if age_days != 1 else '')
     return {
         'id': str(case.id),
         'case_id': case.message_id,
@@ -1470,7 +1476,7 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
         'reported_at': format_datetime(case.timestamp),
         'recorded_at': format_datetime(case.created_at),
         'days_open': age_days,
-        'age_label': ('Resolved' if resolved else ('Pending today' if age_days == 0 else f'Pending for {age_days} day' + ('s' if age_days != 1 else ''))),
+        'age_label': age_label,
         'source_attribution': source,
         'risk_level': case.risk_level,
         'revision': control.revision,

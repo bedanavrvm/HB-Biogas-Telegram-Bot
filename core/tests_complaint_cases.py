@@ -176,6 +176,19 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(counts['resolved'], 0)
         self.assertEqual(counts['total'], 1)
 
+    def test_resolved_case_age_uses_resolution_time_and_friendly_label(self):
+        reported_at = timezone.now() - timedelta(days=8)
+        resolved_at = reported_at + timedelta(days=3, hours=2)
+        self.case.timestamp = reported_at
+        self.case.complaint_status = 'Closed'
+        self.case.date_resolved = resolved_at
+        self.case.save(update_fields=['timestamp', 'complaint_status', 'date_resolved'])
+
+        item = list_cases(self.config, status='Closed')[0]
+
+        self.assertEqual(item['days_open'], 3)
+        self.assertEqual(item['age_label'], 'Resolved after 3 days')
+
     @override_settings(
         COMPLAINT_CASE_MAX_FILES_PER_UPDATE=4,
         COMPLAINT_CASE_MAX_FILE_SIZE_MB=7,
@@ -1348,6 +1361,9 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn("'Branch not provided'", script)
         service = (root / 'services' / 'complaint_cases.py').read_text(encoding='utf-8')
         self.assertIn("f'Pending for {age_days} day'", service)
+        self.assertIn("f'Resolved after {age_days} day'", service)
+        self.assertIn("case-age ${resolved ? 'resolved'", script)
+        self.assertIn('.case-age.resolved{color:var(--success)}', styles)
         for wording in (
             'Management Report', 'Read-only organization-wide complaint data', 'Download Complaints',
             'Any Status', 'Any Category', 'Date Reported', 'Start Date', 'End Date',
@@ -1362,6 +1378,8 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('normalizeCustomerNameInput(formNode.elements.client_name)', script)
         self.assertIn('autocapitalize="words"', template)
         self.assertIn('Sheet Sync:', script)
+        self.assertNotIn('Retry Sheet Sync', template)
+        self.assertNotIn('retrySyncBtn', script)
         self.assertIn('id="appHeader"', template)
         self.assertIn('function bindCollapsingHeader()', script)
         self.assertIn("header.classList.add('header-hidden')", script)

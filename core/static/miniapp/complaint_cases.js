@@ -205,8 +205,10 @@
         metaItem('tag', item.category || 'Other Complaint'),
         metaItem('map-pin', item.branch || 'Branch not provided'),
       );
-      const age = document.createElement('p'); age.className = 'case-age';
-      age.append(iconNode('clock'), textNode('span', item.age_label || ''));
+      const resolved = item.status === 'Resolved' || item.status === 'Closed';
+      const age = document.createElement('p');
+      age.className = `case-age ${resolved ? 'resolved' : (item.needs_details ? 'attention' : 'pending')}`;
+      age.append(iconNode(resolved ? 'circle-check' : 'clock'), textNode('span', item.age_label || ''));
       body.append(
         textNode('p', `#${start + index} · ${item.reference_number || item.case_id}`, 'case-reference'),
         textNode('h2', item.customer_name || 'Unnamed customer'),
@@ -266,12 +268,11 @@
     $('evidencePanel').hidden = !!item.global_read; $('activityPanel').hidden = !!item.global_read;
     const actions = item.global_read ? (item.actions || {}) : {
       close: can('complaint.case.close'), reopen: can('complaint.case.reopen'),
-      complete_details: can('complaint.case.details.complete'), sync_retry: can('complaint.case.sync.retry'),
+      complete_details: can('complaint.case.details.complete'),
     };
     $('completeDetailsForm').hidden = !item.needs_details || !actions.complete_details;
     $('resolveForm').hidden = item.status !== 'Pending' || !actions.close;
     $('reopenForm').hidden = item.status !== 'Resolved' || !actions.reopen;
-    $('retrySyncBtn').hidden = !actions.sync_retry || !['pending', 'failed'].includes(item.sync_status) || item.sheet_projection_enabled === false;
     $('detailBackLabel').textContent = state.returnWorkspace === 'global' ? 'Overview' : 'Complaints';
     if (!preserveDraft) {
       $('completeDetailsForm').reset(); $('resolveForm').reset(); $('reopenForm').reset();
@@ -1133,17 +1134,6 @@
     if (!startExportDownload()) return notify('That download is no longer available. Create a new complaints download.', true);
     notify(`Download started again. Check Downloads for ${state.exportFilename}.`);
   }
-  async function retrySync() {
-    if (!state.currentCase) return; const button = $('retrySyncBtn'); setActionLoading(button, true, 'Retrying');
-    const targetGroup = state.currentCase.group_id || state.groupId;
-    try {
-      const response = await json(`cases/${encodeURIComponent(state.currentCase.case_id)}/sync-retry/`, { group_id: targetGroup, client_request_id: requestId('complaint-sync') });
-      notify(response.message);
-      if (state.currentCase.global_read) { await refreshGlobal(); await openGlobalCase(state.currentCase.id); }
-      else { response.case.group_id = targetGroup; response.case.global_read = false; renderDetail(response.case); }
-    } catch (error) { notify(error.message, true); }
-    finally { setActionLoading(button, false); }
-  }
   function returnPrevious() {
     if (!$('exportConfirm').hidden) { cancelExport(); return; }
     if (!$('globalView').hidden) { setView('queueView'); loadCases(); return; }
@@ -1186,7 +1176,6 @@
   $('exportAllBtn').addEventListener('click', prepareExport); $('cancelExportBtn').addEventListener('click', cancelExport); $('confirmExportBtn').addEventListener('click', confirmExport);
   $('openExportBtn').addEventListener('click', () => openExportNatively());
   $('downloadAgainBtn').addEventListener('click', downloadAgain);
-  $('retrySyncBtn').addEventListener('click', retrySync);
   $('newCaseBtn').addEventListener('click', () => { state.returnWorkspace = 'queue'; setView('createView'); });
   document.querySelectorAll('[data-back]').forEach(button => button.addEventListener('click', returnPrevious));
   $('refreshBtn').addEventListener('click', () => {

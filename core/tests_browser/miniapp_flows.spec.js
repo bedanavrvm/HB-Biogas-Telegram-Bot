@@ -322,6 +322,22 @@ test('Complaint camera captures multiple photos and the viewer navigates deletes
   await page.addScriptTag({ path: asset('complaint_cases.js') });
 
   await page.locator('#newCaseBtn').click();
+  for (const width of [320, 360, 390]) {
+    await page.setViewportSize({ width, height: 780 });
+    const attachmentActions = await page.locator('.create-evidence-picker').evaluate(picker => {
+      const bounds = picker.getBoundingClientRect();
+      const buttons = Array.from(picker.querySelectorAll('.evidence-actions button')).map(button => {
+        const box = button.getBoundingClientRect();
+        return { left: box.left, right: box.right, top: box.top, width: box.width, scrollWidth: button.scrollWidth };
+      });
+      return { left: bounds.left, right: bounds.right, scrollWidth: picker.scrollWidth, clientWidth: picker.clientWidth, buttons };
+    });
+    expect(attachmentActions.buttons).toHaveLength(2);
+    expect(Math.abs(attachmentActions.buttons[0].width - attachmentActions.buttons[1].width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(attachmentActions.buttons[0].top - attachmentActions.buttons[1].top)).toBeLessThanOrEqual(1);
+    expect(attachmentActions.buttons.every(button => button.left >= attachmentActions.left && button.right <= attachmentActions.right + 1)).toBe(true);
+    expect(attachmentActions.scrollWidth).toBeLessThanOrEqual(attachmentActions.clientWidth);
+  }
   await page.locator('#captureLocationBtn').click();
   await expect(page.locator('#captureLocationBtn')).toContainText('Location Captured');
   await expect(page.locator('#captureLocationBtn')).toHaveClass(/location-success/);
