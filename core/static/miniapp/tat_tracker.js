@@ -1929,7 +1929,13 @@
     window.agGrid.ModuleRegistry.registerModules([window.agGrid.AllCommunityModule]);
     const touch = window.matchMedia('(pointer: coarse)').matches;
     const columns = [
-      { headerName: 'Reference', field: 'case_id', pinned: 'left', width: 125 },
+      {
+        headerName: '#', colId: 'row_number', pinned: 'left', lockPinned: true,
+        width: 48, minWidth: 48, maxWidth: 48, sortable: false, resizable: false,
+        suppressMovable: true,
+        valueGetter: params => ((state.report.page - 1) * state.report.pageSize) + Number(params.node.rowIndex || 0) + 1,
+      },
+      { headerName: 'Reference', field: 'case_id', width: 125 },
       { headerName: 'Customer', field: 'client_name', width: 180 },
       { headerName: 'TAT Group', field: 'group', width: 145 },
       { headerName: 'Branch', field: 'branch', width: 120 },
@@ -1944,7 +1950,7 @@
       { headerName: 'Variance', field: 'variance_minutes', width: 90, valueFormatter: p => formatMinutes(p.value) },
       { headerName: 'SLA', field: 'sla_state', width: 125, valueFormatter: p => String(p.value || '').replaceAll('_', ' '), cellClass: p => `sla-${p.value || ''}` },
     ];
-    if ((((state.data || {}).user || {}).capabilities || []).includes('tat.reports.people.view')) columns.splice(8, 0, { headerName: 'Responsible Person', field: 'responsible_person', width: 160, sortable: false });
+    if ((((state.data || {}).user || {}).capabilities || []).includes('tat.reports.people.view')) columns.splice(9, 0, { headerName: 'Responsible Person', field: 'responsible_person', width: 160, sortable: false });
     state.report.gridApi = window.agGrid.createGrid($('tatReportGrid'), {
       theme: 'legacy', rowData: [], animateRows: false, suppressMovableColumns: touch,
       defaultColDef: { sortable: true, resizable: !touch, suppressMovable: touch },
@@ -2006,6 +2012,9 @@
     const grid = getComputedStyle(document.body).getPropertyValue('--tat-line').trim() || '#ddd';
     const baseOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: text, boxWidth: 10, font: { size: 9 } } } }, scales: { x: { ticks: { color: text, maxRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 8 } }, grid: { color: grid } }, y: { beginAtZero: true, ticks: { color: text, precision: 0, font: { size: 8 } }, grid: { color: grid } } } };
     const trend = summary.trend || [];
+    const fallback = summary.breakdown_basis === 'created_cases_current_stage';
+    $('tatStageTitle').textContent = fallback ? 'Created Cases by Current Stage' : (state.report.view === 'performance' ? 'Completed Actions by Stage' : 'By Current Stage');
+    $('tatRoleTitle').textContent = fallback ? 'Created Cases by Current Role' : (state.report.view === 'performance' ? 'Completed Actions by Role' : 'By Responsible Role');
     $('tatTrendEmpty').textContent = summary.trend_notice || 'No history matches these filters.';
     $('tatTrendEmpty').hidden = Boolean(trend.length);
     if (trend.length) {

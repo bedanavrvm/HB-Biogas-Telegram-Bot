@@ -138,6 +138,10 @@ def _case_row(case, *, include_people=False, now=None):
     product = product_for_case(case)
     config = GroupSheetConfiguration.objects.filter(group_id=case.group_id).only('display_name', 'workflow').first()
     stage = next_action(case)
+    display_stage = stage
+    if display_stage is None:
+        completed_stages = [item for item in product.stages if stage_completed_at(case, item)]
+        display_stage = completed_stages[-1] if completed_stages else None
     finished_at = overall_tat_end(case, now=case.updated_at) if case.status in TERMINAL else None
     if stage:
         elapsed = stage_tat_minutes(case, stage, now=now)
@@ -148,8 +152,8 @@ def _case_row(case, *, include_people=False, now=None):
         seconds = calculated_tat_seconds(case, now=finished_at or now)
         elapsed = Decimal(seconds) / Decimal('60') if seconds is not None else None
         target = _case_target(case, product, config=config)
-        role = ''
-        stage_label = case.current_stage or ('Finished' if case.status in TERMINAL else '')
+        role = display_stage.role if display_stage else ''
+        stage_label = display_stage.label if display_stage else (case.current_stage or ('Finished' if case.status in TERMINAL else ''))
     variance = elapsed - target if elapsed is not None and target is not None else None
     if target is None or target <= 0 or elapsed is None:
         sla_state = 'target_unavailable'
@@ -163,7 +167,7 @@ def _case_row(case, *, include_people=False, now=None):
         'group': (config.display_name if config else '') or 'TAT Tracker',
         'branch': case.branch or '', 'product_label': case.product_label or case.product_key,
         'status': case.status, 'current_stage': stage_label, 'responsible_role': role,
-        'current_stage_key': stage.key if stage else str(case.current_stage or ''),
+        'current_stage_key': display_stage.key if display_stage else str(case.current_stage or ''),
         'created_at': case.created_at.isoformat(),
         'finished_at': finished_at.isoformat() if finished_at else '',
         'elapsed_minutes': float(elapsed) if elapsed is not None else None,
@@ -184,7 +188,8 @@ def _case_row(case, *, include_people=False, now=None):
             else:
                 row['responsible_person'] = ''
         else:
-            event = next((event for event in case.events.all() if event.stage_key == case.current_stage), None)
+            stage_key = display_stage.key if display_stage else case.current_stage
+            event = next((event for event in case.events.all() if event.stage_key == stage_key), None)
             row['responsible_person'] = event.actor_name if event else ''
     return row
 
@@ -306,8 +311,31 @@ def report_summary(actor, payload, *, include_people=False):
         'stages': sorted(stages), 'roles': sorted(role for role in roles if role),
     }
     stage_samples = _stage_samples(all_cases, filters, include_people=include_people) if filters['view'] == 'performance' else []
-    by_stage = Counter((item['stage'] for item in stage_samples) if stage_samples else (row['current_stage'] or 'Unassigned' for row in rows))
-    by_role = Counter((item['role'] for item in stage_samples) if stage_samples else (row['responsible_role'] or 'Unassigned' for row in rows))
+    breakdown_rows = rows
+    breakdown_basis = 'current_workload'
+    if filters['view'] == 'performance':
+        if stage_samples:
+            breakdown_basis = 'completed_stage_actions'
+        else:
+            created_cases = [
+                case for case in all_cases
+                if filters['date_from'] <= timezone.localdate(case.created_at) <= filters['date_to']
+            ]
+            breakdown_rows = [
+                row for row in (_case_row(case, include_people=include_people) for case in created_cases)
+                if (not filters['stage'] or row['current_stage_key'].casefold() == filters['stage'].casefold())
+                and (not filters['role'] or row['responsible_role'].upper() == filters['role'])
+                and (not filters['sla_state'] or row['sla_state'] == filters['sla_state'])
+            ]
+            breakdown_basis = 'created_cases_current_stage'
+    by_stage = Counter(
+        (item['stage'] for item in stage_samples)
+        if stage_samples else (row['current_stage'] or 'Unassigned' for row in breakdown_rows)
+    )
+    by_role = Counter(
+        (item['role'] or 'Unassigned' for item in stage_samples)
+        if stage_samples else (row['responsible_role'] or 'Unassigned' for row in breakdown_rows)
+    )
     latest_metrics = WorkflowTatDailyMetric.objects.filter(workflow='tat_tracker').filter(_metric_scope_q(actor))
     latest_metrics = _filter_metric_queryset(latest_metrics, filters)
     latest = latest_metrics.order_by('-metric_date').first()
@@ -321,6 +349,7 @@ def report_summary(actor, payload, *, include_people=False):
         'view': filters['view'], 'filters': options,
         'by_stage': [{'label': key, 'count': value} for key, value in by_stage.most_common()],
         'by_role': [{'label': key, 'count': value} for key, value in by_role.most_common()],
+        'breakdown_basis': breakdown_basis,
         'freshness': {
             'latest_snapshot': latest.metric_date.isoformat() if latest else '',
             'pending_rebuilds': pending_rebuilds,
@@ -395,7 +424,7 @@ def report_summary(actor, payload, *, include_people=False):
             {'label': key, 'count': value}
             for key, value in Counter(
                 (item.get('person') or 'Unassigned' for item in stage_samples)
-                if stage_samples else (row.get('responsible_person') or 'Unassigned' for row in rows)
+                if stage_samples else (row.get('responsible_person') or 'Unassigned' for row in breakdown_rows)
             ).most_common()
         ]
     return common

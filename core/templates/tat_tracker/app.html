@@ -78,8 +78,8 @@
       <section id="tatReportMetrics" class="report-metrics" aria-label="TAT report summary"></section>
       <section class="tat-report-charts">
         <article><h3 id="tatTrendTitle">Workload over Time</h3><div><canvas id="tatTrendChart"></canvas><p id="tatTrendEmpty" hidden>No history matches these filters.</p></div></article>
-        <article><h3>By Stage</h3><div><canvas id="tatStageChart"></canvas><p id="tatStageEmpty" hidden>No stage data matches these filters.</p></div></article>
-        <article><h3>By Responsible Role</h3><div><canvas id="tatRoleChart"></canvas><p id="tatRoleEmpty" hidden>No role data matches these filters.</p></div></article>
+        <article><h3 id="tatStageTitle">By Stage</h3><div><canvas id="tatStageChart"></canvas><p id="tatStageEmpty" hidden>No stage data matches these filters.</p></div></article>
+        <article><h3 id="tatRoleTitle">By Responsible Role</h3><div><canvas id="tatRoleChart"></canvas><p id="tatRoleEmpty" hidden>No role data matches these filters.</p></div></article>
         <article data-required-capability="tat.reports.people.view"><h3>By Responsible Person</h3><div><canvas id="tatPersonChart"></canvas><p id="tatPersonEmpty" hidden>No person data matches these filters.</p></div></article>
       </section>
       <div class="tat-report-grid-wrap" role="region" aria-label="TAT report table" tabindex="0"><div id="tatReportGrid" class="ag-theme-quartz tat-report-grid"></div></div>
@@ -362,6 +362,6 @@
   <script src="{% static 'miniapp/tat_api.js' %}?v=4"></script>
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=58"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=60"></script>
 </body>
 </html>

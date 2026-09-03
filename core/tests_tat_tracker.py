@@ -592,7 +592,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Assigned to me', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn('?v=58', template)
+        self.assertIn('?v=60', template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -669,6 +669,9 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.stage-action-wrap.correction-open { grid-template-columns:repeat(2,minmax(0,1fr)); }', stylesheet)
         self.assertIn('state.report.abortController?.abort()', source)
         self.assertIn("suppressMovableColumns: touch", source)
+        self.assertIn("headerName: '#', colId: 'row_number', pinned: 'left', lockPinned: true", source)
+        self.assertIn("{ headerName: 'Reference', field: 'case_id', width: 125 }", source)
+        self.assertNotIn("field: 'case_id', pinned: 'left'", source)
 
     def test_tat_reporting_is_scoped_allowlisted_and_page_size_capped(self):
         TatTrackerCase.objects.create(
@@ -693,6 +696,14 @@ class TatTrackerWorkflowTest(TestCase):
         summary = report_summary(self.bro_user, {'view': 'current'})
         self.assertEqual(summary['metrics']['active'], 1)
         self.assertEqual(summary['filters']['groups'], [(self.config.group_id, 'TAT Test')])
+        performance = report_summary(self.bro_user, {
+            'view': 'performance',
+            'date_from': timezone.localdate().isoformat(),
+            'date_to': timezone.localdate().isoformat(),
+        })
+        self.assertEqual(performance['breakdown_basis'], 'created_cases_current_stage')
+        self.assertTrue(performance['by_stage'])
+        self.assertTrue(performance['by_role'])
 
     def test_tat_report_capabilities_and_correction_rebuild_request(self):
         self.assertIn('tat.reports.view', default_enabled_capability_keys('tat_tracker', 'BRO'))
