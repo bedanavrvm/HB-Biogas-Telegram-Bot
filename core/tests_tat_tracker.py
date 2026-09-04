@@ -599,7 +599,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Assigned to me', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=72", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=73", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -633,7 +633,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-sheet-overlay', stylesheet)
         self.assertIn('class="notice-close tat-sheet-close"', template)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
-        self.assertIn("miniapp/tat_tracker.css' %}?v=48", template)
+        self.assertIn("miniapp/tat_tracker.css' %}?v=49", template)
         self.assertIn('id="appHeader" class="app-top"', template)
         self.assertIn('class="refresh-label"', template)
         self.assertIn('function bindCollapsingHeader()', source)
@@ -697,6 +697,11 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn("localStorage.setItem('tat-report-chart-display'", source)
         self.assertIn("recordTatCarouselGesture('gesture_started')", source)
         self.assertIn("if (event.target.closest?.('.tat-heatmap')) return;", source)
+        self.assertIn('function tatChartExplanation(payload)', source)
+        self.assertIn('Question: ${payload.question}', source)
+        self.assertIn('How to read it: ${payload.interpretation}', source)
+        self.assertIn("return parts.filter(Boolean).join('\\n');", source)
+        self.assertIn('.tat-report-charts .chart-basis{white-space:pre-line}', stylesheet)
         self.assertIn('data-heat-row', source)
         self.assertIn("summary.metric_basis || ''", source)
         self.assertIn("text: payload.axis_title || '% of target'", source)
@@ -798,6 +803,15 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(summary['metrics']['active'], 1)
         self.assertEqual(summary['metrics']['within_target'], 1)
         self.assertEqual(summary['filters']['groups'], [(self.config.group_id, 'TAT Test')])
+        for payload in [
+            *summary['charts'].values(), summary['heatmap'],
+            summary['target_review_signals'], summary['oldest_cases'],
+        ]:
+            self.assertTrue(payload['question'])
+            self.assertTrue(payload['interpretation'])
+            self.assertTrue(payload['scope_note'].startswith('Scope:'))
+            self.assertTrue(payload['subtitle'].startswith('Question:'))
+            self.assertIn('How to read it:', payload['subtitle'])
         trend_guidance = summary['charts']['trend']['filter_guidance']
         self.assertIn('branch', trend_guidance['applicable_filters'])
         self.assertIn('stage', trend_guidance['basis_changing_filters'])
@@ -834,6 +848,59 @@ class TatTrackerWorkflowTest(TestCase):
             performance['heatmap']['filter_guidance']['chart_controls'],
             ['heatmap_pair', 'heatmap_metric'],
         )
+        for payload in [
+            *performance['charts'].values(), performance['heatmap'],
+            performance['target_review_signals'], performance['oldest_cases'],
+        ]:
+            self.assertTrue(payload['question'])
+            self.assertTrue(payload['interpretation'])
+            self.assertIn('Scope:', payload['subtitle'])
+
+        filtered = report_summary(self.bro_user, {
+            'view': 'current', 'branch': 'Nakuru', 'product': 'business',
+            'search': 'VISIBLE', 'chart_dimension': 'branch',
+            'chart_metric': 'target_usage', 'heatmap_pair': 'stage_branch',
+            'heatmap_metric': 'target_usage',
+        })
+        self.assertIn('branch Nakuru', filtered['charts']['explorer']['scope_note'])
+        self.assertIn('product Business', filtered['charts']['explorer']['scope_note'])
+        self.assertIn('search "VISIBLE"', filtered['charts']['explorer']['scope_note'])
+        self.assertIn('100% line', filtered['charts']['explorer']['interpretation'])
+        self.assertIn('above 100%', filtered['heatmap']['interpretation'])
+
+        comparison_meanings = {
+            'workload': 'most current cases',
+            'sla_state': 'within target, near target, overdue',
+            'duration': 'take longest',
+            'target_usage': 'largest share',
+            'sla_met': 'most consistently',
+            'correction_rate': 'recorded corrections',
+            'load_per_assignee': 'configured assignee',
+        }
+        for metric, expected in comparison_meanings.items():
+            focused = report_summary(self.bro_user, {
+                'view': 'current', 'response_mode': 'focused_v1',
+                'insight': 'explorer', 'chart_dimension': 'branch',
+                'chart_metric': metric,
+            })
+            explanation = focused['charts']['explorer']
+            self.assertIn(expected, explanation['question'])
+            self.assertNotIn('point-in-time', explanation['subtitle'])
+            self.assertNotIn('IQR', explanation['subtitle'])
+
+        heatmap_meanings = {
+            'workload': 'most current cases',
+            'duration': 'take longest',
+            'target_usage': 'use or exceed',
+            'sla_met': 'meet their targets most often',
+        }
+        for metric, expected in heatmap_meanings.items():
+            focused = report_summary(self.bro_user, {
+                'view': 'current', 'response_mode': 'focused_v1',
+                'insight': 'heatmap', 'heatmap_pair': 'stage_branch',
+                'heatmap_metric': metric,
+            })
+            self.assertIn(expected, focused['heatmap']['question'])
 
     def test_tat_report_focused_response_returns_only_requested_insight(self):
         TatTrackerCase.objects.create(

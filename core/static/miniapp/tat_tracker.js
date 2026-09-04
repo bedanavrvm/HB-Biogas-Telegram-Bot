@@ -2429,6 +2429,22 @@
     return Array.from({ length: count }, (_, index) => palette[index % palette.length]);
   }
 
+  function tatChartExplanation(payload) {
+    const parts = [];
+    if (payload.question) parts.push(`Question: ${payload.question}`);
+    if (payload.interpretation) parts.push(`How to read it: ${payload.interpretation}`);
+    if (payload.scope_note) parts.push(payload.scope_note);
+    if (!parts.length && payload.subtitle) parts.push(payload.subtitle);
+    if (payload.excluded_count) {
+      const count = Number(payload.excluded_count);
+      const reason = payload.exclusion_reason === 'Target unavailable'
+        ? 'they do not have a recorded target'
+        : (payload.exclusion_reason || 'they could not be compared');
+      parts.push(`Note: ${count.toLocaleString()} record${count === 1 ? '' : 's'} ${count === 1 ? 'is' : 'are'} not included because ${reason}.`);
+    }
+    return parts.filter(Boolean).join('\n');
+  }
+
   function renderExplorerDetails(payload) {
     const target = $('tatExplorerDetails');
     if (!target) return;
@@ -2461,9 +2477,7 @@
     panel.hidden = !payload.id;
     if (!payload.id) return;
     $('tatHeatmapTitle').textContent = payload.title || 'Operational Heatmap';
-    const notes = [payload.subtitle || ''];
-    if (payload.excluded_count) notes.push(`${Number(payload.excluded_count).toLocaleString()} excluded: ${payload.exclusion_reason || 'not eligible'}.`);
-    $('tatHeatmapBasis').textContent = notes.filter(Boolean).join(' ');
+    $('tatHeatmapBasis').textContent = tatChartExplanation(payload);
     const rows = payload.rows || []; const columns = payload.columns || []; const cells = payload.cells || [];
     if (!rows.length || !columns.length) {
       target.innerHTML = '<p class="chart-empty-static">No heatmap data matches these filters.</p>';
@@ -2476,8 +2490,9 @@
       const cell = lookup.get(`${row}\u0000${column}`) || { value: null, sample_count: 0, excluded_count: 0 };
       const value = Number(cell.value); const intensity = Number.isFinite(value) && maximum > minimum ? Math.round(((value - minimum) / (maximum - minimum)) * 100) : (Number.isFinite(value) ? 55 : 0);
       const shown = formatHeatmapValue(cell.value, payload.metric);
-      const description = `${compactTatReportLabel(row)}, ${compactTatReportLabel(column)}: ${shown}; ${Number(cell.sample_count || 0)} samples; ${Number(cell.excluded_count || 0)} excluded`;
-      return `<td><button type="button" data-heat-row="${rowIndex}" data-heat-column="${columnIndex}" style="--heat-intensity:${intensity}%" aria-label="${escapeHtml(description)}" title="${escapeHtml(description)}"><strong>${escapeHtml(shown)}</strong><small>n=${Number(cell.sample_count || 0)}</small></button></td>`;
+      const compared = Number(cell.sample_count || 0); const notCompared = Number(cell.excluded_count || 0);
+      const description = `${compactTatReportLabel(row)}, ${compactTatReportLabel(column)}: ${shown}; based on ${compared} record${compared === 1 ? '' : 's'}${notCompared ? `; ${notCompared} could not be compared` : ''}`;
+      return `<td><button type="button" data-heat-row="${rowIndex}" data-heat-column="${columnIndex}" style="--heat-intensity:${intensity}%" aria-label="${escapeHtml(description)}" title="${escapeHtml(description)}"><strong>${escapeHtml(shown)}</strong><small>${compared} record${compared === 1 ? '' : 's'}</small></button></td>`;
     }).join('')}</tr>`).join('');
     target.innerHTML = `<table><caption class="sr-only">${escapeHtml(payload.title || 'Operational heatmap')}</caption><thead><tr><th scope="col">${escapeHtml((payload.row_dimension || 'Row').replaceAll('_', ' '))}</th>${columns.map(column => `<th scope="col" title="${escapeHtml(column)}">${escapeHtml(compactTatReportLabel(column))}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table>`;
   }
@@ -2486,21 +2501,21 @@
     const target = $('tatTargetSignals');
     if (!target) return;
     const signals = payload.items || [];
-    const notes = [payload.subtitle || ''];
-    if (payload.excluded_count) notes.push(`${Number(payload.excluded_count).toLocaleString()} excluded: ${payload.exclusion_reason || 'not eligible'}.`);
-    $('tatSignalsBasis').textContent = notes.filter(Boolean).join(' ');
+    $('tatSignalsBasis').textContent = tatChartExplanation(payload);
     if (!signals.length) {
       target.innerHTML = '<p class="chart-empty-static">No target performance data is available for this selection.</p>';
       return;
     }
     target.innerHTML = signals.map(signal => {
       const stats = signal.baseline || {}; const tone = signal.classification === 'review_recommended' ? 'bad' : (signal.classification === 'none' ? '' : 'warn');
-      const raw = stats.over_percent == null ? 'No valid target samples' : `${stats.over_percent}% over target, n=${Number(stats.valid_samples || 0).toLocaleString()}, 95% lower bound ${stats.wilson_lower_bound}%`;
+      const raw = stats.over_percent == null
+        ? 'No actions with a recorded target'
+        : `${stats.over_percent}% were overdue across ${Number(stats.valid_samples || 0).toLocaleString()} recorded action${Number(stats.valid_samples || 0) === 1 ? '' : 's'}`;
       const selected = signal.selected_scope || {};
       const selectedRaw = signal.classification === 'selected_scope_high' && selected.over_percent != null
-        ? `<small>Selected scope: ${escapeHtml(selected.over_percent)}% over, n=${Number(selected.valid_samples || 0).toLocaleString()}</small>` : '';
+        ? `<small>Your filters: ${escapeHtml(selected.over_percent)}% overdue across ${Number(selected.valid_samples || 0).toLocaleString()} action${Number(selected.valid_samples || 0) === 1 ? '' : 's'}</small>` : '';
       const heading = compactTatReportLabel(signal.group ? `${signal.stage} - ${signal.group}` : signal.stage);
-      return `<section class="tat-signal ${tone}"><div><strong>${escapeHtml(heading)}</strong><span>${escapeHtml(raw)}</span></div>${selectedRaw}${signal.message ? `<p>${escapeHtml(signal.message)}</p>` : '<p>No review signal at the current evidence threshold.</p>'}</section>`;
+      return `<section class="tat-signal ${tone}"><div><strong>${escapeHtml(heading)}</strong><span>${escapeHtml(raw)}</span></div>${selectedRaw}${signal.message ? `<p>${escapeHtml(signal.message)}</p>` : '<p>The current data does not show a strong enough pattern to recommend a target review.</p>'}</section>`;
     }).join('');
   }
 
@@ -2508,7 +2523,7 @@
     const target = $('tatOldestCases');
     if (!target) return;
     const rows = payload.items || [];
-    $('tatOldestBasis').textContent = payload.subtitle || '';
+    $('tatOldestBasis').textContent = tatChartExplanation(payload);
     if (!rows.length) {
       target.innerHTML = '<p class="chart-empty-static">No active cases match these filters.</p>';
       return;
@@ -2664,10 +2679,7 @@
       state.report.charts[key]?.destroy?.();
       delete state.report.charts[key];
       $(`${prefix}Title`).textContent = payload.title || '';
-      const notes = [payload.subtitle || ''];
-      if (payload.excluded_count) notes.push(`${Number(payload.excluded_count).toLocaleString()} excluded: ${payload.exclusion_reason || 'not eligible'}.`);
-      if ((payload.unavailable_filters || []).length) notes.push(`Not applicable: ${payload.unavailable_filters.join(', ').replaceAll('_', ' ')}.`);
-      $(`${prefix}Basis`).textContent = notes.filter(Boolean).join(' ');
+      $(`${prefix}Basis`).textContent = tatChartExplanation(payload);
       const empty = $(`${prefix}Empty`);
       const hasData = Boolean(payload.sample_count) && (payload.labels || []).length;
       empty.hidden = hasData;
@@ -2751,7 +2763,7 @@
       const rows = (charts.stage_target || {}).single_product_details || [];
       details.innerHTML = rows.length ? rows.map(item => {
         const target = item.target_days != null ? `${item.target_days}d target` : `${(item.target_versions_days || []).join('d / ')}d targets`;
-        return `<div><strong title="${escapeHtml(item.label)}">${escapeHtml(compactTatReportLabel(item.label))}:</strong> ${escapeHtml(item.median_days)}d median · ${escapeHtml(item.p90_days)}d P90 · ${escapeHtml(target)}</div>`;
+        return `<div><strong title="${escapeHtml(item.label)}">${escapeHtml(compactTatReportLabel(item.label))}:</strong> typical ${escapeHtml(item.median_days)}d · slowest 10% threshold ${escapeHtml(item.p90_days)}d · ${escapeHtml(target)}</div>`;
       }).join('') : '';
     }
     syncTatReportChartTypeToggles();
