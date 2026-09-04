@@ -2277,7 +2277,7 @@
       { headerName: 'TAT Group', field: 'group', width: 112, minWidth: 90, tooltipField: 'group' },
       { headerName: 'Branch', field: 'branch', width: 96, minWidth: 76, tooltipField: 'branch' },
       { headerName: 'Product', field: 'product_label', width: 115, minWidth: 90, tooltipField: 'product_label' },
-      { headerName: 'Status', field: 'status', width: 88, minWidth: 74 },
+      { headerName: 'Status', field: 'status', width: 88, minWidth: 74, cellClass: p => `tat-status tat-status-${String(p.value || '').toLowerCase()}` },
       { headerName: 'Stage', field: 'current_stage', width: 150, minWidth: 112, valueFormatter: p => compactTatReportLabel(p.value), tooltipValueGetter: p => p.value || '' },
       { headerName: 'Role', field: 'responsible_role', width: 92, minWidth: 74, valueFormatter: p => compactTatReportLabel(p.value), tooltipValueGetter: p => p.value || '' },
       { headerName: 'Created', field: 'created_at', width: 88, minWidth: 80, valueFormatter: p => formatReportDate(p.value) },
@@ -2406,11 +2406,11 @@
     const current = state.report.view === 'current';
     const items = current ? [
       ['active', 'Active', ''], ['within_target', 'Within Target', 'good'], ['near_target', 'Near Target', 'warn'], ['overdue', 'Overdue', 'bad'],
-      ['stalled', 'Marked Stalled', 'bad'], ['target_unavailable', 'Target Unavailable', ''],
+      ['stalled', 'Stalled (Overdue)', 'warn'], ['target_unavailable', 'Target Unavailable', ''],
     ] : [
       ['created', metricBasis === 'completed_stage_actions' ? 'Cases' : 'Created', ''],
       ['finished', metricBasis === 'completed_stage_actions' ? 'Completed Actions' : 'Finished', ''], ['disbursed', 'Disbursed', 'good'],
-      ['rejected', 'Rejected', 'bad'], ['declined', 'Declined', 'bad'],
+      ['declined', 'Declined', 'bad'],
       ['sla_met_percent', 'SLA Met %', 'good'],
       ['median_tat_minutes', metricBasis === 'completed_stage_actions' ? 'Median Stage Time' : 'Median TAT', ''],
       ['p90_tat_minutes', metricBasis === 'completed_stage_actions' ? 'P90 Stage Time' : 'P90 TAT', 'warn'],
@@ -2709,13 +2709,15 @@
         }
       }
       const semanticColors = { within_target: '#23a67a', near_target: '#ef9b36', overdue: '#e45858', target_unavailable: '#6a7a89' };
+      const statusColors = { active: '#3390ec', stalled: '#ef9b36', declined: '#e45858', disbursed: '#23a67a' };
       const datasets = (payload.series || []).map((item, index) => {
         const progressionActual = key === 'case_progression' && item.key === 'actual_minutes';
+        const seriesColor = statusColors[item.key] || semanticColors[item.key] || colors[index % colors.length];
         return {
-          label: item.label, data: item.values || [], borderColor: colors[index % colors.length],
+          label: item.label, data: item.values || [], borderColor: seriesColor,
           backgroundColor: pie || (horizontal && (payload.series || []).length === 1)
             ? chartColors((payload.labels || []).length)
-            : (semanticColors[item.key] || colors[index % colors.length]),
+            : seriesColor,
           pointBackgroundColor: progressionActual
             ? (payload.stage_states || []).map(value => semanticColors[value] || colors[0])
             : colors[index % colors.length],

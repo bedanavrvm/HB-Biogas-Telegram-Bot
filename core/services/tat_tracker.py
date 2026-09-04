@@ -55,7 +55,8 @@ REGISTER_OPTIONS = ['10:00am', '1:00pm', '3:30pm']
 REGISTER_APPROVED_OPTIONS = ['Approved', 'Pending']
 MINUTES_SHARED_OPTIONS = ['Yes', 'No']
 BRO_APPLIED_OPTIONS = ['Pending', 'Met', 'Not Met']
-STATUS_VALUES = ['Active', 'Disbursed', 'Rejected', 'Declined', 'Deferred', 'Stalled', 'Pending Docs']
+STATUS_VALUES = ['Active', 'Stalled', 'Declined', 'Disbursed']
+TAT_NEGATIVE_OUTCOME_STATUSES = frozenset({'Rejected', 'Declined', 'Deferred'})
 TAT_BATCH_FORMAT_TEXT = (
     "TAT batch upload format\n\n"
     "Attach an Excel .xlsx or CSV file and send @bot /batch.\n\n"
@@ -78,7 +79,7 @@ TAT_TARGET_MANAGER_ROLES = frozenset({'IT'})
 TAT_CASE_CORRECTION_ROLES = frozenset({'BRO', 'IT', BUSINESS_ADMIN_ROLE})
 TAT_HOME_PAGE_SIZE = 10
 TAT_HOME_QUEUES = frozenset({'assigned', 'role', 'all'})
-TAT_COMPLETED_STATUSES = frozenset({'Disbursed', 'Rejected', 'Declined'})
+TAT_COMPLETED_STATUSES = frozenset({'Disbursed', *TAT_NEGATIVE_OUTCOME_STATUSES})
 TAT_CREATE_INTENT_NEW_LOAN = 'new_loan'
 
 
@@ -575,9 +576,10 @@ def home_data(
             queryset = queryset.none()
     selected_statuses = selected_values(statuses)
     if selected_statuses:
-        if set(selected_statuses).issubset(STATUS_VALUES):
-            queryset = queryset.filter(status__in=selected_statuses)
-        else:
+        selected_statuses = list(dict.fromkeys(
+            canonical_tat_status(value) for value in selected_statuses
+        ))
+        if not set(selected_statuses).issubset(STATUS_VALUES):
             invalid_filter_scope = True
             queryset = queryset.none()
     action_offset = max(0, int(action_offset or 0))
@@ -590,6 +592,11 @@ def home_data(
     page_offset = (current_page - 1) * page_size
 
     cases = list(queryset.prefetch_related('approval_certificates'))
+    if selected_statuses:
+        cases = [
+            case for case in cases
+            if tat_reporting_status(case, workflow=workflow) in selected_statuses
+        ]
     recent_total = len(cases)
     filters_active = bool(selected_products or selected_branches or selected_statuses)
     if recent_total:
@@ -639,21 +646,10 @@ def home_data(
         for case, next_stage in actionable_cases[action_offset:action_offset + page_size]
     ]
     completed_total = sum(case.status in TAT_COMPLETED_STATUSES for case in cases)
-    stalled_case_ids = set()
-    for case in cases:
-        if case.status == 'Stalled':
-            stalled_case_ids.add(case.pk)
-            continue
-        if case.status in TAT_COMPLETED_STATUSES:
-            continue
-        stage = next_action(case)
-        if not stage:
-            continue
-        product = product_for_case(case)
-        target = stage_target_minutes_for_case(case, workflow, product, stage)
-        elapsed = stage_tat_minutes(case, stage)
-        if target is not None and target > 0 and elapsed is not None and elapsed > target:
-            stalled_case_ids.add(case.pk)
+    stalled_case_ids = {
+        case.pk for case in cases
+        if tat_reporting_status(case, workflow=workflow) == 'Stalled'
+    }
 
     from core.services.tat_notifications import inbox_payload
     from core.services.telegram_identity import database_group_configuration
@@ -1070,7 +1066,7 @@ def tat_case_identity_context(
                 'case_id': case.case_id,
                 'client_name': case.client_name,
                 'product': case.product_label or case.product_key,
-                'status': case.status,
+                'status': tat_reporting_status(case, workflow=getattr(group_config, 'workflow', None) or {}),
                 'current_stage': case.current_stage,
                 'updated_at': format_datetime(case.updated_at),
             }
@@ -1731,11 +1727,11 @@ def apply_side_effects(case: TatTrackerCase, product: ProductConfig, stage: Stag
     if stage.auto_timestamp_key and value:
         case.stage_values.setdefault(stage.auto_timestamp_key, now)
     if stage.key == 'decision':
-        if value == 'Rejected':
-            case.status = 'Rejected'
-        elif value == 'Deferred':
-            case.status = 'Deferred'
-        elif value == 'Approved' and case.status in {'Rejected', 'Deferred'}:
+        if value in {'Rejected', 'Deferred'}:
+            # Keep the exact negative decision in stage_values/events for
+            # audit, but expose one terminal negative workflow status.
+            case.status = 'Declined'
+        elif value == 'Approved' and case.status in TAT_NEGATIVE_OUTCOME_STATUSES:
             case.status = 'Active'
     if stage.key == 'sanctions' and value == 'Not Met' and 'Sanctions Not Met' not in case.remarks:
         case.remarks = f"[{format_datetime(timezone.now())}: Sanctions Not Met - conditions unfulfilled] {case.remarks}".strip()
@@ -2218,7 +2214,7 @@ def calculated_tat_days(case: TatTrackerCase, now=None) -> Decimal | None:
 
 def overall_tat_end(case: TatTrackerCase, now=None):
     values = case.stage_values or {}
-    if case.status in {'Rejected', 'Declined'}:
+    if case.status in TAT_NEGATIVE_OUTCOME_STATUSES:
         return parse_iso_datetime(values.get('decision_ts')) or parse_iso_datetime(values.get('decision')) or case.updated_at
     disbursed_at = parse_iso_datetime(values.get('disbursement'))
     if disbursed_at:
@@ -2567,6 +2563,41 @@ def sla_status(minutes: Decimal | None, target: Decimal | None) -> str:
     return 'within'
 
 
+def canonical_tat_status(value: object) -> str:
+    """Map legacy workflow values into the four staff-facing TAT statuses."""
+    cleaned = str(value or '').strip()
+    aliases = {
+        'active': 'Active',
+        'pending docs': 'Active',
+        'stalled': 'Stalled',
+        'rejected': 'Declined',
+        'declined': 'Declined',
+        'deferred': 'Declined',
+        'disbursed': 'Disbursed',
+    }
+    return aliases.get(cleaned.casefold(), cleaned)
+
+
+def tat_reporting_status(
+    case: TatTrackerCase, *, workflow: dict | None = None, now=None,
+) -> str:
+    """Return the mutually exclusive Active/Stalled/Declined/Disbursed state."""
+    canonical = canonical_tat_status(case.status)
+    if canonical in {'Declined', 'Disbursed'}:
+        return canonical
+    if canonical == 'Stalled':
+        return 'Stalled'
+    stage = next_action(case)
+    if not stage:
+        return 'Active'
+    product = product_for_case(case)
+    target = stage_target_minutes_for_case(case, workflow, product, stage)
+    elapsed = stage_tat_minutes(case, stage, now=now)
+    if target is not None and target > 0 and elapsed is not None and elapsed > target:
+        return 'Stalled'
+    return 'Active'
+
+
 def resolve_case_sheet_row(sheet, case: TatTrackerCase, *, case_ids: list[Any] | None = None) -> int:
     """Return the existing case-ID row, or the append position if absent."""
     if case_ids is None:
@@ -2795,7 +2826,7 @@ def next_action(case: TatTrackerCase) -> StageConfig | None:
     if case.configuration_binding_status == TatTrackerCase.CONFIG_UNRESOLVED:
         return None
     product = product_for_case(case)
-    if case.status in {'Disbursed', 'Rejected', 'Declined'}:
+    if case.status in TAT_COMPLETED_STATUSES:
         return None
     for stage in product.stages:
         if not case.stage_values.get(stage.key):
@@ -2848,7 +2879,7 @@ def serialize_case_summary(
     total_target = total_target_minutes(workflow, product)
     certificates = {certificate.stage_key: certificate.status for certificate in case.approval_certificates.all()}
     read_only = unresolved or not is_record_operational(case)
-    payload = {'case_id': case.case_id, 'product': case.product_label or product.label, 'product_key': case.product_key, 'client_name': case.client_name, 'national_id': case.national_id, 'primary_phone': case.primary_phone, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'status': case.status, 'current_stage': case.current_stage, 'workflow_revision': int(case.workflow_revision or 1), 'next_stage': next_stage.label if next_stage and not read_only else '', 'next_stage_key': next_stage.key if next_stage and not read_only else '', 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'wall_clock_minutes': str(tat_minutes) if tat_minutes is not None else '', 'elapsed_seconds': tat_seconds, 'calculated_at': calculated_at.isoformat(), 'server_now': calculated_at.isoformat(), 'running': overall_tat_running(case), 'target_seconds': int(total_target * 60) if total_target is not None else None, 'sla_minutes': str(tat_minutes) if tat_minutes is not None else '', 'tat_hours': str(tat_hours) if tat_hours is not None else '', 'tat_days': str(tat_days) if tat_days is not None else '', 'target_minutes': str(total_target) if total_target is not None else '', 'sla_status': sla_status(tat_minutes, total_target), 'certificate_statuses': certificates, 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at), 'data_mode': case.data_mode, 'is_pilot': case.data_mode == 'pilot', 'read_only': read_only, 'configuration_binding_status': case.configuration_binding_status, 'configuration_blocker': 'Resolve the legacy product version in TAT Control Center before editing this case.' if unresolved else '', 'pilot_cycle_id': str(case.pilot_cycle_id or '')}
+    payload = {'case_id': case.case_id, 'product': case.product_label or product.label, 'product_key': case.product_key, 'client_name': case.client_name, 'national_id': case.national_id, 'primary_phone': case.primary_phone, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'status': tat_reporting_status(case, workflow=workflow, now=calculated_at), 'current_stage': case.current_stage, 'workflow_revision': int(case.workflow_revision or 1), 'next_stage': next_stage.label if next_stage and not read_only else '', 'next_stage_key': next_stage.key if next_stage and not read_only else '', 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'wall_clock_minutes': str(tat_minutes) if tat_minutes is not None else '', 'elapsed_seconds': tat_seconds, 'calculated_at': calculated_at.isoformat(), 'server_now': calculated_at.isoformat(), 'running': overall_tat_running(case), 'target_seconds': int(total_target * 60) if total_target is not None else None, 'sla_minutes': str(tat_minutes) if tat_minutes is not None else '', 'tat_hours': str(tat_hours) if tat_hours is not None else '', 'tat_days': str(tat_days) if tat_days is not None else '', 'target_minutes': str(total_target) if total_target is not None else '', 'sla_status': sla_status(tat_minutes, total_target), 'certificate_statuses': certificates, 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at), 'data_mode': case.data_mode, 'is_pilot': case.data_mode == 'pilot', 'read_only': read_only, 'configuration_binding_status': case.configuration_binding_status, 'configuration_blocker': 'Resolve the legacy product version in TAT Control Center before editing this case.' if unresolved else '', 'pilot_cycle_id': str(case.pilot_cycle_id or '')}
     if include_business_time:
         payload['business_minutes'] = str(business_minutes) if business_minutes is not None else ''
     return payload

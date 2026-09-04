@@ -1105,13 +1105,14 @@ def inbox_payload(
 
     selected_products = selected_values(product_keys, product_key)
     selected_branches = selected_values(branches, branch)
-    selected_statuses = selected_values(statuses)
+    from core.services.tat_tracker import canonical_tat_status, tat_reporting_status
+    selected_statuses = list(dict.fromkeys(
+        canonical_tat_status(value) for value in selected_values(statuses)
+    ))
     if selected_products:
         recipients = recipients.filter(task__case__product_key__in=selected_products)
     if selected_branches:
         recipients = recipients.filter(task__case__branch__in=selected_branches)
-    if selected_statuses:
-        recipients = recipients.filter(task__case__status__in=selected_statuses)
     grants = [] if user.is_superuser else list(AccessGrant.objects.filter(
         user=user, workflow='tat_tracker', active=True,
     ).select_related('user', 'group_configuration'))
@@ -1123,6 +1124,10 @@ def inbox_payload(
     seen_case_ids = set()
     for recipient in recipients.order_by('task__created_at'):
         task = recipient.task
+        workflow = getattr(task.group_configuration, 'workflow', None) or {}
+        status = tat_reporting_status(task.case, workflow=workflow)
+        if selected_statuses and status not in selected_statuses:
+            continue
         if not user.is_superuser and not any(_grant_matches(
             grant,
             group=task.group_configuration,
@@ -1151,7 +1156,9 @@ def inbox_payload(
             'national_id': case.national_id,
             'primary_phone': case.primary_phone,
             'amount': str(case.amount or ''),
-            'status': case.status,
+            'status': tat_reporting_status(
+                case, workflow=getattr(task.group_configuration, 'workflow', None) or {},
+            ),
             'current_stage': case.current_stage,
             'next_stage': task.stage_label,
             'workflow_revision': task.case_revision,

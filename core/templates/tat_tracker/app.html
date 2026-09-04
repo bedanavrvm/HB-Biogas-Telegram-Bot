@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=46">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=48">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
@@ -353,7 +353,7 @@
             <label data-report-filter="product">Product<select name="product"><option value="">All Products</option></select></label>
             <label data-report-filter="stage">Stage<select name="stage"><option value="">All Stages</option></select></label>
             <label data-report-filter="role">Role<select name="role"><option value="">All Roles</option></select></label>
-            <label data-report-filter="status">Status<select name="status"><option value="">All Statuses</option><option>Active</option><option>Stalled</option><option>Pending Docs</option><option>Deferred</option><option>Disbursed</option><option>Rejected</option><option>Declined</option></select></label>
+            <label data-report-filter="status">Status<select name="status"><option value="">All Statuses</option><option>Active</option><option>Stalled</option><option>Declined</option><option>Disbursed</option></select></label>
             <label data-report-filter="sla_state">SLA<select name="sla_state"><option value="">All SLA States</option><option value="within_target">Within Target</option><option value="near_target">Near Target</option><option value="overdue">Overdue</option><option value="target_unavailable">Target Unavailable</option></select></label>
             <label data-report-filter="date_from" class="report-date"><span>From</span><span class="native-date-control"><span data-date-display="date_from">dd-mm-yy</span><svg class="native-date-icon" aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg><input name="date_from" type="date" lang="en-KE" aria-label="Report start date"></span></label>
             <label data-report-filter="date_to" class="report-date"><span>To</span><span class="native-date-control"><span data-date-display="date_to">dd-mm-yy</span><svg class="native-date-icon" aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg><input name="date_to" type="date" lang="en-KE" aria-label="Report end date"></span></label>
@@ -417,6 +417,6 @@
   <script src="{% static 'miniapp/tat_api.js' %}?v=5"></script>
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=70"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=71"></script>
 </body>
 </html>

@@ -30,9 +30,10 @@ from core.models import (
 )
 from core.services.tat_presentation import presentation_settings
 from core.services.tat_tracker import (
-    TAT_COMPLETED_STATUSES, calculated_tat_seconds, minutes_between,
+    TAT_COMPLETED_STATUSES, TAT_NEGATIVE_OUTCOME_STATUSES,
+    calculated_tat_seconds, canonical_tat_status, minutes_between,
     overall_tat_end, parse_iso_datetime, product_for_case,
-    stage_target_minutes_for_case,
+    stage_target_minutes_for_case, tat_reporting_status,
 )
 from core.services.workflow_data_mode import operational_tat_cases
 
@@ -170,6 +171,9 @@ def _filters(payload):
         raise ValueError('The selected heatmap comparison is not supported.')
     if heatmap_metric not in HEATMAP_METRICS:
         raise ValueError('The selected heatmap metric is not supported.')
+    status = canonical_tat_status(payload.get('status'))
+    if status and status not in {'Active', 'Stalled', 'Declined', 'Disbursed'}:
+        raise ValueError('Choose Active, Stalled, Declined, or Disbursed status.')
     return {
         'view': 'performance' if payload.get('view') == 'performance' else 'current',
         'group': str(payload.get('group') or '').strip(),
@@ -177,7 +181,7 @@ def _filters(payload):
         'product': str(payload.get('product') or '').strip(),
         'stage': str(payload.get('stage') or '').strip(),
         'role': str(payload.get('role') or '').strip().upper(),
-        'status': str(payload.get('status') or '').strip(),
+        'status': status,
         'sla_state': str(payload.get('sla_state') or '').strip(),
         'search': str(payload.get('search') or '').strip(),
         'date_from': date_from, 'date_to': date_to, 'granularity': granularity,
@@ -194,8 +198,12 @@ def _filtered_case_queryset(actor, filters):
         qs = qs.filter(branch__iexact=filters['branch'])
     if filters['product']:
         qs = qs.filter(product_key__iexact=filters['product'])
-    if filters['status']:
-        qs = qs.filter(status__iexact=filters['status'])
+    if filters['status'] == 'Declined':
+        qs = qs.filter(status__in=TAT_NEGATIVE_OUTCOME_STATUSES)
+    elif filters['status'] == 'Disbursed':
+        qs = qs.filter(status='Disbursed')
+    elif filters['status'] in {'Active', 'Stalled'}:
+        qs = qs.exclude(status__in=TAT_COMPLETED_STATUSES)
     if filters['search']:
         term = filters['search']
         qs = qs.filter(Q(case_id__icontains=term) | Q(client_name__icontains=term) | Q(branch__icontains=term) | Q(product_label__icontains=term))
@@ -422,11 +430,16 @@ def _case_row(case, *, include_people=False, now=None, context=None):
             elapsed, target, near_target_ratio=context.near_target_ratio,
         )
     )
+    report_status = canonical_tat_status(case.status)
+    if report_status not in {'Active', 'Stalled', 'Declined', 'Disbursed'}:
+        report_status = 'Active'
+    if report_status == 'Active' and sla_state == 'overdue':
+        report_status = 'Stalled'
     row = {
         'case_id': case.case_id, 'client_name': case.client_name,
         'group': (config.display_name if config else '') or 'TAT Tracker',
         'branch': case.branch or '', 'product_label': case.product_label or case.product_key,
-        'status': case.status, 'current_stage': stage_label, 'responsible_role': role,
+        'status': report_status, 'current_stage': stage_label, 'responsible_role': role,
         'current_stage_key': display_stage.key if display_stage else str(case.current_stage or ''),
         'created_at': case.created_at.isoformat(),
         'finished_at': finished_at.isoformat() if finished_at else '',
@@ -490,6 +503,8 @@ def _eligible_rows(actor, filters, *, include_people=False, cases=None, context=
             if filters['role'] and row['responsible_role'].upper() != filters['role']:
                 continue
         if filters['sla_state'] and row['sla_state'] != filters['sla_state']:
+            continue
+        if filters['status'] and row['status'] != filters['status']:
             continue
         rows.append(row)
     return rows
@@ -1139,6 +1154,16 @@ def report_summary(actor, payload, *, include_people=False):
     scope_cases = list(scoped_cases(actor)) if include_options else []
     context_cases = list({case.pk: case for case in [*all_cases, *scope_cases]}.values())
     context = _ReportContext(actor, context_cases, include_people=include_people)
+    if filters['status']:
+        status_now = timezone.now()
+        all_cases = [
+            case for case in all_cases
+            if tat_reporting_status(
+                case,
+                workflow=(context.config(case).workflow if context.config(case) else {}),
+                now=status_now,
+            ) == filters['status']
+        ]
     rows = _eligible_rows(
         actor, filters, include_people=include_people, cases=all_cases, context=context,
     )
@@ -1237,12 +1262,13 @@ def report_summary(actor, payload, *, include_people=False):
     live_unavailable = ['date_range', 'granularity']
     if filters['view'] == 'current':
         states = Counter(row['sla_state'] for row in rows)
+        statuses = Counter(row['status'] for row in rows)
         if include_overview:
             common['metrics'] = {
-                'active': len(rows), 'within_target': states['within_target'],
+                'active': statuses['Active'], 'within_target': states['within_target'],
                 'near_target': states['near_target'],
                 'overdue': states['overdue'],
-                'stalled': sum(row['status'] == 'Stalled' for row in rows),
+                'stalled': statuses['Stalled'],
                 'target_unavailable': states['target_unavailable'],
             }
         action_trend = bool(filters['search'] or filters['status'] or filters['stage'] or filters['role'] or filters['sla_state'])
@@ -1286,9 +1312,8 @@ def report_summary(actor, payload, *, include_people=False):
                 'Showing the latest reliable point-in-time workload snapshot in each period.',
                 [item['label'] for item in common['trend']],
                 [
-                    _series('active', 'Active', [item.get('active', 0) for item in common['trend']]),
-                    _series('near_target', 'Near Target', [item.get('near_target', 0) for item in common['trend']]),
-                    _series('overdue', 'Overdue', [item.get('overdue', 0) for item in common['trend']]),
+                    _series('active', 'Active', [max(item.get('active', 0) - item.get('overdue', 0), 0) for item in common['trend']]),
+                    _series('stalled', 'Stalled (Overdue)', [item.get('overdue', 0) for item in common['trend']]),
                 ],
                 applied_filters=active_filters, sample_count=sum(item.get('active', 0) for item in common['trend']),
             )
@@ -1322,7 +1347,7 @@ def report_summary(actor, payload, *, include_people=False):
         if include_overview:
             common['metrics'] = {
                 'created': created, 'finished': len(stage_samples) if action_filtered else len(terminal_rows), 'disbursed': outcomes['Disbursed'],
-                'rejected': outcomes['Rejected'], 'declined': outcomes['Declined'],
+                'declined': outcomes['Declined'],
                 'sla_met': met, 'sla_sample': len(valid),
                 'sla_met_percent': round((met * 100 / len(valid)), 1) if valid else None,
                 'median_tat_minutes': _percentile(elapsed, .5), 'p90_tat_minutes': _percentile(elapsed, .9),
@@ -1342,7 +1367,6 @@ def report_summary(actor, payload, *, include_people=False):
                 bucket = trend[_bucket_label(finished_date, filters['granularity'])]
                 bucket['finished'] += 1
                 bucket['disbursed'] += int(row['status'] == 'Disbursed')
-                bucket['rejected'] += int(row['status'] == 'Rejected')
                 bucket['declined'] += int(row['status'] == 'Declined')
                 if row['sla_state'] != 'target_unavailable':
                     bucket['sla_sample'] += 1
@@ -1368,7 +1392,6 @@ def report_summary(actor, payload, *, include_people=False):
                     _series('created', 'Created', [item.get('created', 0) for item in common['trend']]),
                     _series('finished', 'Finished', [item.get('finished', 0) for item in common['trend']]),
                     _series('disbursed', 'Disbursed', [item.get('disbursed', 0) for item in common['trend']]),
-                    _series('rejected', 'Rejected', [item.get('rejected', 0) for item in common['trend']]),
                     _series('declined', 'Declined', [item.get('declined', 0) for item in common['trend']]),
                 ],
                 applied_filters=active_filters, sample_count=len(created_cases) + len(terminal_rows),
@@ -1590,6 +1613,7 @@ TABLE_FAST_SORT_FIELDS = frozenset({
 def _table_fast_path_allowed(filters, sort_key):
     return bool(
         filters['view'] == 'current'
+        and not filters['status']
         and not filters['stage']
         and not filters['role']
         and not filters['sla_state']

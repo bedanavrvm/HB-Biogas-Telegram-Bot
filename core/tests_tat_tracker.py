@@ -25,11 +25,13 @@ from core.api.views import _dispatch_tat_approval_certificate, _process_telegram
 from core.services.group_config import GroupConfig, GroupRegistry
 from core.services.tat_tracker import (
     _TAT_HEADER_CACHE,
+    apply_side_effects,
     bootstrap,
     build_tat_tracker_url,
     calculated_tat_days,
     calculated_tat_hours,
     calculated_tat_minutes,
+    canonical_tat_status,
     create_tat_start_param,
     decode_tat_start_param,
     get_case_detail,
@@ -52,6 +54,7 @@ from core.services.tat_tracker import (
     is_tat_tracker_workflow,
     home_data,
     next_role_alert,
+    overall_tat_running,
     staff_user_for_payload,
     sync_case_to_sheet,
     sync_tat_batch_created_cases,
@@ -64,6 +67,7 @@ from core.services.tat_tracker import (
     sync_tat_target_settings_to_sheet,
     tat_batch_format_message,
     tat_case_identity_context,
+    tat_reporting_status,
     validate_tracker_identity_headers,
     update_case,
     workflow_branches,
@@ -350,8 +354,8 @@ class TatTrackerWorkflowTest(TestCase):
             statuses=['Active', 'Deferred'],
         )
 
-        self.assertEqual(result['metrics']['total'], 2)
-        self.assertEqual({item['case_id'] for item in result['items']}, {cases[0].case_id, cases[1].case_id})
+        self.assertEqual(result['metrics']['total'], 3)
+        self.assertEqual({item['case_id'] for item in result['items']}, {case.case_id for case in cases})
 
     def test_home_rejects_multi_select_values_outside_authorized_scope(self):
         TatTrackerCase.objects.create(
@@ -392,10 +396,10 @@ class TatTrackerWorkflowTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()['data']
-        self.assertEqual(payload['metrics']['total'], 2)
+        self.assertEqual(payload['metrics']['total'], 3)
         self.assertEqual(
             {item['case_id'] for item in payload['items']},
-            {'JBL-MULTI-API-ACTIVE', 'JBL-MULTI-API-REJECTED'},
+            {'JBL-MULTI-API-ACTIVE', 'JBL-MULTI-API-REJECTED', 'JBL-MULTI-API-DEFERRED'},
         )
 
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token')
@@ -595,7 +599,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Assigned to me', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=70", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=71", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -605,7 +609,7 @@ class TatTrackerWorkflowTest(TestCase):
 
         for label in ['Current Workload', 'Period Performance', 'Near Target']:
             self.assertIn(label, template)
-        self.assertIn('Marked Stalled', source)
+        self.assertIn('Stalled (Overdue)', source)
         self.assertIn('queueFilterOverlay', template)
         self.assertIn('queuePreviousBtn', template)
         self.assertIn('queueNextBtn', template)
@@ -629,7 +633,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-sheet-overlay', stylesheet)
         self.assertIn('class="notice-close tat-sheet-close"', template)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
-        self.assertIn("miniapp/tat_tracker.css' %}?v=46", template)
+        self.assertIn("miniapp/tat_tracker.css' %}?v=48", template)
         self.assertIn('id="appHeader" class="app-top"', template)
         self.assertIn('class="refresh-label"', template)
         self.assertIn('function bindCollapsingHeader()', source)
@@ -710,6 +714,10 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('id="tatReportSheetLoading"', template)
         self.assertIn('id="tatReportInitialLoading"', template)
         self.assertIn('id="tatReportInitialRetry"', template)
+        self.assertIn('<option>Active</option><option>Stalled</option><option>Declined</option><option>Disbursed</option>', template)
+        self.assertNotIn('<option>Pending Docs</option>', template)
+        self.assertNotIn('<option>Deferred</option>', template)
+        self.assertNotIn('<option>Rejected</option>', template)
         self.assertIn('function bindReportDatePickers()', source)
         self.assertIn("typeof input.showPicker !== 'function'", source)
         self.assertIn('function setTatReportLoading(loading)', source)
@@ -730,6 +738,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-report-initial-loading{position:fixed', stylesheet)
         self.assertIn('.report-metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr))', stylesheet)
         self.assertIn('.tat-report-charts .tat-chart-body{position:relative;height:220px}', stylesheet)
+        self.assertIn('@media(min-width:701px){.tat-report-charts{width:max(100%,50vw)', stylesheet)
         self.assertIn('.tat-insight-chart-toggle button.active{', stylesheet)
         self.assertIn('.tat-report-grid .ag-cell-value{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis', stylesheet)
         self.assertIn('function stageTatColumns(stages)', source)
@@ -744,6 +753,11 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('timer: setTimeout(async () => {', source)
         self.assertIn('.tat-report-grid .ag-cell.tat-cell-copy-holding{', stylesheet)
         self.assertIn('.tat-report-grid .ag-cell.tat-cell-copied{', stylesheet)
+        self.assertIn("const statusColors = { active: '#3390ec', stalled: '#ef9b36', declined: '#e45858', disbursed: '#23a67a' }", source)
+        self.assertIn('.tat-report-grid .tat-status-active{', stylesheet)
+        self.assertIn('.tat-report-grid .tat-status-stalled{', stylesheet)
+        self.assertIn('.tat-report-grid .tat-status-declined{', stylesheet)
+        self.assertIn('.tat-report-grid .tat-status-disbursed{', stylesheet)
         self.assertIn('.tat-report-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))', stylesheet)
         self.assertIn('@media(max-width:700px){.tat-report-filters{grid-template-columns:repeat(3,minmax(0,1fr))}', stylesheet)
         self.assertIn('.report-metrics{grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}', stylesheet)
@@ -1081,6 +1095,67 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(ambiguous['matched_case_count'], 2)
         self.assertIn('exact case reference', ambiguous['selection_message'])
         self.assertEqual(ambiguous['labels'], [])
+
+    def test_tat_reports_use_four_exclusive_statuses_and_merge_negative_outcomes(self):
+        now = timezone.now()
+        cases = [
+            TatTrackerCase.objects.create(
+                group_id=self.config.group_id, case_id='TAT-STATUS-ACTIVE', product_key='business',
+                product_label='Business', client_name='ACTIVE CLIENT', branch='Nakuru', status='Active',
+                stage_values={'created': (now - timedelta(minutes=5)).isoformat()},
+                stage_target_snapshots={'mpesa_to_admin': {'target_minutes': '30'}},
+            ),
+            TatTrackerCase.objects.create(
+                group_id=self.config.group_id, case_id='TAT-STATUS-STALLED', product_key='business',
+                product_label='Business', client_name='STALLED CLIENT', branch='Nakuru', status='Active',
+                stage_values={'created': (now - timedelta(minutes=120)).isoformat()},
+                stage_target_snapshots={'mpesa_to_admin': {'target_minutes': '30'}},
+            ),
+        ]
+        for raw_status in ('Rejected', 'Deferred'):
+            cases.append(TatTrackerCase.objects.create(
+                group_id=self.config.group_id, case_id=f'TAT-STATUS-{raw_status.upper()}',
+                product_key='business', product_label='Business', client_name=f'{raw_status} CLIENT',
+                branch='Nakuru', status=raw_status,
+                stage_values={
+                    'created': (now - timedelta(minutes=180)).isoformat(),
+                    'decision': raw_status,
+                    'decision_ts': (now - timedelta(minutes=60)).isoformat(),
+                },
+            ))
+        cases.append(TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='TAT-STATUS-DISBURSED', product_key='business',
+            product_label='Business', client_name='DISBURSED CLIENT', branch='Nakuru', status='Disbursed',
+            stage_values={
+                'created': (now - timedelta(minutes=180)).isoformat(),
+                'disbursement': (now - timedelta(minutes=30)).isoformat(),
+            },
+        ))
+
+        current = report_cases(self.bro_user, {'view': 'current'})
+        self.assertEqual(
+            {row['case_id']: row['status'] for row in current['results']},
+            {'TAT-STATUS-ACTIVE': 'Active', 'TAT-STATUS-STALLED': 'Stalled'},
+        )
+        stalled = report_cases(self.bro_user, {'view': 'current', 'status': 'Stalled'})
+        self.assertEqual([row['case_id'] for row in stalled['results']], ['TAT-STATUS-STALLED'])
+
+        period = {
+            'view': 'performance',
+            'date_from': timezone.localdate(now).isoformat(),
+            'date_to': timezone.localdate(now).isoformat(),
+        }
+        performance = report_summary(self.bro_user, period)
+        self.assertEqual(performance['metrics']['declined'], 2)
+        self.assertEqual(performance['metrics']['disbursed'], 1)
+        trend_keys = {series['key'] for series in performance['charts']['trend']['series']}
+        self.assertIn('declined', trend_keys)
+        self.assertIn('disbursed', trend_keys)
+        self.assertNotIn('rejected', trend_keys)
+
+        legacy_filter = report_cases(self.bro_user, {**period, 'status': 'Deferred'})
+        self.assertEqual(legacy_filter['count'], 2)
+        self.assertEqual({row['status'] for row in legacy_filter['results']}, {'Declined'})
 
     def test_tat_report_export_reuses_audited_workbook_for_selected_insights(self):
         now = timezone.now()
@@ -3005,6 +3080,41 @@ class TatTrackerWorkflowTest(TestCase):
         now = timezone.make_aware(timezone.datetime(2026, 7, 15, 8, 0))
 
         self.assertEqual(calculated_tat_minutes(case, now=now), Decimal('150.00'))
+
+    def test_negative_decisions_share_declined_status_and_deferred_stops_tat(self):
+        created = timezone.make_aware(timezone.datetime(2026, 7, 14, 8, 0))
+        decided = timezone.make_aware(timezone.datetime(2026, 7, 14, 10, 30))
+        later = timezone.make_aware(timezone.datetime(2026, 7, 15, 8, 0))
+        product = product_by_key('mjengo')
+        decision_stage = stage_by_key(product, 'decision')
+
+        for legacy_status in ('Rejected', 'Declined', 'Deferred'):
+            case = TatTrackerCase(
+                group_id=self.config.group_id,
+                case_id=f'JBL-BS-NEGATIVE-{legacy_status}',
+                product_key='business',
+                client_name='Negative Outcome Client',
+                status=legacy_status,
+                stage_values={
+                    'created': created.isoformat(),
+                    'decision': legacy_status,
+                    'decision_ts': decided.isoformat(),
+                },
+            )
+            self.assertEqual(canonical_tat_status(case.status), 'Declined')
+            self.assertEqual(tat_reporting_status(case, workflow=self.config.workflow, now=later), 'Declined')
+            self.assertFalse(overall_tat_running(case))
+            self.assertEqual(calculated_tat_minutes(case, now=later), Decimal('150.00'))
+
+        new_case = TatTrackerCase(
+            group_id=self.config.group_id, case_id='JBL-BS-NEGATIVE-NEW',
+            product_key='mjengo', client_name='New Negative Outcome',
+            status='Active', stage_values={'created': created.isoformat()},
+        )
+        apply_side_effects(new_case, product, decision_stage, 'Deferred')
+        self.assertEqual(new_case.status, 'Declined')
+        apply_side_effects(new_case, product, decision_stage, 'Approved')
+        self.assertEqual(new_case.status, 'Active')
 
     def test_stage_tat_minutes_use_previous_stage_and_current_pending_stage(self):
         product = product_by_key('business')
