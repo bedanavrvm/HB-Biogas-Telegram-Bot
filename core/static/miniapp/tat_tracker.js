@@ -2942,7 +2942,12 @@
     }
   }));
   $('tatReportCharts').addEventListener('touchstart', event => {
+    // The heatmap has its own two-axis scroll surface. A drag that begins
+    // there belongs to the heatmap, even when its horizontal component is
+    // large enough to look like a carousel swipe.
+    state.report.touchStart = null;
     if (state.report.display !== 'carousel' || event.touches.length !== 1) return;
+    if (event.target.closest?.('.tat-heatmap')) return;
     const touch = event.touches[0]; state.report.touchStart = { x: touch.clientX, y: touch.clientY };
     tg?.disableVerticalSwipes?.(); recordTatCarouselGesture('gesture_started');
   }, { passive: true });

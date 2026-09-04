@@ -599,7 +599,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Assigned to me', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=71", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=72", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -696,6 +696,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('data-chart-display="carousel"', template)
         self.assertIn("localStorage.setItem('tat-report-chart-display'", source)
         self.assertIn("recordTatCarouselGesture('gesture_started')", source)
+        self.assertIn("if (event.target.closest?.('.tat-heatmap')) return;", source)
         self.assertIn('data-heat-row', source)
         self.assertIn("summary.metric_basis || ''", source)
         self.assertIn("text: payload.axis_title || '% of target'", source)
