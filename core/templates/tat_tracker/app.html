@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=41">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=44">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
@@ -53,7 +53,7 @@
 
     <section id="dashboardView" class="view dashboard-view tat-report" aria-label="TAT reports">
       <div id="tatReportInitialLoading" class="tat-report-initial-loading" role="status" aria-live="polite">
-        <div><span class="spinner" aria-hidden="true"></span><strong id="tatReportInitialLoadingTitle">Loading TAT reports...</strong><small id="tatReportInitialLoadingDetail">Preparing summary, insights and cases</small><button id="tatReportInitialRetry" type="button" class="secondary" hidden>Try Again</button></div>
+        <div><span class="spinner" aria-hidden="true"></span><strong id="tatReportInitialLoadingTitle">Loading TAT reports...</strong><small id="tatReportInitialLoadingDetail">Preparing summary, focused insight and cases</small><button id="tatReportInitialRetry" type="button" class="secondary" hidden>Try Again</button></div>
       </div>
       <div class="report-title-row">
         <div class="dashboard-heading"><p class="eyebrow">Operational Data</p><h2>TAT Reports</h2><p id="tatReportPeriod">Current workload</p></div>
@@ -415,6 +415,6 @@
   <script src="{% static 'miniapp/tat_api.js' %}?v=5"></script>
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=67"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=69"></script>
 </body>
 </html>

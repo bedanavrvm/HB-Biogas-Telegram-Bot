@@ -14,7 +14,9 @@ from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db import connection
 from django.test import RequestFactory, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -722,11 +724,23 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-report-pagination span{position:static;grid-column:2', stylesheet)
         self.assertIn('.tat-report-loading,.tat-report-sheet-loading{', stylesheet)
         self.assertIn('.tat-report-initial-loading{position:fixed', stylesheet)
-        self.assertIn('grid-template-columns:repeat(4,minmax(0,1fr))', stylesheet)
+        self.assertIn('.report-metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr))', stylesheet)
         self.assertIn('.tat-report-charts article>div{position:relative;height:220px}', stylesheet)
         self.assertIn('.tat-report-grid .ag-cell-value{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis', stylesheet)
+        self.assertIn('function stageTatColumns(stages)', source)
+        self.assertIn("colId: `stage_tat__${stage.key}`", source)
+        self.assertIn("syncTatReportStageColumns(table.stage_columns || [])", source)
+        self.assertIn('.tat-report-grid .tat-stage-tat-within_target', stylesheet)
+        self.assertIn('.tat-report-grid .tat-stage-tat-near_target', stylesheet)
+        self.assertIn('.tat-report-grid .tat-stage-tat-overdue', stylesheet)
         self.assertIn('.tat-report-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))', stylesheet)
         self.assertIn('@media(max-width:700px){.tat-report-filters{grid-template-columns:repeat(3,minmax(0,1fr))}', stylesheet)
+        self.assertIn('.report-metrics{grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}', stylesheet)
+        self.assertIn("response_mode: 'focused_v1'", source)
+        self.assertIn('function loadTatReportInsight(insight)', source)
+        self.assertIn('Date.now() - cached.storedAt < 60000', source)
+        self.assertIn('filterRevision: 0, insightCache: new Map()', source)
+        self.assertIn('.tat-report-charts article.insight-loading{', stylesheet)
 
     def test_tat_reporting_is_scoped_allowlisted_and_page_size_capped(self):
         TatTrackerCase.objects.create(
@@ -744,6 +758,7 @@ class TatTrackerWorkflowTest(TestCase):
         )
         data = report_cases(self.bro_user, {'view': 'current', 'page_size': 999})
         self.assertEqual(data['page_size'], 100)
+        self.assertEqual(data['calculation_path'], 'database_paginated')
         self.assertEqual([row['case_id'] for row in data['results']], ['TAT-REPORT-1'])
         self.assertNotIn('national_id', data['results'][0])
         self.assertNotIn('primary_phone', data['results'][0])
@@ -789,6 +804,55 @@ class TatTrackerWorkflowTest(TestCase):
             performance['heatmap']['filter_guidance']['chart_controls'],
             ['heatmap_pair', 'heatmap_metric'],
         )
+
+    def test_tat_report_focused_response_returns_only_requested_insight(self):
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='TAT-FOCUSED-1', product_key='business',
+            product_label='Business', client_name='FOCUSED CLIENT', branch='Nakuru', status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+        )
+
+        focused = report_summary(self.bro_user, {
+            'view': 'current', 'response_mode': 'focused_v1', 'insight': 'backlog_age',
+            'include_overview': False, 'include_options': False,
+        })
+
+        self.assertEqual(focused['response_mode'], 'focused_v1')
+        self.assertEqual(focused['insight'], 'backlog_age')
+        self.assertEqual(set(focused['charts']), {'backlog_age'})
+        self.assertNotIn('metrics', focused)
+        self.assertNotIn('filters', focused)
+        self.assertNotIn('freshness', focused)
+        self.assertNotIn('heatmap', focused)
+        self.assertNotIn('target_review_signals', focused)
+        with self.assertRaisesMessage(ValueError, 'insight is not supported'):
+            report_summary(self.bro_user, {
+                'response_mode': 'focused_v1', 'insight': 'made_up_chart',
+            })
+
+    def test_tat_report_fast_table_query_count_is_bounded(self):
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='TAT-QUERY-00', product_key='business',
+            product_label='Business', client_name='QUERY CLIENT 00', branch='Nakuru', status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+        )
+        with CaptureQueriesContext(connection) as small:
+            small_result = report_cases(self.bro_user, {'view': 'current', 'page_size': 25})
+        TatTrackerCase.objects.bulk_create([
+            TatTrackerCase(
+                group_id=self.config.group_id, case_id=f'TAT-QUERY-{index:02d}', product_key='business',
+                product_label='Business', client_name=f'QUERY CLIENT {index:02d}', branch='Nakuru',
+                status='Active', stage_values={'created': timezone.now().isoformat()},
+            )
+            for index in range(1, 21)
+        ])
+        with CaptureQueriesContext(connection) as large:
+            large_result = report_cases(self.bro_user, {'view': 'current', 'page_size': 25})
+
+        self.assertEqual(small_result['calculation_path'], 'database_paginated')
+        self.assertEqual(large_result['calculation_path'], 'database_paginated')
+        self.assertLessEqual(len(large), 20)
+        self.assertLessEqual(len(large) - len(small), 2)
 
     def test_tat_report_branch_options_deduplicate_case_and_whitespace_variants(self):
         user = get_user_model().objects.create_superuser(username='branch-report-root', password='unused')
@@ -906,11 +970,56 @@ class TatTrackerWorkflowTest(TestCase):
         with self.assertRaisesMessage(ValueError, 'heatmap comparison'):
             report_summary(self.bro_user, {'heatmap_pair': 'stage_customer'})
 
+    def test_tat_report_rows_include_each_stage_duration_and_frozen_target_state(self):
+        now = timezone.now()
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='TAT-STAGE-COLUMNS', product_key='business',
+            product_label='Business', client_name='STAGE CLIENT', branch='Nakuru', status='Active',
+            stage_values={
+                'created': (now - timedelta(minutes=190)).isoformat(),
+                'mpesa_to_admin': (now - timedelta(minutes=160)).isoformat(),
+                'mpesa_verified': (now - timedelta(minutes=105)).isoformat(),
+                'ca_analysis_sent': (now - timedelta(minutes=35)).isoformat(),
+            },
+            stage_target_snapshots={
+                'mpesa_to_admin': {'target_minutes': '60', 'settings_version': 1},
+                'mpesa_verified': {'target_minutes': '60', 'settings_version': 1},
+                'ca_analysis_sent': {'target_minutes': '60', 'settings_version': 1},
+            },
+        )
+
+        report = report_cases(self.bro_user, {'view': 'current'})
+        self.assertEqual(report['results'][0]['case_id'], case.case_id)
+        self.assertEqual(
+            [item['key'] for item in report['stage_columns'][:3]],
+            ['mpesa_to_admin', 'mpesa_verified', 'ca_analysis_sent'],
+        )
+        stage_tat = report['results'][0]['stage_tat']
+        self.assertEqual(stage_tat['mpesa_to_admin']['minutes'], 30.0)
+        self.assertEqual(stage_tat['mpesa_to_admin']['sla_state'], 'within_target')
+        self.assertEqual(stage_tat['mpesa_verified']['minutes'], 55.0)
+        self.assertEqual(stage_tat['mpesa_verified']['sla_state'], 'near_target')
+        self.assertEqual(stage_tat['ca_analysis_sent']['minutes'], 70.0)
+        self.assertEqual(stage_tat['ca_analysis_sent']['sla_state'], 'overdue')
+        self.assertTrue(stage_tat['ca_analysis_sent']['completed'])
+        self.assertTrue(stage_tat['bro_response']['active'])
+
     def test_tat_report_export_reuses_audited_workbook_for_selected_insights(self):
+        now = timezone.now()
         TatTrackerCase.objects.create(
             group_id=self.config.group_id, case_id='TAT-EXPORT-INSIGHT', product_key='business',
             product_label='Business', client_name='EXPORT CLIENT', branch='Nakuru', status='Active',
-            stage_values={'created': timezone.now().isoformat()},
+            stage_values={
+                'created': (now - timedelta(minutes=190)).isoformat(),
+                'mpesa_to_admin': (now - timedelta(minutes=160)).isoformat(),
+                'mpesa_verified': (now - timedelta(minutes=105)).isoformat(),
+                'ca_analysis_sent': (now - timedelta(minutes=35)).isoformat(),
+            },
+            stage_target_snapshots={
+                'mpesa_to_admin': {'target_minutes': '60', 'settings_version': 1},
+                'mpesa_verified': {'target_minutes': '60', 'settings_version': 1},
+                'ca_analysis_sent': {'target_minutes': '60', 'settings_version': 1},
+            },
         )
         content, count = export_report_xlsx(
             self.bro_user,
@@ -921,6 +1030,19 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(count, 1)
         self.assertEqual(workbook.sheetnames, ['TAT Report', 'Selected Insight', 'Selected Heatmap'])
         self.assertIn('Branch', workbook['Selected Insight']['A1'].value)
+        report_sheet = workbook['TAT Report']
+        headers = [cell.value for cell in report_sheet[1]]
+        expected = {
+            'MPESA sent to Admin TAT (minutes)': (30, 'C6EFCE'),
+            'MPESA verified by Business Admin and sent to CA TAT (minutes)': (55, 'FFEB9C'),
+            'Credit analysis sent TAT (minutes)': (70, 'FFC7CE'),
+        }
+        for header, (minutes, color) in expected.items():
+            column = headers.index(header) + 1
+            cell = report_sheet.cell(row=2, column=column)
+            self.assertEqual(cell.value, minutes)
+            self.assertTrue(cell.fill.fgColor.rgb.endswith(color))
+            self.assertIsNotNone(report_sheet.cell(row=1, column=column).comment)
 
     def test_daily_stage_duration_samples_only_belong_to_completion_date(self):
         now = timezone.now()
@@ -1014,6 +1136,8 @@ class TatTrackerWorkflowTest(TestCase):
 
         self.assertIn('createVisibleInterval', runtime)
         self.assertIn('sharedRuntime.createVisibleInterval', diagnostics)
+        self.assertIn("cancelled ? 'cancelled'", diagnostics)
+        self.assertIn("xhr.__miniappDiagnosticAborted ? 'cancelled'", diagnostics)
         self.assertIn("refresh({ background: true, periodic: true })", source)
         self.assertIn('if (periodic && state.homeRequestsInFlight > 0)', source)
         self.assertIn('requestNumber !== state.homeRequestNumber', source)

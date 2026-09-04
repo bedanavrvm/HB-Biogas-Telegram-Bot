@@ -48,8 +48,12 @@
       loading: false,
       display: (() => { try { return localStorage.getItem('tat-report-chart-display') === 'list' ? 'list' : 'carousel'; } catch (error) { return 'carousel'; } })(),
       activeSlide: 0, touchStart: null, insightPayloads: {},
+      // Cache only aggregate chart payloads. PII-bearing table rows and audited
+      // exports always come from a fresh authorized server response.
+      filterRevision: 0, insightCache: new Map(), insightAbortController: null,
       filterSheetOpen: false, filterSheetReturnFocus: null,
       defaultValues: {},
+      stageColumnsSignature: '',
     },
   };
 
@@ -1933,6 +1937,35 @@
     }, extra || {}));
   }
 
+  function focusedReportPayload(insight, options) {
+    return reportPayload(Object.assign({
+      response_mode: 'focused_v1',
+      insight,
+      include_overview: false,
+      include_options: false,
+    }, options || {}));
+  }
+
+  function activeTatInsightKey() {
+    const slides = visibleTatChartSlides();
+    return slides[state.report.activeSlide]?.dataset.reportKey || slides[0]?.dataset.reportKey || 'trend';
+  }
+
+  function tatInsightCacheKey(insight) {
+    return `${state.report.filterRevision}:${state.report.view}:${insight}`;
+  }
+
+  function invalidateTatReportInsights() {
+    state.report.filterRevision += 1;
+    state.report.insightCache.clear();
+    state.report.insightAbortController?.abort();
+    state.report.insightAbortController = null;
+    Object.values(state.report.charts).forEach(chart => chart?.destroy?.());
+    state.report.charts = {};
+    state.report.insightPayloads = {};
+    document.querySelectorAll('#tatReportCharts [data-report-slide]').forEach(panel => panel.classList.remove('insight-loading'));
+  }
+
   async function reportFetch(path, payload, signal) {
     const requestId = newRequestId();
     payload.client_request_id = requestId;
@@ -1978,7 +2011,7 @@
     $('tatReportInitialLoadingTitle').textContent = failed ? 'TAT reports could not load' : 'Loading TAT reports...';
     $('tatReportInitialLoadingDetail').textContent = failed
       ? (detail || 'Check your connection and try again.')
-      : 'Preparing summary, insights and cases';
+      : 'Preparing summary, focused insight and cases';
     $('tatReportInitialRetry').hidden = !failed;
   }
 
@@ -2189,9 +2222,42 @@
       .replace(/\bBUSINESS_ADMIN\b/g, 'Admin');
   }
 
-  function initTatReportGrid() {
-    if (state.report.gridApi || !window.agGrid) return;
-    window.agGrid.ModuleRegistry.registerModules([window.agGrid.AllCommunityModule]);
+  function formatStageTatMinutes(value) {
+    if (value == null || value === '') return '\u2014';
+    const minutes = Number(value);
+    if (!Number.isFinite(minutes)) return '\u2014';
+    return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(minutes)}m`;
+  }
+
+  function stageTatDetail(params, stage) {
+    return ((params.data || {}).stage_tat || {})[stage.key] || {};
+  }
+
+  function stageTatColumns(stages) {
+    return (stages || []).map(stage => ({
+      headerName: `${compactTatReportLabel(stage.label)} (min)`,
+      headerTooltip: `${stage.label} TAT in minutes`,
+      colId: `stage_tat__${stage.key}`,
+      width: 118,
+      minWidth: 88,
+      sortable: false,
+      valueGetter: params => stageTatDetail(params, stage).minutes,
+      valueFormatter: params => formatStageTatMinutes(params.value),
+      cellClass: params => {
+        const detail = stageTatDetail(params, stage);
+        return detail.minutes == null ? 'tat-stage-tat-empty' : `tat-stage-tat tat-stage-tat-${detail.sla_state || 'target_unavailable'}`;
+      },
+      tooltipValueGetter: params => {
+        const detail = stageTatDetail(params, stage);
+        if (detail.minutes == null) return `${stage.label}: no duration yet`;
+        const stateLabel = String(detail.sla_state || 'target_unavailable').replaceAll('_', ' ');
+        const progress = detail.active ? 'current stage' : (detail.completed ? 'completed stage' : 'stage duration');
+        return `${stage.label}: ${formatStageTatMinutes(detail.minutes)} - ${stateLabel} - ${progress}`;
+      },
+    }));
+  }
+
+  function tatReportColumnDefs(stages) {
     const touch = window.matchMedia('(pointer: coarse)').matches;
     const columns = [
       {
@@ -2216,6 +2282,20 @@
       { headerName: 'SLA', field: 'sla_state', width: 104, minWidth: 86, valueFormatter: p => String(p.value || '').replaceAll('_', ' '), cellClass: p => `sla-${p.value || ''}` },
     ];
     if ((((state.data || {}).user || {}).capabilities || []).includes('tat.reports.people.view')) columns.splice(9, 0, { headerName: 'Responsible Person', field: 'responsible_person', width: 135, minWidth: 105, sortable: false, tooltipField: 'responsible_person' });
+    return columns.concat(stageTatColumns(stages));
+  }
+
+  function syncTatReportStageColumns(stages) {
+    const signature = JSON.stringify((stages || []).map(stage => [stage.key, stage.label]));
+    if (!state.report.gridApi || signature === state.report.stageColumnsSignature) return;
+    state.report.stageColumnsSignature = signature;
+    state.report.gridApi.setGridOption('columnDefs', tatReportColumnDefs(stages));
+  }
+
+  function initTatReportGrid() {
+    if (state.report.gridApi || !window.agGrid) return;
+    window.agGrid.ModuleRegistry.registerModules([window.agGrid.AllCommunityModule]);
+    const touch = window.matchMedia('(pointer: coarse)').matches;
     state.report.gridApi = window.agGrid.createGrid($('tatReportGrid'), {
       theme: 'legacy', rowData: [], animateRows: false, suppressMovableColumns: touch,
       defaultColDef: {
@@ -2223,7 +2303,7 @@
         tooltipValueGetter: p => p.value == null ? '' : String(p.value),
         cellClassRules: { 'compact-long-value': p => String(p.value || '').length > 24 },
       },
-      columnDefs: columns,
+      columnDefs: tatReportColumnDefs([]),
       enableBrowserTooltips: true,
       overlayLoadingTemplate: '<span>Loading TAT report…</span>',
       overlayNoRowsTemplate: '<span>No cases match these filters.</span>',
@@ -2368,9 +2448,29 @@
     return [...document.querySelectorAll('#tatReportCharts [data-report-slide]')].filter(panel => !panel.hidden);
   }
 
+  function tatInsightAllowed(key) {
+    if (key === 'backlog_age') return state.report.view === 'current';
+    if (['sla_compliance', 'tat_percentiles', 'stage_target'].includes(key)) return state.report.view === 'performance';
+    return true;
+  }
+
+  function syncTatReportPanelAvailability() {
+    document.querySelectorAll('#tatReportCharts [data-report-slide]').forEach(panel => {
+      panel.hidden = !tatInsightAllowed(panel.dataset.reportKey || '');
+    });
+  }
+
+  function setTatInsightLoading(key, loading) {
+    const panel = document.querySelector(`#tatReportCharts [data-report-key="${key}"]`);
+    if (!panel) return;
+    panel.classList.toggle('insight-loading', Boolean(loading));
+    panel.setAttribute('aria-busy', String(Boolean(loading)));
+  }
+
   function syncTatChartDisplay() {
     const container = $('tatReportCharts');
     if (!container) return;
+    syncTatReportPanelAvailability();
     const slides = visibleTatChartSlides();
     state.report.activeSlide = Math.max(0, Math.min(state.report.activeSlide, Math.max(0, slides.length - 1)));
     container.classList.toggle('carousel', state.report.display === 'carousel');
@@ -2401,6 +2501,8 @@
     state.report.activeSlide = 0;
     try { localStorage.setItem('tat-report-chart-display', state.report.display); } catch (error) {}
     syncTatChartDisplay(); utils.haptic?.('light');
+    if (state.report.display === 'list') loadVisibleTatReportInsights();
+    else loadTatReportInsight(activeTatInsightKey());
   }
 
   function moveTatChart(direction) {
@@ -2409,6 +2511,7 @@
     const next = Math.max(0, Math.min(slides.length - 1, state.report.activeSlide + direction));
     if (next === state.report.activeSlide) return;
     state.report.activeSlide = next; syncTatChartDisplay(); utils.haptic?.('light');
+    loadTatReportInsight(activeTatInsightKey());
   }
 
   function recordTatCarouselGesture(action) {
@@ -2416,18 +2519,21 @@
   }
 
   function renderTatReportCharts(summary) {
-    Object.values(state.report.charts).forEach(chart => chart && chart.destroy());
-    state.report.charts = {};
+    const focused = summary.response_mode === 'focused_v1';
+    if (!focused) {
+      Object.values(state.report.charts).forEach(chart => chart && chart.destroy());
+      state.report.charts = {};
+      state.report.insightPayloads = {};
+    }
     const charts = summary.charts || {};
-    state.report.insightPayloads = Object.assign({}, charts, {
-      heatmap: summary.heatmap || {},
-      target_review_signals: summary.target_review_signals || {},
-      oldest_cases: summary.oldest_cases || {},
-    });
-    renderExplorerDetails(charts.explorer || {});
-    renderTatHeatmap(summary.heatmap || {});
-    renderTargetReviewSignals(summary.target_review_signals || {});
-    renderOldestCases(summary.oldest_cases || {});
+    Object.assign(state.report.insightPayloads, charts);
+    if (summary.heatmap) state.report.insightPayloads.heatmap = summary.heatmap;
+    if (summary.target_review_signals) state.report.insightPayloads.target_review_signals = summary.target_review_signals;
+    if (summary.oldest_cases) state.report.insightPayloads.oldest_cases = summary.oldest_cases;
+    if (charts.explorer) renderExplorerDetails(charts.explorer);
+    if (summary.heatmap) renderTatHeatmap(summary.heatmap);
+    if (summary.target_review_signals) renderTargetReviewSignals(summary.target_review_signals);
+    if (summary.oldest_cases) renderOldestCases(summary.oldest_cases);
     if (!window.Chart) { syncTatChartDisplay(); return; }
     const text = getComputedStyle(document.body).getPropertyValue('--tat-text').trim() || '#222';
     const grid = getComputedStyle(document.body).getPropertyValue('--tat-line').trim() || '#ddd';
@@ -2444,8 +2550,10 @@
       const payload = charts[key];
       const allowed = !currentOnly.has(key) || state.report.view === 'current';
       const performanceAllowed = !performanceOnly.has(key) || state.report.view === 'performance';
-      if (panel) panel.hidden = !payload || !allowed || !performanceAllowed;
+      if (panel) panel.hidden = !allowed || !performanceAllowed;
       if (!payload || !allowed || !performanceAllowed) return;
+      state.report.charts[key]?.destroy?.();
+      delete state.report.charts[key];
       $(`${prefix}Title`).textContent = payload.title || '';
       const notes = [payload.subtitle || ''];
       if (payload.excluded_count) notes.push(`${Number(payload.excluded_count).toLocaleString()} excluded: ${payload.exclusion_reason || 'not eligible'}.`);
@@ -2501,7 +2609,7 @@
       state.report.charts[key] = new Chart($(`${prefix}Chart`), { type: line ? 'line' : 'bar', data: { labels: dateLabels, datasets }, options, plugins });
     });
     const details = $('tatTargetDetails');
-    if (details) {
+    if (details && charts.stage_target) {
       const rows = (charts.stage_target || {}).single_product_details || [];
       details.innerHTML = rows.length ? rows.map(item => {
         const target = item.target_days != null ? `${item.target_days}d target` : `${(item.target_versions_days || []).join('d / ')}d targets`;
@@ -2525,6 +2633,46 @@
     $('tatReportFreshness').classList.toggle('warning', !freshness.latest_snapshot || Boolean(freshness.pending_rebuilds) || Boolean(freshness.failed_rebuilds));
   }
 
+  async function loadTatReportInsight(insight) {
+    if (!insight || !tatInsightAllowed(insight) || !state.report.loaded) return;
+    const cacheKey = tatInsightCacheKey(insight);
+    const cached = state.report.insightCache.get(cacheKey);
+    if (cached && Date.now() - cached.storedAt < 60000) {
+      renderTatReportCharts(cached.summary);
+      return;
+    }
+    const revision = state.report.filterRevision;
+    state.report.insightAbortController?.abort();
+    const controller = new AbortController();
+    state.report.insightAbortController = controller;
+    setTatInsightLoading(insight, true);
+    try {
+      const summary = await reportFetch(
+        '/api/tat-tracker/reports/summary/',
+        focusedReportPayload(insight),
+        controller.signal,
+      );
+      if (revision !== state.report.filterRevision) return;
+      state.report.insightCache.set(cacheKey, { storedAt: Date.now(), summary });
+      renderTatReportCharts(summary);
+    } catch (error) {
+      if (error.name === 'AbortError' || revision !== state.report.filterRevision) return;
+      setStatus(contextualReportError(`The ${currentReportInsight().title} chart could not be updated`, error), 'error');
+    } finally {
+      if (state.report.insightAbortController === controller) {
+        state.report.insightAbortController = null;
+        setTatInsightLoading(insight, false);
+      }
+    }
+  }
+
+  async function loadVisibleTatReportInsights() {
+    for (const panel of visibleTatChartSlides()) {
+      if (state.report.display !== 'list') return;
+      await loadTatReportInsight(panel.dataset.reportKey || '');
+    }
+  }
+
   async function refreshTatReport(options) {
     const settings = Object.assign({ summary: true, table: true }, options || {});
     const initialLoad = !state.report.loaded;
@@ -2535,21 +2683,31 @@
     if (initialLoad) setTatReportInitialState('loading');
     setTatReportLoading(true);
     if (settings.table) state.report.gridApi?.showLoadingOverlay();
+    const focusedInsight = settings.summary ? activeTatInsightKey() : '';
+    if (focusedInsight && !initialLoad) setTatInsightLoading(focusedInsight, true);
     try {
+      const insight = focusedInsight || activeTatInsightKey();
       const [summary, table] = await Promise.all([
-        settings.summary ? reportFetch('/api/tat-tracker/reports/summary/', reportPayload(), controller.signal) : Promise.resolve(null),
+        settings.summary ? reportFetch('/api/tat-tracker/reports/summary/', focusedReportPayload(insight, {
+          include_overview: true,
+          include_options: initialLoad,
+        }), controller.signal) : Promise.resolve(null),
         settings.table ? reportFetch('/api/tat-tracker/reports/cases/', reportPayload(), controller.signal) : Promise.resolve(null),
       ]);
       if (sequence !== state.report.sequence) return;
       if (summary) {
         renderReportMetrics(summary.metrics || {}, summary.metric_basis || ''); renderTatReportCharts(summary); renderReportFreshness(summary.freshness || {});
-        setReportSelect('branch', summary.filters?.branches || []);
-        setReportSelect('product', summary.filters?.products || [], 0, 1);
-        setReportSelect('stage', summary.filters?.stages || [], 0, 1);
-        setReportSelect('role', summary.filters?.roles || []);
+        state.report.insightCache.set(tatInsightCacheKey(insight), { storedAt: Date.now(), summary });
+        if (summary.filters) {
+          setReportSelect('branch', summary.filters.branches || []);
+          setReportSelect('product', summary.filters.products || [], 0, 1);
+          setReportSelect('stage', summary.filters.stages || [], 0, 1);
+          setReportSelect('role', summary.filters.roles || []);
+        }
         syncReportFilterGuidance();
       }
       if (table) {
+        syncTatReportStageColumns(table.stage_columns || []);
         state.report.count = Number(table.count || 0); state.report.gridApi?.setGridOption('rowData', table.results || []);
         if (table.results?.length) state.report.gridApi?.hideOverlay(); else state.report.gridApi?.showNoRowsOverlay();
         const pages = Math.max(1, Math.ceil(state.report.count / state.report.pageSize));
@@ -2558,6 +2716,7 @@
       }
       state.report.loaded = true;
       setTatReportInitialState('ready');
+      utils.haptic?.('success');
     } catch (error) {
       if (error.name === 'AbortError' || sequence !== state.report.sequence) return;
       state.report.gridApi?.hideOverlay();
@@ -2569,14 +2728,17 @@
         state.report.abortController = null;
         setTatReportLoading(false);
       }
+      if (focusedInsight && sequence === state.report.sequence) setTatInsightLoading(focusedInsight, false);
     }
   }
 
   function setTatReportView(view) {
-    state.report.view = view; state.report.page = 1;
+    state.report.view = view; state.report.page = 1; state.report.activeSlide = 0;
     document.querySelectorAll('[data-report-view]').forEach(button => { const active = button.dataset.reportView === view; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
     $('tatTrendTitle').textContent = view === 'current' ? 'Workload over Time' : 'Created, Finished and Disbursed';
     $('tatReportPeriod').textContent = view === 'current' ? 'Current workload and attention indicators.' : 'Finished cases and outcomes for the selected period.';
+    invalidateTatReportInsights();
+    syncTatChartDisplay();
     refreshTatReport(); utils.haptic?.('light');
   }
 
@@ -2654,17 +2816,37 @@
     const button = event.target.closest('[data-oldest-case]');
     if (button) openCase(button.dataset.oldestCase).catch(error => setStatus(error.message, 'error'));
   });
-  $('tatReportFilters').addEventListener('submit', event => {
-    event.preventDefault(); state.report.page = 1; closeTatReportFilters(); refreshTatReport();
-  });
   let tatReportFilterTimer = null;
+  let tatReportFiltersDirty = false;
+  function queueTatReportFilterRefresh(delay) {
+    clearTimeout(tatReportFilterTimer);
+    tatReportFiltersDirty = true;
+    state.report.page = 1;
+    state.report.abortController?.abort();
+    invalidateTatReportInsights();
+    tatReportFilterTimer = setTimeout(() => {
+      tatReportFiltersDirty = false;
+      refreshTatReport();
+    }, delay);
+  }
+  $('tatReportFilters').addEventListener('submit', event => {
+    event.preventDefault();
+    clearTimeout(tatReportFilterTimer);
+    closeTatReportFilters();
+    if (tatReportFiltersDirty) {
+      tatReportFiltersDirty = false;
+      refreshTatReport();
+    }
+  });
   $('tatReportFilters').elements.search.addEventListener('input', () => {
     clearTimeout(tatReportFilterTimer); syncReportFilterGuidance();
-    tatReportFilterTimer = setTimeout(() => { state.report.page = 1; utils.haptic?.('light'); refreshTatReport(); }, 350);
+    utils.haptic?.('light');
+    queueTatReportFilterRefresh(350);
   });
   $('tatReportReset').addEventListener('click', () => {
     $('tatReportFilters').reset(); setDefaultReportDates(); state.report.page = 1;
-    syncReportFilterGuidance(); refreshTatReport(); utils.haptic?.('light');
+    clearTimeout(tatReportFilterTimer); tatReportFiltersDirty = false;
+    invalidateTatReportInsights(); syncReportFilterGuidance(); refreshTatReport(); utils.haptic?.('light');
   });
   const immediateReportFilters = [
     'branch', 'product', 'stage', 'role', 'status', 'sla_state',
@@ -2675,7 +2857,7 @@
     if (name === 'date_from' || name === 'date_to') syncReportDateDisplays();
     state.report.page = 1; syncReportFilterGuidance();
     utils.haptic?.('light');
-    refreshTatReport();
+    queueTatReportFilterRefresh(140);
   }));
   $('openTatReportFiltersBtn').addEventListener('click', event => openTatReportFilters(event.currentTarget));
   $('tatReportFilterWarning').addEventListener('click', event => openTatReportFilters(event.currentTarget));
@@ -2689,6 +2871,7 @@
   $('tatReportExport').addEventListener('click', exportTatReport);
   $('tatReportInitialRetry').addEventListener('click', () => {
     utils.impactWithFallback?.('light', 20);
+    invalidateTatReportInsights();
     refreshTatReport();
   });
   $('refreshBtn').addEventListener('click', async () => {
@@ -2698,7 +2881,7 @@
     try {
       const caseId = state.detail && state.detail.summary && state.detail.summary.case_id;
       if (state.currentView === 'detail' && caseId) await openCase(caseId);
-      else if (state.currentView === 'dashboard') await refreshTatReport();
+      else if (state.currentView === 'dashboard') { invalidateTatReportInsights(); await refreshTatReport(); }
       else await refresh();
     } catch (error) {
       // The invoked loader already presents a safe, contextual error.

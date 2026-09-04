@@ -411,7 +411,10 @@
             return response;
           }, function (error) {
             try { if (diagnosticSpan) diagnosticSpan.end(); } catch (_) {}
-            if (requestId && !isDiagnostic) recordRequest(requestId, navigator.onLine === false ? 'offline' : 'unknown');
+            if (requestId && !isDiagnostic) {
+              const cancelled = error && (error.name === 'AbortError' || (options && options.signal && options.signal.aborted));
+              recordRequest(requestId, cancelled ? 'cancelled' : (navigator.onLine === false ? 'offline' : 'unknown'));
+            }
             throw error;
           });
         };
@@ -438,9 +441,10 @@
           const requestId = xhr.__miniappDiagnosticRequestId;
           if (requestId && String(xhr.__miniappDiagnosticUrl || '').indexOf('/miniapp-diagnostics/') < 0) {
             recordRequest(requestId, '');
+            xhr.addEventListener('abort', function () { xhr.__miniappDiagnosticAborted = true; }, { once: true });
             xhr.addEventListener('loadend', function () {
               const status = Number(xhr.status || 0);
-              recordRequest(requestId, status >= 200 && status < 400 ? 'ok' : (status >= 500 ? 'server_error' : (status ? 'client_error' : 'unknown')));
+              recordRequest(requestId, xhr.__miniappDiagnosticAborted ? 'cancelled' : (status >= 200 && status < 400 ? 'ok' : (status >= 500 ? 'server_error' : (status ? 'client_error' : 'unknown'))));
             }, { once: true });
           }
           return originalSend.apply(this, arguments);

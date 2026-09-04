@@ -17,6 +17,7 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal, ROUND_CEILING
 from io import BytesIO
+import logging
 from math import ceil, sqrt
 
 from django.db import transaction
@@ -29,9 +30,9 @@ from core.models import (
 )
 from core.services.tat_presentation import presentation_settings
 from core.services.tat_tracker import (
-    TAT_COMPLETED_STATUSES, calculated_tat_seconds, minutes_between, next_action,
-    overall_tat_end, parse_iso_datetime, product_for_case, stage_completed_at,
-    stage_target_minutes_for_case, stage_tat_minutes,
+    TAT_COMPLETED_STATUSES, calculated_tat_seconds, minutes_between,
+    overall_tat_end, parse_iso_datetime, product_for_case,
+    stage_target_minutes_for_case,
 )
 from core.services.workflow_data_mode import operational_tat_cases
 
@@ -66,6 +67,12 @@ TARGET_REVIEW_SIGNAL_POLICY = {
     'localized_min_over_percent': 70,
     'localized_wilson_lower_bound': 50,
 }
+FOCUSED_INSIGHTS = frozenset({
+    'trend', 'backlog_age', 'sla_compliance', 'tat_percentiles',
+    'stage_target', 'explorer', 'heatmap', 'target_review_signals',
+    'oldest_cases',
+})
+logger = logging.getLogger(__name__)
 # A localized signal deliberately accepts fewer samples than the systemic
 # signal: it prompts review of one directly inspectable scope and never makes
 # an organization-wide claim or changes configuration.
@@ -179,7 +186,7 @@ def _filters(payload):
     }
 
 
-def _filtered_cases(actor, filters):
+def _filtered_case_queryset(actor, filters):
     qs = scoped_cases(actor)
     if filters['group']:
         qs = qs.filter(group_id=filters['group'])
@@ -192,7 +199,117 @@ def _filtered_cases(actor, filters):
     if filters['search']:
         term = filters['search']
         qs = qs.filter(Q(case_id__icontains=term) | Q(client_name__icontains=term) | Q(branch__icontains=term) | Q(product_label__icontains=term))
-    return list(qs)
+    return qs
+
+
+def _filtered_cases(actor, filters):
+    return list(_filtered_case_queryset(actor, filters))
+
+
+class _ReportContext:
+    """Request-local caches for exact, authorization-scoped report projections."""
+
+    def __init__(self, actor, cases=(), *, include_people=False):
+        self.actor = actor
+        self.include_people = include_people
+        settings = presentation_settings()
+        self.near_target_ratio = Decimal(settings['near_target_percent']) / Decimal('100')
+        self.presentation = settings
+        self._configs = {}
+        self._products = {}
+        self._events = {}
+        self._assignments = None
+        self._group_ids = set()
+        self.prime(cases)
+
+    def prime(self, cases):
+        cases = list(cases)
+        group_ids = {str(case.group_id) for case in cases}
+        missing = group_ids - set(self._configs)
+        if missing:
+            self._configs.update({
+                str(config.group_id): config
+                for config in GroupSheetConfiguration.objects.filter(group_id__in=missing)
+            })
+        self._group_ids.update(group_ids)
+        for case in cases:
+            # scoped_cases() prefetches events; list() consumes that cache without
+            # issuing another query and gives deterministic first-event lookup.
+            events = sorted(case.events.all(), key=lambda item: item.created_at)
+            self._events[str(case.pk)] = events
+        if self._assignments is not None and missing:
+            self._assignments = None
+        return cases
+
+    def config(self, case):
+        return self._configs.get(str(case.group_id))
+
+    def product(self, case):
+        snapshot = case.tat_configuration_snapshot or {}
+        if snapshot.get('stages'):
+            key = ('snapshot', str(case.product_version_id or ''), repr(snapshot))
+        else:
+            key = ('legacy', str(case.product_key or '').casefold())
+        if key not in self._products:
+            self._products[key] = product_for_case(case)
+        return self._products[key]
+
+    def events(self, case):
+        return self._events.get(str(case.pk), [])
+
+    def event(self, case, stage_key):
+        return next((item for item in self.events(case) if item.stage_key == stage_key), None)
+
+    def completed_at(self, case, stage):
+        values = case.stage_values or {}
+        timestamp = parse_iso_datetime(values.get(stage.auto_timestamp_key)) or parse_iso_datetime(values.get(stage.key))
+        if timestamp:
+            return timestamp
+        if not stage.auto_timestamp_key or not values.get(stage.key) or not case.pk:
+            return None
+        event = self.event(case, stage.key)
+        return event.created_at if event else None
+
+    def next_action(self, case, product=None):
+        if case.configuration_binding_status == TatTrackerCase.CONFIG_UNRESOLVED:
+            return None
+        if case.status in TERMINAL:
+            return None
+        product = product or self.product(case)
+        for stage in product.stages:
+            if not (case.stage_values or {}).get(stage.key):
+                return stage
+        return None
+
+    def assignments(self):
+        if self._assignments is None:
+            self._assignments = list(
+                TatResponsibilityAssignment.objects.filter(
+                    group_configuration__group_id__in=self._group_ids,
+                    active=True,
+                ).select_related('group_configuration', 'primary_user')
+            ) if self.include_people and self._group_ids else []
+        return self._assignments
+
+    def responsible_person(self, case, stage):
+        matches = []
+        for assignment in self.assignments():
+            if str(assignment.group_configuration.group_id) != str(case.group_id):
+                continue
+            if assignment.branch.casefold() != str(case.branch or '').casefold():
+                continue
+            if assignment.role.casefold() != str(stage.role or '').casefold():
+                continue
+            if assignment.product_key and assignment.product_key.casefold() != str(case.product_key or '').casefold():
+                continue
+            if assignment.stage_key and assignment.stage_key != stage.key:
+                continue
+            matches.append(assignment)
+        matches.sort(key=lambda item: (item.stage_key, item.product_key), reverse=True)
+        assignment = matches[0] if matches else None
+        if assignment and assignment.primary_user:
+            return assignment.primary_user.get_full_name() or assignment.primary_user.get_username()
+        return ''
 
 
 def _case_target(case, product, stage=None, *, config=None):
@@ -210,18 +327,84 @@ def _case_target(case, product, stage=None, *, config=None):
     return sum(values, Decimal('0')) if values else None
 
 
-def _case_row(case, *, include_people=False, now=None):
+def _sla_state_for_minutes(elapsed, target, *, near_target_ratio=None):
+    """Classify wall-clock minutes against the case's frozen stage target."""
+    if target is None or target <= 0 or elapsed is None:
+        return 'target_unavailable'
+    if elapsed > target:
+        return 'overdue'
+    ratio = near_target_ratio
+    if ratio is None:
+        ratio = Decimal(presentation_settings()['near_target_percent']) / Decimal('100')
+    return 'near_target' if elapsed >= target * ratio else 'within_target'
+
+
+def _case_stage_tat(case, product, workflow, *, now, context):
+    """Project every configured stage without exposing its source timestamps."""
+    current_stage = context.next_action(case, product)
+    previous = parse_iso_datetime((case.stage_values or {}).get('created'))
+    values = {}
+    columns = []
+    for order, stage in enumerate(product.stages):
+        completed_at = context.completed_at(case, stage)
+        stage_end = completed_at
+        if not stage_end and current_stage and current_stage.key == stage.key:
+            stage_end = overall_tat_end(case, now=now)
+        elapsed = minutes_between(previous, stage_end)
+        target = stage_target_minutes_for_case(case, workflow, product, stage)
+        values[stage.key] = {
+            'minutes': float(elapsed) if elapsed is not None else None,
+            'sla_state': _sla_state_for_minutes(
+                elapsed, target, near_target_ratio=context.near_target_ratio,
+            ),
+            'completed': bool(completed_at),
+            'active': bool(current_stage and current_stage.key == stage.key),
+        }
+        columns.append({'key': stage.key, 'label': stage.label, 'order': order})
+        if completed_at:
+            previous = completed_at
+    return values, columns
+
+
+def _stage_columns_for_rows(rows):
+    columns = {}
+    for row in rows:
+        for item in row.get('_stage_columns', []):
+            key = str(item.get('key') or '')
+            if not key:
+                continue
+            candidate = {
+                'key': key,
+                'label': str(item.get('label') or key),
+                'order': int(item.get('order') or 0),
+            }
+            existing = columns.get(key)
+            if existing is None or candidate['order'] < existing['order']:
+                columns[key] = candidate
+    return [
+        {'key': item['key'], 'label': item['label']}
+        for item in sorted(columns.values(), key=lambda item: (item['order'], item['label'].casefold(), item['key']))
+    ]
+
+
+def _case_row(case, *, include_people=False, now=None, context=None):
     now = now or timezone.now()
-    product = product_for_case(case)
-    config = GroupSheetConfiguration.objects.filter(group_id=case.group_id).only('display_name', 'workflow').first()
-    stage = next_action(case)
+    context = context or _ReportContext(None, [case], include_people=include_people)
+    product = context.product(case)
+    config = context.config(case)
+    stage = context.next_action(case, product)
     display_stage = stage
     if display_stage is None:
-        completed_stages = [item for item in product.stages if stage_completed_at(case, item)]
+        completed_stages = [item for item in product.stages if context.completed_at(case, item)]
         display_stage = completed_stages[-1] if completed_stages else None
     finished_at = overall_tat_end(case, now=case.updated_at) if case.status in TERMINAL else None
+    stage_tat, stage_columns = _case_stage_tat(
+        case, product, config.workflow if config else {}, now=now, context=context,
+    )
     if stage:
-        elapsed = stage_tat_minutes(case, stage, now=now)
+        stage_detail = stage_tat.get(stage.key) or {}
+        elapsed_value = stage_detail.get('minutes')
+        elapsed = Decimal(str(elapsed_value)) if elapsed_value is not None else None
         target = _case_target(case, product, stage, config=config)
         role = stage.role
         stage_label = stage.label
@@ -232,13 +415,12 @@ def _case_row(case, *, include_people=False, now=None):
         role = display_stage.role if display_stage else ''
         stage_label = display_stage.label if display_stage else (case.current_stage or ('Finished' if case.status in TERMINAL else ''))
     variance = elapsed - target if elapsed is not None and target is not None else None
-    if target is None or target <= 0 or elapsed is None:
-        sla_state = 'target_unavailable'
-    elif elapsed > target:
-        sla_state = 'overdue'
-    else:
-        ratio = Decimal(presentation_settings()['near_target_percent']) / Decimal('100')
-        sla_state = 'near_target' if elapsed >= target * ratio else 'within_target'
+    sla_state = (
+        (stage_tat.get(stage.key) or {}).get('sla_state') if stage
+        else _sla_state_for_minutes(
+            elapsed, target, near_target_ratio=context.near_target_ratio,
+        )
+    )
     row = {
         'case_id': case.case_id, 'client_name': case.client_name,
         'group': (config.display_name if config else '') or 'TAT Tracker',
@@ -251,35 +433,31 @@ def _case_row(case, *, include_people=False, now=None):
         'target_minutes': float(target) if target is not None else None,
         'variance_minutes': float(variance) if variance is not None else None,
         'sla_state': sla_state,
+        'stage_tat': stage_tat,
         '_group_id': str(case.group_id), '_product_key': str(case.product_key or ''),
+        '_stage_columns': stage_columns,
     }
     if include_people:
         if stage:
-            assignment = TatResponsibilityAssignment.objects.filter(
-                group_configuration__group_id=case.group_id, active=True,
-                branch__iexact=case.branch, role__iexact=stage.role,
-            ).filter(Q(product_key='') | Q(product_key__iexact=case.product_key)).filter(
-                Q(stage_key='') | Q(stage_key=stage.key),
-            ).select_related('primary_user').order_by('-stage_key', '-product_key').first()
-            if assignment and assignment.primary_user:
-                row['responsible_person'] = assignment.primary_user.get_full_name() or assignment.primary_user.get_username()
-            else:
-                row['responsible_person'] = ''
+            row['responsible_person'] = context.responsible_person(case, stage)
         else:
             stage_key = display_stage.key if display_stage else case.current_stage
-            event = next((event for event in case.events.all() if event.stage_key == stage_key), None)
+            event = context.event(case, stage_key)
             row['responsible_person'] = event.actor_name if event else ''
     return row
 
 
-def _eligible_rows(actor, filters, *, include_people=False):
+def _eligible_rows(actor, filters, *, include_people=False, cases=None, context=None):
     rows = []
     action_filtered = bool(
         filters['view'] == 'performance'
         and (filters['stage'] or filters['role'] or filters['sla_state'])
     )
-    for case in _filtered_cases(actor, filters):
-        row = _case_row(case, include_people=include_people)
+    case_list = list(cases) if cases is not None else _filtered_cases(actor, filters)
+    context = context or _ReportContext(actor, case_list, include_people=include_people)
+    context.prime(case_list)
+    for case in case_list:
+        row = _case_row(case, include_people=include_people, context=context)
         if filters['view'] == 'current' and case.status in TERMINAL:
             continue
         if filters['view'] == 'performance':
@@ -290,7 +468,7 @@ def _eligible_rows(actor, filters, *, include_people=False):
                 if not filters['date_from'] <= finished_date <= filters['date_to']:
                     continue
         if filters['view'] == 'performance' and (filters['stage'] or filters['role']):
-            samples = _stage_samples([case], filters, include_people=include_people)
+            samples = _stage_samples([case], filters, include_people=include_people, context=context)
             if not samples:
                 continue
             sample = samples[0]
@@ -298,7 +476,7 @@ def _eligible_rows(actor, filters, *, include_people=False):
             if include_people:
                 row['responsible_person'] = sample['person']
         elif action_filtered:
-            samples = _stage_samples([case], filters, include_people=include_people)
+            samples = _stage_samples([case], filters, include_people=include_people, context=context)
             if not samples:
                 continue
             sample = samples[0]
@@ -316,39 +494,41 @@ def _eligible_rows(actor, filters, *, include_people=False):
     return rows
 
 
-def _stage_samples(cases, filters, *, include_people=False):
+def _stage_samples(cases, filters, *, include_people=False, context=None):
     samples = []
+    cases = list(cases)
+    context = context or _ReportContext(None, cases, include_people=include_people)
+    context.prime(cases)
     for case in cases:
         try:
-            product = product_for_case(case)
+            product = context.product(case)
         except ValueError:
             continue
-        config = GroupSheetConfiguration.objects.filter(group_id=case.group_id).first()
+        config = context.config(case)
         workflow = config.workflow if config else {}
+        previous = parse_iso_datetime((case.stage_values or {}).get('created'))
         for stage in product.stages:
+            completed = context.completed_at(case, stage)
+            elapsed = minutes_between(previous, completed)
+            if completed:
+                previous = completed
             if filters['stage'] and stage.key.casefold() != filters['stage'].casefold():
                 continue
             if filters['role'] and stage.role.upper() != filters['role']:
                 continue
-            completed = stage_completed_at(case, stage)
             if not completed:
                 continue
             completed_date = timezone.localdate(completed)
             if not filters['date_from'] <= completed_date <= filters['date_to']:
                 continue
-            elapsed = stage_tat_minutes(case, stage, now=completed)
             target = stage_target_minutes_for_case(case, workflow, product, stage)
             variance = elapsed - target if elapsed is not None and target is not None else None
-            if not target or target <= 0 or elapsed is None:
-                sla_state = 'target_unavailable'
-            elif elapsed > target:
-                sla_state = 'overdue'
-            else:
-                ratio = Decimal(presentation_settings()['near_target_percent']) / Decimal('100')
-                sla_state = 'near_target' if elapsed >= target * ratio else 'within_target'
+            sla_state = _sla_state_for_minutes(
+                elapsed, target, near_target_ratio=context.near_target_ratio,
+            )
             if filters['sla_state'] and sla_state != filters['sla_state']:
                 continue
-            event = next((item for item in case.events.all() if item.stage_key == stage.key), None)
+            event = context.event(case, stage.key)
             samples.append({
                 'case_id': case.case_id, 'stage_key': stage.key, 'stage': stage.label,
                 'role': stage.role, 'person': event.actor_name if include_people and event else '',
@@ -357,7 +537,7 @@ def _stage_samples(cases, filters, *, include_people=False):
                 'product': str(case.product_label or case.product_key or ''),
                 'corrected': any(
                     item.stage_key == stage.key and item.source == 'admin_correction'
-                    for item in case.events.all()
+                    for item in context.events(case)
                 ),
                 'completed_at': completed.isoformat(),
                 'elapsed_minutes': float(elapsed) if elapsed is not None else None,
@@ -783,12 +963,16 @@ def _target_stats(samples):
     }
 
 
-def _target_review_signals(actor, filters, selected_samples):
+def _target_review_signals(actor, filters, selected_samples, *, context=None):
     baseline_filters = dict(filters)
     for key in ('branch', 'product', 'search', 'status', 'role', 'sla_state'):
         baseline_filters[key] = ''
     baseline_cases = _filtered_cases(actor, baseline_filters)
-    baseline_samples = _stage_samples(baseline_cases, baseline_filters, include_people=False)
+    context = context or _ReportContext(actor, baseline_cases, include_people=False)
+    context.prime(baseline_cases)
+    baseline_samples = _stage_samples(
+        baseline_cases, baseline_filters, include_people=False, context=context,
+    )
     selected_by_key = defaultdict(list)
     for sample in selected_samples:
         selected_by_key[(sample['group_id'], sample['stage_key'])].append(sample)
@@ -868,32 +1052,48 @@ def _target_review_signals(actor, filters, selected_samples):
 
 def report_summary(actor, payload, *, include_people=False):
     filters = _filters(payload)
+    focused = str(payload.get('response_mode') or '') == 'focused_v1'
+    insight = str(payload.get('insight') or 'trend').strip().lower()
+    if focused and insight not in FOCUSED_INSIGHTS:
+        raise ValueError('The selected TAT report insight is not supported.')
+    include_overview = not focused or payload.get('include_overview') is not False
+    include_options = not focused or payload.get('include_options') is not False
+    wants = lambda key: not focused or insight == key
     all_cases = _filtered_cases(actor, filters)
-    rows = _eligible_rows(actor, filters, include_people=include_people)
-    scope_cases = list(scoped_cases(actor))
+    scope_cases = list(scoped_cases(actor)) if include_options else []
+    context_cases = list({case.pk: case for case in [*all_cases, *scope_cases]}.values())
+    context = _ReportContext(actor, context_cases, include_people=include_people)
+    rows = _eligible_rows(
+        actor, filters, include_people=include_people, cases=all_cases, context=context,
+    )
     stages = set(); roles = set()
     for case in scope_cases:
         try:
-            for stage in product_for_case(case).stages:
+            for stage in context.product(case).stages:
                 stages.add((stage.key, stage.label)); roles.add(stage.role)
         except ValueError:
             continue
-    group_names = dict(GroupSheetConfiguration.objects.filter(
-        group_id__in={case.group_id for case in scope_cases},
-    ).values_list('group_id', 'display_name'))
-    options = {
-        'groups': sorted({
-            (case.group_id, group_names.get(case.group_id) or 'TAT Tracker')
-            for case in scope_cases
-        }),
-        'branches': _casefold_distinct_labels(case.branch for case in scope_cases),
-        'products': sorted({(case.product_key, case.product_label or case.product_key) for case in scope_cases}),
-        'stages': sorted(stages), 'roles': sorted(role for role in roles if role),
-    }
+    options = {}
+    if include_options:
+        group_names = {
+            group_id: config.display_name
+            for group_id, config in context._configs.items()
+        }
+        options = {
+            'groups': sorted({
+                (case.group_id, group_names.get(str(case.group_id)) or 'TAT Tracker')
+                for case in scope_cases
+            }),
+            'branches': _casefold_distinct_labels(case.branch for case in scope_cases),
+            'products': sorted({(case.product_key, case.product_label or case.product_key) for case in scope_cases}),
+            'stages': sorted(stages), 'roles': sorted(role for role in roles if role),
+        }
     # Explorer, heatmap, target-review and correction-rate insights all use
     # the same exact timestamp-backed stage observations. Committing one stage
     # stamp starts the next stage; there is no inferred pickup timestamp.
-    stage_samples = _stage_samples(all_cases, filters, include_people=include_people)
+    stage_samples = _stage_samples(
+        all_cases, filters, include_people=include_people, context=context,
+    )
     breakdown_rows = rows
     breakdown_basis = 'current_workload'
     if filters['view'] == 'performance':
@@ -905,7 +1105,10 @@ def report_summary(actor, payload, *, include_people=False):
                 if filters['date_from'] <= timezone.localdate(case.created_at) <= filters['date_to']
             ]
             breakdown_rows = [
-                row for row in (_case_row(case, include_people=include_people) for case in created_cases)
+                row for row in (
+                    _case_row(case, include_people=include_people, context=context)
+                    for case in created_cases
+                )
                 if (not filters['stage'] or row['current_stage_key'].casefold() == filters['stage'].casefold())
                 and (not filters['role'] or row['responsible_role'].upper() == filters['role'])
                 and (not filters['sla_state'] or row['sla_state'] == filters['sla_state'])
@@ -920,47 +1123,54 @@ def report_summary(actor, payload, *, include_people=False):
         (item['role'] or 'Unassigned' for item in breakdown_samples)
         if breakdown_samples else (row['responsible_role'] or 'Unassigned' for row in breakdown_rows)
     )
-    latest_metrics = WorkflowTatDailyMetric.objects.filter(
-        workflow='tat_tracker', metric_grain='current_leaf',
-    ).filter(_metric_scope_q(actor))
-    latest_metrics = _filter_metric_queryset(latest_metrics, filters)
-    latest = latest_metrics.order_by('-metric_date').first()
-    earliest = latest_metrics.order_by('metric_date').first()
-    scoped_case_ids = scoped_cases(actor).values_list('pk', flat=True)
-    scoped_rebuilds = WorkflowTatMetricRebuildRequest.objects.filter(
-        Q(case__isnull=True) | Q(case_id__in=scoped_case_ids),
-    )
-    pending_rebuilds = scoped_rebuilds.filter(status__in=['pending', 'processing']).count()
-    failed_rebuilds = scoped_rebuilds.filter(status='failed', attempts__gte=3).count()
-    common = {
-        'view': filters['view'], 'filters': options,
-        'by_stage': [{'label': key, 'count': value} for key, value in by_stage.most_common()],
-        'by_role': [{'label': key, 'count': value} for key, value in by_role.most_common()],
-        'breakdown_basis': breakdown_basis,
-        'freshness': {
+    freshness = {}
+    if include_overview:
+        latest_metrics = WorkflowTatDailyMetric.objects.filter(
+            workflow='tat_tracker', metric_grain='current_leaf',
+        ).filter(_metric_scope_q(actor))
+        latest_metrics = _filter_metric_queryset(latest_metrics, filters)
+        latest = latest_metrics.order_by('-metric_date').first()
+        earliest = latest_metrics.order_by('metric_date').first()
+        scoped_case_ids = scoped_cases(actor).values_list('pk', flat=True)
+        scoped_rebuilds = WorkflowTatMetricRebuildRequest.objects.filter(
+            Q(case__isnull=True) | Q(case_id__in=scoped_case_ids),
+        )
+        pending_rebuilds = scoped_rebuilds.filter(status__in=['pending', 'processing']).count()
+        failed_rebuilds = scoped_rebuilds.filter(status='failed', attempts__gte=3).count()
+        freshness = {
             'latest_snapshot': latest.metric_date.isoformat() if latest else '',
             'earliest_snapshot': earliest.metric_date.isoformat() if earliest else '',
             'pending_rebuilds': pending_rebuilds,
             'failed_rebuilds': failed_rebuilds,
-            'near_target_percent': presentation_settings()['near_target_percent'],
-            'presentation_revision': presentation_settings()['revision'],
-        },
+            'near_target_percent': context.presentation['near_target_percent'],
+            'presentation_revision': context.presentation['revision'],
+        }
+    common = {
+        'view': filters['view'],
+        'by_stage': [{'label': key, 'count': value} for key, value in by_stage.most_common()],
+        'by_role': [{'label': key, 'count': value} for key, value in by_role.most_common()],
+        'breakdown_basis': breakdown_basis,
     }
+    if include_options:
+        common['filters'] = options
+    if include_overview:
+        common['freshness'] = freshness
     charts = {}
     active_filters = _active_filter_names(filters)
     live_filters = _active_filter_names(filters, include_dates=False)
     live_unavailable = ['date_range', 'granularity']
     if filters['view'] == 'current':
         states = Counter(row['sla_state'] for row in rows)
-        common['metrics'] = {
-            'active': len(rows), 'within_target': states['within_target'],
-            'near_target': states['near_target'],
-            'overdue': states['overdue'],
-            'stalled': sum(row['status'] == 'Stalled' for row in rows),
-            'target_unavailable': states['target_unavailable'],
-        }
+        if include_overview:
+            common['metrics'] = {
+                'active': len(rows), 'within_target': states['within_target'],
+                'near_target': states['near_target'],
+                'overdue': states['overdue'],
+                'stalled': sum(row['status'] == 'Stalled' for row in rows),
+                'target_unavailable': states['target_unavailable'],
+            }
         action_trend = bool(filters['search'] or filters['status'] or filters['stage'] or filters['role'] or filters['sla_state'])
-        if action_trend:
+        if wants('trend') and action_trend:
             buckets = defaultdict(int)
             for sample in stage_samples:
                 completed_date = _iso_local_date(sample['completed_at'])
@@ -977,7 +1187,7 @@ def report_summary(actor, payload, *, include_people=False):
                 [_series('completed_actions', 'Completed Actions', [item['completed_actions'] for item in common['trend']])],
                 applied_filters=active_filters, sample_count=len(stage_samples),
             )
-        else:
+        elif wants('trend'):
             daily = WorkflowTatDailyMetric.objects.filter(
                 workflow='tat_tracker', metric_grain='current_leaf',
                 metric_date__range=(filters['date_from'], filters['date_to']),
@@ -1033,15 +1243,16 @@ def report_summary(actor, payload, *, include_people=False):
         outcomes = Counter(row['status'] for row in terminal_rows)
         created_cases = [case for case in all_cases if filters['date_from'] <= timezone.localdate(case.created_at) <= filters['date_to']]
         created = len({sample['case_id'] for sample in stage_samples}) if action_filtered else len(created_cases)
-        common['metrics'] = {
-            'created': created, 'finished': len(stage_samples) if action_filtered else len(terminal_rows), 'disbursed': outcomes['Disbursed'],
-            'rejected': outcomes['Rejected'], 'declined': outcomes['Declined'],
-            'sla_met': met, 'sla_sample': len(valid),
-            'sla_met_percent': round((met * 100 / len(valid)), 1) if valid else None,
-            'median_tat_minutes': _percentile(elapsed, .5), 'p90_tat_minutes': _percentile(elapsed, .9),
-            'target_unavailable': len(metric_rows) - len(valid),
-        }
-        common['metric_basis'] = 'completed_stage_actions' if action_filtered else 'finished_cases'
+        if include_overview:
+            common['metrics'] = {
+                'created': created, 'finished': len(stage_samples) if action_filtered else len(terminal_rows), 'disbursed': outcomes['Disbursed'],
+                'rejected': outcomes['Rejected'], 'declined': outcomes['Declined'],
+                'sla_met': met, 'sla_sample': len(valid),
+                'sla_met_percent': round((met * 100 / len(valid)), 1) if valid else None,
+                'median_tat_minutes': _percentile(elapsed, .5), 'p90_tat_minutes': _percentile(elapsed, .9),
+                'target_unavailable': len(metric_rows) - len(valid),
+            }
+            common['metric_basis'] = 'completed_stage_actions' if action_filtered else 'finished_cases'
         trend = defaultdict(lambda: Counter())
         if action_filtered:
             for sample in stage_samples:
@@ -1174,9 +1385,10 @@ def report_summary(actor, payload, *, include_people=False):
         'current_workload': 'Showing the current active workload.',
     }[stage_basis]
     breakdown_unavailable = live_unavailable if filters['view'] == 'current' else []
-    charts['stage'] = _breakdown_chart('stage', stage_title, stage_basis, basis_subtitle, common['by_stage'], applied_filters=live_filters if filters['view'] == 'current' else active_filters, unavailable_filters=breakdown_unavailable)
-    charts['role'] = _breakdown_chart('role', role_title, stage_basis, basis_subtitle, common['by_role'], applied_filters=live_filters if filters['view'] == 'current' else active_filters, unavailable_filters=breakdown_unavailable)
-    if include_people:
+    if not focused:
+        charts['stage'] = _breakdown_chart('stage', stage_title, stage_basis, basis_subtitle, common['by_stage'], applied_filters=live_filters if filters['view'] == 'current' else active_filters, unavailable_filters=breakdown_unavailable)
+        charts['role'] = _breakdown_chart('role', role_title, stage_basis, basis_subtitle, common['by_role'], applied_filters=live_filters if filters['view'] == 'current' else active_filters, unavailable_filters=breakdown_unavailable)
+    if include_people and not focused:
         common['by_person'] = [
             {'label': key, 'count': value}
             for key, value in Counter(
@@ -1192,40 +1404,58 @@ def report_summary(actor, payload, *, include_people=False):
             common['by_person'], applied_filters=live_filters if filters['view'] == 'current' else active_filters,
             unavailable_filters=breakdown_unavailable,
         )
-    charts['explorer'] = _comparison_explorer(rows, stage_samples, filters)
-    common['heatmap'] = _heatmap_payload(rows, stage_samples, filters)
-    target_signals = _target_review_signals(actor, filters, stage_samples)
-    common['target_review_signals'] = {
-        'basis': 'completed_actions_against_each_frozen_target',
-        'subtitle': 'Statistical review prompts use an authorization-scoped unfiltered branch and product baseline; they never change targets.',
-        'applied_filters': active_filters,
-        'unavailable_filters': [],
-        'sample_count': sum(item['selected_scope']['valid_samples'] for item in target_signals),
-        'excluded_count': sum(item['selected_scope']['target_unavailable_count'] for item in target_signals),
-        'exclusion_reason': 'Target unavailable',
-        'items': target_signals,
-    }
+    if wants('explorer'):
+        charts['explorer'] = _comparison_explorer(rows, stage_samples, filters)
+    if wants('heatmap'):
+        common['heatmap'] = _heatmap_payload(rows, stage_samples, filters)
+    if wants('target_review_signals'):
+        target_signals = _target_review_signals(
+            actor, filters, stage_samples, context=context,
+        )
+        common['target_review_signals'] = {
+            'basis': 'completed_actions_against_each_frozen_target',
+            'subtitle': 'Statistical review prompts use an authorization-scoped unfiltered branch and product baseline; they never change targets.',
+            'applied_filters': active_filters,
+            'unavailable_filters': [],
+            'sample_count': sum(item['selected_scope']['valid_samples'] for item in target_signals),
+            'excluded_count': sum(item['selected_scope']['target_unavailable_count'] for item in target_signals),
+            'exclusion_reason': 'Target unavailable',
+            'items': target_signals,
+        }
 
-    current_filters = dict(filters)
-    current_filters['view'] = 'current'
-    oldest_rows = sorted(
-        _eligible_rows(actor, current_filters, include_people=include_people),
-        key=lambda item: item.get('elapsed_minutes') if item.get('elapsed_minutes') is not None else -1,
-        reverse=True,
-    )[:10]
-    oldest_fields = (
-        'case_id', 'client_name', 'branch', 'product_label', 'current_stage',
-        'responsible_role', 'elapsed_minutes', 'target_minutes', 'sla_state',
-    )
-    common['oldest_cases'] = {
-        'basis': 'current_active_stage_wall_clock_age',
-        'subtitle': 'Showing the ten oldest active cases. Date range and time grouping do not apply to a current-workload ranking.',
-        'applied_filters': _active_filter_names(filters, include_dates=False),
-        'unavailable_filters': ['date_range', 'granularity'],
-        'sample_count': len(oldest_rows), 'excluded_count': 0, 'exclusion_reason': '',
-        'items': [{key: row.get(key) for key in oldest_fields} for row in oldest_rows],
-    }
+    if wants('oldest_cases'):
+        current_filters = dict(filters)
+        current_filters['view'] = 'current'
+        oldest_rows = sorted(
+            _eligible_rows(
+                actor, current_filters, include_people=include_people,
+                cases=all_cases, context=context,
+            ),
+            key=lambda item: item.get('elapsed_minutes') if item.get('elapsed_minutes') is not None else -1,
+            reverse=True,
+        )[:10]
+        oldest_fields = (
+            'case_id', 'client_name', 'branch', 'product_label', 'current_stage',
+            'responsible_role', 'elapsed_minutes', 'target_minutes', 'sla_state',
+        )
+        common['oldest_cases'] = {
+            'basis': 'current_active_stage_wall_clock_age',
+            'subtitle': 'Showing the ten oldest active cases. Date range and time grouping do not apply to a current-workload ranking.',
+            'applied_filters': _active_filter_names(filters, include_dates=False),
+            'unavailable_filters': ['date_range', 'granularity'],
+            'sample_count': len(oldest_rows), 'excluded_count': 0, 'exclusion_reason': '',
+            'items': [{key: row.get(key) for key in oldest_fields} for row in oldest_rows],
+        }
     _attach_report_filter_guidance(common, charts, filters)
+    if focused:
+        charts = {key: value for key, value in charts.items() if key == insight}
+        common.pop('by_stage', None)
+        common.pop('by_role', None)
+        common.pop('breakdown_basis', None)
+        common['response_mode'] = 'focused_v1'
+        common['insight'] = insight
+    else:
+        logger.info('TAT report legacy full response used')
     common['charts'] = charts
     return common
 
@@ -1272,35 +1502,77 @@ def _filter_metric_queryset(qs, filters):
     return qs
 
 
+TABLE_FAST_SORT_FIELDS = frozenset({
+    'case_id', 'client_name', 'branch', 'product_label', 'status', 'created_at',
+})
+
+
+def _table_fast_path_allowed(filters, sort_key):
+    return bool(
+        filters['view'] == 'current'
+        and not filters['stage']
+        and not filters['role']
+        and not filters['sla_state']
+        and sort_key in TABLE_FAST_SORT_FIELDS
+    )
+
+
 def report_cases(actor, payload, *, include_people=False):
     filters = _filters(payload)
-    rows = _eligible_rows(actor, filters, include_people=include_people)
     sort = str(payload.get('sort') or '-created_at')
     descending = sort.startswith('-')
     key = sort.lstrip('-')
     if key not in SORT_FIELDS:
         raise ValueError('This report column cannot be sorted.')
-    rows.sort(key=lambda row: (row.get(key) is None, row.get(key) or ''), reverse=descending)
     try:
         page = max(1, int(payload.get('page') or 1))
         page_size = max(1, min(100, int(payload.get('page_size') or 25)))
     except (TypeError, ValueError):
         raise ValueError('Page and page size must be valid numbers.')
     start = (page - 1) * page_size
+    if _table_fast_path_allowed(filters, key):
+        queryset = _filtered_case_queryset(actor, filters).exclude(status__in=TERMINAL)
+        count = queryset.count()
+        order = f'-{key}' if descending else key
+        cases = list(queryset.order_by(order, 'pk')[start:start + page_size])
+        context = _ReportContext(actor, cases, include_people=include_people)
+        rows = _eligible_rows(
+            actor, filters, include_people=include_people, cases=cases, context=context,
+        )
+        page_rows = rows
+        calculation_path = 'database_paginated'
+    else:
+        rows = _eligible_rows(actor, filters, include_people=include_people)
+        rows.sort(key=lambda row: (row.get(key) is None, row.get(key) or ''), reverse=descending)
+        count = len(rows)
+        page_rows = rows[start:start + page_size]
+        calculation_path = 'derived_complete'
     public_rows = [
         {key: value for key, value in row.items() if not key.startswith('_')}
-        for row in rows[start:start + page_size]
+        for row in page_rows
     ]
-    return {'results': public_rows, 'count': len(rows), 'page': page, 'page_size': page_size}
+    return {
+        'results': public_rows,
+        'count': count,
+        'page': page,
+        'page_size': page_size,
+        'stage_columns': _stage_columns_for_rows(page_rows),
+        'calculation_path': calculation_path,
+    }
 
 
 def export_report_xlsx(actor, payload, *, include_people=False, request_id=''):
     # Exports are allowed to exceed the API page cap, while retaining a hard operational limit.
     filters = _filters(payload)
-    rows = _eligible_rows(actor, filters, include_people=include_people)
+    cases = _filtered_cases(actor, filters)
+    context = _ReportContext(actor, cases, include_people=include_people)
+    rows = _eligible_rows(
+        actor, filters, include_people=include_people, cases=cases, context=context,
+    )
     if len(rows) > 10000:
         raise ValueError('More than 10,000 cases match. Narrow the filters before downloading.')
     from openpyxl import Workbook
+    from openpyxl.comments import Comment
     from openpyxl.styles import Font, PatternFill
     def xlsx_safe(value):
         return "'" + value if isinstance(value, str) and value[:1] in {'=', '+', '-', '@'} else value
@@ -1309,9 +1581,22 @@ def export_report_xlsx(actor, payload, *, include_people=False, request_id=''):
     keys = ['case_id', 'client_name', 'group', 'branch', 'product_label', 'status', 'current_stage', 'responsible_role', 'created_at', 'finished_at', 'elapsed_minutes', 'target_minutes', 'variance_minutes', 'sla_state']
     if include_people:
         headers.append('Responsible Person'); keys.append('responsible_person')
+    stage_columns = _stage_columns_for_rows(rows)
+    stage_start_column = len(headers) + 1
+    headers.extend(f"{item['label']} TAT (minutes)" for item in stage_columns)
     workbook = Workbook(); sheet = workbook.active; sheet.title = 'TAT Report'; sheet.append(headers)
     for cell in sheet[1]:
         cell.font = Font(bold=True, color='FFFFFF'); cell.fill = PatternFill('solid', fgColor='245B8A')
+    for cell in sheet[1][stage_start_column - 1:]:
+        cell.comment = Comment(
+            'Traffic light: green = within target, amber = near target, red = over target. Blank means the stage has not started or no duration is available.',
+            'JBL TAT Report',
+        )
+    stage_fills = {
+        'within_target': (PatternFill('solid', fgColor='C6EFCE'), '006100'),
+        'near_target': (PatternFill('solid', fgColor='FFEB9C'), '9C6500'),
+        'overdue': (PatternFill('solid', fgColor='FFC7CE'), '9C0006'),
+    }
     for row in rows:
         values = []
         for key in keys:
@@ -1320,11 +1605,27 @@ def export_report_xlsx(actor, payload, *, include_people=False, request_id=''):
             if key in {'created_at', 'finished_at'} and value:
                 value = datetime.fromisoformat(value).strftime('%d-%m-%y %H:%M')
             values.append(value)
+        stage_values = row.get('stage_tat') or {}
+        for item in stage_columns:
+            value = (stage_values.get(item['key']) or {}).get('minutes')
+            values.append(value)
         sheet.append(values)
+        sheet_row = sheet.max_row
+        for offset, item in enumerate(stage_columns):
+            detail = stage_values.get(item['key']) or {}
+            cell = sheet.cell(row=sheet_row, column=stage_start_column + offset)
+            if cell.value is not None:
+                cell.number_format = '0.00'
+            style = stage_fills.get(detail.get('sla_state'))
+            if style and cell.value is not None:
+                cell.fill = style[0]
+                cell.font = Font(color=style[1], bold=True)
     # The existing audited export also carries the two selected aggregate
     # comparisons. It does not introduce another export endpoint or expose
     # case-level fields beyond the established TAT Report sheet.
-    stage_samples = _stage_samples(_filtered_cases(actor, filters), filters, include_people=False)
+    stage_samples = _stage_samples(
+        cases, filters, include_people=False, context=context,
+    )
     explorer = _comparison_explorer(rows, stage_samples, filters)
     insight_sheet = workbook.create_sheet('Selected Insight')
     insight_sheet.append([explorer['title']])
