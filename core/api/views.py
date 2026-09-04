@@ -689,7 +689,11 @@ def tat_tracker_reports_summary(request):
             include_people=_tat_has_capability(user, 'tat.reports.people.view', group_config),
         )
     except ValueError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return JsonResponse({
+            'ok': False,
+            'code': 'tat_report_invalid_filter',
+            'message': str(exc),
+        }, status=400)
     return JsonResponse({'ok': True, 'data': data})
 
 
@@ -711,7 +715,11 @@ def tat_tracker_reports_cases(request):
             include_people=_tat_has_capability(user, 'tat.reports.people.view', group_config),
         )
     except ValueError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return JsonResponse({
+            'ok': False,
+            'code': 'tat_report_invalid_filter',
+            'message': str(exc),
+        }, status=400)
     return JsonResponse({'ok': True, 'data': data})
 
 
@@ -737,7 +745,11 @@ def tat_tracker_reports_export(request):
             request_id=str(getattr(request, 'miniapp_request_id', '') or ''),
         )
     except ValueError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return JsonResponse({
+            'ok': False,
+            'code': 'tat_report_invalid_filter',
+            'message': str(exc),
+        }, status=400)
     response = HttpResponse(
         workbook,
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

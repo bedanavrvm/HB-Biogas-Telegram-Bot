@@ -45,6 +45,7 @@
     report: {
       view: 'current', page: 1, pageSize: 25, sort: '-created_at', sequence: 0,
       abortController: null, gridApi: null, charts: {}, count: 0, loaded: false,
+      loading: false,
       display: (() => { try { return localStorage.getItem('tat-report-chart-display') === 'list' ? 'list' : 'carousel'; } catch (error) { return 'carousel'; } })(),
       activeSlide: 0, touchStart: null, insightPayloads: {},
       filterSheetOpen: false, filterSheetReturnFocus: null,
@@ -115,6 +116,35 @@
     });
   }
 
+  function tatApiAction(path) {
+    const actions = {
+      '/api/tat-tracker/bootstrap/': 'Opening the TAT Tracker',
+      '/api/tat-tracker/home/': 'Refreshing the TAT queue',
+      '/api/tat-tracker/detail/': 'Opening the case',
+      '/api/tat-tracker/update/': 'Saving the case update',
+      '/api/tat-tracker/create/': 'Creating the loan case',
+      '/api/tat-tracker/search/': 'Searching TAT cases',
+      '/api/tat-tracker/identity-context/': 'Loading staff choices',
+      '/api/tat-tracker/tasks/': 'Loading assigned tasks',
+      '/api/tat-tracker/tasks/resolve/': 'Opening the assigned task',
+      '/api/tat-tracker/settings/': 'Loading TAT settings',
+      '/api/tat-tracker/settings/personal/': 'Saving your TAT settings',
+      '/api/tat-tracker/settings/proposals/': 'Saving the settings proposal',
+      '/api/tat-tracker/settings/proposals/review/': 'Reviewing the settings proposal',
+      '/api/tat-tracker/target-settings/': 'Saving TAT targets',
+    };
+    return actions[path] || 'Completing the TAT action';
+  }
+
+  function contextualTatApiError(path, error) {
+    if (!error || error.name === 'AbortError') return error;
+    const detail = String(error.message || 'Please try again.').trim();
+    const requestId = String(error.requestId || '').trim();
+    const reference = requestId && !detail.includes(requestId) ? ` Reference: ${requestId}.` : '';
+    error.message = `${tatApiAction(path)} failed. ${detail}${reference}`;
+    return error;
+  }
+
   async function api(path, payload) {
     const body = basePayload(payload);
     const requestId = utils.ensureRequestId
@@ -141,8 +171,9 @@
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok) {
-        const error = new Error(data.error || 'Request failed.');
+        const error = new Error(data.message || data.error || 'Request failed.');
         error.code = data.code || '';
+        error.requestId = data.request_id || response.headers.get('X-Request-ID') || requestId;
         throw error;
       }
       return data;
@@ -151,7 +182,7 @@
         setStatus('Workflow mode changed. Reloading the current operational queue…', 'error');
         window.setTimeout(() => window.location.reload(), 900);
       }
-      throw error;
+      throw contextualTatApiError(path, error);
     }
   }
 
@@ -1912,8 +1943,30 @@
     });
     const raw = await response.json().catch(() => ({}));
     const data = utils.normalizeResponsePayload ? utils.normalizeResponsePayload(response, raw) : raw;
-    if (!response.ok || !data.ok) throw new Error(data.error || data.message || 'The TAT report could not be loaded.');
+    if (!response.ok || !data.ok) {
+      const error = new Error(data.message || data.error || 'The server did not return the requested report data.');
+      error.code = data.code || '';
+      error.requestId = data.request_id || response.headers.get('X-Request-ID') || requestId;
+      throw error;
+    }
     return data.data;
+  }
+
+  function contextualReportError(action, error) {
+    const detail = String(error?.message || 'Please try again.').trim();
+    const requestId = String(error?.requestId || '').trim();
+    const reference = requestId && !detail.includes(requestId) ? ` Reference: ${requestId}.` : '';
+    return `${action}: ${detail}${reference}`;
+  }
+
+  function setTatReportLoading(loading) {
+    state.report.loading = Boolean(loading);
+    ['tatReportLoadingState', 'tatReportSheetLoading'].forEach(id => {
+      const element = $(id);
+      if (element) element.hidden = !state.report.loading;
+    });
+    $('dashboardView')?.setAttribute('aria-busy', String(state.report.loading));
+    $('openTatReportFiltersBtn')?.setAttribute('aria-busy', String(state.report.loading));
   }
 
   function formatReportDate(value) {
@@ -1950,8 +2003,17 @@
     });
   }
 
+  function bindReportDatePickers() {
+    document.querySelectorAll('#tatReportFilters input[type="date"]').forEach(input => {
+      input.addEventListener('click', () => {
+        if (typeof input.showPicker !== 'function') return;
+        try { input.showPicker(); } catch (error) { /* The native click remains the fallback. */ }
+      });
+    });
+  }
+
   const reportControlDefaults = {
-    search: '', group: '', branch: '', product: '', stage: '', role: '', status: '', sla_state: '',
+    search: '', branch: '', product: '', stage: '', role: '', status: '', sla_state: '',
     granularity: 'month', chart_dimension: 'stage', chart_metric: 'workload',
     heatmap_pair: 'stage_branch', heatmap_metric: 'sla_met',
   };
@@ -2443,6 +2505,7 @@
     state.report.abortController?.abort();
     const controller = new AbortController(); state.report.abortController = controller;
     initTatReportGrid();
+    setTatReportLoading(true);
     if (settings.table) state.report.gridApi?.showLoadingOverlay();
     try {
       const [summary, table] = await Promise.all([
@@ -2452,7 +2515,6 @@
       if (sequence !== state.report.sequence) return;
       if (summary) {
         renderReportMetrics(summary.metrics || {}, summary.metric_basis || ''); renderTatReportCharts(summary); renderReportFreshness(summary.freshness || {});
-        setReportSelect('group', summary.filters?.groups || [], 0, 1);
         setReportSelect('branch', summary.filters?.branches || []);
         setReportSelect('product', summary.filters?.products || [], 0, 1);
         setReportSelect('stage', summary.filters?.stages || [], 0, 1);
@@ -2469,9 +2531,13 @@
       state.report.loaded = true;
     } catch (error) {
       if (error.name === 'AbortError' || sequence !== state.report.sequence) return;
-      state.report.gridApi?.hideOverlay(); setStatus(error.message, 'error');
+      state.report.gridApi?.hideOverlay();
+      setStatus(contextualReportError('The TAT report could not be updated', error), 'error');
     } finally {
-      if (state.report.abortController === controller) state.report.abortController = null;
+      if (state.report.abortController === controller) {
+        state.report.abortController = null;
+        setTatReportLoading(false);
+      }
     }
   }
 
@@ -2484,14 +2550,22 @@
   }
 
   async function exportTatReport() {
-    const button = $('tatReportExport'); button.disabled = true;
+    const button = $('tatReportExport'); setButtonLoading(button, true, 'Preparing XLSX');
     const requestId = newRequestId(); const payload = reportPayload({ request_id: requestId, client_request_id: requestId });
     try {
       const response = await fetch('/api/tat-tracker/reports/export/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Request-ID': requestId, 'Idempotency-Key': requestId, 'X-MiniApp-Message-Contract': '2' }, body: JSON.stringify(payload) });
-      if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.error || 'The report could not be downloaded.'); }
+      if (!response.ok) {
+        const raw = await response.json().catch(() => ({}));
+        const data = utils.normalizeResponsePayload ? utils.normalizeResponsePayload(response, raw) : raw;
+        const error = new Error(data.message || data.error || 'The server could not prepare the workbook.');
+        error.requestId = data.request_id || response.headers.get('X-Request-ID') || requestId;
+        throw error;
+      }
       const blob = await response.blob(); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `tat-report-${new Date().toISOString().slice(0, 10)}.xlsx`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 30000);
-      setStatus('TAT report downloaded.', 'ok'); utils.haptic?.('success');
-    } catch (error) { setStatus(error.message, 'error'); utils.haptic?.('error'); } finally { button.disabled = false; }
+      setStatus('TAT report downloaded.', 'ok');
+    } catch (error) {
+      setStatus(contextualReportError('The TAT report could not be downloaded', error), 'error');
+    } finally { setButtonLoading(button, false); }
   }
 
   document.querySelectorAll('.tabs button').forEach((button) => button.addEventListener('click', () => {
@@ -2500,6 +2574,7 @@
   }));
   $('casesWorkspaceBtn').addEventListener('click', () => show('queue'));
   $('dashboardWorkspaceBtn').addEventListener('click', () => {
+    utils.impactWithFallback?.('light', 20);
     show('dashboard');
     if (!state.report.loaded) refreshTatReport();
   });
@@ -2554,20 +2629,21 @@
   let tatReportFilterTimer = null;
   $('tatReportFilters').elements.search.addEventListener('input', () => {
     clearTimeout(tatReportFilterTimer); syncReportFilterGuidance();
-    tatReportFilterTimer = setTimeout(() => { state.report.page = 1; refreshTatReport(); }, 350);
+    tatReportFilterTimer = setTimeout(() => { state.report.page = 1; utils.haptic?.('light'); refreshTatReport(); }, 350);
   });
   $('tatReportReset').addEventListener('click', () => {
     $('tatReportFilters').reset(); setDefaultReportDates(); state.report.page = 1;
     syncReportFilterGuidance(); refreshTatReport(); utils.haptic?.('light');
   });
   const immediateReportFilters = [
-    'group', 'branch', 'product', 'stage', 'role', 'status', 'sla_state',
+    'branch', 'product', 'stage', 'role', 'status', 'sla_state',
     'date_from', 'date_to', 'granularity',
     'chart_dimension', 'chart_metric', 'heatmap_pair', 'heatmap_metric',
   ];
   immediateReportFilters.forEach(name => $('tatReportFilters').elements[name].addEventListener('change', () => {
     if (name === 'date_from' || name === 'date_to') syncReportDateDisplays();
     state.report.page = 1; syncReportFilterGuidance();
+    utils.haptic?.('light');
     refreshTatReport();
   }));
   $('openTatReportFiltersBtn').addEventListener('click', event => openTatReportFilters(event.currentTarget));
@@ -2577,12 +2653,13 @@
     if (event.target === event.currentTarget) closeTatReportFilters();
   });
   $('tatReportFilterSheet').addEventListener('keydown', trapReportFilterSheetFocus);
-  $('tatReportPrevious').addEventListener('click', () => { if (state.report.page > 1) { state.report.page -= 1; refreshTatReport({ summary: false }); } });
-  $('tatReportNext').addEventListener('click', () => { if (state.report.page * state.report.pageSize < state.report.count) { state.report.page += 1; refreshTatReport({ summary: false }); } });
+  $('tatReportPrevious').addEventListener('click', () => { if (state.report.page > 1) { state.report.page -= 1; utils.haptic?.('light'); refreshTatReport({ summary: false }); } });
+  $('tatReportNext').addEventListener('click', () => { if (state.report.page * state.report.pageSize < state.report.count) { state.report.page += 1; utils.haptic?.('light'); refreshTatReport({ summary: false }); } });
   $('tatReportExport').addEventListener('click', exportTatReport);
   $('refreshBtn').addEventListener('click', async () => {
     if (state.refreshing) return;
     state.refreshing = true;
+    if (state.currentView === 'dashboard') utils.haptic?.('light');
     try {
       const caseId = state.detail && state.detail.summary && state.detail.summary.case_id;
       if (state.currentView === 'detail' && caseId) await openCase(caseId);
@@ -2866,6 +2943,7 @@
 
   configureHtmx();
   setDefaultReportDates();
+  bindReportDatePickers();
   bindCollapsingHeader();
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;

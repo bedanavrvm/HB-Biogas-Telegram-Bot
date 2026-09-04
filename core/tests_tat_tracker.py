@@ -689,7 +689,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('data-heat-row', source)
         self.assertIn("summary.metric_basis || ''", source)
         self.assertIn("text: payload.axis_title || '% of target'", source)
-        self.assertIn("'group', 'branch', 'product', 'stage', 'role', 'status', 'sla_state'", source)
+        self.assertIn("'branch', 'product', 'stage', 'role', 'status', 'sla_state'", source)
         self.assertIn("'date_from', 'date_to', 'granularity'", source)
         self.assertIn('No target performance data is available for this selection.', source)
         self.assertIn('<option value="">All Branches</option>', template)
@@ -698,12 +698,24 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('id="openTatReportFiltersBtn"', template)
         self.assertIn('data-report-key="trend"', template)
         self.assertIn('data-report-filter="branch"', template)
+        self.assertNotIn('data-report-filter="group"', template)
+        self.assertIn('class="native-date-icon"', template)
+        self.assertIn('id="tatReportLoadingState"', template)
+        self.assertIn('id="tatReportSheetLoading"', template)
+        self.assertIn('function bindReportDatePickers()', source)
+        self.assertIn("typeof input.showPicker !== 'function'", source)
+        self.assertIn('function setTatReportLoading(loading)', source)
+        self.assertIn("contextualReportError('The TAT report could not be updated'", source)
+        self.assertIn("'/api/tat-tracker/update/': 'Saving the case update'", source)
+        self.assertIn('throw contextualTatApiError(path, error)', source)
         self.assertIn('function syncReportFilterGuidance()', source)
         self.assertIn('filter_guidance', source)
         self.assertIn('not affect ${insight.title}', source)
         self.assertIn('.tat-report-charts .chart-empty[hidden]{display:none!important}', stylesheet)
         self.assertIn('.tat-report-filter-bar{', stylesheet)
         self.assertIn('label[data-guidance="unavailable"]', stylesheet)
+        self.assertIn('.tat-report-pagination span{position:static;grid-column:2', stylesheet)
+        self.assertIn('.tat-report-loading,.tat-report-sheet-loading{', stylesheet)
         self.assertIn('.tat-report-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))', stylesheet)
         self.assertIn('@media(max-width:700px){.tat-report-filters{grid-template-columns:repeat(3,minmax(0,1fr))}', stylesheet)
 
@@ -741,7 +753,7 @@ class TatTrackerWorkflowTest(TestCase):
             | {item['key'] for item in trend_guidance['unavailable_filters']}
         )
         self.assertEqual(described_controls, {
-            'search', 'group', 'branch', 'product', 'stage', 'role', 'status', 'sla_state',
+            'search', 'branch', 'product', 'stage', 'role', 'status', 'sla_state',
             'date_from', 'date_to', 'granularity', 'chart_dimension', 'chart_metric',
             'heatmap_pair', 'heatmap_metric',
         })
@@ -972,6 +984,10 @@ class TatTrackerWorkflowTest(TestCase):
         bad_headers = {'X-MiniApp-Message-Contract': '2', 'X-Request-ID': 'tat-report-api-2', 'Idempotency-Key': 'tat-report-api-2'}
         bad_sort = self.client.post(reverse('tat_tracker_reports_cases'), data=json.dumps({**payload, 'client_request_id': 'tat-report-api-2', 'sort': 'national_id'}), content_type='application/json', headers=bad_headers)
         self.assertEqual(bad_sort.status_code, 400)
+        self.assertEqual(bad_sort.json()['code'], 'tat_report_invalid_filter')
+        self.assertEqual(bad_sort.json()['message'], 'This report column cannot be sorted.')
+        self.assertNotIn('We could not understand that request', bad_sort.json()['message'])
+        self.assertEqual(bad_sort.json()['request_id'], 'tat-report-api-2')
         WorkflowRoleCapability.objects.filter(
             workflow='tat_tracker', role='BRO', capability_key='tat.reports.view',
         ).update(effect=WorkflowRoleCapability.EFFECT_DENY)

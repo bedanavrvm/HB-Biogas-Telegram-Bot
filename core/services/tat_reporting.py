@@ -420,7 +420,7 @@ def _active_filter_names(filters, *, include_dates=True):
 
 
 _REPORT_SCOPE_FILTERS = (
-    'search', 'group', 'branch', 'product', 'stage', 'role', 'status', 'sla_state',
+    'search', 'branch', 'product', 'stage', 'role', 'status', 'sla_state',
 )
 _REPORT_DATE_FILTERS = ('date_from', 'date_to')
 _REPORT_ALL_CONTROLS = _REPORT_SCOPE_FILTERS + _REPORT_DATE_FILTERS + (

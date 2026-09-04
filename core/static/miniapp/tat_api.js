@@ -31,9 +31,10 @@
     const raw = await response.json().catch(() => ({}));
     const data = utils?.normalizeResponsePayload ? utils.normalizeResponsePayload(response, raw) : raw;
     if (!response.ok || !data.ok) {
-      const error = new Error(data.error || 'Request failed.');
+      const error = new Error(data.message || data.error || 'Request failed.');
       error.code = data.code || '';
       error.status = response.status;
+      error.requestId = data.request_id || response.headers.get('X-Request-ID') || requestId;
       throw error;
     }
     return data;
