@@ -689,6 +689,23 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('data-heat-row', source)
         self.assertIn("summary.metric_basis || ''", source)
         self.assertIn("text: payload.axis_title || '% of target'", source)
+        self.assertIn("'group', 'branch', 'product', 'stage', 'role', 'status', 'sla_state'", source)
+        self.assertIn("'date_from', 'date_to', 'granularity'", source)
+        self.assertIn('No target performance data is available for this selection.', source)
+        self.assertIn('<option value="">All Branches</option>', template)
+        self.assertNotIn('<option value="">Any Branch</option>', template)
+        self.assertIn('id="tatReportFilterOverlay"', template)
+        self.assertIn('id="openTatReportFiltersBtn"', template)
+        self.assertIn('data-report-key="trend"', template)
+        self.assertIn('data-report-filter="branch"', template)
+        self.assertIn('function syncReportFilterGuidance()', source)
+        self.assertIn('filter_guidance', source)
+        self.assertIn('not affect ${insight.title}', source)
+        self.assertIn('.tat-report-charts .chart-empty[hidden]{display:none!important}', stylesheet)
+        self.assertIn('.tat-report-filter-bar{', stylesheet)
+        self.assertIn('label[data-guidance="unavailable"]', stylesheet)
+        self.assertIn('.tat-report-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))', stylesheet)
+        self.assertIn('@media(max-width:700px){.tat-report-filters{grid-template-columns:repeat(3,minmax(0,1fr))}', stylesheet)
 
     def test_tat_reporting_is_scoped_allowlisted_and_page_size_capped(self):
         TatTrackerCase.objects.create(
@@ -713,6 +730,26 @@ class TatTrackerWorkflowTest(TestCase):
         summary = report_summary(self.bro_user, {'view': 'current'})
         self.assertEqual(summary['metrics']['active'], 1)
         self.assertEqual(summary['filters']['groups'], [(self.config.group_id, 'TAT Test')])
+        trend_guidance = summary['charts']['trend']['filter_guidance']
+        self.assertIn('branch', trend_guidance['applicable_filters'])
+        self.assertIn('stage', trend_guidance['basis_changing_filters'])
+        self.assertIn('granularity', trend_guidance['chart_controls'])
+        described_controls = (
+            set(trend_guidance['applicable_filters'])
+            | set(trend_guidance['basis_changing_filters'])
+            | set(trend_guidance['chart_controls'])
+            | {item['key'] for item in trend_guidance['unavailable_filters']}
+        )
+        self.assertEqual(described_controls, {
+            'search', 'group', 'branch', 'product', 'stage', 'role', 'status', 'sla_state',
+            'date_from', 'date_to', 'granularity', 'chart_dimension', 'chart_metric',
+            'heatmap_pair', 'heatmap_metric',
+        })
+        backlog_guidance = summary['charts']['backlog_age']['filter_guidance']
+        backlog_unavailable = {item['key']: item['reason'] for item in backlog_guidance['unavailable_filters']}
+        self.assertIn('date_from', backlog_unavailable)
+        self.assertIn('chart_metric', backlog_unavailable)
+        self.assertIn('current workload', backlog_unavailable['date_from'])
         performance = report_summary(self.bro_user, {
             'view': 'performance',
             'date_from': timezone.localdate().isoformat(),
@@ -721,6 +758,32 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(performance['breakdown_basis'], 'created_cases_current_stage')
         self.assertTrue(performance['by_stage'])
         self.assertTrue(performance['by_role'])
+        self.assertEqual(
+            performance['charts']['explorer']['filter_guidance']['chart_controls'],
+            ['chart_dimension', 'chart_metric'],
+        )
+        self.assertEqual(
+            performance['heatmap']['filter_guidance']['chart_controls'],
+            ['heatmap_pair', 'heatmap_metric'],
+        )
+
+    def test_tat_report_branch_options_deduplicate_case_and_whitespace_variants(self):
+        user = get_user_model().objects.create_superuser(username='branch-report-root', password='unused')
+        for index, branch in enumerate(('Corporate', 'CORPORATE', '  corporate  '), start=1):
+            TatTrackerCase.objects.create(
+                group_id=self.config.group_id,
+                case_id=f'TAT-BRANCH-OPTION-{index}',
+                product_key='business',
+                product_label='Business',
+                client_name=f'BRANCH CLIENT {index}',
+                branch=branch,
+                status='Active',
+                stage_values={'created': timezone.now().isoformat()},
+            )
+
+        summary = report_summary(user, {'view': 'current'})
+
+        self.assertEqual(summary['filters']['branches'], ['Corporate'])
 
     def test_tat_reporting_exposes_chart_basis_backlog_and_frozen_target_percentages(self):
         now = timezone.now()

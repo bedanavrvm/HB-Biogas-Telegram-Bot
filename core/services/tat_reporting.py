@@ -107,6 +107,24 @@ def _parse_date(value, *, default):
         return default
 
 
+def _casefold_distinct_labels(values):
+    """Return clean, deterministically sorted labels without casing duplicates."""
+    labels = {}
+    for value in values:
+        candidate = ' '.join(str(value or '').split())
+        if not candidate:
+            continue
+        key = candidate.casefold()
+        existing = labels.get(key)
+        # Prefer normal display casing over legacy all-upper/all-lower values.
+        if existing is None or (
+            (existing.isupper() or existing.islower())
+            and not (candidate.isupper() or candidate.islower())
+        ):
+            labels[key] = candidate
+    return sorted(labels.values(), key=str.casefold)
+
+
 def _iso_local_date(value):
     parsed = datetime.fromisoformat(value)
     if timezone.is_naive(parsed):
@@ -399,6 +417,129 @@ def _active_filter_names(filters, *, include_dates=True):
     if include_dates:
         names.extend(['date_range', 'granularity'])
     return names
+
+
+_REPORT_SCOPE_FILTERS = (
+    'search', 'group', 'branch', 'product', 'stage', 'role', 'status', 'sla_state',
+)
+_REPORT_DATE_FILTERS = ('date_from', 'date_to')
+_REPORT_ALL_CONTROLS = _REPORT_SCOPE_FILTERS + _REPORT_DATE_FILTERS + (
+    'granularity', 'chart_dimension', 'chart_metric', 'heatmap_pair', 'heatmap_metric',
+)
+_REPORT_CONTROL_ONLY_REASONS = {
+    'chart_dimension': 'This control only configures Operational Comparison.',
+    'chart_metric': 'This control only configures Operational Comparison.',
+    'heatmap_pair': 'This control only configures the Operational Heatmap.',
+    'heatmap_metric': 'This control only configures the Operational Heatmap.',
+}
+
+
+def _filter_guidance(
+    *, applicable_filters, chart_controls=(), basis_changing_filters=(),
+    unavailable_reasons=None, filter_notes=None,
+):
+    """Describe report-control behaviour using stable frontend field names."""
+    applicable_filters = list(dict.fromkeys(applicable_filters))
+    chart_controls = list(dict.fromkeys(chart_controls))
+    basis_changing_filters = list(dict.fromkeys(basis_changing_filters))
+    unavailable_reasons = dict(unavailable_reasons or {})
+    used = set(applicable_filters) | set(chart_controls) | set(basis_changing_filters)
+    for key in _REPORT_ALL_CONTROLS:
+        if key not in used:
+            unavailable_reasons.setdefault(
+                key,
+                _REPORT_CONTROL_ONLY_REASONS.get(key, 'This filter does not affect this insight.'),
+            )
+    return {
+        'applicable_filters': applicable_filters,
+        'chart_controls': chart_controls,
+        'basis_changing_filters': basis_changing_filters,
+        'unavailable_filters': [
+            {'key': key, 'reason': reason}
+            for key, reason in unavailable_reasons.items()
+        ],
+        'filter_notes': dict(filter_notes or {}),
+    }
+
+
+def _attach_report_filter_guidance(common, charts, filters):
+    """Attach the authoritative filter-to-insight contract to every slide."""
+    scope = list(_REPORT_SCOPE_FILTERS)
+    dated_scope = scope + list(_REPORT_DATE_FILTERS)
+    current_only_reasons = {
+        'date_from': 'This insight shows the current workload, not a historical period.',
+        'date_to': 'This insight shows the current workload, not a historical period.',
+        'granularity': 'Time grouping only affects insights plotted over time.',
+    }
+    trend = charts.get('trend')
+    if trend:
+        trend['filter_guidance'] = _filter_guidance(
+            applicable_filters=dated_scope,
+            chart_controls=('granularity',),
+            basis_changing_filters=(
+                ('search', 'stage', 'role', 'status', 'sla_state')
+                if filters['view'] == 'current' else ()
+            ),
+            filter_notes={
+                key: 'Selecting this changes the current workload trend to completed actions over time.'
+                for key in ('search', 'stage', 'role', 'status', 'sla_state')
+            } if filters['view'] == 'current' else None,
+        )
+    backlog = charts.get('backlog_age')
+    if backlog:
+        backlog['filter_guidance'] = _filter_guidance(
+            applicable_filters=scope,
+            unavailable_reasons=current_only_reasons,
+        )
+    for key in ('sla_compliance', 'tat_percentiles', 'stage_target'):
+        if charts.get(key):
+            charts[key]['filter_guidance'] = _filter_guidance(
+                applicable_filters=dated_scope,
+                chart_controls=('granularity',) if key != 'stage_target' else (),
+                unavailable_reasons=(
+                    {'granularity': 'This comparison is grouped by stage rather than time.'}
+                    if key == 'stage_target' else None
+                ),
+            )
+
+    explorer = charts.get('explorer')
+    if explorer:
+        sample_based = filters['view'] == 'performance' or filters['chart_metric'] in {
+            'duration', 'target_usage', 'sla_met', 'correction_rate',
+        }
+        explorer['filter_guidance'] = _filter_guidance(
+            applicable_filters=dated_scope if sample_based else scope,
+            chart_controls=('chart_dimension', 'chart_metric'),
+            unavailable_reasons=None if sample_based else current_only_reasons,
+        )
+
+    heatmap = common.get('heatmap')
+    if heatmap:
+        sample_based = filters['view'] == 'performance' or filters['heatmap_metric'] != 'workload'
+        heatmap['filter_guidance'] = _filter_guidance(
+            applicable_filters=dated_scope if sample_based else scope,
+            chart_controls=('heatmap_pair', 'heatmap_metric'),
+            unavailable_reasons=None if sample_based else current_only_reasons,
+        )
+
+    signals = common.get('target_review_signals')
+    if signals:
+        signals['filter_guidance'] = _filter_guidance(
+            applicable_filters=dated_scope,
+            unavailable_reasons={
+                'granularity': 'Review signals use the selected period but are not grouped over time.',
+            },
+            filter_notes={
+                'branch': 'Changes the selected-scope result; the systemic baseline remains organization-wide.',
+                'product': 'Changes the selected-scope result; the systemic baseline remains organization-wide.',
+            },
+        )
+    oldest = common.get('oldest_cases')
+    if oldest:
+        oldest['filter_guidance'] = _filter_guidance(
+            applicable_filters=scope,
+            unavailable_reasons=current_only_reasons,
+        )
 
 
 def _series(key, label, values):
@@ -745,7 +886,7 @@ def report_summary(actor, payload, *, include_people=False):
             (case.group_id, group_names.get(case.group_id) or 'TAT Tracker')
             for case in scope_cases
         }),
-        'branches': sorted({case.branch for case in scope_cases if case.branch}),
+        'branches': _casefold_distinct_labels(case.branch for case in scope_cases),
         'products': sorted({(case.product_key, case.product_label or case.product_key) for case in scope_cases}),
         'stages': sorted(stages), 'roles': sorted(role for role in roles if role),
     }
@@ -1083,6 +1224,7 @@ def report_summary(actor, payload, *, include_people=False):
         'sample_count': len(oldest_rows), 'excluded_count': 0, 'exclusion_reason': '',
         'items': [{key: row.get(key) for key in oldest_fields} for row in oldest_rows],
     }
+    _attach_report_filter_guidance(common, charts, filters)
     common['charts'] = charts
     return common
 

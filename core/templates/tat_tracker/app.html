@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=36">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=39">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
@@ -60,24 +60,11 @@
         <button type="button" class="active" data-report-view="current" aria-pressed="true">Current Workload</button>
         <button type="button" data-report-view="performance" aria-pressed="false">Period Performance</button>
       </nav>
-      <form id="tatReportFilters" class="tat-report-filters">
-        <label>Search<input name="search" type="search" placeholder="Reference, customer, branch..."></label>
-        <label>TAT Group<select name="group"><option value="">Any Group</option></select></label>
-        <label>Branch<select name="branch"><option value="">Any Branch</option></select></label>
-        <label>Product<select name="product"><option value="">Any Product</option></select></label>
-        <label>Stage<select name="stage"><option value="">Any Stage</option></select></label>
-        <label>Role<select name="role"><option value="">Any Role</option></select></label>
-        <label>Status<select name="status"><option value="">Any Status</option><option>Active</option><option>Stalled</option><option>Pending Docs</option><option>Deferred</option><option>Disbursed</option><option>Rejected</option><option>Declined</option></select></label>
-        <label>SLA<select name="sla_state"><option value="">Any SLA State</option><option value="within_target">Within Target</option><option value="near_target">Near Target</option><option value="overdue">Overdue</option><option value="target_unavailable">Target Unavailable</option></select></label>
-        <label class="report-date"><span>From</span><span class="native-date-control"><span data-date-display="date_from">dd-mm-yy</span><input name="date_from" type="date" aria-label="Report start date"></span></label>
-        <label class="report-date"><span>To</span><span class="native-date-control"><span data-date-display="date_to">dd-mm-yy</span><input name="date_to" type="date" aria-label="Report end date"></span></label>
-        <label class="report-date">Group By<select name="granularity"><option value="day">Day</option><option value="week">Week</option><option value="month" selected>Month</option><option value="year">Year</option></select></label>
-        <label>Compare By<select name="chart_dimension"><option value="stage">Stage</option><option value="role">Role</option><option value="branch">Branch</option><option value="product">Product</option></select></label>
-        <label>Comparison Metric<select name="chart_metric"><option value="workload">Workload</option><option value="sla_state">SLA Split</option><option value="duration">Median / P90 Duration</option><option value="target_usage">Percent of Target</option><option value="sla_met">SLA Met</option><option value="correction_rate">Recorded Corrections</option><option value="load_per_assignee">Cases per Configured Assignee</option></select></label>
-        <label>Heatmap<select name="heatmap_pair"><option value="stage_branch">Stage &times; Branch</option><option value="product_stage">Product &times; Stage</option><option value="role_branch">Role &times; Branch</option></select></label>
-        <label>Heatmap Metric<select name="heatmap_metric"><option value="sla_met">SLA Met</option><option value="workload">Workload</option><option value="duration">Median Duration</option><option value="target_usage">Percent of Target</option></select></label>
-        <div class="report-filter-actions"><button type="button" id="tatReportReset" class="secondary">Reset</button><button type="submit" class="primary">Show Results</button></div>
-      </form>
+      <button id="openTatReportFiltersBtn" type="button" class="tat-report-filter-bar" aria-haspopup="dialog">
+        <span class="tat-report-filter-action"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg><strong>Filters</strong><b id="tatReportActiveFilterCount" hidden>0</b></span>
+        <span class="tat-report-filter-summary"><strong id="tatReportFocusedInsight">Focused insight</strong><small id="tatReportDateSummary">Date range</small></span>
+        <svg class="tat-report-filter-chevron" aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+      </button>
       <p id="tatReportFreshness" class="report-freshness" role="status"></p>
       <section id="tatReportMetrics" class="report-metrics" aria-label="TAT report summary"></section>
       <div class="tat-chart-toolbar">
@@ -91,16 +78,17 @@
           <button id="tatChartNext" type="button" class="secondary" aria-label="Next insight">Next</button>
         </nav>
       </div>
+      <button id="tatReportFilterWarning" type="button" class="tat-report-filter-warning" hidden></button>
       <section id="tatReportCharts" class="tat-report-charts carousel" aria-label="TAT insights" tabindex="0">
-        <article id="tatTrendPanel" data-report-slide><h3 id="tatTrendTitle">Workload over Time</h3><p id="tatTrendBasis" class="chart-basis"></p><div><canvas id="tatTrendChart"></canvas><p id="tatTrendEmpty" class="chart-empty" hidden>No history matches these filters.</p></div></article>
-        <article id="tatBacklogPanel" data-report-slide><h3 id="tatBacklogTitle">Current-stage Backlog Age</h3><p id="tatBacklogBasis" class="chart-basis"></p><div><canvas id="tatBacklogChart"></canvas><p id="tatBacklogEmpty" class="chart-empty" hidden>No active backlog matches these filters.</p></div></article>
-        <article id="tatSlaPanel" data-report-slide><h3 id="tatSlaTitle">SLA Compliance over Time</h3><p id="tatSlaBasis" class="chart-basis"></p><div><canvas id="tatSlaChart"></canvas><p id="tatSlaEmpty" class="chart-empty" hidden>No valid SLA samples match these filters.</p></div></article>
-        <article id="tatPercentilesPanel" data-report-slide><h3 id="tatPercentilesTitle">Median and P90 TAT over Time</h3><p id="tatPercentilesBasis" class="chart-basis"></p><div><canvas id="tatPercentilesChart"></canvas><p id="tatPercentilesEmpty" class="chart-empty" hidden>No duration samples match these filters.</p></div></article>
-        <article id="tatTargetPanel" data-report-slide><h3 id="tatTargetTitle">Stage Performance Against Target</h3><p id="tatTargetBasis" class="chart-basis"></p><div><canvas id="tatTargetChart"></canvas><p id="tatTargetEmpty" class="chart-empty" hidden>No completed actions with targets match these filters.</p></div><div id="tatTargetDetails" class="chart-details"></div></article>
-        <article id="tatExplorerPanel" data-report-slide><h3 id="tatExplorerTitle">Operational Comparison</h3><p id="tatExplorerBasis" class="chart-basis"></p><div><canvas id="tatExplorerChart"></canvas><p id="tatExplorerEmpty" class="chart-empty" hidden>No comparison data matches these filters.</p></div><div id="tatExplorerDetails" class="chart-details"></div></article>
-        <article id="tatHeatmapPanel" data-report-slide><h3 id="tatHeatmapTitle">Operational Heatmap</h3><p id="tatHeatmapBasis" class="chart-basis"></p><div id="tatHeatmap" class="tat-heatmap" role="region" aria-label="Operational heatmap"></div></article>
-        <article id="tatSignalsPanel" data-report-slide><h3>Target Review Signals</h3><p id="tatSignalsBasis" class="chart-basis">Raw exceedance rates and sample sizes are always shown. Signals never change a target.</p><div id="tatTargetSignals" class="tat-signal-list"></div></article>
-        <article id="tatOldestPanel" data-report-slide><h3>Oldest Active Cases</h3><p id="tatOldestBasis" class="chart-basis">The ten longest-running active cases matching the operational filters.</p><div id="tatOldestCases" class="tat-oldest-list"></div></article>
+        <article id="tatTrendPanel" data-report-slide data-report-key="trend"><h3 id="tatTrendTitle">Workload over Time</h3><p id="tatTrendBasis" class="chart-basis"></p><div><canvas id="tatTrendChart"></canvas><p id="tatTrendEmpty" class="chart-empty" hidden>No history matches these filters.</p></div></article>
+        <article id="tatBacklogPanel" data-report-slide data-report-key="backlog_age"><h3 id="tatBacklogTitle">Current-stage Backlog Age</h3><p id="tatBacklogBasis" class="chart-basis"></p><div><canvas id="tatBacklogChart"></canvas><p id="tatBacklogEmpty" class="chart-empty" hidden>No active backlog matches these filters.</p></div></article>
+        <article id="tatSlaPanel" data-report-slide data-report-key="sla_compliance"><h3 id="tatSlaTitle">SLA Compliance over Time</h3><p id="tatSlaBasis" class="chart-basis"></p><div><canvas id="tatSlaChart"></canvas><p id="tatSlaEmpty" class="chart-empty" hidden>No valid SLA samples match these filters.</p></div></article>
+        <article id="tatPercentilesPanel" data-report-slide data-report-key="tat_percentiles"><h3 id="tatPercentilesTitle">Median and P90 TAT over Time</h3><p id="tatPercentilesBasis" class="chart-basis"></p><div><canvas id="tatPercentilesChart"></canvas><p id="tatPercentilesEmpty" class="chart-empty" hidden>No duration samples match these filters.</p></div></article>
+        <article id="tatTargetPanel" data-report-slide data-report-key="stage_target"><h3 id="tatTargetTitle">Stage Performance Against Target</h3><p id="tatTargetBasis" class="chart-basis"></p><div><canvas id="tatTargetChart"></canvas><p id="tatTargetEmpty" class="chart-empty" hidden>No target performance data is available for this selection.</p></div><div id="tatTargetDetails" class="chart-details"></div></article>
+        <article id="tatExplorerPanel" data-report-slide data-report-key="explorer"><h3 id="tatExplorerTitle">Operational Comparison</h3><p id="tatExplorerBasis" class="chart-basis"></p><div><canvas id="tatExplorerChart"></canvas><p id="tatExplorerEmpty" class="chart-empty" hidden>No comparison data matches these filters.</p></div><div id="tatExplorerDetails" class="chart-details"></div></article>
+        <article id="tatHeatmapPanel" data-report-slide data-report-key="heatmap"><h3 id="tatHeatmapTitle">Operational Heatmap</h3><p id="tatHeatmapBasis" class="chart-basis"></p><div id="tatHeatmap" class="tat-heatmap" role="region" aria-label="Operational heatmap"></div></article>
+        <article id="tatSignalsPanel" data-report-slide data-report-key="target_review_signals"><h3>Target Review Signals</h3><p id="tatSignalsBasis" class="chart-basis">Raw exceedance rates and sample sizes are always shown. Signals never change a target.</p><div id="tatTargetSignals" class="tat-signal-list"></div></article>
+        <article id="tatOldestPanel" data-report-slide data-report-key="oldest_cases"><h3>Oldest Active Cases</h3><p id="tatOldestBasis" class="chart-basis">The ten longest-running active cases matching the operational filters.</p><div id="tatOldestCases" class="tat-oldest-list"></div></article>
       </section>
       <div class="tat-report-grid-wrap" role="region" aria-label="TAT report table" tabindex="0"><div id="tatReportGrid" class="ag-theme-quartz tat-report-grid"></div></div>
       <nav class="tat-report-pagination" aria-label="TAT report pages"><button id="tatReportPrevious" type="button" class="secondary">Previous</button><span id="tatReportPage">Page 1 of 1</span><button id="tatReportNext" type="button" class="secondary">Next</button></nav>
@@ -335,6 +323,43 @@
         </div>
       </section>
     </section>
+    <div id="tatReportFilterOverlay" class="tat-sheet-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="tatReportFilterTitle" hidden>
+      <section id="tatReportFilterSheet" class="tat-sheet tat-report-filter-sheet" tabindex="-1">
+        <header class="tat-sheet-header">
+          <div class="tat-sheet-heading"><p class="eyebrow">TAT reports</p><h2 id="tatReportFilterTitle">Filters for this insight</h2><p id="tatReportFilterHelp">Highlighted controls affect the focused insight.</p></div>
+          <button id="closeTatReportFiltersBtn" type="button" class="notice-close tat-sheet-close" aria-label="Close report filters">&times;</button>
+        </header>
+        <div class="tat-report-filter-legend" aria-label="Filter guidance">
+          <span class="affects"><b aria-hidden="true">&#10003;</b> Affects insight</span>
+          <span class="configures"><b aria-hidden="true">&#9881;</b> Configures insight</span>
+          <span class="changes"><b aria-hidden="true">&#8644;</b> Changes view</span>
+          <span class="unavailable"><b aria-hidden="true">!</b> Not used here</span>
+        </div>
+        <form id="tatReportFilters" class="sheet-form tat-report-filter-form">
+          <div class="tat-report-filters">
+            <label data-report-filter="search">Search<input name="search" type="search" placeholder="Reference, customer, branch..."></label>
+            <label data-report-filter="group">TAT Group<select name="group"><option value="">All Groups</option></select></label>
+            <label data-report-filter="branch">Branch<select name="branch"><option value="">All Branches</option></select></label>
+            <label data-report-filter="product">Product<select name="product"><option value="">All Products</option></select></label>
+            <label data-report-filter="stage">Stage<select name="stage"><option value="">All Stages</option></select></label>
+            <label data-report-filter="role">Role<select name="role"><option value="">All Roles</option></select></label>
+            <label data-report-filter="status">Status<select name="status"><option value="">All Statuses</option><option>Active</option><option>Stalled</option><option>Pending Docs</option><option>Deferred</option><option>Disbursed</option><option>Rejected</option><option>Declined</option></select></label>
+            <label data-report-filter="sla_state">SLA<select name="sla_state"><option value="">All SLA States</option><option value="within_target">Within Target</option><option value="near_target">Near Target</option><option value="overdue">Overdue</option><option value="target_unavailable">Target Unavailable</option></select></label>
+            <label data-report-filter="date_from" class="report-date"><span>From</span><span class="native-date-control"><span data-date-display="date_from">dd-mm-yy</span><input name="date_from" type="date" aria-label="Report start date"></span></label>
+            <label data-report-filter="date_to" class="report-date"><span>To</span><span class="native-date-control"><span data-date-display="date_to">dd-mm-yy</span><input name="date_to" type="date" aria-label="Report end date"></span></label>
+            <label data-report-filter="granularity" class="report-date">Group By<select name="granularity"><option value="day">Day</option><option value="week">Week</option><option value="month" selected>Month</option><option value="year">Year</option></select></label>
+            <label data-report-filter="chart_dimension">Compare By<select name="chart_dimension"><option value="stage">Stage</option><option value="role">Role</option><option value="branch">Branch</option><option value="product">Product</option></select></label>
+            <label data-report-filter="chart_metric">Comparison Metric<select name="chart_metric"><option value="workload">Workload</option><option value="sla_state">SLA Split</option><option value="duration">Median / P90 Duration</option><option value="target_usage">Percent of Target</option><option value="sla_met">SLA Met</option><option value="correction_rate">Recorded Corrections</option><option value="load_per_assignee">Cases per Configured Assignee</option></select></label>
+            <label data-report-filter="heatmap_pair">Heatmap<select name="heatmap_pair"><option value="stage_branch">Stage &times; Branch</option><option value="product_stage">Product &times; Stage</option><option value="role_branch">Role &times; Branch</option></select></label>
+            <label data-report-filter="heatmap_metric">Heatmap Metric<select name="heatmap_metric"><option value="sla_met">SLA Met</option><option value="workload">Workload</option><option value="duration">Median Duration</option><option value="target_usage">Percent of Target</option></select></label>
+          </div>
+        </form>
+        <footer>
+          <button type="button" id="tatReportReset" class="secondary">Reset</button>
+          <button type="submit" form="tatReportFilters" class="primary">Done</button>
+        </footer>
+      </section>
+    </div>
     <div id="queueFilterOverlay" class="tat-sheet-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="queueFilterTitle" hidden>
       <section id="queueFilterSheet" class="tat-sheet" tabindex="-1">
         <header class="tat-sheet-header">
@@ -382,6 +407,6 @@
   <script src="{% static 'miniapp/tat_api.js' %}?v=4"></script>
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=63"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=65"></script>
 </body>
 </html>
