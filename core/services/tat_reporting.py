@@ -69,7 +69,7 @@ TARGET_REVIEW_SIGNAL_POLICY = {
 }
 FOCUSED_INSIGHTS = frozenset({
     'trend', 'backlog_age', 'sla_compliance', 'tat_percentiles',
-    'stage_target', 'explorer', 'heatmap', 'target_review_signals',
+    'stage_target', 'explorer', 'case_progression', 'heatmap', 'target_review_signals',
     'oldest_cases',
 })
 logger = logging.getLogger(__name__)
@@ -354,6 +354,7 @@ def _case_stage_tat(case, product, workflow, *, now, context):
         target = stage_target_minutes_for_case(case, workflow, product, stage)
         values[stage.key] = {
             'minutes': float(elapsed) if elapsed is not None else None,
+            'target_minutes': float(target) if target is not None else None,
             'sla_state': _sla_state_for_minutes(
                 elapsed, target, near_target_ratio=context.near_target_ratio,
             ),
@@ -589,6 +590,67 @@ def _chart_payload(
     return payload
 
 
+def _case_progression_chart(cases, filters, *, context):
+    """Build an ordered per-stage duration chart when one case is isolated."""
+    applied = [
+        key for key in ('group', 'search', 'branch', 'product', 'status')
+        if filters.get(key)
+    ]
+    matches = list(cases)
+    if len(matches) != 1:
+        message = (
+            'No case matches these filters.'
+            if not matches
+            else f'{len(matches)} cases match. Search with the exact case reference to isolate one case.'
+        )
+        return _chart_payload(
+            'case_progression', 'Case Stage Progression', 'single_case_stage_duration',
+            message, [], [], applied_filters=applied, sample_count=0,
+            extras={
+                'selection_state': 'none' if not matches else 'multiple',
+                'selection_message': message,
+                'matched_case_count': len(matches),
+                'axis_title': 'Time in stage',
+            },
+        )
+
+    case = matches[0]
+    row = _case_row(case, context=context)
+    stages = row.get('_stage_columns') or []
+    details = row.get('stage_tat') or {}
+    labels = [stage['label'] for stage in stages]
+    ordered_details = [details.get(stage['key']) or {} for stage in stages]
+    actual = [item.get('minutes') for item in ordered_details]
+    targets = [item.get('target_minutes') for item in ordered_details]
+    sample_count = sum(value is not None for value in actual)
+    subtitle = (
+        f"{case.client_name or 'Unnamed client'} · {case.branch or 'No branch'} · "
+        f"{case.product_label or case.product_key}. Completed stages and the live current stage are shown."
+    )
+    return _chart_payload(
+        'case_progression', f'Case Stage Progression — {case.case_id}',
+        'single_case_stage_duration', subtitle, labels,
+        [
+            _series('actual_minutes', 'Actual', actual),
+            _series('target_minutes', 'Target', targets),
+        ],
+        applied_filters=applied, sample_count=sample_count,
+        extras={
+            'selection_state': 'single',
+            'selection_message': '',
+            'matched_case_count': 1,
+            'case_id': case.case_id,
+            'client_name': case.client_name,
+            'axis_title': 'Time in stage',
+            'stage_states': [item.get('sla_state') or 'target_unavailable' for item in ordered_details],
+            'stage_statuses': [
+                'current' if item.get('active') else ('completed' if item.get('completed') else 'not_started')
+                for item in ordered_details
+            ],
+        },
+    )
+
+
 def _active_filter_names(filters, *, include_dates=True):
     names = [
         key for key in ('group', 'branch', 'product', 'stage', 'role', 'status', 'sla_state', 'search')
@@ -691,6 +753,20 @@ def _attach_report_filter_guidance(common, charts, filters):
             applicable_filters=dated_scope if sample_based else scope,
             chart_controls=('chart_dimension', 'chart_metric'),
             unavailable_reasons=None if sample_based else current_only_reasons,
+        )
+
+    progression = charts.get('case_progression')
+    if progression:
+        progression['filter_guidance'] = _filter_guidance(
+            applicable_filters=('search', 'group', 'branch', 'product', 'status'),
+            unavailable_reasons={
+                'stage': 'Stage remains an axis value so the full case progression can be shown.',
+                'role': 'Role does not change the selected case progression.',
+                'sla_state': 'SLA state does not hide stages from a case progression.',
+                'date_from': 'A case progression always shows the case from creation to its current or terminal stage.',
+                'date_to': 'A case progression always shows the case from creation to its current or terminal stage.',
+                'granularity': 'A case progression is ordered by workflow stage rather than calendar buckets.',
+            },
         )
 
     heatmap = common.get('heatmap')
@@ -1388,6 +1464,10 @@ def report_summary(actor, payload, *, include_people=False):
     if not focused:
         charts['stage'] = _breakdown_chart('stage', stage_title, stage_basis, basis_subtitle, common['by_stage'], applied_filters=live_filters if filters['view'] == 'current' else active_filters, unavailable_filters=breakdown_unavailable)
         charts['role'] = _breakdown_chart('role', role_title, stage_basis, basis_subtitle, common['by_role'], applied_filters=live_filters if filters['view'] == 'current' else active_filters, unavailable_filters=breakdown_unavailable)
+    if wants('case_progression'):
+        charts['case_progression'] = _case_progression_chart(
+            all_cases, filters, context=context,
+        )
     if include_people and not focused:
         common['by_person'] = [
             {'label': key, 'count': value}

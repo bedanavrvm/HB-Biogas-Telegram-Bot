@@ -4,16 +4,18 @@
 {% block content %}
 <div id="content-main" class="admin-custom-page">
   <p>
-    This will permanently delete local database records for
+    This will permanently delete local <strong>{{ workflow_type }}</strong> workflow records owned by
     <strong>{{ config.display_name|default:config.group_id }}</strong>
     (<code>{{ config.group_id }}</code>).
   </p>
   <p>
-    Google Sheets rows and actual Google Drive files will not be deleted. This page only clears local Django database records and Drive metadata records.
+    Records belonging to other workflow configurations, shared/global Jawabu records,
+    generated documents, invoice uploads, Google Sheets rows, and actual Google Drive
+    files will not be deleted.
   </p>
 
   <h2>Current Local Records</h2>
-  <p class="help">Some global or historical records are retained unless their additional reset option below is selected.</p>
+  <p class="help">Only records in this configuration's workflow-specific reset allowlist are shown.</p>
   <table>
     <thead>
       <tr><th>Record type</th><th>Count</th></tr>
@@ -26,8 +28,10 @@
     </tbody>
   </table>
 
+  {% if reset_supported %}
   <form method="post" style="margin-top: 1.5rem;">
     {% csrf_token %}
+    {% if is_farmer_workflow %}
     <div class="form-row">
       <label>
         <input type="checkbox" name="include_farmer_uploads" value="yes">
@@ -35,27 +39,7 @@
       </label>
       <p class="help">Use this while retesting <code>/farmup</code>. It removes review batches and local master rows created from those batches.</p>
     </div>
-    <div class="form-row">
-      <label>
-        <input type="checkbox" name="include_all_farmer_master" value="yes">
-        Clear all local Farmers master records, customer identities, and pipeline history, including rows not linked to this group.
-      </label>
-      <p class="help"><strong>Required to completely empty the Jawabu portal queues, including flagged/deferred cases.</strong> This works independently of the upload-batch option. Use only on test data. Google Sheets rows are still not deleted.</p>
-    </div>
-    <div class="form-row">
-      <label>
-        <input type="checkbox" name="include_order_records" value="yes">
-        Also clear generated order/requisition and payment document records.
-      </label>
-      <p class="help">Deletes local <code>RequisitionBatch</code> and <code>PaymentDocument</code> records. Actual Google Drive files are not deleted.</p>
-    </div>
-    <div class="form-row">
-      <label>
-        <input type="checkbox" name="include_drive_upload_records" value="yes">
-        Also clear local Drive upload records.
-      </label>
-      <p class="help">Deletes local complaint evidence and invoice upload records, including parsed invoice rows. Actual Google Drive files are not deleted.</p>
-    </div>
+    {% endif %}
     {% if is_spin_workflow %}
     <div class="form-row">
       <label>
@@ -76,5 +60,9 @@
       <a class="button cancel-link" href="../">Cancel</a>
     </div>
   </form>
+  {% else %}
+    <p class="errornote">This custom workflow has no approved configuration-scoped reset profile. No reset is available.</p>
+    <a class="button cancel-link" href="../">Back</a>
+  {% endif %}
 </div>
 {% endblock %}

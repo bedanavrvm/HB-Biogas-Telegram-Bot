@@ -47,6 +47,12 @@
       abortController: null, gridApi: null, charts: {}, count: 0, loaded: false,
       loading: false,
       display: (() => { try { return localStorage.getItem('tat-report-chart-display') === 'list' ? 'list' : 'carousel'; } catch (error) { return 'carousel'; } })(),
+      chartTypes: (() => {
+        try {
+          const saved = JSON.parse(localStorage.getItem('tat-report-chart-types') || '{}');
+          return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+        } catch (error) { return {}; }
+      })(),
       activeSlide: 0, touchStart: null, insightPayloads: {},
       // Cache only aggregate chart payloads. PII-bearing table rows and audited
       // exports always come from a fresh authorized server response.
@@ -2292,6 +2298,71 @@
     state.report.gridApi.setGridOption('columnDefs', tatReportColumnDefs(stages));
   }
 
+  async function writeTatReportClipboard(value) {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+    const helper = document.createElement('textarea');
+    helper.value = value;
+    helper.setAttribute('readonly', '');
+    helper.style.position = 'fixed';
+    helper.style.opacity = '0';
+    document.body.append(helper);
+    helper.select();
+    const copied = document.execCommand('copy');
+    helper.remove();
+    if (!copied) throw new Error('Clipboard access was rejected.');
+  }
+
+  function bindTatReportCellCopyHold() {
+    const grid = $('tatReportGrid');
+    if (!grid || grid.dataset.copyHoldBound === 'true') return;
+    grid.dataset.copyHoldBound = 'true';
+    let hold = null;
+    let copiedAt = 0;
+    const cancel = () => {
+      if (!hold) return;
+      clearTimeout(hold.timer);
+      hold.cell.classList.remove('tat-cell-copy-holding');
+      hold = null;
+    };
+    grid.addEventListener('pointerdown', event => {
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      const cell = event.target.closest('.ag-cell');
+      if (!cell || !grid.contains(cell)) return;
+      const value = String((cell.querySelector('.ag-cell-value') || cell).textContent || '').trim();
+      if (!value) return;
+      cancel();
+      cell.classList.add('tat-cell-copy-holding');
+      hold = {
+        cell, x: event.clientX, y: event.clientY,
+        timer: setTimeout(async () => {
+          if (!hold || hold.cell !== cell) return;
+          hold = null;
+          cell.classList.remove('tat-cell-copy-holding');
+          try {
+            await writeTatReportClipboard(value);
+            copiedAt = Date.now();
+            cell.classList.add('tat-cell-copied');
+            setTimeout(() => cell.classList.remove('tat-cell-copied'), 900);
+            showNotice(`Copied: ${value.length > 70 ? `${value.slice(0, 67)}...` : value}`, 'ok');
+          } catch (error) {
+            showNotice('Clipboard access was unavailable. Please try again.', 'error');
+          }
+        }, 650),
+      };
+    });
+    grid.addEventListener('pointermove', event => {
+      if (!hold) return;
+      if (Math.abs(event.clientX - hold.x) > 10 || Math.abs(event.clientY - hold.y) > 10) cancel();
+    }, { passive: true });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(name => grid.addEventListener(name, cancel));
+    grid.addEventListener('contextmenu', event => {
+      if (event.target.closest('.ag-cell') && (hold || Date.now() - copiedAt < 1200)) event.preventDefault();
+    });
+  }
+
   function initTatReportGrid() {
     if (state.report.gridApi || !window.agGrid) return;
     window.agGrid.ModuleRegistry.registerModules([window.agGrid.AllCommunityModule]);
@@ -2315,6 +2386,7 @@
         refreshTatReport({ summary: false });
       },
     });
+    bindTatReportCellCopyHold();
   }
 
   function setReportSelect(name, options, valueKey, labelKey) {
@@ -2518,6 +2590,43 @@
     window.MiniAppDiagnostics?.record?.('carousel_gesture', { action, statusBucket: 'ok' });
   }
 
+  const TAT_REPORT_CHART_TYPES = {
+    trend: { defaultType: 'line', allowed: ['line', 'bar'] },
+    case_progression: { defaultType: 'line', allowed: ['line', 'bar'] },
+    backlog_age: { defaultType: 'bar', allowed: ['bar', 'pie'] },
+    sla_compliance: { defaultType: 'line', allowed: ['line', 'bar'] },
+    tat_percentiles: { defaultType: 'line', allowed: ['line', 'bar'] },
+    stage_target: { defaultType: 'bar', allowed: ['bar', 'line'] },
+    explorer: { defaultType: 'bar', allowed: ['bar', 'line'] },
+  };
+
+  function tatReportChartType(key) {
+    const definition = TAT_REPORT_CHART_TYPES[key];
+    if (!definition) return 'bar';
+    return definition.allowed.includes(state.report.chartTypes[key])
+      ? state.report.chartTypes[key]
+      : definition.defaultType;
+  }
+
+  function syncTatReportChartTypeToggles() {
+    document.querySelectorAll('[data-tat-chart-key][data-tat-chart-type]').forEach(button => {
+      const active = tatReportChartType(button.dataset.tatChartKey) === button.dataset.tatChartType;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+  }
+
+  function setTatReportChartType(key, type) {
+    const definition = TAT_REPORT_CHART_TYPES[key];
+    if (!definition || !definition.allowed.includes(type)) return;
+    state.report.chartTypes[key] = type;
+    try { localStorage.setItem('tat-report-chart-types', JSON.stringify(state.report.chartTypes)); } catch (error) {}
+    syncTatReportChartTypeToggles();
+    const payload = state.report.insightPayloads[key];
+    if (payload) renderTatReportCharts({ response_mode: 'focused_v1', charts: { [key]: payload } });
+    utils.haptic?.('light');
+  }
+
   function renderTatReportCharts(summary) {
     const focused = summary.response_mode === 'focused_v1';
     if (!focused) {
@@ -2539,13 +2648,13 @@
     const grid = getComputedStyle(document.body).getPropertyValue('--tat-line').trim() || '#ddd';
     const colors = ['#3390ec', '#23a67a', '#ef9b36', '#8b6ee8', '#e45858', '#29a4b8', '#6a7a89'];
     const definitions = {
-      trend: ['tatTrend', 'line'], backlog_age: ['tatBacklog', 'bar'],
-      sla_compliance: ['tatSla', 'line'], tat_percentiles: ['tatPercentiles', 'line'],
-      stage_target: ['tatTarget', 'bar-horizontal'], explorer: ['tatExplorer', 'bar-horizontal'],
+      trend: 'tatTrend', case_progression: 'tatProgression', backlog_age: 'tatBacklog',
+      sla_compliance: 'tatSla', tat_percentiles: 'tatPercentiles',
+      stage_target: 'tatTarget', explorer: 'tatExplorer',
     };
     const currentOnly = new Set(['backlog_age']);
     const performanceOnly = new Set(['sla_compliance', 'tat_percentiles', 'stage_target']);
-    Object.entries(definitions).forEach(([key, [prefix, kind]]) => {
+    Object.entries(definitions).forEach(([key, prefix]) => {
       const panel = $(`${prefix}Panel`);
       const payload = charts[key];
       const allowed = !currentOnly.has(key) || state.report.view === 'current';
@@ -2563,50 +2672,77 @@
       const hasData = Boolean(payload.sample_count) && (payload.labels || []).length;
       empty.hidden = hasData;
       if (!hasData) {
-        empty.textContent = payload.excluded_count
+        empty.textContent = payload.selection_message || (payload.excluded_count
           ? `No eligible data. ${payload.excluded_count} excluded because ${payload.exclusion_reason || 'required data is unavailable'}.`
           : (key === 'stage_target'
             ? 'No target performance data is available for this selection.'
-            : 'No chart data is available for this selection.');
+            : 'No chart data is available for this selection.'));
         return;
       }
-      const horizontal = kind === 'bar-horizontal';
-      const line = kind === 'line';
-      const dateLabels = line ? (payload.labels || []).map(formatReportDate) : (payload.labels || []).map(compactTatReportLabel);
+      const chartType = tatReportChartType(key);
+      const pie = chartType === 'pie';
+      const line = chartType === 'line';
+      const horizontal = chartType === 'bar' && ['stage_target', 'explorer'].includes(key);
+      const usesDateLabels = ['trend', 'sla_compliance', 'tat_percentiles'].includes(key);
+      const chartLabels = usesDateLabels
+        ? (payload.labels || []).map(formatReportDate)
+        : (payload.labels || []).map(compactTatReportLabel);
       const options = {
-        responsive: true, maintainAspectRatio: false, indexAxis: horizontal ? 'y' : 'x',
-        interaction: { mode: 'index', intersect: false },
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: pie ? 'nearest' : 'index', intersect: pie },
         plugins: { legend: { labels: { color: text, boxWidth: 10, font: { size: 9 } } } },
-        scales: {
+      };
+      if (!pie) {
+        options.indexAxis = horizontal ? 'y' : 'x';
+        options.scales = {
           x: { beginAtZero: !line || undefined, ticks: { color: text, maxRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 8 } }, grid: { color: grid } },
           y: { beginAtZero: true, ticks: { color: text, precision: 0, font: { size: 8 } }, grid: { color: grid } },
-        },
-      };
-      if (key === 'tat_percentiles') options.scales.y.ticks.callback = value => formatMinutes(value);
-      if (key === 'sla_compliance') { options.scales.y.max = 100; options.scales.y.title = { display: true, text: 'SLA met %', color: text }; }
-      if (key === 'stage_target') options.scales.x.title = { display: true, text: payload.axis_title || '% of target', color: text };
-      if (key === 'explorer' && payload.metric === 'duration') options.scales.x.ticks.callback = value => formatMinutes(value);
-      if (key === 'explorer' && payload.metric === 'sla_state') { options.scales.x.stacked = true; options.scales.y.stacked = true; }
-      if (key === 'explorer' && ['target_usage', 'sla_met', 'correction_rate'].includes(payload.metric)) {
-        options.scales.x.title = { display: true, text: payload.axis_title || '%', color: text };
+        };
+        if (['tat_percentiles', 'case_progression'].includes(key)) options.scales.y.ticks.callback = value => formatMinutes(value);
+        if (key === 'case_progression') options.scales.y.title = { display: true, text: payload.axis_title || 'Time in stage', color: text };
+        if (key === 'sla_compliance') { options.scales.y.max = 100; options.scales.y.title = { display: true, text: 'SLA met %', color: text }; }
+        if (key === 'stage_target') options.scales[horizontal ? 'x' : 'y'].title = { display: true, text: payload.axis_title || '% of target', color: text };
+        if (key === 'explorer' && payload.metric === 'duration') options.scales[horizontal ? 'x' : 'y'].ticks.callback = value => formatMinutes(value);
+        if (key === 'explorer' && payload.metric === 'sla_state') { options.scales.x.stacked = true; options.scales.y.stacked = true; }
+        if (key === 'explorer' && ['target_usage', 'sla_met', 'correction_rate'].includes(payload.metric)) {
+          options.scales[horizontal ? 'x' : 'y'].title = { display: true, text: payload.axis_title || '%', color: text };
+        }
       }
       const semanticColors = { within_target: '#23a67a', near_target: '#ef9b36', overdue: '#e45858', target_unavailable: '#6a7a89' };
-      const datasets = (payload.series || []).map((item, index) => ({
-        label: item.label, data: item.values || [], borderColor: colors[index % colors.length],
-        backgroundColor: semanticColors[item.key] || (horizontal && (payload.series || []).length === 1 ? chartColors((payload.labels || []).length) : colors[index % colors.length]),
-        tension: .25, spanGaps: false,
-      }));
+      const datasets = (payload.series || []).map((item, index) => {
+        const progressionActual = key === 'case_progression' && item.key === 'actual_minutes';
+        return {
+          label: item.label, data: item.values || [], borderColor: colors[index % colors.length],
+          backgroundColor: pie || (horizontal && (payload.series || []).length === 1)
+            ? chartColors((payload.labels || []).length)
+            : (semanticColors[item.key] || colors[index % colors.length]),
+          pointBackgroundColor: progressionActual
+            ? (payload.stage_states || []).map(value => semanticColors[value] || colors[0])
+            : colors[index % colors.length],
+          pointRadius: progressionActual ? 4 : 3,
+          borderDash: key === 'case_progression' && item.key === 'target_minutes' ? [5, 4] : undefined,
+          tension: .25, spanGaps: false,
+        };
+      });
       const plugins = [];
-      if (['stage_target', 'explorer'].includes(key) && payload.reference_line != null) plugins.push({
+      if (!pie && ['stage_target', 'explorer'].includes(key) && payload.reference_line != null) plugins.push({
         id: 'tatTargetReference',
         afterDraw(chart) {
-          const x = chart.scales.x.getPixelForValue(payload.reference_line);
-          if (!Number.isFinite(x)) return;
           const context = chart.ctx; context.save(); context.strokeStyle = '#e45858'; context.setLineDash([4, 3]);
-          context.beginPath(); context.moveTo(x, chart.chartArea.top); context.lineTo(x, chart.chartArea.bottom); context.stroke(); context.restore();
+          context.beginPath();
+          if (horizontal) {
+            const x = chart.scales.x.getPixelForValue(payload.reference_line);
+            if (!Number.isFinite(x)) { context.restore(); return; }
+            context.moveTo(x, chart.chartArea.top); context.lineTo(x, chart.chartArea.bottom);
+          } else {
+            const y = chart.scales.y.getPixelForValue(payload.reference_line);
+            if (!Number.isFinite(y)) { context.restore(); return; }
+            context.moveTo(chart.chartArea.left, y); context.lineTo(chart.chartArea.right, y);
+          }
+          context.stroke(); context.restore();
         },
       });
-      state.report.charts[key] = new Chart($(`${prefix}Chart`), { type: line ? 'line' : 'bar', data: { labels: dateLabels, datasets }, options, plugins });
+      state.report.charts[key] = new Chart($(`${prefix}Chart`), { type: chartType, data: { labels: chartLabels, datasets }, options, plugins });
     });
     const details = $('tatTargetDetails');
     if (details && charts.stage_target) {
@@ -2616,6 +2752,7 @@
         return `<div><strong title="${escapeHtml(item.label)}">${escapeHtml(compactTatReportLabel(item.label))}:</strong> ${escapeHtml(item.median_days)}d median · ${escapeHtml(item.p90_days)}d P90 · ${escapeHtml(target)}</div>`;
       }).join('') : '';
     }
+    syncTatReportChartTypeToggles();
     syncTatChartDisplay();
   }
 
@@ -2773,6 +2910,9 @@
   });
   document.querySelectorAll('[data-report-view]').forEach(button => button.addEventListener('click', () => setTatReportView(button.dataset.reportView)));
   document.querySelectorAll('[data-chart-display]').forEach(button => button.addEventListener('click', () => setTatChartDisplay(button.dataset.chartDisplay)));
+  document.querySelectorAll('[data-tat-chart-key][data-tat-chart-type]').forEach(button => button.addEventListener('click', () => {
+    setTatReportChartType(button.dataset.tatChartKey, button.dataset.tatChartType);
+  }));
   $('tatChartPrevious').addEventListener('click', () => moveTatChart(-1));
   $('tatChartNext').addEventListener('click', () => moveTatChart(1));
   $('tatReportCharts').addEventListener('keydown', event => {
@@ -3163,6 +3303,7 @@
   setDefaultReportDates();
   bindReportDatePickers();
   bindCollapsingHeader();
+  syncTatReportChartTypeToggles();
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
     if (state.report.filterSheetOpen) closeTatReportFilters();

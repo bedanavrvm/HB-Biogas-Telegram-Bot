@@ -3765,9 +3765,30 @@ class LiveSheetRecordServiceTest(TestCase):
 
 
 class GroupResetServiceTest(TestCase):
+    def test_reset_reloads_saved_configuration_before_selecting_workflow_scope(self):
+        from core.services.group_reset import reset_group_data
+
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100scope-lock', workflow={'type': 'case'},
+        )
+        order = OrderApprovalUpdate.objects.create(
+            group_id='-100scope-lock',
+            sheet_id='sheet_order',
+            id_number='12345678',
+        )
+
+        config.workflow = {'type': 'order_approval'}
+        result = reset_group_data(config)
+
+        self.assertEqual(result['workflow_type'], 'case')
+        self.assertTrue(OrderApprovalUpdate.objects.filter(pk=order.pk).exists())
+
     def test_reset_group_data_deletes_only_selected_group_records(self):
         from core.services.group_reset import group_data_counts, reset_group_data
 
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100reset', workflow={'type': 'case'},
+        )
         target = create_parsed_case('MSG_RESET_1', group_id='-100reset')
         other = create_parsed_case('MSG_KEEP_1', group_id='-100keep')
         CaseUpdate.objects.create(
@@ -3821,23 +3842,24 @@ class GroupResetServiceTest(TestCase):
             status='success',
         )
 
-        before = group_data_counts('-100reset')
-        result = reset_group_data('-100reset')
+        before = group_data_counts(config)
+        result = reset_group_data(config)
 
         self.assertGreater(before['parsed_messages'], 0)
+        self.assertNotIn('order_updates', before)
+        self.assertNotIn('jawabu_records', before)
+        self.assertNotIn('live_sheet_changes', before)
         for key, value in result['after'].items():
-            if key in {'farmer_upload_batches', 'linked_farmer_master_records', 'all_farmer_master_records'}:
-                continue
             self.assertEqual(value, 0, key)
         self.assertFalse(ParsedMessage.objects.filter(group_id='-100reset').exists())
         self.assertFalse(CaseUpdate.objects.filter(group_id='-100reset').exists())
-        self.assertFalse(OrderApprovalUpdate.objects.filter(group_id='-100reset').exists())
-        self.assertFalse(MediaAttachment.objects.filter(group_id='-100reset').exists())
-        self.assertFalse(JawabuVisitRecord.objects.filter(group_id='-100reset').exists())
+        self.assertTrue(OrderApprovalUpdate.objects.filter(group_id='-100reset').exists())
+        self.assertTrue(MediaAttachment.objects.filter(group_id='-100reset').exists())
+        self.assertTrue(JawabuVisitRecord.objects.filter(group_id='-100reset').exists())
         self.assertTrue(JawabuFarmerUploadBatch.objects.filter(group_id='-100reset').exists())
         self.assertTrue(JawabuFarmerMaster.objects.filter(customer_name='RESET FARMER').exists())
         self.assertTrue(JawabuFarmerMaster.objects.filter(customer_name='GLOBAL FARMER').exists())
-        self.assertFalse(LiveSheetRecordChange.objects.filter(group_id='-100reset').exists())
+        self.assertTrue(LiveSheetRecordChange.objects.filter(group_id='-100reset').exists())
         self.assertFalse(ProcessedMessage.objects.filter(pk=target.processed_message_id).exists())
         self.assertFalse(RawMessage.objects.filter(pk=target.processed_message.raw_message_id).exists())
 
@@ -3848,6 +3870,9 @@ class GroupResetServiceTest(TestCase):
     def test_reset_group_data_deletes_tat_tracker_records_for_selected_group(self):
         from core.services.group_reset import group_data_counts, reset_group_data
 
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100tatreset', workflow={'type': 'tat_tracker'},
+        )
         target = TatTrackerCase.objects.create(
             group_id='-100tatreset',
             sheet_id='sheet_tat',
@@ -3887,8 +3912,8 @@ class GroupResetServiceTest(TestCase):
             new_value='13-Jul-2026 10:00',
         )
 
-        before = group_data_counts('-100tatreset')
-        result = reset_group_data('-100tatreset')
+        before = group_data_counts(config)
+        result = reset_group_data(config)
 
         self.assertEqual(before['tat_tracker_cases'], 1)
         self.assertEqual(before['tat_tracker_events'], 1)
@@ -3903,6 +3928,9 @@ class GroupResetServiceTest(TestCase):
     def test_reset_group_data_can_delete_farmers_uploads_and_linked_master_rows(self):
         from core.services.group_reset import reset_group_data
 
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100farmreset', workflow={'type': 'jawabu_homebiogas'},
+        )
         batch = JawabuFarmerUploadBatch.objects.create(
             group_id='-100farmreset',
             telegram_message_id='farmup-reset',
@@ -3924,7 +3952,7 @@ class GroupResetServiceTest(TestCase):
             duplicate_key='99999999|254799999999',
         )
 
-        result = reset_group_data('-100farmreset', include_farmer_uploads=True)
+        result = reset_group_data(config, include_farmer_uploads=True)
 
         self.assertEqual(result['deleted']['farmer_upload_batches'], 1)
         self.assertEqual(result['deleted']['linked_farmer_master_records'], 1)
@@ -3932,9 +3960,12 @@ class GroupResetServiceTest(TestCase):
         self.assertFalse(JawabuFarmerMaster.objects.filter(customer_name='LINKED FARMER').exists())
         self.assertTrue(JawabuFarmerMaster.objects.filter(customer_name='UNLINKED FARMER').exists())
 
-    def test_reset_group_data_can_delete_all_farmer_master_rows_for_testing(self):
+    def test_case_reset_never_deletes_global_farmer_master_rows(self):
         from core.services.group_reset import reset_group_data
 
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100farmreset', workflow={'type': 'case'},
+        )
         batch = JawabuFarmerUploadBatch.objects.create(group_id='-100farmreset')
         JawabuFarmerMaster.objects.create(
             customer_name='LINKED FARMER',
@@ -3950,18 +3981,17 @@ class GroupResetServiceTest(TestCase):
             duplicate_key='99999999|254799999999',
         )
 
-        reset_group_data(
-            '-100farmreset',
-            include_farmer_uploads=True,
-            include_all_farmer_master=True,
-        )
+        reset_group_data(config)
 
-        self.assertFalse(JawabuFarmerUploadBatch.objects.filter(group_id='-100farmreset').exists())
-        self.assertFalse(JawabuFarmerMaster.objects.exists())
+        self.assertTrue(JawabuFarmerUploadBatch.objects.filter(group_id='-100farmreset').exists())
+        self.assertEqual(JawabuFarmerMaster.objects.count(), 2)
 
     def test_reset_group_data_keeps_generated_orders_and_drive_uploads_unless_requested(self):
         from core.services.group_reset import group_data_counts, reset_group_data
 
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100reset', workflow={'type': 'case'},
+        )
         RequisitionBatch.objects.create(
             order_number='REQ-RESET-001',
             drive_file_id='drive-req',
@@ -3979,23 +4009,24 @@ class GroupResetServiceTest(TestCase):
             drive_url='https://drive.test/invoice',
         )
 
-        counts = group_data_counts('-100reset')
-        self.assertEqual(counts['requisition_batches'], 1)
-        self.assertEqual(counts['payment_documents'], 1)
-        self.assertEqual(counts['invoice_upload_batches'], 1)
+        counts = group_data_counts(config)
+        self.assertNotIn('requisition_batches', counts)
+        self.assertNotIn('payment_documents', counts)
+        self.assertNotIn('invoice_upload_batches', counts)
 
-        result = reset_group_data('-100reset')
+        result = reset_group_data(config)
 
-        self.assertEqual(result['deleted']['requisition_batches'], 0)
-        self.assertEqual(result['deleted']['payment_documents'], 0)
-        self.assertEqual(result['deleted']['invoice_upload_batches'], 0)
+        self.assertEqual(result['workflow_type'], 'case')
         self.assertTrue(RequisitionBatch.objects.filter(order_number='REQ-RESET-001').exists())
         self.assertTrue(PaymentDocument.objects.filter(order_number='REQ-RESET-001').exists())
         self.assertTrue(InvoiceUploadBatch.objects.filter(original_filename='invoice.pdf').exists())
 
-    def test_reset_group_data_can_delete_generated_orders_and_drive_upload_records(self):
+    def test_order_configuration_reset_never_deletes_unowned_document_records(self):
         from core.services.group_reset import reset_group_data
 
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100reset', workflow={'type': 'order_approval'},
+        )
         RequisitionBatch.objects.create(
             order_number='REQ-RESET-002',
             drive_file_id='drive-req',
@@ -4013,18 +4044,12 @@ class GroupResetServiceTest(TestCase):
             drive_url='https://drive.test/invoice',
         )
 
-        result = reset_group_data(
-            '-100reset',
-            include_order_records=True,
-            include_drive_upload_records=True,
-        )
+        result = reset_group_data(config)
 
-        self.assertEqual(result['deleted']['requisition_batches'], 1)
-        self.assertEqual(result['deleted']['payment_documents'], 1)
-        self.assertEqual(result['deleted']['invoice_upload_batches'], 1)
-        self.assertFalse(RequisitionBatch.objects.exists())
-        self.assertFalse(PaymentDocument.objects.exists())
-        self.assertFalse(InvoiceUploadBatch.objects.exists())
+        self.assertEqual(result['workflow_type'], 'order_approval')
+        self.assertTrue(RequisitionBatch.objects.exists())
+        self.assertTrue(PaymentDocument.objects.exists())
+        self.assertTrue(InvoiceUploadBatch.objects.exists())
 
 
 class GroupConfigurationServiceTest(TestCase):

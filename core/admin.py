@@ -5778,32 +5778,43 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
             messages.error(request, 'You do not have permission to reset this group data.')
             return HttpResponseRedirect('../')
 
-        from core.services.group_reset import group_data_counts, reset_group_data
+        from core.services.group_reset import (
+            SUPPORTED_RESET_WORKFLOWS,
+            group_data_counts,
+            reset_group_data,
+        )
 
         workflow = config.workflow or {}
-        is_spin_workflow = str(workflow.get('type') or '') == 'spin_credit_analysis'
+        workflow_type = str(workflow.get('type') or 'case')
+        is_spin_workflow = workflow_type == 'spin_credit_analysis'
+        is_farmer_workflow = workflow_type in {'jawabu', 'jawabu_homebiogas'}
+        reset_supported = workflow_type in SUPPORTED_RESET_WORKFLOWS
         spin_legacy_batch_sheet_name = str(
             workflow.get('legacy_batch_sheet_name') or 'SPIN Legacy Batch'
         ).strip() or 'SPIN Legacy Batch'
-        counts = group_data_counts(
-            config.group_id,
-            spin_legacy_batch_sheet_name=spin_legacy_batch_sheet_name,
+        counts = (
+            group_data_counts(
+                config,
+                spin_legacy_batch_sheet_name=spin_legacy_batch_sheet_name,
+            )
+            if reset_supported
+            else {}
         )
         if request.method == 'POST':
+            if not reset_supported:
+                messages.error(
+                    request,
+                    f'Local-data reset is not supported for workflow {workflow_type!r}.',
+                )
+                return HttpResponseRedirect(request.path)
             if request.POST.get('confirm_reset') != 'yes':
                 messages.error(request, 'Tick the confirmation checkbox before resetting group data.')
                 return HttpResponseRedirect(request.path)
             include_farmer_uploads = request.POST.get('include_farmer_uploads') == 'yes'
-            include_all_farmer_master = request.POST.get('include_all_farmer_master') == 'yes'
-            include_order_records = request.POST.get('include_order_records') == 'yes'
-            include_drive_upload_records = request.POST.get('include_drive_upload_records') == 'yes'
             include_spin_legacy_batch = request.POST.get('include_spin_legacy_batch') == 'yes'
             result = reset_group_data(
-                config.group_id,
+                config,
                 include_farmer_uploads=include_farmer_uploads,
-                include_all_farmer_master=include_all_farmer_master,
-                include_order_records=include_order_records,
-                include_drive_upload_records=include_drive_upload_records,
                 include_spin_legacy_batch=include_spin_legacy_batch,
                 spin_legacy_batch_sheet_name=spin_legacy_batch_sheet_name,
             )
@@ -5829,6 +5840,9 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
             'config': config,
             'counts': counts,
             'total_count': sum(counts.values()),
+            'workflow_type': workflow_type,
+            'reset_supported': reset_supported,
+            'is_farmer_workflow': is_farmer_workflow,
             'is_spin_workflow': is_spin_workflow,
             'spin_legacy_batch_sheet_name': spin_legacy_batch_sheet_name,
             'has_change_permission': self.has_change_permission(request, config),

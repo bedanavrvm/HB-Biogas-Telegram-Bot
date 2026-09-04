@@ -595,7 +595,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Assigned to me', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn('?v=61', template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=70", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -629,7 +629,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-sheet-overlay', stylesheet)
         self.assertIn('class="notice-close tat-sheet-close"', template)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
-        self.assertIn("miniapp/tat_tracker.css' %}?v=45", template)
+        self.assertIn("miniapp/tat_tracker.css' %}?v=46", template)
         self.assertIn('id="appHeader" class="app-top"', template)
         self.assertIn('class="refresh-label"', template)
         self.assertIn('function bindCollapsingHeader()', source)
@@ -682,6 +682,10 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('id="tatPercentilesChart"', template)
         self.assertIn('id="tatTargetChart"', template)
         self.assertIn('id="tatExplorerChart"', template)
+        self.assertIn('id="tatProgressionChart"', template)
+        self.assertIn('data-report-key="case_progression"', template)
+        self.assertIn('data-tat-chart-key="case_progression" data-tat-chart-type="line"', template)
+        self.assertIn('data-tat-chart-key="backlog_age" data-tat-chart-type="pie"', template)
         self.assertIn('id="tatHeatmap"', template)
         self.assertIn('id="tatTargetSignals"', template)
         self.assertIn('id="tatOldestCases"', template)
@@ -725,7 +729,8 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-report-loading,.tat-report-sheet-loading{', stylesheet)
         self.assertIn('.tat-report-initial-loading{position:fixed', stylesheet)
         self.assertIn('.report-metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr))', stylesheet)
-        self.assertIn('.tat-report-charts article>div{position:relative;height:220px}', stylesheet)
+        self.assertIn('.tat-report-charts .tat-chart-body{position:relative;height:220px}', stylesheet)
+        self.assertIn('.tat-insight-chart-toggle button.active{', stylesheet)
         self.assertIn('.tat-report-grid .ag-cell-value{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis', stylesheet)
         self.assertIn('function stageTatColumns(stages)', source)
         self.assertIn("colId: `stage_tat__${stage.key}`", source)
@@ -733,10 +738,18 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-report-grid .tat-stage-tat-within_target', stylesheet)
         self.assertIn('.tat-report-grid .tat-stage-tat-near_target', stylesheet)
         self.assertIn('.tat-report-grid .tat-stage-tat-overdue', stylesheet)
+        self.assertIn('Press and hold any table cell to copy its displayed value.', template)
+        self.assertIn('function bindTatReportCellCopyHold()', source)
+        self.assertIn("navigator.clipboard.writeText(value)", source)
+        self.assertIn('timer: setTimeout(async () => {', source)
+        self.assertIn('.tat-report-grid .ag-cell.tat-cell-copy-holding{', stylesheet)
+        self.assertIn('.tat-report-grid .ag-cell.tat-cell-copied{', stylesheet)
         self.assertIn('.tat-report-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))', stylesheet)
         self.assertIn('@media(max-width:700px){.tat-report-filters{grid-template-columns:repeat(3,minmax(0,1fr))}', stylesheet)
         self.assertIn('.report-metrics{grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}', stylesheet)
         self.assertIn("response_mode: 'focused_v1'", source)
+        self.assertIn('const TAT_REPORT_CHART_TYPES = {', source)
+        self.assertIn("localStorage.setItem('tat-report-chart-types'", source)
         self.assertIn('function loadTatReportInsight(insight)', source)
         self.assertIn('Date.now() - cached.storedAt < 60000', source)
         self.assertIn('filterRevision: 0, insightCache: new Map()', source)
@@ -1005,6 +1018,69 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(stage_tat['ca_analysis_sent']['sla_state'], 'overdue')
         self.assertTrue(stage_tat['ca_analysis_sent']['completed'])
         self.assertTrue(stage_tat['bro_response']['active'])
+
+    def test_tat_report_case_progression_requires_one_case_and_orders_stage_times(self):
+        now = timezone.now()
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='TAT-PROGRESSION-1', product_key='business',
+            product_label='Business', client_name='PROGRESSION CLIENT', branch='Nakuru', status='Active',
+            stage_values={
+                'created': (now - timedelta(minutes=190)).isoformat(),
+                'mpesa_to_admin': (now - timedelta(minutes=160)).isoformat(),
+                'mpesa_verified': (now - timedelta(minutes=105)).isoformat(),
+                'ca_analysis_sent': (now - timedelta(minutes=35)).isoformat(),
+            },
+            stage_target_snapshots={
+                'mpesa_to_admin': {'target_minutes': '60', 'settings_version': 1},
+                'mpesa_verified': {'target_minutes': '60', 'settings_version': 1},
+                'ca_analysis_sent': {'target_minutes': '60', 'settings_version': 1},
+                'bro_response': {'target_minutes': '45', 'settings_version': 1},
+            },
+        )
+
+        focused = report_summary(self.bro_user, {
+            'view': 'current', 'response_mode': 'focused_v1', 'insight': 'case_progression',
+            'include_overview': False, 'include_options': False,
+            'search': case.case_id, 'branch': 'Nakuru', 'product': 'business',
+        })
+
+        self.assertEqual(set(focused['charts']), {'case_progression'})
+        progression = focused['charts']['case_progression']
+        self.assertEqual(progression['selection_state'], 'single')
+        self.assertEqual(progression['case_id'], case.case_id)
+        self.assertEqual(
+            progression['labels'][:4],
+            [
+                'MPESA sent to Admin',
+                'MPESA verified by Business Admin and sent to CA',
+                'Credit analysis sent',
+                'BRO response to CA',
+            ],
+        )
+        self.assertEqual(progression['series'][0]['values'][:3], [30.0, 55.0, 70.0])
+        self.assertEqual(progression['series'][1]['values'][:4], [60.0, 60.0, 60.0, 45.0])
+        self.assertEqual(progression['stage_statuses'][:4], ['completed', 'completed', 'completed', 'current'])
+        self.assertIsNotNone(progression['series'][0]['values'][3])
+        guidance = progression['filter_guidance']
+        self.assertIn('search', guidance['applicable_filters'])
+        self.assertIn('branch', guidance['applicable_filters'])
+        self.assertIn('product', guidance['applicable_filters'])
+        self.assertIn('stage', {item['key'] for item in guidance['unavailable_filters']})
+
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='TAT-PROGRESSION-2', product_key='business',
+            product_label='Business', client_name='PROGRESSION CLIENT', branch='Nakuru', status='Active',
+            stage_values={'created': now.isoformat()},
+        )
+        ambiguous = report_summary(self.bro_user, {
+            'view': 'current', 'response_mode': 'focused_v1', 'insight': 'case_progression',
+            'include_overview': False, 'include_options': False,
+            'search': 'PROGRESSION CLIENT', 'branch': 'Nakuru', 'product': 'business',
+        })['charts']['case_progression']
+        self.assertEqual(ambiguous['selection_state'], 'multiple')
+        self.assertEqual(ambiguous['matched_case_count'], 2)
+        self.assertIn('exact case reference', ambiguous['selection_message'])
+        self.assertEqual(ambiguous['labels'], [])
 
     def test_tat_report_export_reuses_audited_workbook_for_selected_insights(self):
         now = timezone.now()
