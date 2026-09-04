@@ -2005,15 +2005,18 @@
     if ([...select.options].some(option => option.value === selected)) select.value = selected;
   }
 
-  function renderReportMetrics(metrics) {
+  function renderReportMetrics(metrics, metricBasis) {
     const current = state.report.view === 'current';
     const items = current ? [
       ['active', 'Active', ''], ['near_target', 'Near Target', 'warn'], ['overdue', 'Overdue', 'bad'],
       ['stalled', 'Marked Stalled', 'bad'], ['target_unavailable', 'Target Unavailable', ''],
     ] : [
-      ['created', 'Created', ''], ['finished', 'Finished', ''], ['disbursed', 'Disbursed', 'good'],
+      ['created', metricBasis === 'completed_stage_actions' ? 'Cases' : 'Created', ''],
+      ['finished', metricBasis === 'completed_stage_actions' ? 'Completed Actions' : 'Finished', ''], ['disbursed', 'Disbursed', 'good'],
       ['rejected', 'Rejected', 'bad'], ['declined', 'Declined', 'bad'],
-      ['sla_met_percent', 'SLA Met %', 'good'], ['median_tat_minutes', 'Median TAT', ''], ['p90_tat_minutes', 'P90 TAT', 'warn'],
+      ['sla_met_percent', 'SLA Met %', 'good'],
+      ['median_tat_minutes', metricBasis === 'completed_stage_actions' ? 'Median Stage Time' : 'Median TAT', ''],
+      ['p90_tat_minutes', metricBasis === 'completed_stage_actions' ? 'P90 Stage Time' : 'P90 TAT', 'warn'],
     ];
     $('tatReportMetrics').innerHTML = items.map(([key, label, tone]) => {
       let value = metrics[key];
@@ -2035,29 +2038,85 @@
     if (!window.Chart) return;
     const text = getComputedStyle(document.body).getPropertyValue('--tat-text').trim() || '#222';
     const grid = getComputedStyle(document.body).getPropertyValue('--tat-line').trim() || '#ddd';
-    const baseOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: text, boxWidth: 10, font: { size: 9 } } } }, scales: { x: { ticks: { color: text, maxRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 8 } }, grid: { color: grid } }, y: { beginAtZero: true, ticks: { color: text, precision: 0, font: { size: 8 } }, grid: { color: grid } } } };
-    const trend = summary.trend || [];
-    const fallback = summary.breakdown_basis === 'created_cases_current_stage';
-    $('tatStageTitle').textContent = fallback ? 'Created Cases by Current Stage' : (state.report.view === 'performance' ? 'Completed Actions by Stage' : 'By Current Stage');
-    $('tatRoleTitle').textContent = fallback ? 'Created Cases by Current Role' : (state.report.view === 'performance' ? 'Completed Actions by Role' : 'By Responsible Role');
-    $('tatTrendEmpty').textContent = summary.trend_notice || 'No history matches these filters.';
-    $('tatTrendEmpty').hidden = Boolean(trend.length);
-    if (trend.length) {
-      const current = state.report.view === 'current';
-      const series = current ? [['active', 'Active', '#3390ec'], ['near_target', 'Near Target', '#ef9b36'], ['overdue', 'Overdue', '#e45858']] : [['created', 'Created', '#3390ec'], ['finished', 'Finished', '#8b6ee8'], ['disbursed', 'Disbursed', '#23a67a']];
-      state.report.charts.trend = new Chart($('tatTrendChart'), { type: 'line', data: { labels: trend.map(item => formatReportDate(item.label)), datasets: series.map(([key, label, color]) => ({ label, data: trend.map(item => item[key] || 0), borderColor: color, backgroundColor: color, tension: .25 })) }, options: baseOptions });
-    }
-    const breakdowns = [['stage', summary.by_stage || [], 'tatStageChart', 'tatStageEmpty'], ['role', summary.by_role || [], 'tatRoleChart', 'tatRoleEmpty']];
-    if ($('tatPersonChart')) breakdowns.push(['person', summary.by_person || [], 'tatPersonChart', 'tatPersonEmpty']);
-    breakdowns.forEach(([key, rows, canvas, empty]) => {
-      $(empty).hidden = Boolean(rows.length);
-      if (rows.length) state.report.charts[key] = new Chart($(canvas), { type: 'bar', data: { labels: rows.map(item => item.label), datasets: [{ label: 'Cases', data: rows.map(item => item.count), backgroundColor: chartColors(rows.length) }] }, options: Object.assign({}, baseOptions, { indexAxis: 'y', plugins: { legend: { display: false } } }) });
+    const colors = ['#3390ec', '#23a67a', '#ef9b36', '#8b6ee8', '#e45858', '#29a4b8', '#6a7a89'];
+    const definitions = {
+      trend: ['tatTrend', 'line'], backlog_age: ['tatBacklog', 'bar'],
+      sla_compliance: ['tatSla', 'line'], tat_percentiles: ['tatPercentiles', 'line'],
+      stage_target: ['tatTarget', 'bar-horizontal'], stage: ['tatStage', 'bar-horizontal'],
+      role: ['tatRole', 'bar-horizontal'], person: ['tatPerson', 'bar-horizontal'],
+    };
+    const charts = summary.charts || {};
+    const currentOnly = new Set(['backlog_age']);
+    const performanceOnly = new Set(['sla_compliance', 'tat_percentiles', 'stage_target']);
+    Object.entries(definitions).forEach(([key, [prefix, kind]]) => {
+      const panel = $(`${prefix}Panel`);
+      const payload = charts[key];
+      const allowed = !currentOnly.has(key) || state.report.view === 'current';
+      const performanceAllowed = !performanceOnly.has(key) || state.report.view === 'performance';
+      if (panel) panel.hidden = !payload || !allowed || !performanceAllowed;
+      if (!payload || !allowed || !performanceAllowed) return;
+      $(`${prefix}Title`).textContent = payload.title || '';
+      const notes = [payload.subtitle || ''];
+      if (payload.excluded_count) notes.push(`${Number(payload.excluded_count).toLocaleString()} excluded: ${payload.exclusion_reason || 'not eligible'}.`);
+      if ((payload.unavailable_filters || []).length) notes.push(`Not applicable: ${payload.unavailable_filters.join(', ').replaceAll('_', ' ')}.`);
+      $(`${prefix}Basis`).textContent = notes.filter(Boolean).join(' ');
+      const empty = $(`${prefix}Empty`);
+      const hasData = Boolean(payload.sample_count) && (payload.labels || []).length;
+      empty.hidden = hasData;
+      if (!hasData) {
+        empty.textContent = payload.excluded_count
+          ? `No eligible data. ${payload.excluded_count} excluded because ${payload.exclusion_reason || 'required data is unavailable'}.`
+          : 'No data matches these filters.';
+        return;
+      }
+      const horizontal = kind === 'bar-horizontal';
+      const line = kind === 'line';
+      const dateLabels = line ? (payload.labels || []).map(formatReportDate) : (payload.labels || []);
+      const options = {
+        responsive: true, maintainAspectRatio: false, indexAxis: horizontal ? 'y' : 'x',
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { labels: { color: text, boxWidth: 10, font: { size: 9 } } } },
+        scales: {
+          x: { beginAtZero: !line || undefined, ticks: { color: text, maxRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 8 } }, grid: { color: grid } },
+          y: { beginAtZero: true, ticks: { color: text, precision: 0, font: { size: 8 } }, grid: { color: grid } },
+        },
+      };
+      if (key === 'tat_percentiles') options.scales.y.ticks.callback = value => formatMinutes(value);
+      if (key === 'sla_compliance') { options.scales.y.max = 100; options.scales.y.title = { display: true, text: 'SLA met %', color: text }; }
+      if (key === 'stage_target') options.scales.x.title = { display: true, text: payload.axis_title || '% of target', color: text };
+      const datasets = (payload.series || []).map((item, index) => ({
+        label: item.label, data: item.values || [], borderColor: colors[index % colors.length],
+        backgroundColor: horizontal && (payload.series || []).length === 1 ? chartColors((payload.labels || []).length) : colors[index % colors.length],
+        tension: .25, spanGaps: false,
+      }));
+      const plugins = [];
+      if (key === 'stage_target' && payload.reference_line != null) plugins.push({
+        id: 'tatTargetReference',
+        afterDraw(chart) {
+          const x = chart.scales.x.getPixelForValue(payload.reference_line);
+          if (!Number.isFinite(x)) return;
+          const context = chart.ctx; context.save(); context.strokeStyle = '#e45858'; context.setLineDash([4, 3]);
+          context.beginPath(); context.moveTo(x, chart.chartArea.top); context.lineTo(x, chart.chartArea.bottom); context.stroke(); context.restore();
+        },
+      });
+      state.report.charts[key] = new Chart($(`${prefix}Chart`), { type: line ? 'line' : 'bar', data: { labels: dateLabels, datasets }, options, plugins });
     });
+    const details = $('tatTargetDetails');
+    if (details) {
+      const rows = (charts.stage_target || {}).single_product_details || [];
+      details.innerHTML = rows.length ? rows.map(item => {
+        const target = item.target_days != null ? `${item.target_days}d target` : `${(item.target_versions_days || []).join('d / ')}d targets`;
+        return `<div><strong>${escapeHtml(item.label)}:</strong> ${escapeHtml(item.median_days)}d median · ${escapeHtml(item.p90_days)}d P90 · ${escapeHtml(target)}</div>`;
+      }).join('') : '';
+    }
   }
 
   function renderReportFreshness(freshness) {
     const parts = [];
-    if (freshness.latest_snapshot) parts.push(`History updated through ${formatReportDate(freshness.latest_snapshot)}`);
+    if (freshness.latest_snapshot) {
+      parts.push(`History updated through ${formatReportDate(freshness.latest_snapshot)}.`);
+      if (freshness.earliest_snapshot) parts.push(`Reliable workload history begins ${formatReportDate(freshness.earliest_snapshot)}.`);
+    }
     else parts.push('Historical snapshots are not available yet.');
     if (freshness.pending_rebuilds) parts.push(`${freshness.pending_rebuilds} history rebuild${freshness.pending_rebuilds === 1 ? '' : 's'} pending.`);
     if (freshness.failed_rebuilds) parts.push(`${freshness.failed_rebuilds} history rebuild${freshness.failed_rebuilds === 1 ? '' : 's'} need${freshness.failed_rebuilds === 1 ? 's' : ''} administrator attention.`);
@@ -2080,7 +2139,7 @@
       ]);
       if (sequence !== state.report.sequence) return;
       if (summary) {
-        renderReportMetrics(summary.metrics || {}); renderTatReportCharts(summary); renderReportFreshness(summary.freshness || {});
+        renderReportMetrics(summary.metrics || {}, summary.metric_basis || ''); renderTatReportCharts(summary); renderReportFreshness(summary.freshness || {});
         setReportSelect('group', summary.filters?.groups || [], 0, 1);
         setReportSelect('branch', summary.filters?.branches || []);
         setReportSelect('product', summary.filters?.products || [], 0, 1);

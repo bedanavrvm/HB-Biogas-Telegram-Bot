@@ -1,6 +1,6 @@
 """Focused coverage for internal history and business-hours SLA projections."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from django.test import TestCase
@@ -189,7 +189,7 @@ class HybridTatAndEscalationTests(TestCase):
             client_name='Snapshot Client',
             branch='Embu',
             bro_name='BRO Snapshot',
-            stage_values={'created': (now.replace(hour=8, minute=0, second=0, microsecond=0)).isoformat()},
+            stage_values={'created': (now - timedelta(hours=2)).isoformat()},
             status='Active',
         )
 

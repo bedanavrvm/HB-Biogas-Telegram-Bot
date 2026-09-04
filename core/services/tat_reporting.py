@@ -69,6 +69,13 @@ def _parse_date(value, *, default):
         return default
 
 
+def _iso_local_date(value):
+    parsed = datetime.fromisoformat(value)
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+    return timezone.localdate(parsed)
+
+
 def _filters(payload):
     today = timezone.localdate()
     date_to = _parse_date(payload.get('date_to'), default=today)
@@ -196,17 +203,30 @@ def _case_row(case, *, include_people=False, now=None):
 
 def _eligible_rows(actor, filters, *, include_people=False):
     rows = []
+    action_filtered = bool(
+        filters['view'] == 'performance'
+        and (filters['stage'] or filters['role'] or filters['sla_state'])
+    )
     for case in _filtered_cases(actor, filters):
         row = _case_row(case, include_people=include_people)
         if filters['view'] == 'current' and case.status in TERMINAL:
             continue
         if filters['view'] == 'performance':
-            if case.status not in TERMINAL or not row['finished_at']:
-                continue
-            finished_date = datetime.fromisoformat(row['finished_at']).date()
-            if not filters['date_from'] <= finished_date <= filters['date_to']:
-                continue
+            if not action_filtered:
+                if case.status not in TERMINAL or not row['finished_at']:
+                    continue
+                finished_date = _iso_local_date(row['finished_at'])
+                if not filters['date_from'] <= finished_date <= filters['date_to']:
+                    continue
         if filters['view'] == 'performance' and (filters['stage'] or filters['role']):
+            samples = _stage_samples([case], filters, include_people=include_people)
+            if not samples:
+                continue
+            sample = samples[0]
+            row.update(current_stage_key=sample['stage_key'], current_stage=sample['stage'], responsible_role=sample['role'], elapsed_minutes=sample['elapsed_minutes'], target_minutes=sample['target_minutes'], variance_minutes=sample['variance_minutes'], sla_state=sample['sla_state'])
+            if include_people:
+                row['responsible_person'] = sample['person']
+        elif action_filtered:
             samples = _stage_samples([case], filters, include_people=include_people)
             if not samples:
                 continue
@@ -255,6 +275,8 @@ def _stage_samples(cases, filters, *, include_people=False):
             else:
                 ratio = Decimal(presentation_settings()['near_target_percent']) / Decimal('100')
                 sla_state = 'near_target' if elapsed >= target * ratio else 'within_target'
+            if filters['sla_state'] and sla_state != filters['sla_state']:
+                continue
             event = next((item for item in case.events.all() if item.stage_key == stage.key), None)
             samples.append({
                 'case_id': case.case_id, 'stage_key': stage.key, 'stage': stage.label,
@@ -286,6 +308,54 @@ def _bucket_label(value, granularity):
     return date(value.year, value.month, 1).isoformat()
 
 
+def _chart_payload(
+    chart_id, title, basis, subtitle, labels, series, *, applied_filters,
+    unavailable_filters=None, sample_count=0, excluded_count=0, exclusion_reason='',
+    extras=None,
+):
+    payload = {
+        'id': chart_id,
+        'title': title,
+        'basis': basis,
+        'subtitle': subtitle,
+        'applied_filters': sorted(set(applied_filters)),
+        'unavailable_filters': sorted(set(unavailable_filters or [])),
+        'sample_count': sample_count,
+        'excluded_count': excluded_count,
+        'exclusion_reason': exclusion_reason,
+        'labels': list(labels),
+        'series': list(series),
+    }
+    if extras:
+        payload.update(extras)
+    return payload
+
+
+def _active_filter_names(filters, *, include_dates=True):
+    names = [
+        key for key in ('group', 'branch', 'product', 'stage', 'role', 'status', 'sla_state', 'search')
+        if filters.get(key)
+    ]
+    if include_dates:
+        names.extend(['date_range', 'granularity'])
+    return names
+
+
+def _series(key, label, values):
+    return {'key': key, 'label': label, 'values': list(values)}
+
+
+def _breakdown_chart(chart_id, title, basis, subtitle, rows, *, applied_filters, unavailable_filters=None):
+    return _chart_payload(
+        chart_id, title, basis, subtitle,
+        [row['label'] for row in rows],
+        [_series('count', 'Actions' if 'action' in basis else 'Cases', [row['count'] for row in rows])],
+        applied_filters=applied_filters,
+        unavailable_filters=unavailable_filters,
+        sample_count=sum(row['count'] for row in rows),
+    )
+
+
 def report_summary(actor, payload, *, include_people=False):
     filters = _filters(payload)
     all_cases = _filtered_cases(actor, filters)
@@ -310,7 +380,15 @@ def report_summary(actor, payload, *, include_people=False):
         'products': sorted({(case.product_key, case.product_label or case.product_key) for case in scope_cases}),
         'stages': sorted(stages), 'roles': sorted(role for role in roles if role),
     }
-    stage_samples = _stage_samples(all_cases, filters, include_people=include_people) if filters['view'] == 'performance' else []
+    # Completed-stage samples are exact, timestamp-backed observations. Avoid
+    # scanning them for an unfiltered current-workload view that only needs
+    # point-in-time cases and persisted daily snapshots.
+    needs_stage_samples = bool(
+        filters['view'] == 'performance'
+        or filters['search'] or filters['status'] or filters['stage']
+        or filters['role'] or filters['sla_state']
+    )
+    stage_samples = _stage_samples(all_cases, filters, include_people=include_people) if needs_stage_samples else []
     breakdown_rows = rows
     breakdown_basis = 'current_workload'
     if filters['view'] == 'performance':
@@ -328,17 +406,21 @@ def report_summary(actor, payload, *, include_people=False):
                 and (not filters['sla_state'] or row['sla_state'] == filters['sla_state'])
             ]
             breakdown_basis = 'created_cases_current_stage'
+    breakdown_samples = stage_samples if filters['view'] == 'performance' else []
     by_stage = Counter(
-        (item['stage'] for item in stage_samples)
-        if stage_samples else (row['current_stage'] or 'Unassigned' for row in breakdown_rows)
+        (item['stage'] for item in breakdown_samples)
+        if breakdown_samples else (row['current_stage'] or 'Unassigned' for row in breakdown_rows)
     )
     by_role = Counter(
-        (item['role'] or 'Unassigned' for item in stage_samples)
-        if stage_samples else (row['responsible_role'] or 'Unassigned' for row in breakdown_rows)
+        (item['role'] or 'Unassigned' for item in breakdown_samples)
+        if breakdown_samples else (row['responsible_role'] or 'Unassigned' for row in breakdown_rows)
     )
-    latest_metrics = WorkflowTatDailyMetric.objects.filter(workflow='tat_tracker').filter(_metric_scope_q(actor))
+    latest_metrics = WorkflowTatDailyMetric.objects.filter(
+        workflow='tat_tracker', metric_grain='current_leaf',
+    ).filter(_metric_scope_q(actor))
     latest_metrics = _filter_metric_queryset(latest_metrics, filters)
     latest = latest_metrics.order_by('-metric_date').first()
+    earliest = latest_metrics.order_by('metric_date').first()
     scoped_case_ids = scoped_cases(actor).values_list('pk', flat=True)
     scoped_rebuilds = WorkflowTatMetricRebuildRequest.objects.filter(
         Q(case__isnull=True) | Q(case_id__in=scoped_case_ids),
@@ -352,12 +434,17 @@ def report_summary(actor, payload, *, include_people=False):
         'breakdown_basis': breakdown_basis,
         'freshness': {
             'latest_snapshot': latest.metric_date.isoformat() if latest else '',
+            'earliest_snapshot': earliest.metric_date.isoformat() if earliest else '',
             'pending_rebuilds': pending_rebuilds,
             'failed_rebuilds': failed_rebuilds,
             'near_target_percent': presentation_settings()['near_target_percent'],
             'presentation_revision': presentation_settings()['revision'],
         },
     }
+    charts = {}
+    active_filters = _active_filter_names(filters)
+    live_filters = _active_filter_names(filters, include_dates=False)
+    live_unavailable = ['date_range', 'granularity']
     if filters['view'] == 'current':
         states = Counter(row['sla_state'] for row in rows)
         common['metrics'] = {
@@ -366,9 +453,24 @@ def report_summary(actor, payload, *, include_people=False):
             'stalled': sum(row['status'] == 'Stalled' for row in rows),
             'target_unavailable': states['target_unavailable'],
         }
-        if filters['search'] or filters['status'] or filters['sla_state']:
-            common['trend'] = []
-            common['trend_notice'] = 'Historical workload is unavailable for text, status, or SLA filters because snapshots do not store case-level details.'
+        action_trend = bool(filters['search'] or filters['status'] or filters['stage'] or filters['role'] or filters['sla_state'])
+        if action_trend:
+            buckets = defaultdict(int)
+            for sample in stage_samples:
+                completed_date = _iso_local_date(sample['completed_at'])
+                buckets[_bucket_label(completed_date, filters['granularity'])] += 1
+            common['trend'] = [
+                {'label': label, 'completed_actions': count}
+                for label, count in sorted(buckets.items())
+            ]
+            common['trend_notice'] = 'No completed actions match these filters.'
+            charts['trend'] = _chart_payload(
+                'trend', 'Completed Actions over Time', 'completed_stage_actions',
+                'Showing completed stage actions because case-level filters cannot be applied to aggregate workload snapshots.',
+                [item['label'] for item in common['trend']],
+                [_series('completed_actions', 'Completed Actions', [item['completed_actions'] for item in common['trend']])],
+                applied_filters=active_filters, sample_count=len(stage_samples),
+            )
         else:
             daily = WorkflowTatDailyMetric.objects.filter(
                 workflow='tat_tracker', metric_grain='current_leaf',
@@ -387,46 +489,204 @@ def report_summary(actor, payload, *, include_people=False):
             for metric_date, values in sorted(daily_totals.items()):
                 trend[_bucket_label(metric_date, filters['granularity'])] = values
             common['trend'] = [{'label': key, **dict(value)} for key, value in sorted(trend.items())]
+            charts['trend'] = _chart_payload(
+                'trend', 'Workload over Time', 'daily_point_in_time_snapshots',
+                'Showing the latest reliable point-in-time workload snapshot in each period.',
+                [item['label'] for item in common['trend']],
+                [
+                    _series('active', 'Active', [item.get('active', 0) for item in common['trend']]),
+                    _series('near_target', 'Near Target', [item.get('near_target', 0) for item in common['trend']]),
+                    _series('overdue', 'Overdue', [item.get('overdue', 0) for item in common['trend']]),
+                ],
+                applied_filters=active_filters, sample_count=sum(item.get('active', 0) for item in common['trend']),
+            )
+
+        backlog = Counter()
+        for row in rows:
+            minutes = row.get('elapsed_minutes')
+            if minutes is None:
+                continue
+            days = max(0, float(minutes) / 1440)
+            bucket = '0–1 day' if days < 1 else ('1–3 days' if days < 3 else ('3–7 days' if days < 7 else '7+ days'))
+            backlog[bucket] += 1
+        backlog_labels = ['0–1 day', '1–3 days', '3–7 days', '7+ days']
+        charts['backlog_age'] = _chart_payload(
+            'backlog_age', 'Current-stage Backlog Age', 'current_stage_wall_clock_age',
+            'Showing how long active cases have remained in their current stage.',
+            backlog_labels, [_series('cases', 'Cases', [backlog[label] for label in backlog_labels])],
+            applied_filters=live_filters, unavailable_filters=live_unavailable,
+            sample_count=sum(backlog.values()),
+        )
     else:
         terminal_rows = rows
-        elapsed = [row['elapsed_minutes'] for row in terminal_rows]
-        valid = [row for row in terminal_rows if row['sla_state'] != 'target_unavailable']
+        action_filtered = bool(filters['stage'] or filters['role'] or filters['sla_state'])
+        metric_rows = stage_samples if action_filtered else terminal_rows
+        elapsed = [row['elapsed_minutes'] for row in metric_rows]
+        valid = [row for row in metric_rows if row['sla_state'] != 'target_unavailable']
         met = sum(row['sla_state'] != 'overdue' for row in valid)
         outcomes = Counter(row['status'] for row in terminal_rows)
-        created = sum(filters['date_from'] <= timezone.localdate(case.created_at) <= filters['date_to'] for case in all_cases)
+        created_cases = [case for case in all_cases if filters['date_from'] <= timezone.localdate(case.created_at) <= filters['date_to']]
+        created = len({sample['case_id'] for sample in stage_samples}) if action_filtered else len(created_cases)
         common['metrics'] = {
-            'created': created, 'finished': len(terminal_rows), 'disbursed': outcomes['Disbursed'],
+            'created': created, 'finished': len(stage_samples) if action_filtered else len(terminal_rows), 'disbursed': outcomes['Disbursed'],
             'rejected': outcomes['Rejected'], 'declined': outcomes['Declined'],
             'sla_met': met, 'sla_sample': len(valid),
             'sla_met_percent': round((met * 100 / len(valid)), 1) if valid else None,
             'median_tat_minutes': _percentile(elapsed, .5), 'p90_tat_minutes': _percentile(elapsed, .9),
-            'target_unavailable': len(terminal_rows) - len(valid),
+            'target_unavailable': len(metric_rows) - len(valid),
         }
+        common['metric_basis'] = 'completed_stage_actions' if action_filtered else 'finished_cases'
         trend = defaultdict(lambda: Counter())
-        for case in all_cases:
-            created_date = timezone.localdate(case.created_at)
-            if filters['date_from'] <= created_date <= filters['date_to']:
-                trend[_bucket_label(created_date, filters['granularity'])]['created'] += 1
-        for row in terminal_rows:
-            finished_date = datetime.fromisoformat(row['finished_at']).date()
-            bucket = trend[_bucket_label(finished_date, filters['granularity'])]
-            bucket['finished'] += 1
-            bucket['disbursed'] += int(row['status'] == 'Disbursed')
-            if row['sla_state'] != 'target_unavailable':
-                bucket['sla_sample'] += 1
-                bucket['sla_met'] += int(row['sla_state'] != 'overdue')
+        if action_filtered:
+            for sample in stage_samples:
+                completed_date = _iso_local_date(sample['completed_at'])
+                trend[_bucket_label(completed_date, filters['granularity'])]['completed_actions'] += 1
+        else:
+            for case in created_cases:
+                trend[_bucket_label(timezone.localdate(case.created_at), filters['granularity'])]['created'] += 1
+            for row in terminal_rows:
+                finished_date = _iso_local_date(row['finished_at'])
+                bucket = trend[_bucket_label(finished_date, filters['granularity'])]
+                bucket['finished'] += 1
+                bucket['disbursed'] += int(row['status'] == 'Disbursed')
+                bucket['rejected'] += int(row['status'] == 'Rejected')
+                bucket['declined'] += int(row['status'] == 'Declined')
+                if row['sla_state'] != 'target_unavailable':
+                    bucket['sla_sample'] += 1
+                    bucket['sla_met'] += int(row['sla_state'] != 'overdue')
         common['trend'] = [
             {'label': key, **dict(value), 'sla_met_percent': round(value['sla_met'] * 100 / value['sla_sample'], 1) if value['sla_sample'] else None}
             for key, value in sorted(trend.items())
         ]
+        if action_filtered:
+            charts['trend'] = _chart_payload(
+                'trend', 'Completed Actions over Time', 'completed_stage_actions',
+                'Showing completed actions that match the selected Stage, Role, and SLA filters.',
+                [item['label'] for item in common['trend']],
+                [_series('completed_actions', 'Completed Actions', [item.get('completed_actions', 0) for item in common['trend']])],
+                applied_filters=active_filters, sample_count=len(stage_samples),
+            )
+        else:
+            charts['trend'] = _chart_payload(
+                'trend', 'Cases and Outcomes over Time', 'case_creation_and_terminal_outcomes',
+                'Showing case creation and final workflow outcomes for the selected period.',
+                [item['label'] for item in common['trend']],
+                [
+                    _series('created', 'Created', [item.get('created', 0) for item in common['trend']]),
+                    _series('finished', 'Finished', [item.get('finished', 0) for item in common['trend']]),
+                    _series('disbursed', 'Disbursed', [item.get('disbursed', 0) for item in common['trend']]),
+                    _series('rejected', 'Rejected', [item.get('rejected', 0) for item in common['trend']]),
+                    _series('declined', 'Declined', [item.get('declined', 0) for item in common['trend']]),
+                ],
+                applied_filters=active_filters, sample_count=len(created_cases) + len(terminal_rows),
+            )
+
+        sla_source = stage_samples if action_filtered else terminal_rows
+        sla_buckets = defaultdict(lambda: Counter())
+        duration_buckets = defaultdict(list)
+        for item in sla_source:
+            timestamp = item.get('completed_at') if action_filtered else item.get('finished_at')
+            if not timestamp:
+                continue
+            label = _bucket_label(_iso_local_date(timestamp), filters['granularity'])
+            if item.get('sla_state') != 'target_unavailable':
+                sla_buckets[label]['sample'] += 1
+                sla_buckets[label]['met'] += int(item.get('sla_state') != 'overdue')
+            if item.get('elapsed_minutes') is not None:
+                duration_buckets[label].append(item['elapsed_minutes'])
+        time_labels = sorted(set(sla_buckets) | set(duration_buckets))
+        charts['sla_compliance'] = _chart_payload(
+            'sla_compliance', 'SLA Compliance over Time',
+            'completed_stage_actions' if action_filtered else 'finished_cases',
+            'Showing the percentage of valid samples completed within their frozen target.',
+            time_labels,
+            [_series('sla_met_percent', 'SLA Met %', [
+                round(sla_buckets[label]['met'] * 100 / sla_buckets[label]['sample'], 1)
+                if sla_buckets[label]['sample'] else None for label in time_labels
+            ])],
+            applied_filters=active_filters,
+            sample_count=sum(value['sample'] for value in sla_buckets.values()),
+            excluded_count=sum(item.get('sla_state') == 'target_unavailable' for item in sla_source),
+            exclusion_reason='Target unavailable',
+        )
+        charts['tat_percentiles'] = _chart_payload(
+            'tat_percentiles', 'Median and P90 TAT over Time',
+            'completed_stage_duration' if action_filtered else 'finished_case_duration',
+            'Showing exact wall-clock duration percentiles; daily percentile rows are not re-aggregated.',
+            time_labels,
+            [
+                _series('median_minutes', 'Median', [_percentile(duration_buckets[label], .5) for label in time_labels]),
+                _series('p90_minutes', 'P90', [_percentile(duration_buckets[label], .9) for label in time_labels]),
+            ],
+            applied_filters=active_filters,
+            sample_count=sum(len(values) for values in duration_buckets.values()),
+        )
+
+        target_groups = defaultdict(list)
+        target_versions = defaultdict(set)
+        target_unavailable = 0
+        for sample in stage_samples:
+            elapsed_minutes = sample.get('elapsed_minutes')
+            target_minutes = sample.get('target_minutes')
+            if elapsed_minutes is None or target_minutes is None or target_minutes <= 0:
+                target_unavailable += 1
+                continue
+            target_groups[sample['stage']].append(float(elapsed_minutes) * 100 / float(target_minutes))
+            target_versions[sample['stage']].add(round(float(target_minutes) / 1440, 2))
+        target_labels = sorted(target_groups, key=lambda label: _percentile(target_groups[label], .9) or 0, reverse=True)
+        target_details = []
+        if filters['product']:
+            for label in target_labels:
+                matching = [item for item in stage_samples if item['stage'] == label and item.get('elapsed_minutes') is not None and item.get('target_minutes')]
+                targets = sorted(target_versions[label])
+                target_details.append({
+                    'label': label,
+                    'median_days': round((_percentile([item['elapsed_minutes'] for item in matching], .5) or 0) / 1440, 2),
+                    'p90_days': round((_percentile([item['elapsed_minutes'] for item in matching], .9) or 0) / 1440, 2),
+                    'target_days': targets[0] if len(targets) == 1 else None,
+                    'target_versions_days': targets,
+                })
+        charts['stage_target'] = _chart_payload(
+            'stage_target', 'Stage Performance Against Target', 'completed_actions_percent_of_frozen_target',
+            'Each action is compared with its own frozen target before median and P90 percentages are calculated.',
+            target_labels,
+            [
+                _series('median_percent', 'Median % of Target', [_percentile(target_groups[label], .5) for label in target_labels]),
+                _series('p90_percent', 'P90 % of Target', [_percentile(target_groups[label], .9) for label in target_labels]),
+            ],
+            applied_filters=active_filters, sample_count=sum(len(values) for values in target_groups.values()),
+            excluded_count=target_unavailable, exclusion_reason='Target unavailable',
+            extras={'axis_title': '% of target', 'reference_line': 100, 'single_product_details': target_details},
+        )
+
+    stage_basis = breakdown_basis
+    stage_title = 'Completed Actions by Stage' if stage_basis == 'completed_stage_actions' else ('Created Cases by Current Stage' if stage_basis == 'created_cases_current_stage' else 'Cases by Current Stage')
+    role_title = 'Completed Actions by Role' if stage_basis == 'completed_stage_actions' else ('Created Cases by Current Role' if stage_basis == 'created_cases_current_stage' else 'Cases by Responsible Role')
+    basis_subtitle = {
+        'completed_stage_actions': 'Showing timestamped completed stage actions in the selected period.',
+        'created_cases_current_stage': 'No completed actions matched; showing created cases by their current stage and role.',
+        'current_workload': 'Showing the current active workload.',
+    }[stage_basis]
+    breakdown_unavailable = live_unavailable if filters['view'] == 'current' else []
+    charts['stage'] = _breakdown_chart('stage', stage_title, stage_basis, basis_subtitle, common['by_stage'], applied_filters=live_filters if filters['view'] == 'current' else active_filters, unavailable_filters=breakdown_unavailable)
+    charts['role'] = _breakdown_chart('role', role_title, stage_basis, basis_subtitle, common['by_role'], applied_filters=live_filters if filters['view'] == 'current' else active_filters, unavailable_filters=breakdown_unavailable)
     if include_people:
         common['by_person'] = [
             {'label': key, 'count': value}
             for key, value in Counter(
-                (item.get('person') or 'Unassigned' for item in stage_samples)
-                if stage_samples else (row.get('responsible_person') or 'Unassigned' for row in breakdown_rows)
+                (item.get('person') or 'Unassigned' for item in breakdown_samples)
+                if breakdown_samples else (row.get('responsible_person') or 'Unassigned' for row in breakdown_rows)
             ).most_common()
         ]
+        person_basis = 'completed_action_performer' if stage_samples and filters['view'] == 'performance' else 'current_responsibility_assignment'
+        charts['person'] = _breakdown_chart(
+            'person', 'Completed Actions by Person' if person_basis == 'completed_action_performer' else 'Cases by Responsible Person',
+            person_basis,
+            'Showing recorded action performers.' if person_basis == 'completed_action_performer' else 'Showing current responsibility assignments.',
+            common['by_person'], applied_filters=live_filters if filters['view'] == 'current' else active_filters,
+            unavailable_filters=breakdown_unavailable,
+        )
+    common['charts'] = charts
     return common
 
 

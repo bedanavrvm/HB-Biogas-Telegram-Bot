@@ -408,7 +408,11 @@ def collect_tat_daily_metrics(*, metric_date=None, now=None) -> list[dict]:
                 previous_at = previous_stage_timestamp(case, product, stage)
                 if active_stage is None and previous_at and previous_at <= snapshot_at and (not completed_at or completed_at > snapshot_at) and not terminal_as_of_day:
                     active_stage = stage
-                if completed_at and completed_at <= snapshot_at and previous_at and previous_at <= snapshot_at:
+                completed_on_metric_date = bool(
+                    completed_at
+                    and timezone.localdate(completed_at) == metric_date
+                )
+                if completed_on_metric_date and previous_at and previous_at <= snapshot_at:
                     wall_clock_minutes = minutes_between(previous_at, completed_at)
                 elif active_stage is stage and previous_at and previous_at <= snapshot_at:
                     wall_clock_minutes = minutes_between(previous_at, snapshot_at)
@@ -417,33 +421,31 @@ def collect_tat_daily_metrics(*, metric_date=None, now=None) -> list[dict]:
                 sla_minutes = wall_clock_minutes
                 if sla_minutes is None:
                     continue
-                bucket = _metric_bucket(
-                    buckets,
-                    **common,
-                    stage_key=stage.key,
-                    responsible_role=stage.role,
-                    responsible_actor='',
-                    metric_grain='stage_completion_leaf',
-                )
-                bucket['sla_values'].append(sla_minutes)
-                if wall_clock_minutes is not None:
+                if completed_on_metric_date:
+                    bucket = _metric_bucket(
+                        buckets,
+                        **common,
+                        stage_key=stage.key,
+                        responsible_role=stage.role,
+                        responsible_actor='',
+                        metric_grain='stage_completion_leaf',
+                    )
+                    bucket['completed_count'] += 1
+                    bucket['sla_values'].append(sla_minutes)
                     bucket['wall_clock_values'].append(wall_clock_minutes)
-                if completed_at:
-                    if timezone.localdate(completed_at) == metric_date:
-                        bucket['completed_count'] += 1
-                        target = stage_target_minutes_for_case(case, workflow, product, stage)
-                        if target and sla_minutes <= target:
-                            bucket['sla_met_count'] += 1
-                        actor_name = case.events.filter(stage_key=stage.key).order_by('-created_at').values_list('actor_name', flat=True).first() or ''
-                        person_bucket = _metric_bucket(
-                            buckets, **common, stage_key=stage.key, responsible_role=stage.role,
-                            responsible_actor=actor_name, metric_grain='person_leaf',
-                        )
-                        person_bucket['completed_count'] += 1
-                        person_bucket['sla_values'].append(sla_minutes)
-                        person_bucket['wall_clock_values'].append(wall_clock_minutes)
-                        if target and sla_minutes <= target:
-                            person_bucket['sla_met_count'] += 1
+                    target = stage_target_minutes_for_case(case, workflow, product, stage)
+                    if target and sla_minutes <= target:
+                        bucket['sla_met_count'] += 1
+                    actor_name = case.events.filter(stage_key=stage.key).order_by('-created_at').values_list('actor_name', flat=True).first() or ''
+                    person_bucket = _metric_bucket(
+                        buckets, **common, stage_key=stage.key, responsible_role=stage.role,
+                        responsible_actor=actor_name, metric_grain='person_leaf',
+                    )
+                    person_bucket['completed_count'] += 1
+                    person_bucket['sla_values'].append(sla_minutes)
+                    person_bucket['wall_clock_values'].append(wall_clock_minutes)
+                    if target and sla_minutes <= target:
+                        person_bucket['sla_met_count'] += 1
             if active_stage:
                 from core.services.tat_tracker import previous_stage_timestamp
                 active_started = previous_stage_timestamp(case, product, active_stage)

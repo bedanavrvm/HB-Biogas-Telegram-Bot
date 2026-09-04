@@ -1,4 +1,4 @@
-"""Preview or persist the current-day internal TAT trend projection."""
+"""Preview or persist a dated internal TAT trend projection."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from core.services.workflow_sla import collect_tat_daily_metrics, record_tat_dai
 
 
 class Command(BaseCommand):
-    help = 'Preview current-day Jawabu/TAT SLA trend metrics; --apply writes idempotent internal snapshots only.'
+    help = 'Preview dated Jawabu/TAT SLA trend metrics; --apply writes idempotent internal snapshots only.'
 
     def add_arguments(self, parser):
         parser.add_argument('--apply', action='store_true', help='Upsert daily metric snapshots; never notifies, syncs, or changes case state.')
@@ -20,11 +20,21 @@ class Command(BaseCommand):
         parser.add_argument('--date', dest='metric_date', help='Snapshot one date (YYYY-MM-DD).')
         parser.add_argument('--from', dest='date_from', help='First backfill date (YYYY-MM-DD).')
         parser.add_argument('--to', dest='date_to', help='Last backfill date (YYYY-MM-DD).')
+        parser.add_argument(
+            '--previous-day', action='store_true',
+            help='Snapshot the previous Africa/Nairobi calendar day. Cannot be combined with explicit dates.',
+        )
         parser.add_argument('--process-rebuilds', action='store_true', help='Process up to 31 pending correction rebuild dates.')
 
     def handle(self, *args, **options):
+        explicit_dates = any(options[key] for key in ('metric_date', 'date_from', 'date_to'))
+        if options['previous_day'] and explicit_dates:
+            raise CommandError('--previous-day cannot be combined with --date, --from, or --to.')
         try:
-            start = date.fromisoformat(options['date_from'] or options['metric_date']) if (options['date_from'] or options['metric_date']) else timezone.localdate()
+            if options['previous_day']:
+                start = timezone.localdate() - timedelta(days=1)
+            else:
+                start = date.fromisoformat(options['date_from'] or options['metric_date']) if (options['date_from'] or options['metric_date']) else timezone.localdate()
             end = date.fromisoformat(options['date_to']) if options['date_to'] else start
         except ValueError as exc:
             raise CommandError('Dates must use YYYY-MM-DD.') from exc

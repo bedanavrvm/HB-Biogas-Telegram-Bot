@@ -13,6 +13,7 @@ import openpyxl
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -66,7 +67,7 @@ from core.services.tat_tracker import (
     workflow_branches,
 )
 from core.services.workflow_transitions import WorkflowRevisionConflict
-from core.services.workflow_sla import collect_sla_candidates, record_sla_candidates
+from core.services.workflow_sla import collect_sla_candidates, collect_tat_daily_metrics, record_sla_candidates
 from core.services.miniapp_settings import create_tat_configuration_request, preference_payload, review_tat_configuration_request, update_preference
 from core.services.tat_presentation import update_presentation_settings
 from core.services.tat_reporting import report_cases, report_summary
@@ -674,6 +675,12 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn("headerName: '#', colId: 'row_number', pinned: 'left', lockPinned: true", source)
         self.assertIn("{ headerName: 'Reference', field: 'case_id', width: 125 }", source)
         self.assertNotIn("field: 'case_id', pinned: 'left'", source)
+        self.assertIn('id="tatBacklogChart"', template)
+        self.assertIn('id="tatSlaChart"', template)
+        self.assertIn('id="tatPercentilesChart"', template)
+        self.assertIn('id="tatTargetChart"', template)
+        self.assertIn("summary.metric_basis || ''", source)
+        self.assertIn("text: payload.axis_title || '% of target'", source)
 
     def test_tat_reporting_is_scoped_allowlisted_and_page_size_capped(self):
         TatTrackerCase.objects.create(
@@ -706,6 +713,78 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(performance['breakdown_basis'], 'created_cases_current_stage')
         self.assertTrue(performance['by_stage'])
         self.assertTrue(performance['by_role'])
+
+    def test_tat_reporting_exposes_chart_basis_backlog_and_frozen_target_percentages(self):
+        now = timezone.now()
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='TAT-REPORT-CHARTS', product_key='business',
+            product_label='Business', client_name='CHART CLIENT', branch='Nakuru', status='Active',
+            stage_values={
+                'created': (now - timedelta(hours=2)).isoformat(),
+                'mpesa_to_admin': (now - timedelta(hours=1)).isoformat(),
+            },
+            stage_target_snapshots={'mpesa_to_admin': {'target_minutes': '30', 'settings_version': 1}},
+        )
+        current = report_summary(self.bro_user, {'view': 'current'})
+        self.assertEqual(current['charts']['backlog_age']['basis'], 'current_stage_wall_clock_age')
+        self.assertIn('% of target', report_summary(self.bro_user, {
+            'view': 'performance',
+            'product': 'business',
+            'date_from': timezone.localdate().isoformat(),
+            'date_to': timezone.localdate().isoformat(),
+        })['charts']['stage_target']['axis_title'])
+        performance = report_summary(self.bro_user, {
+            'view': 'performance', 'stage': 'mpesa_to_admin',
+            'date_from': timezone.localdate().isoformat(),
+            'date_to': timezone.localdate().isoformat(),
+        })
+        self.assertEqual(performance['charts']['trend']['basis'], 'completed_stage_actions')
+        self.assertEqual(performance['charts']['trend']['series'][0]['key'], 'completed_actions')
+        target = performance['charts']['stage_target']
+        self.assertEqual(target['basis'], 'completed_actions_percent_of_frozen_target')
+        self.assertEqual(target['series'][0]['values'], [200.0])
+        self.assertEqual(target['reference_line'], 100)
+        self.assertEqual(target['excluded_count'], 0)
+        self.assertEqual(case.case_id, 'TAT-REPORT-CHARTS')
+
+    def test_daily_stage_duration_samples_only_belong_to_completion_date(self):
+        now = timezone.now()
+        completed = now - timedelta(days=1, hours=1)
+        created = completed - timedelta(hours=1)
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='TAT-DAILY-COMPLETION', product_key='business',
+            product_label='Business', client_name='DAILY CLIENT', branch='Nakuru', status='Active',
+            stage_values={'created': created.isoformat(), 'mpesa_to_admin': completed.isoformat()},
+            stage_target_snapshots={'mpesa_to_admin': {'target_minutes': '90', 'settings_version': 1}},
+        )
+        TatTrackerCase.objects.filter(pk=case.pk).update(created_at=created)
+        completion_date = timezone.localdate(completed)
+        completed_metrics = collect_tat_daily_metrics(metric_date=completion_date, now=now)
+        later_metrics = collect_tat_daily_metrics(metric_date=timezone.localdate(now), now=now)
+        matching_completed = [
+            item for item in completed_metrics
+            if item['workflow'] == 'tat_tracker' and item['metric_grain'] == 'stage_completion_leaf'
+            and item['stage_key'] == 'mpesa_to_admin'
+        ]
+        matching_later = [
+            item for item in later_metrics
+            if item['workflow'] == 'tat_tracker' and item['metric_grain'] == 'stage_completion_leaf'
+            and item['stage_key'] == 'mpesa_to_admin'
+        ]
+        self.assertEqual(matching_completed[0]['completed_count'], 1)
+        self.assertEqual(matching_completed[0]['sample_count'], 1)
+        self.assertEqual(matching_later, [])
+
+    def test_snapshot_command_previous_day_is_explicit_and_exclusive(self):
+        output = StringIO()
+        with patch(
+            'core.management.commands.snapshot_workflow_tat.collect_tat_daily_metrics',
+            return_value=[],
+        ) as collect:
+            call_command('snapshot_workflow_tat', '--previous-day', stdout=output)
+        self.assertEqual(collect.call_args.kwargs['metric_date'], timezone.localdate() - timedelta(days=1))
+        with self.assertRaises(CommandError):
+            call_command('snapshot_workflow_tat', '--previous-day', '--date', timezone.localdate().isoformat())
 
     def test_tat_report_capabilities_and_correction_rebuild_request(self):
         self.assertIn('tat.reports.view', default_enabled_capability_keys('tat_tracker', 'BRO'))

@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=34">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=35">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
@@ -77,10 +77,14 @@
       <p id="tatReportFreshness" class="report-freshness" role="status"></p>
       <section id="tatReportMetrics" class="report-metrics" aria-label="TAT report summary"></section>
       <section class="tat-report-charts">
-        <article><h3 id="tatTrendTitle">Workload over Time</h3><div><canvas id="tatTrendChart"></canvas><p id="tatTrendEmpty" hidden>No history matches these filters.</p></div></article>
-        <article><h3 id="tatStageTitle">By Stage</h3><div><canvas id="tatStageChart"></canvas><p id="tatStageEmpty" hidden>No stage data matches these filters.</p></div></article>
-        <article><h3 id="tatRoleTitle">By Responsible Role</h3><div><canvas id="tatRoleChart"></canvas><p id="tatRoleEmpty" hidden>No role data matches these filters.</p></div></article>
-        <article data-required-capability="tat.reports.people.view"><h3>By Responsible Person</h3><div><canvas id="tatPersonChart"></canvas><p id="tatPersonEmpty" hidden>No person data matches these filters.</p></div></article>
+        <article id="tatTrendPanel"><h3 id="tatTrendTitle">Workload over Time</h3><p id="tatTrendBasis" class="chart-basis"></p><div><canvas id="tatTrendChart"></canvas><p id="tatTrendEmpty" class="chart-empty" hidden>No history matches these filters.</p></div></article>
+        <article id="tatBacklogPanel"><h3 id="tatBacklogTitle">Current-stage Backlog Age</h3><p id="tatBacklogBasis" class="chart-basis"></p><div><canvas id="tatBacklogChart"></canvas><p id="tatBacklogEmpty" class="chart-empty" hidden>No active backlog matches these filters.</p></div></article>
+        <article id="tatSlaPanel"><h3 id="tatSlaTitle">SLA Compliance over Time</h3><p id="tatSlaBasis" class="chart-basis"></p><div><canvas id="tatSlaChart"></canvas><p id="tatSlaEmpty" class="chart-empty" hidden>No valid SLA samples match these filters.</p></div></article>
+        <article id="tatPercentilesPanel"><h3 id="tatPercentilesTitle">Median and P90 TAT over Time</h3><p id="tatPercentilesBasis" class="chart-basis"></p><div><canvas id="tatPercentilesChart"></canvas><p id="tatPercentilesEmpty" class="chart-empty" hidden>No duration samples match these filters.</p></div></article>
+        <article id="tatTargetPanel"><h3 id="tatTargetTitle">Stage Performance Against Target</h3><p id="tatTargetBasis" class="chart-basis"></p><div><canvas id="tatTargetChart"></canvas><p id="tatTargetEmpty" class="chart-empty" hidden>No completed actions with targets match these filters.</p></div><div id="tatTargetDetails" class="chart-details"></div></article>
+        <article id="tatStagePanel"><h3 id="tatStageTitle">By Stage</h3><p id="tatStageBasis" class="chart-basis"></p><div><canvas id="tatStageChart"></canvas><p id="tatStageEmpty" class="chart-empty" hidden>No stage data matches these filters.</p></div></article>
+        <article id="tatRolePanel"><h3 id="tatRoleTitle">By Responsible Role</h3><p id="tatRoleBasis" class="chart-basis"></p><div><canvas id="tatRoleChart"></canvas><p id="tatRoleEmpty" class="chart-empty" hidden>No role data matches these filters.</p></div></article>
+        <article id="tatPersonPanel" data-required-capability="tat.reports.people.view"><h3 id="tatPersonTitle">By Responsible Person</h3><p id="tatPersonBasis" class="chart-basis"></p><div><canvas id="tatPersonChart"></canvas><p id="tatPersonEmpty" class="chart-empty" hidden>No person data matches these filters.</p></div></article>
       </section>
       <div class="tat-report-grid-wrap" role="region" aria-label="TAT report table" tabindex="0"><div id="tatReportGrid" class="ag-theme-quartz tat-report-grid"></div></div>
       <nav class="tat-report-pagination" aria-label="TAT report pages"><button id="tatReportPrevious" type="button" class="secondary">Previous</button><span id="tatReportPage">Page 1 of 1</span><button id="tatReportNext" type="button" class="secondary">Next</button></nav>
@@ -362,6 +366,6 @@
   <script src="{% static 'miniapp/tat_api.js' %}?v=4"></script>
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=61"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=62"></script>
 </body>
 </html>
