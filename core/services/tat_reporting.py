@@ -1,4 +1,15 @@
-"""Scoped, read-only TAT reporting and audited exports."""
+"""Scoped, read-only TAT reporting and audited exports.
+
+Timing semantics depend on the current workflow contract: an authoritative
+stage stamp completes that stage and starts the next one. There is therefore
+no separate pickup/handoff-lag measure. If the workflow later introduces a
+distinct claimed or in-progress state, duration and handoff reporting must be
+revisited against that new persisted timestamp rather than inferred here.
+Admin corrections currently replace an authoritative completed stamp
+immediately; there is no separate unresolved-correction lifecycle. Correction
+rate therefore uses distinct completed case-stage actions as its denominator
+and counts one or many correction events for that action once in its numerator.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +17,7 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal, ROUND_CEILING
 from io import BytesIO
-from math import ceil
+from math import ceil, sqrt
 
 from django.db import transaction
 from django.db.models import Q
@@ -31,6 +42,33 @@ SORT_FIELDS = {
     'target_minutes', 'variance_minutes', 'sla_state',
 }
 TERMINAL = set(TAT_COMPLETED_STATUSES)
+CHART_DIMENSIONS = frozenset({'stage', 'role', 'branch', 'product'})
+CHART_METRICS = frozenset({
+    'workload', 'sla_state', 'duration', 'target_usage', 'sla_met',
+    'correction_rate', 'load_per_assignee',
+})
+HEATMAP_PAIRS = {
+    'stage_branch': ('stage', 'branch'),
+    'product_stage': ('product', 'stage'),
+    'role_branch': ('role', 'branch'),
+}
+HEATMAP_METRICS = frozenset({'workload', 'sla_met', 'duration', 'target_usage'})
+TARGET_REVIEW_SIGNAL_POLICY = {
+    'confidence_level': 0.95,
+    'wilson_z': 1.959963984540054,
+    'systemic_min_samples': 20,
+    'systemic_min_over_percent': 70,
+    'systemic_wilson_lower_bound': 50,
+    'cohort_min_samples': 10,
+    'cohort_min_over_percent': 60,
+    'cohort_coverage_percent': 60,
+    'localized_min_samples': 10,
+    'localized_min_over_percent': 70,
+    'localized_wilson_lower_bound': 50,
+}
+# A localized signal deliberately accepts fewer samples than the systemic
+# signal: it prompts review of one directly inspectable scope and never makes
+# an organization-wide claim or changes configuration.
 
 
 def _scope_query(actor):
@@ -95,6 +133,18 @@ def _filters(payload):
     }[granularity]
     if bucket_estimate > 366:
         raise ValueError('This grouping would create more than 366 chart points. Choose a coarser time grouping.')
+    chart_dimension = str(payload.get('chart_dimension') or 'stage').strip().lower()
+    chart_metric = str(payload.get('chart_metric') or 'workload').strip().lower()
+    heatmap_pair = str(payload.get('heatmap_pair') or 'stage_branch').strip().lower()
+    heatmap_metric = str(payload.get('heatmap_metric') or 'sla_met').strip().lower()
+    if chart_dimension not in CHART_DIMENSIONS:
+        raise ValueError('Choose Stage, Role, Branch, or Product for the chart dimension.')
+    if chart_metric not in CHART_METRICS:
+        raise ValueError('The selected comparison metric is not supported.')
+    if heatmap_pair not in HEATMAP_PAIRS:
+        raise ValueError('The selected heatmap comparison is not supported.')
+    if heatmap_metric not in HEATMAP_METRICS:
+        raise ValueError('The selected heatmap metric is not supported.')
     return {
         'view': 'performance' if payload.get('view') == 'performance' else 'current',
         'group': str(payload.get('group') or '').strip(),
@@ -106,6 +156,8 @@ def _filters(payload):
         'sla_state': str(payload.get('sla_state') or '').strip(),
         'search': str(payload.get('search') or '').strip(),
         'date_from': date_from, 'date_to': date_to, 'granularity': granularity,
+        'chart_dimension': chart_dimension, 'chart_metric': chart_metric,
+        'heatmap_pair': heatmap_pair, 'heatmap_metric': heatmap_metric,
     }
 
 
@@ -181,6 +233,7 @@ def _case_row(case, *, include_people=False, now=None):
         'target_minutes': float(target) if target is not None else None,
         'variance_minutes': float(variance) if variance is not None else None,
         'sla_state': sla_state,
+        '_group_id': str(case.group_id), '_product_key': str(case.product_key or ''),
     }
     if include_people:
         if stage:
@@ -281,6 +334,13 @@ def _stage_samples(cases, filters, *, include_people=False):
             samples.append({
                 'case_id': case.case_id, 'stage_key': stage.key, 'stage': stage.label,
                 'role': stage.role, 'person': event.actor_name if include_people and event else '',
+                'group_id': str(case.group_id), 'branch': str(case.branch or ''),
+                'product_key': str(case.product_key or ''),
+                'product': str(case.product_label or case.product_key or ''),
+                'corrected': any(
+                    item.stage_key == stage.key and item.source == 'admin_correction'
+                    for item in case.events.all()
+                ),
                 'completed_at': completed.isoformat(),
                 'elapsed_minutes': float(elapsed) if elapsed is not None else None,
                 'target_minutes': float(target) if target is not None else None,
@@ -356,6 +416,315 @@ def _breakdown_chart(chart_id, title, basis, subtitle, rows, *, applied_filters,
     )
 
 
+def _dimension_value(item, dimension, *, sample=False):
+    keys = {
+        'stage': 'stage' if sample else 'current_stage',
+        'role': 'role' if sample else 'responsible_role',
+        'branch': 'branch',
+        'product': 'product' if sample else 'product_label',
+    }
+    return str(item.get(keys[dimension]) or 'Unassigned')
+
+
+def _active_assignment_counts(rows, dimension):
+    now = timezone.now()
+    assignments = list(TatResponsibilityAssignment.objects.filter(
+        active=True, effective_from__lte=now,
+        group_configuration__group_id__in={row['_group_id'] for row in rows},
+    ).filter(Q(effective_until__isnull=True) | Q(effective_until__gt=now)).select_related('group_configuration'))
+    grouped_rows = defaultdict(list)
+    for row in rows:
+        grouped_rows[_dimension_value(row, dimension)].append(row)
+    result = {}
+    for label, cohort in grouped_rows.items():
+        users = set()
+        for assignment in assignments:
+            for row in cohort:
+                if str(assignment.group_configuration.group_id) != row['_group_id']:
+                    continue
+                if assignment.branch.casefold() != str(row.get('branch') or '').casefold():
+                    continue
+                if assignment.role.casefold() != str(row.get('responsible_role') or '').casefold():
+                    continue
+                if assignment.product_key and assignment.product_key.casefold() != row['_product_key'].casefold():
+                    continue
+                if assignment.stage_key and assignment.stage_key.casefold() != str(row.get('current_stage_key') or '').casefold():
+                    continue
+                users.add(assignment.primary_user_id)
+                break
+        result[label] = len(users)
+    return result
+
+
+def _comparison_explorer(rows, samples, filters):
+    dimension = filters['chart_dimension']
+    metric = filters['chart_metric']
+    applied = _active_filter_names(filters)
+    if metric == 'load_per_assignee' and filters['view'] == 'performance':
+        return _chart_payload(
+            'explorer', f'Cases per Configured Assignee by {dimension.title()}',
+            'current_cases_per_distinct_configured_primary_assignee',
+            'This is a current responsibility-coverage measure and is not available for historical performance.',
+            [], [], applied_filters=applied, unavailable_filters=['performance_view'],
+        )
+    source_is_samples = filters['view'] == 'performance' or metric in {
+        'duration', 'target_usage', 'sla_met', 'correction_rate',
+    }
+    if not source_is_samples:
+        applied = _active_filter_names(filters, include_dates=False)
+    source = samples if source_is_samples else rows
+    grouped = defaultdict(list)
+    for item in source:
+        grouped[_dimension_value(item, dimension, sample=source_is_samples)].append(item)
+    labels = sorted(grouped)
+    excluded = 0
+    extras = {'dimension': dimension, 'metric': metric}
+    if metric == 'workload':
+        values = [len(grouped[label]) for label in labels]
+        basis = 'completed_stage_actions' if source_is_samples else 'current_workload'
+        series = [_series('count', 'Actions' if source_is_samples else 'Cases', values)]
+        subtitle = f"Showing {'completed actions' if source_is_samples else 'current cases'} by {dimension}."
+    elif metric == 'sla_state':
+        states = ('within_target', 'near_target', 'overdue', 'target_unavailable')
+        state_labels = ('Within Target', 'Near Target', 'Overdue', 'Target Unavailable')
+        series = [
+            _series(state, label, [sum(item.get('sla_state') == state for item in grouped[key]) for key in labels])
+            for state, label in zip(states, state_labels)
+        ]
+        basis = 'completed_stage_sla_state' if source_is_samples else 'current_sla_state'
+        subtitle = f'Showing SLA-state composition by {dimension}.'
+    elif metric == 'duration':
+        series = [
+            _series('median_minutes', 'Median', [_percentile([item.get('elapsed_minutes') for item in grouped[label]], .5) for label in labels]),
+            _series('p90_minutes', 'P90', [_percentile([item.get('elapsed_minutes') for item in grouped[label]], .9) for label in labels]),
+        ]
+        extras['iqr_minutes'] = {
+            label: {
+                'q1': _percentile([item.get('elapsed_minutes') for item in grouped[label]], .25),
+                'q3': _percentile([item.get('elapsed_minutes') for item in grouped[label]], .75),
+            } for label in labels
+        }
+        basis = 'completed_stage_wall_clock_duration'
+        subtitle = f'Showing exact completed-stage duration by {dimension}; IQR is available in details.'
+    elif metric == 'target_usage':
+        ratios = {}
+        for label in labels:
+            ratios[label] = []
+            for item in grouped[label]:
+                elapsed = item.get('elapsed_minutes'); target = item.get('target_minutes')
+                if elapsed is None or target is None or target <= 0:
+                    excluded += 1
+                    continue
+                ratios[label].append(float(elapsed) * 100 / float(target))
+        labels = [label for label in labels if ratios[label]]
+        series = [
+            _series('median_percent', 'Median % of Target', [_percentile(ratios[label], .5) for label in labels]),
+            _series('p90_percent', 'P90 % of Target', [_percentile(ratios[label], .9) for label in labels]),
+        ]
+        basis = 'completed_actions_percent_of_frozen_target'
+        subtitle = f'Each action is normalized against its own frozen target before comparison by {dimension}.'
+        extras.update(axis_title='% of target', reference_line=100)
+    elif metric == 'sla_met':
+        values = []
+        for label in labels:
+            valid = [item for item in grouped[label] if item.get('sla_state') != 'target_unavailable']
+            excluded += len(grouped[label]) - len(valid)
+            values.append(round(sum(item.get('sla_state') != 'overdue' for item in valid) * 100 / len(valid), 1) if valid else None)
+        series = [_series('sla_met_percent', 'SLA Met %', values)]
+        basis = 'completed_stage_sla_compliance'
+        subtitle = f'Showing completed actions within target by {dimension}.'
+        extras['axis_title'] = 'SLA met %'
+    elif metric == 'correction_rate':
+        series = [_series('correction_percent', 'Recorded Correction %', [
+            round(sum(bool(item.get('corrected')) for item in grouped[label]) * 100 / len(grouped[label]), 1)
+            if grouped[label] else None for label in labels
+        ])]
+        basis = 'distinct_completed_actions_with_recorded_admin_correction'
+        subtitle = 'Each completed case-stage action counts once; repeated corrections do not increase the numerator.'
+        extras['axis_title'] = 'Recorded correction %'
+    else:
+        assignment_counts = _active_assignment_counts(rows, dimension)
+        values = [round(len(grouped[label]) / assignment_counts.get(label, 0), 2) if assignment_counts.get(label, 0) else None for label in labels]
+        unassigned = sum(len(grouped[label]) for label in labels if not assignment_counts.get(label, 0))
+        series = [_series('cases_per_assignee', 'Cases per Configured Assignee', values)]
+        basis = 'current_cases_per_distinct_configured_primary_assignee'
+        subtitle = 'Configured responsibility coverage only; this does not measure attendance or individual productivity.'
+        extras.update(assignee_counts=assignment_counts, unassigned_case_count=unassigned)
+    return _chart_payload(
+        'explorer', f"{metric.replace('_', ' ').title()} by {dimension.title()}", basis, subtitle,
+        labels, series, applied_filters=applied,
+        unavailable_filters=(['date_range', 'granularity'] if not source_is_samples else []),
+        sample_count=len(source), excluded_count=excluded,
+        exclusion_reason='Target unavailable', extras=extras,
+    )
+
+
+def _heatmap_payload(rows, samples, filters):
+    row_dimension, column_dimension = HEATMAP_PAIRS[filters['heatmap_pair']]
+    metric = filters['heatmap_metric']
+    sample_based = filters['view'] == 'performance' or metric != 'workload'
+    source = samples if sample_based else rows
+    grouped = defaultdict(list)
+    for item in source:
+        grouped[(
+            _dimension_value(item, row_dimension, sample=sample_based),
+            _dimension_value(item, column_dimension, sample=sample_based),
+        )].append(item)
+    row_labels = sorted({key[0] for key in grouped})
+    column_labels = sorted({key[1] for key in grouped})
+    cells = []
+    total_excluded = 0
+    for row_label in row_labels:
+        for column_label in column_labels:
+            cohort = grouped.get((row_label, column_label), [])
+            excluded = 0
+            if metric == 'workload':
+                value = len(cohort)
+            elif metric == 'duration':
+                value = _percentile([item.get('elapsed_minutes') for item in cohort], .5)
+            elif metric == 'target_usage':
+                ratios = []
+                for item in cohort:
+                    elapsed = item.get('elapsed_minutes'); target = item.get('target_minutes')
+                    if elapsed is None or target is None or target <= 0:
+                        excluded += 1
+                    else:
+                        ratios.append(float(elapsed) * 100 / float(target))
+                value = _percentile(ratios, .5)
+            else:
+                valid = [item for item in cohort if item.get('sla_state') != 'target_unavailable']
+                excluded = len(cohort) - len(valid)
+                value = round(sum(item.get('sla_state') != 'overdue' for item in valid) * 100 / len(valid), 1) if valid else None
+            total_excluded += excluded
+            cells.append({
+                'row': row_label, 'column': column_label, 'value': value,
+                'sample_count': len(cohort) - excluded, 'excluded_count': excluded,
+            })
+    return {
+        'id': 'heatmap', 'title': f'{row_dimension.title()} × {column_dimension.title()}',
+        'basis': ('completed_stage_actions' if sample_based else 'current_workload'),
+        'subtitle': f"Showing {metric.replace('_', ' ')} across two operational dimensions.",
+        'applied_filters': _active_filter_names(filters, include_dates=sample_based),
+        'unavailable_filters': ['date_range', 'granularity'] if not sample_based else [],
+        'sample_count': len(source), 'excluded_count': total_excluded,
+        'exclusion_reason': 'Target unavailable', 'metric': metric,
+        'row_dimension': row_dimension, 'column_dimension': column_dimension,
+        'rows': row_labels, 'columns': column_labels, 'cells': cells,
+    }
+
+
+def _wilson_lower_percent(over_count, sample_count):
+    if sample_count <= 0:
+        return None
+    z = TARGET_REVIEW_SIGNAL_POLICY['wilson_z']
+    proportion = over_count / sample_count
+    denominator = 1 + (z * z / sample_count)
+    centre = proportion + (z * z / (2 * sample_count))
+    margin = z * sqrt((proportion * (1 - proportion) / sample_count) + (z * z / (4 * sample_count * sample_count)))
+    return round(((centre - margin) / denominator) * 100, 1)
+
+
+def _target_stats(samples):
+    valid = [item for item in samples if item.get('target_minutes') is not None and item.get('target_minutes') > 0]
+    states = Counter(item.get('sla_state') for item in valid)
+    count = len(valid); over = states['overdue']
+    ratios = [float(item['elapsed_minutes']) * 100 / float(item['target_minutes']) for item in valid if item.get('elapsed_minutes') is not None]
+    return {
+        'valid_samples': count, 'within_count': states['within_target'],
+        'near_count': states['near_target'], 'over_count': over,
+        'within_percent': round(states['within_target'] * 100 / count, 1) if count else None,
+        'near_percent': round(states['near_target'] * 100 / count, 1) if count else None,
+        'over_percent': round(over * 100 / count, 1) if count else None,
+        'target_unavailable_count': len(samples) - count,
+        'wilson_lower_bound': _wilson_lower_percent(over, count),
+        'median_percent_of_target': _percentile(ratios, .5),
+        'p90_percent_of_target': _percentile(ratios, .9),
+    }
+
+
+def _target_review_signals(actor, filters, selected_samples):
+    baseline_filters = dict(filters)
+    for key in ('branch', 'product', 'search', 'status', 'role', 'sla_state'):
+        baseline_filters[key] = ''
+    baseline_cases = _filtered_cases(actor, baseline_filters)
+    baseline_samples = _stage_samples(baseline_cases, baseline_filters, include_people=False)
+    selected_by_key = defaultdict(list)
+    for sample in selected_samples:
+        selected_by_key[(sample['group_id'], sample['stage_key'])].append(sample)
+    grouped = defaultdict(list)
+    for sample in baseline_samples:
+        grouped[(sample['group_id'], sample['stage_key'], sample['stage'])].append(sample)
+    group_labels = dict(GroupSheetConfiguration.objects.filter(
+        group_id__in={sample['group_id'] for sample in baseline_samples},
+    ).values_list('group_id', 'display_name'))
+    policy = TARGET_REVIEW_SIGNAL_POLICY
+    results = []
+    for (group_id, stage_key, stage_label), samples in sorted(grouped.items()):
+        baseline = _target_stats(samples)
+        cohorts = {}
+        breadth_ok = False
+        qualifying_details = []
+        for dimension, field in (('branch', 'branch'), ('product', 'product')):
+            dimension_groups = defaultdict(list)
+            for sample in samples:
+                dimension_groups[str(sample.get(field) or 'Unassigned')].append(sample)
+            details = []
+            for label, cohort_samples in sorted(dimension_groups.items()):
+                stats = _target_stats(cohort_samples)
+                qualifies = bool(
+                    stats['valid_samples'] >= policy['cohort_min_samples']
+                    and (stats['over_percent'] or 0) >= policy['cohort_min_over_percent']
+                )
+                details.append({'label': label, **stats, 'qualifies': qualifies})
+            qualifying = [item for item in details if item['qualifies']]
+            coverage = round(sum(item['valid_samples'] for item in qualifying) * 100 / baseline['valid_samples'], 1) if baseline['valid_samples'] else 0
+            cohorts[dimension] = {'items': details, 'qualifying_count': len(qualifying), 'coverage_percent': coverage}
+            if len(qualifying) >= 2 and coverage >= policy['cohort_coverage_percent']:
+                breadth_ok = True
+                qualifying_details.append(dimension)
+        systemic = bool(
+            baseline['valid_samples'] >= policy['systemic_min_samples']
+            and (baseline['over_percent'] or 0) >= policy['systemic_min_over_percent']
+            and (baseline['wilson_lower_bound'] or 0) > policy['systemic_wilson_lower_bound']
+            and breadth_ok
+        )
+        localized = []
+        if not systemic:
+            for dimension, detail in cohorts.items():
+                for cohort in detail['items']:
+                    if (
+                        cohort['valid_samples'] >= policy['localized_min_samples']
+                        and (cohort['over_percent'] or 0) >= policy['localized_min_over_percent']
+                        and (cohort['wilson_lower_bound'] or 0) > policy['localized_wilson_lower_bound']
+                    ):
+                        localized.append({'dimension': dimension, **cohort})
+        selected = _target_stats(selected_by_key.get((group_id, stage_key), []))
+        narrowed = bool(filters['branch'] or filters['product'])
+        if narrowed and selected['valid_samples'] >= policy['localized_min_samples'] and (selected['over_percent'] or 0) >= policy['localized_min_over_percent'] and (selected['wilson_lower_bound'] or 0) > policy['localized_wilson_lower_bound']:
+            classification = 'selected_scope_high'
+            message = 'High exceedance in selected scope. Review this stage before drawing an organization-wide conclusion.'
+        elif systemic:
+            classification = 'review_recommended'
+            message = 'Review recommended: most cases exceed target on this stage across multiple areas. Check whether the target is realistic or whether a shared process issue is causing delays.'
+        elif localized:
+            classification = 'localized_delay'
+            first = localized[0]
+            message = f"Localized delay signal: {first['label']} frequently exceeds target on this stage; other areas do not show the same pattern."
+        else:
+            classification = 'none'; message = ''
+        results.append({
+            'group_id': group_id, 'group': group_labels.get(group_id) or 'TAT Tracker',
+            'stage_key': stage_key, 'stage': stage_label,
+            'signal_scope': 'authorized_group_date_baseline',
+            'signal_policy': {key: value for key, value in policy.items() if key != 'wilson_z'},
+            'baseline': baseline, 'selected_scope': selected,
+            'baseline_systemic': systemic,
+            'qualifying_cohorts': qualifying_details, 'cohorts': cohorts,
+            'classification': classification, 'message': message,
+        })
+    return results
+
+
 def report_summary(actor, payload, *, include_people=False):
     filters = _filters(payload)
     all_cases = _filtered_cases(actor, filters)
@@ -380,15 +749,10 @@ def report_summary(actor, payload, *, include_people=False):
         'products': sorted({(case.product_key, case.product_label or case.product_key) for case in scope_cases}),
         'stages': sorted(stages), 'roles': sorted(role for role in roles if role),
     }
-    # Completed-stage samples are exact, timestamp-backed observations. Avoid
-    # scanning them for an unfiltered current-workload view that only needs
-    # point-in-time cases and persisted daily snapshots.
-    needs_stage_samples = bool(
-        filters['view'] == 'performance'
-        or filters['search'] or filters['status'] or filters['stage']
-        or filters['role'] or filters['sla_state']
-    )
-    stage_samples = _stage_samples(all_cases, filters, include_people=include_people) if needs_stage_samples else []
+    # Explorer, heatmap, target-review and correction-rate insights all use
+    # the same exact timestamp-backed stage observations. Committing one stage
+    # stamp starts the next stage; there is no inferred pickup timestamp.
+    stage_samples = _stage_samples(all_cases, filters, include_people=include_people)
     breakdown_rows = rows
     breakdown_basis = 'current_workload'
     if filters['view'] == 'performance':
@@ -686,6 +1050,39 @@ def report_summary(actor, payload, *, include_people=False):
             common['by_person'], applied_filters=live_filters if filters['view'] == 'current' else active_filters,
             unavailable_filters=breakdown_unavailable,
         )
+    charts['explorer'] = _comparison_explorer(rows, stage_samples, filters)
+    common['heatmap'] = _heatmap_payload(rows, stage_samples, filters)
+    target_signals = _target_review_signals(actor, filters, stage_samples)
+    common['target_review_signals'] = {
+        'basis': 'completed_actions_against_each_frozen_target',
+        'subtitle': 'Statistical review prompts use an authorization-scoped unfiltered branch and product baseline; they never change targets.',
+        'applied_filters': active_filters,
+        'unavailable_filters': [],
+        'sample_count': sum(item['selected_scope']['valid_samples'] for item in target_signals),
+        'excluded_count': sum(item['selected_scope']['target_unavailable_count'] for item in target_signals),
+        'exclusion_reason': 'Target unavailable',
+        'items': target_signals,
+    }
+
+    current_filters = dict(filters)
+    current_filters['view'] = 'current'
+    oldest_rows = sorted(
+        _eligible_rows(actor, current_filters, include_people=include_people),
+        key=lambda item: item.get('elapsed_minutes') if item.get('elapsed_minutes') is not None else -1,
+        reverse=True,
+    )[:10]
+    oldest_fields = (
+        'case_id', 'client_name', 'branch', 'product_label', 'current_stage',
+        'responsible_role', 'elapsed_minutes', 'target_minutes', 'sla_state',
+    )
+    common['oldest_cases'] = {
+        'basis': 'current_active_stage_wall_clock_age',
+        'subtitle': 'Showing the ten oldest active cases. Date range and time grouping do not apply to a current-workload ranking.',
+        'applied_filters': _active_filter_names(filters, include_dates=False),
+        'unavailable_filters': ['date_range', 'granularity'],
+        'sample_count': len(oldest_rows), 'excluded_count': 0, 'exclusion_reason': '',
+        'items': [{key: row.get(key) for key in oldest_fields} for row in oldest_rows],
+    }
     common['charts'] = charts
     return common
 
@@ -747,7 +1144,11 @@ def report_cases(actor, payload, *, include_people=False):
     except (TypeError, ValueError):
         raise ValueError('Page and page size must be valid numbers.')
     start = (page - 1) * page_size
-    return {'results': rows[start:start + page_size], 'count': len(rows), 'page': page, 'page_size': page_size}
+    public_rows = [
+        {key: value for key, value in row.items() if not key.startswith('_')}
+        for row in rows[start:start + page_size]
+    ]
+    return {'results': public_rows, 'count': len(rows), 'page': page, 'page_size': page_size}
 
 
 def export_report_xlsx(actor, payload, *, include_people=False, request_id=''):
@@ -758,6 +1159,9 @@ def export_report_xlsx(actor, payload, *, include_people=False, request_id=''):
         raise ValueError('More than 10,000 cases match. Narrow the filters before downloading.')
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
+    def xlsx_safe(value):
+        return "'" + value if isinstance(value, str) and value[:1] in {'=', '+', '-', '@'} else value
+
     headers = ['Reference', 'Customer', 'TAT Group', 'Branch', 'Product', 'Status', 'Stage', 'Responsible Role', 'Created', 'Finished', 'Elapsed Minutes', 'Target Minutes', 'Variance Minutes', 'SLA State']
     keys = ['case_id', 'client_name', 'group', 'branch', 'product_label', 'status', 'current_stage', 'responsible_role', 'created_at', 'finished_at', 'elapsed_minutes', 'target_minutes', 'variance_minutes', 'sla_state']
     if include_people:
@@ -769,12 +1173,43 @@ def export_report_xlsx(actor, payload, *, include_people=False, request_id=''):
         values = []
         for key in keys:
             value = row.get(key, '')
-            if isinstance(value, str) and value[:1] in {'=', '+', '-', '@'}:
-                value = "'" + value
+            value = xlsx_safe(value)
             if key in {'created_at', 'finished_at'} and value:
                 value = datetime.fromisoformat(value).strftime('%d-%m-%y %H:%M')
             values.append(value)
         sheet.append(values)
+    # The existing audited export also carries the two selected aggregate
+    # comparisons. It does not introduce another export endpoint or expose
+    # case-level fields beyond the established TAT Report sheet.
+    stage_samples = _stage_samples(_filtered_cases(actor, filters), filters, include_people=False)
+    explorer = _comparison_explorer(rows, stage_samples, filters)
+    insight_sheet = workbook.create_sheet('Selected Insight')
+    insight_sheet.append([explorer['title']])
+    insight_sheet.append(['Basis', explorer['basis']])
+    insight_sheet.append(['Description', explorer['subtitle']])
+    insight_sheet.append([])
+    insight_sheet.append(['Dimension', *[item['label'] for item in explorer.get('series', [])]])
+    for index, label in enumerate(explorer.get('labels', [])):
+        insight_sheet.append([
+            xlsx_safe(label),
+            *[item.get('values', [])[index] if index < len(item.get('values', [])) else None for item in explorer.get('series', [])],
+        ])
+    for cell in insight_sheet[5]:
+        cell.font = Font(bold=True, color='FFFFFF'); cell.fill = PatternFill('solid', fgColor='245B8A')
+
+    heatmap = _heatmap_payload(rows, stage_samples, filters)
+    heatmap_sheet = workbook.create_sheet('Selected Heatmap')
+    heatmap_sheet.append([heatmap['title']])
+    heatmap_sheet.append(['Basis', heatmap['basis']])
+    heatmap_sheet.append(['Metric', heatmap['metric']])
+    heatmap_sheet.append([])
+    heatmap_sheet.append([heatmap['row_dimension'], *[xlsx_safe(value) for value in heatmap['columns']]])
+    lookup = {(item['row'], item['column']): item for item in heatmap['cells']}
+    for row_label in heatmap['rows']:
+        values = [lookup.get((row_label, column), {}).get('value') for column in heatmap['columns']]
+        heatmap_sheet.append([xlsx_safe(row_label), *values])
+    for cell in heatmap_sheet[5]:
+        cell.font = Font(bold=True, color='FFFFFF'); cell.fill = PatternFill('solid', fgColor='245B8A')
     output = BytesIO(); workbook.save(output)
     from core.services.compliance_audit import record_event
     record_event(

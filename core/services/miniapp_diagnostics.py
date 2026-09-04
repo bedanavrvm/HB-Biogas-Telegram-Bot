@@ -43,13 +43,13 @@ EVENT_TYPES = frozenset({
     'session_started', 'heartbeat', 'backgrounded', 'resumed',
     'page_hidden', 'page_restored', 'intentional_close', 'client_error',
     'startup_failure', 'navigation_or_native_dismissal', 'api_request',
-    'recovery_complete', 'client_capability',
+    'recovery_complete', 'client_capability', 'carousel_gesture',
 })
 ACTIONS = frozenset({
     '', 'boot', 'periodic', 'visibility_change', 'page_lifecycle',
     'submit_success', 'completed_batch', 'empty_queue', 'user_back',
     'native_close', 'unknown', 'api_request', 'recovery',
-    'gesture_policy',
+    'gesture_policy', 'gesture_started', 'gesture_completed',
 })
 STATUS_BUCKETS = frozenset({
     '', 'ok', 'client_error', 'server_error', 'offline', 'timeout',

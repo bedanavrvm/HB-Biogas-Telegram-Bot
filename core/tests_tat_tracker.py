@@ -70,7 +70,7 @@ from core.services.workflow_transitions import WorkflowRevisionConflict
 from core.services.workflow_sla import collect_sla_candidates, collect_tat_daily_metrics, record_sla_candidates
 from core.services.miniapp_settings import create_tat_configuration_request, preference_payload, review_tat_configuration_request, update_preference
 from core.services.tat_presentation import update_presentation_settings
-from core.services.tat_reporting import report_cases, report_summary
+from core.services.tat_reporting import export_report_xlsx, report_cases, report_summary
 from core.services.workflow_capabilities import default_enabled_capability_keys
 from core.services.sync_governance import assert_registered_schema_before_publish, audit_sheet_register
 
@@ -679,6 +679,14 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('id="tatSlaChart"', template)
         self.assertIn('id="tatPercentilesChart"', template)
         self.assertIn('id="tatTargetChart"', template)
+        self.assertIn('id="tatExplorerChart"', template)
+        self.assertIn('id="tatHeatmap"', template)
+        self.assertIn('id="tatTargetSignals"', template)
+        self.assertIn('id="tatOldestCases"', template)
+        self.assertIn('data-chart-display="carousel"', template)
+        self.assertIn("localStorage.setItem('tat-report-chart-display'", source)
+        self.assertIn("recordTatCarouselGesture('gesture_started')", source)
+        self.assertIn('data-heat-row', source)
         self.assertIn("summary.metric_basis || ''", source)
         self.assertIn("text: payload.axis_title || '% of target'", source)
 
@@ -746,6 +754,87 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(target['reference_line'], 100)
         self.assertEqual(target['excluded_count'], 0)
         self.assertEqual(case.case_id, 'TAT-REPORT-CHARTS')
+
+    def test_tat_reporting_explorer_heatmap_and_target_signals_use_exact_samples(self):
+        User = get_user_model()
+        super_user = User.objects.create_superuser(username='report-super', password='unused')
+        now = timezone.now()
+        cases = []
+        for index in range(20):
+            branch = 'Nakuru' if index < 10 else 'Embu'
+            case = TatTrackerCase.objects.create(
+                group_id=self.config.group_id, case_id=f'TAT-SIGNAL-{index:02d}',
+                product_key='business', product_label='Business', client_name=f'CLIENT {index}',
+                branch=branch, status='Active',
+                stage_values={
+                    'created': (now - timedelta(hours=2)).isoformat(),
+                    'mpesa_to_admin': now.isoformat(),
+                },
+                stage_target_snapshots={
+                    'mpesa_to_admin': {'target_minutes': '30', 'settings_version': 1},
+                },
+            )
+            cases.append(case)
+        for revision in range(2):
+            TatTrackerEvent.objects.create(
+                case=cases[0], group_id=self.config.group_id,
+                stage_key='mpesa_to_admin', stage_label='MPESA sent to Admin',
+                source='admin_correction', request_id=f'correction-{revision}',
+            )
+
+        payload = {
+            'view': 'performance', 'chart_dimension': 'branch',
+            'chart_metric': 'correction_rate', 'heatmap_pair': 'stage_branch',
+            'heatmap_metric': 'target_usage',
+            'date_from': timezone.localdate().isoformat(),
+            'date_to': timezone.localdate().isoformat(),
+        }
+        report = report_summary(super_user, payload)
+        explorer = report['charts']['explorer']
+        self.assertEqual(explorer['basis'], 'distinct_completed_actions_with_recorded_admin_correction')
+        self.assertEqual(dict(zip(explorer['labels'], explorer['series'][0]['values'])), {'Embu': 0.0, 'Nakuru': 10.0})
+        self.assertEqual(report['heatmap']['metric'], 'target_usage')
+        self.assertEqual(report['heatmap']['sample_count'], 20)
+        signal = next(item for item in report['target_review_signals']['items'] if item['stage_key'] == 'mpesa_to_admin')
+        self.assertEqual(signal['baseline']['valid_samples'], 20)
+        self.assertEqual(signal['baseline']['over_percent'], 100.0)
+        self.assertTrue(signal['baseline_systemic'])
+        self.assertEqual(signal['classification'], 'review_recommended')
+
+        narrowed = report_summary(super_user, {**payload, 'branch': 'Nakuru'})
+        narrowed_signal = next(item for item in narrowed['target_review_signals']['items'] if item['stage_key'] == 'mpesa_to_admin')
+        self.assertEqual(narrowed_signal['baseline']['valid_samples'], 20)
+        self.assertEqual(narrowed_signal['selected_scope']['valid_samples'], 10)
+        self.assertEqual(narrowed_signal['classification'], 'selected_scope_high')
+
+    def test_tat_report_rows_do_not_expose_internal_scope_keys(self):
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='TAT-PUBLIC-ROW', product_key='business',
+            product_label='Business', client_name='PUBLIC ROW', branch='Nakuru', status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+        )
+        row = report_cases(self.bro_user, {'view': 'current'})['results'][0]
+        self.assertFalse(any(key.startswith('_') for key in row))
+        with self.assertRaisesMessage(ValueError, 'chart dimension'):
+            report_summary(self.bro_user, {'chart_dimension': 'customer_name'})
+        with self.assertRaisesMessage(ValueError, 'heatmap comparison'):
+            report_summary(self.bro_user, {'heatmap_pair': 'stage_customer'})
+
+    def test_tat_report_export_reuses_audited_workbook_for_selected_insights(self):
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='TAT-EXPORT-INSIGHT', product_key='business',
+            product_label='Business', client_name='EXPORT CLIENT', branch='Nakuru', status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+        )
+        content, count = export_report_xlsx(
+            self.bro_user,
+            {'view': 'current', 'chart_dimension': 'branch', 'heatmap_pair': 'stage_branch'},
+            request_id='tat-export-selected-insight',
+        )
+        workbook = openpyxl.load_workbook(BytesIO(content), data_only=False)
+        self.assertEqual(count, 1)
+        self.assertEqual(workbook.sheetnames, ['TAT Report', 'Selected Insight', 'Selected Heatmap'])
+        self.assertIn('Branch', workbook['Selected Insight']['A1'].value)
 
     def test_daily_stage_duration_samples_only_belong_to_completion_date(self):
         now = timezone.now()

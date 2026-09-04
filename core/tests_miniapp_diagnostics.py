@@ -123,6 +123,22 @@ class MiniAppDiagnosticApiTests(TestCase):
         stored = MiniAppDiagnosticEvent.objects.get(event_type='client_capability')
         self.assertEqual(stored.action, 'gesture_policy')
         self.assertEqual(stored.status_bucket, 'ok')
+
+    @override_settings(
+        REQUIRE_MINIAPP_IDEMPOTENCY_KEY=False, SECURE_SSL_REDIRECT=False,
+        ALLOWED_HOSTS=['testserver'],
+    )
+    def test_carousel_gesture_signals_are_allowlisted_and_non_terminal(self):
+        started = self.start().json()
+        response = self.signal(self.session_uuid, started['signal_token'], [
+            self.event('carousel_gesture', action='gesture_started'),
+            self.event('carousel_gesture', action='gesture_completed'),
+        ])
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(MiniAppDiagnosticEvent.objects.filter(event_type='carousel_gesture').count(), 2)
+        session = MiniAppDiagnosticSession.objects.get()
+        self.assertEqual(session.classification, MiniAppDiagnosticSession.CLASSIFICATION_ACTIVE)
         session = MiniAppDiagnosticSession.objects.get()
         self.assertEqual(session.classification, MiniAppDiagnosticSession.CLASSIFICATION_ACTIVE)
         self.assertIsNone(session.ended_at)

@@ -42,7 +42,12 @@
     filterSheetOpen: false,
     filterSheetReturnFocus: null,
     personalPreference: {},
-    report: { view: 'current', page: 1, pageSize: 25, sort: '-created_at', sequence: 0, abortController: null, gridApi: null, charts: {}, count: 0, loaded: false },
+    report: {
+      view: 'current', page: 1, pageSize: 25, sort: '-created_at', sequence: 0,
+      abortController: null, gridApi: null, charts: {}, count: 0, loaded: false,
+      display: (() => { try { return localStorage.getItem('tat-report-chart-display') === 'list' ? 'list' : 'carousel'; } catch (error) { return 'carousel'; } })(),
+      activeSlide: 0, touchStart: null,
+    },
   };
 
   const $ = (id) => document.getElementById(id);
@@ -2032,20 +2037,157 @@
     return Array.from({ length: count }, (_, index) => palette[index % palette.length]);
   }
 
+  function renderExplorerDetails(payload) {
+    const target = $('tatExplorerDetails');
+    if (!target) return;
+    const details = [];
+    if (payload.metric === 'duration') {
+      Object.entries(payload.iqr_minutes || {}).forEach(([label, range]) => {
+        details.push(`<div><strong>${escapeHtml(label)}:</strong> middle 50% ${escapeHtml(formatMinutes(range.q1))} to ${escapeHtml(formatMinutes(range.q3))}</div>`);
+      });
+    }
+    if (payload.metric === 'load_per_assignee') {
+      Object.entries(payload.assignee_counts || {}).forEach(([label, count]) => {
+        details.push(`<div><strong>${escapeHtml(label)}:</strong> ${Number(count).toLocaleString()} configured assignee${Number(count) === 1 ? '' : 's'}</div>`);
+      });
+      if (payload.unassigned_case_count) details.push(`<div class="warning">${Number(payload.unassigned_case_count).toLocaleString()} cases have no matching configured assignee.</div>`);
+    }
+    target.innerHTML = details.join('');
+  }
+
+  function formatHeatmapValue(value, metric) {
+    if (value == null) return 'No data';
+    if (metric === 'duration') return formatMinutes(value);
+    if (metric === 'sla_met' || metric === 'target_usage') return `${Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
+    return Number(value).toLocaleString();
+  }
+
+  function renderTatHeatmap(payload) {
+    const panel = $('tatHeatmapPanel');
+    const target = $('tatHeatmap');
+    if (!panel || !target) return;
+    panel.hidden = !payload.id;
+    if (!payload.id) return;
+    $('tatHeatmapTitle').textContent = payload.title || 'Operational Heatmap';
+    const notes = [payload.subtitle || ''];
+    if (payload.excluded_count) notes.push(`${Number(payload.excluded_count).toLocaleString()} excluded: ${payload.exclusion_reason || 'not eligible'}.`);
+    $('tatHeatmapBasis').textContent = notes.filter(Boolean).join(' ');
+    const rows = payload.rows || []; const columns = payload.columns || []; const cells = payload.cells || [];
+    if (!rows.length || !columns.length) {
+      target.innerHTML = '<p class="chart-empty-static">No heatmap data matches these filters.</p>';
+      return;
+    }
+    const lookup = new Map(cells.map(cell => [`${cell.row}\u0000${cell.column}`, cell]));
+    const values = cells.map(cell => Number(cell.value)).filter(Number.isFinite);
+    const minimum = values.length ? Math.min(...values) : 0; const maximum = values.length ? Math.max(...values) : 0;
+    const body = rows.map((row, rowIndex) => `<tr><th scope="row">${escapeHtml(row)}</th>${columns.map((column, columnIndex) => {
+      const cell = lookup.get(`${row}\u0000${column}`) || { value: null, sample_count: 0, excluded_count: 0 };
+      const value = Number(cell.value); const intensity = Number.isFinite(value) && maximum > minimum ? Math.round(((value - minimum) / (maximum - minimum)) * 100) : (Number.isFinite(value) ? 55 : 0);
+      const shown = formatHeatmapValue(cell.value, payload.metric);
+      const description = `${row}, ${column}: ${shown}; ${Number(cell.sample_count || 0)} samples; ${Number(cell.excluded_count || 0)} excluded`;
+      return `<td><button type="button" data-heat-row="${rowIndex}" data-heat-column="${columnIndex}" style="--heat-intensity:${intensity}%" aria-label="${escapeHtml(description)}" title="${escapeHtml(description)}"><strong>${escapeHtml(shown)}</strong><small>n=${Number(cell.sample_count || 0)}</small></button></td>`;
+    }).join('')}</tr>`).join('');
+    target.innerHTML = `<table><caption class="sr-only">${escapeHtml(payload.title || 'Operational heatmap')}</caption><thead><tr><th scope="col">${escapeHtml((payload.row_dimension || 'Row').replaceAll('_', ' '))}</th>${columns.map(column => `<th scope="col">${escapeHtml(column)}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table>`;
+  }
+
+  function renderTargetReviewSignals(payload) {
+    const target = $('tatTargetSignals');
+    if (!target) return;
+    const signals = payload.items || [];
+    const notes = [payload.subtitle || ''];
+    if (payload.excluded_count) notes.push(`${Number(payload.excluded_count).toLocaleString()} excluded: ${payload.exclusion_reason || 'not eligible'}.`);
+    $('tatSignalsBasis').textContent = notes.filter(Boolean).join(' ');
+    if (!signals.length) {
+      target.innerHTML = '<p class="chart-empty-static">No completed actions with target data match this period.</p>';
+      return;
+    }
+    target.innerHTML = signals.map(signal => {
+      const stats = signal.baseline || {}; const tone = signal.classification === 'review_recommended' ? 'bad' : (signal.classification === 'none' ? '' : 'warn');
+      const raw = stats.over_percent == null ? 'No valid target samples' : `${stats.over_percent}% over target, n=${Number(stats.valid_samples || 0).toLocaleString()}, 95% lower bound ${stats.wilson_lower_bound}%`;
+      const selected = signal.selected_scope || {};
+      const selectedRaw = signal.classification === 'selected_scope_high' && selected.over_percent != null
+        ? `<small>Selected scope: ${escapeHtml(selected.over_percent)}% over, n=${Number(selected.valid_samples || 0).toLocaleString()}</small>` : '';
+      const heading = signal.group ? `${signal.stage} - ${signal.group}` : signal.stage;
+      return `<section class="tat-signal ${tone}"><div><strong>${escapeHtml(heading)}</strong><span>${escapeHtml(raw)}</span></div>${selectedRaw}${signal.message ? `<p>${escapeHtml(signal.message)}</p>` : '<p>No review signal at the current evidence threshold.</p>'}</section>`;
+    }).join('');
+  }
+
+  function renderOldestCases(payload) {
+    const target = $('tatOldestCases');
+    if (!target) return;
+    const rows = payload.items || [];
+    $('tatOldestBasis').textContent = payload.subtitle || '';
+    if (!rows.length) {
+      target.innerHTML = '<p class="chart-empty-static">No active cases match these filters.</p>';
+      return;
+    }
+    target.innerHTML = rows.map((row, index) => `<button type="button" class="tat-oldest-case" data-oldest-case="${escapeHtml(row.case_id)}"><span class="tat-oldest-rank">${index + 1}</span><span><strong>${escapeHtml(row.case_id)}</strong><small>${escapeHtml(row.client_name || 'Customer not provided')} - ${escapeHtml(row.current_stage || 'Stage not set')}</small></span><span class="${row.sla_state === 'overdue' ? 'bad' : row.sla_state === 'near_target' ? 'warn' : 'good'}">${escapeHtml(formatMinutes(row.elapsed_minutes))}</span></button>`).join('');
+  }
+
+  function visibleTatChartSlides() {
+    return [...document.querySelectorAll('#tatReportCharts [data-report-slide]')].filter(panel => !panel.hidden);
+  }
+
+  function syncTatChartDisplay() {
+    const container = $('tatReportCharts');
+    if (!container) return;
+    const slides = visibleTatChartSlides();
+    state.report.activeSlide = Math.max(0, Math.min(state.report.activeSlide, Math.max(0, slides.length - 1)));
+    container.classList.toggle('carousel', state.report.display === 'carousel');
+    container.classList.toggle('list', state.report.display === 'list');
+    slides.forEach((panel, index) => panel.classList.toggle('carousel-inactive', state.report.display === 'carousel' && index !== state.report.activeSlide));
+    document.querySelectorAll('[data-chart-display]').forEach(button => {
+      const active = button.dataset.chartDisplay === state.report.display;
+      button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active));
+    });
+    const paging = document.querySelector('.tat-chart-pagination');
+    if (paging) paging.hidden = state.report.display !== 'carousel';
+    $('tatChartPosition').textContent = slides.length ? `${state.report.activeSlide + 1} of ${slides.length}` : '0 of 0';
+    $('tatChartPrevious').disabled = slides.length < 2 || state.report.activeSlide === 0;
+    $('tatChartNext').disabled = slides.length < 2 || state.report.activeSlide === slides.length - 1;
+    if (state.report.display === 'carousel') {
+      const active = slides[state.report.activeSlide];
+      const canvas = active?.querySelector('canvas');
+      const chart = canvas && window.Chart?.getChart?.(canvas); chart?.resize?.();
+    }
+  }
+
+  function setTatChartDisplay(display) {
+    state.report.display = display === 'list' ? 'list' : 'carousel';
+    state.report.activeSlide = 0;
+    try { localStorage.setItem('tat-report-chart-display', state.report.display); } catch (error) {}
+    syncTatChartDisplay(); utils.haptic?.('light');
+  }
+
+  function moveTatChart(direction) {
+    if (state.report.display !== 'carousel') return;
+    const slides = visibleTatChartSlides();
+    const next = Math.max(0, Math.min(slides.length - 1, state.report.activeSlide + direction));
+    if (next === state.report.activeSlide) return;
+    state.report.activeSlide = next; syncTatChartDisplay(); utils.haptic?.('light');
+  }
+
+  function recordTatCarouselGesture(action) {
+    window.MiniAppDiagnostics?.record?.('carousel_gesture', { action, statusBucket: 'ok' });
+  }
+
   function renderTatReportCharts(summary) {
     Object.values(state.report.charts).forEach(chart => chart && chart.destroy());
     state.report.charts = {};
-    if (!window.Chart) return;
+    const charts = summary.charts || {};
+    renderExplorerDetails(charts.explorer || {});
+    renderTatHeatmap(summary.heatmap || {});
+    renderTargetReviewSignals(summary.target_review_signals || {});
+    renderOldestCases(summary.oldest_cases || {});
+    if (!window.Chart) { syncTatChartDisplay(); return; }
     const text = getComputedStyle(document.body).getPropertyValue('--tat-text').trim() || '#222';
     const grid = getComputedStyle(document.body).getPropertyValue('--tat-line').trim() || '#ddd';
     const colors = ['#3390ec', '#23a67a', '#ef9b36', '#8b6ee8', '#e45858', '#29a4b8', '#6a7a89'];
     const definitions = {
       trend: ['tatTrend', 'line'], backlog_age: ['tatBacklog', 'bar'],
       sla_compliance: ['tatSla', 'line'], tat_percentiles: ['tatPercentiles', 'line'],
-      stage_target: ['tatTarget', 'bar-horizontal'], stage: ['tatStage', 'bar-horizontal'],
-      role: ['tatRole', 'bar-horizontal'], person: ['tatPerson', 'bar-horizontal'],
+      stage_target: ['tatTarget', 'bar-horizontal'], explorer: ['tatExplorer', 'bar-horizontal'],
     };
-    const charts = summary.charts || {};
     const currentOnly = new Set(['backlog_age']);
     const performanceOnly = new Set(['sla_compliance', 'tat_percentiles', 'stage_target']);
     Object.entries(definitions).forEach(([key, [prefix, kind]]) => {
@@ -2084,13 +2226,19 @@
       if (key === 'tat_percentiles') options.scales.y.ticks.callback = value => formatMinutes(value);
       if (key === 'sla_compliance') { options.scales.y.max = 100; options.scales.y.title = { display: true, text: 'SLA met %', color: text }; }
       if (key === 'stage_target') options.scales.x.title = { display: true, text: payload.axis_title || '% of target', color: text };
+      if (key === 'explorer' && payload.metric === 'duration') options.scales.x.ticks.callback = value => formatMinutes(value);
+      if (key === 'explorer' && payload.metric === 'sla_state') { options.scales.x.stacked = true; options.scales.y.stacked = true; }
+      if (key === 'explorer' && ['target_usage', 'sla_met', 'correction_rate'].includes(payload.metric)) {
+        options.scales.x.title = { display: true, text: payload.axis_title || '%', color: text };
+      }
+      const semanticColors = { within_target: '#23a67a', near_target: '#ef9b36', overdue: '#e45858', target_unavailable: '#6a7a89' };
       const datasets = (payload.series || []).map((item, index) => ({
         label: item.label, data: item.values || [], borderColor: colors[index % colors.length],
-        backgroundColor: horizontal && (payload.series || []).length === 1 ? chartColors((payload.labels || []).length) : colors[index % colors.length],
+        backgroundColor: semanticColors[item.key] || (horizontal && (payload.series || []).length === 1 ? chartColors((payload.labels || []).length) : colors[index % colors.length]),
         tension: .25, spanGaps: false,
       }));
       const plugins = [];
-      if (key === 'stage_target' && payload.reference_line != null) plugins.push({
+      if (['stage_target', 'explorer'].includes(key) && payload.reference_line != null) plugins.push({
         id: 'tatTargetReference',
         afterDraw(chart) {
           const x = chart.scales.x.getPixelForValue(payload.reference_line);
@@ -2109,6 +2257,7 @@
         return `<div><strong>${escapeHtml(item.label)}:</strong> ${escapeHtml(item.median_days)}d median · ${escapeHtml(item.p90_days)}d P90 · ${escapeHtml(target)}</div>`;
       }).join('') : '';
     }
+    syncTatChartDisplay();
   }
 
   function renderReportFreshness(freshness) {
@@ -2191,11 +2340,46 @@
     if (!state.report.loaded) refreshTatReport();
   });
   document.querySelectorAll('[data-report-view]').forEach(button => button.addEventListener('click', () => setTatReportView(button.dataset.reportView)));
+  document.querySelectorAll('[data-chart-display]').forEach(button => button.addEventListener('click', () => setTatChartDisplay(button.dataset.chartDisplay)));
+  $('tatChartPrevious').addEventListener('click', () => moveTatChart(-1));
+  $('tatChartNext').addEventListener('click', () => moveTatChart(1));
+  $('tatReportCharts').addEventListener('keydown', event => {
+    if (event.target.matches('[data-heat-row]') && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
+      const current = event.target; const row = Number(current.dataset.heatRow); const column = Number(current.dataset.heatColumn);
+      const nextRow = row + (event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0);
+      const nextColumn = column + (event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0);
+      const next = document.querySelector(`[data-heat-row="${nextRow}"][data-heat-column="${nextColumn}"]`);
+      if (next) { event.preventDefault(); next.focus(); }
+      return;
+    }
+    if (event.target.closest('button, input, select, textarea, a')) return;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault(); moveTatChart(event.key === 'ArrowLeft' ? -1 : 1);
+    }
+  });
+  $('tatReportCharts').addEventListener('touchstart', event => {
+    if (state.report.display !== 'carousel' || event.touches.length !== 1) return;
+    const touch = event.touches[0]; state.report.touchStart = { x: touch.clientX, y: touch.clientY };
+    tg?.disableVerticalSwipes?.(); recordTatCarouselGesture('gesture_started');
+  }, { passive: true });
+  $('tatReportCharts').addEventListener('touchend', event => {
+    if (!state.report.touchStart || state.report.display !== 'carousel' || !event.changedTouches.length) return;
+    const touch = event.changedTouches[0]; const deltaX = touch.clientX - state.report.touchStart.x; const deltaY = touch.clientY - state.report.touchStart.y;
+    state.report.touchStart = null;
+    if (Math.abs(deltaX) < 45 || Math.abs(deltaX) <= Math.abs(deltaY) * 1.2) return;
+    moveTatChart(deltaX < 0 ? 1 : -1); recordTatCarouselGesture('gesture_completed');
+  }, { passive: true });
+  $('tatReportCharts').addEventListener('touchcancel', () => { state.report.touchStart = null; }, { passive: true });
+  $('tatOldestCases').addEventListener('click', event => {
+    const button = event.target.closest('[data-oldest-case]');
+    if (button) openCase(button.dataset.oldestCase).catch(error => setStatus(error.message, 'error'));
+  });
   $('tatReportFilters').addEventListener('submit', event => { event.preventDefault(); state.report.page = 1; refreshTatReport(); });
   let tatReportFilterTimer = null;
   $('tatReportFilters').elements.search.addEventListener('input', () => { clearTimeout(tatReportFilterTimer); tatReportFilterTimer = setTimeout(() => { state.report.page = 1; refreshTatReport(); }, 350); });
   $('tatReportReset').addEventListener('click', () => { $('tatReportFilters').reset(); setDefaultReportDates(); state.report.page = 1; refreshTatReport(); });
   ['date_from', 'date_to'].forEach(name => $('tatReportFilters').elements[name].addEventListener('change', syncReportDateDisplays));
+  ['chart_dimension', 'chart_metric', 'heatmap_pair', 'heatmap_metric'].forEach(name => $('tatReportFilters').elements[name].addEventListener('change', () => { state.report.page = 1; refreshTatReport(); }));
   $('tatReportPrevious').addEventListener('click', () => { if (state.report.page > 1) { state.report.page -= 1; refreshTatReport({ summary: false }); } });
   $('tatReportNext').addEventListener('click', () => { if (state.report.page * state.report.pageSize < state.report.count) { state.report.page += 1; refreshTatReport({ summary: false }); } });
   $('tatReportExport').addEventListener('click', exportTatReport);
