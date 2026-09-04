@@ -629,7 +629,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-sheet-overlay', stylesheet)
         self.assertIn('class="notice-close tat-sheet-close"', template)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
-        self.assertIn("miniapp/tat_tracker.css' %}?v=34", template)
+        self.assertIn("miniapp/tat_tracker.css' %}?v=45", template)
         self.assertIn('id="appHeader" class="app-top"', template)
         self.assertIn('class="refresh-label"', template)
         self.assertIn('function bindCollapsingHeader()', source)
@@ -741,6 +741,8 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Date.now() - cached.storedAt < 60000', source)
         self.assertIn('filterRevision: 0, insightCache: new Map()', source)
         self.assertIn('.tat-report-charts article.insight-loading{', stylesheet)
+        self.assertIn('.tat-report-charts .tat-heatmap{height:200px}', stylesheet)
+        self.assertIn('.tat-heatmap td{min-width:64px;padding:1px', stylesheet)
 
     def test_tat_reporting_is_scoped_allowlisted_and_page_size_capped(self):
         TatTrackerCase.objects.create(
