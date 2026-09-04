@@ -47,11 +47,11 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_payments.js'), html.index('miniapp/portal.js'))
         self.assertLess(html.index('miniapp/portal_imports.js'), html.index('miniapp/portal.js'))
         self.assertIn('miniapp/portal_queues.js?v=9', html)
-        self.assertIn('miniapp/portal_farmer_sheet.js?v=46', html)
-        self.assertIn('miniapp/utils.js?v=9', html)
+        self.assertIn('miniapp/portal_farmer_sheet.js?v=58', html)
+        self.assertIn('miniapp/utils.js?v=10', html)
         self.assertIn('miniapp/portal_helpers.js?v=6', html)
-        self.assertIn('miniapp/portal.css?v=78', html)
-        self.assertIn('miniapp/portal_filters.js?v=9', html)
+        self.assertIn('miniapp/portal.css?v=92', html)
+        self.assertIn('miniapp/portal_filters.js?v=11', html)
         self.assertIn('miniapp/portal_imports.js?v=7', html)
         self.assertNotIn('portal-import-group', html)
         self.assertIn('miniapp/portal_requisitions.js?v=33', html)
@@ -59,7 +59,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/portal_invoices.js?v=16', html)
         self.assertIn('miniapp/portal_payments.js?v=7', html)
         self.assertIn('miniapp/portal_reports.js?v=14', html)
-        self.assertIn('miniapp/portal.js?v=70', html)
+        self.assertIn('miniapp/portal.js?v=75', html)
         self.assertIn('miniapp/portal_case_history.js?v=1', html)
         self.assertLess(html.index('miniapp/portal_case_history.js'), html.index('miniapp/portal.js'))
 
@@ -635,6 +635,16 @@ class MiniAppFrontendSmokeTests(TestCase):
             'btn-gps',
         ):
             self.assertIn(expected, source)
+
+    def test_portal_maps_use_authenticated_runtime_carto_configuration(self):
+        portal_source = Path('core/static/miniapp/portal.js').read_text(encoding='utf-8')
+        sheet_source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
+
+        self.assertIn('state.cartoBasemaps = data.carto_basemaps', portal_source)
+        self.assertIn('const basemaps = state().cartoBasemaps || {};', sheet_source)
+        self.assertIn('if (!window.L || !basemaps.enabled || !tileUrl)', sheet_source)
+        self.assertIn("if (!state().cartoBasemaps?.enabled)", sheet_source)
+        self.assertNotIn("'https://{s}.basemaps.cartocdn.com", sheet_source)
 
     def test_credit_form_excludes_unrequested_approval_controls(self):
         source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')

@@ -416,6 +416,13 @@ def production_readiness_issues(settings, *, check_database: bool = False) -> li
     ):
         error('google-drive-folder', 'GOOGLE_DRIVE_MEDIA_FOLDER_ID is required when media uses Google Drive.')
 
+    if _blank_or_placeholder(getattr(settings, 'CARTO_BASEMAP_API_KEY', '')):
+        warning(
+            'carto-basemap-key',
+            'Configure CARTO_BASEMAP_API_KEY to enable embedded Portal maps; '
+            'the external Open Maps action remains available without it.',
+        )
+
     if not settings.SENTRY_DSN:
         warning('error-monitoring', 'Configure SENTRY_DSN for production error alerting.')
     elif _blank_or_placeholder(settings.SENTRY_DSN):

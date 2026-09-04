@@ -179,3 +179,31 @@ class OperationalLocationCompatibilityTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('Central Portal Branch', response.json()['branches'])
         self.assertIn('JBL Portal County', response.json()['counties'])
+        self.assertEqual(response.json()['carto_basemaps'], {
+            'enabled': False,
+            'light_url': '',
+            'dark_url': '',
+        })
+        self.assertEqual(response['Cache-Control'], 'private, no-store, max-age=0')
+
+    @override_settings(
+        PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False,
+        SECURE_SSL_REDIRECT=False,
+        CARTO_BASEMAP_API_KEY='carto key+/=?',
+    )
+    def test_portal_meta_exposes_url_encoded_carto_tile_templates(self):
+        response = self.client.get(reverse('portal_meta'))
+
+        self.assertEqual(response.status_code, 200)
+        basemaps = response.json()['carto_basemaps']
+        self.assertTrue(basemaps['enabled'])
+        self.assertEqual(
+            basemaps['light_url'],
+            'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/'
+            '{z}/{x}/{y}{r}.png?key=carto%20key%2B%2F%3D%3F',
+        )
+        self.assertEqual(
+            basemaps['dark_url'],
+            'https://{s}.basemaps.cartocdn.com/dark_all/'
+            '{z}/{x}/{y}{r}.png?key=carto%20key%2B%2F%3D%3F',
+        )

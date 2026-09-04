@@ -2035,7 +2035,9 @@ def portal_meta(request):
         )
         for capability in capabilities
     }
-    return JsonResponse({
+    carto_key = str(getattr(settings, 'CARTO_BASEMAP_API_KEY', '') or '').strip()
+    carto_key_query = f'?key={quote(carto_key, safe="")}' if carto_key else ''
+    response = JsonResponse({
         'ok': True,
         'business_date': timezone.localdate().isoformat(),
         'branches': branches,
@@ -2050,6 +2052,19 @@ def portal_meta(request):
         'capabilities': capabilities,
         'capability_scopes': capability_scopes,
         'access_policy_version': policy_version(),
+        'carto_basemaps': {
+            'enabled': bool(carto_key),
+            'light_url': (
+                'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/'
+                f'{{z}}/{{x}}/{{y}}{{r}}.png{carto_key_query}'
+                if carto_key else ''
+            ),
+            'dark_url': (
+                'https://{s}.basemaps.cartocdn.com/dark_all/'
+                f'{{z}}/{{x}}/{{y}}{{r}}.png{carto_key_query}'
+                if carto_key else ''
+            ),
+        },
         'jbl_visit_media_max_bytes': int(getattr(settings, 'MEDIA_MAX_FILE_SIZE_MB', 20) or 20) * 1024 * 1024,
         'jbl_visit_media_max_files': max(1, int(getattr(settings, 'PORTAL_JBL_VISIT_MAX_FILES', 6) or 6)),
         'jbl_visit_media_max_total_bytes': max(
@@ -2067,6 +2082,8 @@ def portal_meta(request):
         },
         'due_publication_operation_ids': _portal_due_publication_ids(request),
     })
+    response['Cache-Control'] = 'private, no-store, max-age=0'
+    return response
 
 
 @csrf_exempt

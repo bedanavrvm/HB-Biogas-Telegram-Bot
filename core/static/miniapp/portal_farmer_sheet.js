@@ -752,27 +752,36 @@
       mapLink.href = `https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}`;
       mapLink.hidden = false;
     }
-    if (!window.L) {
+    const basemaps = state().cartoBasemaps || {};
+    const isDark = (window.Telegram?.WebApp?.colorScheme === 'dark') ||
+      (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    const tileUrl = isDark ? basemaps.dark_url : basemaps.light_url;
+    if (!window.L || !basemaps.enabled || !tileUrl) {
+      if (mapInstance) {
+        mapInstance.remove();
+        mapInstance = null;
+        mapMarker = null;
+      }
       const fallback = el('sheet-map-fallback');
       if (fallback) fallback.hidden = false;
       return;
     }
 
-    const isDark = (window.Telegram?.WebApp?.colorScheme === 'dark') ||
-      (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    const tileUrl = isDark
-      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-      : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
     const attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
     const showMapFallback = () => {
       const fallback = el('sheet-map-fallback');
       if (fallback) fallback.hidden = false;
+    };
+    const hideMapFallback = () => {
+      const fallback = el('sheet-map-fallback');
+      if (fallback) fallback.hidden = true;
     };
 
     if (!mapInstance) {
       mapInstance = L.map('sheet-map', { zoomControl: true, attributionControl: true }).setView([lat, lng], 15);
       const tiles = L.tileLayer(tileUrl, { attribution, maxZoom: 20 }).addTo(mapInstance);
       tiles.on('tileerror', showMapFallback);
+      tiles.on('load', hideMapFallback);
       mapMarker = L.marker([lat, lng]).addTo(mapInstance).bindPopup(`Recorded location<br><small>${lat.toFixed(6)}, ${lng.toFixed(6)}</small>`);
     } else {
       mapInstance.setView([lat, lng], 15);
@@ -804,6 +813,10 @@
     if (!currentMapLocation) return;
     const { lat, lng } = currentMapLocation;
     const fallback = el('sheet-map-fallback');
+    if (!state().cartoBasemaps?.enabled) {
+      if (fallback) fallback.hidden = false;
+      return;
+    }
     if (fallback) fallback.hidden = true;
     if (mapInstance) {
       mapInstance.invalidateSize(true);

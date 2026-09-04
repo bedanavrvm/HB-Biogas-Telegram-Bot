@@ -44,6 +44,7 @@ class ProductionReadinessTests(SimpleTestCase):
             'GOOGLE_SERVICE_ACCOUNT_FILE': str(service_account_file),
             'MEDIA_STORAGE_PROVIDER': 'google_drive',
             'GOOGLE_DRIVE_MEDIA_FOLDER_ID': 'drive-folder-id',
+            'CARTO_BASEMAP_API_KEY': 'carto-test-key',
             'SENTRY_DSN': '',
             'TAT_TRACKER_SIGNATURES_ENABLED': False,
             'ESIGNATURES_BASE_URL': '',
@@ -74,6 +75,18 @@ class ProductionReadinessTests(SimpleTestCase):
             issues = production_readiness_issues(self._settings(credentials))
 
         self.assertEqual([(issue.severity, issue.code) for issue in issues], [('warning', 'error-monitoring')])
+
+    def test_missing_or_placeholder_carto_key_is_a_non_blocking_warning(self):
+        for value in ('', 'your-carto-key'):
+            with self.subTest(value=value):
+                issues = production_readiness_issues(self._settings(
+                    '/missing/service-account.json',
+                    CARTO_BASEMAP_API_KEY=value,
+                ))
+                carto_issues = [issue for issue in issues if issue.code == 'carto-basemap-key']
+
+                self.assertEqual(len(carto_issues), 1)
+                self.assertEqual(carto_issues[0].severity, 'warning')
 
     def test_insecure_or_placeholder_settings_are_reported_as_errors(self):
         issues = production_readiness_issues(

@@ -39,6 +39,7 @@
     metaBranches: [],
     metaCounties: [],
     metaLocationCatalog: {},
+    cartoBasemaps: { enabled: false, light_url: '', dark_url: '' },
     businessDate: '',
     jblVisitMediaMaxBytes: 20 * 1024 * 1024,
     jblVisitMediaMaxFiles: 6,
@@ -1323,6 +1324,7 @@
     state.metaBranches = data.branches || [];
     state.metaCounties = data.counties || [];
     state.metaLocationCatalog = data.location_catalog || {};
+    state.cartoBasemaps = data.carto_basemaps || { enabled: false, light_url: '', dark_url: '' };
     state.businessDate = data.business_date || state.businessDate;
     state.jblVisitMediaMaxBytes = Number(data.jbl_visit_media_max_bytes || state.jblVisitMediaMaxBytes);
     state.jblVisitMediaMaxFiles = Number(data.jbl_visit_media_max_files || state.jblVisitMediaMaxFiles);

@@ -339,6 +339,7 @@ This is a template of variables this class of system typically needs. Treat it a
 | `TELEGRAM_AUTH_MAX_AGE_SECONDS` | Maximum age accepted by the shared Telegram-to-Django authentication backend | No |
 | `COMPLAINT_CASE_MAX_FILES_PER_UPDATE` / `COMPLAINT_CASE_MAX_FILE_SIZE_MB` / `COMPLAINT_CASE_MAX_TOTAL_UPLOAD_MB` | Per-update count, per-file size, and total-size limits for complaint evidence uploads | No |
 | `PORTAL_JBL_VISIT_MAX_FILES` / `PORTAL_JBL_VISIT_MAX_TOTAL_UPLOAD_MB` | Combined file-count and upload-size limits for one Portal JBL Visit submission | No |
+| `CARTO_BASEMAP_API_KEY` | Browser-visible CARTO key for authenticated Portal map tiles; register and restrict it to the deployed Portal domain | Treat as deployment configuration |
 | `ORDER_APPROVAL_MAX_FILES_PER_SLOT` / `ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB` | Per-slot count and reviewed 30 MB total limit for one Order Approval submission | No |
 | `PORTAL_VOICE_INPUT_ENABLED` / `PORTAL_VOICE_PROVIDER` / `PORTAL_VOICE_MODEL` | Disabled-by-default Portal dictation pilot and approved transcription provider/model | No |
 | `GROQ_API_KEY` | Server-only Groq transcription credential; enable Zero Data Retention before operational use | Yes |
