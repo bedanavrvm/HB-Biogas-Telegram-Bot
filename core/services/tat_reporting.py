@@ -953,7 +953,8 @@ def report_summary(actor, payload, *, include_people=False):
     if filters['view'] == 'current':
         states = Counter(row['sla_state'] for row in rows)
         common['metrics'] = {
-            'active': len(rows), 'near_target': states['near_target'],
+            'active': len(rows), 'within_target': states['within_target'],
+            'near_target': states['near_target'],
             'overdue': states['overdue'],
             'stalled': sum(row['status'] == 'Stalled' for row in rows),
             'target_unavailable': states['target_unavailable'],

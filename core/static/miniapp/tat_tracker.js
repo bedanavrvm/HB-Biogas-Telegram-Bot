@@ -1969,6 +1969,19 @@
     $('openTatReportFiltersBtn')?.setAttribute('aria-busy', String(state.report.loading));
   }
 
+  function setTatReportInitialState(mode, detail) {
+    const overlay = $('tatReportInitialLoading');
+    if (!overlay) return;
+    const failed = mode === 'error';
+    overlay.hidden = mode === 'ready';
+    overlay.dataset.state = mode;
+    $('tatReportInitialLoadingTitle').textContent = failed ? 'TAT reports could not load' : 'Loading TAT reports...';
+    $('tatReportInitialLoadingDetail').textContent = failed
+      ? (detail || 'Check your connection and try again.')
+      : 'Preparing summary, insights and cases';
+    $('tatReportInitialRetry').hidden = !failed;
+  }
+
   function formatReportDate(value) {
     if (!value) return '';
     const text = String(value).trim();
@@ -2168,6 +2181,14 @@
     return `${(minutes / 1440).toFixed(1)}d`;
   }
 
+  function compactTatReportLabel(value) {
+    return String(value || '')
+      .replace(/^MPESA verified by (?:Business )?Admin(?:istrator)? (?:and|&) sent to (.+)$/i, 'M-PESA: Admin verified → $1')
+      .replace(/\bBusiness Administrator\b/gi, 'Admin')
+      .replace(/\bBusiness Admin\b/gi, 'Admin')
+      .replace(/\bBUSINESS_ADMIN\b/g, 'Admin');
+  }
+
   function initTatReportGrid() {
     if (state.report.gridApi || !window.agGrid) return;
     window.agGrid.ModuleRegistry.registerModules([window.agGrid.AllCommunityModule]);
@@ -2179,26 +2200,31 @@
         suppressMovable: true,
         valueGetter: params => ((state.report.page - 1) * state.report.pageSize) + Number(params.node.rowIndex || 0) + 1,
       },
-      { headerName: 'Reference', field: 'case_id', width: 125 },
-      { headerName: 'Customer', field: 'client_name', width: 180 },
-      { headerName: 'TAT Group', field: 'group', width: 145 },
-      { headerName: 'Branch', field: 'branch', width: 120 },
-      { headerName: 'Product', field: 'product_label', width: 145 },
-      { headerName: 'Status', field: 'status', width: 105 },
-      { headerName: 'Stage', field: 'current_stage', width: 165 },
-      { headerName: 'Role', field: 'responsible_role', width: 115 },
-      { headerName: 'Created', field: 'created_at', width: 105, valueFormatter: p => formatReportDate(p.value) },
-      { headerName: 'Finished', field: 'finished_at', width: 105, valueFormatter: p => formatReportDate(p.value) },
-      { headerName: 'Elapsed', field: 'elapsed_minutes', width: 95, valueFormatter: p => formatMinutes(p.value) },
-      { headerName: 'Target', field: 'target_minutes', width: 90, valueFormatter: p => formatMinutes(p.value) },
-      { headerName: 'Variance', field: 'variance_minutes', width: 90, valueFormatter: p => formatMinutes(p.value) },
-      { headerName: 'SLA', field: 'sla_state', width: 125, valueFormatter: p => String(p.value || '').replaceAll('_', ' '), cellClass: p => `sla-${p.value || ''}` },
+      { headerName: 'Reference', field: 'case_id', width: 112, minWidth: 92, tooltipField: 'case_id' },
+      { headerName: 'Customer', field: 'client_name', width: 145, minWidth: 110, tooltipField: 'client_name' },
+      { headerName: 'TAT Group', field: 'group', width: 112, minWidth: 90, tooltipField: 'group' },
+      { headerName: 'Branch', field: 'branch', width: 96, minWidth: 76, tooltipField: 'branch' },
+      { headerName: 'Product', field: 'product_label', width: 115, minWidth: 90, tooltipField: 'product_label' },
+      { headerName: 'Status', field: 'status', width: 88, minWidth: 74 },
+      { headerName: 'Stage', field: 'current_stage', width: 150, minWidth: 112, valueFormatter: p => compactTatReportLabel(p.value), tooltipValueGetter: p => p.value || '' },
+      { headerName: 'Role', field: 'responsible_role', width: 92, minWidth: 74, valueFormatter: p => compactTatReportLabel(p.value), tooltipValueGetter: p => p.value || '' },
+      { headerName: 'Created', field: 'created_at', width: 88, minWidth: 80, valueFormatter: p => formatReportDate(p.value) },
+      { headerName: 'Finished', field: 'finished_at', width: 88, minWidth: 80, valueFormatter: p => formatReportDate(p.value) },
+      { headerName: 'Elapsed', field: 'elapsed_minutes', width: 78, minWidth: 68, valueFormatter: p => formatMinutes(p.value) },
+      { headerName: 'Target', field: 'target_minutes', width: 74, minWidth: 66, valueFormatter: p => formatMinutes(p.value) },
+      { headerName: 'Variance', field: 'variance_minutes', width: 80, minWidth: 70, valueFormatter: p => formatMinutes(p.value) },
+      { headerName: 'SLA', field: 'sla_state', width: 104, minWidth: 86, valueFormatter: p => String(p.value || '').replaceAll('_', ' '), cellClass: p => `sla-${p.value || ''}` },
     ];
-    if ((((state.data || {}).user || {}).capabilities || []).includes('tat.reports.people.view')) columns.splice(9, 0, { headerName: 'Responsible Person', field: 'responsible_person', width: 160, sortable: false });
+    if ((((state.data || {}).user || {}).capabilities || []).includes('tat.reports.people.view')) columns.splice(9, 0, { headerName: 'Responsible Person', field: 'responsible_person', width: 135, minWidth: 105, sortable: false, tooltipField: 'responsible_person' });
     state.report.gridApi = window.agGrid.createGrid($('tatReportGrid'), {
       theme: 'legacy', rowData: [], animateRows: false, suppressMovableColumns: touch,
-      defaultColDef: { sortable: true, resizable: !touch, suppressMovable: touch },
+      defaultColDef: {
+        sortable: true, resizable: !touch, suppressMovable: touch, suppressSizeToFit: true,
+        tooltipValueGetter: p => p.value == null ? '' : String(p.value),
+        cellClassRules: { 'compact-long-value': p => String(p.value || '').length > 24 },
+      },
       columnDefs: columns,
+      enableBrowserTooltips: true,
       overlayLoadingTemplate: '<span>Loading TAT report…</span>',
       overlayNoRowsTemplate: '<span>No cases match these filters.</span>',
       onSortChanged(event) {
@@ -2218,7 +2244,7 @@
     (options || []).forEach(item => {
       const option = document.createElement('option');
       option.value = typeof item === 'string' ? item : item[valueKey];
-      option.textContent = typeof item === 'string' ? item : item[labelKey];
+      option.textContent = compactTatReportLabel(typeof item === 'string' ? item : item[labelKey]);
       select.append(option);
     });
     if ([...select.options].some(option => option.value === selected)) select.value = selected;
@@ -2227,7 +2253,7 @@
   function renderReportMetrics(metrics, metricBasis) {
     const current = state.report.view === 'current';
     const items = current ? [
-      ['active', 'Active', ''], ['near_target', 'Near Target', 'warn'], ['overdue', 'Overdue', 'bad'],
+      ['active', 'Active', ''], ['within_target', 'Within Target', 'good'], ['near_target', 'Near Target', 'warn'], ['overdue', 'Overdue', 'bad'],
       ['stalled', 'Marked Stalled', 'bad'], ['target_unavailable', 'Target Unavailable', ''],
     ] : [
       ['created', metricBasis === 'completed_stage_actions' ? 'Cases' : 'Created', ''],
@@ -2294,14 +2320,14 @@
     const lookup = new Map(cells.map(cell => [`${cell.row}\u0000${cell.column}`, cell]));
     const values = cells.map(cell => Number(cell.value)).filter(Number.isFinite);
     const minimum = values.length ? Math.min(...values) : 0; const maximum = values.length ? Math.max(...values) : 0;
-    const body = rows.map((row, rowIndex) => `<tr><th scope="row">${escapeHtml(row)}</th>${columns.map((column, columnIndex) => {
+    const body = rows.map((row, rowIndex) => `<tr><th scope="row" title="${escapeHtml(row)}">${escapeHtml(compactTatReportLabel(row))}</th>${columns.map((column, columnIndex) => {
       const cell = lookup.get(`${row}\u0000${column}`) || { value: null, sample_count: 0, excluded_count: 0 };
       const value = Number(cell.value); const intensity = Number.isFinite(value) && maximum > minimum ? Math.round(((value - minimum) / (maximum - minimum)) * 100) : (Number.isFinite(value) ? 55 : 0);
       const shown = formatHeatmapValue(cell.value, payload.metric);
-      const description = `${row}, ${column}: ${shown}; ${Number(cell.sample_count || 0)} samples; ${Number(cell.excluded_count || 0)} excluded`;
+      const description = `${compactTatReportLabel(row)}, ${compactTatReportLabel(column)}: ${shown}; ${Number(cell.sample_count || 0)} samples; ${Number(cell.excluded_count || 0)} excluded`;
       return `<td><button type="button" data-heat-row="${rowIndex}" data-heat-column="${columnIndex}" style="--heat-intensity:${intensity}%" aria-label="${escapeHtml(description)}" title="${escapeHtml(description)}"><strong>${escapeHtml(shown)}</strong><small>n=${Number(cell.sample_count || 0)}</small></button></td>`;
     }).join('')}</tr>`).join('');
-    target.innerHTML = `<table><caption class="sr-only">${escapeHtml(payload.title || 'Operational heatmap')}</caption><thead><tr><th scope="col">${escapeHtml((payload.row_dimension || 'Row').replaceAll('_', ' '))}</th>${columns.map(column => `<th scope="col">${escapeHtml(column)}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table>`;
+    target.innerHTML = `<table><caption class="sr-only">${escapeHtml(payload.title || 'Operational heatmap')}</caption><thead><tr><th scope="col">${escapeHtml((payload.row_dimension || 'Row').replaceAll('_', ' '))}</th>${columns.map(column => `<th scope="col" title="${escapeHtml(column)}">${escapeHtml(compactTatReportLabel(column))}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table>`;
   }
 
   function renderTargetReviewSignals(payload) {
@@ -2321,7 +2347,7 @@
       const selected = signal.selected_scope || {};
       const selectedRaw = signal.classification === 'selected_scope_high' && selected.over_percent != null
         ? `<small>Selected scope: ${escapeHtml(selected.over_percent)}% over, n=${Number(selected.valid_samples || 0).toLocaleString()}</small>` : '';
-      const heading = signal.group ? `${signal.stage} - ${signal.group}` : signal.stage;
+      const heading = compactTatReportLabel(signal.group ? `${signal.stage} - ${signal.group}` : signal.stage);
       return `<section class="tat-signal ${tone}"><div><strong>${escapeHtml(heading)}</strong><span>${escapeHtml(raw)}</span></div>${selectedRaw}${signal.message ? `<p>${escapeHtml(signal.message)}</p>` : '<p>No review signal at the current evidence threshold.</p>'}</section>`;
     }).join('');
   }
@@ -2335,7 +2361,7 @@
       target.innerHTML = '<p class="chart-empty-static">No active cases match these filters.</p>';
       return;
     }
-    target.innerHTML = rows.map((row, index) => `<button type="button" class="tat-oldest-case" data-oldest-case="${escapeHtml(row.case_id)}"><span class="tat-oldest-rank">${index + 1}</span><span><strong>${escapeHtml(row.case_id)}</strong><small>${escapeHtml(row.client_name || 'Customer not provided')} - ${escapeHtml(row.current_stage || 'Stage not set')}</small></span><span class="${row.sla_state === 'overdue' ? 'bad' : row.sla_state === 'near_target' ? 'warn' : 'good'}">${escapeHtml(formatMinutes(row.elapsed_minutes))}</span></button>`).join('');
+    target.innerHTML = rows.map((row, index) => `<button type="button" class="tat-oldest-case" data-oldest-case="${escapeHtml(row.case_id)}"><span class="tat-oldest-rank">${index + 1}</span><span><strong>${escapeHtml(row.case_id)}</strong><small>${escapeHtml(row.client_name || 'Customer not provided')} - ${escapeHtml(compactTatReportLabel(row.current_stage || 'Stage not set'))}</small></span><span class="${row.sla_state === 'overdue' ? 'bad' : row.sla_state === 'near_target' ? 'warn' : 'good'}">${escapeHtml(formatMinutes(row.elapsed_minutes))}</span></button>`).join('');
   }
 
   function visibleTatChartSlides() {
@@ -2438,7 +2464,7 @@
       }
       const horizontal = kind === 'bar-horizontal';
       const line = kind === 'line';
-      const dateLabels = line ? (payload.labels || []).map(formatReportDate) : (payload.labels || []);
+      const dateLabels = line ? (payload.labels || []).map(formatReportDate) : (payload.labels || []).map(compactTatReportLabel);
       const options = {
         responsive: true, maintainAspectRatio: false, indexAxis: horizontal ? 'y' : 'x',
         interaction: { mode: 'index', intersect: false },
@@ -2479,7 +2505,7 @@
       const rows = (charts.stage_target || {}).single_product_details || [];
       details.innerHTML = rows.length ? rows.map(item => {
         const target = item.target_days != null ? `${item.target_days}d target` : `${(item.target_versions_days || []).join('d / ')}d targets`;
-        return `<div><strong>${escapeHtml(item.label)}:</strong> ${escapeHtml(item.median_days)}d median · ${escapeHtml(item.p90_days)}d P90 · ${escapeHtml(target)}</div>`;
+        return `<div><strong title="${escapeHtml(item.label)}">${escapeHtml(compactTatReportLabel(item.label))}:</strong> ${escapeHtml(item.median_days)}d median · ${escapeHtml(item.p90_days)}d P90 · ${escapeHtml(target)}</div>`;
       }).join('') : '';
     }
     syncTatChartDisplay();
@@ -2501,10 +2527,12 @@
 
   async function refreshTatReport(options) {
     const settings = Object.assign({ summary: true, table: true }, options || {});
+    const initialLoad = !state.report.loaded;
     const sequence = ++state.report.sequence;
     state.report.abortController?.abort();
     const controller = new AbortController(); state.report.abortController = controller;
     initTatReportGrid();
+    if (initialLoad) setTatReportInitialState('loading');
     setTatReportLoading(true);
     if (settings.table) state.report.gridApi?.showLoadingOverlay();
     try {
@@ -2529,10 +2557,13 @@
         $('tatReportPrevious').disabled = state.report.page <= 1; $('tatReportNext').disabled = state.report.page >= pages;
       }
       state.report.loaded = true;
+      setTatReportInitialState('ready');
     } catch (error) {
       if (error.name === 'AbortError' || sequence !== state.report.sequence) return;
       state.report.gridApi?.hideOverlay();
-      setStatus(contextualReportError('The TAT report could not be updated', error), 'error');
+      const message = contextualReportError('The TAT report could not be updated', error);
+      if (initialLoad) setTatReportInitialState('error', message);
+      setStatus(message, 'error');
     } finally {
       if (state.report.abortController === controller) {
         state.report.abortController = null;
@@ -2656,6 +2687,10 @@
   $('tatReportPrevious').addEventListener('click', () => { if (state.report.page > 1) { state.report.page -= 1; utils.haptic?.('light'); refreshTatReport({ summary: false }); } });
   $('tatReportNext').addEventListener('click', () => { if (state.report.page * state.report.pageSize < state.report.count) { state.report.page += 1; utils.haptic?.('light'); refreshTatReport({ summary: false }); } });
   $('tatReportExport').addEventListener('click', exportTatReport);
+  $('tatReportInitialRetry').addEventListener('click', () => {
+    utils.impactWithFallback?.('light', 20);
+    refreshTatReport();
+  });
   $('refreshBtn').addEventListener('click', async () => {
     if (state.refreshing) return;
     state.refreshing = true;

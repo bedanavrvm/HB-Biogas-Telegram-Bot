@@ -673,7 +673,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('function formatTatDateTime(value)', source)
         self.assertIn('data-date-display="date_from"', template)
         self.assertIn("headerName: '#', colId: 'row_number', pinned: 'left', lockPinned: true", source)
-        self.assertIn("{ headerName: 'Reference', field: 'case_id', width: 125 }", source)
+        self.assertIn("{ headerName: 'Reference', field: 'case_id', width: 112, minWidth: 92", source)
         self.assertNotIn("field: 'case_id', pinned: 'left'", source)
         self.assertIn('id="tatBacklogChart"', template)
         self.assertIn('id="tatSlaChart"', template)
@@ -702,9 +702,14 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('class="native-date-icon"', template)
         self.assertIn('id="tatReportLoadingState"', template)
         self.assertIn('id="tatReportSheetLoading"', template)
+        self.assertIn('id="tatReportInitialLoading"', template)
+        self.assertIn('id="tatReportInitialRetry"', template)
         self.assertIn('function bindReportDatePickers()', source)
         self.assertIn("typeof input.showPicker !== 'function'", source)
         self.assertIn('function setTatReportLoading(loading)', source)
+        self.assertIn("setTatReportInitialState('ready')", source)
+        self.assertIn('function compactTatReportLabel(value)', source)
+        self.assertIn("['active', 'Active', ''], ['within_target', 'Within Target', 'good']", source)
         self.assertIn("contextualReportError('The TAT report could not be updated'", source)
         self.assertIn("'/api/tat-tracker/update/': 'Saving the case update'", source)
         self.assertIn('throw contextualTatApiError(path, error)', source)
@@ -716,6 +721,10 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('label[data-guidance="unavailable"]', stylesheet)
         self.assertIn('.tat-report-pagination span{position:static;grid-column:2', stylesheet)
         self.assertIn('.tat-report-loading,.tat-report-sheet-loading{', stylesheet)
+        self.assertIn('.tat-report-initial-loading{position:fixed', stylesheet)
+        self.assertIn('grid-template-columns:repeat(4,minmax(0,1fr))', stylesheet)
+        self.assertIn('.tat-report-charts article>div{position:relative;height:220px}', stylesheet)
+        self.assertIn('.tat-report-grid .ag-cell-value{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis', stylesheet)
         self.assertIn('.tat-report-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))', stylesheet)
         self.assertIn('@media(max-width:700px){.tat-report-filters{grid-template-columns:repeat(3,minmax(0,1fr))}', stylesheet)
 
@@ -725,6 +734,7 @@ class TatTrackerWorkflowTest(TestCase):
             product_label='Business', client_name='VISIBLE CLIENT', national_id='12345678',
             primary_phone='254700000000', branch='Nakuru', status='Active',
             stage_values={'created': timezone.now().isoformat()},
+            stage_target_snapshots={'mpesa_to_admin': {'target_minutes': '60'}},
         )
         TatTrackerCase.objects.create(
             group_id=self.config.group_id, case_id='TAT-REPORT-2', product_key='business',
@@ -741,6 +751,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(data['results'][0]['group'], 'TAT Test')
         summary = report_summary(self.bro_user, {'view': 'current'})
         self.assertEqual(summary['metrics']['active'], 1)
+        self.assertEqual(summary['metrics']['within_target'], 1)
         self.assertEqual(summary['filters']['groups'], [(self.config.group_id, 'TAT Test')])
         trend_guidance = summary['charts']['trend']['filter_guidance']
         self.assertIn('branch', trend_guidance['applicable_filters'])
