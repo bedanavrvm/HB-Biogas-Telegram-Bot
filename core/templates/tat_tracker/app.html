@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=49">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=50">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
@@ -174,7 +174,7 @@
           <label>ID Number<input class="tat-paste-field" name="national_id" inputmode="numeric" autocomplete="off" spellcheck="false" data-paste-normalize="digits" required pattern="[0-9]{7,8}" placeholder="7 or 8 digits"></label>
           <label>Phone Number<input class="tat-paste-field" name="primary_phone" type="tel" inputmode="tel" autocomplete="tel" spellcheck="false" required placeholder="0712 345 678"></label>
           <label>BRO Name<select name="bro_user_id" required></select></label>
-          <label>Amount (KES)<input class="tat-paste-field" name="amount" type="number" inputmode="decimal" autocomplete="off" data-paste-normalize="amount" min="0" step="1" required placeholder="0"></label>
+          <label>Amount (KES)<input class="tat-paste-field" name="amount" type="number" inputmode="decimal" autocomplete="off" data-paste-normalize="amount" min="0" step="1" required placeholder="0" aria-describedby="newCaseAmountHelp"><small id="newCaseAmountHelp" class="amount-range-help" aria-live="polite">Select a product to see its allowed amount range.</small></label>
           <div id="newCaseProductConfiguration" class="product-configuration-panel" hidden></div>
         </div>
         <section id="existingLoanContext" class="identity-context hidden" aria-live="polite"></section>
@@ -416,8 +416,9 @@
   <script src="{% static 'miniapp/utils.js' %}?v=9"></script>
   <script src="{% static 'miniapp/tat_api.js' %}?v=5"></script>
   <script src="{% static 'miniapp/tat_bro_assignment.js' %}?v=1"></script>
+  <script src="{% static 'miniapp/tat_case_validation.js' %}?v=1"></script>
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=74"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=75"></script>
 </body>
 </html>

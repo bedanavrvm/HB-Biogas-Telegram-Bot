@@ -2,6 +2,7 @@
   const utils = window.MiniAppUtils || {};
   const tatApi = window.TatMiniAppApi || {};
   const broAssignment = window.TatBroAssignment || {};
+  const caseValidation = window.TatCaseValidation || {};
   const tg = window.MiniAppTelegram ? window.MiniAppTelegram.init() : (utils.initTelegram ? utils.initTelegram() : null);
   const body = document.body;
   const state = {
@@ -1287,9 +1288,10 @@
     });
     const roles = (user.roles || []).join(', ') || 'Staff';
     $('userLine').textContent = `${user.name || 'Staff'} | ${roles}`;
-    fillSelect(document.querySelector('[name="product_key"]'), data.products, 'key', 'label');
-    document.querySelector('[name="product_key"]')?.addEventListener('change', renderNewCaseProductConfiguration);
-    renderNewCaseProductConfiguration();
+    const productInput = $('newCaseForm')?.elements.product_key;
+    fillSelect(productInput, data.products, 'key', 'label');
+    productInput?.addEventListener('change', refreshNewCaseProductControls);
+    refreshNewCaseProductControls();
     fillSelect(document.querySelector('[name="branch"]'), (data.branches || []).map((value) => ({ value, label: value })), 'value', 'label');
     renderFilterCheckboxes($('queueProductFilters'), data.products, 'key', 'label', 'product_keys');
     renderFilterCheckboxes($('queueBranchFilters'), (data.branches || []).map((value) => ({ value, label: value })), 'value', 'label', 'branches');
@@ -1335,10 +1337,34 @@
     return `<input type="${type}" ${data} value="${escapeHtml(value ?? '')}"${type === 'number' ? ' step="any" inputmode="decimal"' : ''}${item.type === 'document' ? ' placeholder="Document reference or evidence note"' : ''}>`;
   }
 
+  function selectedNewCaseProduct() {
+    const selectedKey = $('newCaseForm')?.elements.product_key?.value || '';
+    return (state.data?.products || []).find(item => item.key === selectedKey) || null;
+  }
+
+  function validateNewCaseAmount(report) {
+    const input = $('newCaseForm')?.elements.amount;
+    if (!input || !caseValidation.validateAmountInput) return true;
+    return caseValidation.validateAmountInput(input, selectedNewCaseProduct(), { report: Boolean(report) });
+  }
+
+  function configureNewCaseAmount() {
+    caseValidation.configureAmountInput?.(
+      $('newCaseForm')?.elements.amount,
+      $('newCaseAmountHelp'),
+      selectedNewCaseProduct(),
+    );
+    validateNewCaseAmount(false);
+  }
+
+  function refreshNewCaseProductControls() {
+    renderNewCaseProductConfiguration();
+    configureNewCaseAmount();
+  }
+
   function renderNewCaseProductConfiguration() {
     const container = $('newCaseProductConfiguration');
-    const selectedKey = document.querySelector('[name="product_key"]')?.value || '';
-    const product = (state.data?.products || []).find(item => item.key === selectedKey);
+    const product = selectedNewCaseProduct();
     const terms = product?.terms || {};
     const requirements = (terms.requirements || []).filter(item => item.enforcement_stage === 'created' && (!item.workflow || item.workflow === 'tat_tracker'));
     const attributes = (terms.custom_attributes || []).filter(item => !(item.workflows || []).length || item.workflows.includes('tat_tracker'));
@@ -3181,6 +3207,7 @@
 
   $('newCaseForm').addEventListener('submit', async (event) => {
     event.preventDefault();
+    if (!validateNewCaseAmount(true)) return;
     if (state.creatingCase) return;
     const formElement = event.currentTarget;
     const submitButton = formElement ? formElement.querySelector('button[type="submit"]') : null;
@@ -3212,7 +3239,7 @@
       writePendingCreateRequestId('');
       if (formElement && typeof formElement.reset === 'function') formElement.reset();
       newCaseProtection?.markClean();
-      renderNewCaseProductConfiguration();
+      refreshNewCaseProductControls();
       renderExistingLoanContext(null);
       const broInput = formElement?.elements.bro_user_id;
       if (broInput && broAssignment.defaultValue) {
@@ -3268,6 +3295,9 @@
     input?.addEventListener('input', scheduleExistingLoanContext);
     input?.addEventListener('blur', scheduleExistingLoanContext);
   });
+  const newCaseAmount = $('newCaseForm')?.elements.amount;
+  newCaseAmount?.addEventListener('input', () => validateNewCaseAmount(false));
+  newCaseAmount?.addEventListener('change', () => validateNewCaseAmount(false));
 
   async function startApp() {
     if (state.taskToken) {

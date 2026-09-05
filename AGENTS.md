@@ -262,6 +262,7 @@ The Mini Apps use Django templates and mostly vanilla JavaScript. Preserve Teleg
 - `core/tests_release_sequencing.py`
 - `core/tests_portal_imports.py`
 - `core/tests_js/tat_bro_assignment.test.js` — TAT creator default, complete BRO option, duplicate-label, and canonical assignment client contracts
+- `core/tests_js/tat_case_validation.test.js` — product-specific TAT amount limits and pre-submit client validation contracts
 - `core/tests_browser/miniapp_flows.spec.js` — intercepted Chromium contracts for
   first-party Mini App bootstrap, failure, retry, and mobile behaviour
 - `scripts/tests/` — CI-governance script unit tests

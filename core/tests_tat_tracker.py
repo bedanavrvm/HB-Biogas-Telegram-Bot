@@ -59,6 +59,7 @@ from core.services.tat_tracker import (
     sync_case_to_sheet,
     sync_tat_batch_created_cases,
     resync_tat_tracker_cases,
+    serialize_product,
     inspect_tat_sheet_duplicate_case_ids,
     cleanup_tat_sheet_duplicate_case_ids,
     _tat_sheet_call,
@@ -151,6 +152,15 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(product_by_key('mjengo').min_amount, Decimal('10000'))
         self.assertEqual(product_by_key('mjengo').max_amount, Decimal('500000'))
         self.assertEqual(product_by_key('micro_asset').min_amount, Decimal('10000'))
+        self.assertEqual(
+            {
+                key: value
+                for key, value in serialize_product(product_by_key('logbook')).items()
+                if key in {'min_amount', 'max_amount'}
+            },
+            {'min_amount': '50000.00', 'max_amount': '700000.00'},
+        )
+        self.assertEqual(serialize_product(product_by_key('business'))['max_amount'], '')
 
     def test_overdue_tat_stage_records_one_pending_follow_up_per_day(self):
         # SLA time is measured only during the official Nairobi business
@@ -599,7 +609,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Assigned to me', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=74", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=75", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -633,7 +643,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-sheet-overlay', stylesheet)
         self.assertIn('class="notice-close tat-sheet-close"', template)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
-        self.assertIn("miniapp/tat_tracker.css' %}?v=49", template)
+        self.assertIn("miniapp/tat_tracker.css' %}?v=50", template)
         self.assertIn('id="appHeader" class="app-top"', template)
         self.assertIn('class="refresh-label"', template)
         self.assertIn('function bindCollapsingHeader()', source)
