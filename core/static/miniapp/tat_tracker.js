@@ -1,6 +1,7 @@
 (function () {
   const utils = window.MiniAppUtils || {};
   const tatApi = window.TatMiniAppApi || {};
+  const broAssignment = window.TatBroAssignment || {};
   const tg = window.MiniAppTelegram ? window.MiniAppTelegram.init() : (utils.initTelegram ? utils.initTelegram() : null);
   const body = document.body;
   const state = {
@@ -9,6 +10,8 @@
     taskToken: body.dataset.taskToken || '',
     initData: tg ? tg.initData || '' : '',
     data: null,
+    broUsers: [],
+    defaultBroUserId: '',
     detail: null,
     currentView: 'queue',
     pendingCreateRequestId: readPendingCreateRequestId(),
@@ -410,10 +413,6 @@
     if (status === 'near') return 'Near target';
     if (status === 'over') return 'Over target';
     return '';
-  }
-
-  function currentUserName() {
-    return (state.data && state.data.user && state.data.user.name) ? state.data.user.name : '';
   }
 
   function requireCaseDetail(detail) {
@@ -1295,18 +1294,12 @@
     renderFilterCheckboxes($('queueProductFilters'), data.products, 'key', 'label', 'product_keys');
     renderFilterCheckboxes($('queueBranchFilters'), (data.branches || []).map((value) => ({ value, label: value })), 'value', 'label', 'branches');
     renderFilterCheckboxes($('queueStatusFilters'), (data.statuses || []).map((value) => ({ value, label: value })), 'value', 'label', 'statuses');
-    const broInput = document.querySelector('[name="bro_name"]');
-    const taggedBroUsers = Array.isArray(data.bro_users)
-      ? data.bro_users
-      : (data.bro_names || []).map((name) => ({ name }));
-    const broOptions = [{ value: '', label: 'Select BRO' }].concat(
-      taggedBroUsers.map((user) => ({
-        value: user.name || user.username || '',
-        label: user.name || user.username || 'Unnamed BRO',
-      })),
-    );
-    fillSelect(broInput, broOptions, 'value', 'label');
-    if ((data.bro_names || []).includes(currentUserName())) broInput.value = currentUserName();
+    const broInput = $('newCaseForm')?.elements.bro_user_id;
+    state.broUsers = broAssignment.normalizeUsers
+      ? broAssignment.normalizeUsers(data.bro_users, data.bro_names)
+      : [];
+    state.defaultBroUserId = String(data.default_bro_user_id || '');
+    broAssignment.populateSelect?.(broInput, state.broUsers, state.defaultBroUserId);
     const initialMetrics = data.metrics || {};
     const initialQueue = Number(initialMetrics.assigned || 0) > 0
       ? 'assigned'
@@ -3197,6 +3190,11 @@
       setStatus('Creating case...', 'busy');
       const form = new FormData(formElement);
       const payload = Object.fromEntries(form.entries());
+      const selectedBro = broAssignment.selectionPayload
+        ? broAssignment.selectionPayload(state.broUsers, payload.bro_user_id)
+        : { bro_user_id: '', bro_name: '' };
+      payload.bro_user_id = selectedBro.bro_user_id;
+      payload.bro_name = selectedBro.bro_name;
       const productConfiguration = collectProductConfiguration($('newCaseProductConfiguration'));
       payload.product_requirement_evidence = productConfiguration.requirementEvidence;
       payload.product_custom_values = productConfiguration.customValues;
@@ -3216,8 +3214,10 @@
       newCaseProtection?.markClean();
       renderNewCaseProductConfiguration();
       renderExistingLoanContext(null);
-      const broInput = document.querySelector('[name="bro_name"]');
-      if (broInput) broInput.value = payload.bro_name || '';
+      const broInput = formElement?.elements.bro_user_id;
+      if (broInput && broAssignment.defaultValue) {
+        broInput.value = broAssignment.defaultValue(state.broUsers, state.defaultBroUserId);
+      }
       setStatus('Case created. Continue from the highlighted stage.', 'ok');
       refresh({ background: true }).catch(() => {});
     } catch (error) {

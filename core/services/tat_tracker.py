@@ -440,9 +440,9 @@ def configured_bro_users(
     rather than a legacy staff table or a free-text user field.  Returning the
     canonical user id and username keeps the dropdown stable when two staff
     members share a display name while retaining the existing name value sent
-    by the form for backwards compatibility. TAT administrators/IT managers
-    may see role-tagged BROs across scopes when assigning a case; ordinary
-    staff remain group-scoped.
+    by the form for backwards compatibility. ``include_all_scopes`` is used
+    by case creation, where the assignment list is organization-wide even
+    though access to the created case remains governed separately.
     """
     from core.models import AccessGrant
     from core.services.telegram_identity import database_group_configuration
@@ -485,11 +485,12 @@ def bootstrap(group_config, user_payload: dict) -> dict:
         return {'authorized': False, 'user': user, 'reason': user.get('reason', 'Unauthorized')}
     products = [serialize_product(product) for product in _allowed_products(workflow, user)]
     home = home_data(group_config, user)
-    bro_users = configured_bro_users(
-        workflow,
-        group_config,
-        include_all_scopes=bool(set(user.get('roles') or []) & {BUSINESS_ADMIN_ROLE, 'IT', 'MANAGEMENT'}),
-    )
+    bro_users = configured_bro_users(workflow, group_config, include_all_scopes=True)
+    creator_user_id = str(user.get('user_id') or '')
+    default_bro_user_id = next((
+        item['id'] for item in bro_users
+        if str(item['id']) == creator_user_id
+    ), None)
     return {
         'authorized': True,
         'workflow_mode': serialize_mode(WORKFLOW_TAT),
@@ -500,6 +501,7 @@ def bootstrap(group_config, user_payload: dict) -> dict:
         # role-tagged ``bro_users`` records so duplicate names are unambiguous.
         'bro_names': [item['name'] for item in bro_users],
         'bro_users': bro_users,
+        'default_bro_user_id': default_bro_user_id,
         'statuses': STATUS_VALUES,
         # Bootstrap is the Mini App's first queue response. Keep its contract
         # identical to /home/ so the first render cannot invent zero counts
@@ -882,6 +884,41 @@ def soft_delete_tat_case(
     return True
 
 
+def _resolve_create_bro_name(group_config, workflow: dict, user: dict, payload: dict) -> str:
+    """Resolve a canonical BRO selection while retaining cached-client input."""
+    bro_users = configured_bro_users(
+        workflow,
+        group_config,
+        include_all_scopes=True,
+    )
+    requested_user_id = str(payload.get('bro_user_id') or '').strip()
+    if requested_user_id:
+        selected = next((
+            item for item in bro_users
+            if str(item['id']) == requested_user_id
+        ), None)
+        if selected is None:
+            raise ValueError('Select an active TAT BRO from the current list.')
+        return str(selected['name']).strip()
+
+    # Cached first-party clients submit the display snapshot only. Keep that
+    # contract until their normal cache lifetime has elapsed.
+    legacy_name = str(payload.get('bro_name') or '').strip()
+    if legacy_name:
+        return legacy_name
+
+    # A BRO creator may safely default to self even if an older client omits
+    # the field. Other roles must make an explicit assignment.
+    creator_user_id = str(user.get('user_id') or '')
+    creator = next((
+        item for item in bro_users
+        if str(item['id']) == creator_user_id
+    ), None)
+    if creator is not None:
+        return str(creator['name']).strip()
+    raise ValueError('Select a BRO before creating the case.')
+
+
 @transaction.atomic
 def create_case(group_config, user: dict, payload: dict) -> dict:
     _validate_tat_create_payload(payload)
@@ -893,7 +930,7 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
     national_id = normalize_national_id(payload.get('national_id'))
     primary_phone = normalize_kenyan_phone(payload.get('primary_phone'))
     branch = str(payload.get('branch') or '').strip()
-    bro_name = str(payload.get('bro_name') or user.get('name') or '').strip()
+    bro_name = _resolve_create_bro_name(group_config, workflow, user, payload)
     amount = parse_amount(payload.get('amount'))
     if not client_name:
         raise ValueError('Client name is required.')

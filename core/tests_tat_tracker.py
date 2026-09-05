@@ -599,7 +599,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Assigned to me', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=73", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=74", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -1958,6 +1958,7 @@ class TatTrackerWorkflowTest(TestCase):
     def test_bootstrap_exposes_users_tagged_with_bro_role(self):
         data = bootstrap(self.config, {'id': 111, 'username': 'bro_user'})
 
+        self.assertEqual(data['default_bro_user_id'], self.bro_user.pk)
         self.assertEqual(
             data['bro_users'],
             [{
@@ -1968,7 +1969,7 @@ class TatTrackerWorkflowTest(TestCase):
             }],
         )
 
-    def test_tat_admin_bootstrap_can_see_bro_tags_across_scopes(self):
+    def test_bootstrap_lists_active_bros_across_scopes_for_every_creator(self):
         User = get_user_model()
         other_group = GroupSheetConfiguration.objects.create(
             group_id='-100tat-other', sheet_id='other-sheet', sheet_name='TAT Other',
@@ -1982,10 +1983,27 @@ class TatTrackerWorkflowTest(TestCase):
             user=other_bro, workflow='tat_tracker', role='BRO',
             group_configuration=other_group,
         )
+        inactive_bro = User.objects.create_user(
+            username='inactive-bro', first_name='Inactive', last_name='BRO', is_active=False,
+        )
+        AccessGrant.objects.create(
+            user=inactive_bro, workflow='tat_tracker', role='BRO',
+            group_configuration=other_group,
+        )
 
-        data = bootstrap(self.config, {'id': 222, 'username': 'admin_user'})
+        bro_data = bootstrap(self.config, {'id': 111, 'username': 'bro_user'})
+        admin_data = bootstrap(self.config, {'id': 222, 'username': 'admin_user'})
 
-        self.assertIn('Other BRO', [item['name'] for item in data['bro_users']])
+        self.assertEqual(
+            {item['name'] for item in bro_data['bro_users']},
+            {'BRO User', 'Other BRO'},
+        )
+        self.assertEqual(
+            {item['name'] for item in admin_data['bro_users']},
+            {'BRO User', 'Other BRO'},
+        )
+        self.assertEqual(bro_data['default_bro_user_id'], self.bro_user.pk)
+        self.assertIsNone(admin_data['default_bro_user_id'])
 
     def test_tat_formula_helpers_match_tracker_columns(self):
         business = product_by_key('business')
@@ -3351,6 +3369,100 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(search_cases(self.config, user, '0712345678')[0]['case_id'], case.case_id)
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_create_case_resolves_bro_user_id_to_canonical_name(self, sync_mock):
+        sync_mock.side_effect = self.mark_case_synced
+        User = get_user_model()
+        other_group = GroupSheetConfiguration.objects.create(
+            group_id='-100tat-assignment', sheet_id='assignment-sheet',
+            sheet_name='TAT Assignment', workflow={'type': 'tat_tracker'},
+        )
+        selected_bro = User.objects.create_user(
+            username='selected-bro', first_name='Selected', last_name='BRO', is_active=True,
+        )
+        AccessGrant.objects.create(
+            user=selected_bro, workflow='tat_tracker', role='BRO',
+            group_configuration=other_group,
+        )
+        user = staff_user_for_payload(self.config, {'id': 222, 'username': 'admin_user'})
+
+        detail = create_case(self.config, user, {
+            'product_key': 'business',
+            'branch': 'Nakuru',
+            'client_name': 'Assigned Client',
+            'national_id': '12345678',
+            'primary_phone': '0712345678',
+            'bro_user_id': selected_bro.pk,
+            'bro_name': 'Stale Browser Name',
+            'amount': '10000',
+        })
+
+        case = TatTrackerCase.objects.get(case_id=detail['summary']['case_id'])
+        self.assertEqual(case.bro_name, 'Selected BRO')
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_create_case_rejects_unknown_or_inactive_bro_user_id(self, sync_mock):
+        User = get_user_model()
+        inactive_bro = User.objects.create_user(
+            username='inactive-selected-bro', first_name='Inactive', last_name='Selected',
+            is_active=False,
+        )
+        AccessGrant.objects.create(
+            user=inactive_bro, workflow='tat_tracker', role='BRO',
+            group_configuration=self.config,
+        )
+        user = staff_user_for_payload(self.config, {'id': 222, 'username': 'admin_user'})
+        payload = {
+            'product_key': 'business',
+            'branch': 'Nakuru',
+            'client_name': 'Invalid Assignment',
+            'national_id': '12345678',
+            'primary_phone': '0712345678',
+            'amount': '10000',
+        }
+
+        for bro_user_id in (inactive_bro.pk, '999999'):
+            with self.subTest(bro_user_id=bro_user_id):
+                with self.assertRaisesRegex(ValueError, 'active TAT BRO'):
+                    create_case(self.config, user, {**payload, 'bro_user_id': bro_user_id})
+
+        self.assertFalse(TatTrackerCase.objects.exists())
+        sync_mock.assert_not_called()
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_create_case_defaults_active_bro_creator_to_self(self, sync_mock):
+        sync_mock.side_effect = self.mark_case_synced
+        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+
+        detail = create_case(self.config, user, {
+            'product_key': 'business',
+            'branch': 'Nakuru',
+            'client_name': 'Default Assignment',
+            'national_id': '12345678',
+            'primary_phone': '0712345678',
+            'amount': '10000',
+        })
+
+        case = TatTrackerCase.objects.get(case_id=detail['summary']['case_id'])
+        self.assertEqual(case.bro_name, 'BRO User')
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_create_case_requires_non_bro_creator_to_select_bro(self, sync_mock):
+        user = staff_user_for_payload(self.config, {'id': 222, 'username': 'admin_user'})
+
+        with self.assertRaisesRegex(ValueError, 'Select a BRO'):
+            create_case(self.config, user, {
+                'product_key': 'business',
+                'branch': 'Nakuru',
+                'client_name': 'Missing Assignment',
+                'national_id': '12345678',
+                'primary_phone': '0712345678',
+                'amount': '10000',
+            })
+
+        self.assertFalse(TatTrackerCase.objects.exists())
+        sync_mock.assert_not_called()
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_create_case_rejects_invalid_customer_identifiers(self, sync_mock):
         user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
         payload = {
@@ -3403,7 +3515,8 @@ class TatTrackerWorkflowTest(TestCase):
             'client_name': 'Test Client',
             'national_id': '12345678',
             'primary_phone': '0712345678',
-            'bro_name': 'BRO User',
+            'bro_user_id': self.bro_user.pk,
+            'bro_name': 'Stale Browser Name',
             'amount': '10000',
             'client_request_id': 'req-123',
         }
@@ -3413,6 +3526,7 @@ class TatTrackerWorkflowTest(TestCase):
 
         self.assertEqual(first['summary']['case_id'], second['summary']['case_id'])
         self.assertEqual(TatTrackerCase.objects.count(), 1)
+        self.assertEqual(TatTrackerCase.objects.get().bro_name, 'BRO User')
         self.assertEqual(sync_mock.call_count, 1)
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
