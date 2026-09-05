@@ -6,15 +6,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>TAT Tracker</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=10"></script>
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=51">
+  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=7">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=52">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}" data-task-token="{{ task_token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -413,12 +414,11 @@
 
   <script src="{% static 'miniapp/telegram.js' %}?v=3"></script>
   {% include "miniapp_diagnostics.html" %}
-  <script src="{% static 'miniapp/utils.js' %}?v=9"></script>
   <script src="{% static 'miniapp/tat_api.js' %}?v=5"></script>
   <script src="{% static 'miniapp/tat_bro_assignment.js' %}?v=1"></script>
   <script src="{% static 'miniapp/tat_case_validation.js' %}?v=1"></script>
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=77"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=78"></script>
 </body>
 </html>

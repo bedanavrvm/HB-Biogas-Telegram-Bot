@@ -605,11 +605,21 @@ class TatPrivateTaskTests(TestCase):
 
         self.assertTrue(first['connected'])
         self.assertTrue(second['connected'])
-        self.assertEqual(telegram.call_count, 1)
+        self.assertEqual(telegram.call_count, 2)
         self.assertEqual(
-            telegram.call_args.args[1]['text'],
+            telegram.call_args_list[0].args[1]['text'],
             '✅ Task Alerts Connected\n\n'
             'You will receive your assigned TAT tasks and alerts in this chat.',
+        )
+        self.assertEqual(
+            telegram.call_args_list[1].args,
+            (
+                'setChatMenuButton',
+                {
+                    'chat_id': str(self.primary.staff_profile.telegram_id),
+                    'menu_button': {'type': 'commands'},
+                },
+            ),
         )
         self.assertEqual(
             TatPrivateAlertConnectionEvent.objects.filter(
@@ -653,7 +663,23 @@ class TatPrivateTaskTests(TestCase):
         self.assertTrue(result['connected'])
         self.assertEqual(connection.status, TatPrivateAlertConnection.STATUS_CONNECTED)
         self.assertIsNone(connection.disconnected_at)
-        self.assertEqual(telegram.call_count, 1)
+        self.assertEqual(telegram.call_count, 2)
+
+    @patch('core.services.tat_notifications._telegram_request')
+    def test_chat_menu_reset_failure_does_not_disable_private_alerts(self, telegram):
+        def telegram_result(method, _payload):
+            if method == 'setChatMenuButton':
+                raise RuntimeError('synthetic menu reset failure')
+            return {'message_id': 83}
+
+        telegram.side_effect = telegram_result
+
+        result = connect_private_alerts(self.primary, request_id='menu-reset-failure-0001')
+
+        connection = TatPrivateAlertConnection.objects.get(user=self.primary)
+        self.assertTrue(result['connected'])
+        self.assertEqual(connection.status, TatPrivateAlertConnection.STATUS_CONNECTED)
+        self.assertEqual(telegram.call_count, 2)
 
     @patch('core.services.tat_notifications._telegram_request', side_effect=RuntimeError('synthetic failure'))
     def test_failed_connect_is_persisted_and_same_request_is_not_resent(self, telegram):

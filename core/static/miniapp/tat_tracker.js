@@ -2792,6 +2792,22 @@
     syncTatChartDisplay();
   }
 
+  function refreshTatVisualTheme() {
+    const text = getComputedStyle(document.body).getPropertyValue('--tat-text').trim() || '#222';
+    const grid = getComputedStyle(document.body).getPropertyValue('--tat-line').trim() || '#ddd';
+    Object.values(state.report.charts).forEach((chart) => {
+      if (!chart || !chart.options) return;
+      if (chart.options.plugins?.legend?.labels) chart.options.plugins.legend.labels.color = text;
+      Object.values(chart.options.scales || {}).forEach((scale) => {
+        if (scale.ticks) scale.ticks.color = text;
+        if (scale.grid) scale.grid.color = grid;
+        if (scale.title) scale.title.color = text;
+      });
+      chart.update('none');
+    });
+    state.report.gridApi?.refreshCells?.({ force: true });
+  }
+
   function renderReportFreshness(freshness) {
     const parts = [];
     if (freshness.latest_snapshot) {
@@ -3356,6 +3372,7 @@
   bindReportDatePickers();
   bindCollapsingHeader();
   syncTatReportChartTypeToggles();
+  utils.bindMiniAppTheme?.(tg, refreshTatVisualTheme);
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
     if (state.report.filterSheetOpen) closeTatReportFilters();

@@ -687,6 +687,27 @@ def _telegram_request(method: str, payload: dict):
     return data.get('result') or {}
 
 
+def _reset_private_chat_menu(telegram_id: str) -> None:
+    """Remove a stale default Mini App button from a TAT alert chat.
+
+    Telegram can retain a bot-level Web App menu button (for example, an old
+    Order Approval launcher) in a user's private chat.  TAT task buttons are
+    issued separately as scoped inline links, so this chat-specific override
+    safely restores the ordinary commands menu without changing task access.
+    A menu reset is cosmetic and must never prevent durable alert connection.
+    """
+    try:
+        _telegram_request('setChatMenuButton', {
+            'chat_id': telegram_id,
+            'menu_button': {'type': 'commands'},
+        })
+    except Exception as exc:
+        logger.warning(
+            'Could not reset the private Telegram menu during TAT alert connection: %s',
+            type(exc).__name__,
+        )
+
+
 def _send_recipient(recipient: TatActionTaskRecipient) -> bool:
     # Claim the row before crossing the Telegram boundary. A concurrent web
     # request or scheduler run will see the future retry time and cannot send
@@ -1247,6 +1268,7 @@ def connect_private_alerts(user, *, request_id: str = '') -> dict:
                 detail_code=failure_code, actor=user,
             )
         raise
+    _reset_private_chat_menu(telegram_id)
     with transaction.atomic():
         connection = TatPrivateAlertConnection.objects.select_for_update().get(user=user)
         if (

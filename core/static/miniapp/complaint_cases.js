@@ -824,6 +824,10 @@
   function chartColor(token, fallback) {
     return getComputedStyle(document.documentElement).getPropertyValue(token).trim() || fallback;
   }
+  function refreshComplaintTheme() {
+    if (state.globalOverview) renderReportCharts(state.globalOverview);
+    state.reportGridApi?.refreshCells?.({ force: true });
+  }
   function categoryColorMap(summary) {
     const labels = (summary.filter_options?.categories || summary.by_category || [])
       .map(item => item.label).sort((left, right) => left.localeCompare(right));
@@ -847,6 +851,7 @@
     state.categoryChart?.destroy(); state.timeChart?.destroy(); state.categoryChart = null; state.timeChart = null;
     const categories = summary.by_category || []; const periods = summary.by_time || [];
     const textColor = chartColor('--muted', '#667085');
+    const gridColor = chartColor('--line', 'rgba(22,36,29,.12)');
     setChartState('category', categories.length ? '' : 'No complaint types match these filters.');
     setChartState('time', periods.length ? '' : 'No complaints match this time period.');
     if (!categories.length && !periods.length) return;
@@ -861,7 +866,7 @@
       }, options: {
         responsive: true, maintainAspectRatio: false, indexAxis: categoryIsPie ? 'x' : 'y',
         plugins: { legend: { display: categoryIsPie, position: 'bottom', labels: { color: textColor, boxWidth: 10, boxHeight: 10, font: { size: 9 } } } },
-        scales: categoryIsPie ? {} : { x: { beginAtZero: true, ticks: { precision: 0, color: textColor } }, y: { ticks: { color: textColor } } },
+        scales: categoryIsPie ? {} : { x: { beginAtZero: true, ticks: { precision: 0, color: textColor }, grid: { color: gridColor } }, y: { ticks: { color: textColor }, grid: { color: gridColor } } },
       },
     });
     }
@@ -869,7 +874,7 @@
       type: 'line', data: {
         labels: periods.map(item => formatChartPeriodDate(item.label, summary.time_granularity || state.reportGranularity)),
         datasets: [{ data: periods.map(item => item.count), borderColor: chartColor('--accent', '#087f5b'), backgroundColor: chartColor('--soft', 'rgba(8,127,91,.12)'), fill: true, tension: .25, pointRadius: 2 }],
-      }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: textColor, autoSkip: true, autoSkipPadding: 8, maxTicksLimit: window.innerWidth <= 480 ? 4 : 8, maxRotation: 0, minRotation: 0, padding: 4, font: { size: 9 } } }, y: { beginAtZero: true, ticks: { precision: 0, color: textColor } } } },
+      }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: textColor, autoSkip: true, autoSkipPadding: 8, maxTicksLimit: window.innerWidth <= 480 ? 4 : 8, maxRotation: 0, minRotation: 0, padding: 4, font: { size: 9 } }, grid: { color: gridColor } }, y: { beginAtZero: true, ticks: { precision: 0, color: textColor }, grid: { color: gridColor } } } },
     });
   }
   function preserveSelectOptions(select, items, placeholder) {
@@ -1232,5 +1237,6 @@
   telegram?.BackButton?.onClick(returnPrevious);
   updateReportDateControls();
   bindCollapsingHeader();
+  utils.bindMiniAppTheme?.(telegram, refreshComplaintTheme);
   bootstrap();
 }());

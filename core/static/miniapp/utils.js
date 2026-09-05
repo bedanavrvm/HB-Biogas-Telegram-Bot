@@ -9,6 +9,50 @@
   let closingConfirmationEnabled = null;
   let writeProtectionInstalled = false;
 
+  function miniAppColorScheme(tg) {
+    const telegramScheme = String(tg && tg.colorScheme || '').toLowerCase();
+    if (telegramScheme === 'dark' || telegramScheme === 'light') return telegramScheme;
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+      ? 'dark'
+      : 'light';
+  }
+
+  function applyMiniAppTheme(tg) {
+    const colorScheme = miniAppColorScheme(tg);
+    if (typeof document === 'undefined' || !document.documentElement) return colorScheme;
+    const root = document.documentElement;
+    root.dataset.miniappColorScheme = colorScheme;
+    root.style.colorScheme = colorScheme;
+    const theme = tg && tg.themeParams || {};
+    const background = String(theme.bg_color || '').trim();
+    const bottomBar = String(theme.bottom_bar_bg_color || theme.secondary_bg_color || background).trim();
+    try {
+      if (background && typeof tg.setHeaderColor === 'function') tg.setHeaderColor(background);
+    } catch (error) {}
+    try {
+      if (background && typeof tg.setBackgroundColor === 'function') tg.setBackgroundColor(background);
+    } catch (error) {}
+    try {
+      if (bottomBar && typeof tg.setBottomBarColor === 'function') tg.setBottomBarColor(bottomBar);
+    } catch (error) {}
+    return colorScheme;
+  }
+
+  function bindMiniAppTheme(tg, onChange) {
+    const refresh = function () {
+      const colorScheme = applyMiniAppTheme(tg);
+      if (typeof onChange === 'function') onChange(colorScheme);
+      return colorScheme;
+    };
+    if (tg && typeof tg.onEvent === 'function') tg.onEvent('themeChanged', refresh);
+    if (window.matchMedia) {
+      const media = window.matchMedia('(prefers-color-scheme: dark)');
+      if (typeof media.addEventListener === 'function') media.addEventListener('change', refresh);
+      else if (typeof media.addListener === 'function') media.addListener(refresh);
+    }
+    return { colorScheme: refresh(), refresh: refresh };
+  }
+
   function telegramWebApp() {
     return window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
   }
@@ -587,6 +631,11 @@
     target.append(heading, facts, note);
   }
 
+  // Apply Telegram's current palette before application bootstrap. Pages that
+  // load this shared utility in <head> avoid a light flash in a dark Telegram
+  // session; bindMiniAppTheme adds the live themeChanged subscription later.
+  applyMiniAppTheme(telegramWebApp());
+
   window.MiniAppUtils = {
     apiError: apiError,
     escapeHtml: escapeHtml,
@@ -601,6 +650,7 @@
     clearCloseProtection: clearCloseProtection,
     protectWhile: protectWhile,
     bindFormCloseProtection: bindFormCloseProtection,
+    bindMiniAppTheme: bindMiniAppTheme,
     haptic: haptic,
     impactWithFallback: impactWithFallback,
     skeletonCards: skeletonCards,

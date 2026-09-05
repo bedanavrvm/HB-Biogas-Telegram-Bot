@@ -11,6 +11,57 @@ async function loadUtilities(page) {
   await page.addScriptTag({ path: asset('utils.js') });
 }
 
+test('Complaints and TAT follow Telegram theme independently of the device theme', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.setContent('<input id="nativeControl" type="date"><div id="tatGrid" class="ag-theme-quartz tat-report-grid"></div>');
+  await page.addStyleTag({ path: asset('base.css') });
+  await page.addStyleTag({ path: asset('complaint_cases.css') });
+  await loadUtilities(page);
+  await page.evaluate(() => {
+    window.__themeEvents = {};
+    window.__themeChrome = {};
+    window.__themeWebApp = {
+      colorScheme: 'dark',
+      themeParams: { bg_color: '#101714', secondary_bg_color: '#18231e' },
+      onEvent(name, callback) { window.__themeEvents[name] = callback; },
+      setHeaderColor(value) { window.__themeChrome.header = value; },
+      setBackgroundColor(value) { window.__themeChrome.background = value; },
+      setBottomBarColor(value) { window.__themeChrome.bottom = value; },
+    };
+    window.MiniAppUtils.bindMiniAppTheme(window.__themeWebApp);
+  });
+
+  await expect(page.locator('html')).toHaveAttribute('data-miniapp-color-scheme', 'dark');
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--raised').trim())).toBe('#202d27');
+  expect(await page.locator('#nativeControl').evaluate(node => getComputedStyle(node).colorScheme)).toContain('dark');
+  expect(await page.evaluate(() => window.__themeChrome)).toEqual({
+    header: '#101714', background: '#101714', bottom: '#18231e',
+  });
+
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.evaluate(() => {
+    window.__themeWebApp.colorScheme = 'light';
+    window.__themeWebApp.themeParams = { bg_color: '#f3f6f8', bottom_bar_bg_color: '#ffffff' };
+    window.__themeEvents.themeChanged();
+  });
+  await expect(page.locator('html')).toHaveAttribute('data-miniapp-color-scheme', 'light');
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--raised').trim())).toBe('#fff');
+  expect(await page.locator('#nativeControl').evaluate(node => getComputedStyle(node).colorScheme)).toContain('light');
+
+  await page.addStyleTag({ path: asset('vendor-ag-grid-community-36.1.0.min.css') });
+  await page.addStyleTag({ path: asset('vendor-ag-grid-quartz-font-36.1.0.min.css') });
+  await page.addStyleTag({ path: asset('vendor-ag-grid-theme-quartz-36.1.0.min.css') });
+  await page.addStyleTag({ path: asset('tat_tracker.css') });
+  await page.evaluate(() => {
+    window.__themeWebApp.colorScheme = 'dark';
+    window.__themeWebApp.themeParams = { bg_color: '#0f172a', secondary_bg_color: '#1e293b' };
+    window.__themeEvents.themeChanged();
+  });
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--tat-danger-text').trim())).toBe('#ffaaa3');
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--tat-border').trim())).toBe('rgba(255, 255, 255, 0.12)');
+  expect(await page.locator('#tatGrid').evaluate(node => getComputedStyle(node).getPropertyValue('--ag-background-color').trim())).toBe('#1e293b');
+});
+
 test('Complaint management report contains horizontal grid scrolling and Telegram back navigation', async ({ page }) => {
   const template = fs.readFileSync(path.join(root, 'core', 'templates', 'complaint_cases', 'app.html'), 'utf8')
     .replace(/{% load static %}/g, '')

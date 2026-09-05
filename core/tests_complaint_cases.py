@@ -1347,6 +1347,8 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('.report-status{font-size:11px;font-weight:850;white-space:nowrap}', styles)
         self.assertNotIn('.report-status{display:inline-flex', styles)
         self.assertIn("utils.haptic?.(error ? 'error' : 'success')", script)
+        self.assertIn('utils.bindMiniAppTheme?.(telegram, refreshComplaintTheme)', script)
+        self.assertIn(':root[data-miniapp-color-scheme="dark"]', styles)
         self.assertIn('grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)', styles)
         for wording in (
             '<h1>Complaints</h1>', '<span>Complaints</span>', '<span>Data Overview</span>',
