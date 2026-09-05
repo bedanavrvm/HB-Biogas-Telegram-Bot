@@ -1006,7 +1006,8 @@ def tat_tracker_create(request):
     capability_error = _tat_capability_error(user, 'tat.case.create', group_config)
     if capability_error:
         return capability_error
-    from core.services.tat_tracker import create_case
+    from core.services.tat_tracker import TatCreateValidationError, create_case
+    from core.services.miniapp_messages import miniapp_error_response
     from core.services.workflow_data_mode import WorkflowModeChanged
     try:
         data = create_case(group_config, user, payload)
@@ -1014,8 +1015,24 @@ def tat_tracker_create(request):
         return JsonResponse({'ok': True, 'data': data})
     except WorkflowModeChanged as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'code': exc.code}, status=409)
+    except TatCreateValidationError as exc:
+        return miniapp_error_response(
+            request,
+            exc.code,
+            workflow='tat_tracker',
+            status=exc.status,
+            developer_message=f'{type(exc).__name__}:{exc.code}',
+            exception=exc,
+        )
     except ValueError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return miniapp_error_response(
+            request,
+            'tat_create_validation_failed',
+            workflow='tat_tracker',
+            status=400,
+            developer_message=type(exc).__name__,
+            exception=exc,
+        )
     except Exception:
         logger.exception('TAT Tracker create failed for group %s.', group_id)
         return JsonResponse({'ok': False, 'error': 'The TAT case could not be created. Try again.'}, status=500)

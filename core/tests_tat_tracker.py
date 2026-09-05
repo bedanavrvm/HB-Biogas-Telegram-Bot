@@ -3342,6 +3342,36 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('⏰ Action Required', mock_reply.call_args.kwargs['text'])
         self.assertIn('Assigned to: BRO', mock_reply.call_args.kwargs['text'])
 
+    @patch('core.services.tat_tracker.validate_tat_telegram_webapp_init_data')
+    def test_create_endpoint_returns_specific_invalid_bro_message(self, mock_auth):
+        mock_auth.return_value = (True, '', {'id': 111, 'username': 'bro_user'})
+        GroupRegistry._instance = None
+
+        response = self.client.post(
+            '/api/tat-tracker/create/',
+            data=json.dumps({
+                'group_id': self.config.group_id,
+                'init_data': 'mock',
+                'product_key': 'business',
+                'branch': 'Nakuru',
+                'client_name': 'Test Client',
+                'national_id': '12345678',
+                'primary_phone': '0712345678',
+                'bro_user_id': '999999',
+                'amount': '10000',
+                'client_request_id': 'invalid-bro-create-123',
+            }),
+            content_type='application/json',
+            HTTP_IDEMPOTENCY_KEY='invalid-bro-create-123',
+            HTTP_X_REQUEST_ID='invalid-bro-create-123',
+            HTTP_X_MINIAPP_MESSAGE_CONTRACT='2',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['code'], 'tat_create_invalid_bro')
+        self.assertIn('active TAT BRO', response.json()['message'])
+        self.assertNotIn('error', response.json())
+
     def test_tracker_identifier_headers_are_required_when_headers_exist(self):
         with self.assertRaisesRegex(ValueError, 'ID NUMBER'):
             validate_tracker_identity_headers(['Case ID', 'Client Name', 'Branch', 'BRO Name'])

@@ -46,6 +46,39 @@ MESSAGE_CATALOG: dict[str, MiniAppMessage] = {
     "invalid_request": MiniAppMessage(
         "The app could not read this request. Try the action again. If it continues, contact JBL and share reference {request_id}.", 400,
     ),
+    "tat_create_invalid_intent": MiniAppMessage(
+        "This form can only create a new loan case. Open the existing case to make a correction.", 400,
+    ),
+    "tat_create_invalid_product": MiniAppMessage(
+        "Select an available TAT product and try again.", 400,
+    ),
+    "tat_create_invalid_bro": MiniAppMessage(
+        "Select an active TAT BRO from the list and try again.", 400,
+    ),
+    "tat_create_client_name_required": MiniAppMessage(
+        "Enter the client name and try again.", 400,
+    ),
+    "tat_create_invalid_national_id": MiniAppMessage(
+        "Enter a valid 7 or 8 digit national ID number and try again.", 400,
+    ),
+    "tat_create_invalid_phone": MiniAppMessage(
+        "Enter a valid Kenyan phone number and try again.", 400,
+    ),
+    "tat_create_invalid_branch": MiniAppMessage(
+        "Select an available branch and try again.", 400,
+    ),
+    "tat_create_scope_denied": MiniAppMessage(
+        "The selected product and branch are outside your TAT access scope.", 400,
+    ),
+    "tat_create_invalid_amount": MiniAppMessage(
+        "Enter an amount within the selected product's allowed range.", 400,
+    ),
+    "tat_create_invalid_product_details": MiniAppMessage(
+        "Review the selected product's required details and try again.", 400,
+    ),
+    "tat_create_validation_failed": MiniAppMessage(
+        "Review the case information and try again.", 400,
+    ),
     "invalid_idempotency_key": MiniAppMessage(
         "The request retry identifier is invalid. Refresh the Mini App and try again.", 400,
         tone="error",

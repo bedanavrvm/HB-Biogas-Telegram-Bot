@@ -30,6 +30,7 @@ from core.services.miniapp_requests import (
     IdempotencyKeyRequired,
     bind_miniapp_request_identity,
 )
+from core.services.tat_tracker import TatCreateValidationError
 from core.services.portal_publication import (
     INTERNAL_ORDER_OPERATION,
     MASTER_OPERATION,
@@ -97,6 +98,36 @@ class MiniAppWritePolicyTests(TestCase):
         response = tat_tracker_create(request)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(json.loads(response.content)['code'], 'invalid_idempotency_key')
+
+    def test_tat_create_returns_categorized_validation_without_raw_input(self):
+        request = self._json_request('/api/tat-tracker/create/', {'group_id': 'group-1'})
+        private_error = 'Select BRO for customer 0712345678'
+        with patch('core.api.views._tat_context', return_value=('group-1', object(), {}, {'user_id': '1'}, None)), \
+                patch('core.api.views._tat_capability_error', return_value=None), \
+                patch(
+                    'core.services.tat_tracker.create_case',
+                    side_effect=TatCreateValidationError('tat_create_invalid_bro', private_error),
+                ), \
+                self.assertLogs('core.services.miniapp_messages', level='INFO') as captured:
+            response = tat_tracker_create(request)
+
+        payload = json.loads(response.content)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(payload['code'], 'tat_create_invalid_bro')
+        self.assertIn('active TAT BRO', payload['message'])
+        self.assertNotIn('0712345678', response.content.decode())
+        self.assertFalse(any('0712345678' in item for item in captured.output))
+
+    def test_tat_create_uncategorized_validation_uses_safe_fallback(self):
+        request = self._json_request('/api/tat-tracker/create/', {'group_id': 'group-1'})
+        with patch('core.api.views._tat_context', return_value=('group-1', object(), {}, {'user_id': '1'}, None)), \
+                patch('core.api.views._tat_capability_error', return_value=None), \
+                patch('core.services.tat_tracker.create_case', side_effect=ValueError('customer secret')):
+            response = tat_tracker_create(request)
+
+        payload = json.loads(response.content)
+        self.assertEqual(payload['code'], 'tat_create_validation_failed')
+        self.assertNotIn('customer secret', response.content.decode())
 
     def test_complaint_and_spin_accept_legacy_clients(self):
         complaint_request = self._json_request('/api/complaints/cases/create/', {'group_id': 'group-1'}, key='')

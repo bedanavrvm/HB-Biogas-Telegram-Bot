@@ -83,6 +83,15 @@ TAT_COMPLETED_STATUSES = frozenset({'Disbursed', *TAT_NEGATIVE_OUTCOME_STATUSES}
 TAT_CREATE_INTENT_NEW_LOAN = 'new_loan'
 
 
+class TatCreateValidationError(ValueError):
+    """A categorized create failure safe for Mini App responses and logs."""
+
+    def __init__(self, code: str, message: str, *, status: int = 400):
+        self.code = str(code)
+        self.status = int(status)
+        super().__init__(message)
+
+
 @dataclass(frozen=True)
 class StageConfig:
     key: str
@@ -898,7 +907,10 @@ def _resolve_create_bro_name(group_config, workflow: dict, user: dict, payload: 
             if str(item['id']) == requested_user_id
         ), None)
         if selected is None:
-            raise ValueError('Select an active TAT BRO from the current list.')
+            raise TatCreateValidationError(
+                'tat_create_invalid_bro',
+                'Select an active TAT BRO from the current list.',
+            )
         return str(selected['name']).strip()
 
     # Cached first-party clients submit the display snapshot only. Keep that
@@ -916,33 +928,64 @@ def _resolve_create_bro_name(group_config, workflow: dict, user: dict, payload: 
     ), None)
     if creator is not None:
         return str(creator['name']).strip()
-    raise ValueError('Select a BRO before creating the case.')
+    raise TatCreateValidationError(
+        'tat_create_invalid_bro',
+        'Select a BRO before creating the case.',
+    )
 
 
 @transaction.atomic
 def create_case(group_config, user: dict, payload: dict) -> dict:
     _validate_tat_create_payload(payload)
-    product = product_by_key(str(payload.get('product_key') or payload.get('product') or ''))
+    try:
+        product = product_by_key(str(payload.get('product_key') or payload.get('product') or ''))
+    except ValueError as exc:
+        raise TatCreateValidationError(
+            'tat_create_invalid_product', 'Select an available TAT product.',
+        ) from exc
     workflow = getattr(group_config, 'workflow', None) or {}
     if product not in _allowed_products(workflow, user):
-        raise ValueError('You do not have access to this product.')
+        raise TatCreateValidationError(
+            'tat_create_scope_denied', 'You do not have access to this product.',
+        )
     client_name = str(payload.get('client_name') or '').strip().upper()
     national_id = normalize_national_id(payload.get('national_id'))
     primary_phone = normalize_kenyan_phone(payload.get('primary_phone'))
     branch = str(payload.get('branch') or '').strip()
     bro_name = _resolve_create_bro_name(group_config, workflow, user, payload)
-    amount = parse_amount(payload.get('amount'))
+    try:
+        amount = parse_amount(payload.get('amount'))
+    except ValueError as exc:
+        raise TatCreateValidationError(
+            'tat_create_invalid_amount', 'Enter a valid amount.',
+        ) from exc
     if not client_name:
-        raise ValueError('Client name is required.')
+        raise TatCreateValidationError(
+            'tat_create_client_name_required', 'Client name is required.',
+        )
     if not re.fullmatch(r'\d{7,8}', national_id):
-        raise ValueError('ID number must be 7 or 8 digits.')
+        raise TatCreateValidationError(
+            'tat_create_invalid_national_id', 'ID number must be 7 or 8 digits.',
+        )
     if not primary_phone:
-        raise ValueError('Enter a valid Kenyan phone number.')
+        raise TatCreateValidationError(
+            'tat_create_invalid_phone', 'Enter a valid Kenyan phone number.',
+        )
     if branch not in _allowed_branches(workflow, user):
-        raise ValueError('Select a valid branch.')
+        raise TatCreateValidationError(
+            'tat_create_invalid_branch', 'Select a valid branch.',
+        )
     if not _tat_scope_allowed_for_values(user, 'tat.case.create', branch=branch, product=product.key):
-        raise ValueError('This branch and product combination is outside your assigned access scope.')
-    validate_amount(product, amount)
+        raise TatCreateValidationError(
+            'tat_create_scope_denied',
+            'This branch and product combination is outside your assigned access scope.',
+        )
+    try:
+        validate_amount(product, amount)
+    except ValueError as exc:
+        raise TatCreateValidationError(
+            'tat_create_invalid_amount', str(exc),
+        ) from exc
     product_version = None
     terms_snapshot = {}
     tat_configuration_snapshot = {}
@@ -952,11 +995,18 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
     custom_values = payload.get('product_custom_values') or {}
     selected_fee_keys = payload.get('product_selected_fee_keys') or []
     if not isinstance(requirement_evidence, dict):
-        raise ValueError('Product requirement evidence must be an object.')
+        raise TatCreateValidationError(
+            'tat_create_invalid_product_details',
+            'Product requirement evidence must be an object.',
+        )
     if not isinstance(custom_values, dict):
-        raise ValueError('Product custom values must be an object.')
+        raise TatCreateValidationError(
+            'tat_create_invalid_product_details', 'Product custom values must be an object.',
+        )
     if not isinstance(selected_fee_keys, list):
-        raise ValueError('Selected product fees must be a list.')
+        raise TatCreateValidationError(
+            'tat_create_invalid_product_details', 'Selected product fees must be a list.',
+        )
     if product.version_id:
         from core.models import OperationalLocation, ProductVersion
         from core.services.product_catalog import (
@@ -969,30 +1019,53 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
         configuration_binding_status = TatTrackerCase.CONFIG_VERSIONED
         branch_record = OperationalLocation.objects.filter(location_type='branch', name__iexact=branch, active=True).first()
         if not product_is_available(product_version.product, branch=branch_record, workflow='tat_tracker', channel='portal'):
-            raise ValueError('This product is not available for the selected branch and channel.')
+            raise TatCreateValidationError(
+                'tat_create_invalid_product',
+                'This product is not available for the selected branch and channel.',
+            )
         missing = missing_product_requirements(
             product_version, workflow='tat_tracker', stage='created', evidence=requirement_evidence,
         )
         if missing:
-            raise ValueError('Complete required product evidence: ' + ', '.join(item['label'] for item in missing))
+            raise TatCreateValidationError(
+                'tat_create_invalid_product_details',
+                'Complete required product evidence: ' + ', '.join(item['label'] for item in missing),
+            )
         custom_errors = validate_custom_values(product_version, custom_values, workflow='tat_tracker')
         if custom_errors:
-            raise ValueError(next(iter(custom_errors.values())))
+            raise TatCreateValidationError(
+                'tat_create_invalid_product_details', next(iter(custom_errors.values())),
+            )
         allowed_fees = set(product_version.fees.filter(mandatory=False).values_list('key', flat=True))
         if set(selected_fee_keys) - allowed_fees:
-            raise ValueError('One or more selected fees are not available for this product version.')
+            raise TatCreateValidationError(
+                'tat_create_invalid_product_details',
+                'One or more selected fees are not available for this product version.',
+            )
         terms_snapshot = serialize_product_version(product_version)
         if payload.get('tenor') not in (None, ''):
             from core.services.product_quotes import calculate_product_quote
-            quote_snapshot = calculate_product_quote(
-                product_version, amount=amount, tenor=payload.get('tenor'),
-                optional_fee_keys=selected_fee_keys,
-            )
+            try:
+                quote_snapshot = calculate_product_quote(
+                    product_version, amount=amount, tenor=payload.get('tenor'),
+                    optional_fee_keys=selected_fee_keys,
+                )
+            except ValueError as exc:
+                raise TatCreateValidationError(
+                    'tat_create_invalid_product_details', str(exc),
+                ) from exc
     scope = mode_snapshot(WORKFLOW_TAT, for_update=True)
     expected_mode_version = payload.get('workflow_mode_version')
-    if expected_mode_version not in (None, '') and int(expected_mode_version) != scope.mode_version:
-        from core.services.workflow_data_mode import WorkflowModeChanged
-        raise WorkflowModeChanged()
+    if expected_mode_version not in (None, ''):
+        try:
+            mode_version = int(expected_mode_version)
+        except (TypeError, ValueError) as exc:
+            raise TatCreateValidationError(
+                'outdated_client', 'Refresh the Mini App before creating the case.', status=428,
+            ) from exc
+        if mode_version != scope.mode_version:
+            from core.services.workflow_data_mode import WorkflowModeChanged
+            raise WorkflowModeChanged()
     create_request_id = normalize_create_request_id(payload.get('client_request_id') or payload.get('create_request_id') or payload.get('request_id'))
     if create_request_id:
         existing = TatTrackerCase.objects.select_for_update().filter(
@@ -1002,7 +1075,11 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
         ).first()
         if existing:
             if existing.is_deleted:
-                raise ValueError('This submission was previously deleted. Refresh the Mini App before trying again.')
+                raise TatCreateValidationError(
+                    'conflict_reload',
+                    'This submission was previously deleted. Refresh the Mini App before trying again.',
+                    status=409,
+                )
             from core.services.tat_notifications import synchronize_case_task
             synchronize_case_task(group_config, existing)
             return serialize_case_detail(existing, user, workflow=workflow)
@@ -1056,12 +1133,21 @@ def _validate_tat_create_payload(payload: dict) -> None:
     that a correction must never be accepted by the create endpoint.
     """
     if any(str(payload.get(key) or '').strip() for key in ('case_id', 'workflow_revision', 'revision')):
-        raise ValueError('Case corrections must use the existing case update action, not Create new loan case.')
+        raise TatCreateValidationError(
+            'tat_create_invalid_intent',
+            'Case corrections must use the existing case update action, not Create new loan case.',
+        )
     if payload.get('updates'):
-        raise ValueError('Case corrections must use the existing case update action, not Create new loan case.')
+        raise TatCreateValidationError(
+            'tat_create_invalid_intent',
+            'Case corrections must use the existing case update action, not Create new loan case.',
+        )
     intent = str(payload.get('creation_intent') or TAT_CREATE_INTENT_NEW_LOAN).strip().lower()
     if intent != TAT_CREATE_INTENT_NEW_LOAN:
-        raise ValueError('Only an explicit new-loan submission may create a TAT case.')
+        raise TatCreateValidationError(
+            'tat_create_invalid_intent',
+            'Only an explicit new-loan submission may create a TAT case.',
+        )
 
 
 def tat_case_identity_context(
