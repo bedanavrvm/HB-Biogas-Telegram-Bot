@@ -609,7 +609,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Assigned to me', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=76", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=77", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -773,7 +773,8 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn("const statusColors = { active: '#3390ec', stalled: '#ef9b36', declined: '#e45858', disbursed: '#23a67a' }", source)
         self.assertIn('const categoryGridlineLimit = 12;', source)
         self.assertIn('const numericGridlineLimit = 14;', source)
-        self.assertIn('maxTicksLimit: horizontal ? numericGridlineLimit : categoryGridlineLimit', source)
+        self.assertIn('const verticalGridlineLimit = 18;', source)
+        self.assertIn('maxTicksLimit: verticalGridlineLimit', source)
         self.assertIn('maxTicksLimit: horizontal ? categoryGridlineLimit : numericGridlineLimit', source)
         self.assertIn('.tat-report-grid .tat-status-active{', stylesheet)
         self.assertIn('.tat-report-grid .tat-status-stalled{', stylesheet)
