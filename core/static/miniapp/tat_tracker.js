@@ -2714,6 +2714,8 @@
       const pie = chartType === 'pie';
       const line = chartType === 'line';
       const horizontal = chartType === 'bar' && ['stage_target', 'explorer'].includes(key);
+      const categoryGridlineLimit = 12;
+      const numericGridlineLimit = 14;
       const usesDateLabels = ['trend', 'sla_compliance', 'tat_percentiles'].includes(key);
       const chartLabels = usesDateLabels
         ? (payload.labels || []).map(formatReportDate)
@@ -2726,8 +2728,8 @@
       if (!pie) {
         options.indexAxis = horizontal ? 'y' : 'x';
         options.scales = {
-          x: { beginAtZero: !line || undefined, ticks: { color: text, maxRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 8 } }, grid: { color: grid } },
-          y: { beginAtZero: true, ticks: { color: text, precision: 0, font: { size: 8 } }, grid: { color: grid } },
+          x: { beginAtZero: !line || undefined, ticks: { color: text, maxRotation: 0, autoSkip: true, maxTicksLimit: horizontal ? numericGridlineLimit : categoryGridlineLimit, font: { size: 8 } }, grid: { color: grid } },
+          y: { beginAtZero: true, ticks: { color: text, precision: 0, autoSkip: true, maxTicksLimit: horizontal ? categoryGridlineLimit : numericGridlineLimit, font: { size: 8 } }, grid: { color: grid } },
         };
         if (['tat_percentiles', 'case_progression'].includes(key)) options.scales.y.ticks.callback = value => formatMinutes(value);
         if (key === 'case_progression') options.scales.y.title = { display: true, text: payload.axis_title || 'Time in stage', color: text };
