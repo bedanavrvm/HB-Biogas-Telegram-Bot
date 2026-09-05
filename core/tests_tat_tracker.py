@@ -643,7 +643,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-sheet-overlay', stylesheet)
         self.assertIn('class="notice-close tat-sheet-close"', template)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
-        self.assertIn("miniapp/tat_tracker.css' %}?v=50", template)
+        self.assertIn("miniapp/tat_tracker.css' %}?v=51", template)
         self.assertIn('id="appHeader" class="app-top"', template)
         self.assertIn('class="refresh-label"', template)
         self.assertIn('function bindCollapsingHeader()', source)
@@ -753,7 +753,8 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-report-loading,.tat-report-sheet-loading{', stylesheet)
         self.assertIn('.tat-report-initial-loading{position:fixed', stylesheet)
         self.assertIn('.report-metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr))', stylesheet)
-        self.assertIn('.tat-report-charts .tat-chart-body{position:relative;height:220px}', stylesheet)
+        self.assertIn('.tat-report-charts .tat-chart-body{position:relative;height:300px}', stylesheet)
+        self.assertIn('.tat-report-charts .tat-chart-body{height:270px}', stylesheet)
         self.assertIn('@media(min-width:701px){.tat-report-charts{width:max(100%,50vw)', stylesheet)
         self.assertIn('.tat-insight-chart-toggle button.active{', stylesheet)
         self.assertIn('.tat-report-grid .ag-cell-value{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis', stylesheet)
@@ -784,7 +785,8 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Date.now() - cached.storedAt < 60000', source)
         self.assertIn('filterRevision: 0, insightCache: new Map()', source)
         self.assertIn('.tat-report-charts article.insight-loading{', stylesheet)
-        self.assertIn('.tat-report-charts .tat-heatmap{height:200px}', stylesheet)
+        self.assertIn('.tat-report-charts .tat-heatmap{height:300px}', stylesheet)
+        self.assertIn('.tat-report-charts .tat-heatmap{height:260px}', stylesheet)
         self.assertIn('.tat-heatmap td{min-width:64px;padding:1px', stylesheet)
 
     def test_tat_reporting_is_scoped_allowlisted_and_page_size_capped(self):
@@ -1063,6 +1065,46 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(narrowed_signal['baseline']['valid_samples'], 20)
         self.assertEqual(narrowed_signal['selected_scope']['valid_samples'], 10)
         self.assertEqual(narrowed_signal['classification'], 'selected_scope_high')
+
+    def test_tat_reporting_heatmap_uses_configured_stage_order_on_either_axis(self):
+        now = timezone.now()
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='TAT-HEATMAP-SEQUENCE',
+            product_key='business', product_label='Business', client_name='SEQUENCED CLIENT',
+            branch='Nakuru', status='Active',
+            stage_values={
+                'created': (now - timedelta(hours=4)).isoformat(),
+                'mpesa_to_admin': (now - timedelta(hours=3)).isoformat(),
+                'mpesa_verified': (now - timedelta(hours=2)).isoformat(),
+                'ca_analysis_sent': (now - timedelta(hours=1)).isoformat(),
+            },
+        )
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='TAT-HEATMAP-FIRST-STAGE',
+            product_key='business', product_label='Business', client_name='FIRST STAGE CLIENT',
+            branch='Nakuru', status='Active',
+            stage_values={'created': (now - timedelta(minutes=30)).isoformat()},
+        )
+
+        stage_rows = report_summary(self.bro_user, {
+            'view': 'current', 'heatmap_pair': 'stage_branch',
+        })['heatmap']['rows']
+        self.assertEqual(stage_rows[:3], [
+            'MPESA sent to Admin',
+            'MPESA verified by Business Admin and sent to CA',
+            'Credit analysis sent',
+        ])
+
+        stage_columns = report_summary(self.bro_user, {
+            'view': 'current', 'heatmap_pair': 'product_stage',
+        })['heatmap']['columns']
+        self.assertEqual(stage_columns[:3], stage_rows[:3])
+
+        current_stage_rows = report_summary(self.bro_user, {
+            'view': 'current', 'heatmap_pair': 'stage_branch',
+            'heatmap_metric': 'workload',
+        })['heatmap']['rows']
+        self.assertEqual(current_stage_rows, ['MPESA sent to Admin', 'BRO response to CA'])
 
     def test_tat_report_rows_do_not_expose_internal_scope_keys(self):
         TatTrackerCase.objects.create(

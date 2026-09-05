@@ -523,7 +523,7 @@ def _stage_samples(cases, filters, *, include_people=False, context=None):
         config = context.config(case)
         workflow = config.workflow if config else {}
         previous = parse_iso_datetime((case.stage_values or {}).get('created'))
-        for stage in product.stages:
+        for stage_order, stage in enumerate(product.stages):
             completed = context.completed_at(case, stage)
             elapsed = minutes_between(previous, completed)
             if completed:
@@ -547,6 +547,7 @@ def _stage_samples(cases, filters, *, include_people=False, context=None):
             event = context.event(case, stage.key)
             samples.append({
                 'case_id': case.case_id, 'stage_key': stage.key, 'stage': stage.label,
+                '_stage_order': stage_order,
                 'role': stage.role, 'person': event.actor_name if include_people and event else '',
                 'group_id': str(case.group_id), 'branch': str(case.branch or ''),
                 'product_key': str(case.product_key or ''),
@@ -1046,6 +1047,34 @@ def _dimension_value(item, dimension, *, sample=False):
     return str(item.get(keys[dimension]) or 'Unassigned')
 
 
+def _heatmap_dimension_labels(source, dimension, *, sample):
+    labels = {_dimension_value(item, dimension, sample=sample) for item in source}
+    if dimension != 'stage':
+        return sorted(labels)
+
+    order_by_label = {}
+    for item in source:
+        label = _dimension_value(item, dimension, sample=sample)
+        order = item.get('_stage_order') if sample else None
+        if not sample:
+            stage_key = str(item.get('current_stage_key') or '')
+            for column in item.get('_stage_columns') or []:
+                if str(column.get('key') or '') == stage_key:
+                    order = column.get('order')
+                    break
+        try:
+            order = int(order)
+        except (TypeError, ValueError):
+            continue
+        current = order_by_label.get(label)
+        if current is None or order < current:
+            order_by_label[label] = order
+    return sorted(
+        labels,
+        key=lambda label: (order_by_label.get(label, 1_000_000), label.casefold()),
+    )
+
+
 def _active_assignment_counts(rows, dimension):
     now = timezone.now()
     assignments = list(TatResponsibilityAssignment.objects.filter(
@@ -1191,8 +1220,12 @@ def _heatmap_payload(rows, samples, filters):
             _dimension_value(item, row_dimension, sample=sample_based),
             _dimension_value(item, column_dimension, sample=sample_based),
         )].append(item)
-    row_labels = sorted({key[0] for key in grouped})
-    column_labels = sorted({key[1] for key in grouped})
+    row_labels = _heatmap_dimension_labels(
+        source, row_dimension, sample=sample_based,
+    )
+    column_labels = _heatmap_dimension_labels(
+        source, column_dimension, sample=sample_based,
+    )
     cells = []
     total_excluded = 0
     for row_label in row_labels:
