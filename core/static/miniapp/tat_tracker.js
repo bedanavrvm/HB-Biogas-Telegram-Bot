@@ -48,7 +48,7 @@
     personalPreference: {},
     report: {
       view: 'current', page: 1, pageSize: 25, sort: '-created_at', sequence: 0,
-      abortController: null, gridApi: null, charts: {}, count: 0, loaded: false,
+      abortController: null, gridApi: null, gridZoom: null, charts: {}, count: 0, loaded: false,
       loading: false,
       display: (() => { try { return localStorage.getItem('tat-report-chart-display') === 'list' ? 'list' : 'carousel'; } catch (error) { return 'carousel'; } })(),
       chartTypes: (() => {
@@ -2405,7 +2405,22 @@
         refreshTatReport({ summary: false });
       },
     });
+    state.report.gridZoom?.refresh();
     bindTatReportCellCopyHold();
+  }
+
+  function bindTatReportGridZoom() {
+    if (state.report.gridZoom || !window.MiniAppAgGridZoom) return;
+    state.report.gridZoom = window.MiniAppAgGridZoom.bind({
+      container: $('tatGridZoom'),
+      gridElement: $('tatReportGrid'),
+      outButton: $('tatGridZoomOut'),
+      resetButton: $('tatGridZoomReset'),
+      inButton: $('tatGridZoomIn'),
+      storageKey: 'tat-report-grid-zoom',
+      apiProvider: () => state.report.gridApi,
+      defaults: { fontSize: 10, gridSize: 4, rowHeight: 34, headerHeight: 36, cellPadding: 6, smallFontSize: 9 },
+    });
   }
 
   function setReportSelect(name, options, valueKey, labelKey) {
@@ -3371,6 +3386,7 @@
   setDefaultReportDates();
   bindReportDatePickers();
   bindCollapsingHeader();
+  bindTatReportGridZoom();
   syncTatReportChartTypeToggles();
   utils.bindMiniAppTheme?.(tg, refreshTatVisualTheme);
   document.addEventListener('keydown', (event) => {

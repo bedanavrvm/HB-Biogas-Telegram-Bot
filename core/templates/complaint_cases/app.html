@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=31">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=32">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
   {% include "complaint_cases/lucide_icons.html" %}
@@ -62,7 +62,7 @@
         <fieldset id="reportCustomDates" class="date-filter" hidden><legend>Custom Date Range</legend><label>Start Date<input name="date_from" type="date"></label><label>End Date<input name="date_to" type="date"></label></fieldset>
         <div class="filter-actions"><button id="globalApplyFiltersBtn" class="primary" type="submit"><svg class="lucide" aria-hidden="true"><use href="#lucide-filter"></use></svg><span>Show Results</span></button><button id="clearGlobalFiltersBtn" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-rotate-ccw"></use></svg><span>Reset Filters</span></button></div>
       </form>
-      <p id="globalResultCount" class="muted">0 complaints</p>
+      <div class="report-table-heading"><p id="globalResultCount" class="muted">0 complaints</p><div id="complaintGridZoom" class="grid-zoom-controls" role="group" aria-label="Complaint table zoom" hidden><span>Table size</span><button id="complaintGridZoomOut" type="button" aria-label="Zoom complaint table out" title="Zoom out">−</button><button id="complaintGridZoomReset" type="button" class="grid-zoom-level" aria-label="Table zoom 100%. Reset to 100%." title="Reset table zoom">100%</button><button id="complaintGridZoomIn" type="button" aria-label="Zoom complaint table in" title="Zoom in">+</button></div></div>
       <div id="complaintReportGridWrap" class="report-grid-wrap" role="region" aria-label="Complaints report table" tabindex="0"><div id="complaintReportGrid" class="ag-theme-quartz report-grid"></div></div>
       <nav id="globalPagination" class="pagination" aria-label="All complaint pages" hidden><button id="globalPreviousBtn" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-chevron-left"></use></svg><span>Previous</span></button><span id="globalPageLabel">Page 1 of 1</span><button id="globalNextBtn" type="button"><span>Next</span><svg class="lucide" aria-hidden="true"><use href="#lucide-chevron-right"></use></svg></button></nav>
     </section>
@@ -116,7 +116,8 @@
   <script src="{% static 'miniapp/secure_media_viewer.js' %}?v=1"></script>
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
+  <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=1"></script>
   <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=6"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=37"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=38"></script>
 </body>
 </html>

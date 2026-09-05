@@ -14,7 +14,7 @@
     suggestedCategory: null, latitude: '', longitude: '',
     workspace: 'queue', returnWorkspace: 'queue', globalLoaded: false,
     globalOverview: null, globalPage: 1, globalPages: 1, globalPageSize: 50,
-    globalSort: '-date_reported', reportGridApi: null, reportGridLoading: false,
+    globalSort: '-date_reported', reportGridApi: null, reportGridZoom: null, reportGridLoading: false,
     categoryChart: null, timeChart: null, categoryChartType: 'bar', reportGranularity: 'month',
     reportSummarySequence: 0, reportTableSequence: 0, reportFilterTimer: null,
     reportTableAbortController: null,
@@ -973,6 +973,19 @@
     link.href = params.value; link.target = '_blank'; link.rel = 'noopener noreferrer';
     return link;
   }
+  function bindReportGridZoom() {
+    if (state.reportGridZoom || !window.MiniAppAgGridZoom) return;
+    state.reportGridZoom = window.MiniAppAgGridZoom.bind({
+      container: $('complaintGridZoom'),
+      gridElement: $('complaintReportGrid'),
+      outButton: $('complaintGridZoomOut'),
+      resetButton: $('complaintGridZoomReset'),
+      inButton: $('complaintGridZoomIn'),
+      storageKey: 'complaint-report-grid-zoom',
+      apiProvider: () => state.reportGridApi,
+      defaults: { fontSize: 11, gridSize: 4, rowHeight: 34, headerHeight: 36, cellPadding: 8, smallFontSize: 10 },
+    });
+  }
   function initializeReportGrid() {
     if (state.reportGridApi || !window.agGrid) return;
     const touchManagedColumns = window.matchMedia('(max-width: 700px), (pointer: coarse)').matches;
@@ -1010,6 +1023,7 @@
         state.globalPage = 1; refreshReport({ summary: false });
       },
     });
+    state.reportGridZoom?.refresh();
   }
   async function loadGlobalCases(filters) {
     const sequence = ++state.reportTableSequence;
@@ -1237,6 +1251,7 @@
   telegram?.BackButton?.onClick(returnPrevious);
   updateReportDateControls();
   bindCollapsingHeader();
+  bindReportGridZoom();
   utils.bindMiniAppTheme?.(telegram, refreshComplaintTheme);
   bootstrap();
 }());

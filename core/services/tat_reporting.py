@@ -872,25 +872,29 @@ def _plain_language_chart_copy(payload, filters):
     if chart_id == 'heatmap':
         rows = str(payload.get('row_dimension') or 'group').replace('_', ' ')
         columns = str(payload.get('column_dimension') or 'group').replace('_', ' ')
+        stage_order_note = (
+            ' Stages run from the earliest to the latest step in the configured loan cycle.'
+            if payload.get('stage_order_basis') == 'configured_loan_cycle' else ''
+        )
         if metric == 'workload':
             subject = 'completed actions' if basis == 'completed_stage_actions' else 'current cases'
             return (
                 f'Where are the most {subject} concentrated across {rows} and {columns}?',
-                f'Each cell combines one {rows} with one {columns}. Larger values show where more {subject} are concentrated.',
+                f'Each cell combines one {rows} with one {columns}. Larger values show where more {subject} are concentrated.{stage_order_note}',
             )
         if metric == 'duration':
             return (
                 f'Which {rows} and {columns} combinations take longest?',
-                'Larger times identify possible bottlenecks. Compare neighbouring cells to see whether a delay is widespread or concentrated in one combination.',
+                f'Larger times identify possible bottlenecks. Compare neighbouring cells to see whether a delay is widespread or concentrated in one combination.{stage_order_note}',
             )
         if metric == 'target_usage':
             return (
                 f'Which {rows} and {columns} combinations use or exceed the most target time?',
-                '100% equals the target. Values above 100% are late; lower values are healthier. Compare cells to locate concentrated delay.',
+                f'100% equals the target. Values above 100% are late; lower values are healthier. Compare cells to locate concentrated delay.{stage_order_note}',
             )
         return (
             f'Which {rows} and {columns} combinations meet their targets most often?',
-            'Higher percentages are better. Low percentages identify combinations where late completion is more common.',
+            f'Higher percentages are better. Low percentages identify combinations where late completion is more common.{stage_order_note}',
         )
     if chart_id == 'target_review_signals':
         return (
@@ -1048,6 +1052,12 @@ def _dimension_value(item, dimension, *, sample=False):
 
 
 def _heatmap_dimension_labels(source, dimension, *, sample):
+    """Order stage labels by their configured loan-cycle sequence.
+
+    Order comes from each case's resolved (and, where applicable, frozen)
+    product configuration. Alphabetical order is only a stable fallback for
+    historical labels whose configuration has no usable position.
+    """
     labels = {_dimension_value(item, dimension, sample=sample) for item in source}
     if dimension != 'stage':
         return sorted(labels)
@@ -1263,6 +1273,10 @@ def _heatmap_payload(rows, samples, filters):
         'sample_count': len(source), 'excluded_count': total_excluded,
         'exclusion_reason': 'Target unavailable', 'metric': metric,
         'row_dimension': row_dimension, 'column_dimension': column_dimension,
+        'stage_order_basis': (
+            'configured_loan_cycle'
+            if 'stage' in {row_dimension, column_dimension} else ''
+        ),
         'rows': row_labels, 'columns': column_labels, 'cells': cells,
     }
 

@@ -609,7 +609,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Assigned to me', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=78", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=79", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -643,7 +643,13 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-sheet-overlay', stylesheet)
         self.assertIn('class="notice-close tat-sheet-close"', template)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
-        self.assertIn("miniapp/tat_tracker.css' %}?v=52", template)
+        self.assertIn("miniapp/tat_tracker.css' %}?v=53", template)
+        self.assertIn('id="tatGridZoom"', template)
+        self.assertIn('id="tatGridZoomOut"', template)
+        self.assertIn('id="tatGridZoomReset"', template)
+        self.assertIn('id="tatGridZoomIn"', template)
+        self.assertIn('miniapp/ag_grid_zoom.js', template)
+        self.assertIn("storageKey: 'tat-report-grid-zoom'", source)
         self.assertIn('id="appHeader" class="app-top"', template)
         self.assertIn('class="refresh-label"', template)
         self.assertIn('function bindCollapsingHeader()', source)
@@ -1093,9 +1099,12 @@ class TatTrackerWorkflowTest(TestCase):
             stage_values={'created': (now - timedelta(minutes=30)).isoformat()},
         )
 
-        stage_rows = report_summary(self.bro_user, {
+        stage_heatmap = report_summary(self.bro_user, {
             'view': 'current', 'heatmap_pair': 'stage_branch',
-        })['heatmap']['rows']
+        })['heatmap']
+        self.assertEqual(stage_heatmap['stage_order_basis'], 'configured_loan_cycle')
+        self.assertIn('configured loan cycle', stage_heatmap['interpretation'])
+        stage_rows = stage_heatmap['rows']
         self.assertEqual(stage_rows[:3], [
             'MPESA sent to Admin',
             'MPESA verified by Business Admin and sent to CA',

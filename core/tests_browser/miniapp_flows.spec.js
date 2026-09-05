@@ -11,6 +11,47 @@ async function loadUtilities(page) {
   await page.addScriptTag({ path: asset('utils.js') });
 }
 
+test('AG Grid zoom changes real row and header sizing', async ({ page }) => {
+  await page.setContent(`
+    <div id="controls" hidden>
+      <button id="out">−</button><button id="reset">100%</button><button id="in">+</button>
+    </div>
+    <div id="grid" class="ag-theme-quartz" style="height:240px;--ag-font-size:11px"></div>
+  `);
+  await page.addStyleTag({ path: asset('vendor-ag-grid-community-36.1.0.min.css') });
+  await page.addStyleTag({ path: asset('vendor-ag-grid-quartz-font-36.1.0.min.css') });
+  await page.addStyleTag({ path: asset('vendor-ag-grid-theme-quartz-36.1.0.min.css') });
+  await page.addScriptTag({ path: asset('vendor-ag-grid-community-36.1.0.min.js') });
+  await page.addScriptTag({ path: asset('ag_grid_zoom.js') });
+  await page.evaluate(() => {
+    window.agGrid.ModuleRegistry.registerModules([window.agGrid.AllCommunityModule]);
+    window.__zoomGridApi = window.agGrid.createGrid(document.getElementById('grid'), {
+      theme: 'legacy', rowData: [{ name: 'Case one' }], columnDefs: [{ field: 'name' }],
+    });
+    window.__zoomControl = window.MiniAppAgGridZoom.bind({
+      container: document.getElementById('controls'),
+      gridElement: document.getElementById('grid'),
+      outButton: document.getElementById('out'),
+      resetButton: document.getElementById('reset'),
+      inButton: document.getElementById('in'),
+      storage: null,
+      apiProvider: () => window.__zoomGridApi,
+      defaults: { fontSize: 11, gridSize: 4, rowHeight: 34, headerHeight: 36, cellPadding: 8 },
+    });
+  });
+
+  await expect(page.locator('#controls')).toBeVisible();
+  const defaultRowHeight = await page.locator('.ag-row').evaluate(node => node.getBoundingClientRect().height);
+  const defaultHeaderHeight = await page.locator('.ag-header').evaluate(node => node.getBoundingClientRect().height);
+  await page.locator('#in').click();
+  await expect(page.locator('#reset')).toHaveText('110%');
+  await expect.poll(() => page.locator('.ag-row').evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(defaultRowHeight);
+  await expect.poll(() => page.locator('.ag-header').evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(defaultHeaderHeight);
+  await expect(page.locator('#grid')).toHaveCSS('--ag-font-size', '12.1px');
+  await page.locator('#reset').click();
+  await expect(page.locator('#reset')).toHaveText('100%');
+});
+
 test('Complaints and TAT follow Telegram theme independently of the device theme', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light' });
   await page.setContent('<input id="nativeControl" type="date"><div id="tatGrid" class="ag-theme-quartz tat-report-grid"></div>');
