@@ -167,7 +167,11 @@ def publish_group_launcher(
         raise TelegramLauncherError('TELEGRAM_BOT_TOKEN is not configured.')
     timeout = int(timeout or getattr(settings, 'API_REQUEST_TIMEOUT', 10))
     preview = preview_group_launcher(config)
-    from core.services.external_resilience import execute_operation, reserve_operation
+    from core.services.external_resilience import (
+        ExternalOperationError,
+        execute_operation,
+        reserve_operation,
+    )
 
     operation, _ = reserve_operation(
         integration='telegram',
@@ -198,7 +202,16 @@ def publish_group_launcher(
                 config, token, timeout, force_new_message=force_new_message,
             )
 
-    result = execute_operation(operation, publish_once_with_migration)
+    try:
+        result = execute_operation(operation, publish_once_with_migration)
+    except ExternalOperationError as exc:
+        safe_cause = exc.__cause__
+        if isinstance(safe_cause, TelegramLauncherError):
+            raise TelegramLauncherError(str(safe_cause)) from exc
+        raise TelegramLauncherError(
+            'Telegram could not publish the launcher. Check bot membership, '
+            'administrator permissions, and chat configuration.'
+        ) from exc
     if result is None:
         state = dict((config.metadata or {}).get(_LAUNCHER_METADATA_KEY) or {})
         return {

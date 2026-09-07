@@ -1,0 +1,26 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<main class="max-w-4xl">
+  <h1>{{ title }}</h1>
+  <p>This sends or updates the shared JBL Apps launcher and pins it in each selected Telegram group.</p>
+  <p>The bot must already be a group administrator with permission to send, edit, and pin messages.</p>
+  <form method="post">
+    {% csrf_token %}
+    {% for config in configs %}
+      <input type="hidden" name="{{ action_checkbox_name }}" value="{{ config.pk }}">
+    {% endfor %}
+    <input type="hidden" name="action" value="publish_jbl_apps_launchers">
+    <input type="hidden" name="confirm_launcher_publish" value="yes">
+    <input type="hidden" name="launcher_request_id" value="{{ request_id }}">
+    <ul>
+      {% for config in configs %}
+        <li><strong>{{ config.display_name|default:config.group_id }}</strong> — {{ config.group_id }}</li>
+      {% endfor %}
+    </ul>
+    <div class="mt-6 flex gap-3">
+      <button class="button default" type="submit">Publish / refresh launcher</button>
+      <a class="button" href="{% url 'admin:core_groupsheetconfiguration_changelist' %}">Cancel</a>
+    </div>
+  </form>
+</main>
+{% endblock %}

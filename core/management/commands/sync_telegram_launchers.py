@@ -1,5 +1,7 @@
 """Publish pinned, group-specific JBL Apps launchers."""
 
+import uuid
+
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
@@ -18,6 +20,13 @@ class Command(BaseCommand):
         parser.add_argument('--group-id', help='Only publish one configured Telegram group.')
         parser.add_argument('--include-disabled', action='store_true', help='Include disabled group configurations.')
         parser.add_argument('--dry-run', action='store_true', help='Preview launchers without calling Telegram.')
+        parser.add_argument(
+            '--request-id',
+            help=(
+                'Stable idempotency key for this publish run. Reuse it only '
+                'when retrying the same command invocation.'
+            ),
+        )
         parser.add_argument(
             '--timeout',
             type=int,
@@ -38,6 +47,7 @@ class Command(BaseCommand):
             raise CommandError('TELEGRAM_BOT_TOKEN is not configured.')
 
         failures = []
+        request_id = str(options.get('request_id') or uuid.uuid4())
         for config in configs:
             try:
                 preview = preview_group_launcher(config)
@@ -53,6 +63,7 @@ class Command(BaseCommand):
                     config,
                     timeout=options['timeout'],
                     allow_disabled=options['include_disabled'],
+                    operation_key_suffix=f'command:{request_id}',
                 )
                 self.stdout.write(self.style.SUCCESS(
                     f"Published chat {config.group_id}: {result['action']} launcher message {result['message_id']}"

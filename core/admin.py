@@ -6138,12 +6138,36 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 level=messages.ERROR,
             )
             return
+        if request.POST.get('confirm_launcher_publish') != 'yes':
+            return TemplateResponse(
+                request,
+                'admin/core/groupsheetconfiguration/publish_launchers.html',
+                {
+                    **self.admin_site.each_context(request),
+                    'opts': self.model._meta,
+                    'title': 'Publish / refresh JBL Apps launcher',
+                    'configs': queryset,
+                    'action_checkbox_name': helpers.ACTION_CHECKBOX_NAME,
+                    'request_id': str(uuid.uuid4()),
+                },
+            )
         from core.services.telegram_launchers import TelegramLauncherError, publish_group_launcher
 
+        request_id = str(request.POST.get('launcher_request_id') or '').strip()
+        if not request_id:
+            self.message_user(
+                request,
+                'The launcher request ID is missing. Select the groups and try again.',
+                level=messages.ERROR,
+            )
+            return
         published = 0
         for config in queryset:
             try:
-                result = publish_group_launcher(config)
+                result = publish_group_launcher(
+                    config,
+                    operation_key_suffix=f'admin:{request_id}',
+                )
             except TelegramLauncherError as exc:
                 self.message_user(
                     request,
