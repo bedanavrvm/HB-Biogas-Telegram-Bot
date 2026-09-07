@@ -1,20 +1,28 @@
 from django.contrib.auth import BACKEND_SESSION_KEY, HASH_SESSION_KEY, SESSION_KEY, get_user_model
+from django.contrib.auth.models import Group
 from django.contrib.admin import helpers
 from django.contrib.sessions.backends.db import SessionStore
 from django.contrib.sessions.models import Session
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, transaction
+from django.db.models.deletion import get_candidate_relations_to_delete
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from core.models import (
     AccessControlCheckerAssignment,
+    AccessControlNotification,
     AccessControlPolicyState,
     AccessGrant,
     ComplianceAuditEvent,
+    ComplaintCaseControl,
+    ComplaintCaseEvent,
     DeletedUserIdentity,
     GroupSheetConfiguration,
+    ParsedMessage,
+    ProcessedMessage,
+    RawMessage,
     StaffLifecycleChangePlan,
     StaffTelegramOnboarding,
     TatResponsibilityAssignment,
@@ -25,6 +33,7 @@ from core.services.compliance_audit import record_event, verify_integrity
 from core.services.access_grant_governance import governed_access_grant_mutation
 from core.services.user_hard_delete import (
     _relation_action,
+    _user_reverse_relations,
     execute_user_hard_delete,
     preview_user_hard_delete,
 )
@@ -41,7 +50,17 @@ class UserHardDeleteServiceTests(TestCase):
         AccessControlPolicyState.current()
 
     def test_relationship_registry_covers_every_user_reverse_relation(self):
-        for relation in get_user_model()._meta.related_objects:
+        deletion_candidates = {
+            (relation.related_model._meta.label, relation.field.name)
+            for relation in get_candidate_relations_to_delete(get_user_model()._meta)
+        }
+        registered_relations = {
+            (relation.related_model._meta.label, relation.field.name)
+            for relation in _user_reverse_relations()
+        }
+        self.assertEqual(registered_relations, deletion_candidates)
+        self.assertIn(('core.ComplaintCaseEvent', 'actor'), registered_relations)
+        for relation in _user_reverse_relations():
             self.assertIn(
                 _relation_action(relation),
                 {
@@ -49,6 +68,117 @@ class UserHardDeleteServiceTests(TestCase):
                     'detach_reference', 'delete_personal_state',
                 },
             )
+
+    def test_hard_delete_preserves_hidden_complaint_event_actor_with_tombstone(self):
+        raw = RawMessage.objects.create(
+            telegram_message_id='hard-delete-complaint-raw',
+            content='Complaint retained after actor deletion.',
+        )
+        processed = ProcessedMessage.objects.create(
+            message_hash='hard-delete-complaint-processed',
+            raw_message=raw,
+        )
+        parsed = ParsedMessage.objects.create(
+            processed_message=processed,
+            message_id='CMP-HARD-DELETE-1',
+            raw_message=raw.content,
+            customer_name='Test Customer',
+            complaint_description='Test complaint evidence.',
+            complaint_status='Open',
+        )
+        control = ComplaintCaseControl.objects.create(parsed_message=parsed)
+        event = ComplaintCaseEvent.objects.create(
+            case=control,
+            revision=1,
+            action='created',
+            actor=self.target,
+            actor_label='Departed Officer',
+            request_id='hard-delete-complaint-event',
+            payload_hash='a' * 64,
+            before_values={'status': None},
+            after_values={'status': 'Open'},
+            reason='Initial complaint creation.',
+        )
+        event_id = event.pk
+        original_target_id = self.target.pk
+        preview = preview_user_hard_delete(actor=self.root, users=[self.target])
+
+        self.assertIn(
+            {
+                'model': 'core.ComplaintCaseEvent',
+                'field': 'actor',
+                'action': 'preserve_via_tombstone',
+                'count': 1,
+            },
+            preview.relationships,
+        )
+        batch = execute_user_hard_delete(
+            actor=self.root,
+            users=[self.target],
+            reason_category=UserHardDeletionBatch.REASON_TEST,
+            request_id='hard-delete-hidden-complaint-actor',
+            expected_fingerprint=preview.fingerprint,
+        )
+
+        self.assertFalse(get_user_model().objects.filter(pk=original_target_id).exists())
+        preserved = ComplaintCaseEvent.objects.select_related('actor').get(pk=event_id)
+        self.assertTrue(preserved.actor.username.startswith('__deleted_user_'))
+        self.assertFalse(preserved.actor.is_active)
+        self.assertEqual(preserved.actor_label, 'Departed Officer')
+        self.assertEqual(preserved.payload_hash, 'a' * 64)
+        self.assertEqual(preserved.before_values, {'status': None})
+        self.assertEqual(preserved.after_values, {'status': 'Open'})
+        identity = DeletedUserIdentity.objects.get(batch=batch, original_user_id=original_target_id)
+        self.assertIn(
+            {
+                'model': 'core.ComplaintCaseEvent',
+                'field': 'actor',
+                'action': 'preserve_via_tombstone',
+                'count': 1,
+            },
+            identity.relationship_manifest,
+        )
+
+    def test_hidden_detach_and_automatic_auth_rows_are_previewed_and_removed(self):
+        group = Group.objects.create(name='Hard delete temporary group')
+        self.target.groups.add(group)
+        notification = AccessControlNotification.objects.create(
+            recipient=self.target,
+            channel=AccessControlNotification.CHANNEL_ADMIN,
+            event='temporary-notification',
+            status='delivered',
+        )
+        preview = preview_user_hard_delete(actor=self.root, users=[self.target])
+
+        self.assertIn(
+            {
+                'model': 'auth.User_groups',
+                'field': 'user',
+                'action': 'delete_personal_state',
+                'count': 1,
+            },
+            preview.relationships,
+        )
+        self.assertIn(
+            {
+                'model': 'core.AccessControlNotification',
+                'field': 'recipient',
+                'action': 'detach_reference',
+                'count': 1,
+            },
+            preview.relationships,
+        )
+        execute_user_hard_delete(
+            actor=self.root,
+            users=[self.target],
+            reason_category=UserHardDeletionBatch.REASON_TEST,
+            request_id='hard-delete-hidden-personal-state',
+            expected_fingerprint=preview.fingerprint,
+        )
+
+        notification.refresh_from_db()
+        self.assertIsNone(notification.recipient_id)
+        self.assertFalse(group.user_set.exists())
 
     def test_hard_delete_removes_account_and_preserves_compliance_hash(self):
         audit, _ = record_event(

@@ -14,6 +14,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Exists, F, OuterRef, Q
+from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 
 from core.models import (
@@ -104,6 +105,31 @@ def _targets(users) -> list:
     return list(get_user_model().objects.filter(pk__in=ids).order_by('pk'))
 
 
+def _user_reverse_relations() -> tuple:
+    """Return every relation Django's deletion collector can follow from User.
+
+    ``Options.related_objects`` excludes reverse relations whose source field
+    uses ``related_name='+'``. Those hidden relations still participate in
+    deletion and can therefore protect or cascade rows. Keep preview and
+    execution on the complete, deterministic relation set.
+    """
+    relations = [
+        relation
+        for relation in get_user_model()._meta.get_fields(include_hidden=True)
+        if getattr(relation, 'auto_created', False)
+        and not getattr(relation, 'concrete', False)
+        and (
+            getattr(relation, 'one_to_one', False)
+            or getattr(relation, 'one_to_many', False)
+        )
+        and getattr(relation, 'field', None) is not None
+    ]
+    return tuple(sorted(
+        relations,
+        key=lambda relation: (relation.related_model._meta.label, relation.field.name),
+    ))
+
+
 def _relation_action(relation) -> str:
     field = relation.field
     label = relation.related_model._meta.label
@@ -117,6 +143,13 @@ def _relation_action(relation) -> str:
         return 'preserve_via_tombstone'
     if on_delete == 'SET_NULL' and field.null:
         return 'detach_reference'
+    if (
+        on_delete == 'CASCADE'
+        and relation.related_model._meta.auto_created is get_user_model()
+    ):
+        # Django's implicit User.groups and User.user_permissions join rows are
+        # live authorization state, not historical workflow evidence.
+        return 'delete_personal_state'
     if on_delete == 'CASCADE' and label in DISPOSABLE_CASCADE_MODELS:
         return 'delete_personal_state'
     if on_delete == 'CASCADE' and label in PRESERVED_CASCADE_MODELS:
@@ -128,7 +161,7 @@ def _relation_action(relation) -> str:
 
 def _relationship_rows(target_ids: list[int]) -> list[dict]:
     rows = []
-    for relation in get_user_model()._meta.related_objects:
+    for relation in _user_reverse_relations():
         action = _relation_action(relation)
         field = relation.field
         queryset = relation.related_model._base_manager.filter(**{f'{field.name}_id__in': target_ids})
@@ -400,7 +433,7 @@ def execute_user_hard_delete(
         )
         for target in locked_targets:
             tombstone = _tombstone_user(original_user_id=target.pk)
-            for relation in User._meta.related_objects:
+            for relation in _user_reverse_relations():
                 action = _relation_action(relation)
                 if action != 'preserve_via_tombstone':
                     continue
@@ -414,7 +447,18 @@ def execute_user_hard_delete(
 
         deleted_total = 0
         for target in locked_targets:
-            deleted_count, _details = target.delete()
+            try:
+                deleted_count, _details = target.delete()
+            except ProtectedError as exc:
+                protected_models = sorted({
+                    protected._meta.label
+                    for protected in exc.protected_objects
+                })
+                model_suffix = f' ({", ".join(protected_models)})' if protected_models else ''
+                raise ValidationError(
+                    'User deletion is blocked by an unreviewed protected relationship'
+                    f'{model_suffix}. Refresh the impact preview and try again.'
+                ) from exc
             deleted_total += deleted_count
         result_counts['database_rows_deleted'] = deleted_total
 
