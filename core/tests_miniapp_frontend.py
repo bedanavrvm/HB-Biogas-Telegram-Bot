@@ -164,8 +164,8 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("window.addEventListener('online'", source)
         self.assertNotIn('keepalive: true', source)
         self.assertNotIn('fetch(`/api/origination/api/applications/${current.id}/`', source)
-        self.assertIn('data-ui-version="20260831-1"', template)
-        self.assertIn('loan_origination.js\' %}?v=20260831-1', template)
+        self.assertIn('data-ui-version="20260907-1"', template)
+        self.assertIn('loan_origination.js\' %}?v=20260907-1', template)
 
     def test_origination_repeatable_security_normalizes_numeric_entry_and_marks_required_columns(self):
         source = Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8')

@@ -40,6 +40,7 @@ from core.services.loan_origination import (
     prepare_review_package,
     prepare_signing_package,
     recall_application,
+    restart_application_with_main_laf,
     render_review_package,
     render_application_preview,
     review_application,
@@ -278,7 +279,8 @@ def portal_origination_products(request):
         active_product_version, product_is_available, product_is_selectable,
         serialize_product_version,
     )
-    from core.services.origination_templates import resolve_assignment_template
+    from core.services.origination_document_catalogue import catalogue_for_product, catalogue_revision
+    current_catalogue_revision = catalogue_revision()
     payload = []
     for item in products:
         if item.product_version_id:
@@ -297,22 +299,7 @@ def portal_origination_products(request):
                 workflow='loan_origination', channel='portal',
             ):
                 continue
-        assignment_documents = []
-        for assignment in item.document_assignments.select_related(
-            'template', 'template__published_configuration_revision',
-        ).order_by('display_order', 'document_key'):
-            resolved_template = resolve_assignment_template(assignment)
-            assignment_documents.append({
-                'key': assignment.document_key,
-                'name': assignment.name,
-                'role': resolved_template.document_role if resolved_template else assignment.template.document_role,
-                'order': assignment.display_order,
-                'inclusion_mode': assignment.inclusion_mode,
-                'default_selected': assignment.default_selected,
-                'version_policy': assignment.version_policy,
-                'template_version': resolved_template.version if resolved_template else None,
-                'template_ready': bool(resolved_template),
-            })
+        document_catalogue = catalogue_for_product(item, revision=current_catalogue_revision)
         payload.append({
             'id': item.product_version.product_id if item.product_version_id else None,
             'product_key': item.product_key, 'name': item.name, 'version': item.version,
@@ -323,21 +310,13 @@ def portal_origination_products(request):
             'document_type': item.document_type,
             'document_template_name': item.document_template_name,
             'document_template_version': item.document_template_version,
-            'template_ready': bool(item.document_template_sha256),
+            'template_ready': document_catalogue['ready'],
+            'readiness_reasons': document_catalogue['reasons'],
+            'document_catalogue': document_catalogue,
             'document_packet': [
-                {
-                    'key': template.document_key,
-                    'name': template.name,
-                    'role': template.document_role,
-                    'order': template.display_order,
-                    'inclusion_mode': template.inclusion_mode,
-                    'default_selected': template.default_selected,
-                }
-                for template in item.document_templates.filter(status='active').order_by(
-                    'display_order', 'document_key',
-                )
-                if template.document_role == template.ROLE_PRIMARY
-            ] + assignment_documents,
+                *document_catalogue['main_lafs'],
+                *document_catalogue['supporting_documents'],
+            ],
         })
     return JsonResponse({
         'ok': True,
@@ -503,14 +482,68 @@ def portal_origination_applications(request):
         )
         if branch_error:
             return branch_error
+        if (
+            not str(body.get('primary_template_id') or '').strip()
+            or not str(body.get('catalogue_revision') or '').strip()
+        ):
+            return JsonResponse({
+                'ok': False,
+                'error': 'Refresh Origination and choose a Main LAF before starting.',
+                'outdated_client': True,
+            }, status=428)
         request_id = _request_id(request, body)
         application, replayed = create_application(
             product_key=str(body.get('product_key') or '').strip(), officer=user,
             branch=str(body.get('branch') or '').strip(), client_request_id=request_id,
+            primary_template_id=body.get('primary_template_id'),
+            supporting_template_ids=body.get('supporting_template_ids') or [],
+            expected_catalogue_revision=str(body.get('catalogue_revision') or ''),
         )
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
     except OriginationError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     return JsonResponse({'ok': True, 'replayed': replayed, 'application': serialize_application(application)}, status=200 if replayed else 201)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_origination_restart(request, application_id: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    error = _capability_error(request, 'portal.origination.create', application)
+    if error:
+        return error
+    if (access_error := _application_access_error(request, application)):
+        return access_error
+    try:
+        body = _body(request)
+        if (
+            not str(body.get('primary_template_id') or '').strip()
+            or not str(body.get('catalogue_revision') or '').strip()
+        ):
+            return JsonResponse({
+                'ok': False, 'error': 'Refresh the catalogue and choose the replacement Main LAF.',
+                'outdated_client': True,
+            }, status=428)
+        replacement, replayed = restart_application_with_main_laf(
+            application_id=application.pk,
+            officer=request.portal_user,
+            primary_template_id=body.get('primary_template_id'),
+            supporting_template_ids=body.get('supporting_template_ids') or [],
+            expected_revision=int(body.get('revision')),
+            expected_catalogue_revision=str(body.get('catalogue_revision') or ''),
+            client_request_id=_request_id(request, body),
+        )
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    return JsonResponse({
+        'ok': True, 'replayed': replayed,
+        'application': serialize_application(replacement),
+    }, status=200 if replayed else 201)
 
 
 @csrf_exempt

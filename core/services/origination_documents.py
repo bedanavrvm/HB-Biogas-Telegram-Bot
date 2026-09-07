@@ -139,9 +139,66 @@ def _primary_signer_rules(
     return merged
 
 
-def initialize_document_packet(application: LoanOriginationApplication) -> None:
+def initialize_document_packet(
+    application: LoanOriginationApplication, *,
+    primary_template: OriginationDocumentTemplate | None = None,
+    selected_supporting_template_ids: Any = None,
+    catalogue_revision: str = '',
+) -> None:
     from core.services.loan_origination import OriginationError
     from core.services.origination_templates import resolve_assignment_template
+
+    if primary_template is not None:
+        if not application.product_version_id:
+            raise OriginationError('A governed product version is required for catalogue documents.')
+        selected_ids = {
+            str(item) for item in (selected_supporting_template_ids or []) if str(item)
+        }
+        candidates = list(OriginationDocumentTemplate.objects.filter(
+            status=OriginationDocumentTemplate.STATUS_ACTIVE,
+            document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
+            published_configuration_revision__isnull=False,
+            product_eligibilities__product_id=application.product_version.product_id,
+        ).select_related('published_configuration_revision').distinct().order_by(
+            'display_order', 'document_key', 'name',
+        ))
+        templates = [(primary_template, None), *((item, None) for item in candidates)]
+        for template, _assignment in templates:
+            is_primary = template.pk == primary_template.pk
+            selected = is_primary or str(template.pk) in selected_ids
+            OriginationApplicationDocument.objects.create(
+                application=application,
+                template=template,
+                assignment=None,
+                document_key='primary' if is_primary else template.document_key,
+                name=template.name,
+                document_role=(
+                    OriginationDocumentTemplate.ROLE_PRIMARY
+                    if is_primary else OriginationDocumentTemplate.ROLE_SUPPORTING
+                ),
+                display_order=0 if is_primary else template.display_order,
+                inclusion_mode=(
+                    OriginationDocumentTemplate.INCLUDE_REQUIRED
+                    if is_primary else OriginationDocumentTemplate.INCLUDE_OPTIONAL
+                ),
+                selection_source=(
+                    OriginationApplicationDocument.SOURCE_REQUIRED
+                    if is_primary else OriginationApplicationDocument.SOURCE_OFFICER
+                ),
+                applicable=True,
+                selected=selected,
+                template_snapshot={
+                    **_template_snapshot(template),
+                    'catalogue_revision': catalogue_revision,
+                    'resolved_template_id': str(template.pk),
+                },
+                schema_snapshot=template.form_schema or {},
+                signer_rules_snapshot=(
+                    _primary_signer_rules(template.signer_rules, application.signer_rules_snapshot)
+                    if is_primary else deepcopy(template.signer_rules or [])
+                ),
+            )
+        return
 
     primary_templates = list(application.product_definition.document_templates.filter(
         status=OriginationDocumentTemplate.STATUS_ACTIVE,
@@ -289,6 +346,8 @@ def serialize_document(document: OriginationApplicationDocument) -> dict[str, An
     else:
         previewed = document.previewed_application_revision == application.revision or packet_previewed
     return {
+        'template_id': str(document.template_id or ''),
+        'template_version': (document.template_snapshot or {}).get('version'),
         'key': document.document_key,
         'name': document.name,
         'role': document.document_role,
@@ -355,6 +414,18 @@ def select_documents(*, application_id, actor, selected_keys: Any, expected_revi
     unknown = requested - allowed - required
     if unknown:
         raise OriginationError('One or more supporting documents cannot be selected for this application.')
+    from core.services.origination_document_catalogue import validate_snapshot_combination
+    primary = application.packet_documents.filter(
+        document_role=OriginationDocumentTemplate.ROLE_PRIMARY, selected=True,
+    ).first()
+    selected_supporting = [
+        document.schema_snapshot for document in application.packet_documents.all()
+        if document.document_role != OriginationDocumentTemplate.ROLE_PRIMARY and document.selected
+    ]
+    validate_snapshot_combination(
+        primary.schema_snapshot if primary else application.schema_snapshot,
+        selected_supporting,
+    )
     if not changed:
         _record_event(application, 'document_selection_unchanged', actor=actor, request_id=request_id)
         return application

@@ -147,10 +147,10 @@
       <section class="opb-shell opb-next-step">
         <header class="opb-header">
           <div>
-            <h2>Document packet</h2>
-            <p>Keep the main LAF first, then add required, conditional, or optional supporting PDFs with their own fields and signer slots.</p>
+            <h2>Historical document packet</h2>
+            <p>These assignments are retained for existing applications and audit only. New applications resolve documents from the independent catalogue.</p>
           </div>
-          <span class="opb-packet-actions">
+          <span class="opb-packet-actions" hidden>
             {% if origination_packet_add_shared_url and origination_available_shared_documents %}
               <label class="opb-packet-picker">Add reusable document
                 <select data-packet-document-select aria-label="Reusable document">
@@ -166,6 +166,7 @@
             {% endif %}
             <a class="opb-secondary-link" href="{{ origination_shared_library_url }}">Manage reusable library</a>
           </span>
+          <a class="button" href="{{ origination_shared_library_url }}">Open document catalogue</a>
         </header>
         <p class="opb-publish-feedback" data-packet-publish-feedback role="status" aria-live="polite"></p>
         {% if origination_shared_document_empty_reason %}

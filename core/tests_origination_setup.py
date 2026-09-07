@@ -201,8 +201,8 @@ class OriginationSetupWorkspaceTests(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Commercial terms')
-        self.assertContains(response, 'Form and signers')
-        self.assertContains(response, 'Document packet / LAFs')
+        self.assertContains(response, 'Compatibility profile')
+        self.assertContains(response, 'Historical product-attached packet')
         self.assertContains(response, 'Setup Branch')
 
         self.client.force_login(self.staff)

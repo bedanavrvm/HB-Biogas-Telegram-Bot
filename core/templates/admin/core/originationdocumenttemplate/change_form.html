@@ -9,14 +9,9 @@
 {% block form_before %}
   {{ block.super }}
   {% if add %}
-    <section class="opb-shell opb-next-step{% if not has_eligible_product_definitions %} opb-prerequisite-warning{% endif %}">
-      {% if has_eligible_product_definitions %}
-        <h2>Upload a product PDF or reusable document</h2>
-        <p>Select a draft product only for a product-owned PDF. For a document shared by several products, leave the product blank and choose its reusable family. Technical keys and version numbers are generated automatically.</p>
-      {% else %}
-        <h2>Upload to the reusable document library</h2>
-        <p>No draft product is currently available, but you can still upload a reusable primary LAF or supporting document. Choose the reviewed Generic Jawabu LAF field setup when uploading that form.</p>
-      {% endif %}
+    <section class="opb-shell opb-next-step">
+        <h2>Add a document catalogue version</h2>
+        <p>Select its eligible products, configure fields and signer slots visually, then align the approved PDF. Products no longer own document packets.</p>
       <div class="opb-actions">
         <a class="button" href="{{ create_product_definition_url }}">Create loan form definition</a>
         <a class="opb-secondary-link" href="{{ manage_product_definitions_url }}">Manage loan form definitions</a>
@@ -66,7 +61,7 @@
       <header class="opb-header" data-document-builder-header>
         <div>
           <h2>Document form builder</h2>
-          <p>For a custom reusable document, choose its canonical fields and signer slots here. Product-owned primary LAFs inherit their product form, while the reviewed Generic Jawabu LAF preset is populated automatically.</p>
+          <p>Choose canonical fields and signer slots here. A Main LAF drives the application form; the selected product injects its governed commercial inputs and validation.</p>
         </div>
         <div class="opb-actions">
           <a class="opb-secondary-link" href="{{ origination_data_field_add_url }}" target="_blank" rel="noopener">Create canonical field</a>
@@ -75,7 +70,7 @@
         </div>
       </header>
       <div class="opb-role-note" data-supporting-builder-note>
-        Choose the document type, product, and field setup above. This visual form builder appears only when fields need to be configured during upload.
+        Choose the document type and field setup above. The reviewed preset is populated automatically.
       </div>
       <div id="opb-errors" class="opb-errors" hidden></div>
       <div class="opb-grid" data-supporting-builder-content>
@@ -117,9 +112,6 @@
     {% endif %}
     {% if origination_next_family_version_url %}
       <li><a href="{{ origination_next_family_version_url }}">Upload replacement PDF</a></li>
-    {% endif %}
-    {% if origination_attach_to_product_url and original.status == 'active' %}
-      <li><a href="{{ origination_attach_to_product_url }}">Attach / upgrade product</a></li>
     {% endif %}
   {% endif %}
   {% if original and origination_god_mode_purge_url and request.user.is_superuser %}

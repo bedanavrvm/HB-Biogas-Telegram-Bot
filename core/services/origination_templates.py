@@ -1051,6 +1051,13 @@ def clone_reusable_template_version(
         drive_url=source.drive_url,
         created_by=actor,
     )
+    from core.models import OriginationDocumentProductEligibility
+    OriginationDocumentProductEligibility.objects.bulk_create([
+        OriginationDocumentProductEligibility(
+            template=successor, product_id=product_id, created_by=actor,
+        )
+        for product_id in source.eligible_products.values_list('pk', flat=True)
+    ])
     OriginationTemplateConfigurationRevision.objects.create(
         template=successor,
         revision=1,
@@ -1066,6 +1073,10 @@ def clone_reusable_template_version(
             'source_version': source.version,
             'source_sha256': source.source_sha256,
             'reused_drive_file': True,
+            'eligible_product_ids': sorted(
+                str(product_id)
+                for product_id in source.eligible_products.values_list('pk', flat=True)
+            ),
         },
     )
     return successor, False
@@ -1404,6 +1415,12 @@ def activate_template(template: OriginationDocumentTemplate, *, actor) -> Origin
         raise OriginationTemplateError('Only a successfully uploaded template can be activated.')
     if not template.published_configuration_revision_id:
         raise OriginationTemplateError('Publish the calibrated field alignment before activating this template.')
+    from core.services.origination_document_catalogue import validate_catalogue_publication
+    from core.services.loan_origination import OriginationError
+    try:
+        validate_catalogue_publication(template)
+    except OriginationError as exc:
+        raise OriginationTemplateError(str(exc)) from exc
     try:
         from core.services.order_approval import GoogleDriveMediaStorage
         folder_id = str(getattr(settings, 'GOOGLE_DRIVE_MEDIA_FOLDER_ID', '') or '').strip()

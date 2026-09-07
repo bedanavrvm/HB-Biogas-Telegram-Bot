@@ -24,6 +24,7 @@ from core.models import (
     OriginationDataField,
     OriginationDataFieldEvent,
     OriginationDocumentTemplate,
+    OriginationDocumentProductEligibility,
     OriginationDocumentTemplateEvent,
     OriginationFieldReviewIssue,
     OriginationProductDefinition,
@@ -69,6 +70,7 @@ ORIGINATION_RESET_MODEL_GROUPS = (
         OriginationProductDefinition,
         OriginationProductDefinitionEvent,
         OriginationDocumentTemplate,
+        OriginationDocumentProductEligibility,
         OriginationProductDocumentAssignment,
         OriginationDocumentTemplateEvent,
         OriginationTemplateConfigurationRevision,
@@ -199,6 +201,9 @@ def _delete(queryset, counts: Counter[str]) -> int:
 
 
 def _purge_application(application_id, counts: Counter[str]) -> None:
+    LoanOriginationApplication.objects.filter(
+        supersedes_application_id=application_id,
+    ).update(supersedes_application=None)
     request_ids = OriginationCorrectionRequest.objects.filter(
         application_id=application_id,
     ).values_list('pk', flat=True)
@@ -245,6 +250,7 @@ def _purge_template(template_id, counts: Counter[str]) -> None:
         counts,
     )
     _delete(OriginationProductDocumentAssignment.objects.filter(pk__in=assignment_ids), counts)
+    _delete(OriginationDocumentProductEligibility.objects.filter(template_id=template_id), counts)
     OriginationDocumentTemplate.objects.filter(
         published_configuration_revision__template_id=template_id,
     ).update(published_configuration_revision=None)
@@ -369,6 +375,7 @@ def reset_all_origination_data(*, actor, reason: str) -> dict[str, Any]:
 
     # Product/template configuration uses protected links in both directions.
     _delete(OriginationProductDocumentAssignment.objects.all(), deleted)
+    _delete(OriginationDocumentProductEligibility.objects.all(), deleted)
     _delete(OriginationDocumentTemplateEvent.objects.all(), deleted)
     OriginationDocumentTemplate.objects.update(published_configuration_revision=None)
     _delete(OriginationTemplateConfigurationRevision.objects.all(), deleted)

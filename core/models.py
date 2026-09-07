@@ -5429,6 +5429,14 @@ class OriginationDocumentTemplate(models.Model):
         OriginationProductDefinition, null=True, blank=True, on_delete=models.PROTECT,
         related_name='document_templates',
     )
+    eligible_products = models.ManyToManyField(
+        Product, through='OriginationDocumentProductEligibility',
+        related_name='eligible_origination_document_templates', blank=True,
+        help_text=(
+            'Global products allowed to use this exact immutable document version. '
+            'An empty list makes the document unavailable for new applications.'
+        ),
+    )
     document_key = models.SlugField(max_length=80, default='primary', db_index=True)
     document_role = models.CharField(
         max_length=16, choices=ROLE_CHOICES, default=ROLE_PRIMARY, db_index=True,
@@ -5516,6 +5524,35 @@ class OriginationDocumentTemplate(models.Model):
             errors['default_selected'] = 'Only optional documents can be selected by default.'
         if errors:
             raise ValidationError(errors)
+
+
+class OriginationDocumentProductEligibility(models.Model):
+    """Explicit product allowlist for one immutable catalogue document version."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    template = models.ForeignKey(
+        OriginationDocumentTemplate, on_delete=models.PROTECT,
+        related_name='product_eligibilities',
+    )
+    product = models.ForeignKey(
+        Product, on_delete=models.PROTECT,
+        related_name='origination_document_eligibilities',
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='created_origination_document_eligibilities',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['template__document_type', 'product__name']
+        constraints = [models.UniqueConstraint(
+            fields=['template', 'product'],
+            name='unique_origination_document_product_eligibility',
+        )]
+
+    def __str__(self):
+        return f'{self.template} → {self.product}'
 
 
 class OriginationProductDocumentAssignment(models.Model):
@@ -5761,6 +5798,12 @@ class LoanOriginationApplication(models.Model):
     product_selected_fee_keys = models.JSONField(default=list, blank=True)
     identity_snapshot = models.JSONField(default=dict, blank=True)
     client_request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    creation_request_digest = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    supersedes_application = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='replacement_applications',
+        help_text='Cancelled draft replaced through the audited Main LAF restart flow.',
+    )
     reviewed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
         related_name='reviewed_loan_origination_applications',

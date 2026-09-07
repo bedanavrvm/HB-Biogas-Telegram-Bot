@@ -35,6 +35,7 @@ from core.models import (
     OriginationSigningActionInvalidation,
     OriginationSigningPackage,
     OriginationTemplateConfigurationRevision,
+    Product,
 )
 from core.services.loan_origination import (
     OriginationConflict,
@@ -2067,7 +2068,7 @@ class OriginationDocumentTemplateUploadAdminTests(TestCase):
         self.assertEqual(second.signer_rules, first.signer_rules)
 
     @patch('core.services.origination_templates.upload_template_record')
-    def test_product_owned_primary_upload_derives_technical_identity(self, upload_mock):
+    def test_primary_upload_creates_an_independent_catalogue_document(self, upload_mock):
         upload_mock.side_effect = self._mark_uploaded
         product = OriginationProductDefinition.objects.create(
             product_key='admin-upload-product', name='Admin upload product', version=1,
@@ -2082,23 +2083,35 @@ class OriginationDocumentTemplateUploadAdminTests(TestCase):
             document_template_name='', document_template_version=1,
             document_template_sha256='', is_active=False,
         )
+        catalogue_product = Product.objects.create(
+            name='Admin catalogue product', code='admin_catalogue_product',
+        )
 
         response = self.client.post(self.add_url, {
             'product_definition': str(product.pk),
             'reusable_family': '',
             'schema_preset': '',
+            'eligible_products': [catalogue_product.pk],
             'name': 'Admin upload LAF',
             'document_role': OriginationDocumentTemplate.ROLE_PRIMARY,
             'inclusion_mode': OriginationDocumentTemplate.INCLUDE_REQUIRED,
             'display_order': '0',
+            'form_schema': json.dumps(product.form_schema),
+            'signer_rules': json.dumps([{'role': 'customer'}]),
             'pdf_file': self._pdf_upload('product-owned.pdf'),
         })
 
-        self.assertEqual(response.status_code, 302)
-        template = OriginationDocumentTemplate.objects.get(product_definition=product)
+        self.assertEqual(
+            response.status_code, 302,
+            getattr(response.context.get('adminform'), 'form', None).errors
+            if response.context else '',
+        )
+        template = OriginationDocumentTemplate.objects.get(name='Admin upload LAF')
+        self.assertIsNone(template.product_definition_id)
+        self.assertEqual(list(template.eligible_products.all()), [catalogue_product])
         self.assertEqual(template.document_key, 'primary')
-        self.assertEqual(template.document_type, product.document_type)
-        self.assertEqual(template.version, product.version)
+        self.assertEqual(template.document_type, 'admin-upload-laf')
+        self.assertEqual(template.version, 1)
         self.assertEqual(template.form_schema, product.form_schema)
 
 

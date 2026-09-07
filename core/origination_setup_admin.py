@@ -135,12 +135,22 @@ def dashboard_view(model_admin, request):
         pk__in=latest_ids,
         lifecycle_status=OriginationProductDefinition.STATUS_PUBLISHED,
     ).select_related('product_version__product').order_by('name')
+    from core.services.origination_document_catalogue import catalogue_for_product, catalogue_revision
+    current_catalogue_revision = catalogue_revision()
+    published_product_rows = [
+        {
+            'definition': item,
+            'catalogue': catalogue_for_product(item, revision=current_catalogue_revision),
+        }
+        for item in published
+    ]
     return TemplateResponse(request, 'admin/core/origination_setup/dashboard.html', {
         **model_admin.admin_site.each_context(request),
         'opts': model_admin.model._meta,
         'title': 'Origination product setup',
         'draft_rows': draft_rows,
         'published_products': published,
+        'published_product_rows': published_product_rows,
         'start_form': SetupIdentityForm(),
         'request_id': str(uuid.uuid4()),
         'start_url': reverse('admin:core_origination_setup_start'),
@@ -157,6 +167,8 @@ def detail_view(model_admin, request, object_id):
     if not selected or not selected.product_version_id:
         return HttpResponse(status=404)
     product = selected.product_version.product
+    from core.services.origination_document_catalogue import catalogue_for_product
+    document_catalogue = catalogue_for_product(selected)
     from core.services.origination_templates import resolve_assignment_template
     from core.services.product_availability import (
         CANONICAL_PRODUCT_CHANNEL, PRODUCT_WORKFLOW_CHOICES,
@@ -274,6 +286,8 @@ def detail_view(model_admin, request, object_id):
             'selected': selected,
             'product': product,
             'availability': availability,
+            'document_catalogue': document_catalogue,
+            'document_catalogue_url': reverse('admin:core_originationdocumenttemplate_changelist'),
             'version_rows': rows,
             'dashboard_url': reverse('admin:core_origination_setup_dashboard'),
             'availability_url': reverse(
@@ -656,8 +670,8 @@ def _step_form(model_admin, request, definition, context):
             definition=definition, step_key='form', actor=request.user,
             request_id=request_id,
         )
-    messages.success(request, 'Form and signing roles saved.')
-    return HttpResponseRedirect(_workspace_url(definition, 'documents'))
+    messages.success(request, 'Form compatibility and minimum signing roles saved.')
+    return HttpResponseRedirect(_workspace_url(definition, 'publish'))
 
 
 def _reusable_primaries():
@@ -793,19 +807,8 @@ def template_status_failed():
 
 
 def _step_publish(model_admin, request, definition, context):
-    from core.services.origination_templates import resolve_assignment_template
-    owned = list(definition.document_templates.filter(
-        document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
-        status__in=[OriginationDocumentTemplate.STATUS_READY, OriginationDocumentTemplate.STATUS_ACTIVE],
-    ))
-    assigned = [
-        resolve_assignment_template(item)
-        for item in definition.document_assignments.select_related('template').filter(
-            template__document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
-        )
-    ]
-    primaries = owned + [item for item in assigned if item]
-    context['primary_template'] = primaries[0] if len(primaries) == 1 else None
+    from core.services.origination_document_catalogue import catalogue_for_product
+    context['document_catalogue'] = catalogue_for_product(definition)
     context['review_rows'] = setup_readiness(definition)
     if request.method != 'POST':
         return None
@@ -819,34 +822,14 @@ def _step_publish(model_admin, request, definition, context):
         ]
         if blockers:
             raise ValidationError('Resolve every stale, incomplete, or blocked setup step before publishing.')
-        owned = list(definition.document_templates.filter(
-            document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
-            status__in=[OriginationDocumentTemplate.STATUS_READY, OriginationDocumentTemplate.STATUS_ACTIVE],
-        ))
-        assignments = list(definition.document_assignments.select_related(
-            'template', 'template__published_configuration_revision',
-        ).filter(template__document_role=OriginationDocumentTemplate.ROLE_PRIMARY))
-        from core.services.origination_templates import publish_product_template, resolve_assignment_template
-        primary = owned[0] if len(owned) == 1 and not assignments else (
-            resolve_assignment_template(assignments[0])
-            if len(assignments) == 1 and not owned else None
-        )
-        if not primary:
-            raise ValidationError('Attach exactly one main LAF before publishing.')
-        revision = (
-            primary.published_configuration_revision.revision
-            if primary.product_definition_id is None
-            else primary.configuration_revisions.order_by('-revision').values_list('revision', flat=True).first()
-        )
-        if not revision:
-            raise ValidationError('Save and review the main LAF alignment before publishing.')
-        published, _template, _revision = publish_product_template(
-            template=primary, revision=revision, product_definition=definition,
-            actor=request.user, client_request_id=request_id,
-        )
+        from core.services.origination_setup import publish_product_profile
+        published = publish_product_profile(definition=definition, actor=request.user)
         record_step_completion(
             definition=published, step_key='publish', actor=request.user,
             request_id=request_id,
         )
-    messages.success(request, f'{published.name} v{published.version} is published for Origination.')
+    messages.success(
+        request,
+        f'{published.name} v{published.version} is published. Its document choices come from the independent catalogue.',
+    )
     return HttpResponseRedirect(reverse('admin:core_origination_setup_dashboard'))

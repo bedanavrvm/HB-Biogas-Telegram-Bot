@@ -7,6 +7,7 @@ import json
 import re
 import unicodedata
 import uuid
+from copy import deepcopy
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -300,15 +301,13 @@ def validate_product_form_contract(
 
 
 def validate_product_definition(definition: OriginationProductDefinition) -> None:
-    """Reject activation of incomplete or ambiguous product contracts."""
+    """Reject activation of an incomplete product compatibility profile."""
     validate_product_form_contract(definition.form_schema, definition.signer_rules)
-    if not definition.document_type.strip():
-        raise OriginationError('An active origination product requires an e-sign document type.')
-    if not definition.document_template_name.strip():
-        raise OriginationError('An active origination product requires an approved document template.')
-    digest = definition.document_template_sha256.strip().lower()
-    if len(digest) != 64 or any(character not in '0123456789abcdef' for character in digest):
-        raise OriginationError('The approved document template requires a valid SHA-256 digest.')
+    if (
+        definition.lifecycle_status == definition.STATUS_PUBLISHED
+        and not definition.product_version_id
+    ):
+        raise OriginationError('An active origination product requires a governed product version.')
 
 
 def _applicant_identity_field_keys(
@@ -982,22 +981,43 @@ def render_application_preview(application: LoanOriginationApplication) -> bytes
 
 
 @transaction.atomic
-def create_application(*, product_key: str, officer, branch: str, client_request_id: str) -> tuple[LoanOriginationApplication, bool]:
+def create_application(
+    *, product_key: str, officer, branch: str, client_request_id: str,
+    primary_template_id=None, supporting_template_ids=None,
+    expected_catalogue_revision: str = '', supersedes_application=None,
+) -> tuple[LoanOriginationApplication, bool]:
     client_request_id = _require_request_id(client_request_id)
     from core.services.location_catalog import resolve_location
     branch = str(branch or '').strip()
     branch_record = resolve_location(branch, location_type='branch')
-    existing = LoanOriginationApplication.objects.filter(
-        officer=officer, client_request_id=client_request_id,
-    ).first()
-    if existing:
-        return existing, True
     definition = OriginationProductDefinition.objects.filter(
         product_key=product_key, is_active=True,
     ).first()
     if not definition:
         raise OriginationError('This origination product is not active.')
     validate_product_definition(definition)
+    catalogue_selection = bool(primary_template_id)
+    supporting_template_ids = list(supporting_template_ids or [])
+    request_digest = ''
+    if catalogue_selection:
+        from core.services.origination_document_catalogue import selection_digest
+        request_digest = selection_digest(
+            branch=branch_record.name if branch_record else branch,
+            product_version_id=definition.product_version_id,
+            catalogue_revision_value=expected_catalogue_revision,
+            primary_template_id=primary_template_id,
+            supporting_template_ids=supporting_template_ids,
+            supersedes_application_id=getattr(supersedes_application, 'pk', ''),
+        )
+    existing = LoanOriginationApplication.objects.filter(
+        officer=officer, client_request_id=client_request_id,
+    ).first()
+    if existing:
+        if request_digest and existing.creation_request_digest != request_digest:
+            raise OriginationConflict(
+                'This request ID was already used with different application or document choices.',
+            )
+        return existing, True
     from core.services.product_catalog import (
         active_product_version, product_is_available, serialize_product_version,
     )
@@ -1010,12 +1030,38 @@ def create_application(*, product_key: str, officer, branch: str, client_request
             workflow='loan_origination', channel='portal',
         ):
             raise OriginationError('This product is not available for the selected branch in Loan Origination.')
+    primary_template = None
+    selected_supporting_templates = []
+    catalogue = None
+    selected_schema = None
+    if catalogue_selection:
+        from core.services.origination_document_catalogue import resolve_catalogue_selection
+        (
+            primary_template, selected_supporting_templates, selected_schema, catalogue,
+        ) = resolve_catalogue_selection(
+            definition,
+            primary_template_id=primary_template_id,
+            supporting_template_ids=supporting_template_ids,
+            expected_catalogue_revision=expected_catalogue_revision,
+        )
     terms_snapshot = (
         serialize_product_version(definition.product_version)
         if definition.product_version_id else {}
     )
     from core.services.origination_documents import resolved_document_requirements
-    document_requirements = resolved_document_requirements(definition)
+    if catalogue_selection:
+        document_requirements = []
+        seen_requirement_keys = set()
+        for selected_template in [primary_template, *selected_supporting_templates]:
+            for requirement in (selected_template.form_schema or {}).get('evidence_requirements', []) or []:
+                key = str(requirement.get('key') or '') if isinstance(requirement, dict) else ''
+                if key and key not in seen_requirement_keys:
+                    document_requirements.append(json.loads(json.dumps(requirement)))
+                    seen_requirement_keys.add(key)
+    else:
+        # Compatibility for historical direct service callers. The public API
+        # requires an explicit catalogue selection and never enters this path.
+        document_requirements = resolved_document_requirements(definition)
     if document_requirements:
         terms_snapshot = json.loads(json.dumps(terms_snapshot or {}))
         requirements = [
@@ -1047,13 +1093,28 @@ def create_application(*, product_key: str, officer, branch: str, client_request
                 commercial_contract_enabled, commercial_contract_version,
                 initial_fee_rows,
             )
-            schema_snapshot = snapshot_form_schema(definition.form_schema)
+            schema_snapshot = snapshot_form_schema(
+                selected_schema if catalogue_selection else definition.form_schema,
+            )
             initial_payload = {}
             if (
                 commercial_contract_enabled(schema_snapshot)
                 and commercial_contract_version(schema_snapshot) < 2
             ):
                 initial_payload['loan_fees'] = initial_fee_rows(definition.product_version)
+            if catalogue_selection:
+                from core.services.origination_documents import _primary_signer_rules
+                signer_rules_snapshot = _primary_signer_rules(
+                    primary_template.signer_rules, definition.signer_rules,
+                )
+                template_configuration_snapshot = (
+                    (primary_template.published_configuration_revision.configuration
+                     if primary_template.published_configuration_revision_id
+                     else primary_template.placement_config) or {}
+                )
+            else:
+                signer_rules_snapshot = definition.signer_rules
+                template_configuration_snapshot = _published_template_configuration(definition)
             application = LoanOriginationApplication.objects.create(
                 id=application_id,
                 reference_number=f'ORG-{timezone.localdate():%Y}-{str(application_id)[:8].upper()}',
@@ -1065,21 +1126,40 @@ def create_application(*, product_key: str, officer, branch: str, client_request
                 location_snapshot=location_snapshot(branch=branch_record),
                 schema_snapshot=schema_snapshot,
                 form_payload=initial_payload,
-                signer_rules_snapshot=definition.signer_rules,
-                template_configuration_snapshot=_published_template_configuration(definition),
+                signer_rules_snapshot=signer_rules_snapshot,
+                template_configuration_snapshot=template_configuration_snapshot,
                 product_terms_snapshot=terms_snapshot,
                 client_request_id=client_request_id,
+                creation_request_digest=request_digest,
+                supersedes_application=supersedes_application,
             )
     except IntegrityError:
         existing = LoanOriginationApplication.objects.filter(
             officer=officer, client_request_id=client_request_id,
         ).first()
         if existing:
+            if request_digest and existing.creation_request_digest != request_digest:
+                raise OriginationConflict(
+                    'This request ID was already used with different application or document choices.',
+                )
             return existing, True
         raise
-    _record_event(application, 'created', actor=officer, request_id=client_request_id)
+    _record_event(
+        application, 'created', actor=officer, request_id=client_request_id,
+        after={
+            'primary_template_id': str(primary_template_id or ''),
+            'supporting_template_ids': sorted(str(item) for item in supporting_template_ids),
+            'catalogue_revision': str(expected_catalogue_revision or ''),
+            'supersedes_application_id': str(getattr(supersedes_application, 'pk', '') or ''),
+        },
+    )
     from core.services.origination_documents import initialize_document_packet
-    initialize_document_packet(application)
+    initialize_document_packet(
+        application,
+        primary_template=primary_template,
+        selected_supporting_template_ids=supporting_template_ids,
+        catalogue_revision=(catalogue or {}).get('catalogue_revision', ''),
+    )
     primary_document = application.packet_documents.filter(
         document_role='primary', selected=True,
     ).first()
@@ -1103,6 +1183,108 @@ def _published_template_configuration(definition: OriginationProductDefinition) 
         return {}
     revision = template.published_configuration_revision
     return (revision.configuration if revision else template.placement_config) or {}
+
+
+@transaction.atomic
+def restart_application_with_main_laf(
+    *, application_id, officer, primary_template_id, supporting_template_ids,
+    expected_revision: int, expected_catalogue_revision: str, client_request_id: str,
+) -> tuple[LoanOriginationApplication, bool]:
+    """Replace a draft while copying only type-compatible user-entered values."""
+    source = LoanOriginationApplication.objects.select_for_update().select_related(
+        'product_definition', 'product_version', 'branch_ref',
+    ).get(pk=application_id)
+    if source.officer_id != officer.pk:
+        raise OriginationError('Only the assigned officer may restart this application.')
+    current_primary_id = source.packet_documents.filter(
+        document_role='primary', selected=True,
+    ).values_list('template_id', flat=True).first()
+    if current_primary_id and str(current_primary_id) == str(primary_template_id):
+        raise OriginationError('Choose a different Main LAF before restarting this draft.')
+    if source.status == source.STATUS_CANCELLED:
+        existing = LoanOriginationApplication.objects.filter(
+            officer=officer, client_request_id=client_request_id,
+            supersedes_application=source,
+        ).first()
+        if not existing:
+            raise OriginationError('This draft was already cancelled and cannot be restarted again.')
+        # Re-enter the digest-bound creation path so a reused request ID with
+        # different document choices is still rejected.
+        return create_application(
+            product_key=source.product_definition.product_key,
+            officer=officer,
+            branch=source.branch_ref.name if source.branch_ref_id else source.branch,
+            client_request_id=client_request_id,
+            primary_template_id=primary_template_id,
+            supporting_template_ids=supporting_template_ids,
+            expected_catalogue_revision=expected_catalogue_revision,
+            supersedes_application=source,
+        )
+    if source.status != source.STATUS_DRAFT:
+        raise OriginationError('Only a draft application can be restarted with another Main LAF.')
+    if int(expected_revision) != source.revision:
+        raise OriginationConflict('This application changed. Refresh before restarting it.')
+
+    replacement, replayed = create_application(
+        product_key=source.product_definition.product_key,
+        officer=officer,
+        branch=source.branch_ref.name if source.branch_ref_id else source.branch,
+        client_request_id=client_request_id,
+        primary_template_id=primary_template_id,
+        supporting_template_ids=supporting_template_ids,
+        expected_catalogue_revision=expected_catalogue_revision,
+        supersedes_application=source,
+    )
+    if replayed:
+        return replacement, True
+
+    source_fields = {
+        str(item.get('key') or ''): item
+        for item in _schema_fields(source.schema_snapshot)
+        if str(item.get('key') or '')
+    }
+    target_fields = {
+        str(item.get('key') or ''): item
+        for item in _schema_fields(replacement.schema_snapshot)
+        if str(item.get('key') or '')
+    }
+    safe_values = {}
+    copied_keys = []
+    for key, target_field in target_fields.items():
+        source_field = source_fields.get(key)
+        if not source_field or key not in (source.form_payload or {}):
+            continue
+        if str(source_field.get('type') or 'text') != str(target_field.get('type') or 'text'):
+            continue
+        if str(source_field.get('source_type') or 'user_input') == 'system':
+            continue
+        if str(target_field.get('source_type') or 'user_input') == 'system':
+            continue
+        safe_values[key] = deepcopy(source.form_payload[key])
+        copied_keys.append(key)
+    normalized = normalize_form_payload(replacement.schema_snapshot, safe_values)
+    validation = validate_form_payload(replacement.schema_snapshot, normalized, require_complete=False)
+    if not validation.valid:
+        raise OriginationError('Matching draft values could not be safely transferred.', errors=validation.errors)
+    replacement.form_payload = normalized
+    replacement.identity_snapshot = applicant_identity_snapshot(
+        normalized, schema=replacement.schema_snapshot,
+        signer_rules=replacement.signer_rules_snapshot,
+    )
+    replacement.save(update_fields=['form_payload', 'identity_snapshot', 'updated_at'])
+    _record_event(
+        replacement, 'restarted_with_main_laf', actor=officer,
+        after={'source_application_id': str(source.pk), 'copied_field_keys': sorted(copied_keys)},
+    )
+    source.status = source.STATUS_CANCELLED
+    source.save(update_fields=['status', 'updated_at'])
+    _record_event(
+        source, 'cancelled_for_main_laf_restart', actor=officer,
+        after={'replacement_application_id': str(replacement.pk)},
+    )
+    return replacement, False
+
+
 @transaction.atomic
 def save_application_fields(
     *, application_id, actor, payload: Any, expected_revision: int, request_id: str,
@@ -2220,6 +2402,7 @@ def serialize_application(
         'global_product_version_id': str(application.product_version_id or ''),
         'branch': application.branch, 'status': application.status,
         'revision': application.revision, 'updated_at': application.updated_at.isoformat(),
+        'supersedes_application_id': str(application.supersedes_application_id or ''),
         'officer_id': application.officer_id,
         'officer_name': application.officer.get_full_name() or application.officer.get_username(),
         'recheck_assigned_to_id': application.recheck_assigned_to_id,

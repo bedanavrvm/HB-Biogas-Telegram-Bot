@@ -873,8 +873,8 @@
     const branchOptions = branches.map(item => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join('');
     openSheet({
       mode: 'create', eyebrow: 'Origination', title: 'New application',
-      hint: 'Choose a branch, then select a product available there.', trigger,
-      body: `<form id="origination-create" class="sheet-form"><label><span>Branch</span><select name="branch" id="origination-create-branch" required><option value="">Choose branch</option>${branchOptions}</select></label><label><span>Product</span><select name="product_key" id="origination-create-product" required disabled><option value="">Choose branch first</option></select></label></form>`,
+      hint: 'Choose a branch, product, Main LAF, and any supporting documents needed for this application.', trigger,
+      body: `<form id="origination-create" class="sheet-form"><label><span>Branch</span><select name="branch" id="origination-create-branch" required><option value="">Choose branch</option>${branchOptions}</select></label><label><span>Product</span><select name="product_key" id="origination-create-product" required disabled><option value="">Choose branch first</option></select></label><div id="origination-create-documents" class="packet-document-list"></div></form>`,
       footer: '<button type="submit" form="origination-create" class="btn btn-primary" id="origination-create-submit" data-primary-action="Start application" disabled>Start application</button>',
     });
     document.getElementById('origination-create-branch').onchange = event => loadProductsForBranch(event.target.value);
@@ -882,12 +882,60 @@
     syncPrimaryAction();
   }
 
+  async function openRestartSheet(trigger) {
+    const result = await apiFetch(`/products/?branch=${encodeURIComponent(current.branch)}`, {});
+    if (!result.ok) return showToast(result.data?.error || 'Could not load the document catalogue.', true);
+    const product = (result.data.products || []).find(item => item.product_key === current.product_key);
+    const catalogue = product?.document_catalogue || {};
+    if (!catalogue.ready) return showToast((catalogue.reasons || ['No compatible Main LAF is available.']).join(' '), true);
+    const selectedSupporting = new Set((current.document_packet?.documents || [])
+      .filter(item => item.role === 'supporting' && item.selected)
+      .map(item => item.template_id));
+    const currentPrimaryId = (current.document_packet?.documents || [])
+      .find(item => item.role === 'primary' && item.selected)?.template_id;
+    const replacementMains = (catalogue.main_lafs || []).filter(item => item.id !== currentPrimaryId);
+    if (!replacementMains.length) return showToast('No other compatible Main LAF is currently available.', true);
+    const mains = replacementMains.map(item => `<label class="packet-document-option"><input type="radio" name="primary_template_id" value="${escapeHtml(item.id)}" required><span><strong>${escapeHtml(item.name)}</strong><small>Main LAF · version ${escapeHtml(item.version)}</small></span></label>`).join('');
+    const supporting = (catalogue.supporting_documents || []).map(item => `<label class="packet-document-option"><input type="checkbox" name="supporting_template_ids" value="${escapeHtml(item.id)}"${selectedSupporting.has(item.id) ? ' checked' : ''}><span><strong>${escapeHtml(item.name)}</strong><small>Optional supporting document · version ${escapeHtml(item.version)}</small></span></label>`).join('');
+    openSheet({
+      mode: 'restart-laf', eyebrow: current.reference_number, title: 'Restart with another Main LAF',
+      hint: 'A replacement draft will safely prefill matching fields. This draft will then be cancelled. Files, previews, approvals, and signatures are never copied.', trigger,
+      body: `<form id="origination-restart-form" class="sheet-form"><div class="section-title"><div><h3>Main LAF</h3><p>Choose the replacement legal form.</p></div></div>${mains}<div class="section-title"><div><h3>Supporting documents</h3></div></div>${supporting || '<div class="empty-state">No supporting documents are available.</div>'}</form>`,
+      footer: '<button type="button" class="btn btn-secondary" data-sheet-cancel>Keep this draft</button><button type="submit" form="origination-restart-form" class="btn btn-danger">Cancel and create replacement</button>',
+    });
+    document.querySelector('[data-sheet-cancel]').onclick = () => closeSheet();
+    document.getElementById('origination-restart-form').onsubmit = async event => {
+      event.preventDefault();
+      const values = new FormData(event.currentTarget);
+      const primaryId = values.get('primary_template_id');
+      if (!primaryId) return showToast('Choose the replacement Main LAF.', true);
+      const supportingIds = values.getAll('supporting_template_ids');
+      const identity = `${current.id}:${primaryId}:${supportingIds.slice().sort().join(',')}:${catalogue.catalogue_revision}`;
+      const storageKey = `origination-restart-request:${identity}`;
+      const restartKey = storageGet(storageKey) || requestKey('restart');
+      storageSet(storageKey, restartKey);
+      const restarted = await postJson(`/applications/${current.id}/restart/`, {
+        revision: current.revision,
+        primary_template_id: primaryId,
+        supporting_template_ids: supportingIds,
+        catalogue_revision: catalogue.catalogue_revision,
+        client_request_id: restartKey,
+      });
+      if (!restarted.ok) return showToast(restarted.data?.error || 'Could not restart the application.', true);
+      storageRemove(storageKey);
+      closeSheet({ restoreFocus: false });
+      await openEditor(restarted.data.application, 0);
+      showToast('Replacement draft created. Matching fields were safely prefilled.');
+    };
+  }
+
   function syncCreationPrimary() {
     const branch = document.getElementById('origination-create-branch');
     const product = document.getElementById('origination-create-product');
+    const mainLaf = document.querySelector('input[name="primary_template_id"]:checked');
     const submit = document.getElementById('origination-create-submit');
     if (!submit) return;
-    submit.disabled = createInFlight || !branch?.value || !product?.value;
+    submit.disabled = createInFlight || !branch?.value || !product?.value || !mainLaf;
     syncPrimaryAction();
   }
 
@@ -934,7 +982,9 @@
     event.preventDefault();
     if (createInFlight) return;
     const values = new FormData(event.currentTarget);
-    const identity = `${values.get('branch')}:${values.get('product_key')}`;
+    const product = products.find(item => item.product_key === values.get('product_key'));
+    const supportingIds = values.getAll('supporting_template_ids');
+    const identity = `${values.get('branch')}:${values.get('product_key')}:${values.get('primary_template_id')}:${supportingIds.slice().sort().join(',')}:${product?.document_catalogue?.catalogue_revision || ''}`;
     const storageKey = `origination-create-request:${identity}`;
     const createKey = storageGet(storageKey) || requestKey('create');
     storageSet(storageKey, createKey);
@@ -943,7 +993,11 @@
     let createdApplication = null;
     try {
       const result = await postJson('/applications/', {
-        product_key: values.get('product_key'), branch: values.get('branch'), client_request_id: createKey,
+        product_key: values.get('product_key'), branch: values.get('branch'),
+        primary_template_id: values.get('primary_template_id'),
+        supporting_template_ids: supportingIds,
+        catalogue_revision: product?.document_catalogue?.catalogue_revision || '',
+        client_request_id: createKey,
       });
       if (!result.ok) return showToast(result.data?.error || 'Could not start the application.', true);
       createdApplication = result.data?.application;
@@ -2037,9 +2091,12 @@
       ? '' : `<small class="editor-status-text">${escapeHtml(application.status_text || applicationStatusLabel(application))}</small>`;
     const contextChip = statusHasPersistentBanner
       ? '' : `<span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(applicationStatusLabel(application))}</span>`;
-    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small>${contextStatus}</div>${contextChip}</div>${persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${progressMarkup()}<section class="wizard-card">${content}</section>${actionFooter}`;
+    const restartAction = application.status === 'draft'
+      ? '<button type="button" class="btn btn-secondary" id="origination-restart-laf">Change Main LAF</button>' : '';
+    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small>${contextStatus}</div>${contextChip}${restartAction}</div>${persistentStateFeedbackMarkup()}${recoveryConflictMarkup()}${correctionChecklistMarkup()}${recheckAssignmentMarkup()}${progressMarkup()}<section class="wizard-card">${content}</section>${actionFooter}`;
     syncNativeDateDisplays(root());
     bindEditor(sectionEditable);
+    document.getElementById('origination-restart-laf')?.addEventListener('click', event => openRestartSheet(event.currentTarget));
     syncTelegramControls();
     scheduleSigningRefresh();
     window.requestAnimationFrame(() => window.scrollTo(0, 0));
@@ -2052,7 +2109,7 @@
       const locked = item.inclusion_mode !== 'optional';
       return `<label class="packet-document-option${item.selected ? ' selected' : ''}"><input type="checkbox" data-document-select="${escapeHtml(item.key)}"${item.selected ? ' checked' : ''}${locked || !editable ? ' disabled' : ''}><span><strong>${escapeHtml(item.name)}</strong><small>${locked ? 'Required for this application' : 'Optional supporting document'}</small></span><span class="status-chip">${item.selected ? 'Included' : 'Not included'}</span></label>`;
     }).join('');
-    return `<div class="section-title"><div><h3>Supporting documents</h3><p>Required documents are selected automatically. Add optional documents now; one full-packet preview at the final check verifies everything together.</p></div></div><div class="packet-document-list">${rows || '<div class="empty-state">No supporting documents apply.</div>'}</div>`;
+    return `<div class="section-title"><div><h3>Supporting documents</h3><p>Add or remove optional documents until submission; one full-packet preview at the final check verifies the selected set together.</p></div></div><div class="packet-document-list">${rows || '<div class="empty-state">No supporting documents are available.</div>'}</div>`;
   }
 
   function repeatableItemLabel(field) {
@@ -3314,11 +3371,29 @@
     const result = await apiFetch(`/products/?branch=${encodeURIComponent(branch)}`, {});
     if (!result.ok) { select.innerHTML = '<option value="">Could not load products</option>'; syncCreationPrimary(); return showToast(result.data?.error || 'Could not load branch products.', true); }
     products = result.data.products || [];
-    select.innerHTML = `<option value="">Choose product</option>${products.map(item => `<option value="${escapeHtml(item.product_key)}">${escapeHtml(item.name)}</option>`).join('')}`;
+    select.innerHTML = `<option value="">Choose product</option>${products.map(item => `<option value="${escapeHtml(item.product_key)}"${item.template_ready ? '' : ' disabled'}>${escapeHtml(item.name)}${item.template_ready ? '' : ' — documents unavailable'}</option>`).join('')}`;
     select.disabled = !products.length;
-    select.onchange = syncCreationPrimary;
+    select.onchange = () => { renderCreationDocuments(); syncCreationPrimary(); };
+    renderCreationDocuments();
     syncCreationPrimary();
     if (!products.length) showToast('No active origination product is available for this branch.', true);
+  }
+
+  function renderCreationDocuments() {
+    const productKey = document.getElementById('origination-create-product')?.value;
+    const container = document.getElementById('origination-create-documents');
+    if (!container) return;
+    const product = products.find(item => item.product_key === productKey);
+    if (!product) { container.innerHTML = ''; return; }
+    const catalogue = product.document_catalogue || {};
+    if (!catalogue.ready) {
+      container.innerHTML = `<aside class="notice"><strong>Documents unavailable</strong><span>${escapeHtml((catalogue.reasons || ['This product is not ready for new applications.']).join(' '))}</span></aside>`;
+      return;
+    }
+    const mains = (catalogue.main_lafs || []).map(item => `<label class="packet-document-option"><input type="radio" name="primary_template_id" value="${escapeHtml(item.id)}" required><span><strong>${escapeHtml(item.name)}</strong><small>Main LAF · version ${escapeHtml(item.version)}</small></span></label>`).join('');
+    const supporting = (catalogue.supporting_documents || []).map(item => `<label class="packet-document-option"><input type="checkbox" name="supporting_template_ids" value="${escapeHtml(item.id)}"><span><strong>${escapeHtml(item.name)}</strong><small>Optional supporting document · version ${escapeHtml(item.version)}</small></span></label>`).join('');
+    container.innerHTML = `<div class="section-title"><div><h3>Main LAF</h3><p>Choose the legal form for this application. It cannot be changed after starting without an audited restart.</p></div></div>${mains}<div class="section-title"><div><h3>Supporting documents</h3><p>Select only the additional documents required for this application.</p></div></div>${supporting || '<div class="empty-state">No supporting documents are available.</div>'}`;
+    container.querySelectorAll('input').forEach(input => input.addEventListener('change', syncCreationPrimary));
   }
 
   async function loadApplications({ focusSearch = false } = {}) {

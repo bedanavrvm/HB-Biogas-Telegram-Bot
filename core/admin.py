@@ -132,6 +132,7 @@ from .models import (
     OriginationProductDefinition,
     OriginationProductDefinitionEvent,
     OriginationDocumentTemplate,
+    OriginationDocumentProductEligibility,
     OriginationDocumentTemplateEvent,
     OriginationTemplateConfigurationRevision,
     LoanOriginationApplication,
@@ -649,11 +650,24 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
         required=False, max_length=160, label='Native-clause attestation reference',
         help_text='Required when an embedded consent policy is selected.',
     )
+    eligible_products = forms.ModelMultipleChoiceField(
+        queryset=Product.objects.none(), required=False,
+        label='Available for products',
+        help_text=(
+            'Select every global product that may use this document. '
+            'Leave all unchecked to keep it unavailable for new applications.'
+        ),
+        widget=forms.CheckboxSelectMultiple,
+    )
+    make_unavailable = forms.BooleanField(
+        required=False, label='Publish without product availability',
+        help_text='Use this to deliberately clear inherited eligibility on a replacement version.',
+    )
 
     class Meta:
         model = OriginationDocumentTemplate
         fields = (
-            'product_definition', 'reusable_family', 'schema_preset',
+            'reusable_family', 'schema_preset', 'eligible_products', 'make_unavailable',
             'document_key', 'name', 'document_role',
             'inclusion_mode', 'display_order', 'officer_selectable',
             'default_selected', 'applicability_rule', 'form_schema',
@@ -679,7 +693,10 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['product_definition'].queryset = self.eligible_product_definitions()
+        self.fields.pop('product_definition', None)
+        self.fields['eligible_products'].queryset = Product.objects.filter(active=True).order_by(
+            'sort_order', 'name',
+        )
         self.fields['native_consent_policy'].queryset = OriginationConsentPolicyVersion.objects.filter(
             status=OriginationConsentPolicyVersion.STATUS_ACTIVE,
         ).order_by('-approved_at')
@@ -721,6 +738,16 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
             if key in self.fields:
                 self.fields[key].required = False
         self._configure_condition_editor()
+        requested_family = str(
+            (self.data.get('reusable_family') if self.is_bound else self.initial.get('reusable_family'))
+            or ''
+        ).strip()
+        if requested_family and not self.is_bound:
+            family_template = OriginationDocumentTemplate.objects.filter(
+                product_definition__isnull=True, document_type=requested_family,
+            ).exclude(status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED).order_by('-version').first()
+            if family_template:
+                self.fields['eligible_products'].initial = family_template.eligible_products.all()
 
     @staticmethod
     def _derived_family_key(name, role):
@@ -732,7 +759,7 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
     def clean(self):
         cleaned = super().clean()
         pdf_file = cleaned.get('pdf_file')
-        product = cleaned.get('product_definition')
+        product = None
         reusable_family = str(cleaned.get('reusable_family') or '').strip()
         schema_preset = str(cleaned.get('schema_preset') or '').strip()
         if not pdf_file:
@@ -772,6 +799,8 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
             ).order_by('-version').first()
             if not family_template:
                 self.add_error('reusable_family', 'Choose an existing reusable template family.')
+            elif not cleaned.get('eligible_products') and not cleaned.get('make_unavailable'):
+                cleaned['eligible_products'] = family_template.eligible_products.all()
 
         role = cleaned['document_role']
         name = str(cleaned.get('name') or '').strip()
@@ -824,8 +853,16 @@ class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.
             'document_key': document_key,
             'document_role': role,
         })
+        if role == OriginationDocumentTemplate.ROLE_PRIMARY:
+            cleaned['inclusion_mode'] = OriginationDocumentTemplate.INCLUDE_REQUIRED
+            cleaned['officer_selectable'] = False
+        else:
+            cleaned['inclusion_mode'] = OriginationDocumentTemplate.INCLUDE_OPTIONAL
+            cleaned['officer_selectable'] = True
+        cleaned['default_selected'] = False
+        cleaned['applicability_rule'] = {}
         for key, value in cleaned.items():
-            if key in self.fields:
+            if key in self.fields and key not in {'eligible_products', 'make_unavailable'}:
                 setattr(self.instance, key, value)
         if product and product.document_templates.exclude(
             status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
@@ -10883,13 +10920,14 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
     form = OriginationDocumentTemplateForm
     change_form_template = 'admin/core/originationdocumenttemplate/change_form.html'
     change_list_template = 'admin/core/originationdocumenttemplate/change_list.html'
-    list_display = ('name', 'product_definition', 'document_role', 'inclusion_mode', 'display_order', 'status', 'calibrate_link', 'page_count', 'updated_at')
+    list_display = ('name', 'document_role', 'eligible_products_summary', 'status', 'calibrate_link', 'page_count', 'updated_at')
     list_filter = ('status', 'document_role', 'inclusion_mode', 'document_type', 'product_definition')
     search_fields = ('name', 'document_type', 'source_filename', 'source_sha256')
     actions = ('activate_selected_templates',)
     readonly_fields = (
         'product_definition', 'document_key', 'name', 'document_role', 'inclusion_mode',
         'display_order', 'officer_selectable', 'default_selected', 'applicability_summary',
+        'eligible_products_summary',
         'configuration_summary', 'document_type', 'version', 'status', 'source_filename', 'source_sha256',
         'source_byte_size', 'page_count', 'calibration_link', 'drive_link',
         'native_consent_policy', 'native_consent_attestation_reference',
@@ -10897,6 +10935,11 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         'published_configuration_revision', 'upload_error', 'created_by', 'activated_by',
         'activated_at', 'created_at', 'updated_at',
     )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related(
+            'product_definition', 'published_configuration_revision',
+        ).prefetch_related('eligible_products')
 
     def get_readonly_fields(self, request, obj=None):
         if obj is None:
@@ -10912,16 +10955,14 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                 'Upload PDF template',
                 {
                     'description': (
-                        'Upload a product-owned PDF or add it to the reusable template library. '
+                        'Upload an independent catalogue document and choose its eligible products. '
                         'Choose the reviewed Generic Jawabu LAF field setup when applicable; '
                         'otherwise define fields visually after upload. The alignment builder opens automatically.'
                     ),
                     'fields': (
-                        'product_definition', 'reusable_family', 'schema_preset',
+                        'reusable_family', 'schema_preset', 'eligible_products', 'make_unavailable',
                         ('name', 'document_role'),
-                        ('inclusion_mode', 'display_order'),
-                        ('officer_selectable', 'default_selected'),
-                        ('condition_field', 'condition_operator'), 'condition_value',
+                        'display_order',
                         'applicability_rule', 'form_schema', 'signer_rules', 'pdf_file',
                         'native_consent_policy', 'native_consent_attestation_reference',
                     ),
@@ -10933,6 +10974,7 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                     'product_definition', ('document_key', 'name'),
                     ('document_role', 'inclusion_mode', 'display_order'),
                     ('officer_selectable', 'default_selected'),
+                    'eligible_products_summary',
                     'applicability_summary', 'configuration_summary',
                     ('document_type', 'version', 'status'),
                     'calibration_link',
@@ -11049,6 +11091,11 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
         operator = dict(DOCUMENT_CONDITION_OPERATORS).get(rule['operator'], rule['operator'])
         value = '' if rule['operator'] in {'truthy', 'falsy'} else f' {rule.get("value", "")}'
         return f"{rule['field'].replace('_', ' ').title()} {operator}{value}"
+
+    @admin.display(description='Available for products')
+    def eligible_products_summary(self, obj):
+        names = list(obj.eligible_products.order_by('sort_order', 'name').values_list('name', flat=True))
+        return ', '.join(names) if names else 'Unavailable for new applications'
 
     @admin.display(description='Configured fields and signers')
     def configuration_summary(self, obj):
@@ -11498,6 +11545,12 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
             })
         obj.full_clean()
         super().save_model(request, obj, form, change)
+        OriginationDocumentProductEligibility.objects.bulk_create([
+            OriginationDocumentProductEligibility(
+                template=obj, product=product, created_by=request.user,
+            )
+            for product in form.cleaned_data.get('eligible_products', [])
+        ], ignore_conflicts=True)
         OriginationDocumentTemplateEvent.objects.create(
             template=obj, action='created', actor=request.user,
             metadata={
@@ -11506,6 +11559,9 @@ class OriginationDocumentTemplateAdmin(OriginationGodModeAdminMixin, CompactMode
                 'page_count': obj.page_count,
                 'reusable_family': obj.document_type if obj.product_definition_id is None else '',
                 'schema_preset': schema_preset,
+                'eligible_product_ids': sorted(
+                    str(product.pk) for product in form.cleaned_data.get('eligible_products', [])
+                ),
             },
         )
         from core.services.origination_templates import upload_template_record

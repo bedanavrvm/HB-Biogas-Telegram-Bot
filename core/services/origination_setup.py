@@ -9,6 +9,8 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.core import signing
+from django.db import transaction
+from django.utils import timezone
 
 from core.models import (
     OriginationDocumentTemplate,
@@ -23,11 +25,10 @@ SETUP_STEPS = (
     ('identity', 'Product and availability'),
     ('terms', 'Commercial terms'),
     ('terms_publish', 'Publish terms'),
-    ('form', 'Form and signers'),
-    ('documents', 'Document packet'),
-    ('calibration', 'PDF alignment'),
+    ('form', 'Compatibility profile'),
     ('publish', 'Review and publish'),
 )
+LEGACY_RETURN_STEPS = {'documents', 'calibration'}
 RETURN_TOKEN_SALT = 'core.origination.setup.return.v1'
 RETURN_TOKEN_MAX_AGE_SECONDS = 24 * 60 * 60
 
@@ -39,7 +40,7 @@ class OriginationSetupConflict(ValueError):
 
 
 def make_return_token(*, definition_id, step_key: str = 'calibration') -> str:
-    if step_key not in {key for key, _label in SETUP_STEPS}:
+    if step_key not in {key for key, _label in SETUP_STEPS} | LEGACY_RETURN_STEPS:
         raise ValueError('Unknown Origination setup step.')
     return signing.dumps(
         {'definition_id': str(definition_id), 'step_key': step_key},
@@ -56,7 +57,7 @@ def resolve_return_token(token: str) -> dict[str, str]:
         raise signing.BadSignature('Invalid Origination setup return token.')
     definition_id = str(payload.get('definition_id') or '')
     step_key = str(payload.get('step_key') or '')
-    if not definition_id or step_key not in {key for key, _label in SETUP_STEPS}:
+    if not definition_id or step_key not in {key for key, _label in SETUP_STEPS} | LEGACY_RETURN_STEPS:
         raise signing.BadSignature('Invalid Origination setup return target.')
     return {'definition_id': definition_id, 'step_key': step_key}
 
@@ -376,8 +377,6 @@ def setup_readiness(definition: OriginationProductDefinition) -> list[dict[str, 
     )
     terms_valid, terms_detail = _valid_terms(definition.product_version)
     form_valid, form_detail = _valid_form(definition)
-    packet_valid, packet_detail, _owned, _assigned = _packet(definition)
-    calibration_valid, calibration_detail = _valid_calibration(definition)
     candidates = {
         'identity': (identity_valid, 'Product identity and Origination availability are saved.'),
         'terms': (terms_valid, terms_detail),
@@ -388,11 +387,9 @@ def setup_readiness(definition: OriginationProductDefinition) -> list[dict[str, 
             'Publish the governed commercial terms before continuing.'
         ),
         'form': (form_valid, form_detail),
-        'documents': (packet_valid, packet_detail),
-        'calibration': (calibration_valid, calibration_detail),
         'publish': (
             definition.lifecycle_status == definition.STATUS_PUBLISHED and definition.is_active,
-            'The exact Origination product and resolved packet are published.'
+            'The product compatibility profile is published. Document availability is governed independently by the catalogue.'
         ),
     }
     guided_workspace = bool(
@@ -423,3 +420,58 @@ def setup_readiness(definition: OriginationProductDefinition) -> list[dict[str, 
             status = 'in_progress'
         rows.append({'key': key, 'label': label, 'status': status, 'detail': detail})
     return rows
+
+
+@transaction.atomic
+def publish_product_profile(*, definition: OriginationProductDefinition, actor):
+    """Publish product terms/form authority without attaching a legal document."""
+    if not getattr(actor, 'is_active', False) or not getattr(actor, 'is_superuser', False):
+        raise ValidationError('Only an active Django Superuser may publish Origination products.')
+    locked = OriginationProductDefinition.objects.select_for_update().select_related(
+        'product_version__product',
+    ).get(pk=definition.pk)
+    if locked.lifecycle_status != locked.STATUS_DRAFT:
+        raise ValidationError('Only a draft Origination product profile can be published.')
+    if not locked.product_version_id or locked.product_version.status not in {
+        ProductVersion.STATUS_PUBLISHED, ProductVersion.STATUS_SCHEDULED,
+    }:
+        raise ValidationError('Publish the governed commercial terms first.')
+    from core.services.loan_origination import OriginationError, validate_product_definition
+    try:
+        validate_product_definition(locked)
+    except OriginationError as exc:
+        raise ValidationError(str(exc)) from exc
+    previous = list(OriginationProductDefinition.objects.select_for_update().filter(
+        product_key=locked.product_key, is_active=True,
+    ).exclude(pk=locked.pk))
+    for old in previous:
+        old.is_active = False
+        old.lifecycle_status = old.STATUS_RETIRED
+        old.save(update_fields=['is_active', 'lifecycle_status', 'updated_at'])
+        OriginationProductDefinitionEvent.objects.create(
+            product_definition=old, action='retired', actor=actor,
+            metadata={'successor_id': str(locked.pk), 'successor_version': locked.version},
+        )
+    locked.is_active = True
+    locked.lifecycle_status = locked.STATUS_PUBLISHED
+    locked.published_by = actor
+    locked.published_at = timezone.now()
+    locked.save(update_fields=[
+        'is_active', 'lifecycle_status', 'published_by', 'published_at', 'updated_at',
+    ])
+    event = OriginationProductDefinitionEvent.objects.create(
+        product_definition=locked, action='published', actor=actor,
+        metadata={'resolution_mode': 'document_catalogue'},
+    )
+    from core.services.compliance_audit import record_event
+    record_event(
+        workflow='portal', action='portal.origination.product_published',
+        category='configuration', origin='human',
+        subject_type='origination_product_definition', subject_id=str(locked.pk),
+        actor=actor, authority_user=actor,
+        source_model='OriginationProductDefinitionEvent', source_event_id=str(event.pk),
+        deduplication_key=f'portal:OriginationProductDefinitionEvent:{event.pk}',
+        after_values={'product_key': locked.product_key, 'version': locked.version},
+        metadata={'resolution_mode': 'document_catalogue'},
+    )
+    return locked

@@ -189,7 +189,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 .status-reviewed, .status-signing_pending { background: #dff5ea; color: #07583d; }
 .status-correction_required { background: #ffe4df; color: #8d2819; }
 
-.editor-context { margin: 0 -2px; padding: 2px 1px 5px; border-bottom: 1px solid var(--laf-line); }
+.editor-context { flex-wrap: wrap; margin: 0 -2px; padding: 2px 1px 5px; border-bottom: 1px solid var(--laf-line); }
 .editor-context > div { display: grid; flex: 1; min-width: 0; }
 .editor-context strong, .editor-context small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .editor-context strong { font-size: .75rem; }
@@ -197,6 +197,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 .editor-context .editor-status-text { margin-top: 2px; color: var(--laf-green); font-weight: 700; white-space: normal; }
 .icon-button { display: grid; place-items: center; width: 38px; height: 38px; min-height: 38px !important; padding: 0 !important; border: 1px solid var(--laf-line) !important; border-radius: 9px !important; background: var(--laf-surface) !important; color: inherit !important; font-size: 1.05rem !important; }
 .editor-context .icon-button { flex: 0 0 38px; width: 38px !important; }
+.editor-context #origination-restart-laf { min-height: 32px; padding: 5px 8px; font-size: .62rem; }
 
 .wizard-progress-compact { margin: 6px 0; padding: 7px 9px 6px; border: 1px solid var(--laf-line); border-radius: 10px; background: var(--laf-surface); }
 .wizard-progress-trigger { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 34px; padding: 0; border: 0; background: transparent; color: var(--laf-dark); text-align: left; }
