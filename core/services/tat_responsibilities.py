@@ -468,7 +468,7 @@ def replace_expired_assignment(
     *, assignment, primary_user, actor, reason: str, request_id: str,
     expected_updated_at,
 ):
-    """Atomically replace one expired active roster without rerouting old tasks."""
+    """Atomically replace one expired roster and redistribute pending work."""
     from core.models import (
         TatResponsibilityAssignment, TatResponsibilityChangePlan,
         TatResponsibilityEvent,
@@ -571,6 +571,15 @@ def replace_expired_assignment(
         'successor_assignment_id': str(successor.pk),
     }
     plan.save(update_fields=['status', 'applied_at', 'proposed_snapshot'])
+    from core.services.tat_notifications import reconcile_pending_tasks_for_group
+
+    routing_result = reconcile_pending_tasks_for_group(
+        group_configuration=successor.group_configuration,
+        actor=actor,
+        reason=f'Expired roster replacement: {reason}',
+        request_id=f'replace-expired-roster:{request_id}',
+    )
+    successor._rerouted_task_count = routing_result['changed']
     return successor
 
 

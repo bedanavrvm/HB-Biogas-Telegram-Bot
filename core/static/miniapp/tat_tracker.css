@@ -514,6 +514,13 @@ h2 { font-size: 13px; font-weight: 750; }
   font-size: 9px;
   flex: 0 0 auto;
 }
+.queue-sharing-note {
+  margin: 0;
+  color: var(--tat-muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+.queue-sharing-note strong { color: var(--tat-text); }
 .queue-tools {
   display: flex;
   align-items: center;

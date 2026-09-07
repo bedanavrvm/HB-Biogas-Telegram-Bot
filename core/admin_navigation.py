@@ -261,6 +261,17 @@ def _origination_full_reset_allowed(request) -> bool:
     )
 
 
+def _tat_full_reset_allowed(request) -> bool:
+    user = getattr(request, "user", None)
+    return bool(
+        getattr(settings, 'TAT_FULL_RESET_ENABLED', False)
+        and user
+        and user.is_authenticated
+        and user.is_active
+        and user.is_superuser
+    )
+
+
 def get_admin_navigation(request) -> list[dict]:
     """Return the small, workflow-oriented sidebar shown in Django Admin."""
 
@@ -330,6 +341,12 @@ def get_admin_navigation(request) -> list[dict]:
             "admin:core_workflow_configuration",
             "tune",
             _superuser,
+        ),
+        _custom_item(
+            "Reset all TAT data",
+            "admin:core_tat_full_reset",
+            "delete_forever",
+            _tat_full_reset_allowed,
         ),
         _model_item("core.GroupSheetConfiguration", "Workflow groups", "hub"),
         _custom_item("Mini App access matrix", "admin:core_workflowrolecapability_matrix", "admin_panel_settings", _superuser),

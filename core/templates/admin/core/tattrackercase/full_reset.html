@@ -1,0 +1,73 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=8">
+{% endblock %}
+
+{% block content %}
+  <section class="opb-shell opb-god-mode opb-full-reset">
+    <header>
+      <p class="opb-danger-kicker">TAT TESTING DANGER ZONE</p>
+      <h1>Reset all TAT data</h1>
+      <p>Completely empty the TAT-owned database models and return the TAT Mini App to a clean Pilot cycle.</p>
+    </header>
+
+    <div class="opb-god-warning">
+      <b>This cannot be undone.</b>
+      <p>All TAT cases, events, tasks, routing assignments, notifications, repair jobs, metrics, product-stage configuration, presentation settings, and TAT-only pilot history listed below will be deleted.</p>
+      <p>Google Sheets rows, Telegram messages, external signature files, users, products, locations, workflow groups, access grants, Sheet audit evidence, the immutable compliance ledger, and all SPIN data and settings remain untouched.</p>
+      <p>Because external rows remain, do not run an import or repair against an old TAT Sheet unless you intend to recreate those records.</p>
+    </div>
+
+    <div class="opb-reset-total">
+      <b>{{ preview.total }}</b>
+      <span>TAT database record{{ preview.total|pluralize }} currently scheduled for deletion</span>
+    </div>
+
+    <div class="opb-reset-groups">
+      {% for group in preview.groups %}
+        <details {% if group.count %}open{% endif %}>
+          <summary><span>{{ group.label }}</span><b>{{ group.count }}</b></summary>
+          <table>
+            <tbody>
+              {% for item in group.models %}
+                <tr><td>{{ item.label }}</td><td>{{ item.count }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </details>
+      {% endfor %}
+    </div>
+
+    {% if error %}<div class="opb-errors" role="alert">{{ error }}</div>{% endif %}
+    <form method="post" class="opb-god-form" data-single-submit>
+      {% csrf_token %}
+      <input type="hidden" name="request_id" value="{{ request_id }}">
+      <label>Reason for permanent reset
+        <textarea name="reason" required maxlength="500" placeholder="Example: Clearing synthetic TAT testing data before a clean setup">{{ reason }}</textarea>
+      </label>
+      <label>Type this exact phrase to confirm
+        <code>{{ confirmation_phrase }}</code>
+        <input name="confirmation" required autocomplete="off" spellcheck="false" value="{{ confirmation }}">
+      </label>
+      <div class="opb-actions">
+        <a class="button" href="{{ back_url }}">Cancel</a>
+        <button type="submit" class="button opb-danger-button">Reset all TAT data</button>
+      </div>
+    </form>
+  </section>
+  <script>
+    (() => {
+      const form = document.querySelector('[data-single-submit]');
+      if (!form) return;
+      form.addEventListener('submit', () => {
+        const button = form.querySelector('button[type="submit"]');
+        if (!button || button.disabled) return;
+        button.disabled = true;
+        button.textContent = 'Resetting TAT...';
+      });
+    })();
+  </script>
+{% endblock %}

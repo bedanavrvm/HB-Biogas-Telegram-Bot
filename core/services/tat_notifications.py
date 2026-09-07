@@ -613,14 +613,38 @@ def reroute_pending_task(*, task: TatActionTask, actor, reason: str, request_id:
             ])
             continue
         _user, kind, rank, threshold = intended[user_id]
+        route_changed = (
+            row.kind != kind
+            or row.rank != rank
+            or row.threshold_percent != threshold
+        )
         row.kind = kind
         row.rank = rank
         row.threshold_percent = threshold
         row.routing_generation = generation
-        if row.inbox_status == TatActionTaskRecipient.INBOX_SUPERSEDED:
+        reactivated = row.inbox_status not in {
+            TatActionTaskRecipient.INBOX_UNREAD,
+            TatActionTaskRecipient.INBOX_READ,
+        }
+        if reactivated:
             row.inbox_status = TatActionTaskRecipient.INBOX_UNREAD
+            row.read_at = None
+        if reactivated or (
+            route_changed
+            and row.delivery_state != TatActionTaskRecipient.DELIVERY_DELIVERED
+        ):
+            row.delivery_state = TatActionTaskRecipient.DELIVERY_PENDING
+            row.delivery_error = ''
+            row.deliver_after = (
+                now if kind in {TatActionTaskRecipient.KIND_PRIMARY, TatActionTaskRecipient.KIND_ROLE}
+                else _backup_due_at(case, task.stage_key, threshold)
+            )
+            row.delivered_at = None
+            row.telegram_message_id = ''
         row.save(update_fields=[
-            'kind', 'rank', 'threshold_percent', 'routing_generation', 'inbox_status', 'updated_at',
+            'kind', 'rank', 'threshold_percent', 'routing_generation',
+            'inbox_status', 'read_at', 'delivery_state', 'delivery_error',
+            'deliver_after', 'delivered_at', 'telegram_message_id', 'updated_at',
         ])
     for user_id, (user, kind, rank, threshold) in intended.items():
         if user_id in existing_by_user:
@@ -658,6 +682,91 @@ def reroute_pending_task(*, task: TatActionTask, actor, reason: str, request_id:
     if task.group_configuration_id:
         transaction.on_commit(lambda group_id=task.group_configuration_id: safe_refresh_group_exception(group_id))
     return task
+
+
+def _task_matches_current_route(task: TatActionTask, assignment, recipients) -> bool:
+    """Compare the durable inbox route with the currently effective roster."""
+    current = {
+        row.user_id: (row.kind, row.rank, row.threshold_percent)
+        for row in task.recipients.all()
+        if row.routing_generation == task.routing_generation
+        and row.inbox_status in {
+            TatActionTaskRecipient.INBOX_UNREAD,
+            TatActionTaskRecipient.INBOX_READ,
+        }
+    }
+    intended = {
+        user.pk: (kind, rank, threshold)
+        for user, kind, rank, threshold in recipients
+    }
+    return task.assignment_id == getattr(assignment, 'pk', None) and current == intended
+
+
+@transaction.atomic
+def reconcile_pending_tasks_for_group(
+    *, group_configuration, actor, reason: str, request_id: str,
+) -> dict:
+    """Apply current responsibility rules to every pending task in one TAT group.
+
+    A roster save is an operational workload-distribution decision. Pending
+    inbox rows therefore follow the effective roster immediately instead of
+    retaining stale recipients. Each changed task still receives its normal
+    append-only ``TatTaskRerouteEvent`` and routing generation.
+    """
+    if not getattr(actor, 'is_active', False) or not getattr(actor, 'is_superuser', False):
+        raise ValueError('Only an active Django Superuser may reconcile TAT task routing.')
+    reason = str(reason or '').strip()
+    request_id = str(request_id or '').strip()
+    if len(reason) < 10:
+        raise ValueError('Explain why this routing change is required (at least 10 characters).')
+    if not request_id:
+        raise ValueError('A request ID is required.')
+
+    tasks = list(TatActionTask.objects.filter(
+        group_configuration=group_configuration,
+        status=TatActionTask.STATUS_PENDING,
+    ).select_related('case', 'group_configuration').prefetch_related('recipients'))
+    changed = 0
+    unchanged = 0
+    stale = 0
+    from core.services.tat_tracker import next_action
+
+    for task in tasks:
+        stage = next_action(task.case)
+        if (
+            not stage
+            or stage.key != task.stage_key
+            or task.case.workflow_revision != task.case_revision
+        ):
+            # Stage synchronization owns stale-task repair. Do not let an
+            # unrelated stale row block an otherwise valid roster save.
+            stale += 1
+            continue
+        assignment, recipients, _invalid_assignment = _routing_recipients(
+            group=task.group_configuration,
+            case=task.case,
+            role=task.responsible_role,
+            stage_key=task.stage_key,
+        )
+        if _task_matches_current_route(task, assignment, recipients):
+            unchanged += 1
+            continue
+        task_request_id = 'roster:' + hashlib.sha256(
+            f'{request_id}:{task.pk}'.encode('utf-8'),
+        ).hexdigest()
+        reroute_pending_task(
+            task=task,
+            actor=actor,
+            reason=reason,
+            request_id=task_request_id,
+        )
+        changed += 1
+    return {
+        'changed': changed,
+        'unchanged': unchanged,
+        'stale': stale,
+        'total': len(tasks),
+    }
 
 
 def _telegram_request(method: str, payload: dict):
@@ -1229,6 +1338,7 @@ def connect_private_alerts(user, *, request_id: str = '') -> dict:
         connection, _ = TatPrivateAlertConnection.objects.select_for_update().get_or_create(user=user)
         if request_id and connection.last_connect_request_id == request_id:
             return connection_payload(user)
+        disconnected_at_before = connection.disconnected_at
         connection.last_connect_request_id = request_id
         connection.save(update_fields=['last_connect_request_id', 'updated_at'])
     now = timezone.now()
@@ -1263,7 +1373,7 @@ def connect_private_alerts(user, *, request_id: str = '') -> dict:
         if (
             connection.status == TatPrivateAlertConnection.STATUS_DISCONNECTED
             and connection.disconnected_at
-            and connection.disconnected_at >= now
+            and connection.disconnected_at != disconnected_at_before
         ):
             return connection_payload(user)
         connection.status = TatPrivateAlertConnection.STATUS_CONNECTED

@@ -44,6 +44,7 @@ from core.services.tat_notifications import (
     process_due_tasks,
     finish_notification_processor_run,
     refresh_group_exception,
+    reconcile_pending_tasks_for_group,
     resolve_locator,
     resolve_assignment,
     reroute_pending_task,
@@ -52,6 +53,7 @@ from core.services.tat_notifications import (
     task_access_allowed,
 )
 from core.services.group_config import GroupRegistry
+from core.services.tat_tracker import home_data, staff_user_for_payload
 
 
 @override_settings(
@@ -732,7 +734,8 @@ class TatPrivateTaskTests(TestCase):
         self.assertIn("button.dataset.connected = data.connected ? 'true' : 'false'", source)
         self.assertIn("'Disconnect private alerts'", source)
         self.assertIn("'/api/tat-tracker/private-alerts/disconnect/'", source)
-        self.assertIn('?v=50', template)
+        self.assertIn("tat_tracker.css' %}?v=55", template)
+        self.assertIn("tat_tracker.js' %}?v=82", template)
 
     @patch('core.services.tat_notifications._telegram_request', return_value={'message_id': 83})
     def test_superuser_can_send_confirmed_test_from_connection_admin(self, telegram):
@@ -831,6 +834,62 @@ class TatPrivateTaskTests(TestCase):
         self.assertTrue(TatTaskRerouteEvent.objects.filter(
             task=rerouted, generation_before=1, generation_after=2,
         ).exists())
+
+    def test_roster_reconciliation_updates_assigned_queue_and_keeps_role_pool_shared(self):
+        task = synchronize_case_task(self.group, self.case, dispatch_on_commit=False)
+        replacement = self._user('replacement-owner', '110')
+        helper = self._user('same-role-helper', '111')
+        self._grant(replacement, 'BRO')
+        self._grant(helper, 'BRO')
+        actor = get_user_model().objects.create_superuser(
+            username='roster-admin', password='test-password', email='roster@example.test',
+        )
+        self.assignment.primary_user = replacement
+        self.assignment.save(update_fields=['primary_user', 'updated_at'])
+
+        result = reconcile_pending_tasks_for_group(
+            group_configuration=self.group,
+            actor=actor,
+            reason='Move pending work to the newly approved roster owner.',
+            request_id='roster-save-test-1',
+        )
+        repeated = reconcile_pending_tasks_for_group(
+            group_configuration=self.group,
+            actor=actor,
+            reason='Move pending work to the newly approved roster owner.',
+            request_id='roster-save-test-1',
+        )
+
+        task.refresh_from_db()
+        self.assertEqual(result['changed'], 1)
+        self.assertEqual(repeated['changed'], 0)
+        self.assertEqual(task.assignment_id, self.assignment.pk)
+        self.assertEqual(task.routing_generation, 2)
+        current_recipients = task.recipients.filter(
+            routing_generation=task.routing_generation,
+            inbox_status__in=[
+                TatActionTaskRecipient.INBOX_UNREAD,
+                TatActionTaskRecipient.INBOX_READ,
+            ],
+        )
+        self.assertEqual(
+            set(current_recipients.values_list('user_id', flat=True)),
+            {replacement.pk, self.backup.pk},
+        )
+        self.assertEqual(inbox_payload(self.primary, group=self.group)['total'], 0)
+        self.assertEqual(inbox_payload(replacement, group=self.group)['total'], 1)
+        self.assertEqual(inbox_payload(helper, group=self.group)['total'], 0)
+        self.assertEqual(TatTaskRerouteEvent.objects.filter(task=task).count(), 1)
+
+        helper_context = staff_user_for_payload(
+            self.group, {'id': 111, 'username': 'same-role-helper'},
+        )
+        shared_queue = home_data(self.group, helper_context, queue='role')
+        self.assertEqual(shared_queue['metrics']['role'], 1)
+        self.assertEqual(
+            [item['case_id'] for item in shared_queue['items']],
+            [self.case.case_id],
+        )
 
     def test_stale_locator_redirects_authorized_recipient_to_current_revision(self):
         old = synchronize_case_task(self.group, self.case)

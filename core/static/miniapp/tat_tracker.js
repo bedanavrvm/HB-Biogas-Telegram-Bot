@@ -552,7 +552,7 @@
         'Assigned to me',
         'No assigned tasks',
         accessibleTotal
-          ? `${accessibleTotal} accessible ${accessibleTotal === 1 ? 'case is' : 'cases are'} still available under All cases.`
+          ? 'Your assigned work is clear. Open Ready for my role to help colleagues with the same role.'
           : 'Direct primary and backup work will appear here.',
       ];
     }
@@ -568,7 +568,7 @@
       'No role actions',
       accessibleTotal
         ? `${accessibleTotal} accessible ${accessibleTotal === 1 ? 'case is' : 'cases are'} visible under All cases, but none currently require your roles.`
-        : 'Cases your current roles can action will appear here.',
+        : 'The shared pool for your current roles will appear here, including work assigned to colleagues.',
     ];
   }
 

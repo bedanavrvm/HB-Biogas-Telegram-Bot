@@ -12,7 +12,7 @@
       <article><span>Scope retained</span><strong>{{ assignment.group_configuration }} · {{ assignment.branch }} · {{ assignment.product_key|default:'All products' }}</strong></article>
       <article><span>Role / stage retained</span><strong>{{ assignment.role }} · {{ assignment.stage_key|default:'All stages' }}</strong></article>
       <article><span>Current primary</span><strong>{{ assignment.primary_user }}</strong></article>
-      <article><span>Existing open tasks</span><strong>{{ open_task_count }}</strong><small>None will move automatically. Reroute them separately from the task register if required.</small></article>
+      <article><span>Existing open tasks</span><strong>{{ open_task_count }}</strong><small>Pending tasks move to the successor roster immediately and each move remains audited.</small></article>
     </div>
   </section>
   <section class="tat-impact-preview">

@@ -609,7 +609,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Assigned to me', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=81", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=82", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -643,7 +643,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-sheet-overlay', stylesheet)
         self.assertIn('class="notice-close tat-sheet-close"', template)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
-        self.assertIn("miniapp/tat_tracker.css' %}?v=54", template)
+        self.assertIn("miniapp/tat_tracker.css' %}?v=55", template)
         self.assertIn('id="tatGridZoom"', template)
         self.assertIn('id="tatGridZoomOut"', template)
         self.assertIn('id="tatGridZoomReset"', template)
@@ -1674,8 +1674,68 @@ class TatTrackerWorkflowTest(TestCase):
         )
         self.assertEqual(preview.status_code, 200)
         self.assertTrue(preview.json()['primary_has_access'])
-        self.assertFalse(preview.json()['tasks_move_automatically'])
+        self.assertTrue(preview.json()['tasks_move_automatically'])
         self.assertTrue(preview.json()['stages'])
+
+    def test_guided_roster_save_redistributes_matching_pending_tasks(self):
+        from core.models import TatResponsibilityAssignment, TatTaskRerouteEvent
+
+        root = get_user_model().objects.create_superuser(
+            username='routing-save-root', email='routing-save@example.invalid',
+            password='test-password',
+        )
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='TAT-ROSTER-SAVE-001',
+            product_key='business', product_label='Business', client_name='Roster Save',
+            branch='Nakuru', status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+        )
+        task = TatActionTask.objects.create(
+            case=case, group_configuration=self.config,
+            stage_key='mpesa_to_admin', stage_label='M-Pesa to Admin',
+            responsible_role='BRO', case_revision=case.workflow_revision,
+        )
+        self.client.force_login(root)
+        effective_from = timezone.localtime()
+
+        response = self.client.post(
+            reverse('admin:core_tatresponsibilityassignment_add'),
+            {
+                'group_configuration': str(self.config.pk),
+                'branch': 'Nakuru',
+                'role': 'BRO',
+                'product_key': 'business',
+                'stage_key': '',
+                'primary_user': str(self.bro_user.pk),
+                'change_reason': 'Assign the current Nakuru business workload.',
+                'active': 'on',
+                'effective_from_0': effective_from.strftime('%Y-%m-%d'),
+                'effective_from_1': effective_from.strftime('%H:%M:%S'),
+                'effective_until_0': '',
+                'effective_until_1': '',
+                'expected_updated_at': '',
+                'backups-TOTAL_FORMS': '0',
+                'backups-INITIAL_FORMS': '0',
+                'backups-MIN_NUM_FORMS': '0',
+                'backups-MAX_NUM_FORMS': '1000',
+                '_save': 'Save',
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        assignment = TatResponsibilityAssignment.objects.get(
+            group_configuration=self.config, branch='Nakuru', role='BRO',
+            product_key='business', stage_key='', active=True,
+        )
+        task.refresh_from_db()
+        self.assertEqual(task.assignment_id, assignment.pk)
+        self.assertEqual(task.routing_generation, 2)
+        self.assertTrue(task.recipients.filter(
+            user=self.bro_user,
+            routing_generation=2,
+            inbox_status=TatActionTaskRecipient.INBOX_UNREAD,
+        ).exists())
+        self.assertEqual(TatTaskRerouteEvent.objects.filter(task=task).count(), 1)
 
     def test_effective_routing_overview_deduplicates_overlapping_grants(self):
         from core.models import TatPrivateAlertConnection, TatResponsibilityAssignment
@@ -1778,8 +1838,13 @@ class TatTrackerWorkflowTest(TestCase):
             assignment_id_snapshot__in=[expired.pk, successor.pk],
         ).count(), 2)
         open_task.refresh_from_db()
-        self.assertEqual(open_task.assignment_id, expired.pk)
-        self.assertEqual(open_task.routing_generation, 1)
+        self.assertEqual(open_task.assignment_id, successor.pk)
+        self.assertEqual(open_task.routing_generation, 2)
+        self.assertTrue(open_task.recipients.filter(
+            user=self.bro_user,
+            routing_generation=2,
+            inbox_status=TatActionTaskRecipient.INBOX_UNREAD,
+        ).exists())
 
     def test_compact_cards_have_a_distinct_queue_hierarchy(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -1791,6 +1856,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('body.compact-cards .case-identifiers', stylesheet)
         self.assertIn('body.compact-cards .case-time', stylesheet)
         self.assertIn('Open a case for identifiers and timestamps.', template)
+        self.assertIn('including cases assigned to colleagues with the same role', template)
 
     @patch('core.services.tat_tracker.sync_tat_target_settings_to_sheet', return_value={'status': 'unavailable'})
     def test_it_can_save_stage_targets_in_minutes(self, sync_targets):

@@ -200,6 +200,7 @@ Key modules:
 - `access_control.py` — maker-checker access changes, emergency grants, notifications, and policy versioning
 - `staff_lifecycle.py` — atomic idempotent Superuser staff lifecycle execution, optional checker review, access, routing, leave, return, offboarding, and Telegram activation controls
 - `user_hard_delete.py` — unilateral Superuser account hard deletion, immutable identity manifests, audit preservation, force-unassignment, and coverage-gap evidence
+- `tat_full_reset.py` — testing-only, Superuser-gated clean-slate deletion of TAT-owned database state without touching Sheets, external files, shared catalogues, access control, compliance evidence, or SPIN
 - `access_grant_governance.py` — runtime context guard preventing permanent AccessGrant mutations outside approved services
 - `access_control_reporting.py` — access-control evidence exports, parity, and least-privilege diagnostics
 - `document_signoffs.py` — immutable source/workbook binding and physically signed/stamped scan retention for requisitions and payments
@@ -255,6 +256,7 @@ The Mini Apps use Django templates and mostly vanilla JavaScript. Preserve Teleg
 - `core/tests_laf_seed_documentation.py`
 - `core/tests_staff_lifecycle.py`
 - `core/tests_user_hard_delete.py`
+- `core/tests_tat_full_reset.py`
 - `core/tests_telegram_authentication.py`
 - `core/tests_durable_jobs.py`
 - `core/tests_idempotency_cutover.py`

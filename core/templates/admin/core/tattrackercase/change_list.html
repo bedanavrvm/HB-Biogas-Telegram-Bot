@@ -1,0 +1,16 @@
+{% extends "admin/change_list.html" %}
+
+{% block content %}
+  {% if tat_full_reset_url %}
+    <section style="margin-bottom:12px;padding:11px 13px;border:1px solid #fecaca;border-radius:8px;background:#fff7f7;color:#7f1d1d">
+      <div style="display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+        <div>
+          <strong style="display:block;font-size:14px">TAT testing danger zone</strong>
+          <span style="display:block;margin-top:3px;font-size:12px">Preview and permanently clear all TAT database records.</span>
+        </div>
+        <a class="button" href="{{ tat_full_reset_url }}">Reset TAT database</a>
+      </div>
+    </section>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

@@ -2635,9 +2635,23 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
             if assignment_uuid else None
         )
         proposed_primary = get_user_model().objects.filter(pk=primary_id).first()
-        open_tasks = TatActionTask.objects.filter(
-            assignment=assignment, status=TatActionTask.STATUS_PENDING,
-        ).count() if assignment else 0
+        scope_tasks = TatActionTask.objects.filter(
+            group_configuration=group,
+            status=TatActionTask.STATUS_PENDING,
+            responsible_role=role,
+            case__branch=branch,
+        )
+        if product_key:
+            scope_tasks = scope_tasks.filter(case__product_key=product_key)
+        if stage_key:
+            scope_tasks = scope_tasks.filter(stage_key=stage_key)
+        affected_ids = set(scope_tasks.values_list('pk', flat=True))
+        if assignment:
+            affected_ids.update(TatActionTask.objects.filter(
+                group_configuration=group,
+                status=TatActionTask.STATUS_PENDING,
+                assignment=assignment,
+            ).values_list('pk', flat=True))
         connection = TatPrivateAlertConnection.objects.filter(user_id=primary_id).first()
         return JsonResponse({
             'ok': True,
@@ -2648,8 +2662,8 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
             'primary_dm_status': (
                 connection.get_status_display() if connection else 'Unknown'
             ),
-            'open_tasks': open_tasks,
-            'tasks_move_automatically': False,
+            'open_tasks': len(affected_ids),
+            'tasks_move_automatically': True,
             'change_summary': (
                 f"Primary: {assignment.primary_user} -> {proposed_primary}"
                 if assignment and proposed_primary and assignment.primary_user_id != proposed_primary.pk
@@ -2691,8 +2705,12 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
                 })
                 messages.success(
                     request, format_html(
-                        'The expired roster was replaced atomically. Existing open tasks were not moved. '
+                        'The expired roster was replaced atomically and {} open task{} '
+                        '{} moved to the effective roster. '
                         '<a href="{}?{}">Review the affected task register</a>.',
+                        getattr(successor, '_rerouted_task_count', 0),
+                        '' if getattr(successor, '_rerouted_task_count', 0) == 1 else 's',
+                        'was' if getattr(successor, '_rerouted_task_count', 0) == 1 else 'were',
                         reverse('admin:core_tat_register', args=[successor.group_configuration_id]),
                         task_params,
                     ),
@@ -3001,8 +3019,33 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
             before_snapshot=getattr(obj, '_responsibility_before', {}),
             after_snapshot=assignment_snapshot(obj),
         )
+        from core.services.tat_notifications import reconcile_pending_tasks_for_group
+
+        group_ids = {obj.group_configuration_id}
+        previous_group_id = getattr(obj, '_responsibility_before', {}).get(
+            'group_configuration_id'
+        )
+        if previous_group_id:
+            group_ids.add(previous_group_id)
+        changed_tasks = 0
+        reconciliation_id = uuid.uuid4()
+        for group in GroupSheetConfiguration.objects.filter(pk__in=group_ids):
+            result = reconcile_pending_tasks_for_group(
+                group_configuration=group,
+                actor=request.user,
+                reason=f"Roster editor update: {getattr(obj, '_responsibility_reason', '')}",
+                request_id=f'admin-roster-save:{reconciliation_id}:{group.pk}',
+            )
+            changed_tasks += result['changed']
+        if changed_tasks:
+            messages.success(
+                request,
+                f"Assigned queues updated for {changed_tasks} open "
+                f"task{'s' if changed_tasks != 1 else ''}.",
+            )
 
     def delete_model(self, request, obj):
+        group = obj.group_configuration
         snapshot = assignment_snapshot(obj)
         event = TatResponsibilityEvent.objects.create(
             assignment=obj, assignment_id_snapshot=obj.pk,
@@ -3013,6 +3056,20 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
         )
         super().delete_model(request, obj)
         event.refresh_from_db()
+        from core.services.tat_notifications import reconcile_pending_tasks_for_group
+
+        result = reconcile_pending_tasks_for_group(
+            group_configuration=group,
+            actor=request.user,
+            reason='Roster deleted through Django Admin; redistribute pending TAT work.',
+            request_id=f'admin-roster-delete:{uuid.uuid4()}',
+        )
+        if result['changed']:
+            messages.success(
+                request,
+                f"Assigned queues updated for {result['changed']} open "
+                f"task{'s' if result['changed'] != 1 else ''}.",
+            )
 
     def delete_queryset(self, request, queryset):
         for obj in queryset.prefetch_related('backups'):
@@ -4801,6 +4858,8 @@ class WorkflowPilotPurgeRunAdmin(ReadOnlyAuditAdmin):
 
 @admin.register(TatTrackerCase)
 class TatTrackerCaseAdmin(TestDataDeleteAdmin):
+    full_reset_confirmation = 'RESET ALL TAT DATA'
+    change_list_template = 'admin/core/tattrackercase/change_list.html'
     compressed_fields = True
     list_filter_submit = True
     list_fullwidth = True
@@ -4811,6 +4870,114 @@ class TatTrackerCaseAdmin(TestDataDeleteAdmin):
     list_filter = ['data_mode', 'pilot_cycle_id', 'is_deleted', 'group_id', 'product_key', 'branch', 'status', 'current_stage']
     search_fields = ['case_id', 'client_name', 'national_id', 'primary_phone', 'bro_name', 'branch']
     actions = ['mark_selected_deleted']
+
+    def get_urls(self):
+        return [
+            path(
+                'full-reset/',
+                self.admin_site.admin_view(self.full_reset_view),
+                name='core_tat_full_reset',
+            ),
+        ] + super().get_urls()
+
+    def changelist_view(self, request, extra_context=None):
+        context = dict(extra_context or {})
+        if (
+            getattr(settings, 'TAT_FULL_RESET_ENABLED', False)
+            and request.user.is_active
+            and request.user.is_superuser
+        ):
+            context['tat_full_reset_url'] = reverse('admin:core_tat_full_reset')
+        return super().changelist_view(request, extra_context=context)
+
+    def full_reset_view(self, request):
+        if (
+            not getattr(settings, 'TAT_FULL_RESET_ENABLED', False)
+            or not request.user.is_active
+            or not request.user.is_superuser
+        ):
+            raise PermissionDenied
+
+        from core.services.tat_full_reset import (
+            TatFullResetError,
+            preview_full_tat_reset,
+            reset_all_tat_data,
+        )
+
+        error = ''
+        reason = str(request.POST.get('reason') or '').strip()
+        confirmation = str(request.POST.get('confirmation') or '').strip()
+        request_id = re.sub(
+            r'[^A-Za-z0-9._-]', '',
+            str(request.POST.get('request_id') or uuid.uuid4()),
+        )[:128] or str(uuid.uuid4())
+        if request.method == 'POST':
+            if confirmation != self.full_reset_confirmation:
+                error = f'Type the exact confirmation phrase: {self.full_reset_confirmation}'
+            elif not reason:
+                error = 'Provide a reason for this permanent reset.'
+            elif len(reason) > 500:
+                error = 'The reset reason must be 500 characters or fewer.'
+            else:
+                try:
+                    result = reset_all_tat_data(
+                        actor=request.user,
+                        reason=reason,
+                        request_id=request_id,
+                    )
+                except TatFullResetError as exc:
+                    error = str(exc)
+                except Exception:
+                    logger.exception(
+                        'TAT full reset failed: actor_id=%s request_id=%s',
+                        request.user.pk,
+                        request_id,
+                    )
+                    error = 'The TAT reset failed. No database changes were committed.'
+                else:
+                    deleted_total = result['before']['total']
+                    logger.warning(
+                        'TAT full reset completed: actor_id=%s request_id=%s '
+                        'reason=%r before_counts=%s deleted=%s after_counts=%s '
+                        'external_systems_untouched=true replayed=%s',
+                        request.user.pk,
+                        request_id,
+                        reason,
+                        result['before']['counts'],
+                        result['deleted'],
+                        result['after']['counts'],
+                        result['replayed'],
+                    )
+                    self.message_user(
+                        request,
+                        f'TAT reset complete. Deleted {deleted_total} database record(s); '
+                        'Google Sheets, external files, shared catalogues, access control, '
+                        'and SPIN data were untouched.',
+                        level=messages.WARNING,
+                    )
+                    return HttpResponseRedirect(reverse('admin:core_tat_full_reset'))
+        elif request.method != 'GET':
+            response = HttpResponse(status=405)
+            response['Allow'] = 'GET, POST'
+            return response
+
+        preview = preview_full_tat_reset()
+        return TemplateResponse(
+            request,
+            'admin/core/tattrackercase/full_reset.html',
+            {
+                **self.admin_site.each_context(request),
+                'opts': self.model._meta,
+                'title': 'Reset all TAT data',
+                'preview': preview,
+                'confirmation_phrase': self.full_reset_confirmation,
+                'confirmation': confirmation,
+                'reason': reason,
+                'request_id': request_id,
+                'error': error,
+                'back_url': reverse('admin:core_tattrackercase_changelist'),
+            },
+        )
 
     def has_delete_permission(self, request, obj=None):
         return bool(request.user and request.user.is_superuser)
