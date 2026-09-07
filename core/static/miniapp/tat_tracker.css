@@ -486,7 +486,7 @@ h2 { font-size: 13px; font-weight: 750; }
 
 .home-queue-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 5px;
 }
 .home-queue-tabs button {
@@ -514,13 +514,6 @@ h2 { font-size: 13px; font-weight: 750; }
   font-size: 9px;
   flex: 0 0 auto;
 }
-.queue-sharing-note {
-  margin: 0;
-  color: var(--tat-muted);
-  font-size: 10px;
-  line-height: 1.35;
-}
-.queue-sharing-note strong { color: var(--tat-text); }
 .queue-tools {
   display: flex;
   align-items: center;

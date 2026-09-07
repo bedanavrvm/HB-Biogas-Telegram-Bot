@@ -78,7 +78,7 @@ NEAR_SLA_RATIO = Decimal('0.8')
 TAT_TARGET_MANAGER_ROLES = frozenset({'IT'})
 TAT_CASE_CORRECTION_ROLES = frozenset({'BRO', 'IT', BUSINESS_ADMIN_ROLE})
 TAT_HOME_PAGE_SIZE = 10
-TAT_HOME_QUEUES = frozenset({'assigned', 'role', 'all'})
+TAT_HOME_QUEUES = frozenset({'role', 'all'})
 TAT_COMPLETED_STATUSES = frozenset({'Disbursed', *TAT_NEGATIVE_OUTCOME_STATUSES})
 TAT_CREATE_INTENT_NEW_LOAN = 'new_loan'
 
@@ -570,11 +570,18 @@ def home_data(
         else:
             invalid_filter_scope = True
             queryset = queryset.none()
-    allowed_branches = _allowed_branches(workflow, user)
-    selected_branches = selected_values(branches, branch)
-    if selected_branches:
-        if set(selected_branches).issubset(allowed_branches):
-            queryset = queryset.filter(branch__in=selected_branches)
+    requested_branches = selected_values(branches, branch)
+    selected_branches = []
+    for value in requested_branches:
+        canonical_branch = _canonical_allowed_branch(workflow, user, value)
+        if canonical_branch and canonical_branch not in selected_branches:
+            selected_branches.append(canonical_branch)
+    if requested_branches:
+        if len(selected_branches) == len({value.casefold() for value in requested_branches}):
+            branch_query = Q()
+            for selected_branch in selected_branches:
+                branch_query |= Q(branch__iexact=selected_branch)
+            queryset = queryset.filter(branch_query)
         else:
             invalid_filter_scope = True
             queryset = queryset.none()
@@ -655,24 +662,7 @@ def home_data(
         if tat_reporting_status(case, workflow=workflow) == 'Stalled'
     }
 
-    from core.services.tat_notifications import inbox_payload
-    from core.services.telegram_identity import database_group_configuration
-
-    assigned = inbox_payload(
-        user.get('_canonical_user'),
-        group=database_group_configuration(group_config),
-        group_id=str(group_config.group_id),
-        limit=page_size,
-        offset=page_offset if queue_key == 'assigned' else 0,
-        product_keys=selected_products,
-        branches=selected_branches,
-        statuses=selected_statuses,
-    )
-
-    if queue_key == 'assigned':
-        items = assigned['items']
-        selected_total = assigned['total']
-    elif queue_key == 'all':
+    if queue_key == 'all':
         items = [
             serialize_case_summary(case, user, workflow=workflow, include_business_time=include_business_time)
             for case in recent_cases[page_offset:page_offset + page_size]
@@ -689,19 +679,7 @@ def home_data(
     if current_page > selected_pages:
         current_page = selected_pages
         page_offset = (current_page - 1) * page_size
-        if queue_key == 'assigned':
-            assigned = inbox_payload(
-                user.get('_canonical_user'),
-                group=database_group_configuration(group_config),
-                group_id=str(group_config.group_id),
-                limit=page_size,
-                offset=page_offset,
-                product_keys=selected_products,
-                branches=selected_branches,
-                statuses=selected_statuses,
-            )
-            items = assigned['items']
-        elif queue_key == 'all':
+        if queue_key == 'all':
             items = [
                 serialize_case_summary(case, user, workflow=workflow, include_business_time=include_business_time)
                 for case in recent_cases[page_offset:page_offset + page_size]
@@ -722,7 +700,6 @@ def home_data(
         'queue': queue_key,
         'items': items,
         'metrics': {
-            'assigned': assigned['total'],
             'role': action_total,
             'total': recent_total,
             'completed': completed_total,
@@ -944,7 +921,9 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
     client_name = str(payload.get('client_name') or '').strip().upper()
     national_id = normalize_national_id(payload.get('national_id'))
     primary_phone = normalize_kenyan_phone(payload.get('primary_phone'))
-    branch = str(payload.get('branch') or '').strip()
+    branch = _canonical_allowed_branch(
+        workflow, user, payload.get('branch'),
+    )
     bro_name = _resolve_create_bro_name(group_config, workflow, user, payload)
     try:
         amount = parse_amount(payload.get('amount'))
@@ -964,7 +943,7 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
         raise TatCreateValidationError(
             'tat_create_invalid_phone', 'Enter a valid Kenyan phone number.',
         )
-    if branch not in _allowed_branches(workflow, user):
+    if not branch:
         raise TatCreateValidationError(
             'tat_create_invalid_branch', 'Select a valid branch.',
         )
@@ -1729,8 +1708,10 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
             if not new_value:
                 raise ValueError('Enter a valid Kenyan phone number.')
         elif field == 'branch':
-            new_value = raw_value
-            if new_value not in _allowed_branches(workflow or {}, user):
+            new_value = _canonical_allowed_branch(
+                workflow or {}, user, raw_value,
+            )
+            if not new_value:
                 raise ValueError('Select a valid branch.')
         elif field == 'bro_name':
             new_value = raw_value
@@ -3175,10 +3156,35 @@ def _allowed_products(workflow: dict, user: dict) -> list[ProductConfig]:
 def _allowed_branches(workflow: dict, user: dict) -> list[str]:
     branches = workflow_branches(workflow)
     allowed = user.get('branches') or []
-    upper = {item.upper() for item in allowed}
+    upper = {str(item or '').strip().upper() for item in allowed}
     if not allowed or 'ALL' in upper or '*' in allowed:
         return branches
-    return [branch for branch in branches if branch in allowed]
+    normalized_allowed = {
+        str(item or '').strip().casefold() for item in allowed if str(item or '').strip()
+    }
+    return [
+        branch for branch in branches
+        if str(branch or '').strip().casefold() in normalized_allowed
+    ]
+
+
+def _canonical_allowed_branch(workflow: dict, user: dict, value) -> str:
+    """Resolve one submitted label to its governed, access-scoped branch name."""
+    raw = ' '.join(str(value or '').split())
+    if not raw:
+        return ''
+    allowed = _allowed_branches(workflow, user)
+    allowed_lookup = {
+        str(branch or '').strip().casefold(): str(branch or '').strip()
+        for branch in allowed if str(branch or '').strip()
+    }
+    from core.services.location_catalog import resolve_location
+
+    canonical = resolve_location(raw, location_type='branch')
+    if canonical and canonical.name.casefold() in allowed_lookup:
+        # The governed catalogue owns presentation, including capitalization.
+        return canonical.name
+    return allowed_lookup.get(raw.casefold(), '')
 
 
 def product_by_key(key: str) -> ProductConfig:

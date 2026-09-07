@@ -30,10 +30,13 @@ def normalize_branch_list(value: Any) -> list[str]:
     else:
         items = value
     branches: list[str] = []
+    seen: set[str] = set()
     for item in items:
-        branch = str(item or '').strip()
-        if branch and branch not in branches:
+        branch = ' '.join(str(item or '').split())
+        normalized = branch.casefold()
+        if branch and normalized not in seen:
             branches.append(branch)
+            seen.add(normalized)
     return branches
 
 
@@ -68,12 +71,18 @@ def workflow_default_branch(workflow: dict | None = None, *, fallback: str = '')
 
 
 def validate_workflow_branch(branch: str, workflow: dict | None = None, *, allow_blank: bool = False) -> str:
-    value = str(branch or '').strip()
+    value = ' '.join(str(branch or '').split())
     if not value:
         if allow_blank:
             return ''
         raise ValueError('Select a valid branch.')
     branches = workflow_branches(workflow, default=[])
-    if branches and value not in branches:
+    if not branches:
+        return value
+    canonical = {
+        str(item or '').strip().casefold(): str(item or '').strip()
+        for item in branches if str(item or '').strip()
+    }.get(value.casefold())
+    if not canonical:
         raise ValueError('Select a valid branch.')
-    return value
+    return canonical

@@ -21,8 +21,7 @@
     refreshing: false,
     home: { queue: 'role', items: [], metrics: {}, visibility: {}, pagination: {} },
     homeQueue: 'role',
-    homePages: { assigned: 1, role: 1, all: 1 },
-    autoSelectHomeQueue: true,
+    homePages: { role: 1, all: 1 },
     // Keep the last server-confirmed queue so a transient return request
     // cannot leave the user looking at an empty list.
     lastSuccessfulHome: null,
@@ -547,15 +546,6 @@
     if (!accessibleTotal && visibility.message) {
       return ['All cases', 'No cases available', visibility.message];
     }
-    if (queue === 'assigned') {
-      return [
-        'Assigned to me',
-        'No assigned tasks',
-        accessibleTotal
-          ? 'Your assigned work is clear. Open Ready for my role to help colleagues with the same role.'
-          : 'Direct primary and backup work will appear here.',
-      ];
-    }
     if (queue === 'all') {
       return [
         'All cases',
@@ -565,10 +555,10 @@
     }
     return [
       'Ready for my role',
-      'No role actions',
+      'No work ready',
       accessibleTotal
         ? `${accessibleTotal} accessible ${accessibleTotal === 1 ? 'case is' : 'cases are'} visible under All cases, but none currently require your roles.`
-        : 'The shared pool for your current roles will appear here, including work assigned to colleagues.',
+        : 'Cases you can action with your current access will appear here.',
     ];
   }
 
@@ -705,12 +695,10 @@
     state.homePages[state.homeQueue] = Number(state.home.pagination.page || state.homePages[state.homeQueue] || 1);
     const metrics = state.home.metrics;
     const values = {
-      statAssigned: metrics.assigned,
       statRoleQueue: metrics.role,
       statTotal: metrics.total,
       statCompleted: metrics.completed,
       statStalled: metrics.stalled,
-      assignedTabCount: metrics.assigned,
       roleTabCount: metrics.role,
       allTabCount: metrics.total,
     };
@@ -1038,8 +1026,7 @@
   }
 
   async function selectHomeQueue(queue) {
-    if (!['assigned', 'role', 'all'].includes(queue) || queue === state.homeQueue) return;
-    state.autoSelectHomeQueue = false;
+    if (!['role', 'all'].includes(queue) || queue === state.homeQueue) return;
     state.pendingHome = null;
     state.homeQueue = queue;
     state.homePages[queue] = state.homePages[queue] || 1;
@@ -1303,10 +1290,7 @@
       : [];
     state.defaultBroUserId = String(data.default_bro_user_id || '');
     broAssignment.populateSelect?.(broInput, state.broUsers, state.defaultBroUserId);
-    const initialMetrics = data.metrics || {};
-    const initialQueue = Number(initialMetrics.assigned || 0) > 0
-      ? 'assigned'
-      : Number(initialMetrics.role || 0) > 0 ? 'role' : 'all';
+    const initialQueue = 'role';
     state.homeQueue = initialQueue;
     state.homePages[initialQueue] = 1;
     renderHome(data);
@@ -1399,7 +1383,7 @@
   async function refresh(options) {
     const background = Boolean(options && options.background);
     const periodic = Boolean(options && options.periodic);
-    const requestedQueue = ['assigned', 'role', 'all'].includes(options && options.requestedQueue)
+    const requestedQueue = ['role', 'all'].includes(options && options.requestedQueue)
       ? options.requestedQueue
       : state.homeQueue;
     const forceHomeRender = Boolean(options && options.forceHomeRender);
@@ -1441,17 +1425,6 @@
       } else {
         state.pendingHome = nextHome;
       }
-      if (
-        state.autoSelectHomeQueue
-        && String(nextHome.queue || state.homeQueue) === 'assigned'
-        && Number((nextHome.metrics || {}).assigned || 0) === 0
-        && Number((nextHome.metrics || {}).role || 0) > 0
-      ) {
-        state.autoSelectHomeQueue = false;
-        state.homeQueue = 'role';
-        return refresh(options);
-      }
-      state.autoSelectHomeQueue = false;
       if (!state.pendingHome) state.lastSuccessfulHome = snapshotHome();
       markRefreshSuccess();
       if (!background) setStatus('Queue updated.', 'ok');

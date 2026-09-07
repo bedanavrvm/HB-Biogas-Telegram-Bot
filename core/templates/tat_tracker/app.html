@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=55">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=56">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}" data-task-token="{{ task_token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -137,14 +137,12 @@
 
     <section id="queueView" class="view active" aria-label="Queue">
       <nav id="homeQueueTabs" class="home-queue-tabs" aria-label="TAT work queues">
-        <button type="button" class="active" data-home-queue="assigned" aria-pressed="true"><span>Assigned</span><strong id="assignedTabCount">0</strong></button>
-        <button type="button" data-home-queue="role" aria-pressed="false"><span>Ready for my role</span><strong id="roleTabCount">0</strong></button>
+        <button type="button" class="active" data-home-queue="role" aria-pressed="true"><span>Ready for my role</span><strong id="roleTabCount">0</strong></button>
         <button type="button" data-home-queue="all" aria-pressed="false"><span>All cases</span><strong id="allTabCount">0</strong></button>
       </nav>
-      <p class="queue-sharing-note"><strong>Assigned</strong> is your workload. <strong>Ready for my role</strong> is the shared queue, including cases assigned to colleagues with the same role, so you can help when free.</p>
 
       <div class="queue-tools">
-        <div><h2 id="activeQueueHeading">Assigned to me</h2><span id="activeQueueCount">0 cases</span></div>
+        <div><h2 id="activeQueueHeading">Ready for my role</h2><span id="activeQueueCount">0 cases</span></div>
         <button id="openQueueFiltersBtn" type="button" class="queue-filter-btn" aria-haspopup="dialog">
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
           <span>Filters</span><b aria-hidden="true" hidden></b>
@@ -422,6 +420,6 @@
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
   <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=82"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=83"></script>
 </body>
 </html>

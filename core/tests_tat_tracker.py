@@ -256,9 +256,13 @@ class TatTrackerWorkflowTest(TestCase):
         result = home_data(self.config, user, queue='assigned', product_key='business', branch='Nakuru')
 
         self.assertEqual(result['metrics'], {
-            'assigned': 1, 'role': 3, 'total': 6, 'completed': 3, 'stalled': 2,
+            'role': 3, 'total': 6, 'completed': 3, 'stalled': 2,
         })
-        self.assertEqual([item['case_id'] for item in result['items']], [cases[0].case_id])
+        self.assertEqual(result['queue'], 'role')
+        self.assertEqual(
+            {item['case_id'] for item in result['items']},
+            {case.case_id for case in cases[:3]},
+        )
 
     def test_bootstrap_includes_the_same_queue_contract_as_home(self):
         case = TatTrackerCase.objects.create(
@@ -606,10 +610,12 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn("window.history.replaceState(window.history.state, '', url.toString())", source)
         self.assertIn("$('backBtn').addEventListener('click', returnToQueue)", source)
         self.assertIn("refresh({ background: true }).catch(() => {})", source)
-        self.assertIn('Assigned to me', template)
+        self.assertNotIn('Assigned to me', template)
+        self.assertNotIn('data-home-queue="assigned"', template)
+        self.assertIn('Ready for my role', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=82", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=83", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -643,7 +649,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-sheet-overlay', stylesheet)
         self.assertIn('class="notice-close tat-sheet-close"', template)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
-        self.assertIn("miniapp/tat_tracker.css' %}?v=55", template)
+        self.assertIn("miniapp/tat_tracker.css' %}?v=56", template)
         self.assertIn('id="tatGridZoom"', template)
         self.assertIn('id="tatGridZoomOut"', template)
         self.assertIn('id="tatGridZoomReset"', template)
@@ -669,7 +675,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('id="tatReportMetrics"', template)
         self.assertIn("show('dashboard');", source)
         self.assertIn('.home-queue-tabs {', stylesheet)
-        self.assertIn('grid-template-columns: repeat(3, minmax(0, 1fr));', stylesheet)
+        self.assertIn('grid-template-columns: repeat(2, minmax(0, 1fr));', stylesheet)
         self.assertIn('grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);', stylesheet)
         self.assertIn('.case-primary {', stylesheet)
         self.assertIn('gap: 7px;', stylesheet)
@@ -1856,7 +1862,8 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('body.compact-cards .case-identifiers', stylesheet)
         self.assertIn('body.compact-cards .case-time', stylesheet)
         self.assertIn('Open a case for identifiers and timestamps.', template)
-        self.assertIn('including cases assigned to colleagues with the same role', template)
+        self.assertIn('Ready for my role', template)
+        self.assertNotIn('Assigned to me', template)
 
     @patch('core.services.tat_tracker.sync_tat_target_settings_to_sheet', return_value={'status': 'unavailable'})
     def test_it_can_save_stage_targets_in_minutes(self, sync_targets):
@@ -3833,6 +3840,43 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(detail['summary']['national_id'], '12345678')
         self.assertEqual(detail['summary']['primary_phone'], '254712345678')
         self.assertEqual(search_cases(self.config, user, '0712345678')[0]['case_id'], case.case_id)
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_create_case_stores_governed_branch_casing_without_duplicate_label(self, sync_mock):
+        from core.models import OperationalLocation
+        from core.services.branches import normalize_branch_list
+
+        sync_mock.side_effect = self.mark_case_synced
+        corporate = OperationalLocation.objects.get(
+            location_type='branch', name__iexact='Corporate',
+        )
+        corporate.name = 'CORPORATE'
+        corporate.save(update_fields=['name', 'updated_at'])
+        AccessGrant.objects.create(
+            user=self.bro_user, workflow='tat_tracker', role='BRO',
+            branch='Corporate', product='business', group_configuration=self.config,
+        )
+        user = staff_user_for_payload(
+            self.config, {'id': 111, 'username': 'bro_user'},
+        )
+
+        detail = create_case(self.config, user, {
+            'product_key': 'business',
+            'branch': 'Corporate',
+            'client_name': 'Canonical Branch Client',
+            'national_id': '12345678',
+            'primary_phone': '0712345678',
+            'bro_name': 'BRO User',
+            'amount': '10000',
+        })
+
+        case = TatTrackerCase.objects.get(case_id=detail['summary']['case_id'])
+        self.assertEqual(case.branch, 'CORPORATE')
+        self.assertEqual(detail['summary']['branch'], 'CORPORATE')
+        self.assertEqual(
+            normalize_branch_list(['Corporate', 'CORPORATE', '  corporate  ']),
+            ['Corporate'],
+        )
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_create_case_resolves_bro_user_id_to_canonical_name(self, sync_mock):

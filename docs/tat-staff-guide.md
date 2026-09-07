@@ -6,10 +6,8 @@ the approved Telegram bot so Telegram can verify your identity.
 
 ## Your queues
 
-- **Assigned to me** contains tasks where you are the named primary or active
-  backup recipient.
-- **Available to my role** contains cases your current role and scope permit
-  you to action, even when another staff member received the first alert.
+- **Ready for my role** contains every case your current role and scope permit
+  you to action, including cases whose first private alert went to a colleague.
 - **All cases** appears only when your permission includes the broader view.
 
 Queue filters never expand your access. The count and Next/Previous controls

@@ -3040,7 +3040,7 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
         if changed_tasks:
             messages.success(
                 request,
-                f"Assigned queues updated for {changed_tasks} open "
+                f"Private task routing updated for {changed_tasks} open "
                 f"task{'s' if changed_tasks != 1 else ''}.",
             )
 
@@ -3067,7 +3067,7 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
         if result['changed']:
             messages.success(
                 request,
-                f"Assigned queues updated for {result['changed']} open "
+                f"Private task routing updated for {result['changed']} open "
                 f"task{'s' if result['changed'] != 1 else ''}.",
             )
 
