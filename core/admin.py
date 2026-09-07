@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import uuid
+from copy import deepcopy
 
 from django import forms
 from django.contrib import admin
@@ -34,6 +35,13 @@ from core.services.workflow_presets import (
     preset_for_workflow,
 )
 from core.services.branches import global_branch_choices, workflow_branches as configured_workflow_branches
+from core.services.workflow_catalog import (
+    SCOPE_CATALOG,
+    SCOPE_SELECTED,
+    apply_catalog_scope,
+    resolve_workflow_catalog,
+    scope_selection,
+)
 from core.services.tat_tracker import (
     PRODUCTS,
     cleanup_tat_sheet_duplicate_case_ids,
@@ -3822,8 +3830,48 @@ class TestDataDeleteAdmin(ReadOnlyAuditAdmin):
         return delete_enabled and bool(request.user and request.user.is_superuser)
 
 
+def _format_mapping_rows(value) -> str:
+    return '\n'.join(
+        f'{key} = {item}' for key, item in (value or {}).items()
+        if str(key).strip() and str(item).strip()
+    )
+
+
+def _parse_mapping_rows(value, *, value_label='column header') -> dict:
+    text = str(value or '').strip()
+    if not text:
+        return {}
+    if text.startswith('{'):
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise forms.ValidationError('Use one "key = value" mapping per line.') from exc
+        if not isinstance(parsed, dict):
+            raise forms.ValidationError('Mappings must contain named values.')
+        return {
+            str(key).strip(): str(item).strip()
+            for key, item in parsed.items() if str(key).strip()
+        }
+    result = {}
+    for number, line in enumerate(text.splitlines(), start=1):
+        line = line.strip()
+        if not line:
+            continue
+        if '=' not in line:
+            raise forms.ValidationError(f'Line {number} needs "key = {value_label}".')
+        key, item = (part.strip() for part in line.split('=', 1))
+        if not key or not item:
+            raise forms.ValidationError(f'Line {number} needs both a key and {value_label}.')
+        if key in result:
+            raise forms.ValidationError(f'Line {number} repeats "{key}".')
+        result[key] = item
+    return result
+
+
 class GroupSheetConfigurationAdminForm(forms.ModelForm):
     """Admin helper that can generate workflow JSON from a simple preset."""
+
+    expected_updated_at = forms.CharField(required=False, widget=forms.HiddenInput)
 
     tat_notification_mode = forms.ChoiceField(
         choices=(
@@ -3845,12 +3893,17 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
             'Choose Manual JSON for custom workflows.'
         ),
     )
-    jawabu_tat_targets_minutes = forms.JSONField(
+    jawabu_tat_overall_minutes = forms.IntegerField(
         required=False,
-        initial={'overall': None, 'stages': {}},
-        label='Jawabu Portal TAT targets (minutes)',
-        help_text='Optional overall and per-stage targets, stored as minutes.',
-        widget=forms.Textarea(attrs={'rows': 5, 'cols': 80}),
+        min_value=1,
+        label='Overall Jawabu target (minutes)',
+        help_text='Optional target from case creation to completion.',
+    )
+    jawabu_tat_stage_targets = forms.CharField(
+        required=False,
+        label='Jawabu stage targets',
+        help_text='Enter one stage per line, for example "credit_decision = 1440".',
+        widget=forms.Textarea(attrs={'rows': 5, 'placeholder': 'stage_key = minutes'}),
     )
     case_header_row = forms.IntegerField(
         required=False,
@@ -3859,12 +3912,11 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         label=get_preset('case')['admin_fields']['header_row']['label'],
         help_text=get_preset('case')['admin_fields']['header_row']['help_text'],
     )
-    case_field_headers = forms.JSONField(
+    case_field_headers = forms.CharField(
         required=False,
-        initial=get_preset('case')['admin_fields']['field_headers']['initial'],
         label=get_preset('case')['admin_fields']['field_headers']['label'],
-        help_text=get_preset('case')['admin_fields']['field_headers']['help_text'],
-        widget=forms.Textarea(attrs={'rows': 6, 'cols': 80}),
+        help_text='Enter one mapping per line, for example "complaint_id = Complaint ID".',
+        widget=forms.Textarea(attrs={'rows': 6, 'placeholder': 'canonical_field = Sheet column header'}),
     )
     order_approval_search_tabs = forms.CharField(
         required=False,
@@ -3918,8 +3970,8 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         widget=forms.CheckboxSelectMultiple,
         label='SPIN group branches',
         help_text=(
-            'Branches this Telegram group may submit or edit. Choices come from '
-            'the global WORKFLOW_BRANCH_CHOICES setting.'
+            'Legacy compatibility control. New edits use the governed branch '
+            'listing below.'
         ),
     )
     spin_default_branch = forms.ChoiceField(
@@ -3930,6 +3982,36 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
             'Preselect a branch for new SPIN requests. Leave blank when staff '
             'must select a branch each time.'
         ),
+    )
+    catalog_branch_mode = forms.ChoiceField(
+        choices=(
+            (SCOPE_CATALOG, 'Use all governed branches'),
+            (SCOPE_SELECTED, 'Use selected branches'),
+        ),
+        initial=SCOPE_CATALOG,
+        required=False,
+        label='Branch listing',
+        help_text='Catalogue mode follows active governed branches. Selected mode keeps an explicit group restriction.',
+    )
+    catalog_branches = forms.MultipleChoiceField(
+        choices=(), required=False, widget=forms.CheckboxSelectMultiple,
+        label='Selected branches',
+        help_text='Used only when Branch listing is set to selected branches.',
+    )
+    catalog_product_mode = forms.ChoiceField(
+        choices=(
+            (SCOPE_CATALOG, 'Use available governed products'),
+            (SCOPE_SELECTED, 'Use selected products'),
+        ),
+        initial=SCOPE_CATALOG,
+        required=False,
+        label='Product listing',
+        help_text='Catalogue mode follows active, configured products available to this workflow.',
+    )
+    catalog_products = forms.MultipleChoiceField(
+        choices=(), required=False, widget=forms.CheckboxSelectMultiple,
+        label='Selected products',
+        help_text='Used only when Product listing is set to selected products.',
     )
 
     jawabu_import_start_date = forms.DateField(
@@ -4033,6 +4115,9 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         workflow = getattr(self.instance, 'workflow', None) or {}
+        if getattr(self.instance, 'pk', None) and getattr(self.instance, 'updated_at', None):
+            self.fields['expected_updated_at'].initial = self.instance.updated_at.isoformat()
+        self._set_catalog_choices(workflow)
         self._set_spin_branch_choices(workflow)
         configured_launchers = workflow.get('mini_app_launchers')
         selected_launchers = (
@@ -4053,7 +4138,7 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 or workflow.get('header_row')
                 or defaults['workflow'].get('header_row', 1)
             )
-            self.fields['case_field_headers'].initial = (
+            self.fields['case_field_headers'].initial = _format_mapping_rows(
                 sheet_schema.get('field_headers')
                 or sheet_schema.get('headers')
                 or defaults['sheet_schema'].get('field_headers', {})
@@ -4099,7 +4184,11 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         if preset_key == 'jawabu_homebiogas':
             self.fields['workflow_preset'].initial = 'jawabu_homebiogas'
             defaults = defaults_for_preset('jawabu_homebiogas')['workflow']
-            self.fields['jawabu_tat_targets_minutes'].initial = workflow.get('jawabu_tat_targets_minutes') or {'overall': None, 'stages': {}}
+            jawabu_targets = workflow.get('jawabu_tat_targets_minutes') or {}
+            self.fields['jawabu_tat_overall_minutes'].initial = jawabu_targets.get('overall')
+            self.fields['jawabu_tat_stage_targets'].initial = _format_mapping_rows(
+                jawabu_targets.get('stages') or {}
+            )
             self.fields['jawabu_import_start_date'].initial = (
                 workflow.get('import_start_date')
                 or defaults.get('import_start_date')
@@ -4151,11 +4240,44 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 or defaults.get('internal_order_record_id_prefix', 'JBL')
             )
 
+    def _set_catalog_choices(self, workflow: dict) -> None:
+        branch_mode, selected_branches, _source = scope_selection(workflow, 'branches')
+        product_mode, selected_products, _source = scope_selection(workflow, 'products')
+        branches = list(dict.fromkeys([*global_branch_choices(), *selected_branches]))
+        products = list(Product.objects.order_by('sort_order', 'name').values_list('code', 'name'))
+        known_codes = {code for code, _label in products}
+        products.extend(
+            (code, f'{code} (saved legacy value)')
+            for code in selected_products if code not in known_codes
+        )
+        self.fields['catalog_branches'].choices = [(value, value) for value in branches]
+        self.fields['catalog_products'].choices = products
+        self.initial.update({
+            'catalog_branch_mode': branch_mode,
+            'catalog_branches': selected_branches,
+            'catalog_product_mode': product_mode,
+            'catalog_products': selected_products,
+        })
+
     def _set_spin_branch_choices(self, workflow: dict) -> None:
         configured = configured_workflow_branches(
             workflow,
             default=global_branch_choices(),
         )
+        if self.is_bound:
+            raw_posted = (
+                self.data.getlist('catalog_branches')
+                if hasattr(self.data, 'getlist')
+                else self.data.get('catalog_branches', [])
+            )
+            if isinstance(raw_posted, str):
+                raw_posted = [raw_posted]
+            posted = [
+                str(value).strip() for value in raw_posted
+                if str(value).strip()
+            ]
+            if posted:
+                configured = posted
         available = list(dict.fromkeys([
             *global_branch_choices(),
             *configured,
@@ -4179,6 +4301,15 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
+        expected_updated_at = str(cleaned.get('expected_updated_at') or '').strip()
+        if expected_updated_at and getattr(self.instance, 'pk', None):
+            current = GroupSheetConfiguration.objects.filter(
+                pk=self.instance.pk,
+            ).values_list('updated_at', flat=True).first()
+            if current and current.isoformat() != expected_updated_at:
+                raise forms.ValidationError(
+                    'This workflow configuration changed in another session. Reload before saving.'
+                )
         if cleaned.get('workflow_preset') == MANUAL_PRESET:
             return cleaned
 
@@ -4189,11 +4320,59 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                     'order_approval_search_tabs',
                     'Enter at least one worksheet tab.',
                 )
+        if cleaned.get('workflow_preset') in {'tat_tracker', 'spin_credit_analysis'}:
+            for mode_field, values_field, label in (
+                ('catalog_branch_mode', 'catalog_branches', 'branch'),
+                ('catalog_product_mode', 'catalog_products', 'product'),
+            ):
+                if cleaned.get(mode_field) == SCOPE_SELECTED and not cleaned.get(values_field):
+                    self.add_error(values_field, f'Choose at least one {label} for selected mode.')
         return cleaned
+
+    def clean_case_field_headers(self):
+        return _parse_mapping_rows(
+            self.cleaned_data.get('case_field_headers'), value_label='column header',
+        )
+
+    def clean_jawabu_tat_stage_targets(self):
+        parsed = _parse_mapping_rows(
+            self.cleaned_data.get('jawabu_tat_stage_targets'), value_label='minutes',
+        )
+        result = {}
+        for key, value in parsed.items():
+            try:
+                minutes = int(value)
+            except (TypeError, ValueError) as exc:
+                raise forms.ValidationError(
+                    f'Target for "{key}" must be a whole number of minutes.'
+                ) from exc
+            if minutes < 1:
+                raise forms.ValidationError(f'Target for "{key}" must be at least 1 minute.')
+            result[key] = minutes
+        return result
+
+    def jawabu_targets_minutes(self) -> dict:
+        if (
+            'jawabu_tat_overall_minutes' not in self.data
+            and 'jawabu_tat_stage_targets' not in self.data
+        ):
+            return deepcopy(
+                (getattr(self.instance, 'workflow', None) or {}).get(
+                    'jawabu_tat_targets_minutes', {'overall': None, 'stages': {}},
+                )
+            )
+        return {
+            'overall': self.cleaned_data.get('jawabu_tat_overall_minutes'),
+            'stages': dict(self.cleaned_data.get('jawabu_tat_stage_targets') or {}),
+        }
 
     def clean_spin_default_branch(self):
         default_branch = str(self.cleaned_data.get('spin_default_branch') or '').strip()
         selected_branches = self.cleaned_data.get('spin_branches') or []
+        if self.cleaned_data.get('catalog_branch_mode') == SCOPE_SELECTED:
+            selected_branches = self.cleaned_data.get('catalog_branches') or []
+        elif self.cleaned_data.get('catalog_branch_mode') == SCOPE_CATALOG:
+            selected_branches = global_branch_choices()
         if default_branch and default_branch not in selected_branches:
             raise forms.ValidationError(
                 'The default SPIN branch must be one of the selected group branches.'
@@ -4215,7 +4394,7 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
             existing_workflow = getattr(self.instance, 'workflow', None) or {}
             self._apply_selected_launchers(workflow)
             if workflow.get('type') in {'jawabu', 'jawabu_homebiogas'} or workflow.get('master_sync_enabled'):
-                workflow['jawabu_tat_targets_minutes'] = self.cleaned_data.get('jawabu_tat_targets_minutes') or {'overall': None, 'stages': {}}
+                workflow['jawabu_tat_targets_minutes'] = self.jawabu_targets_minutes()
             if (
                 workflow.get('type') == 'tat_tracker'
                 or existing_workflow.get('type') == 'tat_tracker'
@@ -4226,7 +4405,8 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 workflow['tat_notification_mode'] = self.cleaned_data.get('tat_notification_mode') or 'group'
                 return workflow
             return workflow
-        workflow = build_workflow_from_preset(
+        existing_workflow = getattr(self.instance, 'workflow', None) or {}
+        generated = build_workflow_from_preset(
             preset_key,
             overrides={
                 'case_header_row': self.cleaned_data.get('case_header_row'),
@@ -4259,9 +4439,40 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 'tat_notification_mode': self.cleaned_data.get('tat_notification_mode') or 'group',
             },
         )
+        workflow = generated
+        if (
+            isinstance(generated, dict)
+            and str(existing_workflow.get('type') or '') == str(generated.get('type') or '')
+        ):
+            # A guided save owns only the fields represented by the preset.
+            # Future or integration-specific keys must survive unchanged.
+            workflow = deepcopy(existing_workflow)
+            workflow.update(generated)
+        if preset_key in {'tat_tracker', 'spin_credit_analysis'}:
+            branch_mode = self.cleaned_data.get('catalog_branch_mode') or SCOPE_CATALOG
+            branches = self.cleaned_data.get('catalog_branches') or []
+            product_mode = self.cleaned_data.get('catalog_product_mode') or SCOPE_CATALOG
+            products = self.cleaned_data.get('catalog_products') or []
+            if 'catalog_branch_mode' not in self.data:
+                branch_mode, legacy_branches, _source = scope_selection(existing_workflow, 'branches')
+                branches = legacy_branches
+            if 'catalog_product_mode' not in self.data:
+                product_mode, legacy_products, _source = scope_selection(existing_workflow, 'products')
+                products = legacy_products
+            # Older clients/tests posted the original SPIN branch controls.
+            if 'catalog_branch_mode' not in self.data and self.cleaned_data.get('spin_branches'):
+                branch_mode = SCOPE_SELECTED
+                branches = self.cleaned_data.get('spin_branches')
+            workflow = apply_catalog_scope(
+                workflow,
+                branch_mode=branch_mode,
+                branches=branches,
+                product_mode=product_mode,
+                products=products,
+            )
         self._apply_selected_launchers(workflow)
         if preset_key == 'jawabu_homebiogas':
-            workflow['jawabu_tat_targets_minutes'] = self.cleaned_data.get('jawabu_tat_targets_minutes') or {'overall': None, 'stages': {}}
+            workflow['jawabu_tat_targets_minutes'] = self.jawabu_targets_minutes()
         return workflow
 
     def _apply_selected_launchers(self, workflow: dict) -> None:
@@ -5214,6 +5425,7 @@ class FcaImportRecordAdmin(ReadOnlyAuditAdmin):
 @admin.register(GroupSheetConfiguration)
 class GroupSheetConfigurationAdmin(ModelAdmin):
     form = GroupSheetConfigurationAdminForm
+    change_list_template = 'admin/core/groupsheetconfiguration/change_list.html'
     compressed_fields = True
     list_filter_submit = True
     list_fullwidth = True
@@ -5234,6 +5446,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
         'created_at', 'updated_at', 'sheet_link', 'sheet_analyzer_link',
         'sheet_coverage_link', 'live_records_link', 'data_records_link', 'media_records_link',
         'reset_group_data_link', 'tat_repair_link', 'tat_duplicate_link',
+        'effective_configuration_preview', 'technical_configuration_preview',
     ]
     fieldsets = (
         ('Group Routing', {
@@ -5241,7 +5454,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 'enabled', 'group_id', 'display_name', 'sheet_id',
                 'sheet_name', 'sheet_link', 'live_records_link', 'data_records_link',
                 'media_records_link', 'sheet_analyzer_link', 'sheet_coverage_link', 'reset_group_data_link',
-                'tat_repair_link', 'tat_duplicate_link',
+                'tat_repair_link', 'tat_duplicate_link', 'effective_configuration_preview',
             ),
             'description': (
                 'Map one Telegram group to its workflow and optional Google Sheet tab. '
@@ -5250,16 +5463,8 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 'the same group ID.'
             ),
         }),
-        ('Spreadsheet Schema', {
-            'fields': ('sheet_schema',),
-            'description': (
-                'Optional JSON mapping from canonical workflow fields to this '
-                'sheet\'s column headers.'
-            ),
-            'classes': ('tab',),
-        }),
         ('Workflow Preset', {
-            'fields': ('workflow_preset',),
+            'fields': ('workflow_preset', 'expected_updated_at'),
             'description': (
                 'Select Case / Complaints for the existing complaint intake '
                 'workflow, Order Approval for BRO updates, Jawabu HomeBiogas '
@@ -5305,11 +5510,24 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
             'fields': (
                 'spin_header_row',
                 'spin_legacy_batch_sheet_name',
-                'spin_branches',
                 'spin_default_branch',
             ),
-            'description': 'Header, import tab, and per-group branch settings for the SPIN / CRB workflow.',
+            'description': 'Guided Sheet, branch, and product settings for the SPIN / CRB workflow.',
             'classes': ('tab', 'preset-section', 'preset-spin_credit_analysis'),
+        }),
+        ('Branch And Product Listing', {
+            'fields': (
+                'catalog_branch_mode', 'catalog_branches',
+                'catalog_product_mode', 'catalog_products',
+            ),
+            'description': (
+                'Choose whether this TAT or SPIN group follows the governed catalogues '
+                'or keeps an explicit subset. Staff access is applied afterwards.'
+            ),
+            'classes': (
+                'tab', 'preset-section', 'preset-tat_tracker',
+                'preset-spin_credit_analysis',
+            ),
         }),
         ('TAT Tracker Targets', {
             'fields': tuple(
@@ -5340,22 +5558,22 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 'jawabu_internal_order_header_row',
                 'jawabu_internal_order_data_start_row',
                 'jawabu_internal_order_record_id_prefix',
-                'jawabu_tat_targets_minutes',
+                'jawabu_tat_overall_minutes',
+                'jawabu_tat_stage_targets',
             ),
             'description': 'Master Data sync plus optional downstream internal Order Sheet sync for the Jawabu HomeBiogas workflow.',
             'classes': ('tab', 'preset-section', 'preset-jawabu_homebiogas'),
         }),
         ('Advanced Workflow And Parser Rules', {
-            'fields': ('workflow', 'parser_rules'),
+            'fields': ('sheet_schema', 'workflow', 'parser_rules', 'metadata'),
             'description': (
-                'Optional per-group workflow and parser settings. Use a '
-                'preset where possible; custom workflows can define their own '
-                'JSON here.'
+                'Technical JSON is editable only when Manual JSON / custom workflow is selected. '
+                'Preset workflows preserve these payloads without exposing them for normal editing.'
             ),
-            'classes': ('tab',),
+            'classes': ('tab', 'manual-json-section'),
         }),
-        ('Metadata', {
-            'fields': ('metadata', 'created_at', 'updated_at'),
+        ('Audit', {
+            'fields': ('technical_configuration_preview', 'created_at', 'updated_at'),
             'classes': ('tab',),
         }),
     )
@@ -5791,6 +6009,44 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
     def display_label(self, obj):
         return obj.display_name or obj.group_id
 
+    @admin.display(description='Effective workflow configuration')
+    def effective_configuration_preview(self, obj):
+        if not obj or not obj.pk:
+            return 'Save this group to see its effective configuration.'
+        result = resolve_workflow_catalog(group_config=obj)
+        branches = ', '.join(result['effective_branches']) or 'Source-data mapping / none'
+        products = ', '.join(result['effective_products']) or 'Source-data mapping / none'
+        warnings = ' | '.join(
+            f"{item['code']}: {item['message']}"
+            + (f" [{item['value']}]" if item['value'] else '')
+            for item in result['warnings']
+        ) or 'No configuration warnings.'
+        return format_html(
+            '<div class="workflow-effective-preview">'
+            '<p><strong>{}</strong> · {}</p>'
+            '<p><strong>Branches:</strong> {} <small>({})</small></p>'
+            '<p><strong>Products:</strong> {} <small>({})</small></p>'
+            '<p><strong>Health:</strong> {}</p></div>',
+            result['workflow'], result['resolution_mode'], branches,
+            result['branch_source'], products, result['product_source'], warnings,
+        )
+
+    @admin.display(description='Technical configuration (read only)')
+    def technical_configuration_preview(self, obj):
+        if not obj or not obj.pk:
+            return 'Technical payloads are available after the group is saved.'
+        payload = {
+            'sheet_schema': obj.sheet_schema or {},
+            'workflow': obj.workflow or {},
+            'parser_rules': obj.parser_rules or {},
+            'metadata': obj.metadata or {},
+        }
+        return format_html(
+            '<details><summary>Show generated payload</summary>'
+            '<pre style="white-space:pre-wrap;overflow-wrap:anywhere">{}</pre></details>',
+            json.dumps(payload, indent=2, sort_keys=True),
+        )
+
     @admin.display(description='Sheet')
     def sheet_link(self, obj):
         url = obj.sheet_url()
@@ -5891,6 +6147,11 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
         urls = super().get_urls()
         custom_urls = [
             path(
+                'configuration/',
+                self.admin_site.admin_view(self.configuration_workspace_view),
+                name='core_workflow_configuration',
+            ),
+            path(
                 '<path:object_id>/tat-repair/',
                 self.admin_site.admin_view(self.tat_repair_view),
                 name='core_groupsheetconfiguration_tat_repair',
@@ -5927,6 +6188,52 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
             ),
         ]
         return custom_urls + urls
+
+    def configuration_workspace_view(self, request):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        groups = list(GroupSheetConfiguration.objects.order_by('display_name', 'group_id'))
+        branches_url = reverse('admin:core_operationallocation_changelist')
+        products_url = reverse('admin:core_product_changelist')
+        cards = []
+        for group in groups:
+            result = resolve_workflow_catalog(group_config=group)
+            for warning in result['warnings']:
+                warning['remediation_url'] = (
+                    branches_url
+                    if warning['code'] in {
+                        'retired_branch', 'historical_branch_only',
+                        'legacy_environment_override', 'unknown_legacy_value',
+                    }
+                    and warning['source'] != 'product_catalogue'
+                    else products_url
+                )
+            cards.append({
+                'group': group,
+                'configuration': result,
+                'change_url': reverse(
+                    'admin:core_groupsheetconfiguration_change', args=[group.pk],
+                ),
+                'tat_url': (
+                    reverse('admin:core_tat_control_center', args=[group.pk])
+                    if result['workflow'] == 'tat_tracker' else ''
+                ),
+            })
+        return TemplateResponse(
+            request,
+            'admin/core/groupsheetconfiguration/workflow_configuration.html',
+            {
+                **self.admin_site.each_context(request),
+                'opts': self.model._meta,
+                'title': 'Workflow configuration',
+                'cards': cards,
+                'branches_url': branches_url,
+                'products_url': products_url,
+                'origination_url': reverse('admin:core_origination_setup_dashboard'),
+                'complaints_url': reverse('admin:core_complaintcategory_changelist'),
+                'add_url': reverse('admin:core_groupsheetconfiguration_add'),
+            },
+        )
 
     def field_coverage_view(self, request, object_id):
         """Inspect only the configured header row; never import Sheet rows."""

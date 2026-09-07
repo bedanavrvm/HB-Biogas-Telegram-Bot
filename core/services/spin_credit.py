@@ -18,7 +18,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from core.models import GroupSheetConfiguration, SpinBatchReviewItem, SpinCreditRequest, SpinRequestSequence
-from core.services.branches import global_branch_choices, validate_workflow_branch, workflow_branches, workflow_default_branch
+from core.services.branches import workflow_default_branch
 from core.services.parser import analyze_whatsapp_export
 from core.services.sheets import get_sheets_service
 from core.services.workflow_data_mode import WORKFLOW_SPIN, mode_snapshot
@@ -1394,7 +1394,8 @@ def hex_to_rgb(value: str) -> dict[str, float]:
 
 def spin_branch_choices(group_config) -> list[str]:
     workflow = getattr(group_config, 'workflow', None) or {}
-    return workflow_branches(workflow, default=global_branch_choices())
+    from core.services.workflow_catalog import workflow_branch_names
+    return workflow_branch_names('spin_credit_analysis', workflow)
 
 
 def spin_default_branch(group_config) -> str:
@@ -1403,10 +1404,11 @@ def spin_default_branch(group_config) -> str:
 
 
 def validate_spin_branch(group_config, branch: str) -> str:
-    workflow = getattr(group_config, 'workflow', None) or {}
-    if not workflow_branches(workflow, default=[]):
-        return str(branch or spin_default_branch(group_config)).strip()
-    return validate_workflow_branch(branch, workflow)
+    value = str(branch or spin_default_branch(group_config)).strip()
+    allowed = spin_branch_choices(group_config)
+    if not value or value not in allowed:
+        raise ValueError('Select a valid branch.')
+    return value
 
 
 def column_letter(index: int) -> str:
@@ -1603,10 +1605,18 @@ def process_spin_form_submission(
             active_product_version, missing_product_requirements, product_is_available,
             resolve_product, validate_custom_values,
         )
+        from core.services.workflow_catalog import workflow_product_codes
+        allowed_product_codes = {
+            value.casefold() for value in workflow_product_codes(
+                'spin_credit_analysis', getattr(group_config, 'workflow', None) or {},
+            )
+        }
         product = resolve_product(cleaned.get('loan_product'))
         version = active_product_version(product) if product else None
         if version is None:
             errors.append('Choose a product from the global product catalogue.')
+        elif product.code.casefold() not in allowed_product_codes:
+            errors.append('This product is not enabled for this SPIN group.')
         else:
             branch_record = OperationalLocation.objects.filter(
                 location_type='branch', name__iexact=cleaned.get('branch', ''), active=True,

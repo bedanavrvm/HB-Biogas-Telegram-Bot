@@ -34,9 +34,9 @@ def _capabilities(user, access: dict | None) -> set[str]:
 
 
 def authorized_branches(user, access: dict | None, capability: str = 'portal.origination.view') -> list[str]:
-    from core.services.branches import global_branch_choices
+    from core.services.workflow_catalog import workflow_branch_names
 
-    configured = global_branch_choices()
+    configured = workflow_branch_names('loan_origination')
     if access is None or getattr(user, 'is_superuser', False):
         return configured
     from core.services.portal_permissions import portal_capability_scope

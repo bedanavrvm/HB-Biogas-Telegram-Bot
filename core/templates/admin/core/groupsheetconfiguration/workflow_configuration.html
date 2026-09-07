@@ -1,0 +1,28 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/css/workflow_configuration.css' %}?v=1">{% endblock %}
+{% block content %}
+<main class="wfc-page">
+  <header class="wfc-hero">
+    <div><p class="wfc-kicker">GOVERNED CONFIGURATION</p><h1>Workflow configuration</h1><p>See the effective branch and product outcome first, then edit the setting that owns it.</p></div>
+    <a class="button default" href="{{ add_url }}">Add workflow group</a>
+  </header>
+  <nav class="wfc-global" aria-label="Global configuration">
+    <a href="{{ branches_url }}"><strong>Branches and locations</strong><span>The governed branch catalogue</span></a>
+    <a href="{{ products_url }}"><strong>Products and availability</strong><span>Terms and branch/workflow coverage</span></a>
+    <a href="{{ origination_url }}"><strong>Loan Origination setup</strong><span>Forms, documents and signing</span></a>
+    <a href="{{ complaints_url }}"><strong>Complaint categories</strong><span>Categories, aliases and group availability</span></a>
+  </nav>
+  <section class="wfc-grid">
+    {% for card in cards %}
+      <article class="wfc-card{% if card.configuration.warnings %} has-warning{% endif %}">
+        <header><div><small>{{ card.configuration.workflow }}</small><h2>{{ card.group.display_name|default:card.group.group_id }}</h2></div><span class="wfc-state">{% if card.group.enabled %}Enabled{% else %}Disabled{% endif %}</span></header>
+        <p class="wfc-mode">{{ card.configuration.resolution_mode }}</p>
+        <dl><dt>Branches</dt><dd>{{ card.configuration.effective_branches|join:", "|default:"Source-data mapping / none" }}</dd><dt>Products</dt><dd>{{ card.configuration.effective_products|join:", "|default:"Source-data mapping / none" }}</dd></dl>
+        {% if card.configuration.warnings %}<div class="wfc-warnings"><strong>Needs attention</strong>{% for warning in card.configuration.warnings %}<p><code>{{ warning.code }}</code> {{ warning.message }}{% if warning.value %} <b>{{ warning.value }}</b>{% endif %} <a href="{{ warning.remediation_url }}">Resolve</a></p>{% endfor %}</div>{% else %}<p class="wfc-ready">Configuration is healthy.</p>{% endif %}
+        <footer><a class="button" href="{{ card.change_url }}">Configure workflow</a>{% if card.tat_url %}<a class="button" href="{{ card.tat_url }}">TAT Control Center</a>{% endif %}</footer>
+      </article>
+    {% empty %}<section class="wfc-empty"><h2>No workflow groups configured</h2><p>Add the first group to begin.</p></section>{% endfor %}
+  </section>
+</main>
+{% endblock %}

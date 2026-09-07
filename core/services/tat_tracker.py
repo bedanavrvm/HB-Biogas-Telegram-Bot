@@ -227,24 +227,13 @@ def is_tat_tracker_workflow(group_config) -> bool:
 
 def configured_products(workflow: dict | None = None) -> list[ProductConfig]:
     workflow = workflow or {}
-    keys = workflow.get('products') or []
-    if not keys:
-        try:
-            from core.models import Product
-            from core.services.product_catalog import (
-                active_product_version, product_is_selectable,
-            )
-            keys = [
-                product.code
-                for product in Product.objects.filter(active=True).order_by('sort_order', 'name')
-                if (version := active_product_version(product))
-                and hasattr(version, 'tat_configuration')
-                and product_is_selectable(
-                    product=product, workflow='tat_tracker', channel='portal',
-                )
-            ]
-        except Exception:
-            keys = list(PRODUCTS.keys())
+    try:
+        from core.services.workflow_catalog import workflow_product_codes
+        keys = workflow_product_codes('tat_tracker', workflow)
+    except Exception:
+        # Retain the pre-catalogue bootstrap fallback for deployments that are
+        # still applying the product migrations.
+        keys = workflow.get('products') or list(PRODUCTS.keys())
     resolved = []
     for key in keys:
         try:
@@ -293,10 +282,14 @@ def _database_product_by_key(key: str) -> ProductConfig:
 
 
 def workflow_branches(workflow: dict | None = None) -> list[str]:
-    env_branches = str(getattr(settings, 'TAT_TRACKER_BRANCH_CHOICES', '') or '').strip()
-    if env_branches:
-        return configured_workflow_branches({'branches': env_branches}, default=global_branch_choices(), replace_stale_defaults=True)
-    return configured_workflow_branches(workflow, default=global_branch_choices(), replace_stale_defaults=True)
+    try:
+        from core.services.workflow_catalog import workflow_branch_names
+        return workflow_branch_names('tat_tracker', workflow)
+    except Exception:
+        env_branches = str(getattr(settings, 'TAT_TRACKER_BRANCH_CHOICES', '') or '').strip()
+        if env_branches:
+            return configured_workflow_branches({'branches': env_branches}, default=global_branch_choices(), replace_stale_defaults=True)
+        return configured_workflow_branches(workflow, default=global_branch_choices(), replace_stale_defaults=True)
 
 
 def create_tat_form_token(group_id: str) -> str:

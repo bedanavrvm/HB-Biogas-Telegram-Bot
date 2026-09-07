@@ -41,9 +41,34 @@
       }
     });
 
+    document.querySelectorAll('.module.manual-json-section').forEach(function (section) {
+      const tabWrapper = section.closest('.tab-wrapper');
+      const target = tabWrapper || section;
+      const tabLink = findTabLink(tabWrapper);
+      const visible = selectedPreset === 'manual';
+      target.style.display = visible ? '' : 'none';
+      if (tabLink) tabLink.style.display = visible ? '' : 'none';
+    });
+
+    applyCatalogChoiceVisibility();
+
     if (visibleTabLinks.length) {
       visibleTabLinks[0].querySelector('a')?.click();
     }
+  }
+
+  function fieldRow(name) {
+    const input = document.getElementById(`id_${name}`);
+    return input ? input.closest('.form-row, .field-row, .flex-col, .mb-5') : null;
+  }
+
+  function applyCatalogChoiceVisibility() {
+    [['catalog_branch_mode', 'catalog_branches'], ['catalog_product_mode', 'catalog_products']]
+      .forEach(function (pair) {
+        const mode = document.getElementById(`id_${pair[0]}`);
+        const row = fieldRow(pair[1]);
+        if (mode && row) row.style.display = mode.value === 'selected' ? '' : 'none';
+      });
   }
 
   function expandLegacyCollapse(section) {
@@ -75,6 +100,9 @@
 
     select.addEventListener('change', function () {
       applyToggle(this.value);
+    });
+    ['catalog_branch_mode', 'catalog_product_mode'].forEach(function (name) {
+      document.getElementById(`id_${name}`)?.addEventListener('change', applyCatalogChoiceVisibility);
     });
   }
 

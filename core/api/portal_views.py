@@ -1456,7 +1456,7 @@ def portal_navigation(request):
 
 def _portal_setting_options(request, actor) -> dict:
     """Return the authenticated user's valid personal Portal configuration."""
-    from core.services.branches import global_branch_choices
+    from core.services.workflow_catalog import workflow_branch_names
     from core.services.portal_navigation import get_portal_nav_items
     from core.services.workflow_capabilities import has_capability
 
@@ -1470,7 +1470,7 @@ def _portal_setting_options(request, actor) -> dict:
         for value in (access or {}).get('branches', [])
         if str(value).strip()
     }
-    branches = global_branch_choices()
+    branches = workflow_branch_names('jawabu_portal')
     if staff_branches:
         branches = [branch for branch in branches if branch.casefold() in staff_branches]
     return {
@@ -1588,7 +1588,7 @@ def _portal_delegation_payload(delegation) -> dict:
 def _portal_delegation_candidates(access, actor) -> list[dict]:
     """Return staff candidates with only the branch scopes the issuer may grant."""
     from django.contrib.auth import get_user_model
-    from core.services.branches import global_branch_choices
+    from core.services.workflow_catalog import workflow_branch_names
     from core.services.telegram_identity import user_access
 
     def scope_values(snapshot) -> set[str]:
@@ -1601,7 +1601,10 @@ def _portal_delegation_candidates(access, actor) -> list[dict]:
     def has_global_scope(snapshot) -> bool:
         return any(not str(getattr(grant, 'branch', '') or '').strip() for grant in (snapshot or {}).get('grants', []))
 
-    configured = [str(value).strip() for value in global_branch_choices() if str(value).strip()]
+    configured = [
+        str(value).strip() for value in workflow_branch_names('jawabu_portal')
+        if str(value).strip()
+    ]
     issuer_branches = scope_values(access)
     issuer_global = has_global_scope(access)
     candidates = []

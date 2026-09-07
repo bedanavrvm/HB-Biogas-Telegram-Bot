@@ -1,7 +1,7 @@
 """Deployment checks for security-critical Mini App settings."""
 
 from django.conf import settings
-from django.core.checks import Error, Tags, register
+from django.core.checks import Error, Tags, Warning, register
 
 from core.production import production_security_readiness_issues
 
@@ -66,3 +66,21 @@ def production_security_configuration_check(app_configs, **kwargs):
         code for code in _CHECK_IDS
         if not code.startswith('miniapp-auth-') and not code.startswith('telegram-auth-age-')
     })
+
+
+@register()
+def legacy_order_approval_branch_override_check(app_configs, **kwargs):
+    """Keep the legacy source visible until every deployment stops using it."""
+    raw = getattr(settings, 'ORDER_APPROVAL_BRANCH_CHOICES', None)
+    shared = getattr(settings, 'WORKFLOW_BRANCH_CHOICES', '')
+    default = getattr(settings, 'DEFAULT_WORKFLOW_BRANCH_CHOICES', '')
+    if raw is None or str(raw).strip() in {str(shared).strip(), str(default).strip()}:
+        return []
+    return [Warning(
+        'ORDER_APPROVAL_BRANCH_CHOICES overrides the governed branch catalogue.',
+        hint=(
+            'Move these branches into OperationalLocation, verify Order Approval, '
+            'then remove the environment override. New Admin configuration does not depend on it.'
+        ),
+        id='core.W001',
+    )]

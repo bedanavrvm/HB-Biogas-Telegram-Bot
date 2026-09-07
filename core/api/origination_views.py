@@ -272,6 +272,8 @@ def portal_origination_products(request):
     products = OriginationProductDefinition.objects.filter(is_active=True).select_related(
         'product_version__product',
     ).order_by('name')
+    from core.services.workflow_catalog import workflow_product_codes
+    effective_product_codes = set(workflow_product_codes('loan_origination'))
     from core.services.product_catalog import (
         active_product_version, product_is_available, product_is_selectable,
         serialize_product_version,
@@ -280,6 +282,8 @@ def portal_origination_products(request):
     payload = []
     for item in products:
         if item.product_version_id:
+            if item.product_version.product.code not in effective_product_codes:
+                continue
             current = active_product_version(item.product_version.product)
             if current is None or current.pk != item.product_version_id:
                 continue

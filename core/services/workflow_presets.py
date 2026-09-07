@@ -109,8 +109,10 @@ WORKFLOW_PRESETS = {
             'type': 'tat_tracker',
             'header_row': 2,
             'data_start_row': 5,
-            'products': ['logbook', 'mjengo', 'kilimo', 'micro_asset', 'business'],
-            'branches': ['Biogas Unit', 'Embu', 'Nakuru', 'West Nairobi'],
+            'catalog_scope': {
+                'branches': {'mode': 'catalog', 'values': []},
+                'products': {'mode': 'catalog', 'values': []},
+            },
             'allow_unconfigured_users': False,
             'default_roles': ['BRO'],
             'tat_notification_mode': 'group',

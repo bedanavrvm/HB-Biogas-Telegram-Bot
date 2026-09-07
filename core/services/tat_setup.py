@@ -31,7 +31,8 @@ def stage_editor_rows(version: ProductVersion) -> list[dict]:
 
 def setup_readiness(group: GroupSheetConfiguration) -> dict:
     workflow = dict(group.workflow or {})
-    branches = [str(value).strip() for value in workflow.get('branches') or [] if str(value).strip()]
+    from core.services.workflow_catalog import resolve_workflow_catalog
+    branches = resolve_workflow_catalog('tat_tracker', group)['effective_branches']
     catalogue = stage_catalog(workflow)
     roles = sorted({str(row['role']) for row in catalogue})
     grants = AccessGrant.objects.filter(

@@ -831,6 +831,9 @@ def _validate_farmer_product_configuration(
     )
     if farmer.product_id:
         from core.models import OperationalLocation
+        from core.services.workflow_catalog import workflow_product_codes
+        if farmer.product.code not in set(workflow_product_codes('jawabu_portal')):
+            return 'This product is not enabled for Jawabu Portal.'
         branch_record = OperationalLocation.objects.filter(
             location_type='branch', name__iexact=farmer.branch, active=True,
         ).first()

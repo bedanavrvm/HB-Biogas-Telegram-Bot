@@ -1803,9 +1803,14 @@ def spin_form(request):
         active_product_version, product_is_selectable, serialize_product_version,
     )
     product_options = []
+    from core.services.workflow_catalog import workflow_product_codes
+    allowed_product_codes = set(workflow_product_codes(
+        'spin_credit_analysis',
+        getattr(group_config, 'workflow', None) or {} if group_id and group_config else {},
+    ))
     for product in Product.objects.filter(active=True).order_by('sort_order', 'name'):
         version = active_product_version(product)
-        if version and product_is_selectable(
+        if product.code in allowed_product_codes and version and product_is_selectable(
             product=product, workflow='spin_credit_analysis', channel='portal',
         ):
             product_options.append({

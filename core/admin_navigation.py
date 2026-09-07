@@ -325,6 +325,12 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("core.ComplaintCategory", "Complaint categories", "category"),
         _model_item("core.ComplaintCategoryAlias", "Complaint category aliases", "alt_route"),
         _model_item("core.ComplaintCategoryAvailability", "Complaint category availability", "lan"),
+        _custom_item(
+            "Workflow configuration",
+            "admin:core_workflow_configuration",
+            "tune",
+            _superuser,
+        ),
         _model_item("core.GroupSheetConfiguration", "Workflow groups", "hub"),
         _custom_item("Mini App access matrix", "admin:core_workflowrolecapability_matrix", "admin_panel_settings", _superuser),
         _model_item("core.AccessControlChangeRequest", "Access approval queue", "fact_check"),

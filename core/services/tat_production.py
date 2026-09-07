@@ -56,7 +56,8 @@ def _group_scope_issues(group) -> list[ReadinessIssue]:
             'error', 'tat-notification-mode',
             f'{group_label}: notification mode must be group, shadow, or hybrid.',
         ))
-    branches = [str(item).strip() for item in workflow.get('branches') or [] if str(item).strip()]
+    from core.services.workflow_catalog import resolve_workflow_catalog
+    branches = resolve_workflow_catalog('tat_tracker', group)['effective_branches']
     catalog = stage_catalog(workflow)
     if not branches:
         issues.append(ReadinessIssue(

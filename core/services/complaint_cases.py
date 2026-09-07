@@ -309,15 +309,10 @@ def actor_can_access_case(group_config, actor: ComplaintCaseActor, capability: s
 
 def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
     cases = _case_queryset(group_config.group_id, actor=actor)
-    from core.services.branches import global_branch_choices, workflow_branches
-    configured_branches = workflow_branches(
-        getattr(group_config, 'workflow', None) or {},
-        default=global_branch_choices(),
-    )
-    observed_branches = list(
-        cases.exclude(branch_region='').order_by('branch_region').values_list('branch_region', flat=True).distinct()
-    )
-    branch_values = set(configured_branches) | set(observed_branches)
+    from core.services.workflow_catalog import resolve_workflow_catalog
+    branch_values = resolve_workflow_catalog(
+        'complaint_cases', group_config,
+    )['effective_branches']
     resolved = cases.filter(complaint_status='Closed').count()
     needs_details = cases.filter(complaint_status='Review Needed').count()
     total = cases.count()
