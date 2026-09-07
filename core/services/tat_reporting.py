@@ -774,7 +774,7 @@ def _plain_language_chart_copy(payload, filters):
         if basis == 'daily_point_in_time_snapshots':
             return (
                 'Is the workload becoming healthier or are more cases becoming stalled over time?',
-                'Compare the blue Active line with the amber Stalled line. A rising Stalled line means overdue work is building up; a falling line means stuck cases are being cleared.',
+                'Compare the blue Active line with the amber Overdue line. A rising Overdue line means late work is building up; a falling line means delayed cases are being cleared.',
             )
         if basis == 'completed_stage_actions':
             return (
@@ -1569,7 +1569,7 @@ def report_summary(actor, payload, *, include_people=False):
                 [item['label'] for item in common['trend']],
                 [
                     _series('active', 'Active', [max(item.get('active', 0) - item.get('overdue', 0), 0) for item in common['trend']]),
-                    _series('stalled', 'Stalled (Overdue)', [item.get('overdue', 0) for item in common['trend']]),
+                    _series('stalled', 'Overdue', [item.get('overdue', 0) for item in common['trend']]),
                 ],
                 applied_filters=active_filters, sample_count=sum(item.get('active', 0) for item in common['trend']),
             )

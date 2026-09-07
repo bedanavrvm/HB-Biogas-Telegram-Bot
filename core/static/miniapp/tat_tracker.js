@@ -3,6 +3,7 @@
   const tatApi = window.TatMiniAppApi || {};
   const broAssignment = window.TatBroAssignment || {};
   const caseValidation = window.TatCaseValidation || {};
+  const tatFormatters = window.TatMiniAppFormatters || {};
   const tg = window.MiniAppTelegram ? window.MiniAppTelegram.init() : (utils.initTelegram ? utils.initTelegram() : null);
   const body = document.body;
   const state = {
@@ -1568,10 +1569,10 @@
           <span class="tat-badge ${escapeHtml(summary.sla_status || '')}">${tatCounterMarkup(summary, `case:${summary.case_id}`)}</span>
         </div>
         <div class="fact fact-activity">
-          <small>Activity</small>
+          <small>Activity (EAT)</small>
           <div class="activity-times">
-            <div><small>Created</small><span>${escapeHtml(formatTatDateTime(summary.created_at))}</span></div>
-            <div><small>Updated</small><span>${escapeHtml(formatTatDateTime(summary.updated_at))}</span></div>
+            <div><small>Created</small><span>${escapeHtml(formatTatDateTime(summary.created_at_iso || summary.created_at))}</span></div>
+            <div><small>Last updated</small><span>${escapeHtml(formatTatDateTime(summary.updated_at_iso || summary.updated_at))}</span></div>
           </div>
         </div>
       </div>
@@ -2060,9 +2061,19 @@
 
   function formatTatDateTime(value) {
     if (!value) return '';
-    const date = formatReportDate(value);
-    const time = String(value).match(/(?:T|\s)(\d{1,2}):(\d{2})/);
-    return `${date}${time ? ` ${time[1].padStart(2, '0')}:${time[2]}` : ''}`;
+    if (tatFormatters.formatNairobiDateTime) return tatFormatters.formatNairobiDateTime(value);
+    const text = String(value).trim();
+    const legacyNairobi = text.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2}|\d{4})\s+(\d{1,2}):(\d{2})/);
+    const normalized = legacyNairobi
+      ? `${legacyNairobi[3].length === 2 ? `20${legacyNairobi[3]}` : legacyNairobi[3]}-${legacyNairobi[2].padStart(2, '0')}-${legacyNairobi[1].padStart(2, '0')}T${legacyNairobi[4].padStart(2, '0')}:${legacyNairobi[5]}:00+03:00`
+      : text;
+    const parsed = new Date(normalized);
+    if (Number.isNaN(parsed.getTime())) return text;
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Africa/Nairobi', day: '2-digit', month: '2-digit', year: '2-digit',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(parsed).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+    return `${parts.day}-${parts.month}-${parts.year} ${parts.hour}:${parts.minute} EAT`;
   }
 
   function syncReportDateDisplays() {
@@ -2247,11 +2258,22 @@
       .replace(/\bBUSINESS_ADMIN\b/g, 'Admin');
   }
 
-  function formatStageTatMinutes(value) {
+  function formatAdaptiveDurationMinutes(value) {
+    if (tatFormatters.formatAdaptiveDurationMinutes) return tatFormatters.formatAdaptiveDurationMinutes(value);
     if (value == null || value === '') return '\u2014';
     const minutes = Number(value);
     if (!Number.isFinite(minutes)) return '\u2014';
-    return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(minutes)}m`;
+    const sign = minutes < 0 ? '\u2212' : '';
+    let seconds = Math.round(Math.abs(minutes) * 60);
+    if (seconds < 60) return `${sign}${seconds}s`;
+    let wholeMinutes = Math.floor(seconds / 60);
+    if (wholeMinutes < 60) return `${sign}${wholeMinutes}m`;
+    const days = Math.floor(wholeMinutes / 1440);
+    wholeMinutes %= 1440;
+    const hours = Math.floor(wholeMinutes / 60);
+    const remainderMinutes = wholeMinutes % 60;
+    if (days) return `${sign}${days}d ${hours}h ${remainderMinutes}m`;
+    return `${sign}${hours}h ${remainderMinutes}m`;
   }
 
   function stageTatDetail(params, stage) {
@@ -2260,14 +2282,14 @@
 
   function stageTatColumns(stages) {
     return (stages || []).map(stage => ({
-      headerName: `${compactTatReportLabel(stage.label)} (min)`,
-      headerTooltip: `${stage.label} TAT in minutes`,
+      headerName: compactTatReportLabel(stage.label),
+      headerTooltip: `${stage.label} duration`,
       colId: `stage_tat__${stage.key}`,
       width: 118,
       minWidth: 88,
       sortable: false,
       valueGetter: params => stageTatDetail(params, stage).minutes,
-      valueFormatter: params => formatStageTatMinutes(params.value),
+      valueFormatter: params => formatAdaptiveDurationMinutes(params.value),
       cellClass: params => {
         const detail = stageTatDetail(params, stage);
         return detail.minutes == null ? 'tat-stage-tat-empty' : `tat-stage-tat tat-stage-tat-${detail.sla_state || 'target_unavailable'}`;
@@ -2277,7 +2299,7 @@
         if (detail.minutes == null) return `${stage.label}: no duration yet`;
         const stateLabel = String(detail.sla_state || 'target_unavailable').replaceAll('_', ' ');
         const progress = detail.active ? 'current stage' : (detail.completed ? 'completed stage' : 'stage duration');
-        return `${stage.label}: ${formatStageTatMinutes(detail.minutes)} - ${stateLabel} - ${progress}`;
+        return `${stage.label}: ${formatAdaptiveDurationMinutes(detail.minutes)} - ${stateLabel} - ${progress}`;
       },
     }));
   }
@@ -2301,9 +2323,9 @@
       { headerName: 'Role', field: 'responsible_role', width: 92, minWidth: 74, valueFormatter: p => compactTatReportLabel(p.value), tooltipValueGetter: p => p.value || '' },
       { headerName: 'Created', field: 'created_at', width: 88, minWidth: 80, valueFormatter: p => formatReportDate(p.value) },
       { headerName: 'Finished', field: 'finished_at', width: 88, minWidth: 80, valueFormatter: p => formatReportDate(p.value) },
-      { headerName: 'Elapsed', field: 'elapsed_minutes', width: 78, minWidth: 68, valueFormatter: p => formatMinutes(p.value) },
-      { headerName: 'Target', field: 'target_minutes', width: 74, minWidth: 66, valueFormatter: p => formatMinutes(p.value) },
-      { headerName: 'Variance', field: 'variance_minutes', width: 80, minWidth: 70, valueFormatter: p => formatMinutes(p.value) },
+      { headerName: 'Elapsed', field: 'elapsed_minutes', width: 78, minWidth: 68, valueFormatter: p => formatAdaptiveDurationMinutes(p.value) },
+      { headerName: 'Target', field: 'target_minutes', width: 74, minWidth: 66, valueFormatter: p => formatAdaptiveDurationMinutes(p.value) },
+      { headerName: 'Variance', field: 'variance_minutes', width: 80, minWidth: 70, valueFormatter: p => formatAdaptiveDurationMinutes(p.value) },
       { headerName: 'SLA', field: 'sla_state', width: 104, minWidth: 86, valueFormatter: p => String(p.value || '').replaceAll('_', ' '), cellClass: p => `sla-${p.value || ''}` },
     ];
     if ((((state.data || {}).user || {}).capabilities || []).includes('tat.reports.people.view')) columns.splice(9, 0, { headerName: 'Responsible Person', field: 'responsible_person', width: 135, minWidth: 105, sortable: false, tooltipField: 'responsible_person' });
@@ -2315,6 +2337,7 @@
     if (!state.report.gridApi || signature === state.report.stageColumnsSignature) return;
     state.report.stageColumnsSignature = signature;
     state.report.gridApi.setGridOption('columnDefs', tatReportColumnDefs(stages));
+    state.report.gridZoom?.refresh({ recaptureColumns: true });
   }
 
   async function writeTatReportClipboard(value) {
@@ -2440,7 +2463,7 @@
     const current = state.report.view === 'current';
     const items = current ? [
       ['active', 'Active', ''], ['within_target', 'Within Target', 'good'], ['near_target', 'Near Target', 'warn'], ['overdue', 'Overdue', 'bad'],
-      ['stalled', 'Stalled (Overdue)', 'warn'], ['target_unavailable', 'Target Unavailable', ''],
+      ['target_unavailable', 'Target Unavailable', ''],
     ] : [
       ['created', metricBasis === 'completed_stage_actions' ? 'Cases' : 'Created', ''],
       ['finished', metricBasis === 'completed_stage_actions' ? 'Completed Actions' : 'Finished', ''], ['disbursed', 'Disbursed', 'good'],

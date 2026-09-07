@@ -5,7 +5,7 @@
 }(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
-  const LEVELS = Object.freeze([80, 90, 100, 110, 125, 140]);
+  const LEVELS = Object.freeze([20, 40, 60, 80, 90, 100, 110, 125, 140]);
 
   function normalizeLevel(value) {
     if (value === null || value === undefined || String(value).trim() === '') return 100;
@@ -30,12 +30,37 @@
     return {
       level: normalized,
       fontSize: Math.round(source.fontSize * scale * 10) / 10,
-      gridSize: Math.max(3, Math.round(source.gridSize * scale * 10) / 10),
-      rowHeight: Math.max(28, Math.round(source.rowHeight * scale)),
-      headerHeight: Math.max(30, Math.round(source.headerHeight * scale)),
-      cellPadding: Math.max(4, Math.round(source.cellPadding * scale * 10) / 10),
+      gridSize: Math.max(0.8, Math.round(source.gridSize * scale * 10) / 10),
+      rowHeight: Math.max(7, Math.round(source.rowHeight * scale)),
+      headerHeight: Math.max(8, Math.round(source.headerHeight * scale)),
+      cellPadding: Math.max(1, Math.round(source.cellPadding * scale * 10) / 10),
       smallFontSize: Math.round((source.smallFontSize || source.fontSize * 0.9) * scale * 10) / 10,
     };
+  }
+
+  function cloneColumnDefs(definitions) {
+    return (definitions || []).map(definition => {
+      const copy = Object.assign({}, definition);
+      if (definition.children) copy.children = cloneColumnDefs(definition.children);
+      return copy;
+    });
+  }
+
+  function scaleColumnDefs(definitions, level) {
+    const scale = normalizeLevel(level) / 100;
+    return cloneColumnDefs(definitions).map(definition => {
+      const scaled = Object.assign({}, definition);
+      ['width', 'minWidth', 'maxWidth'].forEach(key => {
+        if (Number.isFinite(Number(definition[key]))) {
+          scaled[key] = Math.max(6, Math.round(Number(definition[key]) * scale));
+        }
+      });
+      if (Number.isFinite(Number(definition.width)) && !Number.isFinite(Number(definition.minWidth))) {
+        scaled.minWidth = Math.max(6, Math.round(Math.min(Number(definition.width), 40) * scale));
+      }
+      if (definition.children) scaled.children = scaleColumnDefs(definition.children, level);
+      return scaled;
+    });
   }
 
   function readLevel(storage, key) {
@@ -67,17 +92,27 @@
 
     const storage = settings.storage === undefined ? availableStorage() : settings.storage;
     let level = readLevel(storage, settings.storageKey);
+    let baseColumnDefs = null;
 
-    function applyGridApi(metrics) {
+    function applyGridApi(metrics, options) {
       const api = typeof settings.apiProvider === 'function' ? settings.apiProvider() : null;
       if (!api) return;
+      if (settings.scaleColumns !== false) {
+        if (!baseColumnDefs || (options && options.recaptureColumns)) {
+          const current = api.getGridOption?.('columnDefs') || api.getColumnDefs?.() || [];
+          baseColumnDefs = cloneColumnDefs(current);
+        }
+        if (baseColumnDefs.length) {
+          api.setGridOption?.('columnDefs', scaleColumnDefs(baseColumnDefs, metrics.level));
+        }
+      }
       api.setGridOption?.('rowHeight', metrics.rowHeight);
       api.setGridOption?.('headerHeight', metrics.headerHeight);
       api.resetRowHeights?.();
       api.refreshHeader?.();
     }
 
-    function render(nextLevel, persist) {
+    function render(nextLevel, persist, options) {
       level = normalizeLevel(nextLevel);
       const metrics = metricsFor(level, settings.defaults);
       grid.style.setProperty('--ag-font-size', `${metrics.fontSize}px`);
@@ -91,7 +126,7 @@
       resetButton.title = `Table zoom ${level}%. Reset to 100%.`;
       outButton.disabled = level === LEVELS[0];
       inButton.disabled = level === LEVELS[LEVELS.length - 1];
-      applyGridApi(metrics);
+      applyGridApi(metrics, options);
       if (persist) writeLevel(storage, settings.storageKey, level);
       if (typeof settings.onChange === 'function') settings.onChange(level, metrics);
       return metrics;
@@ -106,9 +141,9 @@
     return Object.freeze({
       getLevel: () => level,
       setLevel: value => render(value, true),
-      refresh: () => render(level, false),
+      refresh: options => render(level, false, options),
     });
   }
 
-  return { LEVELS, normalizeLevel, metricsFor, adjacentLevel, bind };
+  return { LEVELS, normalizeLevel, metricsFor, scaleColumnDefs, adjacentLevel, bind };
 }));

@@ -1315,6 +1315,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertNotIn('<table class="register-table">', template)
         self.assertIn('vendor-ag-grid-community-36.1.0.min.js', template)
         self.assertIn('miniapp/ag_grid_zoom.js', template)
+        self.assertIn("miniapp/ag_grid_zoom.js' %}?v=2", template)
         self.assertIn('id="complaintGridZoom"', template)
         self.assertIn('id="complaintGridZoomOut"', template)
         self.assertIn('id="complaintGridZoomReset"', template)

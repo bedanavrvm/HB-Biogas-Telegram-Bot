@@ -26,7 +26,8 @@ test('AG Grid zoom changes real row and header sizing', async ({ page }) => {
   await page.evaluate(() => {
     window.agGrid.ModuleRegistry.registerModules([window.agGrid.AllCommunityModule]);
     window.__zoomGridApi = window.agGrid.createGrid(document.getElementById('grid'), {
-      theme: 'legacy', rowData: [{ name: 'Case one' }], columnDefs: [{ field: 'name' }],
+      theme: 'legacy', rowData: [{ name: 'Case one', status: 'Active' }],
+      columnDefs: [{ field: 'name', width: 200, minWidth: 100 }, { field: 'status', width: 160, minWidth: 80 }],
     });
     window.__zoomControl = window.MiniAppAgGridZoom.bind({
       container: document.getElementById('controls'),
@@ -43,11 +44,17 @@ test('AG Grid zoom changes real row and header sizing', async ({ page }) => {
   await expect(page.locator('#controls')).toBeVisible();
   const defaultRowHeight = await page.locator('.ag-row').evaluate(node => node.getBoundingClientRect().height);
   const defaultHeaderHeight = await page.locator('.ag-header').evaluate(node => node.getBoundingClientRect().height);
+  const defaultColumnWidth = await page.locator('.ag-header-cell').first().evaluate(node => node.getBoundingClientRect().width);
   await page.locator('#in').click();
   await expect(page.locator('#reset')).toHaveText('110%');
   await expect.poll(() => page.locator('.ag-row').evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(defaultRowHeight);
   await expect.poll(() => page.locator('.ag-header').evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(defaultHeaderHeight);
   await expect(page.locator('#grid')).toHaveCSS('--ag-font-size', '12.1px');
+  await page.evaluate(() => window.__zoomControl.setLevel(20));
+  await expect(page.locator('#reset')).toHaveText('20%');
+  await expect.poll(() => page.locator('.ag-row').evaluate(node => node.getBoundingClientRect().height)).toBeLessThan(defaultRowHeight);
+  await expect.poll(() => page.locator('.ag-header').evaluate(node => node.getBoundingClientRect().height)).toBeLessThan(defaultHeaderHeight);
+  await expect.poll(() => page.locator('.ag-header-cell').first().evaluate(node => node.getBoundingClientRect().width)).toBeLessThan(defaultColumnWidth / 2);
   await page.locator('#reset').click();
   await expect(page.locator('#reset')).toHaveText('100%');
 });

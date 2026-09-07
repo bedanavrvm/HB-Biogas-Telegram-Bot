@@ -609,7 +609,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Assigned to me', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=79", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=80", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -619,7 +619,7 @@ class TatTrackerWorkflowTest(TestCase):
 
         for label in ['Current Workload', 'Period Performance', 'Near Target']:
             self.assertIn(label, template)
-        self.assertIn('Stalled (Overdue)', source)
+        self.assertNotIn("['stalled', 'Stalled (Overdue)'", source)
         self.assertIn('queueFilterOverlay', template)
         self.assertIn('queuePreviousBtn', template)
         self.assertIn('queueNextBtn', template)
@@ -649,6 +649,8 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('id="tatGridZoomReset"', template)
         self.assertIn('id="tatGridZoomIn"', template)
         self.assertIn('miniapp/ag_grid_zoom.js', template)
+        self.assertIn("miniapp/ag_grid_zoom.js' %}?v=2", template)
+        self.assertIn("miniapp/tat_formatters.js' %}?v=1", template)
         self.assertIn("storageKey: 'tat-report-grid-zoom'", source)
         self.assertIn('id="appHeader" class="app-top"', template)
         self.assertIn('class="refresh-label"', template)
@@ -695,6 +697,12 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('state.report.abortController?.abort()', source)
         self.assertIn("suppressMovableColumns: touch", source)
         self.assertIn('function formatTatDateTime(value)', source)
+        self.assertIn('Activity (EAT)', source)
+        self.assertIn('Last updated', source)
+        self.assertIn('summary.created_at_iso || summary.created_at', source)
+        self.assertIn('function formatAdaptiveDurationMinutes(value)', source)
+        self.assertIn('valueFormatter: p => formatAdaptiveDurationMinutes(p.value)', source)
+        self.assertNotIn('headerName: `${compactTatReportLabel(stage.label)} (min)`', source)
         self.assertIn('data-date-display="date_from"', template)
         self.assertIn("headerName: '#', colId: 'row_number', pinned: 'left', lockPinned: true", source)
         self.assertIn("{ headerName: 'Reference', field: 'case_id', width: 112, minWidth: 92", source)
@@ -1275,6 +1283,10 @@ class TatTrackerWorkflowTest(TestCase):
         )
         stalled = report_cases(self.bro_user, {'view': 'current', 'status': 'Stalled'})
         self.assertEqual([row['case_id'] for row in stalled['results']], ['TAT-STATUS-STALLED'])
+        current_summary = report_summary(self.bro_user, {'view': 'current'})
+        workload_series = current_summary['charts']['trend']['series']
+        self.assertIn('Overdue', {item['label'] for item in workload_series})
+        self.assertNotIn('Stalled (Overdue)', {item['label'] for item in workload_series})
 
         period = {
             'view': 'performance',
@@ -3318,6 +3330,8 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertTrue(detail['summary']['running'])
         self.assertEqual(detail['summary']['target_seconds'], 7200)
         self.assertIn('server_now', detail['summary'])
+        self.assertEqual(detail['summary']['created_at_iso'], case.created_at.isoformat())
+        self.assertEqual(detail['summary']['updated_at_iso'], case.updated_at.isoformat())
         self.assertEqual(detail['fields'][0]['tat_minutes'], '50.00')
         self.assertEqual(detail['fields'][0]['elapsed_seconds'], 3000)
         self.assertFalse(detail['fields'][0]['running'])
