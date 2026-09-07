@@ -609,7 +609,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Assigned to me', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=80", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=81", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -643,7 +643,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-sheet-overlay', stylesheet)
         self.assertIn('class="notice-close tat-sheet-close"', template)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
-        self.assertIn("miniapp/tat_tracker.css' %}?v=53", template)
+        self.assertIn("miniapp/tat_tracker.css' %}?v=54", template)
         self.assertIn('id="tatGridZoom"', template)
         self.assertIn('id="tatGridZoomOut"', template)
         self.assertIn('id="tatGridZoomReset"', template)
@@ -774,6 +774,10 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('@media(min-width:701px){.tat-report-charts{width:max(100%,50vw)', stylesheet)
         self.assertIn('.tat-insight-chart-toggle button.active{', stylesheet)
         self.assertIn('.tat-report-grid .ag-cell-value{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis', stylesheet)
+        self.assertNotIn('compact-long-value', source)
+        self.assertNotIn('.compact-long-value', stylesheet)
+        self.assertIn('function bindTatReportGridZoom()', source)
+        self.assertIn('Cases created or finished, and their outcomes, for the selected period.', source)
         self.assertIn('function stageTatColumns(stages)', source)
         self.assertIn("colId: `stage_tat__${stage.key}`", source)
         self.assertIn("syncTatReportStageColumns(table.stage_columns || [])", source)
@@ -1304,6 +1308,134 @@ class TatTrackerWorkflowTest(TestCase):
         legacy_filter = report_cases(self.bro_user, {**period, 'status': 'Deferred'})
         self.assertEqual(legacy_filter['count'], 2)
         self.assertEqual({row['status'] for row in legacy_filter['results']}, {'Declined'})
+
+    def test_period_performance_table_includes_cases_created_or_finished_in_period(self):
+        now = timezone.now()
+        selected_at = now - timedelta(days=2)
+        older_at = now - timedelta(days=5)
+        period = {
+            'view': 'performance',
+            'date_from': timezone.localdate(selected_at).isoformat(),
+            'date_to': timezone.localdate(selected_at).isoformat(),
+            'page_size': 100,
+        }
+
+        def create_case(case_id, *, status, created_at, stage_values, target_minutes='100000'):
+            case = TatTrackerCase.objects.create(
+                group_id=self.config.group_id,
+                case_id=case_id,
+                product_key='business',
+                product_label='Business',
+                client_name=f'{case_id} CLIENT',
+                branch='Nakuru',
+                status=status,
+                stage_values=stage_values,
+                stage_target_snapshots={
+                    'mpesa_to_admin': {'target_minutes': target_minutes},
+                },
+            )
+            TatTrackerCase.objects.filter(pk=case.pk).update(created_at=created_at)
+            case.refresh_from_db()
+            return case
+
+        create_case(
+            'TAT-PERIOD-ACTIVE', status='Active', created_at=selected_at,
+            stage_values={'created': now.isoformat()},
+        )
+        create_case(
+            'TAT-PERIOD-STALLED', status='Stalled', created_at=selected_at,
+            stage_values={'created': now.isoformat()},
+        )
+        create_case(
+            'TAT-PERIOD-DECLINED-FINISHED', status='Deferred', created_at=older_at,
+            stage_values={
+                'created': older_at.isoformat(),
+                'decision': 'Deferred',
+                'decision_ts': selected_at.isoformat(),
+            },
+        )
+        create_case(
+            'TAT-PERIOD-DISBURSED-FINISHED', status='Disbursed', created_at=older_at,
+            stage_values={
+                'created': older_at.isoformat(),
+                'disbursement': selected_at.isoformat(),
+            },
+        )
+        create_case(
+            'TAT-PERIOD-DECLINED-CREATED', status='Declined', created_at=selected_at,
+            stage_values={
+                'created': selected_at.isoformat(),
+                'decision': 'Declined',
+                'decision_ts': now.isoformat(),
+            },
+        )
+        create_case(
+            'TAT-PERIOD-ACTION-ONLY', status='Active', created_at=older_at,
+            stage_values={
+                'created': older_at.isoformat(),
+                'mpesa_to_admin': selected_at.isoformat(),
+            },
+        )
+        create_case(
+            'TAT-PERIOD-OUTSIDE', status='Active', created_at=older_at,
+            stage_values={'created': older_at.isoformat()},
+        )
+
+        table = report_cases(self.bro_user, period)
+        rows = {row['case_id']: row for row in table['results']}
+        self.assertEqual(
+            set(rows),
+            {
+                'TAT-PERIOD-ACTIVE',
+                'TAT-PERIOD-STALLED',
+                'TAT-PERIOD-DECLINED-FINISHED',
+                'TAT-PERIOD-DISBURSED-FINISHED',
+                'TAT-PERIOD-DECLINED-CREATED',
+            },
+        )
+        self.assertEqual(
+            {row['status'] for row in rows.values()},
+            {'Active', 'Stalled', 'Declined', 'Disbursed'},
+        )
+        expected_by_status = {
+            'Active': {'TAT-PERIOD-ACTIVE'},
+            'Stalled': {'TAT-PERIOD-STALLED'},
+            'Declined': {
+                'TAT-PERIOD-DECLINED-FINISHED',
+                'TAT-PERIOD-DECLINED-CREATED',
+            },
+            'Disbursed': {'TAT-PERIOD-DISBURSED-FINISHED'},
+        }
+        for status, expected_ids in expected_by_status.items():
+            filtered = report_cases(self.bro_user, {**period, 'status': status})
+            self.assertEqual(
+                {row['case_id'] for row in filtered['results']}, expected_ids,
+            )
+
+        summary = report_summary(self.bro_user, period)
+        self.assertEqual(summary['metrics']['created'], 3)
+        self.assertEqual(summary['metrics']['finished'], 2)
+        self.assertEqual(summary['metrics']['declined'], 1)
+        self.assertEqual(summary['metrics']['disbursed'], 1)
+
+        action_table = report_cases(
+            self.bro_user, {**period, 'stage': 'mpesa_to_admin'},
+        )
+        self.assertIn(
+            'TAT-PERIOD-ACTION-ONLY',
+            {row['case_id'] for row in action_table['results']},
+        )
+
+        content, count = export_report_xlsx(
+            self.bro_user, period, request_id='tat-period-created-or-finished',
+        )
+        workbook = openpyxl.load_workbook(BytesIO(content), data_only=True)
+        exported_ids = {
+            workbook['TAT Report'].cell(row=row_number, column=1).value
+            for row_number in range(2, workbook['TAT Report'].max_row + 1)
+        }
+        self.assertEqual(count, 5)
+        self.assertEqual(exported_ids, set(rows))
 
     def test_tat_report_export_reuses_audited_workbook_for_selected_insights(self):
         now = timezone.now()

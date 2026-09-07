@@ -2414,7 +2414,6 @@
       defaultColDef: {
         sortable: true, resizable: !touch, suppressMovable: touch, suppressSizeToFit: true,
         tooltipValueGetter: p => p.value == null ? '' : String(p.value),
-        cellClassRules: { 'compact-long-value': p => String(p.value || '').length > 24 },
       },
       columnDefs: tatReportColumnDefs([]),
       enableBrowserTooltips: true,
@@ -2963,7 +2962,7 @@
     state.report.view = view; state.report.page = 1; state.report.activeSlide = 0;
     document.querySelectorAll('[data-report-view]').forEach(button => { const active = button.dataset.reportView === view; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
     $('tatTrendTitle').textContent = view === 'current' ? 'Workload over Time' : 'Created, Finished and Disbursed';
-    $('tatReportPeriod').textContent = view === 'current' ? 'Current workload and attention indicators.' : 'Finished cases and outcomes for the selected period.';
+    $('tatReportPeriod').textContent = view === 'current' ? 'Current workload and attention indicators.' : 'Cases created or finished, and their outcomes, for the selected period.';
     invalidateTatReportInsights();
     syncTatChartDisplay();
     refreshTatReport(); utils.haptic?.('light');

@@ -461,6 +461,18 @@ def _case_row(case, *, include_people=False, now=None, context=None):
     return row
 
 
+def _created_in_reporting_period(case, filters):
+    created_date = timezone.localdate(case.created_at)
+    return filters['date_from'] <= created_date <= filters['date_to']
+
+
+def _finished_in_reporting_period(row, filters):
+    if not row.get('finished_at'):
+        return False
+    finished_date = _iso_local_date(row['finished_at'])
+    return filters['date_from'] <= finished_date <= filters['date_to']
+
+
 def _eligible_rows(actor, filters, *, include_people=False, cases=None, context=None):
     rows = []
     action_filtered = bool(
@@ -476,10 +488,10 @@ def _eligible_rows(actor, filters, *, include_people=False, cases=None, context=
             continue
         if filters['view'] == 'performance':
             if not action_filtered:
-                if case.status not in TERMINAL or not row['finished_at']:
-                    continue
-                finished_date = _iso_local_date(row['finished_at'])
-                if not filters['date_from'] <= finished_date <= filters['date_to']:
+                if not (
+                    _created_in_reporting_period(case, filters)
+                    or _finished_in_reporting_period(row, filters)
+                ):
                     continue
         if filters['view'] == 'performance' and (filters['stage'] or filters['role']):
             samples = _stage_samples([case], filters, include_people=include_people, context=context)
@@ -1591,14 +1603,16 @@ def report_summary(actor, payload, *, include_people=False):
             sample_count=sum(backlog.values()),
         )
     else:
-        terminal_rows = rows
         action_filtered = bool(filters['stage'] or filters['role'] or filters['sla_state'])
+        terminal_rows = rows if action_filtered else [
+            row for row in rows if _finished_in_reporting_period(row, filters)
+        ]
         metric_rows = stage_samples if action_filtered else terminal_rows
         elapsed = [row['elapsed_minutes'] for row in metric_rows]
         valid = [row for row in metric_rows if row['sla_state'] != 'target_unavailable']
         met = sum(row['sla_state'] != 'overdue' for row in valid)
         outcomes = Counter(row['status'] for row in terminal_rows)
-        created_cases = [case for case in all_cases if filters['date_from'] <= timezone.localdate(case.created_at) <= filters['date_to']]
+        created_cases = [case for case in all_cases if _created_in_reporting_period(case, filters)]
         created = len({sample['case_id'] for sample in stage_samples}) if action_filtered else len(created_cases)
         if include_overview:
             common['metrics'] = {
