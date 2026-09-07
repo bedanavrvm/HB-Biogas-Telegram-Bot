@@ -487,6 +487,13 @@ class TelegramStaffActivationTests(TestCase):
         self.assertFalse(resolve_or_bind_telegram_user(self.identity, activation_code=first_code))
         self.assertEqual(resolve_or_bind_telegram_user(self.identity, activation_code=second_code), self.user)
 
+    def test_activation_page_closes_telegram_mini_app_after_success(self):
+        response = self.client.get(reverse('staff_telegram_activation_page'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "typeof tg.close==='function'")
+        self.assertContains(response, 'closeAfterActivation();')
+
 
 @override_settings(TELEGRAM_BOT_TOKEN='test-token')
 class StaffTelegramOnboardingTests(TestCase):

@@ -2934,7 +2934,7 @@
   function setTatReportView(view) {
     state.report.view = view; state.report.page = 1; state.report.activeSlide = 0;
     document.querySelectorAll('[data-report-view]').forEach(button => { const active = button.dataset.reportView === view; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); });
-    $('tatTrendTitle').textContent = view === 'current' ? 'Workload over Time' : 'Created, Finished and Disbursed';
+    $('tatTrendTitle').textContent = view === 'current' ? 'Workload over Time' : 'Created, Disbursed and Declined';
     $('tatReportPeriod').textContent = view === 'current' ? 'Current workload and attention indicators.' : 'Cases created or finished, and their outcomes, for the selected period.';
     invalidateTatReportInsights();
     syncTatChartDisplay();

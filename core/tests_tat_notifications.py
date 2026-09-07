@@ -311,6 +311,25 @@ class TatPrivateTaskTests(TestCase):
         self.assertContains(response, '2 eligible active users match this exact TAT scope.')
         self.assertContains(response, reverse('admin:core_tatresponsibilityassignment_eligible_users'))
 
+    def test_guided_roster_and_stage_designer_offer_management_role(self):
+        superuser = get_user_model().objects.create_superuser(
+            username='management-role-admin', password='test-password',
+            email='management-role@example.test',
+        )
+        self.client.force_login(superuser)
+
+        response = self.client.get(reverse('admin:core_tatresponsibilityassignment_add'), {
+            'group_configuration': str(self.group.pk),
+            'branch': 'Nakuru',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        role_choices = dict(response.context['adminform'].form.fields['role'].choices)
+        self.assertEqual(role_choices['MANAGEMENT'], 'Management')
+        designer = Path('core/static/admin/js/tat_stage_designer.js').read_text(encoding='utf-8')
+        self.assertIn('<select data-role required>', designer)
+        self.assertNotIn('<input data-role', designer)
+
     def test_superuser_can_open_guided_control_center_and_register(self):
         superuser = get_user_model().objects.create_superuser(
             username='control-admin', password='test-password', email='control@example.test',
@@ -735,7 +754,7 @@ class TatPrivateTaskTests(TestCase):
         self.assertIn("'Disconnect private alerts'", source)
         self.assertIn("'/api/tat-tracker/private-alerts/disconnect/'", source)
         self.assertIn("tat_tracker.css' %}?v=56", template)
-        self.assertIn("tat_tracker.js' %}?v=83", template)
+        self.assertIn("tat_tracker.js' %}?v=84", template)
 
     @patch('core.services.tat_notifications._telegram_request', return_value={'message_id': 83})
     def test_superuser_can_send_confirmed_test_from_connection_admin(self, telegram):

@@ -3105,6 +3105,8 @@ def role_display_name(role: str) -> str:
         'CHAIR': 'Chair',
         'LOAN_APPROVER': 'Loan Approver',
         'FINANCE': 'Finance',
+        'MANAGEMENT': 'Management',
+        'IT': 'IT / Override',
     }
     return labels.get(str(role or '').strip().upper(), str(role or '').strip() or 'Responsible team')
 

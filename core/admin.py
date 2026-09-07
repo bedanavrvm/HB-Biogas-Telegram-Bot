@@ -61,7 +61,7 @@ from core.services.tat_responsibilities import (
 )
 from core.services.telegram_launchers import MINI_APP_LAUNCHER_CHOICES, default_launcher_keys
 from core.services.access_policies import (
-    branch_choices, product_choices, role_choices, role_workflow_map,
+    WORKFLOW_ROLES, branch_choices, product_choices, role_choices, role_workflow_map,
     validate_access_scope,
 )
 
@@ -2252,11 +2252,22 @@ class TatResponsibilityAssignmentForm(forms.ModelForm):
         if self.instance and self.instance.pk and self.instance.branch:
             branches.add(self.instance.branch)
         self.fields['branch'].choices = [(value, value) for value in sorted(branches)]
-        roles = {str(stage.role or '').strip().upper() for product in product_configs.values() for stage in product.stages}
+        role_labels = dict(WORKFLOW_ROLES['tat_tracker'])
+        roles = {
+            str(stage.role or '').strip().upper()
+            for product in product_configs.values() for stage in product.stages
+        }
+        # Role-wide rosters may be prepared before the first stage using that
+        # role is published. Keep the choices governed by the TAT access
+        # policy instead of hiding Management and other valid TAT roles.
+        roles.update(role_labels)
         if self.instance and self.instance.pk and self.instance.role:
             roles.add(self.instance.role)
         roles = sorted(roles)
-        self.fields['role'].choices = [(value, value.replace('_', ' ').title()) for value in roles]
+        self.fields['role'].choices = [
+            (value, role_labels.get(value, value.replace('_', ' ').title()))
+            for value in roles
+        ]
         self.fields['role'].help_text = 'Used for a role roster. A selected stage derives and locks its canonical role.'
         product_choices = [('', 'All products')] + [
             (product.key, product.label) for product in product_configs.values()
@@ -2820,6 +2831,10 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
             **self.admin_site.each_context(request), 'opts': self.model._meta,
             'title': f'{version.product.name} TAT stage designer', 'group': group,
             'version': version, 'stages_json': json.dumps(stage_editor_rows(version)),
+            'tat_role_choices': [
+                {'value': value, 'label': label}
+                for value, label in WORKFLOW_ROLES['tat_tracker']
+            ],
             'request_id': request_id,
             'back_url': reverse('admin:core_tat_control_center', args=[group.pk]),
         })

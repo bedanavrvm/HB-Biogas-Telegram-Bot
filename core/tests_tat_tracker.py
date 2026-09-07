@@ -615,7 +615,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Ready for my role', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=83", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=84", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -1423,6 +1423,10 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(summary['metrics']['finished'], 2)
         self.assertEqual(summary['metrics']['declined'], 1)
         self.assertEqual(summary['metrics']['disbursed'], 1)
+        self.assertEqual(
+            [series['key'] for series in summary['charts']['trend']['series']],
+            ['created', 'disbursed', 'declined'],
+        )
 
         action_table = report_cases(
             self.bro_user, {**period, 'stage': 'mpesa_to_admin'},

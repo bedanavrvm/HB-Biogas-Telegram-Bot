@@ -1660,7 +1660,6 @@ def report_summary(actor, payload, *, include_people=False):
                 [item['label'] for item in common['trend']],
                 [
                     _series('created', 'Created', [item.get('created', 0) for item in common['trend']]),
-                    _series('finished', 'Finished', [item.get('finished', 0) for item in common['trend']]),
                     _series('disbursed', 'Disbursed', [item.get('disbursed', 0) for item in common['trend']]),
                     _series('declined', 'Declined', [item.get('declined', 0) for item in common['trend']]),
                 ],
