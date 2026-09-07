@@ -1484,14 +1484,170 @@ class TatTrackerWorkflowTest(TestCase):
             self.assertFalse(widget.can_view_related)
         self.assertEqual(TatResponsibilityBackupInline.extra, 0)
 
-    def test_responsibility_workspace_keeps_stage_overrides_advanced(self):
+    def test_responsibility_workspace_shows_effective_outcomes_before_records(self):
         template = Path(
             'core/templates/admin/core/tatresponsibilityassignment/change_list.html',
         ).read_text(encoding='utf-8')
 
-        self.assertIn('<details class="rounded border', template)
-        self.assertIn('Advanced stage overrides', template)
-        self.assertIn('Default role rosters already cover normal routing.', template)
+        self.assertIn('Who handles TAT work?', template)
+        self.assertIn('Effective routing overview', template)
+        self.assertIn('Access &amp; eligibility', template)
+        self.assertIn('Default routing', template)
+        self.assertIn('Stage exceptions', template)
+        self.assertIn('<details class="tat-technical-records">', template)
+
+    def test_responsibility_workspace_renders_effective_role_cards(self):
+        root = get_user_model().objects.create_superuser(
+            username='routing-workspace-root', email='workspace@example.invalid',
+            password='test-password',
+        )
+        self.client.force_login(root)
+
+        response = self.client.get(reverse(
+            'admin:core_tatresponsibilityassignment_changelist',
+        ), {
+            'workspace_group': self.config.pk,
+            'workspace_branch': 'Nakuru',
+            'workspace_product': 'business',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Who handles TAT work?')
+        self.assertContains(response, '1 unique person')
+        self.assertContains(response, 'Group delivery mode')
+        self.assertContains(response, 'Change access in Staff Lifecycle')
+
+    def test_responsibility_editor_renders_server_checked_impact(self):
+        root = get_user_model().objects.create_superuser(
+            username='routing-editor-root', email='editor@example.invalid',
+            password='test-password',
+        )
+        self.client.force_login(root)
+        add_response = self.client.get(
+            reverse('admin:core_tatresponsibilityassignment_add'), {
+                'group_configuration': self.config.pk, 'branch': 'Nakuru',
+                'role': 'BRO', 'product_key': 'business',
+            },
+        )
+        self.assertEqual(add_response.status_code, 200)
+        self.assertContains(add_response, 'Guided roster editor')
+        self.assertContains(add_response, 'Existing open tasks')
+
+        preview = self.client.get(
+            reverse('admin:core_tatresponsibilityassignment_impact_preview'), {
+                'group_configuration': self.config.pk, 'branch': 'Nakuru',
+                'role': 'BRO', 'product_key': 'business',
+                'primary_user': self.bro_user.pk,
+            },
+        )
+        self.assertEqual(preview.status_code, 200)
+        self.assertTrue(preview.json()['primary_has_access'])
+        self.assertFalse(preview.json()['tasks_move_automatically'])
+        self.assertTrue(preview.json()['stages'])
+
+    def test_effective_routing_overview_deduplicates_overlapping_grants(self):
+        from core.models import TatPrivateAlertConnection, TatResponsibilityAssignment
+        from core.services.tat_responsibilities import effective_routing_overview
+
+        self.config.workflow['tat_notification_mode'] = 'hybrid'
+        self.config.save(update_fields=['workflow', 'updated_at'])
+        AccessGrant.objects.create(
+            user=self.bro_user, workflow='tat_tracker', role='BRO',
+            branch='Nakuru', product='', group_configuration=self.config,
+        )
+        TatResponsibilityAssignment.objects.create(
+            group_configuration=self.config, branch='Nakuru', role='BRO',
+            product_key='business', primary_user=self.bro_user,
+        )
+        TatPrivateAlertConnection.objects.create(
+            user=self.bro_user, status=TatPrivateAlertConnection.STATUS_CONNECTED,
+        )
+
+        result = effective_routing_overview(
+            group_configuration=self.config,
+            branches=['Nakuru'], product_keys=['business'],
+        )
+        bro = next(row for row in result['roles'] if row['role'] == 'BRO')
+
+        self.assertEqual(bro['staff_count'], 1)
+        self.assertEqual(len(bro['staff']), 1)
+        self.assertEqual(len(bro['staff'][0]['scopes']), 2)
+        self.assertEqual(bro['health']['label'], 'Ready')
+
+    def test_effective_routing_health_is_notification_mode_aware(self):
+        from core.services.tat_responsibilities import effective_routing_overview
+
+        self.config.workflow['tat_notification_mode'] = 'shadow'
+        self.config.save(update_fields=['workflow', 'updated_at'])
+        result = effective_routing_overview(
+            group_configuration=self.config,
+            branches=['Nakuru'], product_keys=['business'],
+        )
+        bro = next(row for row in result['roles'] if row['role'] == 'BRO')
+        self.assertEqual(bro['health']['code'], 'role-fallback')
+        self.assertEqual(bro['health']['severity'], 'critical')
+
+        self.config.workflow['tat_notification_mode'] = 'group'
+        self.config.save(update_fields=['workflow', 'updated_at'])
+        result = effective_routing_overview(
+            group_configuration=self.config,
+            branches=['Nakuru'], product_keys=['business'],
+        )
+        bro = next(row for row in result['roles'] if row['role'] == 'BRO')
+        self.assertEqual(bro['health']['label'], 'Group delivery mode')
+        self.assertEqual(bro['health']['severity'], 'neutral')
+
+    def test_expired_roster_replacement_is_atomic_audited_and_idempotent(self):
+        from core.models import (
+            TatResponsibilityAssignment, TatResponsibilityChangePlan,
+            TatResponsibilityEvent,
+        )
+        from core.services.tat_responsibilities import replace_expired_assignment
+
+        root = get_user_model().objects.create_superuser(
+            username='replace-root', email='replace@example.invalid', password='unused-password',
+        )
+        expired = TatResponsibilityAssignment.objects.create(
+            group_configuration=self.config, branch='Nakuru', role='BRO',
+            product_key='business', primary_user=self.bro_user,
+            effective_from=timezone.now() - timedelta(days=2),
+            effective_until=timezone.now() - timedelta(days=1),
+            created_by=root,
+        )
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='TAT-ROSTER-REPLACE-001',
+            product_key='business', product_label='Business', client_name='Roster Test',
+            branch='Nakuru', status='Active', stage_values={'created': timezone.now().isoformat()},
+        )
+        open_task = TatActionTask.objects.create(
+            case=case, group_configuration=self.config, assignment=expired,
+            stage_key='mpesa_to_admin', stage_label='M-Pesa to Admin',
+            responsible_role='BRO', case_revision=case.workflow_revision,
+        )
+        revision = expired.updated_at.isoformat()
+
+        successor = replace_expired_assignment(
+            assignment=expired, primary_user=self.bro_user, actor=root,
+            reason='Replace the expired operational roster.',
+            request_id='replace-expired-roster-1', expected_updated_at=revision,
+        )
+        repeated = replace_expired_assignment(
+            assignment=expired, primary_user=self.bro_user, actor=root,
+            reason='Replace the expired operational roster.',
+            request_id='replace-expired-roster-1', expected_updated_at=revision,
+        )
+
+        expired.refresh_from_db()
+        self.assertFalse(expired.active)
+        self.assertEqual(successor.pk, repeated.pk)
+        self.assertTrue(successor.active)
+        self.assertEqual(TatResponsibilityChangePlan.objects.filter(status='applied').count(), 1)
+        self.assertEqual(TatResponsibilityEvent.objects.filter(
+            assignment_id_snapshot__in=[expired.pk, successor.pk],
+        ).count(), 2)
+        open_task.refresh_from_db()
+        self.assertEqual(open_task.assignment_id, expired.pk)
+        self.assertEqual(open_task.routing_generation, 1)
 
     def test_compact_cards_have_a_distinct_queue_hierarchy(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')

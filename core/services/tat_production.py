@@ -6,11 +6,9 @@ from datetime import timedelta
 
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
-from django.db.models import Q
 from django.utils import timezone
 
 from core.models import (
-    AccessGrant,
     GroupSheetConfiguration,
     SheetRegisterContract,
     TatNotificationProcessorRun,
@@ -22,7 +20,12 @@ from core.models import (
     WORKFLOW_DATA_MODE_PRODUCTION,
 )
 from core.production import ReadinessIssue, _blank_or_placeholder
-from core.services.tat_responsibilities import configuration_issues, stage_catalog
+from core.services.tat_responsibilities import (
+    configuration_issues,
+    effective_assignment_candidates,
+    stage_catalog,
+    user_has_responsibility_access,
+)
 from core.services.tat_tracker import is_tat_tracker_workflow
 
 
@@ -30,39 +33,17 @@ VALID_NOTIFICATION_MODES = {'group', 'shadow', 'hybrid'}
 
 
 def _active_assignment_candidates(*, group, branch: str, product_key: str, stage_key: str, role: str):
-    now = timezone.now()
-    rows = TatResponsibilityAssignment.objects.filter(
-        group_configuration=group,
-        branch__iexact=branch,
-        role__iexact=role,
-        active=True,
-        effective_from__lte=now,
-    ).filter(Q(effective_until__isnull=True) | Q(effective_until__gt=now)).select_related(
-        'primary_user', 'primary_user__staff_profile', 'group_configuration',
-    ).prefetch_related('backups__user', 'backups__user__staff_profile')
-    ranked = []
-    for assignment in rows:
-        if assignment.product_key and assignment.product_key.casefold() != product_key.casefold():
-            continue
-        if assignment.stage_key and assignment.stage_key != stage_key:
-            continue
-        specificity = int(bool(assignment.product_key)) + (2 * int(bool(assignment.stage_key)))
-        ranked.append((specificity, assignment))
-    if not ranked:
-        return []
-    highest = max(item[0] for item in ranked)
-    return [assignment for specificity, assignment in ranked if specificity == highest]
+    return effective_assignment_candidates(
+        group_configuration=group, branch=branch, product_key=product_key,
+        stage_key=stage_key, role=role,
+    )
 
 
 def _grant_covers(*, user_id=None, group, branch: str, product_key: str, role: str) -> bool:
-    grants = AccessGrant.objects.filter(
-        workflow='tat_tracker', active=True, user__is_active=True, role__iexact=role,
-    ).filter(Q(group_configuration__isnull=True) | Q(group_configuration=group))
-    if user_id:
-        grants = grants.filter(user_id=user_id)
-    grants = grants.filter(Q(branch='') | Q(branch__iexact=branch))
-    grants = grants.filter(Q(product='') | Q(product__iexact=product_key))
-    return grants.exists()
+    return user_has_responsibility_access(
+        user_id=user_id, group_configuration=group, branch=branch,
+        product_key=product_key, role=role,
+    )
 
 
 def _group_scope_issues(group) -> list[ReadinessIssue]:

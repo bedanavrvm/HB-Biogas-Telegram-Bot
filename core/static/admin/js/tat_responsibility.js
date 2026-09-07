@@ -59,6 +59,50 @@
     );
   }
 
+  function backupRows() {
+    return [...document.querySelectorAll('input[id^="id_backups-"][id$="-rank"]')]
+      .map((input) => ({ input, row: input.closest('tr,.form-row') }))
+      .filter((item) => item.row && !item.row.classList.contains('empty-form'));
+  }
+
+  function syncBackupOrder() {
+    const rows = backupRows();
+    rows.forEach((item, index) => {
+      item.input.value = String(index + 1);
+      item.input.type = 'hidden';
+      const label = item.row.querySelector('[data-tat-backup-position]');
+      if (label) label.textContent = `Backup ${index + 1}`;
+      const up = item.row.querySelector('[data-tat-backup-up]');
+      const down = item.row.querySelector('[data-tat-backup-down]');
+      if (up) up.disabled = index === 0;
+      if (down) down.disabled = index === rows.length - 1;
+    });
+  }
+
+  function enhanceBackupRows() {
+    backupRows().forEach((item) => {
+      if (item.row.querySelector('[data-tat-backup-order]')) return;
+      const controls = document.createElement('div');
+      controls.className = 'tat-backup-order';
+      controls.dataset.tatBackupOrder = '';
+      controls.innerHTML = '<strong data-tat-backup-position></strong><button type="button" data-tat-backup-up aria-label="Move backup earlier">&#8593;</button><button type="button" data-tat-backup-down aria-label="Move backup later">&#8595;</button>';
+      item.input.insertAdjacentElement('afterend', controls);
+      controls.querySelector('[data-tat-backup-up]').addEventListener('click', function () {
+        const rows = backupRows();
+        const index = rows.findIndex((entry) => entry.row === item.row);
+        if (index > 0) rows[index - 1].row.before(item.row);
+        syncBackupOrder();
+      });
+      controls.querySelector('[data-tat-backup-down]').addEventListener('click', function () {
+        const rows = backupRows();
+        const index = rows.findIndex((entry) => entry.row === item.row);
+        if (index >= 0 && index < rows.length - 1) rows[index + 1].row.after(item.row);
+        syncBackupOrder();
+      });
+    });
+    syncBackupOrder();
+  }
+
   function syncStageRole() {
     const stage = document.getElementById('id_stage_key');
     const role = document.getElementById('id_role');
@@ -151,6 +195,7 @@
     if (primary) primary.addEventListener('change', updateBackupUserSelects);
     syncStageRole();
     refreshEligibleUsers();
+    enhanceBackupRows();
 
     const inlineRoot = document.querySelector('.inline-group');
     if (inlineRoot) {
@@ -162,6 +207,7 @@
         )));
         if (addedUserSelect) {
           updateBackupUserSelects();
+          enhanceBackupRows();
         }
       }).observe(inlineRoot, { childList: true, subtree: true });
     }

@@ -376,25 +376,14 @@ def eligible_role_users(*, group, case: TatTrackerCase, role: str) -> list:
 def resolve_assignment(*, group, case: TatTrackerCase, role: str, stage_key: str):
     if not group:
         return None
-    now = timezone.now()
-    assignments = TatResponsibilityAssignment.objects.filter(
-        group_configuration=group, branch__iexact=case.branch, role__iexact=role,
-        active=True, effective_from__lte=now,
-    ).filter(Q(effective_until__isnull=True) | Q(effective_until__gt=now)).select_related(
-        'primary_user', 'primary_user__staff_profile',
-    ).prefetch_related('backups__user', 'backups__user__staff_profile')
-    candidates = []
-    for assignment in assignments:
-        if assignment.product_key and assignment.product_key.casefold() != case.product_key.casefold():
-            continue
-        if assignment.stage_key and assignment.stage_key != stage_key:
-            continue
-        specificity = int(bool(assignment.product_key)) + (2 * int(bool(assignment.stage_key)))
-        candidates.append((specificity, assignment))
-    if not candidates:
+    from core.services.tat_responsibilities import effective_assignment_candidates
+
+    winners = effective_assignment_candidates(
+        group_configuration=group, branch=case.branch, role=role,
+        product_key=case.product_key, stage_key=stage_key,
+    )
+    if not winners:
         return None
-    highest_specificity = max(item[0] for item in candidates)
-    winners = [assignment for specificity, assignment in candidates if specificity == highest_specificity]
     if len(winners) != 1:
         logger.error(
             'Ambiguous TAT responsibility assignment; routing through safe role fallback.',

@@ -1,0 +1,31 @@
+{% extends "admin/change_form.html" %}
+{% load static %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/css/tat_responsibility_workspace.css' %}">
+  <script defer src="{% static 'admin/js/tat_responsibility_editor.js' %}"></script>
+{% endblock %}
+
+{% block field_sets %}
+  <section class="tat-editor-intro" data-tat-editor data-impact-url="{{ tat_impact_preview_url }}" data-assignment-id="{{ tat_assignment_id }}" data-staff-lifecycle-url="{{ tat_staff_lifecycle_url }}">
+    <span class="tat-kicker">Guided roster editor</span>
+    <h2>Set who receives this work first</h2>
+    <p>Access still determines who may act. This editor only changes the primary and backup routing order.</p>
+    <ol class="tat-editor-steps" aria-label="Roster editor steps">
+      <li class="is-current"><span>1</span> Confirm scope</li><li><span>2</span> Default or exception</li><li><span>3</span> Primary</li><li><span>4</span> Backups</li><li><span>5</span> Review impact</li><li><span>6</span> Save with reason</li>
+    </ol>
+  </section>
+  {{ block.super }}
+  <section class="tat-impact-preview" data-tat-impact aria-live="polite">
+    <header><div><span class="tat-kicker">Review before saving</span><h2>Effective impact</h2></div><button type="button" data-tat-refresh-impact>Refresh impact</button></header>
+    <p data-tat-impact-state>Choose the scope and primary recipient to review the affected stages, access, DM readiness, and open tasks.</p>
+    <div class="tat-impact-grid" data-tat-impact-results hidden>
+      <article><span>Proposed change</span><strong data-tat-impact-change>&mdash;</strong><small>Scope, role, dates, and backups remain as shown in the form.</small></article>
+      <article><span>Stages affected</span><strong data-tat-impact-stages>—</strong></article>
+      <article><span>Primary access</span><strong data-tat-impact-access>—</strong></article>
+      <article><span>Private DM</span><strong data-tat-impact-dm>—</strong></article>
+      <article><span>Existing open tasks</span><strong data-tat-impact-tasks>—</strong><small>They will not move automatically. Use the separate audited reroute action if needed.</small></article>
+    </div>
+  </section>
+{% endblock %}

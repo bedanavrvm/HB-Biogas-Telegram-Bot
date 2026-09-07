@@ -1,0 +1,29 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/css/tat_responsibility_workspace.css' %}">{% endblock %}
+
+{% block content %}
+<main class="tat-responsibility-workspace">
+  <section class="tat-routing-hero"><div><span class="tat-kicker">Controlled successor</span><h1>Replace expired TAT roster</h1><p>Deactivate the expired record and create its successor in one revision-checked, audited transaction.</p></div><a href="{{ back_url }}">Back to effective routing</a></section>
+  <section class="tat-editor-intro">
+    <h2>Review what will change</h2>
+    <div class="tat-impact-grid">
+      <article><span>Scope retained</span><strong>{{ assignment.group_configuration }} · {{ assignment.branch }} · {{ assignment.product_key|default:'All products' }}</strong></article>
+      <article><span>Role / stage retained</span><strong>{{ assignment.role }} · {{ assignment.stage_key|default:'All stages' }}</strong></article>
+      <article><span>Current primary</span><strong>{{ assignment.primary_user }}</strong></article>
+      <article><span>Existing open tasks</span><strong>{{ open_task_count }}</strong><small>None will move automatically. Reroute them separately from the task register if required.</small></article>
+    </div>
+  </section>
+  <section class="tat-impact-preview">
+    <form method="post" class="tat-danger-form">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      {{ form.request_id }}{{ form.expected_updated_at }}
+      <label>{{ form.primary_user.label }}{{ form.primary_user }}{{ form.primary_user.errors }}</label>
+      <label>{{ form.reason.label }}{{ form.reason }}<small>{{ form.reason.help_text }}</small>{{ form.reason.errors }}</label>
+      <div class="tat-actions"><a href="{{ back_url }}">Cancel</a><button type="submit" class="tat-primary-action">Replace roster</button></div>
+    </form>
+  </section>
+</main>
+{% endblock %}

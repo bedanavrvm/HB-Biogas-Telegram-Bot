@@ -46,7 +46,9 @@ from core.services.tat_responsibilities import (
     assignment_snapshot,
     canonical_stage_role,
     configuration_issues,
+    effective_routing_overview,
     eligible_responsibility_users,
+    replace_expired_assignment,
     stage_catalog,
 )
 from core.services.telegram_launchers import MINI_APP_LAUNCHER_CHOICES, default_launcher_keys
@@ -2210,6 +2212,7 @@ class TatResponsibilityAssignmentForm(forms.ModelForm):
         widget=forms.Textarea(attrs={'rows': 2}),
         help_text='Required. The responsibility change is recorded in append-only audit history.',
     )
+    expected_updated_at = forms.CharField(required=False, widget=forms.HiddenInput)
 
     class Meta:
         model = TatResponsibilityAssignment
@@ -2217,6 +2220,11 @@ class TatResponsibilityAssignmentForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if (
+            self.instance and not self.instance._state.adding
+            and self.instance.updated_at and not self.is_bound
+        ):
+            self.fields['expected_updated_at'].initial = self.instance.updated_at.isoformat()
         def selected_value(name):
             if self.is_bound:
                 return str(self.data.get(self.add_prefix(name), '') or '').strip()
@@ -2323,11 +2331,17 @@ class TatResponsibilityAssignmentForm(forms.ModelForm):
             )
         else:
             eligibility_message = 'Choose the workflow group, branch, and role to load eligible users.'
+        lifecycle_params = urlencode({
+            'action': 'access_change', 'workflow': 'tat_tracker',
+            'role': selected_role, 'branch': selected_branch,
+            'product': selected_product,
+        })
         self.fields['primary_user'].help_text = format_html(
             '<span id="tat-eligible-users-help">{}</span> '
-            '<a href="{}">Manage user access grants</a>',
+            '<a href="{}?{}">Grant or repair access in Staff Lifecycle →</a>',
             eligibility_message,
-            reverse('admin:auth_user_changelist'),
+            reverse('admin:auth_user_staff_lifecycle'),
+            lifecycle_params,
         )
         # This editor assigns an existing workflow and staff member. Django's
         # related-object add/change/view controls duplicate the guided links
@@ -2343,6 +2357,19 @@ class TatResponsibilityAssignmentForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
+        if not self.instance._state.adding:
+            expected_updated_at = str(cleaned.get('expected_updated_at') or '').strip()
+            current_updated_at = type(self.instance).objects.filter(
+                pk=self.instance.pk,
+            ).values_list('updated_at', flat=True).first()
+            if (
+                not expected_updated_at
+                or not current_updated_at
+                or current_updated_at.isoformat() != expected_updated_at
+            ):
+                raise forms.ValidationError(
+                    'This roster changed after the page was opened. Reload and review the current routing before saving.'
+                )
         stage_key = cleaned.get('stage_key')
         group = cleaned.get('group_configuration')
         if stage_key and group:
@@ -2431,12 +2458,34 @@ class TatResponsibilityBackupInline(TabularInline):
     fields = ('rank', 'user', 'threshold_percent', 'active')
 
 
+class TatExpiredResponsibilityReplacementForm(forms.Form):
+    primary_user = forms.ModelChoiceField(
+        queryset=get_user_model().objects.none(), label='New primary recipient',
+    )
+    reason = forms.CharField(
+        min_length=10, widget=forms.Textarea(attrs={'rows': 3}),
+        help_text='Required. This reason is recorded against both roster records.',
+    )
+    request_id = forms.CharField(widget=forms.HiddenInput)
+    expected_updated_at = forms.CharField(widget=forms.HiddenInput)
+
+    def __init__(self, *args, assignment, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['primary_user'].queryset = eligible_responsibility_users(
+            group_configuration=assignment.group_configuration,
+            branch=assignment.branch,
+            role=assignment.role,
+            product_key=assignment.product_key,
+        )
+
+
 @admin.register(TatResponsibilityAssignment)
 class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
     """Superuser-managed routing; matching AccessGrants remain authoritative."""
 
     form = TatResponsibilityAssignmentForm
     change_list_template = 'admin/core/tatresponsibilityassignment/change_list.html'
+    change_form_template = 'admin/core/tatresponsibilityassignment/change_form.html'
     list_display = (
         'group_configuration', 'branch', 'role', 'product_key', 'stage_key',
         'primary_user', 'active', 'effective_from', 'effective_until',
@@ -2469,7 +2518,7 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
             'fields': (('active', 'effective_from', 'effective_until'),),
             'classes': ('tat-responsibility-availability',),
         }),
-        ('Audit', {'fields': (('created_by', 'created_at', 'updated_at'),), 'classes': ('collapse',)}),
+        ('Audit', {'fields': (('created_by', 'created_at', 'updated_at'), 'expected_updated_at'), 'classes': ('collapse',)}),
     )
 
     def get_urls(self):
@@ -2478,6 +2527,16 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
                 'eligible-users/',
                 self.admin_site.admin_view(self.eligible_users_view),
                 name='core_tatresponsibilityassignment_eligible_users',
+            ),
+            path(
+                'impact-preview/',
+                self.admin_site.admin_view(self.impact_preview_view),
+                name='core_tatresponsibilityassignment_impact_preview',
+            ),
+            path(
+                '<uuid:assignment_id>/replace-expired/',
+                self.admin_site.admin_view(self.replace_expired_view),
+                name='core_tatresponsibilityassignment_replace_expired',
             ),
             path(
                 'control-center/<int:group_id>/',
@@ -2510,6 +2569,140 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
                 name='core_tat_case_configuration_resolve',
             ),
         ] + super().get_urls()
+
+    def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
+        extra_context = {
+            **(extra_context or {}),
+            'tat_impact_preview_url': reverse(
+                'admin:core_tatresponsibilityassignment_impact_preview',
+            ),
+            'tat_staff_lifecycle_url': reverse('admin:auth_user_staff_lifecycle'),
+            'tat_assignment_id': object_id or '',
+        }
+        return super().changeform_view(
+            request, object_id=object_id, form_url=form_url,
+            extra_context=extra_context,
+        )
+
+    def impact_preview_view(self, request):
+        if not self.has_module_permission(request):
+            raise PermissionDenied
+        if request.method != 'GET':
+            return JsonResponse({'ok': False, 'error': 'GET required.'}, status=405)
+        group = GroupSheetConfiguration.objects.filter(
+            pk=str(request.GET.get('group_configuration') or '').strip(),
+            enabled=True,
+        ).first()
+        branch = str(request.GET.get('branch') or '').strip()
+        product_key = str(request.GET.get('product_key') or '').strip().lower()
+        stage_key = str(request.GET.get('stage_key') or '').strip()
+        role = str(request.GET.get('role') or '').strip().upper()
+        primary_id = str(request.GET.get('primary_user') or '').strip()
+        if (
+            not group
+            or str((group.workflow or {}).get('type') or '') != 'tat_tracker'
+            or not branch or not role
+        ):
+            return JsonResponse({
+                'ok': False,
+                'error': 'Choose the workflow group, branch, and role first.',
+            }, status=400)
+        stages = [
+            row for row in stage_catalog(group.workflow)
+            if row['role'] == role
+            and (not product_key or row['product_key'] == product_key)
+            and (not stage_key or row['stage_key'] == stage_key)
+        ]
+        eligible_ids = set(eligible_responsibility_users(
+            group_configuration=group, branch=branch, role=role,
+            product_key=product_key,
+        ).values_list('pk', flat=True))
+        assignment_id = str(request.GET.get('assignment_id') or '').strip()
+        try:
+            assignment_uuid = uuid.UUID(assignment_id) if assignment_id else None
+        except ValueError:
+            assignment_uuid = None
+        assignment = (
+            TatResponsibilityAssignment.objects.filter(pk=assignment_uuid).first()
+            if assignment_uuid else None
+        )
+        proposed_primary = get_user_model().objects.filter(pk=primary_id).first()
+        open_tasks = TatActionTask.objects.filter(
+            assignment=assignment, status=TatActionTask.STATUS_PENDING,
+        ).count() if assignment else 0
+        connection = TatPrivateAlertConnection.objects.filter(user_id=primary_id).first()
+        return JsonResponse({
+            'ok': True,
+            'stages': [f"{row['product_label']} · {row['stage_label']}" for row in stages],
+            'primary_has_access': bool(
+                primary_id.isdigit() and int(primary_id) in eligible_ids
+            ),
+            'primary_dm_status': (
+                connection.get_status_display() if connection else 'Unknown'
+            ),
+            'open_tasks': open_tasks,
+            'tasks_move_automatically': False,
+            'change_summary': (
+                f"Primary: {assignment.primary_user} -> {proposed_primary}"
+                if assignment and proposed_primary and assignment.primary_user_id != proposed_primary.pk
+                else ('No primary change' if assignment else 'Create a new roster for this scope')
+            ),
+        })
+
+    def replace_expired_view(self, request, assignment_id):
+        if not self.has_module_permission(request):
+            raise PermissionDenied
+        assignment = TatResponsibilityAssignment.objects.select_related(
+            'group_configuration', 'primary_user',
+        ).prefetch_related('backups__user').filter(pk=assignment_id).first()
+        if not assignment:
+            return HttpResponse(status=404)
+        initial = {
+            'primary_user': assignment.primary_user_id,
+            'request_id': str(uuid.uuid4()),
+            'expected_updated_at': assignment.updated_at.isoformat(),
+        }
+        form = TatExpiredResponsibilityReplacementForm(
+            request.POST or None, assignment=assignment, initial=initial,
+        )
+        if request.method == 'POST' and form.is_valid():
+            try:
+                successor = replace_expired_assignment(
+                    assignment=assignment,
+                    primary_user=form.cleaned_data['primary_user'],
+                    actor=request.user,
+                    reason=form.cleaned_data['reason'],
+                    request_id=form.cleaned_data['request_id'],
+                    expected_updated_at=form.cleaned_data['expected_updated_at'],
+                )
+            except ValidationError as exc:
+                form.add_error(None, '; '.join(exc.messages))
+            else:
+                task_params = urlencode({
+                    'branch': successor.branch, 'product': successor.product_key,
+                })
+                messages.success(
+                    request, format_html(
+                        'The expired roster was replaced atomically. Existing open tasks were not moved. '
+                        '<a href="{}?{}">Review the affected task register</a>.',
+                        reverse('admin:core_tat_register', args=[successor.group_configuration_id]),
+                        task_params,
+                    ),
+                )
+                return self._workspace_redirect(successor)
+        open_tasks = TatActionTask.objects.filter(
+            assignment=assignment, status=TatActionTask.STATUS_PENDING,
+        ).count()
+        return TemplateResponse(
+            request,
+            'admin/core/tatresponsibilityassignment/replace_expired.html',
+            {
+                **self.admin_site.each_context(request), 'opts': self.model._meta,
+                'title': 'Replace expired TAT roster', 'assignment': assignment,
+                'form': form, 'open_task_count': open_tasks,
+                'back_url': self._workspace_url(assignment),
+            },
+        )
 
     def _control_group(self, group_id):
         group = GroupSheetConfiguration.objects.filter(pk=group_id, enabled=True).first()
@@ -2824,15 +3017,18 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
                 initial[key] = request.GET[key]
         return initial
 
-    def _workspace_redirect(self, obj):
+    def _workspace_url(self, obj):
         params = {
             'workspace_group': obj.group_configuration_id,
             'workspace_branch': obj.branch,
             'workspace_product': obj.product_key,
         }
-        return HttpResponseRedirect(
+        return (
             f"{reverse('admin:core_tatresponsibilityassignment_changelist')}?{urlencode(params)}"
         )
+
+    def _workspace_redirect(self, obj):
+        return HttpResponseRedirect(self._workspace_url(obj))
 
     def response_add(self, request, obj, post_url_continue=None):
         if '_continue' not in request.POST and '_addanother' not in request.POST:
@@ -2845,6 +3041,10 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
         return super().response_change(request, obj)
 
     def changelist_view(self, request, extra_context=None):
+        scope_explicit = any(
+            key in request.GET
+            for key in ('workspace_group', 'workspace_branch', 'workspace_product')
+        )
         groups = list(GroupSheetConfiguration.objects.filter(
             workflow__type='tat_tracker', enabled=True,
         ).order_by('display_name', 'group_id'))
@@ -2860,88 +3060,110 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
             configured_workflow_branches(selected_group.workflow or {}, default=[])
             if selected_group else global_branch_choices()
         ))
-        branch = str(request.GET.get('workspace_branch') or (branches[0] if branches else '')).strip()
-        catalogue = stage_catalog(selected_group.workflow if selected_group else {})
-        if product_key:
-            catalogue = [row for row in catalogue if row['product_key'] == product_key]
+        branch = str(request.GET.get('workspace_branch') or '__all__').strip()
+        selected_branches = branches if branch == '__all__' else [branch]
+        selected_product_keys = (
+            [product.key for product in products] if not product_key else [product_key]
+        )
         assignments = TatResponsibilityAssignment.objects.none()
         if selected_group:
             assignments = TatResponsibilityAssignment.objects.filter(
                 group_configuration=selected_group,
             ).select_related('group_configuration', 'primary_user').prefetch_related('backups__user')
-        scoped_assignments = [row for row in assignments if not branch or row.branch.casefold() == branch.casefold()]
-        workspace_now = timezone.now()
-        active_assignments = [row for row in scoped_assignments if row.active]
-        # Uniqueness covers every active row, including scheduled or elapsed
-        # effective windows. Show those rows instead of offering a duplicate
-        # assignment that the database must reject.
-        role_rosters = {
-            (row.role, row.product_key): row for row in active_assignments
-            if not row.stage_key
-        }
-        stage_overrides = {
-            (row.stage_key, row.product_key): row for row in active_assignments
-            if row.stage_key
-        }
-        role_rows = []
-        for role in sorted({row['role'] for row in catalogue}):
-            roster = role_rosters.get((role, product_key)) or role_rosters.get((role, ''))
-            params = {
-                'group_configuration': selected_group_id,
-                'branch': branch,
-                'product_key': product_key,
-                'role': role,
-            }
-            if roster and roster.effective_from > workspace_now:
-                roster_state = f'Scheduled from {timezone.localtime(roster.effective_from):%d %b %Y %H:%M}'
-            elif roster and roster.effective_until and roster.effective_until <= workspace_now:
-                roster_state = 'Effective period ended; deactivate or update this active roster.'
-            elif roster:
-                roster_state = 'Active now'
-            else:
-                roster_state = ''
-            role_rows.append({
-                'role': role,
-                'roster': roster,
-                'roster_state': roster_state,
-                'add_url': f"{reverse('admin:core_tatresponsibilityassignment_add')}?{urlencode(params)}",
-            })
-        for row in catalogue:
-            override = stage_overrides.get((row['stage_key'], product_key)) or stage_overrides.get((row['stage_key'], ''))
-            params = {
-                'group_configuration': selected_group_id,
-                'branch': branch,
-                'product_key': product_key,
-                'stage_key': row['stage_key'],
-                'role': row['role'],
-            }
-            row['override'] = override
-            row['add_url'] = f"{reverse('admin:core_tatresponsibilityassignment_add')}?{urlencode(params)}"
-
-        scoped_grants = AccessGrant.objects.filter(workflow='tat_tracker', active=True, user__is_active=True)
-        if selected_group:
-            scoped_grants = scoped_grants.filter(
-                models.Q(group_configuration__isnull=True)
-                | models.Q(group_configuration=selected_group)
+        scoped_assignments = [
+            row for row in assignments
+            if branch == '__all__' or row.branch.casefold() == branch.casefold()
+        ]
+        projection = (
+            effective_routing_overview(
+                group_configuration=selected_group,
+                branches=selected_branches,
+                product_keys=selected_product_keys,
             )
-        if branch:
-            scoped_grants = scoped_grants.filter(models.Q(branch='') | models.Q(branch__iexact=branch))
-        if product_key:
-            scoped_grants = scoped_grants.filter(models.Q(product='') | models.Q(product__iexact=product_key))
-        else:
-            scoped_grants = scoped_grants.filter(product='')
-        scoped_grants = scoped_grants.select_related('user', 'group_configuration').order_by(
-            'role', 'user__first_name', 'user__last_name', 'user__username',
+            if selected_group and selected_branches and selected_product_keys
+            else {'mode': 'group', 'mode_label': 'Group', 'roles': []}
         )
-        connections = {
-            row.user_id: row.status for row in TatPrivateAlertConnection.objects.filter(
-                user_id__in=[grant.user_id for grant in scoped_grants]
-            )
-        }
-        grant_rows = [{
-            'grant': grant,
-            'connection_status': connections.get(grant.user_id, TatPrivateAlertConnection.STATUS_UNKNOWN),
-        } for grant in scoped_grants]
+        exact_scope = branch != '__all__'
+        workspace_now = timezone.now()
+        for row in projection['roles']:
+            row['roster'] = next((
+                assignment for assignment in scoped_assignments
+                if assignment.active and not assignment.stage_key
+                and assignment.role.casefold() == row['role'].casefold()
+                and assignment.product_key == product_key
+            ), None)
+            if row['roster'] and row['roster'].effective_from > workspace_now:
+                row['roster_state'] = (
+                    f"Scheduled from {timezone.localtime(row['roster'].effective_from):%d %b %Y %H:%M}"
+                )
+            elif row['roster'] and row['roster'].effective_until and row['roster'].effective_until <= workspace_now:
+                row['roster_state'] = 'Expired but still enabled'
+            elif row['roster']:
+                row['roster_state'] = 'Active now'
+            else:
+                row['roster_state'] = ''
+            row['add_url'] = ''
+            if exact_scope and not row['roster']:
+                params = {
+                    'group_configuration': selected_group_id,
+                    'branch': branch,
+                    'product_key': product_key,
+                    'role': row['role'],
+                }
+                row['add_url'] = (
+                    f"{reverse('admin:core_tatresponsibilityassignment_add')}?{urlencode(params)}"
+                )
+            for person in row['staff']:
+                person['manage_url'] = (
+                    f"{reverse('admin:auth_user_staff_lifecycle')}?"
+                    f"{urlencode({'target_user': person['id'], 'action': 'access_change'})}"
+                )
+            for assignment in row['assignments'].values():
+                assignment.manage_url = reverse(
+                    'admin:core_tatresponsibilityassignment_change', args=[assignment.pk],
+                )
+                assignment.open_task_count = TatActionTask.objects.filter(
+                    assignment=assignment, status=TatActionTask.STATUS_PENDING,
+                ).count()
+                assignment.open_tasks_url = (
+                    f"{reverse('admin:core_tat_register', args=[selected_group.pk])}?"
+                    f"{urlencode({'branch': assignment.branch, 'product': assignment.product_key})}"
+                )
+                assignment.replace_url = ''
+                assignment.is_effective_now = (
+                    assignment.active and assignment.effective_from <= workspace_now
+                    and (
+                        assignment.effective_until is None
+                        or assignment.effective_until > workspace_now
+                    )
+                )
+                if assignment.effective_from > workspace_now:
+                    assignment.routing_state = (
+                        f"Starts {timezone.localtime(assignment.effective_from):%d %b %Y %H:%M}"
+                    )
+                elif assignment.effective_until and assignment.effective_until <= workspace_now:
+                    assignment.routing_state = 'Expired but still enabled'
+                elif assignment.active:
+                    assignment.routing_state = 'Active now'
+                else:
+                    assignment.routing_state = 'Inactive'
+                if (
+                    assignment.active and assignment.effective_until
+                    and assignment.effective_until <= workspace_now
+                ):
+                    assignment.replace_url = reverse(
+                        'admin:core_tatresponsibilityassignment_replace_expired',
+                        args=[assignment.pk],
+                    )
+            if row['roster']:
+                row['primary_action_url'] = reverse(
+                    'admin:core_tatresponsibilityassignment_change',
+                    args=[row['roster'].pk],
+                )
+                row['primary_action_label'] = 'Edit effective roster'
+            else:
+                row['primary_action_url'] = row['add_url']
+                row['primary_action_label'] = 'Create roster'
         issues = configuration_issues(assignments)
         context = {
             **(extra_context or {}),
@@ -2952,14 +3174,15 @@ class TatResponsibilityAssignmentAdmin(CompactModelAdmin):
             'workspace_branch': branch,
             'workspace_products': products,
             'workspace_product': product_key,
-            'responsibility_role_rows': role_rows,
-            'responsibility_stage_rows': catalogue,
-            'responsibility_grant_rows': grant_rows,
+            'workspace_scope_explicit': scope_explicit,
+            'responsibility_projection': projection,
+            'responsibility_role_rows': projection['roles'],
             'responsibility_assignments': scoped_assignments,
             'responsibility_issues': issues,
             'responsibility_issue_count': sum(len(rows) for rows in issues.values()),
             'capability_matrix_url': reverse('admin:core_workflowrolecapability_matrix'),
             'users_url': reverse('admin:auth_user_changelist'),
+            'staff_lifecycle_url': reverse('admin:auth_user_staff_lifecycle'),
             'control_center_url': (
                 reverse('admin:core_tat_control_center', args=[selected_group.pk])
                 if selected_group else ''
