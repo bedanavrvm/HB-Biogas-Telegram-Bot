@@ -7620,7 +7620,11 @@ class WorkflowRoleCapabilityAdmin(CompactModelAdmin):
         if not request.user.is_superuser:
             raise PermissionDenied
         from core.services.access_policies import canonical_access_role, WORKFLOW_ROLES
-        from core.services.access_control import capability_impact, create_capability_request
+        from core.services.access_control import (
+            apply_capability_matrix_direct,
+            capability_impact,
+            create_capability_request,
+        )
         from core.services.workflow_capabilities import capabilities_for_workflow
 
         selected_workflow = str(request.POST.get('workflow') or request.GET.get('workflow') or 'jawabu_portal')
@@ -7629,7 +7633,10 @@ class WorkflowRoleCapabilityAdmin(CompactModelAdmin):
             selected_workflow = workflows[0][0]
         role_options = list(WORKFLOW_ROLES.get(selected_workflow, ()))
         definitions = capabilities_for_workflow(selected_workflow)
-        if request.method == 'POST' and request.POST.get('propose_matrix'):
+        matrix_submission = request.method == 'POST' and (
+            request.POST.get('propose_matrix') or request.POST.get('apply_matrix_direct')
+        )
+        if matrix_submission:
             selected_role = canonical_access_role(selected_workflow, request.POST.get('role', ''))
             valid_roles = {value for value, _label in role_options}
             if selected_role not in valid_roles:
@@ -7644,18 +7651,39 @@ class WorkflowRoleCapabilityAdmin(CompactModelAdmin):
                     normalized = canonical_access_role(selected_workflow, raw_role)
                     if normalized in valid_roles and normalized not in target_roles:
                         target_roles.append(normalized)
-                try:
-                    change_request = create_capability_request(
-                        requester=request.user, workflow=selected_workflow,
-                        roles=target_roles, capability_keys=submitted,
-                        reason=str(request.POST.get('reason') or ''),
-                        request_key=str(request.POST.get('request_key') or ''),
-                    )
-                except ValidationError as exc:
-                    messages.error(request, '; '.join(exc.messages))
+                direct_apply = bool(request.POST.get('apply_matrix_direct'))
+                if direct_apply and request.POST.get('confirm_direct_apply') != 'yes':
+                    messages.error(request, 'Confirm that this role-matrix change should affect live access immediately.')
                 else:
-                    messages.success(request, f'One atomic change request for {len(target_roles)} role(s) is pending independent approval. No live access changed.')
-                    return HttpResponseRedirect(reverse('admin:core_accesscontrolchangerequest_changelist'))
+                    request_key = str(request.POST.get('request_key') or '')
+                    try:
+                        if direct_apply:
+                            change_request = apply_capability_matrix_direct(
+                                requester=request.user, workflow=selected_workflow,
+                                roles=target_roles, capability_keys=submitted,
+                                reason=str(request.POST.get('reason') or ''),
+                                request_key=f'direct:{request_key}',
+                            )
+                        else:
+                            change_request = create_capability_request(
+                                requester=request.user, workflow=selected_workflow,
+                                roles=target_roles, capability_keys=submitted,
+                                reason=str(request.POST.get('reason') or ''),
+                                request_key=f'review:{request_key}',
+                            )
+                    except ValidationError as exc:
+                        messages.error(request, '; '.join(exc.messages))
+                    else:
+                        if direct_apply:
+                            messages.success(
+                                request,
+                                f'Role matrix applied immediately for {len(target_roles)} role(s). The direct Superuser decision was audited.',
+                            )
+                            return HttpResponseRedirect(
+                                f"{reverse('admin:core_workflowrolecapability_matrix')}?workflow={selected_workflow}&role={selected_role}"
+                            )
+                        messages.success(request, f'One atomic change request for {len(target_roles)} role(s) is pending independent approval. No live access changed.')
+                        return HttpResponseRedirect(reverse('admin:core_accesscontrolchangerequest_changelist'))
         selected_role = canonical_access_role(selected_workflow, request.GET.get('role') or (role_options[0][0] if role_options else ''))
         copy_from_role = canonical_access_role(selected_workflow, request.GET.get('copy_from') or '')
         matrix_role = copy_from_role or selected_role

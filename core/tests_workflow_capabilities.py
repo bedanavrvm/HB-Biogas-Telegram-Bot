@@ -30,6 +30,7 @@ from core.models import (
 )
 from core.services.access_control import (
     APPROVER_GROUP_NAME,
+    apply_capability_matrix_direct,
     apply_superuser_grant_override,
     appoint_access_control_checker,
     approve_request,
@@ -744,9 +745,98 @@ class WorkflowCapabilityMatrixAdminTests(TestCase):
             workflow='complaint_cases', role='OFFICER', capability_key='complaint.case.create',
         ).enabled)
 
+    def test_superuser_can_apply_matrix_directly_with_confirmation_and_audit(self):
+        before_version = policy_version()
+        response = self.client.post('/admin/core/workflowrolecapability/matrix/', {
+            'workflow': 'complaint_cases',
+            'role': 'OFFICER',
+            'apply_matrix_direct': '1',
+            'confirm_direct_apply': 'yes',
+            'capability:complaint.queue.view': 'on',
+            'reason': 'Apply the approved operating model immediately.',
+            'request_key': 'matrix-direct-admin-001',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        change = AccessControlChangeRequest.objects.get(
+            workflow='complaint_cases', role='OFFICER',
+            request_key='direct:matrix-direct-admin-001',
+        )
+        self.assertEqual(change.status, AccessControlChangeRequest.STATUS_APPLIED)
+        self.assertEqual(change.requested_by, self.superuser)
+        self.assertEqual(change.reviewed_by, self.superuser)
+        self.assertEqual(policy_version(), before_version + 1)
+        self.assertTrue(WorkflowRoleCapability.objects.get(
+            workflow='complaint_cases', role='OFFICER',
+            capability_key='complaint.queue.view',
+        ).enabled)
+        self.assertFalse(WorkflowRoleCapability.objects.get(
+            workflow='complaint_cases', role='OFFICER',
+            capability_key='complaint.case.create',
+        ).enabled)
+        self.assertTrue(WorkflowRoleCapabilityAuditEvent.objects.filter(
+            workflow='complaint_cases', role='OFFICER', actor=self.superuser,
+            source='superuser_direct',
+        ).exists())
+        self.assertTrue(ComplianceAuditEvent.objects.filter(
+            action='access_control.change.superuser_direct_applied',
+            source_event_id=f'{change.pk}:applied',
+        ).exists())
+
+    def test_direct_matrix_apply_requires_explicit_confirmation(self):
+        response = self.client.post('/admin/core/workflowrolecapability/matrix/', {
+            'workflow': 'complaint_cases',
+            'role': 'OFFICER',
+            'apply_matrix_direct': '1',
+            'capability:complaint.queue.view': 'on',
+            'reason': 'This must not apply without confirmation.',
+            'request_key': 'matrix-direct-unconfirmed-001',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'affect live access immediately')
+        self.assertFalse(AccessControlChangeRequest.objects.filter(
+            request_key='direct:matrix-direct-unconfirmed-001',
+        ).exists())
+
+    def test_non_superuser_cannot_use_direct_matrix_service(self):
+        ordinary_user = get_user_model().objects.create_user(
+            username='not-a-root-matrix-editor', is_active=True,
+        )
+        with self.assertRaises(PermissionDenied):
+            apply_capability_matrix_direct(
+                requester=ordinary_user,
+                workflow='complaint_cases',
+                role='OFFICER',
+                capability_keys={'complaint.queue.view'},
+                reason='Attempted direct change.',
+                request_key='direct-service-denied-001',
+            )
+
+    def test_direct_matrix_request_is_idempotent_but_rejects_changed_payload(self):
+        before_version = policy_version()
+        values = dict(
+            requester=self.superuser,
+            workflow='complaint_cases',
+            role='OFFICER',
+            capability_keys={'complaint.queue.view'},
+            reason='Apply one exact policy decision.',
+            request_key='direct-service-replay-001',
+        )
+        first = apply_capability_matrix_direct(**values)
+        replay = apply_capability_matrix_direct(**values)
+        self.assertEqual(replay.pk, first.pk)
+        self.assertEqual(policy_version(), before_version + 1)
+
+        with self.assertRaisesMessage(ValidationError, 'already used for a different'):
+            apply_capability_matrix_direct(
+                **{**values, 'capability_keys': {'complaint.queue.view', 'complaint.case.create'}},
+            )
+
     def test_matrix_displays_impact_and_search_controls(self):
         response = self.client.get('/admin/core/workflowrolecapability/matrix/?workflow=jawabu_portal&role=JBL_OFFICER')
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Impact:')
         self.assertContains(response, 'Find capability')
-        self.assertContains(response, 'Submit for approval')
+        self.assertContains(response, 'Apply now')
+        self.assertContains(response, 'Submit for independent review')

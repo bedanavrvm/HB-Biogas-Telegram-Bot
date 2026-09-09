@@ -307,7 +307,7 @@ def capability_impact(workflow: str, role: str) -> dict:
 def create_capability_request(
     *, requester, workflow: str, role: str = '', roles: Iterable[str] | None = None,
     capability_keys: Iterable[str], reason: str, source_request=None,
-    request_key: str = '',
+    request_key: str = '', notify_for_review: bool = True,
 ):
     """Create a reviewable policy diff; it has no live effect until approved."""
     if not requester or not requester.is_active:
@@ -369,7 +369,89 @@ def create_capability_request(
             return AccessControlChangeRequest.objects.get(requested_by=requester, request_key=key)
         raise
     _record_access_control_request(request)
-    transaction.on_commit(lambda: notify_approvers(request, 'pending'))
+    if notify_for_review:
+        transaction.on_commit(lambda: notify_approvers(request, 'pending'))
+    return request
+
+
+def apply_capability_matrix_direct(
+    *, requester, workflow: str, role: str = '', roles: Iterable[str] | None = None,
+    capability_keys: Iterable[str], reason: str, request_key: str = '',
+) -> AccessControlChangeRequest:
+    """Atomically apply a role-matrix change from the Superuser boundary.
+
+    The durable change request remains the before/after and idempotency
+    envelope. Direct application changes only the decision mode: the active
+    technical Superuser is both proposer and authority, and this fact is
+    recorded explicitly in the compliance decision event.
+    """
+    if not requester or not requester.is_active or not requester.is_superuser:
+        raise PermissionDenied('Only an active Django Superuser can directly apply a role-matrix change.')
+    requested_roles = list(roles) if roles is not None else [role]
+    requested_capabilities = set(capability_keys)
+    with transaction.atomic():
+        request = create_capability_request(
+            requester=requester,
+            workflow=workflow,
+            role=role,
+            roles=requested_roles,
+            capability_keys=requested_capabilities,
+            reason=reason,
+            request_key=request_key,
+            notify_for_review=False,
+        )
+        request = AccessControlChangeRequest.objects.select_for_update().get(pk=request.pk)
+        normalized_roles = []
+        for requested_role in requested_roles:
+            normalized = validate_access_scope(workflow=workflow, role=requested_role)
+            if normalized not in normalized_roles:
+                normalized_roles.append(normalized)
+        allowed = {definition.key for definition in capabilities_for_workflow(workflow)}
+        selected = dependency_closure(workflow, requested_capabilities.intersection(allowed))
+        expected_policy = {key: ('allow' if key in selected else 'deny') for key in allowed}
+        stored_by_role = (request.proposed_snapshot or {}).get('role_capabilities') or {}
+        same_request = (
+            request.change_type == request.TYPE_CAPABILITY
+            and request.workflow == workflow
+            and request.target_roles == normalized_roles
+            and request.reason == str(reason or '').strip()
+            and all(stored_by_role.get(target_role) == expected_policy for target_role in normalized_roles)
+        )
+        if not same_request:
+            raise ValidationError(
+                'This direct-apply request identifier was already used for a different role-matrix change. Reload the matrix and try again.'
+            )
+        if request.status == request.STATUS_APPLIED:
+            return request
+        if request.status != request.STATUS_PENDING:
+            raise ValidationError('Only a pending direct role-matrix change can be applied.')
+
+        state, _created = AccessControlPolicyState.objects.select_for_update().get_or_create(singleton=1)
+        if request.policy_version != state.version and not _request_target_is_unchanged(request):
+            raise ValidationError(
+                'The role matrix changed after this action started. Reload the matrix and apply it again.'
+            )
+        request.reviewed_by = requester
+        request.reviewed_at = timezone.now()
+        request.review_comment = 'Applied directly by an active Django Superuser.'
+        request.status = request.STATUS_APPROVED
+        _apply_capability_request(request, source='superuser_direct')
+        state.version += 1
+        state.save(update_fields=['version', 'updated_at'])
+        AccessControlPolicySnapshot.objects.create(
+            version=state.version, request=request, state=_policy_snapshot(),
+        )
+        request.status = request.STATUS_APPLIED
+        request.applied_at = timezone.now()
+        request.save(update_fields=[
+            'reviewed_by', 'reviewed_at', 'review_comment', 'status', 'applied_at',
+        ])
+        _record_access_control_decision(
+            request,
+            action='access_control.change.superuser_direct_applied',
+            decision_mode='superuser_direct',
+        )
+        transaction.on_commit(lambda: notify_approvers(request, 'applied'))
     return request
 
 
@@ -516,7 +598,9 @@ def request_diff(request: AccessControlChangeRequest) -> dict:
     return {'before': (request.before_snapshot or {}).get('grant') or {}, 'after': (request.proposed_snapshot or {}).get('grant') or {}}
 
 
-def _apply_capability_request(request: AccessControlChangeRequest) -> None:
+def _apply_capability_request(
+    request: AccessControlChangeRequest, *, source: str = 'approved_change_request',
+) -> None:
     proposed_by_role = (request.proposed_snapshot or {}).get('role_capabilities') or {}
     roles = request.target_roles or [request.role]
     definitions = {definition.key for definition in capabilities_for_workflow(request.workflow)}
@@ -539,7 +623,7 @@ def _apply_capability_request(request: AccessControlChangeRequest) -> None:
         }
         audit_event = WorkflowRoleCapabilityAuditEvent.objects.create(
             workflow=request.workflow, role=role, actor=request.reviewed_by,
-            source='approved_change_request', changes={**diff, 'request_id': str(request.pk)},
+            source=source, changes={**diff, 'request_id': str(request.pk)},
         )
         from core.services.compliance_audit import record_event
 
