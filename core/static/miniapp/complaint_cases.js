@@ -650,9 +650,13 @@
   }
   function validateCustomerId(input) {
     const value = String(input?.value || '').trim();
-    if (value && !/^\d+$/.test(value)) {
-      input?.setCustomValidity?.('Customer ID must contain numbers only.'); input?.reportValidity?.();
-      return 'Customer ID must contain numbers only.';
+    if (!value) {
+      input?.setCustomValidity?.('Customer National ID is required.'); input?.reportValidity?.();
+      return 'Customer National ID is required.';
+    }
+    if (!/^\d+$/.test(value)) {
+      input?.setCustomValidity?.('Customer National ID must contain numbers only.'); input?.reportValidity?.();
+      return 'Customer National ID must contain numbers only.';
     }
     input?.setCustomValidity?.(''); return '';
   }
@@ -690,16 +694,15 @@
   function validateContactPair(formNode) {
     const primary = formNode.elements.customer_phone;
     const secondary = formNode.elements.secondary_phone;
-    const customerId = formNode.elements.customer_id;
     const primaryValue = String(primary?.value || '').trim();
     const secondaryValue = String(secondary?.value || '').trim();
     const normalizedPrimary = primaryValue ? normalizedKenyanPhone(primaryValue) : '';
     const normalizedSecondary = secondaryValue ? normalizedKenyanPhone(secondaryValue) : '';
-    setFieldError(primary, primaryValue && !normalizedPrimary ? 'Enter a valid Kenyan phone number.' : '');
+    setFieldError(
+      primary,
+      !primaryValue ? 'Primary Phone Number is required.' : (!normalizedPrimary ? 'Enter a valid Kenyan phone number.' : ''),
+    );
     setFieldError(secondary, secondaryValue && !normalizedSecondary ? 'Enter a valid secondary Kenyan phone number or leave it blank.' : '');
-    if (!primaryValue && !String(customerId?.value || '').trim()) {
-      setFieldError(primary, 'Enter a primary phone number or Customer National ID.');
-    }
     if (normalizedPrimary && normalizedSecondary && normalizedPrimary === normalizedSecondary) {
       setFieldError(secondary, 'Primary and secondary phone numbers must be different.');
     }

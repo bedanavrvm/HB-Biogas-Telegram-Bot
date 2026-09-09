@@ -4035,7 +4035,8 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
     case_header_row = forms.IntegerField(
         required=False,
         min_value=1,
-        initial=get_preset('case')['admin_fields']['header_row']['initial'],
+        initial=1,
+        disabled=True,
         label=get_preset('case')['admin_fields']['header_row']['label'],
         help_text=get_preset('case')['admin_fields']['header_row']['help_text'],
     )
@@ -4260,11 +4261,7 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
             self.fields['workflow_preset'].initial = 'case'
             defaults = defaults_for_preset('case')
             sheet_schema = getattr(self.instance, 'sheet_schema', None) or {}
-            self.fields['case_header_row'].initial = (
-                sheet_schema.get('header_row')
-                or workflow.get('header_row')
-                or defaults['workflow'].get('header_row', 1)
-            )
+            self.fields['case_header_row'].initial = 1
             self.fields['case_field_headers'].initial = _format_mapping_rows(
                 sheet_schema.get('field_headers')
                 or sheet_schema.get('headers')

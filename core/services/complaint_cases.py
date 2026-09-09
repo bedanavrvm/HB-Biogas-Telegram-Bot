@@ -673,12 +673,14 @@ def validate_new_case_fields(
     category_text = required_case_text(fields.get('complaint_category'), 'Complaint category')
     complaint_description = required_description(fields.get('complaint_description'))
     customer_id = numeric_customer_id(fields.get('customer_id'))
+    if not customer_id:
+        raise ComplaintCaseError('Enter the Customer National ID.')
     phone_input = str(fields.get('customer_phone') or '').strip()
+    if not phone_input:
+        raise ComplaintCaseError('Enter the primary phone number.')
     customer_phone = normalize_kenyan_phone(phone_input) if phone_input else ''
     if phone_input and not customer_phone:
         raise ComplaintCaseError('Enter a valid Kenyan phone number.')
-    if not customer_phone and not customer_id:
-        raise ComplaintCaseError('Enter a phone number or customer ID.')
     secondary_input = str(fields.get('secondary_phone') or '').strip()
     secondary_phone = normalize_kenyan_phone(secondary_input) if secondary_input else ''
     if secondary_input and not secondary_phone:
@@ -795,10 +797,10 @@ def normalize_customer_name(value: Any) -> str:
 
 
 def numeric_customer_id(value: Any) -> str:
-    """Validate an optional national ID as digits while preserving leading zeros."""
-    text = limited_case_text(value, 'Customer ID')
+    """Validate a national ID as digits while preserving leading zeroes."""
+    text = limited_case_text(value, 'Customer National ID')
     if text and (not text.isascii() or not text.isdigit()):
-        raise ComplaintCaseError('Customer ID must contain numbers only.')
+        raise ComplaintCaseError('Customer National ID must contain numbers only.')
     return text
 
 

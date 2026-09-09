@@ -14,6 +14,7 @@ KEY FIXES (v2):
   the right sheet even when different groups share the same worker.
 """
 import logging
+import re
 from datetime import datetime
 from typing import Optional
 from django.db import transaction
@@ -34,11 +35,13 @@ class MessageRejectedError(Exception):
         missing_fields: list[str] = None,
         warnings: list[str] = None,
         parsed_result: ParsedResult = None,
+        invalid_fields: list[str] = None,
     ):
         super().__init__(message)
         self.missing_fields = missing_fields or []
         self.warnings = warnings or []
         self.parsed_result = parsed_result
+        self.invalid_fields = invalid_fields or []
 
 
 # ---------------------------------------------------------------------------
@@ -346,21 +349,29 @@ def _complaint_rejection(parsed_result: ParsedResult) -> MessageRejectedError | 
         return None
 
     missing_fields = []
-    for warning in getattr(parsed_result, 'warnings', []) or []:
-        prefix = 'Missing required complaint field(s):'
-        if str(warning).startswith(prefix):
-            missing_fields.extend(
-                field.strip()
-                for field in str(warning)[len(prefix):].split(',')
-                if field.strip()
-            )
+    invalid_fields = []
+    if not str(getattr(parsed_result, 'customer_name', '') or '').strip():
+        missing_fields.append('Customer Name')
+    phone = str(getattr(parsed_result, 'customer_phone', '') or '').strip()
+    customer_id = str(getattr(parsed_result, 'customer_id', '') or '').strip()
+    if not phone:
+        missing_fields.append('Primary Phone Number')
+    elif not re.fullmatch(r'254[17]\d{8}', phone):
+        invalid_fields.append('Primary Phone Number')
+    if not customer_id:
+        missing_fields.append('Customer National ID')
+    elif not customer_id.isascii() or not customer_id.isdigit():
+        invalid_fields.append('Customer National ID')
+    if not str(getattr(parsed_result, 'problem_description', '') or '').strip():
+        missing_fields.append('Complaint Description')
 
-    if not missing_fields:
+    if not missing_fields and not invalid_fields:
         return None
 
     return MessageRejectedError(
-        'Complaint rejected because mandatory fields are missing.',
+        'Complaint rejected because mandatory fields are missing or invalid.',
         missing_fields=missing_fields,
+        invalid_fields=invalid_fields,
         warnings=list(getattr(parsed_result, 'warnings', []) or []),
         parsed_result=parsed_result,
     )

@@ -158,7 +158,7 @@ def analyze_google_sheet(
             'role': role,
         })
 
-    suggested_schema = _build_suggested_schema(headers, columns)
+    suggested_schema = _build_suggested_schema(headers, columns, workflow=input_workflow)
     suggested_workflow = _build_workflow(columns)
     warnings = _warnings(headers, columns, input_workflow)
 
@@ -231,9 +231,24 @@ def list_google_sheet_worksheets(sheet_id: str) -> tuple[list[str], str]:
 
 def apply_analysis_to_config(config, analysis: dict) -> None:
     """Persist an accepted analysis onto a GroupSheetConfiguration instance."""
-    config.sheet_schema = analysis.get('suggested_schema') or {}
     workflow = dict(config.workflow or {})
+    complaint_workflow = workflow.get('type') in {'case', 'complaint'}
+    suggested_schema = dict(analysis.get('suggested_schema') or {})
+    if complaint_workflow:
+        schema = dict(config.sheet_schema or {})
+        schema.update(suggested_schema)
+        schema.update({
+            'schema_version': 2,
+            'header_row': 1,
+            'data_start_row': 2,
+            'row_key_field': 'complaint_id',
+        })
+        config.sheet_schema = schema
+    else:
+        config.sheet_schema = suggested_schema
     workflow.update(analysis.get('workflow') or {})
+    if complaint_workflow:
+        workflow['header_row'] = 1
     config.workflow = workflow
 
     metadata = dict(config.metadata or {})
@@ -250,7 +265,9 @@ def apply_analysis_to_config(config, analysis: dict) -> None:
     config.save(update_fields=['sheet_schema', 'workflow', 'metadata', 'updated_at'])
 
 
-def _build_suggested_schema(headers: list[str], columns: list[dict]) -> dict:
+def _build_suggested_schema(
+    headers: list[str], columns: list[dict], *, workflow: dict | None = None,
+) -> dict:
     field_headers = {}
     formula_fields = []
     bot_writable_fields = []
@@ -272,7 +289,7 @@ def _build_suggested_schema(headers: list[str], columns: list[dict]) -> dict:
         if field in DEFAULT_DATE_FIELDS:
             date_fields.append(field)
 
-    return {
+    schema = {
         'columns': headers,
         'field_headers': field_headers,
         'formula_fields': formula_fields,
@@ -280,6 +297,14 @@ def _build_suggested_schema(headers: list[str], columns: list[dict]) -> dict:
         'case_update_fields': case_update_fields,
         'date_fields': date_fields,
     }
+    if (workflow or {}).get('type') in {'case', 'complaint'}:
+        schema.update({
+            'schema_version': 2,
+            'header_row': 1,
+            'data_start_row': 2,
+            'row_key_field': 'complaint_id',
+        })
+    return schema
 
 
 def _build_workflow(columns: list[dict]) -> dict:
@@ -397,6 +422,8 @@ def _column_samples(rows: list[list[str]], idx: int) -> list[str]:
 
 
 def _configured_header_row(workflow: dict) -> int:
+    if (workflow or {}).get('type') in {'case', 'complaint'}:
+        return 1
     try:
         return max(int((workflow or {}).get('header_row') or 1), 1)
     except (TypeError, ValueError):
@@ -482,11 +509,12 @@ def _warnings(headers: list[str], columns: list[dict], workflow: dict = None) ->
     workflow = workflow or {}
     workflow_type = workflow.get('type', '')
     mapped = {column['canonical_field'] for column in columns if column['canonical_field']}
-    if workflow_type == 'complaint':
+    if workflow_type in {'case', 'complaint'}:
         for required in (
             'message_id',
             'customer_name',
             'customer_phone',
+            'customer_id',
             'complaint_description',
         ):
             if required not in mapped:

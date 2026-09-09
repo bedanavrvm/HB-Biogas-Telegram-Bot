@@ -403,13 +403,11 @@ def parse_message(content: str, sender: str = None, has_image: bool = False,
                     "Missing required complaint field(s): "
                     + ", ".join(missing_fields)
                 )
-            if result.customer_phone and not result.customer_id:
+            invalid_fields = _invalid_required_complaint_fields(result)
+            if invalid_fields:
                 result.warnings.append(
-                    "Customer ID / Account missing; saved with Status: Review Needed."
-                )
-            elif result.customer_id and not result.customer_phone:
-                result.warnings.append(
-                    "Phone Number missing; saved with Status: Review Needed."
+                    "Invalid required complaint field(s): "
+                    + ", ".join(invalid_fields)
                 )
 
         # Calculate confidence
@@ -1217,8 +1215,8 @@ def _calculate_confidence(result: ParsedResult) -> float:
     
     # Field extraction confidence depends on message intent
     if result.intent == MessageIntent.COMPLAINT:
-        # Complaint messages require name, phone, and description.
-        # Customer ID/account and county improve confidence but should not block intake.
+        # Complaint messages require name, valid phone, numeric National ID,
+        # and description. County remains useful but optional at parser level.
         complaint_fields = 0
         total_complaint_fields = 5
         
@@ -1274,11 +1272,24 @@ def _missing_required_complaint_fields(result: ParsedResult) -> list[str]:
     missing = []
     if not result.customer_name:
         missing.append("Customer Name")
-    if not result.customer_phone and not result.customer_id:
-        missing.append("Phone Number or Customer ID / Account")
+    if not result.customer_phone:
+        missing.append("Primary Phone Number")
+    if not result.customer_id:
+        missing.append("Customer National ID")
     if not result.problem_description:
         missing.append("Complaint Description")
     return missing
+
+
+def _invalid_required_complaint_fields(result: ParsedResult) -> list[str]:
+    invalid = []
+    phone = str(result.customer_phone or '').strip()
+    customer_id = str(result.customer_id or '').strip()
+    if phone and not re.fullmatch(r'254[17]\d{8}', phone):
+        invalid.append("Primary Phone Number")
+    if customer_id and (not customer_id.isascii() or not customer_id.isdigit()):
+        invalid.append("Customer National ID")
+    return invalid
 
 
 def split_batch_message(content: str) -> list[dict]:

@@ -4236,6 +4236,7 @@ def _rejected_message_result(exc) -> dict:
         'status': 'rejected',
         'message': str(exc),
         'missing_fields': list(getattr(exc, 'missing_fields', []) or []),
+        'invalid_fields': list(getattr(exc, 'invalid_fields', []) or []),
         'warnings': list(getattr(exc, 'warnings', []) or []),
         'captured_fields': captured_fields,
     }
@@ -4305,14 +4306,18 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
         )
     elif status == 'rejected':
         missing = result.get('missing_fields') or []
+        invalid = result.get('invalid_fields') or []
         missing_lines = "\n".join(f"- {field}" for field in missing if str(field).strip())
         fix_section = f"\nMissing required fields:\n{missing_lines}" if missing_lines else ''
+        invalid_lines = "\n".join(f"- {field}" for field in invalid if str(field).strip())
+        invalid_section = f"\nInvalid required fields:\n{invalid_lines}" if invalid_lines else ''
         text = (
-            'Rejected. Complaint was not saved because required fields are missing.'
-            f'{fix_section}{fields_summary}\n\n'
+            'Rejected. Complaint was not saved because required fields are missing or invalid.'
+            f'{fix_section}{invalid_section}{fields_summary}\n\n'
             'Required complaint fields:\n'
             '- NAME\n'
-            '- TEL or ID\n'
+            '- PRIMARY PHONE NUMBER\n'
+            '- CUSTOMER NATIONAL ID (numbers only)\n'
             '- NATURE OF THE PROBLEM'
         )
     elif status == 'partial':
@@ -4426,10 +4431,17 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
             lines.append('Rejected case details:')
             for index, item in enumerate(rejected_results[:3], start=1):
                 missing = item.get('missing_fields') or []
+                invalid = item.get('invalid_fields') or []
                 missing_text = ', '.join(str(field) for field in missing if str(field).strip())
-                lines.append(f'{index}. Missing: {missing_text or "required fields"}')
+                invalid_text = ', '.join(str(field) for field in invalid if str(field).strip())
+                reason_parts = []
+                if missing_text:
+                    reason_parts.append(f'Missing: {missing_text}')
+                if invalid_text:
+                    reason_parts.append(f'Invalid: {invalid_text}')
+                lines.append(f'{index}. {"; ".join(reason_parts) or "Required fields are incomplete"}')
             lines.append('')
-            lines.append('Each complaint must include NAME, TEL or ID, and NATURE OF THE PROBLEM.')
+            lines.append('Each complaint must include NAME, PRIMARY PHONE NUMBER, numeric CUSTOMER NATIONAL ID, and NATURE OF THE PROBLEM.')
 
         text = "\n".join(lines)
     elif status == 'spin_batch_processed':

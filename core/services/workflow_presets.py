@@ -294,12 +294,9 @@ def build_workflow_from_preset(
     overrides = overrides or {}
 
     if preset_key == 'case':
-        header_row = overrides.get('case_header_row') or overrides.get('header_row')
-        if header_row:
-            try:
-                workflow['header_row'] = max(int(header_row), 1)
-            except (TypeError, ValueError):
-                pass
+        # The governed complaint register always has headers on row 1 and data
+        # from row 2. Do not allow stale/custom input to move that boundary.
+        workflow['header_row'] = 1
 
     if preset_key == 'jawabu_homebiogas':
         if 'import_start_date' in overrides:

@@ -787,7 +787,7 @@ class ComplaintCaseServiceTests(TestCase):
             'client_name': "new o'NEIL client",
             'customer_phone': '0712345678',
             'secondary_phone': '0112345678',
-            'customer_id': '',
+            'customer_id': '00123456',
             'branch_region': 'Nakuru',
             'complaint_category': 'Product issue',
             'complaint_description': 'The unit requires a field visit.',
@@ -834,14 +834,31 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(first_2026, 'CMP-2026-001')
         self.assertEqual(first_2027, 'CMP-2027-001')
 
-    def test_new_case_requires_a_phone_or_customer_id(self):
-        with self.assertRaisesMessage(ComplaintCaseError, 'phone number or customer ID'):
+    def test_new_case_requires_customer_id_even_when_phone_is_present(self):
+        with self.assertRaisesMessage(ComplaintCaseError, 'Customer National ID'):
             create_complaint_case(
                 self.config,
                 self.actor('100'),
                 {
                     'client_request_id': 'create-complaint-002',
                     'client_name': 'New Client',
+                    'customer_phone': '0712345678',
+                    'branch_region': 'Nakuru',
+                    'complaint_category': 'Product issue',
+                    'complaint_description': 'The unit requires a field visit.',
+                },
+                [],
+            )
+
+    def test_new_case_requires_primary_phone_even_when_customer_id_is_present(self):
+        with self.assertRaisesMessage(ComplaintCaseError, 'primary phone number'):
+            create_complaint_case(
+                self.config,
+                self.actor('100'),
+                {
+                    'client_request_id': 'create-complaint-002-phone',
+                    'client_name': 'New Client',
+                    'customer_id': '00123456',
                     'branch_region': 'Nakuru',
                     'complaint_category': 'Product issue',
                     'complaint_description': 'The unit requires a field visit.',
@@ -866,6 +883,7 @@ class ComplaintCaseServiceTests(TestCase):
                 self.config, self.actor('100'), {
                     'client_request_id': 'out-of-scope-create-1',
                     'client_name': 'Out Of Scope', 'customer_id': '00400',
+                    'customer_phone': '0712345678',
                     'branch_region': 'Embu', 'complaint_category': 'Product issue',
                     'complaint_description': 'This must not be created.',
                     **self.location_fields,
@@ -887,7 +905,7 @@ class ComplaintCaseServiceTests(TestCase):
             result = create_complaint_case(
                 self.config, self.actor('100'), {
                     'client_request_id': 'create-leading-zero-id', 'client_name': 'Leading Zero',
-                    'customer_id': '00123456', 'branch_region': 'Nakuru',
+                    'customer_phone': '0712345678', 'customer_id': '00123456', 'branch_region': 'Nakuru',
                     'complaint_category': 'Product issue',
                     'complaint_description': 'Identifier should preserve leading zeroes.',
                     **self.location_fields,
@@ -935,6 +953,7 @@ class ComplaintCaseServiceTests(TestCase):
             {
                 'client_request_id': 'create-complaint-003',
                 'client_name': 'Deferred Sync Client',
+                'customer_phone': '0712345678',
                 'customer_id': '00300',
                 'branch_region': 'Nakuru',
                 'complaint_category': 'Product issue',
@@ -1380,7 +1399,7 @@ class ComplaintCaseOptionalSheetTests(TestCase):
         result = create_complaint_case(
             self.config, officer, {
                 'client_request_id': 'django-only-create-1', 'client_name': 'Local Client',
-                'customer_id': '000001', 'branch_region': 'Nakuru',
+                'customer_phone': '0712345678', 'customer_id': '000001', 'branch_region': 'Nakuru',
                 'complaint_category': 'Product issue', 'complaint_description': 'Saved in Django only.',
                 **self.location_fields,
             }, [],
@@ -1419,7 +1438,7 @@ class ComplaintCaseOptionalSheetTests(TestCase):
         officer = staff_actor_for_user(self.config, self.officer)
         payload = {
             'client_request_id': 'django-only-retry-1', 'client_name': 'Retry Client',
-            'customer_id': '000002', 'branch_region': 'Nakuru',
+            'customer_phone': '0712345678', 'customer_id': '000002', 'branch_region': 'Nakuru',
             'complaint_category': 'Product issue', 'complaint_description': 'Retain old sync evidence.',
             **self.location_fields,
         }
@@ -1479,6 +1498,10 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('data-category-chart="pie"', template)
         self.assertIn('id="reportGranularity"', template)
         self.assertIn('inputmode="numeric" pattern="[0-9]*"', template)
+        self.assertIn('name="customer_phone" type="tel" maxlength="20" inputmode="tel" autocomplete="tel" placeholder="e.g. 254..." required', template)
+        self.assertIn('name="customer_id" type="text" maxlength="255" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="ID number" required', template)
+        self.assertIn('Customer National ID is required.', script)
+        self.assertIn('Primary Phone Number is required.', script)
         self.assertIn('id="mediaViewerOverlay"', template)
         self.assertIn('class="filter-search-control"', template)
         self.assertIn('id="downloadResult"', template)

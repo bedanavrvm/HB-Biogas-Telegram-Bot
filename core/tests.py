@@ -2484,7 +2484,7 @@ class ParserServiceContinuedTest(TestCase):
             "*CUSTOMER COMPLAIN*\n"
             "NAME: John Doe\n"
             "TEL: 0712345678\n"
-            "ID: A12345\n"
+            "ID: 12345\n"
             "NATURE OF THE PROBLEM: No gas supply at home\n"
             "Please assist urgently."
         )
@@ -2493,7 +2493,7 @@ class ParserServiceContinuedTest(TestCase):
         self.assertEqual(result.intent, MessageIntent.COMPLAINT)
         self.assertEqual(result.customer_name, 'John Doe')
         self.assertEqual(result.customer_phone, '254712345678')
-        self.assertEqual(result.customer_id, 'A12345')
+        self.assertEqual(result.customer_id, '12345')
         self.assertIn('No gas supply', result.problem_description)
         self.assertGreater(result.confidence, 0.0)
 
@@ -2503,7 +2503,7 @@ class ParserServiceContinuedTest(TestCase):
 
         content = (
             "CUSTOMER COMPLAIN NAME: John Doe TEL: 0712345678 "
-            "ID: A12345 COUNTY: Muranga NATURE OF COMPLAIN: No gas supply"
+            "ID: 12345 COUNTY: Muranga NATURE OF COMPLAIN: No gas supply"
         )
 
         result = parse_message(content, sender="Agent")
@@ -2511,7 +2511,7 @@ class ParserServiceContinuedTest(TestCase):
         self.assertEqual(result.intent, MessageIntent.COMPLAINT)
         self.assertEqual(result.customer_name, 'John Doe')
         self.assertEqual(result.customer_phone, '254712345678')
-        self.assertEqual(result.customer_id, 'A12345')
+        self.assertEqual(result.customer_id, '12345')
         self.assertEqual(result.branch_region, 'MURANGA')
         self.assertEqual(result.problem_description, 'No gas supply')
         self.assertEqual(result.confidence, 1.0)
@@ -2520,7 +2520,7 @@ class ParserServiceContinuedTest(TestCase):
         """County should map to the Branch / Region sheet field from any label position."""
         content = (
             "CUSTOMER COMPLAIN NAME: John Doe TEL: 0712345678 "
-            "ID: A12345 NATURE OF COMPLAIN: No gas supply COUNTY: Kiambu"
+            "ID: 12345 NATURE OF COMPLAIN: No gas supply COUNTY: Kiambu"
         )
 
         result = parse_message(content, sender="Agent")
@@ -2529,8 +2529,7 @@ class ParserServiceContinuedTest(TestCase):
         self.assertEqual(result.problem_description, 'No gas supply')
         self.assertEqual(result.confidence, 1.0)
 
-    def test_parse_complaint_without_customer_id_is_partial(self):
-        """A complaint with phone but no ID is importable for manual review."""
+    def test_parse_complaint_without_customer_id_reports_required_field(self):
         content = (
             "CUSTOMER COMPLAIN NAME: John Doe TEL: 0712345678 "
             "COUNTY: Muranga NATURE OF COMPLAIN: No gas supply"
@@ -2542,37 +2541,27 @@ class ParserServiceContinuedTest(TestCase):
         self.assertEqual(result.customer_id, '')
         self.assertLess(result.confidence, 1.0)
         self.assertIn(
-            'Customer ID / Account missing; saved with Status: Review Needed.',
-            result.warnings,
-        )
-        self.assertNotIn(
-            'Missing required complaint field(s): Customer ID / Account',
+            'Missing required complaint field(s): Customer National ID',
             result.warnings,
         )
 
-    def test_parse_complaint_without_phone_is_partial(self):
-        """A complaint with ID but no phone is importable for manual review."""
+    def test_parse_complaint_without_phone_reports_required_field(self):
         content = (
-            "CUSTOMER COMPLAIN NAME: John Doe ID: A12345 COUNTY: Muranga "
+            "CUSTOMER COMPLAIN NAME: John Doe ID: 12345 COUNTY: Muranga "
             "NATURE OF COMPLAIN: No gas supply"
         )
 
         result = parse_message(content, sender="Agent")
 
-        self.assertEqual(result.customer_id, 'A12345')
+        self.assertEqual(result.customer_id, '12345')
         self.assertEqual(result.customer_phone, '')
         self.assertLess(result.confidence, 1.0)
         self.assertIn(
-            'Phone Number missing; saved with Status: Review Needed.',
-            result.warnings,
-        )
-        self.assertNotIn(
-            'Missing required complaint field(s): Phone Number',
+            'Missing required complaint field(s): Primary Phone Number',
             result.warnings,
         )
 
-    def test_parse_complaint_without_any_identifier_is_partial(self):
-        """A complaint needs at least phone or ID to identify the customer."""
+    def test_parse_complaint_without_identifiers_reports_both_required_fields(self):
         content = (
             "CUSTOMER COMPLAIN NAME: John Doe COUNTY: Muranga "
             "NATURE OF COMPLAIN: No gas supply"
@@ -2583,7 +2572,19 @@ class ParserServiceContinuedTest(TestCase):
         self.assertEqual(result.customer_phone, '')
         self.assertEqual(result.customer_id, '')
         self.assertIn(
-            'Missing required complaint field(s): Phone Number or Customer ID / Account',
+            'Missing required complaint field(s): Primary Phone Number, Customer National ID',
+            result.warnings,
+        )
+
+    def test_parse_complaint_rejects_alphanumeric_national_id_at_intake_boundary(self):
+        result = parse_message(
+            'CUSTOMER COMPLAIN NAME: John Doe TEL: 0712345678 ID: A12345 '
+            'NATURE OF COMPLAIN: No gas supply',
+            sender='Agent',
+        )
+
+        self.assertIn(
+            'Invalid required complaint field(s): Customer National ID',
             result.warnings,
         )
 
@@ -2591,14 +2592,14 @@ class ParserServiceContinuedTest(TestCase):
         """County is optional, but still extracted into Branch / Region when present."""
         content = (
             "CUSTOMER COMPLAIN NAME: John Doe TEL: 0712345678 "
-            "ID: A12345 NATURE OF COMPLAIN: No gas supply"
+            "ID: 12345 NATURE OF COMPLAIN: No gas supply"
         )
 
         result = parse_message(content, sender="Agent")
 
         self.assertEqual(result.branch_region, '')
         self.assertEqual(result.customer_phone, '254712345678')
-        self.assertEqual(result.customer_id, 'A12345')
+        self.assertEqual(result.customer_id, '12345')
         self.assertNotIn(
             'Missing required complaint field(s): County (Branch / Region)',
             result.warnings,
@@ -3020,7 +3021,7 @@ class StorageServiceTest(TestCase):
                 'CUSTOMER COMPLAINT\n'
                 'NAME: Jane Doe\n'
                 'TEL: 0712345678\n'
-                'ID: A12345\n'
+                'ID: 12345\n'
                 'COUNTY: KISUMU\n'
                 'NATURE OF THE PROBLEM: No gas supply'
             ),
@@ -3050,7 +3051,7 @@ class StorageServiceTest(TestCase):
             telegram_message_id='sequential_complaint_1',
             content=(
                 'CUSTOMER COMPLAINT\nNAME: Jane Doe\nTEL: 0712345678\n'
-                'ID: A12345\nNATURE OF THE PROBLEM: No gas supply'
+                'ID: 12345\nNATURE OF THE PROBLEM: No gas supply'
             ),
             **common,
         )
@@ -3058,7 +3059,7 @@ class StorageServiceTest(TestCase):
             telegram_message_id='sequential_complaint_2',
             content=(
                 'CUSTOMER COMPLAINT\nNAME: John Doe\nTEL: 0798765432\n'
-                'ID: B98765\nNATURE OF THE PROBLEM: Burner needs repair'
+                'ID: 98765\nNATURE OF THE PROBLEM: Burner needs repair'
             ),
             **common,
         )
@@ -3080,7 +3081,7 @@ class StorageServiceTest(TestCase):
             telegram_message_id='new_after_legacy',
             content=(
                 'CUSTOMER COMPLAINT\nNAME: Jane Doe\nTEL: 0712345678\n'
-                'ID: A12345\nNATURE OF THE PROBLEM: No gas supply'
+                'ID: 12345\nNATURE OF THE PROBLEM: No gas supply'
             ),
             sender='Agent', received_at=reported_at, group_id='-100123',
             sheet_id='sheet_123', sheet_name='Cases', defer_sheet_sync=True,
@@ -3101,7 +3102,7 @@ class StorageServiceTest(TestCase):
             telegram_message_id='django_only_ingestion',
             content=(
                 'CUSTOMER COMPLAINT\nNAME: Jane Doe\nTEL: 0712345678\n'
-                'ID: A12345\nNATURE OF THE PROBLEM: No gas supply'
+                'ID: 12345\nNATURE OF THE PROBLEM: No gas supply'
             ),
             sender='Agent', received_at=timezone.now(),
             group_id='-100django-ingestion', sheet_id='', sheet_name='Complaints',
@@ -3137,7 +3138,7 @@ class StorageServiceTest(TestCase):
             content=(
                 'NAME: Jane Doe\n'
                 'TEL: 0712345678\n'
-                'ID: A12345\n'
+                'ID: 12345\n'
                 'NATURE OF THE PROBLEM: No gas supply'
             ),
             sender='Agent',
@@ -3150,7 +3151,7 @@ class StorageServiceTest(TestCase):
 
         self.assertEqual(parsed.customer_name, 'Jane Doe')
         self.assertEqual(parsed.customer_phone, '254712345678')
-        self.assertEqual(parsed.customer_id, 'A12345')
+        self.assertEqual(parsed.customer_id, '12345')
         self.assertEqual(parsed.complaint_description, 'No gas supply')
         self.assertNotIn(
             'CUSTOMER COMPLAINT',
@@ -3235,53 +3236,45 @@ class StorageServiceTest(TestCase):
         mock_sheet.assert_called_once()
 
     @patch('core.services.sheets.append_parsed_message_to_sheet')
-    def test_process_and_store_missing_id_sets_review_needed_status(self, mock_sheet):
-        """Phone-only complaints should be saved for manual ID review."""
-        parsed = process_and_store_message(
-            telegram_message_id='missing_id_review',
-            content=(
-                'CUSTOMER COMPLAINT\n'
-                'NAME: Jane Doe\n'
-                'TEL: 0712345678\n'
-                'NATURE OF THE PROBLEM: No gas supply'
-            ),
-            sender='Agent',
-            received_at=timezone.now(),
-            group_id='-100123',
-            sheet_id='sheet_123',
-            sheet_name='Cases',
-            defer_sheet_sync=True,
-        )
+    def test_process_and_store_rejects_missing_id_atomically(self, mock_sheet):
+        with self.assertRaises(MessageRejectedError) as context:
+            process_and_store_message(
+                telegram_message_id='missing_id_review',
+                content=(
+                    'CUSTOMER COMPLAINT\n'
+                    'NAME: Jane Doe\n'
+                    'TEL: 0712345678\n'
+                    'NATURE OF THE PROBLEM: No gas supply'
+                ),
+                sender='Agent', received_at=timezone.now(), group_id='-100123',
+                sheet_id='sheet_123', sheet_name='Cases', defer_sheet_sync=True,
+            )
 
-        self.assertEqual(parsed.customer_phone, '254712345678')
-        self.assertEqual(parsed.customer_id, '')
-        self.assertEqual(parsed.complaint_status, 'Review Needed')
-        self.assertIn('Customer ID / Account missing', getattr(parsed, '_processing_warnings')[0])
+        self.assertEqual(context.exception.missing_fields, ['Customer National ID'])
+        self.assertEqual(RawMessage.objects.count(), 0)
+        self.assertEqual(ProcessedMessage.objects.count(), 0)
+        self.assertEqual(ParsedMessage.objects.count(), 0)
         mock_sheet.assert_not_called()
 
     @patch('core.services.sheets.append_parsed_message_to_sheet')
-    def test_process_and_store_missing_phone_sets_review_needed_status(self, mock_sheet):
-        """ID-only complaints should be saved for manual phone review."""
-        parsed = process_and_store_message(
-            telegram_message_id='missing_phone_review',
-            content=(
-                'CUSTOMER COMPLAINT\n'
-                'NAME: Jane Doe\n'
-                'ID: A12345\n'
-                'NATURE OF THE PROBLEM: No gas supply'
-            ),
-            sender='Agent',
-            received_at=timezone.now(),
-            group_id='-100123',
-            sheet_id='sheet_123',
-            sheet_name='Cases',
-            defer_sheet_sync=True,
-        )
+    def test_process_and_store_rejects_missing_phone_atomically(self, mock_sheet):
+        with self.assertRaises(MessageRejectedError) as context:
+            process_and_store_message(
+                telegram_message_id='missing_phone_review',
+                content=(
+                    'CUSTOMER COMPLAINT\n'
+                    'NAME: Jane Doe\n'
+                    'ID: 12345\n'
+                    'NATURE OF THE PROBLEM: No gas supply'
+                ),
+                sender='Agent', received_at=timezone.now(), group_id='-100123',
+                sheet_id='sheet_123', sheet_name='Cases', defer_sheet_sync=True,
+            )
 
-        self.assertEqual(parsed.customer_phone, '')
-        self.assertEqual(parsed.customer_id, 'A12345')
-        self.assertEqual(parsed.complaint_status, 'Review Needed')
-        self.assertIn('Phone Number missing', getattr(parsed, '_processing_warnings')[0])
+        self.assertEqual(context.exception.missing_fields, ['Primary Phone Number'])
+        self.assertEqual(RawMessage.objects.count(), 0)
+        self.assertEqual(ProcessedMessage.objects.count(), 0)
+        self.assertEqual(ParsedMessage.objects.count(), 0)
         mock_sheet.assert_not_called()
 
     @patch('core.services.sheets.append_parsed_message_to_sheet')
@@ -3302,9 +3295,31 @@ class StorageServiceTest(TestCase):
                 sheet_name='Complaints',
             )
 
-        self.assertIn(
-            'Phone Number or Customer ID / Account',
+        self.assertEqual(
             context.exception.missing_fields,
+            ['Primary Phone Number', 'Customer National ID'],
+        )
+        self.assertEqual(RawMessage.objects.count(), 0)
+        self.assertEqual(ProcessedMessage.objects.count(), 0)
+        self.assertEqual(ParsedMessage.objects.count(), 0)
+        mock_sheet.assert_not_called()
+
+    @patch('core.services.sheets.append_parsed_message_to_sheet')
+    def test_process_and_store_rejects_invalid_required_identifiers_atomically(self, mock_sheet):
+        with self.assertRaises(MessageRejectedError) as context:
+            process_and_store_message(
+                telegram_message_id='reject_invalid_identifiers',
+                content=(
+                    'CUSTOMER COMPLAINT\nNAME: Jane Doe\nTEL: 12345\n'
+                    'ID: A12345\nNATURE OF THE PROBLEM: No gas supply'
+                ),
+                sender='Agent', received_at=timezone.now(), group_id='-100123',
+                sheet_id='sheet_123', sheet_name='Complaints',
+            )
+
+        self.assertEqual(
+            context.exception.invalid_fields,
+            ['Primary Phone Number', 'Customer National ID'],
         )
         self.assertEqual(RawMessage.objects.count(), 0)
         self.assertEqual(ProcessedMessage.objects.count(), 0)
@@ -4387,20 +4402,20 @@ class GroupConfigurationServiceTest(TestCase):
             'parser_rules': '{}',
             'metadata': '{}',
             'workflow_preset': 'case',
-            'case_header_row': '1',
+            'case_header_row': '9',
             'case_field_headers': '{"complaint_id": "Complaint ID", "message_id": "message_id"}',
         })
 
         self.assertTrue(form.is_valid(), form.errors)
+        self.assertTrue(form.fields['case_header_row'].disabled)
         self.assertEqual(form.generated_workflow(), {'type': 'case', 'header_row': 1})
         self.assertEqual(
             form.generated_sheet_schema(),
             {
+                'schema_version': 2,
                 'header_row': 1,
-                'field_headers': {
-                    'complaint_id': 'Complaint ID',
-                    'message_id': 'message_id',
-                },
+                'data_start_row': 2,
+                'row_key_field': 'complaint_id',
             },
         )
 
@@ -4500,11 +4515,16 @@ class GroupConfigurationServiceTest(TestCase):
         case_defaults = defaults_for_preset('case')
         self.assertEqual(case_defaults['sheet_name'], 'Complaints Register')
         self.assertEqual(case_defaults['workflow'], {'type': 'case', 'header_row': 1})
-        self.assertEqual(case_defaults['sheet_schema'], {'header_row': 1, 'field_headers': {}})
+        self.assertEqual(case_defaults['sheet_schema'], {
+            'schema_version': 2,
+            'header_row': 1,
+            'data_start_row': 2,
+            'row_key_field': 'complaint_id',
+        })
         self.assertEqual(build_workflow_from_preset('case'), {'type': 'case', 'header_row': 1})
         self.assertEqual(
             build_workflow_from_preset('case', overrides={'case_header_row': 3}),
-            {'type': 'case', 'header_row': 3},
+            {'type': 'case', 'header_row': 1},
         )
         self.assertEqual(preset_for_workflow({}), 'case')
 
@@ -4733,6 +4753,34 @@ class SheetAnalyzerServiceTest(TestCase):
         self.assertEqual(result['warnings'], [])
 
     @patch('core.services.sheet_analyzer.get_sheets_service')
+    def test_complaint_analysis_always_reads_headers_from_row_one(self, mock_service):
+        from core.services.sheet_analyzer import analyze_google_sheet
+
+        service = MagicMock()
+        service.is_available.return_value = True
+        service._sheet_id = 'sheet_123'
+        service._sheet_name = 'Complaints'
+        service._api_initialized = False
+        rows = [
+            ['Backend ID', 'Customer Name', 'Mobile', 'Customer National ID', 'Complaint Description'],
+            ['CMP-1', 'Jane Doe', '254712345678', '00123456', 'No gas supply'],
+        ]
+        service._sheet.get_all_values.return_value = rows
+        service._sheet.get.return_value = rows
+        mock_service.return_value = service
+
+        result = analyze_google_sheet(
+            'sheet_123', 'Complaints', workflow={'type': 'case', 'header_row': 2},
+        )
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['header_row'], 1)
+        self.assertEqual(result['headers'][0], 'Backend ID')
+        self.assertEqual(result['suggested_schema']['schema_version'], 2)
+        self.assertEqual(result['suggested_schema']['data_start_row'], 2)
+        self.assertEqual(result['suggested_schema']['row_key_field'], 'complaint_id')
+
+    @patch('core.services.sheet_analyzer.get_sheets_service')
     def test_analyze_google_sheet_custom_workflow_has_no_complaint_warnings(self, mock_service):
         from core.services.sheet_analyzer import analyze_google_sheet
 
@@ -4789,6 +4837,35 @@ class SheetAnalyzerServiceTest(TestCase):
         self.assertEqual(config.sheet_schema['field_headers']['message_id'], 'Backend ID')
         self.assertEqual(config.workflow['dropdown_values']['status'], ['Open', 'Closed'])
         self.assertEqual(config.metadata['sheet_analysis']['row_count'], 10)
+
+    def test_apply_complaint_analysis_preserves_unknown_schema_and_forces_row_one(self):
+        from core.services.sheet_analyzer import apply_analysis_to_config
+
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100556', sheet_id='shared_workbook', sheet_name='Complaints',
+            workflow={'type': 'case', 'header_row': 2, 'custom_workflow_key': 'keep'},
+            sheet_schema={'custom_schema_key': 'keep'},
+        )
+        analysis = {
+            'suggested_schema': {
+                'columns': ['Complaint ID'],
+                'field_headers': {'complaint_id': 'Complaint ID'},
+            },
+            'workflow': {'header_row': 2, 'dropdown_values': {'status': ['Open']}},
+            'row_count': 1, 'sample_size': 1,
+            'columns': [{'header': 'Complaint ID'}], 'warnings': [],
+        }
+
+        apply_analysis_to_config(config, analysis)
+
+        config.refresh_from_db()
+        self.assertEqual(config.workflow['header_row'], 1)
+        self.assertEqual(config.workflow['custom_workflow_key'], 'keep')
+        self.assertEqual(config.sheet_schema['schema_version'], 2)
+        self.assertEqual(config.sheet_schema['header_row'], 1)
+        self.assertEqual(config.sheet_schema['data_start_row'], 2)
+        self.assertEqual(config.sheet_schema['row_key_field'], 'complaint_id')
+        self.assertEqual(config.sheet_schema['custom_schema_key'], 'keep')
 
 
 class BotCommandServiceTest(TestCase):
@@ -6054,7 +6131,7 @@ NATURE OF THE PROBLEM: Gas leakage
         mock_process.side_effect = [
             {
                 'status': 'rejected',
-                'missing_fields': ['Phone Number or Customer ID / Account'],
+                'missing_fields': ['Customer National ID'],
                 'captured_fields': {'Customer Name': 'Jane Doe'},
             },
             {'status': 'success', 'message_id': 'MSG_2'},
@@ -6367,7 +6444,7 @@ NATURE OF THE PROBLEM: No gas supply""",
             },
             {
                 'status': 'rejected',
-                'missing_fields': ['Phone Number or Customer ID / Account'],
+                'missing_fields': ['Customer National ID'],
                 'captured_fields': {
                     'Customer Name': 'Jane',
                     'Phone Number': '254712345678',
@@ -6380,7 +6457,9 @@ NATURE OF THE PROBLEM: No gas supply""",
         text = mock_post.call_args.kwargs['data']['text']
         self.assertIn('Rejected. Complaint was not saved', text)
         self.assertIn('Missing required fields:', text)
-        self.assertIn('Phone Number or Customer ID / Account', text)
+        self.assertIn('Customer National ID', text)
+        self.assertIn('PRIMARY PHONE NUMBER', text)
+        self.assertIn('CUSTOMER NATIONAL ID (numbers only)', text)
         self.assertIn('Required complaint fields:', text)
         self.assertIn('Customer Name: Jane', text)
         self.assertNotIn('Case ID:', text)
@@ -6405,7 +6484,7 @@ NATURE OF THE PROBLEM: No gas supply""",
                 'results': [
                     {
                         'status': 'rejected',
-                        'missing_fields': ['Phone Number or Customer ID / Account'],
+                        'invalid_fields': ['Customer National ID'],
                     },
                     {'status': 'success', 'message_id': 'MSG_2'},
                 ],
@@ -6415,8 +6494,11 @@ NATURE OF THE PROBLEM: No gas supply""",
         text = mock_post.call_args.kwargs['data']['text']
         self.assertIn('Batch processed: 1/2 messages saved.', text)
         self.assertIn('Rejected: 1', text)
-        self.assertIn('Missing: Phone Number or Customer ID / Account', text)
-        self.assertIn('Each complaint must include NAME, TEL or ID, and NATURE OF THE PROBLEM', text)
+        self.assertIn('Invalid: Customer National ID', text)
+        self.assertIn(
+            'Each complaint must include NAME, PRIMARY PHONE NUMBER, numeric CUSTOMER NATIONAL ID, and NATURE OF THE PROBLEM',
+            text,
+        )
 
     @override_settings(TELEGRAM_BOT_TOKEN='token')
     @patch('core.api.views.requests.post')

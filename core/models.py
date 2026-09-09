@@ -7356,13 +7356,13 @@ class GroupSheetConfiguration(models.Model):
     sheet_id = models.CharField(
         max_length=255,
         blank=True,
-        help_text='Google spreadsheet ID for this group.',
+        help_text='Google spreadsheet ID. Separate workflow configurations may share the same workbook.',
     )
     sheet_name = models.CharField(
         max_length=255,
         blank=True,
         default='Complaints Register',
-        help_text='Worksheet/tab name inside the spreadsheet.',
+        help_text='Worksheet/tab for this workflow. Use a distinct tab name when sharing a workbook.',
     )
     sheet_schema = models.JSONField(
         blank=True,
