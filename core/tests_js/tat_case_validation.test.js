@@ -74,6 +74,11 @@ const tracker = fs.readFileSync(
 );
 assert.match(template, /aria-describedby="newCaseAmountHelp"/);
 assert.match(template, /id="newCaseAmountHelp"/);
+assert.match(
+  template,
+  /name="amount"[^>]*aria-describedby="newCaseAmountHelp"><\/label>\s*<small id="newCaseAmountHelp"/,
+  'amount guidance is outside the field label so paired controls remain aligned'
+);
 assert.ok(
   template.indexOf('tat_case_validation.js') < template.indexOf('tat_tracker.js'),
   'case validation helpers load before the TAT application'

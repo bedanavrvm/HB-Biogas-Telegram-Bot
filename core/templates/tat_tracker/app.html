@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=56">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=57">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}" data-task-token="{{ task_token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -174,7 +174,8 @@
           <label>ID Number<input class="tat-paste-field" name="national_id" inputmode="numeric" autocomplete="off" spellcheck="false" data-paste-normalize="digits" required pattern="[0-9]{7,8}" placeholder="7 or 8 digits"></label>
           <label>Phone Number<input class="tat-paste-field" name="primary_phone" type="tel" inputmode="tel" autocomplete="tel" spellcheck="false" required placeholder="0712 345 678"></label>
           <label>BRO Name<select name="bro_user_id" required></select></label>
-          <label>Amount (KES)<input class="tat-paste-field" name="amount" type="number" inputmode="decimal" autocomplete="off" data-paste-normalize="amount" min="0" step="1" required placeholder="0" aria-describedby="newCaseAmountHelp"><small id="newCaseAmountHelp" class="amount-range-help" aria-live="polite">Select a product to see its allowed amount range.</small></label>
+          <label>Amount (KES)<input class="tat-paste-field" name="amount" type="number" inputmode="decimal" autocomplete="off" data-paste-normalize="amount" min="0" step="1" required placeholder="0" aria-describedby="newCaseAmountHelp"></label>
+          <small id="newCaseAmountHelp" class="amount-range-help new-case-amount-help" aria-live="polite">Select a product to see its allowed amount range.</small>
           <div id="newCaseProductConfiguration" class="product-configuration-panel" hidden></div>
         </div>
         <section id="existingLoanContext" class="identity-context hidden" aria-live="polite"></section>

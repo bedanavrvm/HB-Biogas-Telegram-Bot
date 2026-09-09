@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 
 from django import forms
 from django.contrib.auth import get_user_model
@@ -28,6 +29,7 @@ from core.services.workflow_catalog import (
     scope_selection,
 )
 from core.services.workflow_presets import defaults_for_preset
+from core.services.tat_tracker import product_by_key, serialize_product
 
 
 @override_settings(SECURE_SSL_REDIRECT=False, TAT_TRACKER_BRANCH_CHOICES='')
@@ -44,7 +46,10 @@ class WorkflowCatalogResolutionTest(TestCase):
         self.product = Product.objects.create(
             name='Resolver Product', code='resolver_product', sort_order=900,
         )
-        self.version = ProductVersion.objects.create(product=self.product, version=1)
+        self.version = ProductVersion.objects.create(
+            product=self.product, version=1,
+            min_amount=Decimal('12345.00'), max_amount=Decimal('98765.00'),
+        )
         ProductTatConfiguration.objects.create(
             product_version=self.version, sheet_name='Resolver', case_prefix='RSLV',
             remarks_col=8, status_col=9, tat_start_col=10,
@@ -57,6 +62,20 @@ class WorkflowCatalogResolutionTest(TestCase):
         )
         ProductVersion.objects.filter(pk=self.version.pk).update(status=ProductVersion.STATUS_PUBLISHED)
         self.version.refresh_from_db()
+
+    def test_tat_amount_limits_are_loaded_from_the_active_product_version(self):
+        configured_product = product_by_key(self.product.code)
+
+        self.assertEqual(configured_product.min_amount, Decimal('12345.00'))
+        self.assertEqual(configured_product.max_amount, Decimal('98765.00'))
+        self.assertEqual(
+            {
+                key: value
+                for key, value in serialize_product(configured_product).items()
+                if key in {'min_amount', 'max_amount'}
+            },
+            {'min_amount': '12345.00', 'max_amount': '98765.00'},
+        )
 
     def test_every_supported_workflow_has_one_named_resolution_mode(self):
         self.assertEqual(RESOLUTION_MODES, {

@@ -894,6 +894,7 @@ body.tat-sheet-open { overflow: hidden; }
 .new-case-grid > label { min-width: 0; }
 .new-case-grid .new-case-full, .new-case-grid .product-configuration-panel { grid-column: 1 / -1; }
 .amount-range-help { display: block; margin-top: 4px; color: var(--tat-muted); font-size: 10px; font-weight: 600; line-height: 1.35; }
+.new-case-amount-help { grid-column: 2; margin: -2px 0 0; }
 .form-actions { display: flex; margin-top: 4px; }
 .form-actions button { width: 100%; }
 .settings-eyebrow { display: block; color: var(--tat-accent); font-size: 9px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
