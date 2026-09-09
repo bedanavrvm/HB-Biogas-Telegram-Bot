@@ -1,8 +1,10 @@
 from datetime import timedelta
 
 from django.contrib import admin
+from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
+from django.urls import reverse
 from django.utils import timezone
 
 from core.models import (
@@ -221,7 +223,7 @@ class ProductAdminDeletionTests(TestCase):
         )
         self.assertTrue(event.after_values['drive_files_untouched'])
 
-    def test_operational_records_block_product_family_deletion(self):
+    def test_operational_records_replace_selected_product_with_tombstone(self):
         product = Product.objects.create(name='Used Product', code='used_product')
         version = ProductVersion.objects.create(product=product, version=1)
         SpinCreditRequest.objects.create(
@@ -231,17 +233,64 @@ class ProductAdminDeletionTests(TestCase):
             product_version=version,
         )
 
-        _deleted, _counts, _permissions, protected = self.model_admin.get_deleted_objects(
+        deleted, _counts, _permissions, protected = self.model_admin.get_deleted_objects(
             [product], self.request,
         )
-        self.assertTrue(any('SPIN request' in item for item in protected))
-        with self.assertRaises(ProductDeletionError):
-            self.model_admin.delete_queryset(
-                self.request, Product.objects.filter(pk=product.pk),
-            )
+        self.assertEqual(protected, [])
+        self.assertTrue(any('inactive tombstone' in item for item in deleted))
+        self.model_admin.delete_queryset(
+            self.request, Product.objects.filter(pk=product.pk),
+        )
 
-        self.assertTrue(Product.objects.filter(pk=product.pk).exists())
+        product.refresh_from_db()
+        self.assertFalse(product.active)
         self.assertTrue(ProductVersion.objects.filter(pk=version.pk).exists())
+        self.assertTrue(SpinCreditRequest.objects.filter(product=product).exists())
+        self.assertTrue(ComplianceAuditEvent.objects.filter(
+            action='product.tombstoned', subject_id=str(product.pk),
+        ).exists())
+
+    def test_governed_legacy_version_replaces_selected_product_with_tombstone(self):
+        product = Product.objects.create(name='Published Product', code='published_product')
+        version = ProductVersion.objects.create(product=product, version=1)
+        ProductVersion.objects.filter(pk=version.pk).update(status=ProductVersion.STATUS_PUBLISHED)
+
+        self.model_admin.delete_model(self.request, product)
+
+        product.refresh_from_db()
+        self.assertFalse(product.active)
+        self.assertTrue(ProductVersion.objects.filter(pk=version.pk).exists())
+
+    def test_admin_selected_delete_confirmation_has_no_blocker_and_tombstones_used_product(self):
+        product = Product.objects.create(name='Selected Used Product', code='selected_used_product')
+        version = ProductVersion.objects.create(product=product, version=1)
+        SpinCreditRequest.objects.create(
+            group_id='selected-delete-group', request_type='spin',
+            product=product, product_version=version,
+        )
+        self.client.force_login(self.root)
+        url = reverse('admin:core_product_changelist')
+
+        confirmation = self.client.post(url, {
+            'action': 'delete_selected',
+            ACTION_CHECKBOX_NAME: str(product.pk),
+            'index': '0',
+            'select_across': '0',
+        }, secure=True)
+        self.assertEqual(confirmation.status_code, 200)
+        self.assertContains(confirmation, 'inactive tombstone')
+        self.assertNotContains(confirmation, 'would require deleting the following protected related objects')
+
+        response = self.client.post(url, {
+            'action': 'delete_selected',
+            ACTION_CHECKBOX_NAME: str(product.pk),
+            'post': 'yes',
+            'select_across': '0',
+        }, secure=True)
+        self.assertRedirects(response, url, fetch_redirect_response=False)
+        product.refresh_from_db()
+        self.assertFalse(product.active)
+        self.assertTrue(SpinCreditRequest.objects.filter(product=product).exists())
 
     def test_non_superuser_cannot_delete_products(self):
         ordinary = get_user_model().objects.create_user('product-editor', is_staff=True)

@@ -206,6 +206,76 @@ def _tombstone_product(*, product: Product, actor, reason: str, request_id: str)
 
 
 @transaction.atomic
+def remove_product_from_catalog(*, product_id, actor, reason: str, request_id: str) -> dict[str, Any]:
+    """Delete one disposable product or tombstone it when history must survive."""
+    if not getattr(actor, 'is_active', False) or not getattr(actor, 'is_superuser', False):
+        raise ProductCatalogFullResetError(
+            'Only an active Django Superuser may remove products from the catalogue.'
+        )
+    normalized_reason = str(reason or '').strip()
+    if not normalized_reason:
+        raise ProductCatalogFullResetError('Provide a reason for removing this product.')
+    if len(normalized_reason) > 500:
+        raise ProductCatalogFullResetError('The removal reason must be 500 characters or fewer.')
+    stable_request_id = str(request_id or '').strip()
+    if not stable_request_id:
+        raise ProductCatalogFullResetError('A stable request ID is required.')
+    if len(stable_request_id) > 128:
+        raise ProductCatalogFullResetError('The request ID must be 128 characters or fewer.')
+
+    product = Product.objects.select_for_update().get(pk=product_id)
+    preview = preview_product_deletion(product)
+    legacy_statuses = list(product.versions.exclude(
+        status=ProductVersion.STATUS_DRAFT,
+    ).values_list('status', flat=True).distinct())
+    if preview.blockers or legacy_statuses:
+        changed = _tombstone_product(
+            product=product,
+            actor=actor,
+            reason=normalized_reason,
+            request_id=stable_request_id,
+        )
+        return {
+            'product_id': product.pk,
+            'mode': 'tombstoned',
+            'changed': changed,
+            'reasons': [
+                *preview.blockers,
+                *(['governed legacy version status: ' + ', '.join(sorted(legacy_statuses))]
+                  if legacy_statuses else []),
+            ],
+        }
+    try:
+        deleted = delete_product_family(
+            product_id=product.pk,
+            actor=actor,
+            request_id=stable_request_id,
+        )
+    except ProductDeletionError as exc:
+        # A newly discovered relationship must fail safe as a tombstone rather
+        # than turning an Admin removal into an operational-history blocker.
+        product.refresh_from_db()
+        changed = _tombstone_product(
+            product=product,
+            actor=actor,
+            reason=normalized_reason,
+            request_id=stable_request_id,
+        )
+        return {
+            'product_id': product.pk,
+            'mode': 'tombstoned',
+            'changed': changed,
+            'reasons': [str(exc)],
+        }
+    return {
+        'product_id': product_id,
+        'mode': 'deleted',
+        'deleted': deleted,
+        'reasons': [],
+    }
+
+
+@transaction.atomic
 def reset_full_product_catalog(*, actor, reason: str, request_id: str) -> dict[str, Any]:
     """Delete unused products and tombstone connected or legacy products."""
     if not getattr(actor, 'is_active', False) or not getattr(actor, 'is_superuser', False):

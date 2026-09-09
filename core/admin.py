@@ -1927,66 +1927,59 @@ class ProductAdmin(CompactModelAdmin):
         return bool(request.user.is_active and request.user.is_superuser)
 
     def get_deleted_objects(self, objs, request):
-        """Show owned setup as deletable and operational history as protected."""
+        """Preview deletion or tombstoning without Django protected blockers."""
         from core.services.product_deletion import preview_product_deletion
+        from core.models import ProductVersion
 
         deleted_objects = []
-        protected = []
         model_count = {'products': 0}
         for product in objs:
             preview = preview_product_deletion(product)
-            deleted_objects.append(f'Product: {product.name} ({product.code})')
+            legacy_statuses = list(product.versions.exclude(
+                status=ProductVersion.STATUS_DRAFT,
+            ).values_list('status', flat=True).distinct())
+            tombstoned = bool(preview.blockers or legacy_statuses)
+            outcome = 'will be retained as an inactive tombstone' if tombstoned else 'will be hard-deleted'
+            deleted_objects.append(f'Product: {product.name} ({product.code}) — {outcome}')
             model_count['products'] += 1
-            for label, count in preview.delete_counts.items():
-                if count:
-                    readable = label.replace('_', ' ')
-                    deleted_objects.append(f'{count} {readable}')
-                    model_count[readable] = model_count.get(readable, 0) + count
+            if not tombstoned:
+                for label, count in preview.delete_counts.items():
+                    if count:
+                        readable = label.replace('_', ' ')
+                        deleted_objects.append(f'{count} {readable}')
+                        model_count[readable] = model_count.get(readable, 0) + count
             for label, count in preview.detach_counts.items():
                 if count:
                     deleted_objects.append(
                         f'{count} {label.replace("_", " ")} will be retained and detached/revoked'
                     )
-            protected.extend(
-                f'{product.name}: {blocker}' for blocker in preview.blockers
-            )
-        return deleted_objects, model_count, set(), protected
+            if tombstoned:
+                reasons = list(preview.blockers)
+                if legacy_statuses:
+                    reasons.append('governed legacy version status: ' + ', '.join(sorted(legacy_statuses)))
+                deleted_objects.append('Tombstone reason: ' + '; '.join(reasons))
+        return deleted_objects, model_count, set(), []
 
     def delete_model(self, request, obj):
-        from core.services.product_deletion import delete_product_family
+        from core.services.product_catalog_full_reset import remove_product_from_catalog
 
-        delete_product_family(
+        remove_product_from_catalog(
             product_id=obj.pk,
             actor=request.user,
+            reason='Selected product removed through Django Admin.',
             request_id=str(uuid.uuid4()),
         )
 
     def delete_queryset(self, request, queryset):
-        from core.services.product_deletion import (
-            ProductDeletionError,
-            delete_product_family,
-            preview_product_deletion,
-        )
+        from core.services.product_catalog_full_reset import remove_product_from_catalog
 
-        # Preflight again under the batch transaction. The normal confirmation
-        # page already shows these blockers; this closes the race where a case
-        # starts using the product after the page was rendered.
         with transaction.atomic():
             products = list(queryset.select_for_update().order_by('pk'))
-            blockers = [
-                f'{product.name}: {blocker}'
-                for product in products
-                for blocker in preview_product_deletion(product).blockers
-            ]
-            if blockers:
-                raise ProductDeletionError(
-                    'The selected products are now in operational use: '
-                    + '; '.join(blockers)
-                )
             for product in products:
-                delete_product_family(
+                remove_product_from_catalog(
                     product_id=product.pk,
                     actor=request.user,
+                    reason='Selected product removed through Django Admin.',
                     request_id=str(uuid.uuid4()),
                 )
 
