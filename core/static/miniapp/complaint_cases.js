@@ -112,7 +112,8 @@
     const stack = document.createElement('div');
     stack.className = 'status-stack';
     const resolved = item.status === 'CLOSED' || item.status === 'Closed';
-    const status = textNode('span', displayStatus(item.status), `status-pill ${resolved ? 'resolved' : ''}`);
+    const statusKey = displayStatus(item.status).toLowerCase();
+    const status = textNode('span', displayStatus(item.status), `status-pill ${statusKey}`);
     status.prepend(iconNode(resolved ? 'circle-check' : 'clock'));
     stack.appendChild(status);
     if (item.needs_details) stack.appendChild(textNode('span', 'Needs More Information', 'needs-details-pill'));
@@ -286,7 +287,7 @@
     $('detailName').textContent = item.customer_name || 'Unnamed customer';
     $('detailGroup').textContent = item.group_label || '';
     $('detailStatus').textContent = displayStatus(item.status);
-    $('detailStatus').className = `status-pill ${item.status === 'CLOSED' ? 'resolved' : ''}`;
+    $('detailStatus').className = `status-pill ${displayStatus(item.status).toLowerCase()}`;
     $('detailNeedsDetails').hidden = !item.needs_details;
     const ids = $('detailIdentifiers'); ids.replaceChildren();
     [item.customer_phone, item.customer_id].filter(Boolean).forEach(value => ids.appendChild(textNode('span', value)));
@@ -605,7 +606,9 @@
     const idError = validateCustomerId(formNode.elements.customer_id);
     if (idError) return notify(idError, true);
     if (!validateContactPair(formNode) || !validateCreateFields(formNode)) return;
-    data.set('client_request_id', requestId('complaint-create')); appendEvidence(data, 'create');
+    const creationRequestId = requestId('complaint-create');
+    const pendingEvidence = state.evidence.create.map(item => item.file);
+    data.set('client_request_id', creationRequestId);
     if (state.latitude) { data.set('latitude', state.latitude); data.set('longitude', state.longitude); }
     const button = $('createSaveBtn'); state.submitting = true; setActionLoading(button, true, 'Creating');
     utils.setCloseProtection?.('complaint-operation', true); $('createSaveState').textContent = 'Saving…';
@@ -613,14 +616,37 @@
       const response = await form('cases/create/', data); formNode.reset();
       locationSelectOptions(formNode.elements.sub_county, [], 'Select county first');
       formNode.elements.sub_county.disabled = true;
-      clearEvidence('create');
       state.latitude = ''; state.longitude = ''; resetLocationCapture(); hideSuggestion();
       utils.setCloseProtection?.('complaint-create-draft', false); $('createSaveState').textContent = 'Saved';
-      notify(response.message); await refreshCounts(); state.returnWorkspace = 'queue';
+      notify(response.message); void refreshCounts(); state.returnWorkspace = 'queue';
       response.case.group_id = state.groupId; response.case.global_read = false;
       renderDetail(response.case); setView('detailView');
+      if (pendingEvidence.length || response.publication_deferred) {
+        void finishCreatedCase(response.case, creationRequestId, pendingEvidence);
+      } else clearEvidence('create');
     } catch (error) { $('createSaveState').textContent = 'Not Saved'; notify(error.message, true); }
     finally { state.submitting = false; setActionLoading(button, false); utils.setCloseProtection?.('complaint-operation', false); }
+  }
+  async function finishCreatedCase(caseItem, creationRequestId, files) {
+    const data = new FormData();
+    data.set('creation_request_id', creationRequestId);
+    data.set('client_request_id', requestId('complaint-create-finish'));
+    (files || []).forEach(file => data.append('evidence', file, file.name));
+    utils.setCloseProtection?.('complaint-create-publication', true);
+    try {
+      const response = await form(`cases/${encodeURIComponent(caseItem.case_id)}/finish-created/`, data, caseItem.group_id || state.groupId);
+      response.case.group_id = caseItem.group_id || state.groupId;
+      response.case.global_read = false;
+      if (state.currentCase?.case_id === caseItem.case_id || $('detailCaseId').textContent === caseItem.case_id) {
+        renderDetail(response.case);
+      }
+      if ((files || []).length) notify('Complaint saved and evidence uploaded.');
+    } catch (error) {
+      notify('Complaint saved, but evidence or Sheet publication still needs attention.', true);
+    } finally {
+      clearEvidence('create');
+      utils.setCloseProtection?.('complaint-create-publication', false);
+    }
   }
   function validateCustomerId(input) {
     const value = String(input?.value || '').trim();
@@ -1075,7 +1101,8 @@
   }
   function reportStatusRenderer(params) {
     const label = params.value || 'OPEN';
-    return textNode('span', label, `report-status ${String(label).toLowerCase()}`);
+    const statusKey = String(label).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    return textNode('span', label, `report-status ${statusKey}`);
   }
   function reportGpsRenderer(params) {
     if (!params.value) return '';

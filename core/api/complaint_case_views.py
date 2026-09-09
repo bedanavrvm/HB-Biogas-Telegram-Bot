@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from functools import wraps
 
 from django.conf import settings
@@ -22,6 +23,7 @@ from core.services.complaint_cases import (
     create_complaint_case,
     decode_complaint_start_param,
     evidence_for_preview,
+    finish_created_case,
     is_complaint_workflow,
     complaint_sheet_projection_enabled,
     list_cases_page,
@@ -500,6 +502,7 @@ def complaint_reports_summary(request):
 @require_http_methods(['POST'])
 @miniapp_write_response
 def complaint_cases_create(request):
+    started_at = time.monotonic()
     payload = _request_payload(request)
     key_error = _bind_miniapp_write_request(request, payload)
     if key_error:
@@ -525,9 +528,50 @@ def complaint_cases_create(request):
     if not actor_can_access_case(group_config, actor, 'complaint.case.source.view', result['case']['case_id']):
         result['case'].pop('raw_message', None)
     message = 'Complaint created.' if result['created'] else 'Existing complaint opened.'
-    if result['sheet_projection_enabled'] and not result['synced_to_sheet']:
+    if result.get('sheet_projection_enabled', False) and not result.get('synced_to_sheet', False):
         message += ' The Sheet sync is pending.'
-    return JsonResponse({'ok': True, 'case': result['case'], 'message': message}, status=201 if result['created'] else 200)
+    response = JsonResponse(
+        {'ok': True, 'case': result['case'], 'message': message,
+         'publication_deferred': result.get('publication_deferred', False)},
+        status=201 if result['created'] else 200,
+    )
+    elapsed_ms = (time.monotonic() - started_at) * 1000
+    response['Server-Timing'] = f'complaint_create;dur={elapsed_ms:.1f}'
+    if elapsed_ms >= 5000:
+        logger.warning(
+            'Complaint local create exceeded five seconds: duration_ms=%.1f files=%s group=%s',
+            elapsed_ms, len(request.FILES.getlist('evidence')), group_config.group_id,
+        )
+    return response
+
+
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(['POST'])
+@miniapp_write_response
+def complaint_cases_finish_created(request, case_id: str):
+    """Complete Drive and Sheet work after the canonical case was committed."""
+    payload = _request_payload(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    capability_error = _capability_error(actor, 'complaint.case.create', group_config)
+    if capability_error:
+        return capability_error
+    try:
+        detail = finish_created_case(
+            group_config, actor, case_id,
+            creation_request_id=str(payload.get('creation_request_id') or ''),
+            uploaded_files=request.FILES.getlist('evidence'),
+        )
+    except ComplaintCaseError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({
+        'ok': True, 'case': detail,
+        'message': 'Evidence and Complaint Sheet publication completed.',
+    })
 
 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
@@ -724,7 +768,7 @@ def complaint_cases_evidence_access(request, evidence_id: str):
 
     response = HttpResponse(content, content_type=mime_type)
     response['Content-Disposition'] = content_disposition_header(
-        False, evidence.original_filename or 'complaint-evidence'
+        False, evidence.storage_filename or evidence.original_filename or 'complaint-evidence'
     )
     response['Cache-Control'] = 'private, no-store, max-age=0'
     response['X-Content-Type-Options'] = 'nosniff'

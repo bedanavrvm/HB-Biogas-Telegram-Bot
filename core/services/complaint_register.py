@@ -521,7 +521,7 @@ def _excel_text(value: Any) -> Any:
 
 def export_register_xlsx(*, actor, request_id: str) -> tuple[bytes, int]:
     from openpyxl import Workbook
-    from openpyxl.styles import Font
+    from openpyxl.styles import Font, PatternFill
 
     groups = _group_rows()
     queryset = _base_queryset().order_by('-timestamp', '-pk')
@@ -542,6 +542,15 @@ def export_register_xlsx(*, actor, request_id: str) -> tuple[bytes, int]:
             row['complaint_description'], row['gps_link'], row['resolution_details'],
             _display_date(case.date_resolved), row['days_open'], resolution_history_text(case),
         )))
+        status_styles = {
+            'OPEN': ('FEF3C7', '92400E'),
+            'REOPENED': ('FFEDD5', '9A3412'),
+            'CLOSED': ('DCFCE7', '166534'),
+        }
+        fill_colour, font_colour = status_styles.get(row['status'], ('FFFFFF', '111827'))
+        status_cell = sheet.cell(row=count + 1, column=4)
+        status_cell.fill = PatternFill(fill_type='solid', fgColor=fill_colour)
+        status_cell.font = Font(color=font_colour, bold=True)
     sheet.freeze_panes = 'A2'
     sheet.auto_filter.ref = sheet.dimensions
     output = BytesIO()

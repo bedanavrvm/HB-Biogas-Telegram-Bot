@@ -5319,9 +5319,12 @@ class JawabuMediaAccessEventAdmin(ReadOnlyAuditAdmin):
 
 @admin.register(ComplaintCaseEvidence)
 class ComplaintCaseEvidenceAdmin(ReadOnlyAuditAdmin):
-    list_display = ['parsed_message', 'original_filename', 'group_id', 'uploaded_by', 'upload_status', 'created_at']
+    list_display = ['parsed_message', 'storage_filename', 'group_id', 'uploaded_by', 'upload_status', 'created_at']
     list_filter = ['group_id', 'upload_status', 'created_at']
-    search_fields = ['parsed_message__message_id', 'original_filename', 'uploaded_by', 'drive_file_id']
+    search_fields = [
+        'parsed_message__message_id', 'storage_filename', 'original_filename',
+        'uploaded_by', 'drive_file_id',
+    ]
     readonly_fields = ['id', 'created_at']
 
 

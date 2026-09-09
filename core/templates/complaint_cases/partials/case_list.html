@@ -10,7 +10,7 @@
       {% endif %}
       <p class="case-age">{{ case_item.age_label }}</p>
     </div>
-    <span class="status-pill{% if case_item.status == 'CLOSED' %} resolved{% endif %}">{{ case_item.status }}</span>
+    <span class="status-pill {{ case_item.status|lower }}">{{ case_item.status }}</span>
   </button>
 {% empty %}
   <p class="empty-state">No complaints match this view.</p>

@@ -43,6 +43,7 @@ from core.services.complaint_cases import (
     create_complaint_case,
     bootstrap_data,
     evidence_filename,
+    finish_created_case,
     list_cases,
     list_cases_page,
     next_complaint_case_id,
@@ -577,6 +578,7 @@ class ComplaintCaseServiceTests(TestCase):
                 {'client_request_id': 'request-3', 'resolution_text': 'Resolved with photo.', 'expected_revision': 1}, [evidence],
             )
         self.assertEqual(ComplaintCaseEvidence.objects.get().upload_status, 'failed')
+        self.assertTrue(ComplaintCaseEvidence.objects.get().storage_filename.startswith('HB-EV-CMP-'))
         self.assertEqual(self.case.case_updates.count(), 1)
 
     def test_sheet_failure_does_not_roll_back_local_case_update(self):
@@ -614,9 +616,15 @@ class ComplaintCaseServiceTests(TestCase):
         self.case.customer_id = 'ID 123/456'
         self.case.save(update_fields=['customer_id'])
 
-        filename = evidence_filename(self.case, 'site photo.jpg', 1)
-        self.assertNotIn('ID_123456', filename)
-        self.assertTrue(filename.endswith('-01-site_photo.jpg'))
+        officer_filename = evidence_filename(
+            self.config, self.case, self.actor('100'), 'site photo.jpg', 1,
+        )
+        hb_filename = evidence_filename(
+            self.config, self.case, self.actor('300'), 'completion.pdf', 2,
+        )
+        self.assertNotIn('123456', officer_filename)
+        self.assertRegex(officer_filename, r'^JBL-EV-CMP-\d+-1\.jpg$')
+        self.assertRegex(hb_filename, r'^HB-EV-CMP-\d+-2\.pdf$')
 
     def test_stale_revision_is_rejected_without_overwriting_the_first_update(self):
         actor = self.actor('300')
@@ -810,7 +818,8 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(case.source, 'complaint_mini_app')
         self.assertTrue(case.raw_message)
         self.assertEqual(CaseUpdate.objects.filter(parsed_message=case).count(), 1)
-        append_to_sheet.assert_called_once()
+        append_to_sheet.assert_not_called()
+        self.assertEqual(case.complaint_control.sync_status, 'pending')
 
     def test_case_reference_sequence_resets_for_each_calendar_year(self):
         first_2026 = next_complaint_case_id(
@@ -918,8 +927,8 @@ class ComplaintCaseServiceTests(TestCase):
             case__parsed_message=self.case, action='evidence_opened',
         ).exists())
 
-    @patch('core.services.complaint_cases.append_parsed_message_to_sheet', return_value=False)
-    def test_new_case_keeps_the_audit_record_when_sheet_sync_is_deferred(self, append_to_sheet):
+    @patch('core.services.complaint_cases.append_parsed_message_to_sheet', return_value=True)
+    def test_new_case_returns_before_deferred_sheet_publication(self, append_to_sheet):
         result = create_complaint_case(
             self.config,
             self.actor('100'),
@@ -938,8 +947,17 @@ class ComplaintCaseServiceTests(TestCase):
         case = ParsedMessage.objects.get(message_id=result['case']['case_id'])
         self.assertTrue(result['created'])
         self.assertFalse(result['synced_to_sheet'])
+        self.assertTrue(result['publication_deferred'])
+        self.assertEqual(case.complaint_control.sync_status, 'pending')
         self.assertEqual(case.case_updates.count(), 1)
+        append_to_sheet.assert_not_called()
+
+        detail = finish_created_case(
+            self.config, self.actor('100'), case.message_id,
+            creation_request_id='create-complaint-003', uploaded_files=[],
+        )
         append_to_sheet.assert_called_once()
+        self.assertEqual(detail['sync_status'], 'success')
 
 
 class ComplaintCaseGlobalRegisterTests(TestCase):
@@ -1230,7 +1248,7 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response['X-Export-Row-Count'], '2')
         from openpyxl import load_workbook
-        sheet = load_workbook(BytesIO(response.content), read_only=True).active
+        sheet = load_workbook(BytesIO(response.content)).active
         rows = list(sheet.iter_rows(values_only=True))
         self.assertEqual(len(rows), 3)
         self.assertEqual(rows[0], (
@@ -1245,6 +1263,8 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
         self.assertIn("'=HYPERLINK(\"bad\")", {row[customer_column] for row in rows[1:]})
         self.assertTrue(all(str(row[phone_column]).startswith("'") for row in rows[1:]))
         self.assertEqual({row[1] for row in rows[1:]}, {'CMP900001', 'CMP900002'})
+        self.assertEqual(sheet['D2'].fill.fgColor.rgb, '00FEF3C7')
+        self.assertTrue(sheet['D2'].font.bold)
         audit = ComplianceAuditEvent.objects.get(
             workflow='complaint_cases', action='register.exported', request_id='global-export-confirmed-1',
         )
@@ -1478,7 +1498,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn("match[3]}-${match[2]}-${match[1].slice(-2)", script)
         self.assertIn('unSortIcon: true', script)
         self.assertIn('.report-status{font-size:inherit;font-weight:850;white-space:nowrap}', styles)
-        self.assertNotIn('.report-status{display:inline-flex', styles)
+        self.assertIn('.report-status{display:inline-flex', styles)
         self.assertIn("utils.haptic?.(error ? 'error' : 'success')", script)
         self.assertIn('utils.bindMiniAppTheme?.(telegram, refreshComplaintTheme)', script)
         self.assertIn(':root[data-miniapp-color-scheme="dark"]', styles)
@@ -1538,6 +1558,9 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('function submitCompleteDetails(event)', script)
         self.assertIn('function validateCreateFields(formNode)', script)
         self.assertIn('function normalizedKenyanPhone(value)', script)
+        self.assertIn('function finishCreatedCase(caseItem, creationRequestId, files)', script)
+        self.assertNotIn("appendEvidence(data, 'create')", script)
+        self.assertIn("replace(/[^a-z0-9]+/g, '-')", script)
         self.assertIn('formNode.checkValidity()', script)
         self.assertIn('Primary and secondary phone numbers must be different.', script)
         self.assertIn("getUserMedia({ video: { facingMode: { ideal: 'environment' } }", script)

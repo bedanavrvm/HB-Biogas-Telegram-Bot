@@ -633,18 +633,14 @@ def create_complaint_case(
             'synced_to_sheet': control.sync_status == 'success',
             'sheet_projection_enabled': False,
         }
-    if projection_enabled:
-        try:
-            synced = sync_new_case_to_sheet(group_config, case)
-        except Exception:
-            logger.exception('Complaint creation publication failed for case %s.', case.pk)
-            synced = False
-        sync_status = 'success' if synced else 'failed'
-        sync_error = '' if synced else (case.last_sync_error or 'Complaint register publication is pending.')
-    else:
-        synced = False
-        sync_status = 'not_required'
-        sync_error = ''
+    # The canonical Django record is the successful create result. Google
+    # Sheets is a projection and must not hold the officer's request open.
+    # The current Mini App immediately follows with ``finish-created``; an
+    # interrupted client leaves a visible pending state for the existing
+    # Manager/IT retry action.
+    synced = bool(case.synced_to_sheets) if projection_enabled else False
+    sync_status = ('success' if synced else 'pending') if projection_enabled else 'not_required'
+    sync_error = ''
     control.sync_status = sync_status
     control.sync_error = sync_error
     control.last_sync_at = timezone.now() if synced else control.last_sync_at
@@ -658,6 +654,7 @@ def create_complaint_case(
         'created': created,
         'synced_to_sheet': synced,
         'sheet_projection_enabled': projection_enabled,
+        'publication_deferred': bool(projection_enabled and not synced),
     }
 
 
@@ -1291,6 +1288,51 @@ def retry_case_sync(group_config, actor: ComplaintCaseActor, case_id: str) -> di
     return case_detail(group_config, case_id, actor)
 
 
+def finish_created_case(
+    group_config,
+    actor: ComplaintCaseActor,
+    case_id: str,
+    *,
+    creation_request_id: str,
+    uploaded_files: list,
+) -> dict[str, Any]:
+    """Finish slow external work after a Mini App case is safely committed."""
+    request_id = create_request_id(creation_request_id)
+    case = _case_for_group(group_config.group_id, case_id, actor=actor)
+    control = ensure_case_control(case, group_config)
+    creation = control.events.filter(
+        action='created', request_id=request_id, actor=actor.user,
+    ).first()
+    if not creation:
+        raise ComplaintCaseError('This case-creation follow-up is not available to your account.')
+    create_update = CaseUpdate.objects.filter(
+        parsed_message=case, client_request_id=request_id,
+    ).first()
+    if not create_update:
+        raise ComplaintCaseError('The complaint creation audit record is unavailable.')
+
+    validate_uploaded_files(uploaded_files)
+    if uploaded_files:
+        store_evidence(group_config, case, create_update, actor, uploaded_files)
+
+    if complaint_sheet_projection_enabled(group_config):
+        try:
+            synced = True if case.synced_to_sheets else sync_new_case_to_sheet(group_config, case)
+        except Exception:
+            logger.exception('Deferred complaint publication failed for case %s.', case.pk)
+            synced = False
+        control.sync_status = 'success' if synced else 'failed'
+        control.sync_error = '' if synced else (
+            case.last_sync_error or 'Complaint register publication is still pending.'
+        )
+        control.last_sync_at = timezone.now() if synced else control.last_sync_at
+        control.save(update_fields=['sync_status', 'sync_error', 'last_sync_at', 'updated_at'])
+        create_update.sync_status = control.sync_status
+        create_update.sync_error = control.sync_error
+        create_update.save(update_fields=['sync_status', 'sync_error'])
+    return case_detail(group_config, case_id, actor)
+
+
 def evidence_for_preview(group_config, actor: ComplaintCaseActor, evidence_id: str) -> ComplaintCaseEvidence:
     evidence = ComplaintCaseEvidence.objects.select_related('parsed_message').filter(pk=evidence_id).first()
     if not evidence or evidence.upload_status != 'success' or not evidence.drive_file_id:
@@ -1398,16 +1440,32 @@ def store_evidence_file(group_config, case, update, actor, file_obj, index: int)
         content_hash=content_hash,
         upload_status='success',
     ).exclude(drive_url='').first()
-    evidence = ComplaintCaseEvidence.objects.create(
-        parsed_message=case,
-        case_update=update,
-        group_id=case.group_id,
-        uploaded_by=actor.name,
-        original_filename=str(getattr(file_obj, 'name', '') or ''),
-        mime_type=detected_mime or str(getattr(file_obj, 'content_type', '') or ''),
-        size=len(content),
-        content_hash=content_hash,
-    )
+    original_filename = str(getattr(file_obj, 'name', '') or '')
+    if duplicate:
+        storage_filename = duplicate.storage_filename or evidence_filename(
+            group_config, case, actor, original_filename, index,
+        )
+        evidence = ComplaintCaseEvidence.objects.create(
+            parsed_message=case, case_update=update, group_id=case.group_id,
+            uploaded_by=actor.name, original_filename=original_filename,
+            storage_filename=storage_filename,
+            mime_type=detected_mime or str(getattr(file_obj, 'content_type', '') or ''),
+            size=len(content), content_hash=content_hash,
+        )
+    else:
+        with transaction.atomic():
+            ParsedMessage.objects.select_for_update().get(pk=case.pk)
+            evidence_number = ComplaintCaseEvidence.objects.filter(parsed_message=case).count() + 1
+            storage_filename = evidence_filename(
+                group_config, case, actor, original_filename, evidence_number,
+            )
+            evidence = ComplaintCaseEvidence.objects.create(
+                parsed_message=case, case_update=update, group_id=case.group_id,
+                uploaded_by=actor.name, original_filename=original_filename,
+                storage_filename=storage_filename,
+                mime_type=detected_mime or str(getattr(file_obj, 'content_type', '') or ''),
+                size=len(content), content_hash=content_hash,
+            )
     if duplicate:
         evidence.drive_file_id = duplicate.drive_file_id
         evidence.drive_url = duplicate.drive_url
@@ -1419,7 +1477,7 @@ def store_evidence_file(group_config, case, update, actor, file_obj, index: int)
     try:
         file_id, file_url = GoogleDriveMediaStorage().upload(
             data=content,
-            filename=evidence_filename(case, evidence.original_filename, index),
+            filename=evidence.storage_filename,
             mime_type=evidence.mime_type or 'application/octet-stream',
             id_number=f'CASE_{case.message_id}',
             received_at=timezone.now(),
@@ -1479,9 +1537,20 @@ def record_complaint_evidence(
     )
 
 
-def evidence_filename(case: ParsedMessage, original_filename: str, index: int) -> str:
-    filename = get_valid_filename(original_filename or 'evidence')
-    return f'CASE-{str(case.pk).replace("-", "")[:12]}-{index:02d}-{filename}'
+def evidence_filename(
+    group_config,
+    case: ParsedMessage,
+    actor: ComplaintCaseActor,
+    original_filename: str,
+    index: int,
+) -> str:
+    extension = Path(get_valid_filename(original_filename or '')).suffix.lower()
+    if extension not in {'.jpg', '.jpeg', '.png', '.webp', '.pdf'}:
+        extension = ''
+    reference = ensure_case_control(case, group_config).reference_number or case.message_id
+    safe_reference = re.sub(r'[^A-Za-z0-9-]+', '-', str(reference or '')).strip('-')
+    prefix = 'HB-EV' if actor.role == 'HB_STAFF' else 'JBL-EV'
+    return f'{prefix}-{safe_reference}-{max(1, int(index))}{extension}'
 
 
 def control_snapshot(control: ComplaintCaseControl, case: ParsedMessage) -> dict[str, Any]:
@@ -1602,7 +1671,7 @@ def serialize_evidence(evidence: ComplaintCaseEvidence) -> dict[str, Any]:
     )
     return {
         'id': str(evidence.id),
-        'name': evidence.original_filename,
+        'name': evidence.storage_filename or evidence.original_filename,
         'mime_type': evidence.mime_type,
         'preview_url': f'/api/complaints/evidence/{evidence.id}/open/' if previewable else '',
         'previewable': previewable,

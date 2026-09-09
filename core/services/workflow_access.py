@@ -251,6 +251,7 @@ MINIAPP_ENDPOINT_CAPABILITIES = {
     'complaint_cases_global_detail': ('complaint_cases', 'complaint.queue.view'),
     'complaint_cases_global_export': ('complaint_cases', 'complaint.case.export'),
     'complaint_cases_create': ('complaint_cases', 'complaint.case.create'),
+    'complaint_cases_finish_created': ('complaint_cases', 'complaint.case.create'),
     'complaint_cases_detail': ('complaint_cases', 'complaint.queue.view'),
     'complaint_cases_update': ('complaint_cases', 'complaint.case.update'),
     'complaint_cases_evidence_access': ('complaint_cases', 'complaint.case.evidence.view'),

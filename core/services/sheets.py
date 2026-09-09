@@ -47,6 +47,12 @@ from core.services.sheet_schema import SheetSchema
 
 logger = logging.getLogger(__name__)
 
+COMPLAINT_STATUS_FORMATS = {
+    'OPEN': {'backgroundColor': {'red': 0.996, 'green': 0.953, 'blue': 0.780}, 'textFormat': {'foregroundColor': {'red': 0.573, 'green': 0.251, 'blue': 0.055}, 'bold': True}},
+    'REOPENED': {'backgroundColor': {'red': 1.0, 'green': 0.929, 'blue': 0.835}, 'textFormat': {'foregroundColor': {'red': 0.604, 'green': 0.204, 'blue': 0.071}, 'bold': True}},
+    'CLOSED': {'backgroundColor': {'red': 0.863, 'green': 0.988, 'blue': 0.906}, 'textFormat': {'foregroundColor': {'red': 0.086, 'green': 0.396, 'blue': 0.204}, 'bold': True}},
+}
+
 
 def _set_google_client_timeout(client) -> None:
     """Keep one degraded Google call below the free web-worker budget.
@@ -550,6 +556,11 @@ class GoogleSheetsService:
 
             # ── 5. Write ──────────────────────────────────────────────
             written_row = self._write_row_to_next_case_slot(row)
+            status_header = self.schema.header('status')
+            if status_header in self.sheet_columns:
+                self._format_complaint_status_rows([
+                    (written_row, row[self.sheet_columns.index(status_header)]),
+                ])
             logger.info(
                 f"Wrote row {written_row} to sheet {self._sheet_id}: "
                 f"message_id={message_id or 'unknown'}"
@@ -719,6 +730,10 @@ class GoogleSheetsService:
                     values,
                     value_input_option=group[0][2],
                 )
+
+            status_value = (updates or {}).get('status')
+            if status_value is not None:
+                self._format_complaint_status_rows([(row_number, status_value)])
 
             logger.info(
                 f"Updated case row {row_number} in sheet {self._sheet_id}: "
@@ -958,6 +973,46 @@ class GoogleSheetsService:
 
         for input_option, payload in ranges_by_option.items():
             self._batch_update_with_retry(payload, input_option)
+        status_header = self._normalize_header(self.schema.header('status'))
+        self._format_complaint_status_rows([
+            (start_row + offset, values.get(status_header, ''))
+            for offset, values in enumerate(values_by_row)
+        ])
+
+    def _format_complaint_status_rows(self, rows: list[tuple[int, object]]) -> None:
+        """Colour projected status cells without making formatting authoritative."""
+        if self.schema.row_key_field != 'complaint_id' or not rows:
+            return
+        headers = self._header_values()
+        normalized_status = self._normalize_header(self.schema.header('status'))
+        try:
+            status_column = next(
+                index + 1 for index, header in enumerate(headers)
+                if self._normalize_header(header) == normalized_status
+            )
+        except StopIteration:
+            return
+        formats = []
+        for row_number, raw_status in rows:
+            style = COMPLAINT_STATUS_FORMATS.get(str(raw_status or '').strip().upper())
+            if not style:
+                continue
+            cell = f'{self._column_letter(status_column)}{int(row_number)}'
+            formats.append({'range': cell, 'format': style})
+        if not formats:
+            return
+        try:
+            if hasattr(self._sheet, 'batch_format'):
+                self._sheet.batch_format(formats)
+            elif hasattr(self._sheet, 'format'):
+                for item in formats:
+                    self._sheet.format(item['range'], item['format'])
+        except Exception:
+            # Values remain canonical even when a cosmetic format call fails.
+            logger.warning(
+                'Could not apply complaint status highlighting in sheet %s.',
+                self._sheet_id, exc_info=True,
+            )
 
     def _batch_update_with_retry(self, payload: list[dict], value_input_option: str) -> None:
         """Write a batch through the shared bounded retry/circuit policy.

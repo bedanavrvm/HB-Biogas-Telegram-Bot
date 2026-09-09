@@ -329,6 +329,7 @@ class ComplaintCaseEvidence(models.Model):
     group_id = models.CharField(max_length=100, db_index=True)
     uploaded_by = models.CharField(max_length=255, blank=True, default='')
     original_filename = models.CharField(max_length=255, blank=True, default='')
+    storage_filename = models.CharField(max_length=255, blank=True, default='')
     mime_type = models.CharField(max_length=255, blank=True, default='')
     size = models.PositiveIntegerField(null=True, blank=True)
     content_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
@@ -346,7 +347,7 @@ class ComplaintCaseEvidence(models.Model):
         ]
 
     def __str__(self):
-        return f"Complaint evidence {self.original_filename or self.id}"
+        return f"Complaint evidence {self.storage_filename or self.original_filename or self.id}"
 
 
 class ComplaintCategory(models.Model):

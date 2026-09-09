@@ -41,6 +41,25 @@ class GoogleSheetsValidationTests(TestCase):
         
         self.assertTrue(is_valid, f"Expected valid structure, got error: {error_msg}")
         self.assertEqual(error_msg, "")
+
+    def test_complaint_status_cells_receive_semantic_highlighting(self):
+        service = GoogleSheetsService(sheet_schema={'schema_version': 2})
+        mock_sheet = Mock()
+        mock_sheet.row_values.return_value = service.sheet_columns
+        service._sheet = mock_sheet
+
+        service._format_complaint_status_rows([(2, 'OPEN'), (3, 'REOPENED'), (4, 'CLOSED')])
+
+        formats = mock_sheet.batch_format.call_args.args[0]
+        self.assertEqual([item['range'] for item in formats], ['D2', 'D3', 'D4'])
+        self.assertEqual(
+            [item['format']['backgroundColor'] for item in formats],
+            [
+                {'red': 0.996, 'green': 0.953, 'blue': 0.780},
+                {'red': 1.0, 'green': 0.929, 'blue': 0.835},
+                {'red': 0.863, 'green': 0.988, 'blue': 0.906},
+            ],
+        )
     
     def test_validate_sheet_structure_wrong_column_count(self):
         """Test validation fails with wrong column count."""
