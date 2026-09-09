@@ -466,7 +466,7 @@ class ComplaintCaseControl(models.Model):
     )
     reference_number = models.CharField(
         max_length=16, unique=True, null=True, blank=True, db_index=True,
-        help_text='Short global staff-facing complaint reference, for example CMP000001.',
+        help_text='Short global staff-facing complaint reference, for example CMP-1.',
     )
     category = models.ForeignKey(
         ComplaintCategory, null=True, blank=True, on_delete=models.PROTECT, related_name='cases',

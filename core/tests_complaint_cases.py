@@ -43,6 +43,7 @@ from core.services.complaint_cases import (
     list_cases,
     list_cases_page,
     next_complaint_case_id,
+    next_complaint_reference,
     reopen_case,
     resolve_case,
     staff_actor_for_payload,
@@ -121,7 +122,7 @@ class ComplaintCaseServiceTests(TestCase):
     def test_list_is_group_scoped(self):
         cases = list_cases(self.config)
         self.assertEqual([case['case_id'] for case in cases], ['CASE-1'])
-        self.assertRegex(cases[0]['reference_number'], r'^CMP\d{6}$')
+        self.assertEqual(cases[0]['reference_number'], 'CMP-1')
         self.assertTrue(cases[0]['recorded_at'])
 
         by_reference = list_cases(self.config, query=cases[0]['reference_number'])
@@ -132,6 +133,49 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(list_cases(self.config)[0]['reference_number'], cases[0]['reference_number'])
         sequence.refresh_from_db()
         self.assertEqual(sequence.next_number, next_number)
+
+    def test_new_reference_preserves_the_unpadded_sequence_number(self):
+        sequence, _ = ComplaintCaseSequence.objects.update_or_create(
+            group_id='__complaint_global__', year=0, defaults={'next_number': 897},
+        )
+        self.assertEqual(next_complaint_reference(), 'CMP-897')
+        sequence.refresh_from_db()
+        sequence.next_number = 1004
+        sequence.save(update_fields=['next_number', 'updated_at'])
+        self.assertEqual(next_complaint_reference(), 'CMP-1004')
+
+    def test_new_reference_has_hyphen_without_zero_padding_and_skips_collisions(self):
+        sequence, _ = ComplaintCaseSequence.objects.update_or_create(
+            group_id='__complaint_global__', year=0, defaults={'next_number': 897},
+        )
+        existing_case = self.create_case('-100100', 'CASE-COLLISION')
+        ComplaintCaseControl.objects.create(
+            parsed_message=existing_case,
+            reference_number='CMP-897',
+            sla_started_at=timezone.now(),
+        )
+
+        self.assertEqual(next_complaint_reference(), 'CMP-898')
+        sequence.refresh_from_db()
+        self.assertEqual(sequence.next_number, 899)
+
+    def test_existing_legacy_reference_is_not_reformatted(self):
+        control = ComplaintCaseControl.objects.create(
+            parsed_message=self.case,
+            reference_number='CMP000001',
+            sla_started_at=timezone.now(),
+        )
+        original_control_id = control.pk
+        original_case_id = self.case.pk
+
+        item = list_cases(self.config, query='CMP000001')[0]
+
+        control.refresh_from_db()
+        self.case.refresh_from_db()
+        self.assertEqual(item['reference_number'], 'CMP000001')
+        self.assertEqual(control.reference_number, 'CMP000001')
+        self.assertEqual(control.pk, original_control_id)
+        self.assertEqual(self.case.pk, original_case_id)
 
     def test_legacy_status_filter_remains_compatible_but_branch_filter_is_ignored(self):
         self.case.branch_region = 'Nakuru'
@@ -706,6 +750,7 @@ class ComplaintCaseServiceTests(TestCase):
 
         case = ParsedMessage.objects.get(message_id=first['case']['case_id'])
         self.assertEqual(first['case']['case_id'], second['case']['case_id'])
+        self.assertRegex(first['case']['reference_number'], r'^CMP-[1-9]\d*$')
         self.assertEqual(case.customer_name, "New O'Neil Client")
         self.assertRegex(first['case']['case_id'], r'^CMP-\d{4}-001$')
         sequence = ComplaintCaseSequence.objects.get(group_id=self.config.group_id)

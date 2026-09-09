@@ -169,7 +169,7 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
           }, { once: true });
         });
         return { results: [{
-          complaint_id: 'CMP000001', date_reported: '2026-09-01T10:00:00+03:00', status: 'Pending', needs_details: false,
+          complaint_id: 'CMP-1004', date_reported: '2026-09-01T10:00:00+03:00', status: 'Pending', needs_details: false,
           customer_name: 'TEST CUSTOMER', customer_id: '12345678', phone_number: '254700000000', reported_by: 'Officer',
           branch_region: 'Nakuru', complaint_category: 'Leakage', complaint_description: 'A sufficiently wide complaint description',
           source: 'complaint_mini_app', gps_link: '', attachments: 0, resolution_details: '', date_resolved: '2026-09-02T14:00:00+03:00', days_open: 1,
@@ -205,6 +205,7 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   await expect(page.locator('.report-status')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await expect.poll(() => page.evaluate(() => document.fonts.check('16px agGridQuartz'))).toBe(true);
   await expect(page.locator('.ag-header-cell[col-id="complaint_id"] .ag-sort-indicator-icon:visible')).toHaveCount(0);
+  await expect(page.getByText('CMP-1004', { exact: true })).toBeVisible();
   await expect(page.locator('.ag-header-cell[col-id="date_reported"] .ag-sort-indicator-icon:visible')).toHaveCount(1);
   await page.locator('.ag-header-cell[col-id="date_reported"]').click();
   await expect(page.locator('.ag-header-cell[col-id="date_reported"]')).toHaveAttribute('aria-sort', 'ascending');

@@ -786,10 +786,13 @@ def next_complaint_reference() -> str:
     sequence, _ = ComplaintCaseSequence.objects.select_for_update().get_or_create(
         group_id='__complaint_global__', year=0, defaults={'next_number': 1},
     )
-    number = sequence.next_number
-    sequence.next_number = number + 1
-    sequence.save(update_fields=['next_number', 'updated_at'])
-    return f'CMP{number:06d}'
+    while True:
+        number = sequence.next_number
+        sequence.next_number = number + 1
+        sequence.save(update_fields=['next_number', 'updated_at'])
+        reference = f'CMP-{number}'
+        if not ComplaintCaseControl.objects.filter(reference_number=reference).exists():
+            return reference
 
 
 @transaction.atomic
