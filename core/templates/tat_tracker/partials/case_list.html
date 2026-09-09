@@ -17,7 +17,7 @@
     {% endif %}
     <div class="case-tags">
       {% if case.next_stage %}<span class="next-chip">Next: {{ case.next_stage }}</span>{% endif %}
-      <span class="case-time">{{ case.updated_at|default:"" }}</span>
+      <span class="case-time">{{ case.updated_at_local|default:case.updated_at }}</span>
     </div>
   </button>
 {% empty %}

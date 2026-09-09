@@ -72,6 +72,8 @@ SIGNER_ROLE_CATALOG = (
     ('officer', 'Officer (legacy role)'),
     ('branch_manager', 'Branch Manager'),
     ('management_approver', 'Management Approver'),
+    ('credit_analyst', 'Credit Analyst'),
+    ('supplier_representative', 'Supplier Representative'),
     ('commissioner_for_oaths', 'Commissioner for Oaths'),
     ('witness', 'Witness'),
 )
@@ -291,7 +293,7 @@ def validate_product_form_contract(
             and rule.get('required', False) and has_signature
             and str(rule.get('role') or '') not in {
                 'bro_1', 'bro_2', 'loan_officer', 'officer', 'branch_manager',
-                'management_approver',
+                'management_approver', 'credit_analyst',
             }
         ):
             if not str(identity_fields.get('name') or '').strip() or not str(identity_fields.get('phone') or '').strip():
@@ -737,8 +739,33 @@ def _missing_application_requirements(
         required = bool(item.get('required'))
         required_when = validation.get('required_when')
         if required_when:
-            from core.services.origination_documents import rule_matches
-            required = rule_matches(required_when, application.form_payload)
+            if (
+                isinstance(required_when, dict)
+                and required_when.get('operator') == 'first_origination_application'
+            ):
+                from core.services.identifiers import normalize_national_id
+                applicant_id = normalize_national_id(
+                    application.form_payload.get('applicant_id_number')
+                    or application.form_payload.get('applicant_national_id') or ''
+                )
+                prior = LoanOriginationApplication.objects.exclude(
+                    pk=application.pk,
+                ).exclude(status=LoanOriginationApplication.STATUS_CANCELLED)
+                if application.customer_id:
+                    already_known = prior.filter(customer_id=application.customer_id).exists()
+                else:
+                    already_known = any(
+                        normalize_national_id(
+                            payload.get('applicant_id_number')
+                            or payload.get('applicant_national_id') or ''
+                        ) == applicant_id
+                        for payload in prior.values_list('form_payload', flat=True)
+                        if isinstance(payload, dict)
+                    )
+                required = bool(applicant_id) and not already_known
+            else:
+                from core.services.origination_documents import rule_matches
+                required = rule_matches(required_when, application.form_payload)
         if not (
             required and str(item.get('enforcement_stage') or '') == str(stage or '')
             and str(item.get('workflow') or '') in {'', 'loan_origination'}
@@ -885,6 +912,44 @@ def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
     context.setdefault('approval_amount', approved_amount)
     context.setdefault('amount_advanced', approved_amount)
     context.setdefault('acknowledgement_amount', approved_amount)
+    def _sum_payload(*keys: str) -> Decimal:
+        total = Decimal('0')
+        for key in keys:
+            try:
+                total += Decimal(str(application.form_payload.get(key) or '0'))
+            except (InvalidOperation, TypeError, ValueError):
+                continue
+        return total
+
+    other_business_income = Decimal('0')
+    for row in application.form_payload.get('business_other_income_lines') or []:
+        try:
+            other_business_income += Decimal(str(row.get('amount') or '0'))
+        except (AttributeError, InvalidOperation, TypeError, ValueError):
+            continue
+    business_total_income = _sum_payload('business_sales_amount') + other_business_income
+    business_total_expenses = _sum_payload(
+        'business_purchases_amount', 'business_rent_expense', 'business_payroll_expense',
+        'business_utilities_expense', 'business_other_expense',
+    )
+    household_total_income = _sum_payload(
+        'net_monthly_salary', 'household_spouse_net_salary', 'monthly_income',
+        'household_pension_income', 'household_other_income',
+    )
+    household_total_expenses = _sum_payload(
+        'household_rent_expense', 'household_school_fees_expense',
+        'household_transport_expense', 'household_utilities_expense',
+        'household_food_expense', 'household_other_loan_repayment',
+        'household_medical_expense', 'household_entertainment_expense',
+    )
+    context.update({
+        'business_total_income': format(business_total_income, 'f'),
+        'business_total_expenses': format(business_total_expenses, 'f'),
+        'business_net_surplus': format(business_total_income - business_total_expenses, 'f'),
+        'household_total_income': format(household_total_income, 'f'),
+        'household_total_expenses': format(household_total_expenses, 'f'),
+        'household_net_surplus': format(household_total_income - household_total_expenses, 'f'),
+    })
     assets = context.get('secured_assets')
     if isinstance(assets, list):
         total = Decimal('0')

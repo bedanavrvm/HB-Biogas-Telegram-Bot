@@ -1,22 +1,23 @@
 # Invoice Finance LAF seed reference
 
 This document is the field-by-field reference for the reviewed Invoice Finance
-application form seeded by
-`core/services/invoice_finance_origination_seed.py`. The Python seed contract is
+application form governed by
+`core/services/origination_main_laf_seeds.py`. The Python seed contract is
 authoritative if this document and the code ever disagree.
 
 ## Template identity and ownership
 
 | Item | Configuration |
 |---|---|
-| Source PDF | `LAFS/INVOICE FINANCE.pdf` (supplied locally and excluded from Git) |
-| Seed command | `seed_invoice_finance_origination` |
+| Source PDF | `LAFS/MAIN/INVOICE FINANCE.pdf` (supplied locally and excluded from Git), SHA-256 `730e5cc0b2a112bc2c07fb408b0de9455cb5bf669471d138fb0172224d3d0947` |
+| Seed command | `seed_origination_main_lafs --laf invoice_finance --laf-root <LAFS>` |
 | Default global product code | `invoice_finance` |
-| Template role | Product-specific primary LAF |
-| Product attachment | The seed creates or replaces the editable Invoice Finance Origination Product Definition and attaches its primary template |
-| Publication | Never automatic; the product definition remains a draft until an administrator calibrates and publishes it |
+| Document type | `invoice_finance_laf` |
+| Template role | Independent catalogue Main LAF (`primary`, `required`) |
+| Product eligibility | Exact global product allowlist: `invoice_finance` |
+| Publication | Never automatic; the catalogue template remains Ready for review until an administrator calibrates and activates it |
 | PDF placement ownership | Human-owned in the Django Admin alignment builder; the seed does not create or publish coordinates |
-| Supporting documents | The PDF's printed `ATTACH` checklist is deliberately ignored and creates no supporting-document assignment |
+| Evidence | `invoice_copy` is required; `applicant_id_copy` is required when system `is_first_origination_application` is true |
 
 The seed requires an existing global Invoice Finance `Product` and either a
 published or draft commercial `ProductVersion`. Shared canonical fields marked
@@ -24,10 +25,10 @@ published or draft commercial `ProductVersion`. Shared canonical fields marked
 
 ## Running the seed
 
-Run the dry-run first:
+Run the catalogue dry-run first:
 
 ```powershell
-.\.venv\Scripts\python.exe manage.py seed_invoice_finance_origination --actor <active-superuser>
+.\.venv\Scripts\python.exe manage.py seed_origination_main_lafs --laf-root <LAFS> --laf invoice_finance --actor <active-superuser>
 ```
 
 After reviewing its proposed product/version and PDF digest, apply it:
@@ -119,16 +120,16 @@ must not be printed on this LAF.
 | Invoice due/payable date | `invoice_due_date` | Invoice Details | `date` | Yes | User input; financial, partial masking; reporting filter | ISO date | `text` |
 | Loan amount requested | `loan_amount` | Commercial Terms | `money` | Yes | Officer-entered; financial, partial masking; reporting metric; **Existing shared field** | Product policy envelope | `text` |
 | Advance percentage | `invoice_advance_rate_percent` | Invoice Details | `number` | Yes | User input; financial, partial masking; reporting metric | Minimum 0; maximum 100 | `text` |
-| Approved facility amount | `approval_amount` | Invoice Details | `money` | Yes | User input; financial, partial masking; reporting metric; **Existing shared field** | Decimal money | `text` |
+| Approved facility amount | `approval_amount` | Invoice Details | `money` (not an input) | Derived | Controlled approval outcome; financial, partial masking; reporting metric; **Existing shared field** | Decimal money | `text` |
 | Invoice payer representative name | `invoice_payer_representative_name` | Signer Details | `text` | Yes | User input; PII, partial masking | None | `text` where the representative name is printed |
 | Invoice payer representative OTP phone | `invoice_payer_representative_phone` | Signer Details | `phone` | Yes | User input; PII, partial masking; signing-delivery field | Valid mapped Kenyan mobile phone | **Not placed** |
 | Business Relationship Officer name | `bro_1_name` | Signer Details | `text` (not an input) | Yes | System-derived, internal, unmasked; **Existing shared field** | Resolved from the responsible officer | `text` |
-| Management approver name | `management_approver_name` | Signer Details | `text` | Yes | User input; internal, unmasked | None | `text` |
-| Amount acknowledged as received | `acknowledgement_amount` | Acknowledgement | `money` | Yes | User input; financial, partial masking; reporting metric; **Existing shared field** | Decimal money | `text` |
+| Management approver name | `management_approver_name` | Signer Details | `text` (not an input) | Derived | Bound by the authorized staff-signing action | None | `text` |
+| Amount acknowledged as received | `acknowledgement_amount` | Acknowledgement | `money` (not an input) | Derived | Controlled acknowledgement outcome; financial, partial masking; reporting metric; **Existing shared field** | Decimal money | `text` |
 
-The seed does not calculate the advance percentage, approved amount, or
-acknowledgement amount from other fields. Those LAF-specific inputs remain
-manual. The shared commercial quote is policy-derived from amount and tenor.
+The advance percentage remains an officer input. Approved and acknowledgement
+amounts are controlled system outcomes; the shared commercial quote is
+policy-derived from amount and tenor.
 
 ## Signers and slots
 
@@ -155,8 +156,7 @@ do not substitute an ordinary field box for a signature or stamp.
 
 ## Calibration and publication checklist
 
-1. Open the resulting draft Origination Product Definition and its primary LAF
-   alignment builder.
+1. Open the resulting independent Main LAF in the catalogue alignment builder.
 2. Place every required printable field. Do not place the OTP-only phone field.
 3. For Gender and Housing Tenure, draw a separate checkbox box over each printed
    choice and select the documented `checked_when` code.
@@ -165,7 +165,12 @@ do not substitute an ordinary field box for a signature or stamp.
    money, dates, and check marks land inside the intended PDF boxes.
 6. Confirm publish readiness reports no missing canonical identity field or
    signer slot.
-7. Publish the product definition as a Superuser. Existing applications keep
-   their frozen earlier schema/template snapshots.
+7. Publish the alignment and activate the catalogue template as a Superuser.
+   Existing applications keep their frozen earlier schema/template snapshots.
 8. Create a synthetic application, preview the complete packet, and verify each
    remote signer receives only their own link and OTP before production use.
+
+`application_date`, `approval_amount`, `acknowledgement_amount`, `bro_1_name`,
+and `management_approver_name` are system-owned. `is_first_origination_application`
+is a system `boolean` derived from prior non-cancelled applications for the
+matched `applicant_id_number`; it is never shown as an officer input.

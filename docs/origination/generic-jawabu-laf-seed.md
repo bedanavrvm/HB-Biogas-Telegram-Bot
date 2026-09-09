@@ -1,20 +1,20 @@
 # Generic Jawabu LAF seed reference
 
 This document is the field-by-field reference for the reusable two-page Jawabu
-loan application form seeded by
-`core/services/generic_jawabu_laf_seed.py`. The Python seed contract remains the
+loan application form governed by
+`core/services/origination_main_laf_seeds.py`. The Python seed contract remains the
 authoritative source if documentation drifts.
 
 ## Template identity and ownership
 
 | Item | Configuration |
 |---|---|
-| Source PDF | `LAFS/Jawabu LAF (2).pdf` (supplied locally and excluded from Git) |
-| Seed command | `seed_generic_jawabu_laf` |
+| Source PDF | `LAFS/MAIN/JBL LAF Generic.pdf` (supplied locally and excluded from Git), SHA-256 `5e7d264c0cf3e4264e9ab768fd89a4fd1dab131eedd733cce439ce11c6e345f1` |
+| Seed command | `seed_origination_main_lafs --laf generic --laf-root <LAFS>` |
 | Document type | `jawabu_generic_laf` |
 | Display name | Generic Jawabu LAF |
 | Template role | Reusable global primary-template family |
-| Product attachment | Never automatic; an administrator explicitly assigns the published reusable template to each compatible draft product definition |
+| Product eligibility | Empty allowlist; unavailable until an administrator explicitly assigns a compatible global product |
 | Publication | Never automatic; calibrate and publish the reusable template before assigning it |
 | PDF placement ownership | Human-owned in the Django Admin alignment builder; the seed does not create or publish coordinates |
 | Deliberate exclusions | Freehand sketches and Commissioner for Oaths content are not captured as ordinary form fields |
@@ -243,11 +243,10 @@ The Mini App **Take photo** action opens a live rear-camera stream through
 6. Save and inspect the filled sample on every page. Verify both Net Income
    values display the two independently entered values.
 7. Publish the reusable template as a Superuser.
-8. Open each compatible **draft** Origination Product Definition, select the
-   published Generic Jawabu LAF as its primary template, and verify its product
-   schema remains compatible.
-9. Publish each product definition separately. Products already published are
-   immutable and require an editable successor version.
+8. Add explicit eligible global products in the document catalogue and verify
+   each active Origination definition remains schema- and signer-compatible.
+9. Existing published templates and application snapshots remain immutable;
+   contract changes require a ready successor template version.
 10. Create a synthetic application for every assigned product and verify form
     validation, evidence, PDF preview, checkbox ticks, signer dispatch, and the
     latest signed packet before production use.

@@ -5,6 +5,9 @@
 }(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
+  const TAT_LOCALE = 'en-KE';
+  const TAT_TIME_ZONE = 'Africa/Nairobi';
+
   function parseTatInstant(value) {
     const text = String(value || '').trim();
     if (!text) return null;
@@ -19,11 +22,68 @@
   function formatNairobiDateTime(value) {
     const parsed = parseTatInstant(value);
     if (!parsed) return String(value || '');
-    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Africa/Nairobi', day: '2-digit', month: '2-digit', year: '2-digit',
+    const parts = Object.fromEntries(new Intl.DateTimeFormat(TAT_LOCALE, {
+      timeZone: TAT_TIME_ZONE, day: '2-digit', month: '2-digit', year: 'numeric',
       hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
     }).formatToParts(parsed).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
-    return `${parts.day}-${parts.month}-${parts.year} ${parts.hour}:${parts.minute} EAT`;
+    return `${parts.day}-${parts.month}-${parts.year} ${parts.hour}:${parts.minute}`;
+  }
+
+  function formatNairobiDate(value) {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    const dateOnly = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (dateOnly) return `${dateOnly[3]}-${dateOnly[2]}-${dateOnly[1]}`;
+    const numeric = text.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2}|\d{4})/);
+    if (numeric) {
+      const year = numeric[3].length === 2 ? `20${numeric[3]}` : numeric[3];
+      return `${numeric[1].padStart(2, '0')}-${numeric[2].padStart(2, '0')}-${year}`;
+    }
+    const parsed = parseTatInstant(text);
+    if (!parsed) return text;
+    const parts = Object.fromEntries(new Intl.DateTimeFormat(TAT_LOCALE, {
+      timeZone: TAT_TIME_ZONE, day: '2-digit', month: '2-digit', year: 'numeric',
+    }).formatToParts(parsed).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+    return `${parts.day}-${parts.month}-${parts.year}`;
+  }
+
+  function nairobiDateInputValue(value) {
+    const parsed = parseTatInstant(value);
+    if (!parsed) return '';
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+      timeZone: TAT_TIME_ZONE, day: '2-digit', month: '2-digit', year: 'numeric',
+    }).formatToParts(parsed).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  }
+
+  function nairobiDateTimeInputValue(value) {
+    const parsed = parseTatInstant(value);
+    if (!parsed) return '';
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+      timeZone: TAT_TIME_ZONE, day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(parsed).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+    return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+  }
+
+  function nairobiDateTimeInputToIso(value) {
+    const text = String(value || '').trim();
+    const match = text.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::(\d{2}))?$/);
+    if (!match) return '';
+    return `${match[1]}:${match[2] || '00'}+03:00`;
+  }
+
+  function formatLocalizedNumber(value, options) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '';
+    return new Intl.NumberFormat(TAT_LOCALE, options || {}).format(number);
+  }
+
+  function formatLocalizedPercent(value, maximumFractionDigits) {
+    const formatted = formatLocalizedNumber(value, {
+      maximumFractionDigits: maximumFractionDigits == null ? 1 : maximumFractionDigits,
+    });
+    return formatted ? `${formatted}%` : '';
   }
 
   function formatAdaptiveDurationMinutes(value) {
@@ -43,5 +103,16 @@
     return `${sign}${hours}h ${remainderMinutes}m`;
   }
 
-  return { formatNairobiDateTime, formatAdaptiveDurationMinutes };
+  return {
+    TAT_LOCALE,
+    TAT_TIME_ZONE,
+    formatNairobiDateTime,
+    formatNairobiDate,
+    nairobiDateInputValue,
+    nairobiDateTimeInputValue,
+    nairobiDateTimeInputToIso,
+    formatLocalizedNumber,
+    formatLocalizedPercent,
+    formatAdaptiveDurationMinutes,
+  };
 }));

@@ -389,7 +389,21 @@
     const raw = String(value || '').replace(/,/g, '').trim();
     const number = Number(raw);
     if (!Number.isFinite(number)) return value || '';
-    return number.toLocaleString('en-KE', { maximumFractionDigits: 0 });
+    return tatFormatters.formatLocalizedNumber
+      ? tatFormatters.formatLocalizedNumber(number, { maximumFractionDigits: 0 })
+      : number.toLocaleString('en-KE', { maximumFractionDigits: 0 });
+  }
+
+  function formatLocalizedNumber(value, options) {
+    if (tatFormatters.formatLocalizedNumber) return tatFormatters.formatLocalizedNumber(value, options);
+    const number = Number(value);
+    return Number.isFinite(number) ? number.toLocaleString('en-KE', options || {}) : '';
+  }
+
+  function formatLocalizedPercent(value, maximumFractionDigits) {
+    if (tatFormatters.formatLocalizedPercent) return tatFormatters.formatLocalizedPercent(value, maximumFractionDigits);
+    const formatted = formatLocalizedNumber(value, { maximumFractionDigits: maximumFractionDigits == null ? 1 : maximumFractionDigits });
+    return formatted ? `${formatted}%` : '';
   }
 
   function formatMinutes(value) {
@@ -1266,6 +1280,7 @@
 
   function bootstrap(data) {
     state.data = data;
+    if (!state.report.loaded) setDefaultReportDates();
     state.workflowMode = data.workflow_mode || null;
     if (!data.authorized) throw new Error(data.reason || 'Unauthorized.');
     $('loadingBrand').classList.add('hidden');
@@ -1542,7 +1557,7 @@
           <span class="tat-badge ${escapeHtml(summary.sla_status || '')}">${tatCounterMarkup(summary, `case:${summary.case_id}`)}</span>
         </div>
         <div class="fact fact-activity">
-          <small>Activity (EAT)</small>
+          <small>Activity</small>
           <div class="activity-times">
             <div><small>Created</small><span>${escapeHtml(formatTatDateTime(summary.created_at_iso || summary.created_at))}</span></div>
             <div><small>Last updated</small><span>${escapeHtml(formatTatDateTime(summary.updated_at_iso || summary.updated_at))}</span></div>
@@ -1783,7 +1798,15 @@
       }
       save.disabled = true;
       try {
-        await submitUpdate([{ field: field.key, value: input.value.trim(), correction: true }]);
+        const correctionValue = field.kind === 'timestamp' && tatFormatters.nairobiDateTimeInputToIso
+          ? tatFormatters.nairobiDateTimeInputToIso(input.value)
+          : input.value.trim();
+        if (!correctionValue) {
+          setStatus(`Enter ${field.label} as a valid date and time.`, 'error');
+          save.disabled = false;
+          return;
+        }
+        await submitUpdate([{ field: field.key, value: correctionValue, correction: true }]);
       } catch (error) {
         setStatus(error.message, 'error');
         save.disabled = false;
@@ -1792,6 +1815,7 @@
   }
 
   function correctionDateTimeValue(value) {
+    if (tatFormatters.nairobiDateTimeInputValue) return tatFormatters.nairobiDateTimeInputValue(value);
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return '';
     const pad = (number) => String(number).padStart(2, '0');
@@ -1919,9 +1943,16 @@
 
   function setDefaultReportDates() {
     const form = $('tatReportFilters');
-    const end = new Date(); const start = new Date(end); start.setDate(start.getDate() - 29);
-    const localIso = value => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
-    form.elements.date_from.value = localIso(start); form.elements.date_to.value = localIso(end);
+    const serverNow = (state.data || {}).server_now || new Date().toISOString();
+    const endText = tatFormatters.nairobiDateInputValue
+      ? tatFormatters.nairobiDateInputValue(serverNow)
+      : new Date(serverNow).toISOString().slice(0, 10);
+    const end = new Date(`${endText}T12:00:00+03:00`);
+    const start = new Date(end); start.setUTCDate(start.getUTCDate() - 29);
+    const dateInputValue = value => tatFormatters.nairobiDateInputValue
+      ? tatFormatters.nairobiDateInputValue(value)
+      : value.toISOString().slice(0, 10);
+    form.elements.date_from.value = dateInputValue(start); form.elements.date_to.value = endText;
     state.report.defaultValues.date_from = form.elements.date_from.value;
     state.report.defaultValues.date_to = form.elements.date_to.value;
     syncReportDateDisplays();
@@ -2016,6 +2047,7 @@
 
   function formatReportDate(value) {
     if (!value) return '';
+    if (tatFormatters.formatNairobiDate) return tatFormatters.formatNairobiDate(value);
     const text = String(value).trim();
     const dateOnly = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (dateOnly) return `${dateOnly[3]}-${dateOnly[2]}-${dateOnly[1].slice(-2)}`;
@@ -2029,7 +2061,7 @@
     const date = new Date(text);
     if (Number.isNaN(date.getTime())) return String(value);
     const pad = number => String(number).padStart(2, '0');
-    return `${pad(date.getDate())}-${pad(date.getMonth() + 1)}-${String(date.getFullYear()).slice(-2)}`;
+    return `${pad(date.getDate())}-${pad(date.getMonth() + 1)}-${String(date.getFullYear())}`;
   }
 
   function formatTatDateTime(value) {
@@ -2042,11 +2074,11 @@
       : text;
     const parsed = new Date(normalized);
     if (Number.isNaN(parsed.getTime())) return text;
-    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Africa/Nairobi', day: '2-digit', month: '2-digit', year: '2-digit',
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-KE', {
+      timeZone: 'Africa/Nairobi', day: '2-digit', month: '2-digit', year: 'numeric',
       hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
     }).formatToParts(parsed).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
-    return `${parts.day}-${parts.month}-${parts.year} ${parts.hour}:${parts.minute} EAT`;
+    return `${parts.day}-${parts.month}-${parts.year} ${parts.hour}:${parts.minute}`;
   }
 
   function syncReportDateDisplays() {
@@ -2447,8 +2479,8 @@
     $('tatReportMetrics').innerHTML = items.map(([key, label, tone]) => {
       let value = metrics[key];
       if (key.endsWith('_minutes')) value = formatMinutes(value);
-      else if (key === 'sla_met_percent') value = value == null ? '—' : `${value}%`;
-      else value = Number(value || 0).toLocaleString();
+      else if (key === 'sla_met_percent') value = value == null ? '—' : formatLocalizedPercent(value, 1);
+      else value = formatLocalizedNumber(value || 0);
       return `<div class="report-metric ${tone}"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`;
     }).join('');
   }
@@ -2469,7 +2501,7 @@
       const reason = payload.exclusion_reason === 'Target unavailable'
         ? 'they do not have a recorded target'
         : (payload.exclusion_reason || 'they could not be compared');
-      parts.push(`Note: ${count.toLocaleString()} record${count === 1 ? '' : 's'} ${count === 1 ? 'is' : 'are'} not included because ${reason}.`);
+      parts.push(`Note: ${formatLocalizedNumber(count)} record${count === 1 ? '' : 's'} ${count === 1 ? 'is' : 'are'} not included because ${reason}.`);
     }
     return parts.filter(Boolean).join('\n');
   }
@@ -2485,9 +2517,9 @@
     }
     if (payload.metric === 'load_per_assignee') {
       Object.entries(payload.assignee_counts || {}).forEach(([label, count]) => {
-        details.push(`<div><strong>${escapeHtml(label)}:</strong> ${Number(count).toLocaleString()} configured assignee${Number(count) === 1 ? '' : 's'}</div>`);
+        details.push(`<div><strong>${escapeHtml(label)}:</strong> ${formatLocalizedNumber(count)} configured assignee${Number(count) === 1 ? '' : 's'}</div>`);
       });
-      if (payload.unassigned_case_count) details.push(`<div class="warning">${Number(payload.unassigned_case_count).toLocaleString()} cases have no matching configured assignee.</div>`);
+      if (payload.unassigned_case_count) details.push(`<div class="warning">${formatLocalizedNumber(payload.unassigned_case_count)} cases have no matching configured assignee.</div>`);
     }
     target.innerHTML = details.join('');
   }
@@ -2495,8 +2527,8 @@
   function formatHeatmapValue(value, metric) {
     if (value == null) return 'No data';
     if (metric === 'duration') return formatMinutes(value);
-    if (metric === 'sla_met' || metric === 'target_usage') return `${Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
-    return Number(value).toLocaleString();
+    if (metric === 'sla_met' || metric === 'target_usage') return formatLocalizedPercent(value, 1);
+    return formatLocalizedNumber(value);
   }
 
   function renderTatHeatmap(payload) {
@@ -2539,10 +2571,10 @@
       const stats = signal.baseline || {}; const tone = signal.classification === 'review_recommended' ? 'bad' : (signal.classification === 'none' ? '' : 'warn');
       const raw = stats.over_percent == null
         ? 'No actions with a recorded target'
-        : `${stats.over_percent}% were overdue across ${Number(stats.valid_samples || 0).toLocaleString()} recorded action${Number(stats.valid_samples || 0) === 1 ? '' : 's'}`;
+        : `${formatLocalizedPercent(stats.over_percent, 1)} were overdue across ${formatLocalizedNumber(stats.valid_samples || 0)} recorded action${Number(stats.valid_samples || 0) === 1 ? '' : 's'}`;
       const selected = signal.selected_scope || {};
       const selectedRaw = signal.classification === 'selected_scope_high' && selected.over_percent != null
-        ? `<small>Your filters: ${escapeHtml(selected.over_percent)}% overdue across ${Number(selected.valid_samples || 0).toLocaleString()} action${Number(selected.valid_samples || 0) === 1 ? '' : 's'}</small>` : '';
+        ? `<small>Your filters: ${escapeHtml(formatLocalizedPercent(selected.over_percent, 1))} overdue across ${formatLocalizedNumber(selected.valid_samples || 0)} action${Number(selected.valid_samples || 0) === 1 ? '' : 's'}</small>` : '';
       const heading = compactTatReportLabel(signal.group ? `${signal.stage} - ${signal.group}` : signal.stage);
       return `<section class="tat-signal ${tone}"><div><strong>${escapeHtml(heading)}</strong><span>${escapeHtml(raw)}</span></div>${selectedRaw}${signal.message ? `<p>${escapeHtml(signal.message)}</p>` : '<p>The current data does not show a strong enough pattern to recommend a target review.</p>'}</section>`;
     }).join('');

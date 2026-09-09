@@ -1,5 +1,5 @@
 from unittest.mock import MagicMock, patch
-from datetime import timedelta
+from datetime import timedelta, timezone as datetime_timezone
 from decimal import Decimal
 from io import BytesIO, StringIO
 import hashlib
@@ -279,6 +279,22 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(data['metrics']['total'], 1)
         self.assertEqual(data['visibility']['code'], 'cases_visible')
         self.assertEqual([item['case_id'] for item in data['items']], [case.case_id])
+        self.assertTrue(timezone.datetime.fromisoformat(data['server_now']).tzinfo)
+        self.assertEqual(data['items'][0]['updated_at_local'], timezone.localtime(case.updated_at).strftime('%d-%m-%Y %H:%M'))
+
+    def test_tat_admin_time_display_pairs_nairobi_with_utc(self):
+        from core.admin import _tat_dual_time
+
+        value = timezone.datetime(2026, 9, 7, 6, 15, tzinfo=datetime_timezone.utc)
+        rendered = str(_tat_dual_time(value))
+
+        self.assertIn('07-09-2026 09:15', rendered)
+        self.assertIn('UTC 07-09-2026 06:15', rendered)
+        case_admin = admin.site._registry[TatTrackerCase]
+        event_admin = admin.site._registry[TatTrackerEvent]
+        self.assertIn('created_times', case_admin.list_display)
+        self.assertIn('updated_times', case_admin.list_display)
+        self.assertIn('created_times', event_admin.list_display)
 
     def test_home_treats_blank_access_scope_as_all_branches_products_and_group(self):
         AccessGrant.objects.filter(user=self.bro_user, workflow='tat_tracker').delete()
@@ -615,7 +631,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Ready for my role', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=84", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=85", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -646,6 +662,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Number(state.home.pagination.offset || 0)', source)
         self.assertIn('class="case-number">#{{ forloop.counter }}', case_list_template)
         self.assertIn('class="case-side"', case_list_template)
+        self.assertIn('case.updated_at_local|default:case.updated_at', case_list_template)
         self.assertIn('.tat-sheet-overlay', stylesheet)
         self.assertIn('class="notice-close tat-sheet-close"', template)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
@@ -656,7 +673,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('id="tatGridZoomIn"', template)
         self.assertIn('miniapp/ag_grid_zoom.js', template)
         self.assertIn("miniapp/ag_grid_zoom.js' %}?v=2", template)
-        self.assertIn("miniapp/tat_formatters.js' %}?v=1", template)
+        self.assertIn("miniapp/tat_formatters.js' %}?v=2", template)
         self.assertIn("storageKey: 'tat-report-grid-zoom'", source)
         self.assertIn('id="appHeader" class="app-top"', template)
         self.assertIn('class="refresh-label"', template)
@@ -703,9 +720,13 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('state.report.abortController?.abort()', source)
         self.assertIn("suppressMovableColumns: touch", source)
         self.assertIn('function formatTatDateTime(value)', source)
-        self.assertIn('Activity (EAT)', source)
+        self.assertIn('<small>Activity</small>', source)
+        self.assertNotIn('Activity (EAT)', source)
+        self.assertNotIn(' EAT`', source)
         self.assertIn('Last updated', source)
         self.assertIn('summary.created_at_iso || summary.created_at', source)
+        self.assertIn('nairobiDateTimeInputToIso(input.value)', source)
+        self.assertIn("new Intl.DateTimeFormat('en-KE'", source)
         self.assertIn('function formatAdaptiveDurationMinutes(value)', source)
         self.assertIn('valueFormatter: p => formatAdaptiveDurationMinutes(p.value)', source)
         self.assertNotIn('headerName: `${compactTatReportLabel(stage.label)} (min)`', source)

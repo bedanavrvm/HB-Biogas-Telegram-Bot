@@ -3,6 +3,8 @@ import logging
 import re
 import uuid
 from copy import deepcopy
+from datetime import timezone as datetime_timezone
+from zoneinfo import ZoneInfo
 
 from django import forms
 from django.contrib import admin
@@ -221,6 +223,22 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+TAT_LOCAL_TIME_ZONE = ZoneInfo('Africa/Nairobi')
+
+
+def _tat_dual_time(value):
+    if not value:
+        return '—'
+    if timezone.is_naive(value):
+        value = timezone.make_aware(value, TAT_LOCAL_TIME_ZONE)
+    local_value = timezone.localtime(value, TAT_LOCAL_TIME_ZONE)
+    utc_value = value.astimezone(datetime_timezone.utc)
+    return format_html(
+        '{}<br><span style="opacity:.7;font-size:.78rem">UTC {}</span>',
+        local_value.strftime('%d-%m-%Y %H:%M'),
+        utc_value.strftime('%d-%m-%Y %H:%M'),
+    )
 
 
 class WorkflowDataModeStateForm(forms.ModelForm):
@@ -4917,11 +4935,23 @@ class TatTrackerCaseAdmin(TestDataDeleteAdmin):
     list_fullwidth = True
     list_display = [
         'case_id', 'data_mode', 'group_id', 'product_label', 'client_name', 'branch',
-        'status', 'current_stage', 'is_deleted', 'deleted_at', 'updated_at',
+        'status', 'current_stage', 'is_deleted', 'created_times', 'deleted_times', 'updated_times',
     ]
     list_filter = ['data_mode', 'pilot_cycle_id', 'is_deleted', 'group_id', 'product_key', 'branch', 'status', 'current_stage']
     search_fields = ['case_id', 'client_name', 'national_id', 'primary_phone', 'bro_name', 'branch']
     actions = ['mark_selected_deleted']
+
+    @admin.display(description='Created (Nairobi / UTC)', ordering='created_at')
+    def created_times(self, obj):
+        return _tat_dual_time(obj.created_at)
+
+    @admin.display(description='Deleted (Nairobi / UTC)', ordering='deleted_at')
+    def deleted_times(self, obj):
+        return _tat_dual_time(obj.deleted_at)
+
+    @admin.display(description='Updated (Nairobi / UTC)', ordering='updated_at')
+    def updated_times(self, obj):
+        return _tat_dual_time(obj.updated_at)
 
     def get_urls(self):
         return [
@@ -5066,9 +5096,13 @@ class TatTrackerCaseAdmin(TestDataDeleteAdmin):
 
 @admin.register(TatTrackerEvent)
 class TatTrackerEventAdmin(ReadOnlyAuditAdmin):
-    list_display = ['case', 'stage_label', 'transition_code', 'from_state', 'to_state', 'actor_name', 'source', 'synced_to_sheet', 'created_at']
+    list_display = ['case', 'stage_label', 'transition_code', 'from_state', 'to_state', 'actor_name', 'source', 'synced_to_sheet', 'created_times']
     list_filter = ['group_id', 'source', 'stage_key', 'transition_code', 'synced_to_sheet', 'created_at']
     search_fields = ['case__case_id', 'case__client_name', 'actor_name', 'stage_label']
+
+    @admin.display(description='Occurred (Nairobi / UTC)', ordering='created_at')
+    def created_times(self, obj):
+        return _tat_dual_time(obj.created_at)
 
 
 @admin.register(RawMessage)

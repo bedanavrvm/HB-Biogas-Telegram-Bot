@@ -47,7 +47,7 @@ LOCKOUT_WINDOW = timedelta(minutes=30)
 SESSION_TTL_DEFAULT_HOURS = 48
 STAFF_SIGNER_ROLES = {
     'bro_1', 'bro_2', 'loan_officer', 'officer', 'branch_manager',
-    'management_approver',
+    'management_approver', 'credit_analyst',
 }
 
 STAFF_SIGNER_ACCESS_ROLES = {
@@ -57,6 +57,7 @@ STAFF_SIGNER_ACCESS_ROLES = {
     'officer': {'JBL_OFFICER'},
     'branch_manager': {'BM'},
     'management_approver': {'BM', 'MANAGEMENT'},
+    'credit_analyst': {'CA'},
 }
 
 
