@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=32">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=33">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
   {% include "complaint_cases/lucide_icons.html" %}
@@ -27,7 +27,7 @@
     <section id="loadingState" class="loading-state" aria-live="polite"><span class="spinner-inline" aria-hidden="true"></span><span>Loading complaints...</span></section>
     <nav id="workspaceTabs" class="workspace-tabs" aria-label="Complaint workspace" hidden>
       <button id="queueWorkspaceBtn" type="button" class="active"><svg class="lucide" aria-hidden="true"><use href="#lucide-clipboard-list"></use></svg><span>Complaints</span></button>
-      <button id="globalWorkspaceBtn" type="button" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-layout-dashboard"></use></svg><span>Data Overview</span></button>
+      <button id="globalWorkspaceBtn" type="button" data-required-capability="complaint.reports.view" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-layout-dashboard"></use></svg><span>Data Overview</span></button>
     </nav>
 
     <section id="queueView" hidden>
@@ -120,8 +120,8 @@
   <script src="{% static 'miniapp/secure_media_viewer.js' %}?v=1"></script>
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
-  <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=2"></script>
+  <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=3"></script>
   <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=6"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=39"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=41"></script>
 </body>
 </html>

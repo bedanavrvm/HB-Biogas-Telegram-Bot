@@ -2462,7 +2462,7 @@
       inButton: $('tatGridZoomIn'),
       storageKey: 'tat-report-grid-zoom',
       apiProvider: () => state.report.gridApi,
-      defaults: { fontSize: 10, gridSize: 4, rowHeight: 34, headerHeight: 36, cellPadding: 6, smallFontSize: 9 },
+      defaults: { fontSize: 10, gridSize: 4, rowHeight: 34, headerHeight: 36, cellPadding: 4, smallFontSize: 9 },
     });
   }
 

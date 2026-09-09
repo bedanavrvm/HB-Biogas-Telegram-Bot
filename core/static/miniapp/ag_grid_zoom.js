@@ -24,7 +24,7 @@
       gridSize: 4,
       rowHeight: 34,
       headerHeight: 36,
-      cellPadding: 8,
+      cellPadding: 4,
       smallFontSize: null,
     }, defaults || {});
     return {

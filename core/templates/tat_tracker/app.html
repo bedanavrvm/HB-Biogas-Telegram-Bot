@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=57">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=59">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}" data-task-token="{{ task_token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -46,7 +46,7 @@
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9h8M8 13h8M8 17h5"/></svg>
         <span>Cases</span>
       </button>
-      <button id="dashboardWorkspaceBtn" type="button" aria-pressed="false" data-required-capability="tat.reports.view">
+      <button id="dashboardWorkspaceBtn" type="button" aria-pressed="false" data-required-capability="tat.reports.view" hidden>
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 13h6v7H4zM14 4h6v16h-6zM4 4h6v5H4z"/></svg>
         <span>TAT Reports</span>
       </button>
@@ -113,7 +113,7 @@
         </svg>
         <span>Queue</span>
       </button>
-      <button type="button" data-view="new" data-required-capability="tat.case.create">
+      <button type="button" data-view="new" data-required-capability="tat.case.create" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
           <path d="M12 5v14M5 12h14"/>
         </svg>
@@ -126,7 +126,7 @@
         </svg>
         <span>Settings</span>
       </button>
-      <button type="button" data-view="search" data-required-capability="tat.case.search">
+      <button type="button" data-view="search" data-required-capability="tat.case.search" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
           <circle cx="11" cy="11" r="8"/>
           <path d="m21 21-4.3-4.3"/>
@@ -420,7 +420,7 @@
   <script src="{% static 'miniapp/tat_formatters.js' %}?v=2"></script>
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
-  <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=86"></script>
+  <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=3"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=88"></script>
 </body>
 </html>

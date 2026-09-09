@@ -20,6 +20,7 @@ assert.equal(zoom.normalizeLevel('not-a-number'), 100);
 assert.equal(zoom.normalizeLevel(119), 125);
 assert.equal(zoom.adjacentLevel(100, 1), 110);
 assert.equal(zoom.adjacentLevel(20, -1), 20);
+assert.equal(zoom.metricsFor(100).cellPadding, 4);
 assert.deepEqual(zoom.metricsFor(125, {
   fontSize: 10, gridSize: 4, rowHeight: 34, headerHeight: 36, cellPadding: 6,
 }), {

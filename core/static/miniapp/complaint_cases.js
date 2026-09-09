@@ -196,11 +196,13 @@
       const response = await json('bootstrap/');
       const data = response.data;
       state.capabilities = new Set(data.actor.capabilities || []);
+      document.querySelectorAll('[data-required-capability]').forEach(node => {
+        node.hidden = !can(node.dataset.requiredCapability);
+      });
       state.evidenceLimits = Object.assign(state.evidenceLimits, data.evidence_limits || {});
       $('actorLine').textContent = `${data.actor.name} · ${data.actor.role}`;
       updateCounts(data.counts || {});
       $('newCaseBtn').hidden = !can('complaint.case.create');
-      $('globalWorkspaceBtn').hidden = !can('complaint.reports.view');
       $('workspaceTabs').classList.toggle('single-tab', !can('complaint.reports.view'));
       $('exportAllBtn').hidden = !(can('complaint.reports.view') && can('complaint.case.export'));
       selectOptions($('createCaseForm').elements.branch_region, data.branches, 'Select branch');
@@ -1128,7 +1130,7 @@
       inButton: $('complaintGridZoomIn'),
       storageKey: 'complaint-report-grid-zoom',
       apiProvider: () => state.reportGridApi,
-      defaults: { fontSize: 11, gridSize: 4, rowHeight: 34, headerHeight: 36, cellPadding: 8, smallFontSize: 10 },
+      defaults: { fontSize: 11, gridSize: 4, rowHeight: 34, headerHeight: 36, cellPadding: 4, smallFontSize: 10 },
     });
   }
   function initializeReportGrid() {

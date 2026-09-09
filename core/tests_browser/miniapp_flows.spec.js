@@ -37,7 +37,7 @@ test('AG Grid zoom changes real row and header sizing', async ({ page }) => {
       inButton: document.getElementById('in'),
       storage: null,
       apiProvider: () => window.__zoomGridApi,
-      defaults: { fontSize: 11, gridSize: 4, rowHeight: 34, headerHeight: 36, cellPadding: 8 },
+      defaults: { fontSize: 11, gridSize: 4, rowHeight: 34, headerHeight: 36, cellPadding: 4 },
     });
   });
 
@@ -45,6 +45,7 @@ test('AG Grid zoom changes real row and header sizing', async ({ page }) => {
   const defaultRowHeight = await page.locator('.ag-row').evaluate(node => node.getBoundingClientRect().height);
   const defaultHeaderHeight = await page.locator('.ag-header').evaluate(node => node.getBoundingClientRect().height);
   const defaultColumnWidth = await page.locator('.ag-header-cell').first().evaluate(node => node.getBoundingClientRect().width);
+  await expect(page.locator('#grid')).toHaveCSS('--ag-cell-horizontal-padding', '4px');
   await page.locator('#in').click();
   await expect(page.locator('#reset')).toHaveText('110%');
   await expect.poll(() => page.locator('.ag-row').evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(defaultRowHeight);
