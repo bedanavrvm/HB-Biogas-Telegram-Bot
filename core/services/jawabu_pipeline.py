@@ -2460,12 +2460,10 @@ def _notify_final_approved(farmer: JawabuFarmerMaster) -> None:
         return
 
     text = (
-        "🎉 Final Decision Approved\n\n"
+        "✅ Final decision approved\n\n"
         f"Farmer: {farmer.customer_name or 'Not provided'}\n"
-        f"ID: {farmer.national_id or 'Not provided'}\n"
-        f"Phone: {farmer.primary_phone or 'Not provided'}\n"
         f"County: {farmer.county or 'Not provided'}\n\n"
-        "The farmer’s application has received final approval and is ready for "
+        "The application has been approved and is ready for "
         "order batching in the Pipeline Portal."
     )
     url = f'https://api.telegram.org/bot{bot_token}/sendMessage'

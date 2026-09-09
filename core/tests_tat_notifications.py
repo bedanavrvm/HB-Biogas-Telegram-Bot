@@ -497,9 +497,10 @@ class TatPrivateTaskTests(TestCase):
 
         self.assertEqual(telegram.call_count, 1)
         payload = telegram.call_args.args[1]
-        self.assertIn('⏰ Action Required', payload['text'])
-        self.assertIn('A TAT task requires your attention.', payload['text'])
+        self.assertIn('⏰ TAT task requires your attention', payload['text'])
         self.assertIn('Stage:', payload['text'])
+        self.assertIn('Customer:', payload['text'])
+        self.assertNotIn('Product:', payload['text'])
         self.assertEqual(
             payload['reply_markup']['inline_keyboard'][0][0]['text'],
             'Open TAT Task',
@@ -629,8 +630,8 @@ class TatPrivateTaskTests(TestCase):
         self.assertEqual(telegram.call_count, 2)
         self.assertEqual(
             telegram.call_args_list[0].args[1]['text'],
-            '✅ Task Alerts Connected\n\n'
-            'You will receive your assigned TAT tasks and alerts in this chat.',
+            '✅ TAT alerts connected\n\n'
+            "You'll now receive your assigned TAT tasks and alerts here.",
         )
         self.assertEqual(
             telegram.call_args_list[1].args,
@@ -741,9 +742,9 @@ class TatPrivateTaskTests(TestCase):
         self.assertEqual(telegram.call_count, 1)
         self.assertEqual(
             telegram.call_args.args[1]['text'],
-            '✅ Alert Test Successful\n\n'
-            'Your private task alerts are working correctly.\n\n'
-            'No real task or escalation was created.',
+            '✅ Alert test successful\n\n'
+            'Your private TAT alerts are working correctly.\n\n'
+            'No real task was created.',
         )
 
     def test_miniapp_private_alert_button_is_a_persistent_toggle(self):

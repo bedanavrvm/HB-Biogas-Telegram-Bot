@@ -1082,7 +1082,20 @@ def notify_approvers(request, event: str, extra='') -> None:
         if not token or not telegram_id:
             continue
         telegram = AccessControlNotification.objects.create(request=request, recipient=recipient, channel=AccessControlNotification.CHANNEL_TELEGRAM, event=event)
-        text = extra or f'Access-control request {request.pk} is {event}: {request.workflow}/{request.role}.'
+        if extra:
+            text = extra
+        elif event == 'pending':
+            text = (
+                '⏰ Access review required\n\n'
+                f'A {request.workflow} access change for {request.role or "multiple roles"} '
+                'is waiting for your review.\n\nOpen Django Admin to review it.'
+            )
+        elif event == 'applied':
+            text = '✅ Access change applied\n\nThe approved staff access change is now active.'
+        elif event == 'rejected':
+            text = 'Access change rejected\n\nThe requested staff access change was not applied.'
+        else:
+            text = 'Staff access updated\n\nOpen Django Admin if you need the full audit details.'
         try:
             response = requests.post(f'https://api.telegram.org/bot{token}/sendMessage', json={'chat_id': telegram_id, 'text': text}, timeout=10)
             response.raise_for_status()

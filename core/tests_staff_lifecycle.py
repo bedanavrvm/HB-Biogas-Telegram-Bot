@@ -575,8 +575,9 @@ class StaffTelegramOnboardingTests(TestCase):
                 return {'ok': True, 'result': {'invite_link': 'https://t.me/+spin-one-use'}}
             self.assertEqual(method, 'sendMessage')
             self.assertEqual(payload['chat_id'], '776655')
-            self.assertIn('Additional JBL Tools Are Ready, Existing Staff!', payload['text'])
-            self.assertIn('Your existing account remains active.', payload['text'])
+            self.assertIn('New tools available', payload['text'])
+            self.assertIn('Hi Existing Staff, you have been given access', payload['text'])
+            self.assertNotIn('existing account remains active', payload['text'])
             self.assertNotIn('Mini App', payload['text'])
             buttons = [
                 button
@@ -865,7 +866,7 @@ class StaffTelegramOnboardingTests(TestCase):
             self.assertEqual(method, 'sendMessage')
             self.assertEqual(payload['chat_id'], '998877')
             self.assertIn('Welcome to JBL Field Workflow', payload['text'])
-            self.assertIn('Your staff account has been verified', payload['text'])
+            self.assertIn('Your account is active and your assigned tools are ready.', payload['text'])
             buttons = [button for row in payload['reply_markup']['inline_keyboard'] for button in row]
             self.assertIn('Join assigned JBL group', {button['text'] for button in buttons})
             self.assertNotIn(self.group.group_id, str(buttons))

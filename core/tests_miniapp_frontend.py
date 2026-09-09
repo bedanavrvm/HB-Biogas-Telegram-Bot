@@ -48,7 +48,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_imports.js'), html.index('miniapp/portal.js'))
         self.assertIn('miniapp/portal_queues.js?v=9', html)
         self.assertIn('miniapp/portal_farmer_sheet.js?v=58', html)
-        self.assertIn('miniapp/utils.js?v=10', html)
+        self.assertIn('miniapp/utils.js?v=11', html)
         self.assertIn('miniapp/portal_helpers.js?v=6', html)
         self.assertIn('miniapp/portal.css?v=92', html)
         self.assertIn('miniapp/portal_filters.js?v=11', html)
@@ -100,6 +100,18 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("closeProtectionReasons = new Set()", source)
         self.assertIn("method === 'GET' || method === 'HEAD'", source)
         self.assertIn("url.indexOf('/miniapp-diagnostics/')", source)
+
+    def test_shared_runtime_provides_compact_toasts_and_delayed_top_progress(self):
+        runtime = Path('core/static/miniapp/runtime.js').read_text(encoding='utf-8')
+        styles = Path('core/static/miniapp/base.css').read_text(encoding='utf-8')
+
+        self.assertIn('miniapp-top-progress', runtime)
+        self.assertIn('miniapp-shared-toast', runtime)
+        self.assertIn('window.fetch = progressFetch', runtime)
+        self.assertIn('}, 120);', runtime)
+        self.assertIn('.miniapp-top-progress.is-active', styles)
+        self.assertIn('.miniapp-shared-toast.is-visible', styles)
+        self.assertIn('env(safe-area-inset-top)', styles)
 
     def test_high_risk_miniapps_use_state_aware_close_protection(self):
         origination = Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
@@ -164,8 +176,8 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("window.addEventListener('online'", source)
         self.assertNotIn('keepalive: true', source)
         self.assertNotIn('fetch(`/api/origination/api/applications/${current.id}/`', source)
-        self.assertIn('data-ui-version="20260907-1"', template)
-        self.assertIn('loan_origination.js\' %}?v=20260907-1', template)
+        self.assertIn('data-ui-version="20260909-1"', template)
+        self.assertIn('loan_origination.js\' %}?v=20260909-1', template)
 
     def test_origination_repeatable_security_normalizes_numeric_entry_and_marks_required_columns(self):
         source = Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8')

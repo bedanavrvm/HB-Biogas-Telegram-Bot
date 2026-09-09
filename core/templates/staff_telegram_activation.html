@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Activate JBL staff access</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
+  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=8">
   <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=17">
   <style>
     body{background:#f4f5f6;margin:0;padding:1rem;font-family:system-ui,sans-serif}.activation{max-width:440px;margin:8vh auto;background:white;border:1px solid #d9dde2;border-radius:14px;padding:1.25rem}.activation input,.activation button{width:100%;min-height:48px;box-sizing:border-box;border-radius:9px}.activation input{border:1px solid #b8c0c8;padding:.75rem;font-size:1.2rem;letter-spacing:.2rem}.activation button{border:0;background:#279bd7;color:white;font-weight:700;margin-top:1rem}.activation button:disabled{opacity:.65}.activation-status{margin-top:1rem;padding:.7rem;border-radius:8px}.activation-status[hidden]{display:none}.activation-status.error{background:#fff1f1;color:#9b1c1c}.activation-status.success{background:#ecfdf5;color:#086c4b}
@@ -24,7 +24,7 @@
     </form>
     <div id="activation-status" class="activation-status" role="status" aria-live="polite" hidden></div>
   </main>
-  <script src="{% static 'miniapp/utils.js' %}?v=9"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=11"></script>
   <script>
   (function(){
     const utils=window.MiniAppUtils||{},tg=utils.initTelegram?utils.initTelegram():(window.Telegram&&window.Telegram.WebApp);

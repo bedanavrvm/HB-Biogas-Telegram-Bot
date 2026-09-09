@@ -150,7 +150,7 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertNotIn(self.farmer_stage3, queue)
         self.assertNotIn(self.farmer_stage4, queue)
 
-    @override_settings(TELEGRAM_BOT_TOKEN='test-token')
+    @override_settings(TELEGRAM_BOT_TOKEN='test-token', TELEGRAM_DEFAULT_CHAT_ID='-1003701615384')
     @patch('requests.post')
     def test_final_approval_notification_is_staff_friendly(self, post):
         from core.services.group_config import GroupRegistry
@@ -163,7 +163,9 @@ class JblPipelineServiceTestCase(TestCase):
         payload = post.call_args.kwargs['data']
         self.assertEqual(payload['chat_id'], self.config.group_id)
         self.assertNotIn('parse_mode', payload)
-        self.assertIn('🎉 Final Decision Approved', payload['text'])
+        self.assertIn('✅ Final decision approved', payload['text'])
+        self.assertNotIn('ID:', payload['text'])
+        self.assertNotIn('Phone:', payload['text'])
         self.assertIn('Farmer: Farmer One', payload['text'])
         self.assertIn('ready for order batching in the Pipeline Portal.', payload['text'])
 

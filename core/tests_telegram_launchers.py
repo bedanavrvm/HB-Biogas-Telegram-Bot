@@ -54,6 +54,8 @@ class TelegramLauncherTests(TestCase):
     def test_preview_uses_selected_generic_apps_and_durable_start_params(self):
         preview = preview_group_launcher(self.config)
 
+        self.assertEqual(preview['text'], 'JBL Apps\nChoose a tool below.')
+
         buttons = [
             button
             for row in preview['reply_markup']['inline_keyboard']

@@ -514,3 +514,55 @@ tr.row-review textarea {
     min-height: 44px;
   }
 }
+
+/* Shared Telegram-style action feedback. The line is delayed by runtime.js so
+   fast requests do not flicker; toasts stay concise and safe-area aware. */
+.miniapp-top-progress {
+  position: fixed;
+  z-index: 2147483646;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 3px;
+  opacity: 0;
+  pointer-events: none;
+  background: var(--tg-theme-button-color, #2aabee);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--tg-theme-button-color, #2aabee) 60%, transparent);
+  transform-origin: left center;
+}
+.miniapp-top-progress.is-active {
+  width: 78%;
+  opacity: 1;
+  transition: width 8s cubic-bezier(.1,.7,.2,1), opacity .12s ease;
+}
+.miniapp-top-progress.is-complete {
+  width: 100%;
+  opacity: 0;
+  transition: width .16s ease, opacity .18s ease .04s;
+}
+.miniapp-shared-toast {
+  position: fixed;
+  z-index: 2147483647;
+  top: calc(max(10px, env(safe-area-inset-top)) + 6px);
+  left: 50%;
+  width: max-content;
+  max-width: min(calc(100vw - 24px), 420px);
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--tg-theme-secondary-bg-color, #252a30);
+  color: var(--tg-theme-text-color, #fff);
+  box-shadow: 0 8px 26px rgba(0,0,0,.24);
+  font: 600 13px/1.35 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -10px) scale(.98);
+  transition: opacity .16s ease, transform .16s ease;
+}
+.miniapp-shared-toast.is-visible { opacity: 1; transform: translate(-50%, 0) scale(1); }
+.miniapp-shared-toast[data-tone="success"] { background: #176044; color: #fff; }
+.miniapp-shared-toast[data-tone="warning"] { background: #7a5400; color: #fff; }
+.miniapp-shared-toast[data-tone="error"] { background: #9d2d20; color: #fff; }
+@media (prefers-reduced-motion: reduce) {
+  .miniapp-top-progress, .miniapp-shared-toast { transition-duration: .01ms !important; }
+}

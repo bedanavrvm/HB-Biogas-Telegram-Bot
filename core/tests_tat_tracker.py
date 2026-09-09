@@ -641,7 +641,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Ready for my role', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=85", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=86", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -3794,11 +3794,11 @@ class TatTrackerWorkflowTest(TestCase):
         alert = next_role_alert(self.config, data)
 
         self.assertEqual(alert['role'], 'BRO')
-        self.assertIn('⏰ Action Required', alert['text'])
-        self.assertIn('Assigned to: BRO', alert['text'])
+        self.assertIn('⏰ Action required', alert['text'])
+        self.assertIn('A TAT task is waiting for BRO.', alert['text'])
         self.assertIn('Reference: JBL-BS-2026-001', alert['text'])
-        self.assertIn('Next Step: MPESA sent to Admin', alert['text'])
-        self.assertIn('confirm the required action', alert['text'])
+        self.assertIn('Next step: MPESA sent to Admin', alert['text'])
+        self.assertIn('review and take action', alert['text'])
 
     def test_next_role_alert_can_be_disabled_in_workflow(self):
         self.config.workflow['stage_alerts_enabled'] = False
@@ -3828,12 +3828,15 @@ class TatTrackerWorkflowTest(TestCase):
                 'amount': '10000',
             }),
             content_type='application/json',
+            HTTP_X_MINIAPP_MESSAGE_CONTRACT='2',
+            HTTP_X_REQUEST_ID='tat-alert-create-1',
+            HTTP_IDEMPOTENCY_KEY='tat-alert-create-1',
         )
 
         self.assertEqual(response.status_code, 200)
         mock_reply.assert_called_once()
-        self.assertIn('⏰ Action Required', mock_reply.call_args.kwargs['text'])
-        self.assertIn('Assigned to: BRO', mock_reply.call_args.kwargs['text'])
+        self.assertIn('⏰ Action required', mock_reply.call_args.kwargs['text'])
+        self.assertIn('A TAT task is waiting for BRO.', mock_reply.call_args.kwargs['text'])
 
     @patch('core.services.tat_tracker.validate_tat_telegram_webapp_init_data')
     def test_create_endpoint_returns_specific_invalid_bro_message(self, mock_auth):

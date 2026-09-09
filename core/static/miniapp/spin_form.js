@@ -251,6 +251,14 @@
       activeBanner.className = 'status-banner';
       return;
     }
+    if (!targetBanner && type === 'success' && window.MiniAppRuntime?.showToast) {
+      activeBanner.hidden = true;
+      activeBanner.style.display = 'none';
+      activeBanner.textContent = '';
+      activeBanner.className = 'status-banner';
+      window.MiniAppRuntime.showToast(messages[0], { tone: 'success' });
+      return;
+    }
     activeBanner.hidden = false;
     activeBanner.style.display = 'block';
     activeBanner.className = `status-banner ${type || ''}`.trim();

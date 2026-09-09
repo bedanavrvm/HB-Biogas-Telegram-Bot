@@ -39,6 +39,11 @@
   }
   function can(key) { return state.capabilities.has(key); }
   function notify(message, error) {
+    if (window.MiniAppRuntime?.showToast) {
+      window.MiniAppRuntime.showToast(message, { tone: error ? 'error' : 'success' });
+      utils.haptic?.(error ? 'error' : 'success');
+      return;
+    }
     const node = $('toast');
     node.textContent = message || '';
     node.classList.toggle('error', !!error);

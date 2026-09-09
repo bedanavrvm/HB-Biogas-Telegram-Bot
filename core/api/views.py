@@ -2529,29 +2529,41 @@ def _send_spin_webapp_chat_reply(group_id: str, result: dict) -> None:
         return
     if result.get('success'):
         lines = [
-            'SPIN request received',
+            'SPIN request submitted ✅',
             '',
-            f"Request ID: {result.get('request_id', '')}",
-            f"Type: {result.get('request_type', '')}",
-            f"Customer: {result.get('customer_name', '')}",
-            f"National ID: {result.get('national_id', '')}",
-            f"Phone: {result.get('primary_phone', '')}",
+            'The request has been received and sent to the credit team for review.',
         ]
-        files_stored = result.get('files_stored', 0)
-        if files_stored:
-            lines.append(f"Documents attached: {files_stored}")
-        lines.extend(['', 'The credit team can now review it in the SPIN dashboard.'])
+        if result.get('request_id'):
+            lines.extend(['', f"Request: {result['request_id']}"])
     else:
         lines = [
-            'SPIN request needs attention',
+            'SPIN request needs attention ⚠️',
             '',
-            result.get('message') or 'Please check the form and try again.',
+            "The request couldn't be submitted because some information is missing or incorrect.",
         ]
-        errors = [str(error) for error in (result.get('errors') or []) if str(error).strip()]
-        if errors:
-            lines.extend(['', 'Please update:'])
-            lines.extend(f'- {error}' for error in errors[:6])
+        fields = _spin_attention_fields(result)
+        lines.extend(['', 'Please check:'])
+        lines.extend(f'• {field}' for field in fields)
+        lines.extend(['', 'Open SPIN / CRB to fix and resubmit.'])
     _post_telegram_reply(chat_id=group_id, message_data={}, text='\n'.join(lines))
+
+
+def _spin_attention_fields(result: dict) -> list[str]:
+    """Translate validation details into safe, actionable Telegram labels."""
+    text = ' '.join([
+        str(result.get('message') or ''),
+        *(str(item) for item in (result.get('errors') or [])),
+    ]).lower()
+    candidates = (
+        (('phone', 'mobile'), 'Customer phone number'),
+        (('national id', 'national_id'), 'Customer National ID'),
+        (('document', 'attachment', 'report'), 'Required identification document'),
+        (('branch',), 'Branch'),
+        (('product',), 'Product'),
+        (('customer name', 'customer_name'), 'Customer name'),
+    )
+    labels = [label for keywords, label in candidates if any(key in text for key in keywords)]
+    return labels[:4] or ['Required request information']
 
 @csrf_exempt
 @require_http_methods(["POST"])
@@ -2697,9 +2709,9 @@ def _process_new_chat_members(message_data: dict) -> dict | None:
     if len(human_members) > 3:
         names += f' and {len(human_members) - 3} more'
     text = (
-        f"Welcome {names}.\n\n"
-        "Use the buttons below to open the tools configured for this group.\n"
-        "If a button does not open for you, ask an admin to add your Telegram account to the workflow staff list."
+        f"Welcome, {names}! 👋\n\n"
+        "These are the JBL tools available in this group.\n\n"
+        "Select a tool below to get started."
     )
     return {
         'status': 'command',

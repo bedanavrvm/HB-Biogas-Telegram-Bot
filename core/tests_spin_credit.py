@@ -439,6 +439,24 @@ class SpinCreditMiniAppTestCase(TestCase):
         self.assertIn('window.MiniAppUtils', source)
         self.assertIn('utils.escapeHtml', source)
 
+    @patch('core.api.views._post_telegram_reply')
+    def test_failed_submission_notification_uses_actionable_labels_without_backend_errors(self, reply):
+        from core.api.views import _send_spin_webapp_chat_reply
+
+        _send_spin_webapp_chat_reply('-100spin', {
+            'success': False,
+            'message': 'primary_phone validation_error',
+            'errors': ['supporting document is required', 'database constraint detail'],
+        })
+
+        text = reply.call_args.kwargs['text']
+        self.assertIn('SPIN request needs attention ⚠️', text)
+        self.assertIn('• Customer phone number', text)
+        self.assertIn('• Required identification document', text)
+        self.assertIn('Open SPIN / CRB to fix and resubmit.', text)
+        self.assertNotIn('validation_error', text)
+        self.assertNotIn('database constraint', text)
+
     @override_settings(SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, ALLOWED_HOSTS=['testserver'])
     def test_form_submission_rejects_non_object_json(self):
         response = self.client.post(
@@ -559,7 +577,8 @@ class SpinCreditMiniAppTestCase(TestCase):
             'group_id': '-100spinmedia', 'request_type': 'spin_crb', 'customer_name': 'Peter Mwangi', 'national_id': '12345678',
             'primary_phone': '0712345678', 'requested_amount': '54000', 'tenor': '12 months', 'branch': 'Nakuru',
             'supporting_docs': SimpleUploadedFile('laf.pdf', b'%PDF-1.4 test', content_type='application/pdf'),
-        })
+        }, HTTP_X_MINIAPP_MESSAGE_CONTRACT='2', HTTP_X_REQUEST_ID='spin-submit-media-1',
+            HTTP_IDEMPOTENCY_KEY='spin-submit-media-1')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['files_stored'], 2)
         self.assertEqual(response.json()['request_id'], 'SPIN-2026-0001')
@@ -572,8 +591,10 @@ class SpinCreditMiniAppTestCase(TestCase):
         mock_append.assert_called_once()
         mock_reply.assert_called_once()
         reply_text = mock_reply.call_args.kwargs['text']
-        self.assertIn('SPIN request received', reply_text)
-        self.assertIn('The credit team can now review it', reply_text)
+        self.assertIn('SPIN request submitted ✅', reply_text)
+        self.assertIn('sent to the credit team for review', reply_text)
+        self.assertNotIn('National ID:', reply_text)
+        self.assertNotIn('Phone:', reply_text)
         self.assertNotIn('REQUEST SUBMITTED', reply_text)
 
     @override_settings(SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, ALLOWED_HOSTS=['testserver'])

@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% if batch.import_kind == 'system_export' %}Review System Export{% else %}Review Farmers Upload{% endif %}</title>
-  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
+  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=8">
   <link rel="stylesheet" href="{% static 'miniapp/farmup_review.css' %}?v=3">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=14">
@@ -62,7 +62,7 @@
 <script id="batch-data" type="application/json">{{ batch_json|safe }}</script>
 <script src="{% static 'miniapp/telegram.js' %}"></script>
 {% include "miniapp_diagnostics.html" %}
-<script src="{% static 'miniapp/utils.js' %}?v=9"></script>
+<script src="{% static 'miniapp/utils.js' %}?v=11"></script>
 {% if batch.import_kind == 'system_export' %}
 <script src="{% static 'miniapp/system_export_review.js' %}?v=7"></script>
 {% else %}

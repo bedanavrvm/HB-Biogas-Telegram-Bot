@@ -138,7 +138,7 @@ def preview_group_launcher(config: 'GroupSheetConfiguration') -> dict:
 
     keyboard = [buttons[index:index + 2] for index in range(0, len(buttons), 2)]
     payload = {
-        'text': 'JBL Apps\nChoose a tool for this group.',
+        'text': 'JBL Apps\nChoose a tool below.',
         'reply_markup': {'inline_keyboard': keyboard},
     }
     signature = hashlib.sha256(

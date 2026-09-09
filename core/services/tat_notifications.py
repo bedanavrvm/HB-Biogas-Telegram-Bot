@@ -866,13 +866,12 @@ def _send_recipient(recipient: TatActionTaskRecipient) -> bool:
     locator = resolve_locator(token)
     url = build_task_url(token)
     text = (
-        '⏰ Action Required\n\n'
-        'A TAT task requires your attention.\n\n'
+        '⏰ TAT task requires your attention\n\n'
         f'Stage: {recipient.task.stage_label}\n'
+        f'Customer: {recipient.task.case.client_name or "Not provided"}\n'
+        f'Reference: {recipient.task.case.case_id}\n'
         f'Branch: {recipient.task.case.branch or "Not provided"}\n'
-        f'Product: {recipient.task.case.product_label or recipient.task.case.product_key or "Not provided"}\n'
-        f'Reference: {recipient.task.case.case_id}\n\n'
-        'Open the task to review the details and confirm the required action.'
+        '\nReview the task and complete the required action.'
     )
     try:
         result = _telegram_request('sendMessage', {
@@ -1345,8 +1344,8 @@ def connect_private_alerts(user, *, request_id: str = '') -> dict:
         _telegram_request('sendMessage', {
             'chat_id': telegram_id,
             'text': (
-                '✅ Task Alerts Connected\n\n'
-                'You will receive your assigned TAT tasks and alerts in this chat.'
+                '✅ TAT alerts connected\n\n'
+                "You'll now receive your assigned TAT tasks and alerts here."
             ),
         })
     except Exception as exc:
@@ -1432,9 +1431,9 @@ def send_private_alert_test(user, *, request_id: str = '', actor=None) -> dict:
         _telegram_request('sendMessage', {
             'chat_id': telegram_id,
             'text': (
-                '✅ Alert Test Successful\n\n'
-                'Your private task alerts are working correctly.\n\n'
-                'No real task or escalation was created.'
+                '✅ Alert test successful\n\n'
+                'Your private TAT alerts are working correctly.\n\n'
+                'No real task was created.'
             ),
         })
     except Exception as exc:

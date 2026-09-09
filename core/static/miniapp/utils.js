@@ -425,8 +425,17 @@
   }
 
   function showToast(toast, message, options) {
-    if (!toast) return;
     const settings = options || {};
+    const tone = settings.error || /(?:^|\s)(?:error|danger)-toast(?:\s|$)/.test(settings.className || '')
+      ? 'error'
+      : (/(?:^|\s)success(?:-toast)?(?:\s|$)/.test(settings.className || '') ? 'success' : 'info');
+    if (window.MiniAppRuntime?.showToast) {
+      window.MiniAppRuntime.showToast(message, { tone, timeout: settings.timeout });
+      if (tone === 'error') haptic('error');
+      else if (tone === 'success') haptic('success');
+      return;
+    }
+    if (!toast) return;
     toast.textContent = message || '';
     toast.className = settings.className || ('toast visible' + (settings.error ? ' error' : ''));
     if (settings.error || /(?:^|\s)(?:error|danger)-toast(?:\s|$)/.test(toast.className)) haptic('error');

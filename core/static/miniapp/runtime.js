@@ -4,6 +4,87 @@
 
   const visibilitySubscribers = new Set();
   let visible = document.visibilityState !== 'hidden';
+  let activeRequests = 0;
+  let progressTimer = null;
+  let progressStartedAt = 0;
+  let toastTimer = null;
+
+  function ensureProgressLine() {
+    let line = document.getElementById('miniapp-top-progress');
+    if (line) return line;
+    line = document.createElement('div');
+    line.id = 'miniapp-top-progress';
+    line.className = 'miniapp-top-progress';
+    line.setAttribute('role', 'progressbar');
+    line.setAttribute('aria-label', 'Loading');
+    line.setAttribute('aria-hidden', 'true');
+    (document.body || document.documentElement).appendChild(line);
+    return line;
+  }
+
+  function beginProgress() {
+    activeRequests += 1;
+    if (activeRequests !== 1) return;
+    window.clearTimeout(progressTimer);
+    progressTimer = window.setTimeout(function () {
+      if (!activeRequests) return;
+      const line = ensureProgressLine();
+      progressStartedAt = Date.now();
+      line.className = 'miniapp-top-progress is-active';
+      line.setAttribute('aria-hidden', 'false');
+    }, 120);
+  }
+
+  function endProgress() {
+    activeRequests = Math.max(0, activeRequests - 1);
+    if (activeRequests) return;
+    window.clearTimeout(progressTimer);
+    const line = document.getElementById('miniapp-top-progress');
+    if (!line || !line.classList.contains('is-active')) return;
+    const remaining = Math.max(0, 240 - (Date.now() - progressStartedAt));
+    progressTimer = window.setTimeout(function () {
+      line.className = 'miniapp-top-progress is-complete';
+      window.setTimeout(function () {
+        line.className = 'miniapp-top-progress';
+        line.setAttribute('aria-hidden', 'true');
+      }, 180);
+    }, remaining);
+  }
+
+  function showToast(message, options) {
+    const settings = options || {};
+    const tone = ['success', 'error', 'warning', 'info'].includes(settings.tone)
+      ? settings.tone : 'info';
+    let toast = document.getElementById('miniapp-shared-toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'miniapp-shared-toast';
+      toast.className = 'miniapp-shared-toast';
+      (document.body || document.documentElement).appendChild(toast);
+    }
+    toast.textContent = String(message || '');
+    toast.dataset.tone = tone;
+    toast.setAttribute('role', tone === 'error' ? 'alert' : 'status');
+    toast.classList.add('is-visible');
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(function () {
+      toast.classList.remove('is-visible');
+    }, Number(settings.timeout || (tone === 'error' ? 5000 : 3200)));
+    return toast;
+  }
+
+  // A delayed global fetch indicator gives navigation and writes BotFather-like
+  // feedback without flashing for fast requests. Existing request semantics are
+  // preserved, including rejected promises and Response objects.
+  const nativeFetch = window.fetch && window.fetch.bind(window);
+  if (nativeFetch && !window.fetch._miniAppProgressWrapped) {
+    const progressFetch = function () {
+      beginProgress();
+      return nativeFetch.apply(null, arguments).finally(endProgress);
+    };
+    progressFetch._miniAppProgressWrapped = true;
+    window.fetch = progressFetch;
+  }
 
   function currentVisible() {
     return document.visibilityState !== 'hidden';
@@ -136,5 +217,8 @@
     hydrateServerCounters,
     tickServerCounters,
     bindServerCounters,
+    beginProgress,
+    endProgress,
+    showToast,
   };
 })();

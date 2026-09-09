@@ -257,6 +257,10 @@
 
   function showNotice(message, tone) {
     if (tone === 'ok' || tone === 'error') utils.haptic?.(tone === 'ok' ? 'success' : 'error');
+    if (window.MiniAppRuntime?.showToast) {
+      window.MiniAppRuntime.showToast(message, { tone: tone === 'error' ? 'error' : 'success' });
+      return;
+    }
     if (noticeTimeout) clearTimeout(noticeTimeout);
     $('noticeTitle').textContent = tone === 'error' ? 'Action needed' : 'Success';
     $('noticeMessage').textContent = message;

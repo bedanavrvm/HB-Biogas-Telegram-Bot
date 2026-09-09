@@ -3258,6 +3258,11 @@
     const settings = typeof presentation === 'object' && presentation
       ? presentation : { tone: presentation === true ? 'error' : String(presentation || 'success') };
     const tone = ['info', 'success', 'warning', 'error'].includes(settings.tone) ? settings.tone : 'info';
+    if (window.MiniAppRuntime?.showToast) {
+      window.MiniAppRuntime.showToast(message, { tone, timeout: settings.timeout });
+      window.MiniAppUtils?.haptic?.(tone);
+      return tone !== 'error';
+    }
     if (!toast) return tone !== 'error';
     toast.textContent = message;
     toast.className = `origination-toast ${tone}`;

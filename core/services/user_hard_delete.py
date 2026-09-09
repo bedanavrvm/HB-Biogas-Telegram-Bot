@@ -366,7 +366,14 @@ def _notify_actor_telegram(*, actor_id: int, batch_id) -> None:
     try:
         response = requests.post(
             f'https://api.telegram.org/bot{token}/sendMessage',
-            json={'chat_id': telegram_id, 'text': f'JBL Admin: user hard-deletion batch {batch_id} completed.'},
+            json={
+                'chat_id': telegram_id,
+                'text': (
+                    '✅ User accounts deleted\n\n'
+                    'The selected accounts were removed and their live access was revoked.\n\n'
+                    'Full evidence is available in Django Admin.'
+                ),
+            },
             timeout=10,
         )
         response.raise_for_status()

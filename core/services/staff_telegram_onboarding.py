@@ -299,27 +299,26 @@ def deliver_staff_telegram_onboarding(*, onboarding: StaffTelegramOnboarding) ->
     name = onboarding.user.get_full_name().strip() or onboarding.user.get_username()
     if onboarding.plan.action == onboarding.plan.ACTION_ADD_WORKFLOW_ACCESS:
         paragraphs = [
-            f'Additional JBL Tools Are Ready, {name}! 🎉',
-            'You have been given access to additional JBL workflow tools.\n\nYour existing account remains active.',
-            'Use the buttons below to open the newly assigned tools.',
+            'New tools available',
+            f'Hi {name}, you have been given access to additional JBL tools.',
+            'Use the buttons below to open them.',
         ]
         if invite_buttons:
             paragraphs.append(
-                'You can also use the group links below to join the additional JBL groups assigned to you.\n\n'
-                '⚠️ Each group link can only be used once and expires after 24 hours.'
+                'Use the group links below to join your additional JBL groups.\n\n'
+                '⚠️ Group invitations expire after 24 hours and can only be used once.'
             )
     else:
         paragraphs = [
             f'Welcome to JBL Field Workflow, {name}! 👋',
-            'Your staff account has been verified and your access is now active.',
-            'Use the buttons below to open the tools available to you.',
+            'Your account is active and your assigned tools are ready.',
+            'Use the buttons below to get started.',
         ]
         if invite_buttons:
             paragraphs.append(
-                'You can also use the group links below to join the JBL groups assigned to you by your administrator.\n\n'
-                '⚠️ Each group link can only be used once and expires after 24 hours.'
+                'Use the group links below to join your assigned JBL groups.\n\n'
+                '⚠️ Group invitations expire after 24 hours and can only be used once.'
             )
-    paragraphs.append('If you are missing access to a tool or group, please contact your administrator.')
     text = '\n\n'.join(paragraphs)
     operation, _ = reserve_operation(
         integration='telegram', operation_type='staff_onboarding_welcome',
