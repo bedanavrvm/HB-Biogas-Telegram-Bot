@@ -52,7 +52,7 @@ def _standard_register_defaults(config):
         'subject_type': SheetRegisterContract.SUBJECT_NONE,
         'header_row': max(header_row, 1),
         'data_start_row': max(header_row, 1) + 1,
-        'row_key_header': schema.header('message_id'),
+        'row_key_header': schema.header(schema.row_key_field),
         'expected_headers': headers,
         'field_ownership': ownership,
     }

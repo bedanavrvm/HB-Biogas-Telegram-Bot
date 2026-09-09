@@ -347,6 +347,12 @@ class GoogleSheetsService:
             normalized_header = [self._normalize_header(h) for h in actual_header]
             expected_header = [self._normalize_header(h) for h in self.sheet_columns]
 
+            if self.schema.strict_headers and normalized_header != expected_header:
+                return False, (
+                    f'Sheet header row {self.header_row} must contain exactly these columns in order: '
+                    + ', '.join(self.sheet_columns)
+                )
+
             duplicates = sorted({
                 h for h in normalized_header
                 if h and normalized_header.count(h) > 1
@@ -636,21 +642,21 @@ class GoogleSheetsService:
         )
         return result
 
-    def update_case_row(self, message_id: str, updates: dict) -> bool:
+    def update_case_row(self, record_key: str, updates: dict) -> bool:
         """
         Update workflow columns for an existing case row.
 
-        The row is located by the live message_id header. Only
+        The row is located by the configured Complaint ID header. Only
         CASE_UPDATE_WRITABLE_COLUMNS can be written; formula and intake columns
         are ignored even if present in updates.
         """
-        if not message_id:
-            logger.error("Cannot update case row without message_id")
+        if not record_key:
+            logger.error("Cannot update case row without a Complaint ID")
             return False
         if not self.is_available():
             logger.warning(
                 f"Google Sheets unavailable for sheet {self._sheet_id}, "
-                f"cannot update case {message_id}"
+                f"cannot update case {record_key}"
             )
             return False
 
@@ -664,10 +670,10 @@ class GoogleSheetsService:
                 return False
 
             headers = self._header_values()
-            row_number = self._row_number_for_message_id(message_id)
+            row_number = self._row_number_for_record_key(record_key)
             if not row_number:
                 logger.warning(
-                    f"Could not find message_id={message_id} in sheet "
+                    f"Could not find Complaint ID={record_key} in sheet "
                     f"{self._sheet_id}"
                 )
                 return False
@@ -697,7 +703,7 @@ class GoogleSheetsService:
                 ))
 
             if not columns:
-                logger.info(f"No allowed case update fields for {message_id}")
+                logger.info(f"No allowed case update fields for {record_key}")
                 return True
 
             for group in self._group_consecutive_columns(columns):
@@ -716,12 +722,12 @@ class GoogleSheetsService:
 
             logger.info(
                 f"Updated case row {row_number} in sheet {self._sheet_id}: "
-                f"message_id={message_id}"
+                f"complaint_id={record_key}"
             )
             return True
         except Exception as exc:
             logger.error(
-                f"Failed to update case {message_id} in sheet "
+                f"Failed to update case {record_key} in sheet "
                 f"{self._sheet_id}: {exc}",
                 exc_info=True,
             )
@@ -782,7 +788,7 @@ class GoogleSheetsService:
 
     def _message_exists(self, message_id: str) -> bool:
         try:
-            values = self._column_values_by_header(self.schema.header('message_id'))
+            values = self._column_values_by_header(self.schema.header(self.schema.row_key_field))
             return message_id in values
         except Exception as exc:
             logger.error(f"Error checking message existence: {exc}")
@@ -790,13 +796,13 @@ class GoogleSheetsService:
 
     def _get_existing_message_ids(self) -> set:
         try:
-            return set(self._column_values_by_header(self.schema.header('message_id')))
+            return set(self._column_values_by_header(self.schema.header(self.schema.row_key_field)))
         except Exception as exc:
             logger.error(f"Error reading existing message IDs: {exc}")
             return set()
 
-    def _row_number_for_message_id(self, message_id: str) -> Optional[int]:
-        values = self._column_values_by_header(self.schema.header('message_id'))
+    def _row_number_for_record_key(self, message_id: str) -> Optional[int]:
+        values = self._column_values_by_header(self.schema.header(self.schema.row_key_field))
         for idx, value in enumerate(values, start=1):
             if value == message_id:
                 return idx
@@ -920,11 +926,15 @@ class GoogleSheetsService:
         start_row: int,
     ) -> None:
         values_by_row = []
-        for row in rows:
-            values_by_row.append({
+        for row_offset, row in enumerate(rows):
+            values = {
                 self._normalize_header(column): row[idx]
                 for idx, column in enumerate(self.sheet_columns)
-            })
+            }
+            values[self._normalize_header(self.schema.header('row_number'))] = str(
+                start_row + row_offset - self.header_row
+            )
+            values_by_row.append(values)
 
         ranges_by_option = {}
         for group in column_groups:
@@ -1042,6 +1052,9 @@ class GoogleSheetsService:
             self._normalize_header(column): row[idx]
             for idx, column in enumerate(self.sheet_columns)
         }
+        values_by_header[self._normalize_header(self.schema.header('row_number'))] = str(
+            target_row - self.header_row
+        )
         writable = {
             self._normalize_header(column)
             for column in self.bot_writable_columns
@@ -1200,11 +1213,18 @@ def append_parsed_message_to_sheet(
         sheet_schema=sheet_schema,
     )
     row = service.schema.row_for_message(parsed_message)
+    if service.schema.row_key_field == 'complaint_id':
+        try:
+            record_key = parsed_message.complaint_control.reference_number
+        except Exception:
+            record_key = ''
+    else:
+        record_key = parsed_message.message_id
     success = False
     error_message = ''
 
     try:
-        success = service.append_row(row, parsed_message.message_id)
+        success = service.append_row(row, record_key)
         if not success:
             error_message = 'Google Sheets append failed'
     except Exception as exc:
@@ -1258,7 +1278,16 @@ def batch_append_messages(
         sheet_schema=sheet_schema,
     )
     rows = [service.schema.row_for_message(msg) for msg in parsed_messages]
-    message_ids = [msg.message_id for msg in parsed_messages]
+    message_ids = []
+    for msg in parsed_messages:
+        if service.schema.row_key_field != 'complaint_id':
+            record_key = msg.message_id
+        else:
+            try:
+                record_key = msg.complaint_control.reference_number
+            except Exception:
+                record_key = ''
+        message_ids.append(record_key)
 
     result = service.append_rows(rows, message_ids)
 
@@ -1269,7 +1298,11 @@ def batch_append_messages(
     failure_details = result.get('failure_details', {})
 
     if synced_ids:
-        ParsedMessage.objects.filter(message_id__in=synced_ids).update(
+        synced_pks = [
+            msg.pk for msg, record_key in zip(parsed_messages, message_ids)
+            if record_key in synced_ids
+        ]
+        ParsedMessage.objects.filter(pk__in=synced_pks).update(
             synced_to_sheets=True,
             synced_at=tz.now(),
             last_sync_error='',
@@ -1277,10 +1310,10 @@ def batch_append_messages(
             sheet_name=sheet_name or service._sheet_name or '',
         )
 
-    for msg in parsed_messages:
-        if msg.message_id in failure_details:
+    for msg, record_key in zip(parsed_messages, message_ids):
+        if record_key in failure_details:
             msg.sync_attempts += 1
-            msg.last_sync_error = failure_details[msg.message_id]
+            msg.last_sync_error = failure_details[record_key]
             msg.save(update_fields=['sync_attempts', 'last_sync_error'])
 
     return result

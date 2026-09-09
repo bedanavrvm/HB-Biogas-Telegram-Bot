@@ -25,9 +25,11 @@ from core.models import (
     ComplaintCaseImportBatch,
     ComplaintCaseImportItem,
     ComplaintCategory,
+    BranchServiceArea,
     ComplaintCaseSequence,
     GroupSheetConfiguration,
     ParsedMessage,
+    OperationalLocation,
     ProcessedMessage,
     RawMessage,
     UserProfile,
@@ -58,15 +60,39 @@ from core.services.complaint_imports import (
     ComplaintImportConflict,
     associate_complaint_import_item,
     finalize_complaint_import_batch,
-    mark_complaint_import_batch_failed,
     reserve_complaint_import_batch,
 )
 from core.services.group_config import GroupConfig, GroupRegistry
 from core.services.telegram_auth import validate_telegram_init_data
 
 
+def complaint_location_fixture():
+    branch = OperationalLocation.objects.filter(
+        location_type='branch', name__iexact='Nakuru', active=True,
+    ).first()
+    if not branch:
+        branch = OperationalLocation.objects.create(
+            location_type='branch', name='Nakuru', code='TEST-NAKURU-BRANCH',
+        )
+    county, _ = OperationalLocation.objects.get_or_create(
+        location_type='county', name='Nakuru County',
+        defaults={'code': 'TEST-NAKURU-COUNTY'},
+    )
+    constituency, _ = OperationalLocation.objects.get_or_create(
+        location_type='sub_county', name='Nakuru East', parent=county,
+        defaults={'code': 'TEST-NAKURU-EAST'},
+    )
+    BranchServiceArea.objects.get_or_create(branch=branch, area=county)
+    return {
+        'county': county.code,
+        'sub_county': constituency.code,
+        'village': 'Test Village',
+    }
+
+
 class ComplaintCaseServiceTests(TestCase):
     def setUp(self):
+        self.location_fields = complaint_location_fixture()
         self.group = GroupSheetConfiguration.objects.create(
             group_id='-100100', sheet_id='test-sheet', sheet_name='Complaints', workflow={'type': 'case'}
         )
@@ -231,7 +257,7 @@ class ComplaintCaseServiceTests(TestCase):
         item = list_cases(self.config, status='Closed')[0]
 
         self.assertEqual(item['days_open'], 3)
-        self.assertEqual(item['age_label'], 'Resolved after 3 days')
+        self.assertEqual(item['age_label'], 'Closed after 3 days')
 
     @override_settings(
         COMPLAINT_CASE_MAX_FILES_PER_UPDATE=4,
@@ -274,7 +300,7 @@ class ComplaintCaseServiceTests(TestCase):
                 {'client_request_id': 'cross-branch-reopen-1', 'expected_revision': 1, 'reason': 'Resolution was insufficient.'},
             )
 
-        self.assertEqual(reopened['status'], 'Pending')
+        self.assertEqual(reopened['status'], 'REOPENED')
 
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
     def test_list_fragment_renders_authorized_cases(self):
@@ -288,6 +314,8 @@ class ComplaintCaseServiceTests(TestCase):
             reverse('complaint_cases_list_fragment'),
             {'group_id': self.group.group_id, 'branch': 'Nakuru', 'status': 'active'},
             HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('100'),
+            HTTP_X_REQUEST_ID='complaint-list-fragment-1',
+            HTTP_IDEMPOTENCY_KEY='complaint-list-fragment-1',
         )
 
         self.assertEqual(response.status_code, 200)
@@ -302,6 +330,8 @@ class ComplaintCaseServiceTests(TestCase):
             data=json.dumps({'group_id': self.group.group_id, 'status': 'all', 'page': 1}),
             content_type='application/json',
             HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('100'),
+            HTTP_X_REQUEST_ID='complaint-list-page-1',
+            HTTP_IDEMPOTENCY_KEY='complaint-list-page-1',
         )
 
         self.assertEqual(response.status_code, 200)
@@ -330,9 +360,9 @@ class ComplaintCaseServiceTests(TestCase):
             )
 
         self.assertEqual(resolved.status_code, 200)
-        self.assertEqual(resolved.json()['case']['status'], 'Resolved')
+        self.assertEqual(resolved.json()['case']['status'], 'CLOSED')
         self.assertEqual(reopened.status_code, 200)
-        self.assertEqual(reopened.json()['case']['status'], 'Pending')
+        self.assertEqual(reopened.json()['case']['status'], 'REOPENED')
 
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
     def test_category_suggestion_endpoint_is_authenticated_and_read_only(self):
@@ -348,12 +378,40 @@ class ComplaintCaseServiceTests(TestCase):
             data=json.dumps({'group_id': self.group.group_id, 'description': 'There is no gas production.'}),
             content_type='application/json',
             HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('100'),
+            HTTP_X_REQUEST_ID='complaint-category-suggestion-1',
+            HTTP_IDEMPOTENCY_KEY='complaint-category-suggestion-1',
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['data']['suggestion']['key'], 'system-performance')
         self.case.refresh_from_db()
         self.assertEqual(self.case.complaint_category, '')
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_location_options_endpoint_is_an_authenticated_read(self):
+        response = self.client.get(
+            reverse('complaint_cases_location_options'),
+            {
+                'group_id': self.group.group_id,
+                'branch': 'Nakuru',
+                'county': self.location_fields['county'],
+            },
+            HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('100'),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()['data']
+        self.assertIn('Nakuru', {item['name'] for item in payload['branches']})
+        self.assertIn('Nakuru County', {item['name'] for item in payload['counties']})
+        self.assertIn('Nakuru East', {item['name'] for item in payload['sub_counties']})
+
+        post_response = self.client.post(
+            reverse('complaint_cases_location_options'),
+            data=json.dumps({'group_id': self.group.group_id}),
+            content_type='application/json',
+            HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('100'),
+        )
+        self.assertEqual(post_response.status_code, 405)
 
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
     def test_stale_resolution_response_includes_the_winning_resolution(self):
@@ -570,7 +628,7 @@ class ComplaintCaseServiceTests(TestCase):
                 'reason': 'The remedy did not address the reported fault.',
             })
         self.case.refresh_from_db()
-        self.assertEqual(self.case.complaint_status, 'Open')
+        self.assertEqual(self.case.complaint_status, 'Reopened')
         self.assertEqual(result['latest_resolution']['note'], 'Initial remedy.')
         self.assertEqual(result['latest_reopen']['note'], 'The remedy did not address the reported fault.')
 
@@ -602,7 +660,7 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(item['source_attribution']['type'], 'batch')
         self.assertEqual(item['source_attribution']['actor'], 'Manager One')
 
-    def test_import_batch_reservation_is_authorized_idempotent_and_hash_bound(self):
+    def test_import_batch_reservation_is_retired_for_every_actor(self):
         with self.assertRaises(ComplaintImportAuthorizationError):
             reserve_complaint_import_batch(
                 actor=self.manager,
@@ -615,74 +673,38 @@ class ComplaintCaseServiceTests(TestCase):
         admin_user = get_user_model().objects.create_superuser(
             username='complaint-import-superuser', password='unused-test-password',
         )
-        first = reserve_complaint_import_batch(
-            actor=admin_user,
-            group_id=self.config.group_id,
-            source_telegram_message_id='telegram-batch-service-1',
-            telegram_user_id='900',
-            source_hash='a' * 64,
-            source_count=2,
-        )
-        replay = reserve_complaint_import_batch(
-            actor=admin_user,
-            group_id=self.config.group_id,
-            source_telegram_message_id='telegram-batch-service-1',
-            telegram_user_id='900',
-            source_hash='a' * 64,
-            source_count=2,
-        )
-
-        self.assertTrue(first.created)
-        self.assertFalse(replay.created)
-        self.assertTrue(replay.already_processing)
-        self.assertEqual(first.batch.pk, replay.batch.pk)
-        self.assertEqual(ComplaintCaseImportBatch.objects.filter(
-            group_id=self.config.group_id,
-            source_telegram_message_id='telegram-batch-service-1',
-        ).count(), 1)
-        with self.assertRaises(ComplaintImportConflict):
+        with self.assertRaisesMessage(ComplaintImportAuthorizationError, 'retired'):
             reserve_complaint_import_batch(
                 actor=admin_user,
                 group_id=self.config.group_id,
                 source_telegram_message_id='telegram-batch-service-1',
                 telegram_user_id='900',
-                source_hash='b' * 64,
+                source_hash='a' * 64,
                 source_count=2,
             )
-        mark_complaint_import_batch_failed(batch=first.batch)
-        failed_retry = reserve_complaint_import_batch(
-            actor=admin_user,
+        self.assertFalse(ComplaintCaseImportBatch.objects.filter(
             group_id=self.config.group_id,
             source_telegram_message_id='telegram-batch-service-1',
-            telegram_user_id='900',
-            source_hash='a' * 64,
-            source_count=2,
-        )
-        self.assertTrue(failed_retry.retrying)
-        self.assertEqual(
-            failed_retry.batch.status,
-            ComplaintCaseImportBatch.STATUS_QUEUED,
-        )
+        ).exists())
 
     def test_import_item_association_and_finalization_are_idempotent(self):
         admin_user = get_user_model().objects.create_superuser(
             username='complaint-attribution-superuser', password='unused-test-password',
         )
-        reservation = reserve_complaint_import_batch(
-            actor=admin_user,
+        batch = ComplaintCaseImportBatch.objects.create(
             group_id=self.config.group_id,
             source_telegram_message_id='telegram-batch-service-2',
-            telegram_user_id='901',
+            initiated_by=admin_user, telegram_user_id_snapshot='901',
             source_hash='c' * 64,
-            source_count=1,
+            source_count=1, status=ComplaintCaseImportBatch.STATUS_QUEUED,
         )
         first_item, first_created = associate_complaint_import_item(
-            batch=reservation.batch,
+            batch=batch,
             parsed_message=self.case,
             source_index=0,
         )
         replay_item, replay_created = associate_complaint_import_item(
-            batch=reservation.batch,
+            batch=batch,
             parsed_message=self.case,
             source_index=0,
         )
@@ -692,20 +714,20 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(first_item.pk, replay_item.pk)
         with self.assertRaises(ComplaintImportConflict):
             associate_complaint_import_item(
-                batch=reservation.batch,
+                batch=batch,
                 parsed_message=self.other_case,
                 source_index=0,
             )
 
         completed = finalize_complaint_import_batch(
-            batch=reservation.batch,
+            batch=batch,
             created_count=1,
             matched_count=0,
             rejected_count=0,
             error_count=0,
         )
         replayed_completion = finalize_complaint_import_batch(
-            batch=reservation.batch,
+            batch=batch,
             created_count=99,
             matched_count=99,
             rejected_count=1,
@@ -737,12 +759,14 @@ class ComplaintCaseServiceTests(TestCase):
             'client_request_id': 'create-complaint-001',
             'client_name': "new o'NEIL client",
             'customer_phone': '0712345678',
+            'secondary_phone': '0112345678',
             'customer_id': '',
             'branch_region': 'Nakuru',
             'complaint_category': 'Product issue',
             'complaint_description': 'The unit requires a field visit.',
             'latitude': '-1.286389',
             'longitude': '36.817223',
+            **self.location_fields,
         }
 
         first = create_complaint_case(self.config, self.actor('100'), fields, [])
@@ -756,6 +780,13 @@ class ComplaintCaseServiceTests(TestCase):
         sequence = ComplaintCaseSequence.objects.get(group_id=self.config.group_id)
         self.assertEqual(sequence.next_number, 2)
         self.assertEqual(case.customer_phone, '254712345678')
+        self.assertEqual(case.secondary_phone, '254112345678')
+        self.assertEqual(case.county, 'Nakuru County')
+        self.assertEqual(case.sub_county, 'Nakuru East')
+        self.assertEqual(case.village, 'Test Village')
+        self.assertEqual(case.sender, 'Officer One')
+        self.assertIsNotNone(case.complaint_control.county_ref_id)
+        self.assertIsNotNone(case.complaint_control.sub_county_ref_id)
         self.assertEqual(case.complaint_status, 'Open')
         self.assertEqual(case.source, 'complaint_mini_app')
         self.assertTrue(case.raw_message)
@@ -790,6 +821,29 @@ class ComplaintCaseServiceTests(TestCase):
                 [],
             )
 
+    def test_branch_scoped_officer_cannot_forge_an_out_of_scope_create(self):
+        AccessGrant.objects.filter(user=self.officer, workflow='complaint_cases').update(branch='Nakuru')
+        embu = OperationalLocation.objects.filter(
+            location_type='branch', name__iexact='Embu', active=True,
+        ).first()
+        if not embu:
+            embu = OperationalLocation.objects.create(
+                location_type='branch', name='Embu', code='TEST-EMBU-BRANCH',
+            )
+        county = OperationalLocation.objects.get(code=self.location_fields['county'])
+        BranchServiceArea.objects.get_or_create(branch=embu, area=county)
+
+        with self.assertRaisesMessage(ComplaintCaseError, 'authorized complaint scope'):
+            create_complaint_case(
+                self.config, self.actor('100'), {
+                    'client_request_id': 'out-of-scope-create-1',
+                    'client_name': 'Out Of Scope', 'customer_id': '00400',
+                    'branch_region': 'Embu', 'complaint_category': 'Product issue',
+                    'complaint_description': 'This must not be created.',
+                    **self.location_fields,
+                }, [],
+            )
+
     def test_customer_id_is_digits_only_and_preserves_leading_zeroes(self):
         with self.assertRaisesMessage(ComplaintCaseError, 'numbers only'):
             create_complaint_case(
@@ -808,6 +862,7 @@ class ComplaintCaseServiceTests(TestCase):
                     'customer_id': '00123456', 'branch_region': 'Nakuru',
                     'complaint_category': 'Product issue',
                     'complaint_description': 'Identifier should preserve leading zeroes.',
+                    **self.location_fields,
                 }, [],
             )
         self.assertEqual(ParsedMessage.objects.get(pk=result['case']['id']).customer_id, '00123456')
@@ -856,6 +911,7 @@ class ComplaintCaseServiceTests(TestCase):
                 'branch_region': 'Nakuru',
                 'complaint_category': 'Product issue',
                 'complaint_description': 'Create locally and retry the Sheet sync later.',
+                **self.location_fields,
             },
             [],
         )
@@ -1000,7 +1056,7 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
 
         response = self.get('complaint_reports_data', {
             'page_size': 1000, 'search': 'CMP900001', 'sort': '-days_open',
-            'branch': 'Nakuru', 'category': 'Product issue', 'status': 'pending',
+            'branch': 'Nakuru', 'category': 'Product issue', 'status': 'open',
             'date_from': timezone.localdate().isoformat(),
             'date_to': timezone.localdate().isoformat(),
         })
@@ -1011,14 +1067,15 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
         self.assertEqual(payload['count'], 1)
         row = payload['results'][0]
         self.assertEqual(row['attachments'], 1)
-        self.assertEqual(row['status'], 'Pending')
+        self.assertEqual(row['status'], 'OPEN')
         self.assertTrue(row['needs_details'])
         self.assertEqual(set(row), {
             'complaint_id', 'date_reported', 'status', 'needs_details',
-            'customer_name', 'customer_id', 'phone_number', 'reported_by',
+            'customer_name', 'customer_id', 'phone_number', 'secondary_phone_number',
+            'county', 'constituency', 'village', 'reported_by',
             'branch_region', 'complaint_category', 'complaint_description',
             'source', 'gps_link', 'attachments', 'resolution_details',
-            'date_resolved', 'days_open',
+            'date_resolved', 'days_open', 'resolution_history_count',
         })
         forbidden = {
             'raw_message', 'message_id', 'loan_status', 'loan_at_risk', 'risk_level',
@@ -1054,7 +1111,7 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
         self.case_b.date_resolved = august + timedelta(days=2)
         self.case_b.save(update_fields=['timestamp', 'complaint_status', 'date_resolved'])
         filters = {
-            'search': 'Alice', 'status': 'pending', 'branch': 'Nakuru',
+            'search': 'Alice', 'status': 'open', 'branch': 'Nakuru',
             'category': 'Product issue', 'date_from': '2026-07-01', 'date_to': '2026-07-31',
         }
 
@@ -1101,9 +1158,9 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
     def test_report_maps_every_legacy_status_without_exposing_raw_values(self):
         for stored, expected, needs_details in (
-            ('', 'Pending', False), ('Open', 'Pending', False),
-            ('In Progress', 'Pending', False), ('Review Needed', 'Pending', True),
-            ('Closed', 'Resolved', False),
+            ('', 'OPEN', False), ('Open', 'OPEN', False),
+            ('In Progress', 'OPEN', False), ('Review Needed', 'OPEN', True),
+            ('Reopened', 'REOPENED', False), ('Closed', 'CLOSED', False),
         ):
             self.case_a.complaint_status = stored
             self.case_a.date_resolved = timezone.now() if stored == 'Closed' else None
@@ -1158,15 +1215,17 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
         rows = list(sheet.iter_rows(values_only=True))
         self.assertEqual(len(rows), 3)
         self.assertEqual(rows[0], (
-            'Complaint ID', 'Customer Name', 'Phone Number', 'Customer ID', 'Branch',
-            'Category', 'Complaint', 'Status', 'Reported At', 'Resolved At',
-            'Days Open', 'Resolution',
+            '#', 'Complaint ID', 'Date Reported', 'Status', 'Customer Name',
+            'Customer National ID', 'Primary Phone Number', 'Secondary Phone No',
+            'County', 'Constituency', 'Village', 'Branch', 'JBL Reported By',
+            'Complaint Type', 'Complaint Description', 'GPS Link',
+            'Resolution Details', 'Date Resolved', 'Days Open', 'Resolution History',
         ))
         customer_column = rows[0].index('Customer Name')
-        phone_column = rows[0].index('Phone Number')
+        phone_column = rows[0].index('Primary Phone Number')
         self.assertIn("'=HYPERLINK(\"bad\")", {row[customer_column] for row in rows[1:]})
         self.assertTrue(all(str(row[phone_column]).startswith("'") for row in rows[1:]))
-        self.assertEqual({row[0] for row in rows[1:]}, {'CMP900001', 'CMP900002'})
+        self.assertEqual({row[1] for row in rows[1:]}, {'CMP900001', 'CMP900002'})
         audit = ComplianceAuditEvent.objects.get(
             workflow='complaint_cases', action='register.exported', request_id='global-export-confirmed-1',
         )
@@ -1251,6 +1310,7 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
 
 class ComplaintCaseOptionalSheetTests(TestCase):
     def setUp(self):
+        self.location_fields = complaint_location_fixture()
         self.group = GroupSheetConfiguration.objects.create(
             group_id='-100django-only', display_name='Django only complaints',
             sheet_id='', sheet_name='Complaints', workflow={'type': 'case'},
@@ -1283,6 +1343,7 @@ class ComplaintCaseOptionalSheetTests(TestCase):
                 'client_request_id': 'django-only-create-1', 'client_name': 'Local Client',
                 'customer_id': '000001', 'branch_region': 'Nakuru',
                 'complaint_category': 'Product issue', 'complaint_description': 'Saved in Django only.',
+                **self.location_fields,
             }, [],
         )
         case = ParsedMessage.objects.get(pk=result['case']['id'])
@@ -1321,6 +1382,7 @@ class ComplaintCaseOptionalSheetTests(TestCase):
             'client_request_id': 'django-only-retry-1', 'client_name': 'Retry Client',
             'customer_id': '000002', 'branch_region': 'Nakuru',
             'complaint_category': 'Product issue', 'complaint_description': 'Retain old sync evidence.',
+            **self.location_fields,
         }
         first = create_complaint_case(self.config, officer, payload, [])
         control = ComplaintCaseControl.objects.get(parsed_message_id=first['case']['id'])
@@ -1414,8 +1476,8 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
             self.assertNotIn(jargon, template)
         self.assertIn("'Branch not provided'", script)
         service = (root / 'services' / 'complaint_cases.py').read_text(encoding='utf-8')
-        self.assertIn("f'Pending for {age_days} day'", service)
-        self.assertIn("f'Resolved after {age_days} day'", service)
+        self.assertIn("f'Open for {age_days} day'", service)
+        self.assertIn("f'Closed after {age_days} day'", service)
         self.assertIn("case-age ${resolved ? 'resolved'", script)
         self.assertIn('.case-age.resolved{color:var(--success)}', styles)
         for wording in (

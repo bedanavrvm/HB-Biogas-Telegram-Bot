@@ -28,23 +28,22 @@ WORKFLOW_PRESETS = {
             'header_row': 1,
         },
         'sheet_schema': {
+            'schema_version': 2,
             'header_row': 1,
-            'field_headers': {},
+            'data_start_row': 2,
+            'row_key_field': 'complaint_id',
         },
         'parser_rules': {},
         'admin_fields': {
             'header_row': {
                 'initial': 1,
                 'label': 'Complaint header row',
-                'help_text': '1-based row number containing complaint register headers. Use 1 for TEST COMPLAINT MANAGEMENT REGISTER.xlsx.',
+                'help_text': 'Complaint headers are fixed on row 1 and data starts on row 2.',
             },
             'field_headers': {
                 'initial': {},
                 'label': 'Complaint header mappings',
-                'help_text': (
-                    'Optional JSON mapping from canonical complaint fields to sheet headers, '
-                    'for example {"complaint_id": "Complaint ID", "message_id": "message_id"}.'
-                ),
+                'help_text': 'Legacy header mappings are retired; the Complaint register uses its fixed governed columns.',
             },
         },
     },

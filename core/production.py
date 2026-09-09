@@ -286,7 +286,6 @@ def production_security_readiness_issues(
             'DURABLE_JOB_RUNNER_MAX_SILENCE_SECONDS must be between 60 and 86400 seconds.',
         )
     for code, setting_name, default_value in (
-        ('complaint-import-runner-limit', 'COMPLAINT_IMPORT_RUNNER_MAX_ITEMS', 10),
         ('tat-repair-runner-limit', 'TAT_REPAIR_RUNNER_MAX_CASES', 5),
     ):
         try:
@@ -303,7 +302,6 @@ def production_security_readiness_issues(
 
             health = durable_job_health(max_silence_seconds=runner_silence or 900)
             for runner_key, required_setting in (
-                ('complaint_imports', 'COMPLAINT_IMPORT_RUNNER_REQUIRED'),
                 ('tat_repairs', 'TAT_REPAIR_RUNNER_REQUIRED'),
             ):
                 required = bool(getattr(settings, required_setting, False))
@@ -318,7 +316,7 @@ def production_security_readiness_issues(
                         f'{runner_key.replace("_", "-")}-runner-failed',
                         f'{required_setting} is enabled but the latest scheduled runner invocation failed.',
                     )
-            for job_key in ('complaint_imports', 'tat_repairs'):
+            for job_key in ('tat_repairs',):
                 stalled = int(health[job_key]['stalled'])
                 if stalled:
                     warning(
@@ -326,9 +324,7 @@ def production_security_readiness_issues(
                         f'{stalled} stale {job_key.replace("_", " ")} job(s) are awaiting lease recovery.',
                     )
         except (OperationalError, ProgrammingError):
-            if bool(getattr(settings, 'COMPLAINT_IMPORT_RUNNER_REQUIRED', False)) or bool(
-                getattr(settings, 'TAT_REPAIR_RUNNER_REQUIRED', False)
-            ):
+            if bool(getattr(settings, 'TAT_REPAIR_RUNNER_REQUIRED', False)):
                 error(
                     'durable-job-runner-readiness',
                     'The durable runner heartbeat register could not be checked.',

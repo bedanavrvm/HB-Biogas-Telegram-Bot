@@ -162,6 +162,7 @@ from .portal_views import (
 )
 from .complaint_case_views import (
     complaint_cases_bootstrap,
+    complaint_cases_location_options,
     complaint_cases_category_suggestion,
     complaint_cases_settings_personal,
     complaint_cases_create,
@@ -320,6 +321,7 @@ urlpatterns = [
     path('tat-tracker/update/process-dispatches/', tat_tracker_process_update_dispatches, name='tat_tracker_process_update_dispatches'),
     path('complaints/', legacy_get_redirect('complaint_cases_app'), name='legacy_api_complaint_cases_app'),
     path('complaints/bootstrap/', complaint_cases_bootstrap, name='complaint_cases_bootstrap'),
+    path('complaints/location-options/', complaint_cases_location_options, name='complaint_cases_location_options'),
     path('complaints/categories/suggest/', complaint_cases_category_suggestion, name='complaint_cases_category_suggestion'),
     path('complaints/settings/personal/', complaint_cases_settings_personal, name='complaint_cases_settings_personal'),
     path('complaints/cases/', complaint_cases_list, name='complaint_cases_list'),

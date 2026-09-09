@@ -207,6 +207,28 @@ def complaint_cases_bootstrap(request):
     return JsonResponse({'ok': True, 'data': data})
 
 
+@require_http_methods(['GET'])
+@miniapp_write_response
+def complaint_cases_location_options(request):
+    payload = _request_payload(request)
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    capability_error = _capability_error(actor, 'complaint.case.create', group_config)
+    if capability_error:
+        return capability_error
+    from core.services.location_catalog import LocationCatalogError, location_options
+    try:
+        options = location_options(
+            user=actor.user, access=actor.access,
+            branch_value=payload.get('branch') or '',
+            county_value=payload.get('county') or '',
+        )
+    except LocationCatalogError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'data': options})
+
+
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
 @require_http_methods(['POST'])
 @miniapp_write_response
@@ -656,7 +678,7 @@ def complaint_cases_reopen(request, case_id: str):
     except Exception:
         logger.exception('Complaint reopen failed for group %s case %s.', group_config.group_id, case_id)
         return JsonResponse({'ok': False, 'error': 'The complaint could not be reopened. Try again.'}, status=500)
-    return JsonResponse({'ok': True, 'case': result, 'message': 'Complaint returned to the Pending queue.'})
+    return JsonResponse({'ok': True, 'case': result, 'message': 'Complaint reopened.'})
 
 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.

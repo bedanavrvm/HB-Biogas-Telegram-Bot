@@ -24,11 +24,11 @@ from core.models import (
 )
 from core.services.complaint_imports import (
     cancel_complaint_import_batch,
-    claim_complaint_import_batch,
-    deliver_complaint_import_notifications,
+    _archived_claim_complaint_import_batch as claim_complaint_import_batch,
+    _archived_deliver_complaint_import_notifications as deliver_complaint_import_notifications,
+    _archived_reserve_complaint_import_batch as reserve_complaint_import_batch,
+    _archived_retry_complaint_import_batch as retry_complaint_import_batch,
     process_complaint_import_batch_chunk,
-    reserve_complaint_import_batch,
-    retry_complaint_import_batch,
 )
 from core.production import (
     MINIAPP_AUTH_SETTINGS,
@@ -232,19 +232,15 @@ class DurableComplaintImportTests(TestCase):
         operation.refresh_from_db()
         self.assertEqual(operation.status, IntegrationOperation.STATUS_SUCCEEDED)
 
-    @override_settings(
-        DURABLE_JOB_RUNNERS_SHADOW_MODE=False,
-        COMPLAINT_IMPORT_RUNNER_MAX_ITEMS=2,
-        TELEGRAM_BOT_TOKEN='',
-    )
-    def test_management_runner_chunks_large_import_and_records_freshness(self):
-        self.reserve(count=5)
+    def test_retired_management_runner_is_a_safe_noop(self):
+        batch = self.reserve(count=5)
         output = StringIO()
         call_command('process_complaint_imports', '--max-batches=1', stdout=output)
-        self.assertIn('Processed 2 complaint item(s)', output.getvalue())
-        heartbeat = DurableJobRunnerHeartbeat.objects.get(runner_key='complaint_imports')
-        self.assertEqual(heartbeat.status, DurableJobRunnerHeartbeat.STATUS_SUCCEEDED)
-        self.assertTrue(durable_job_health()['runners']['complaint_imports']['fresh'])
+        batch.refresh_from_db()
+        self.assertIn('retired', output.getvalue())
+        self.assertEqual(batch.status, ComplaintCaseImportBatch.STATUS_QUEUED)
+        self.assertFalse(DurableJobRunnerHeartbeat.objects.filter(runner_key='complaint_imports').exists())
+        self.assertNotIn('complaint_imports', durable_job_health()['runners'])
 
 
 @override_settings(TAT_REPAIR_CASE_DELAY_SECONDS=0)
@@ -354,9 +350,7 @@ class DurableRunnerReadinessTests(TestCase):
             'ACCESS_GRANT_GOVERNANCE_ENFORCED': True,
             'DURABLE_JOB_LEASE_SECONDS': 300,
             'DURABLE_JOB_RUNNER_MAX_SILENCE_SECONDS': 900,
-            'COMPLAINT_IMPORT_RUNNER_MAX_ITEMS': 10,
             'TAT_REPAIR_RUNNER_MAX_CASES': 5,
-            'COMPLAINT_IMPORT_RUNNER_REQUIRED': True,
             'TAT_REPAIR_RUNNER_REQUIRED': True,
         })
         return SimpleNamespace(**values)
@@ -367,17 +361,14 @@ class DurableRunnerReadinessTests(TestCase):
                 self.settings(), check_database=True,
             )
         }
-        self.assertIn('complaint-imports-runner-stale', missing_codes)
         self.assertIn('tat-repairs-runner-stale', missing_codes)
 
-        finish_runner('complaint_imports')
         finish_runner('tat_repairs')
         ready_codes = {
             issue.code for issue in production_security_readiness_issues(
                 self.settings(), check_database=True,
             )
         }
-        self.assertNotIn('complaint-imports-runner-stale', ready_codes)
         self.assertNotIn('tat-repairs-runner-stale', ready_codes)
 
         finish_runner('tat_repairs', error_code='runner_failed')

@@ -20,6 +20,7 @@
     reportTableAbortController: null,
     evidence: { create: [], resolve: [] },
     categoryDescriptions: new Map(),
+    locationOptions: { branches: [], counties: [], sub_counties: [] },
     evidenceLimits: { max_files: 10, max_file_size_mb: 10, max_total_upload_mb: 30 },
     cameraStream: null, cameraTarget: '', cameraReplaceId: '', cameraSessionStartCount: 0,
     mediaViewerObjectUrl: '', mediaViewerRestoreFocus: null,
@@ -109,7 +110,7 @@
   function statusStack(item) {
     const stack = document.createElement('div');
     stack.className = 'status-stack';
-    const resolved = item.status === 'Resolved' || item.status === 'Closed';
+    const resolved = item.status === 'CLOSED' || item.status === 'Closed';
     const status = textNode('span', displayStatus(item.status), `status-pill ${resolved ? 'resolved' : ''}`);
     status.prepend(iconNode(resolved ? 'circle-check' : 'clock'));
     stack.appendChild(status);
@@ -117,7 +118,7 @@
     return stack;
   }
   function displayStatus(status) {
-    return ({ Pending: 'Pending', Open: 'Reopened', Closed: 'Resolved', 'Review Needed': 'Needs More Information' })[status] || status || 'Update';
+    return ({ Pending: 'OPEN', Open: 'OPEN', Reopened: 'REOPENED', Closed: 'CLOSED' })[status] || status || 'OPEN';
   }
 
   function setView(name) {
@@ -143,6 +144,31 @@
       select.appendChild(option);
     });
   }
+  function locationSelectOptions(select, values, placeholder) {
+    select.replaceChildren(textNode('option', placeholder)); select.firstElementChild.value = '';
+    (values || []).forEach(item => {
+      const option = textNode('option', item.name || item.label || item.code);
+      option.value = item.code || item.value || item.name;
+      select.appendChild(option);
+    });
+  }
+  async function refreshLocationOptions() {
+    const formNode = $('createCaseForm');
+    const branch = formNode.elements.branch_region.value;
+    const county = formNode.elements.county.value;
+    const response = await getJson('location-options/', { branch, county });
+    state.locationOptions = response.data || {};
+    const previousCounty = county;
+    locationSelectOptions(formNode.elements.county, state.locationOptions.counties, 'Select county');
+    const retainedCounty = [...formNode.elements.county.options].some(option => option.value === previousCounty);
+    if (retainedCounty) formNode.elements.county.value = previousCounty;
+    locationSelectOptions(
+      formNode.elements.sub_county,
+      retainedCounty ? state.locationOptions.sub_counties : [],
+      retainedCounty ? 'Select constituency' : 'Select county first',
+    );
+    formNode.elements.sub_county.disabled = !retainedCounty;
+  }
   function updateCounts(counts) {
     $('pendingCount').textContent = counts.pending || 0;
     $('resolvedCount').textContent = counts.resolved || 0;
@@ -162,6 +188,8 @@
       $('workspaceTabs').classList.toggle('single-tab', !can('complaint.reports.view'));
       $('exportAllBtn').hidden = !(can('complaint.reports.view') && can('complaint.case.export'));
       selectOptions($('createCaseForm').elements.branch_region, data.branches, 'Select branch');
+      state.locationOptions = data.location_options || state.locationOptions;
+      locationSelectOptions($('createCaseForm').elements.county, state.locationOptions.counties, 'Select county');
       selectOptions($('createCaseForm').elements.complaint_category, data.categories, 'Select complaint type');
       selectOptions($('completeDetailsForm').elements.complaint_category, data.categories, 'Select complaint type');
       state.categoryDescriptions = new Map((data.category_catalogue || []).map(item => [item.label, item.description]));
@@ -205,7 +233,7 @@
         metaItem('tag', item.category || 'Other Complaint'),
         metaItem('map-pin', item.branch || 'Branch not provided'),
       );
-      const resolved = item.status === 'Resolved' || item.status === 'Closed';
+      const resolved = item.status === 'CLOSED' || item.status === 'Closed';
       const age = document.createElement('p');
       age.className = `case-age ${resolved ? 'resolved' : (item.needs_details ? 'attention' : 'pending')}`;
       age.append(iconNode(resolved ? 'circle-check' : 'clock'), textNode('span', item.age_label || ''));
@@ -248,7 +276,7 @@
     $('detailName').textContent = item.customer_name || 'Unnamed customer';
     $('detailGroup').textContent = item.group_label || '';
     $('detailStatus').textContent = displayStatus(item.status);
-    $('detailStatus').className = `status-pill ${item.status === 'Resolved' ? 'resolved' : ''}`;
+    $('detailStatus').className = `status-pill ${item.status === 'CLOSED' ? 'resolved' : ''}`;
     $('detailNeedsDetails').hidden = !item.needs_details;
     const ids = $('detailIdentifiers'); ids.replaceChildren();
     [item.customer_phone, item.customer_id].filter(Boolean).forEach(value => ids.appendChild(textNode('span', value)));
@@ -271,8 +299,8 @@
       complete_details: can('complaint.case.details.complete'),
     };
     $('completeDetailsForm').hidden = !item.needs_details || !actions.complete_details;
-    $('resolveForm').hidden = item.status !== 'Pending' || !actions.close;
-    $('reopenForm').hidden = item.status !== 'Resolved' || !actions.reopen;
+    $('resolveForm').hidden = item.status === 'CLOSED' || !actions.close;
+    $('reopenForm').hidden = item.status !== 'CLOSED' || !actions.reopen;
     $('detailBackLabel').textContent = state.returnWorkspace === 'global' ? 'Overview' : 'Complaints';
     if (!preserveDraft) {
       $('completeDetailsForm').reset(); $('resolveForm').reset(); $('reopenForm').reset();
@@ -481,7 +509,7 @@
       const row = document.createElement('div'); row.className = 'item history-item';
       let action = 'Updated by';
       if (item.status === 'Closed') action = 'Resolved by';
-      else if (item.status === 'Open' && item.old_status === 'Closed') action = 'Reopened by';
+      else if (item.status === 'Reopened') action = 'Reopened by';
       else if (item.status === 'Open') action = 'Complaint recorded by';
       else if (item.status === 'Review Needed') action = 'More information requested by';
       const content = document.createElement('div');
@@ -569,7 +597,10 @@
     const button = $('createSaveBtn'); state.submitting = true; setActionLoading(button, true, 'Creating');
     utils.setCloseProtection?.('complaint-operation', true); $('createSaveState').textContent = 'Saving…';
     try {
-      const response = await form('cases/create/', data); formNode.reset(); clearEvidence('create');
+      const response = await form('cases/create/', data); formNode.reset();
+      locationSelectOptions(formNode.elements.sub_county, [], 'Select county first');
+      formNode.elements.sub_county.disabled = true;
+      clearEvidence('create');
       state.latitude = ''; state.longitude = ''; resetLocationCapture(); hideSuggestion();
       utils.setCloseProtection?.('complaint-create-draft', false); $('createSaveState').textContent = 'Saved';
       notify(response.message); await refreshCounts(); state.returnWorkspace = 'queue';
@@ -813,7 +844,7 @@
   }
 
   function renderMetrics(metrics) {
-    const labels = [['total', 'Total Complaints'], ['pending', 'Pending'], ['resolved', 'Resolved'], ['needs_details', 'Need More Information']];
+    const labels = [['total', 'Total Complaints'], ['pending', 'Open'], ['resolved', 'Closed'], ['needs_details', 'Need More Information']];
     const icons = { total: 'list', pending: 'clock', resolved: 'circle-check', needs_details: 'history' };
     const node = $('globalMetrics'); node.replaceChildren();
     labels.forEach(([key, label]) => {
@@ -963,9 +994,8 @@
     return [String(parsed.getDate()).padStart(2, '0'), String(parsed.getMonth() + 1).padStart(2, '0'), String(parsed.getFullYear()).slice(-2)].join('-');
   }
   function reportStatusRenderer(params) {
-    const needsDetails = !!params.data?.needs_details;
-    const label = needsDetails ? 'Needs More Information' : (params.value || 'Pending');
-    return textNode('span', label, `report-status ${needsDetails ? 'needs-details' : String(params.value || 'pending').toLowerCase()}`);
+    const label = params.value || 'OPEN';
+    return textNode('span', label, `report-status ${String(label).toLowerCase()}`);
   }
   function reportGpsRenderer(params) {
     if (!params.value) return '';
@@ -1001,18 +1031,21 @@
         { headerName: 'Date Reported', field: 'date_reported', width: 130, valueFormatter: p => formatReportDate(p.value) },
         { headerName: 'Status', field: 'status', width: 170, cellRenderer: reportStatusRenderer },
         { headerName: 'Customer Name', field: 'customer_name', width: 190, sortable: false },
-        { headerName: 'Customer ID', field: 'customer_id', width: 125, sortable: false },
-        { headerName: 'Phone Number', field: 'phone_number', width: 145, sortable: false },
-        { headerName: 'Reported By', field: 'reported_by', width: 150, sortable: false },
+        { headerName: 'Customer National ID', field: 'customer_id', width: 155, sortable: false },
+        { headerName: 'Primary Phone Number', field: 'phone_number', width: 165, sortable: false },
+        { headerName: 'Secondary Phone No', field: 'secondary_phone_number', width: 155, sortable: false },
+        { headerName: 'County', field: 'county', width: 135, sortable: false },
+        { headerName: 'Constituency', field: 'constituency', width: 155, sortable: false },
+        { headerName: 'Village', field: 'village', width: 145, sortable: false },
         { headerName: 'Branch', field: 'branch_region', width: 145 },
+        { headerName: 'JBL Reported By', field: 'reported_by', width: 165, sortable: false },
         { headerName: 'Complaint Type', field: 'complaint_category', width: 180, sortable: false },
-        { headerName: 'Complaint', field: 'complaint_description', width: 280, sortable: false },
-        { headerName: 'Source', field: 'source', width: 130, sortable: false },
-        { headerName: 'Location', field: 'gps_link', width: 105, sortable: false, cellRenderer: reportGpsRenderer },
-        { headerName: 'Attachments', field: 'attachments', width: 105, sortable: false, type: 'numericColumn' },
-        { headerName: 'Resolution', field: 'resolution_details', width: 260, sortable: false },
+        { headerName: 'Complaint Description', field: 'complaint_description', width: 280, sortable: false },
+        { headerName: 'GPS Link', field: 'gps_link', width: 105, sortable: false, cellRenderer: reportGpsRenderer },
+        { headerName: 'Resolution Details', field: 'resolution_details', width: 260, sortable: false },
         { headerName: 'Date Resolved', field: 'date_resolved', width: 130, valueFormatter: p => formatReportDate(p.value) },
         { headerName: 'Days Open', field: 'days_open', width: 105, type: 'numericColumn' },
+        { headerName: 'Resolution History', field: 'resolution_history_count', width: 145, sortable: false, valueFormatter: p => p.value ? `${p.value} ${p.value === 1 ? 'entry' : 'entries'}` : 'No history' },
       ],
       onSortChanged: event => {
         if (state.reportGridLoading) return;
@@ -1222,6 +1255,8 @@
   $('mediaViewerContent').addEventListener('lostpointercapture', event => finishMediaViewerPointer(event, true));
   $('createCaseForm').elements.complaint_description.addEventListener('input', scheduleCategorySuggestion);
   $('createCaseForm').elements.complaint_category.addEventListener('input', updateCategoryGuidance);
+  $('createCaseForm').elements.branch_region.addEventListener('change', () => refreshLocationOptions().catch(error => notify(error.message, true)));
+  $('createCaseForm').elements.county.addEventListener('change', () => refreshLocationOptions().catch(error => notify(error.message, true)));
   $('createCaseForm').elements.client_name.addEventListener('blur', event => normalizeCustomerNameInput(event.currentTarget));
   document.querySelectorAll('input[name="customer_id"]').forEach(input => input.addEventListener('input', () => validateCustomerId(input)));
   $('categorySuggestion').addEventListener('click', () => {

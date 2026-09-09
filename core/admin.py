@@ -4672,14 +4672,11 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
             return None
         defaults = defaults_for_preset('case').get('sheet_schema') or {}
         schema = dict(defaults)
-        header_row = self.cleaned_data.get('case_header_row')
-        if header_row:
-            schema['header_row'] = max(int(header_row), 1)
-        field_headers = self.cleaned_data.get('case_field_headers') or {}
-        if field_headers:
-            schema['field_headers'] = dict(field_headers)
-        else:
-            schema['field_headers'] = {}
+        schema.update({
+            'schema_version': 2, 'header_row': 1, 'data_start_row': 2,
+            'row_key_field': 'complaint_id',
+        })
+        schema.pop('field_headers', None)
         return schema
 
     def apply_preset_defaults(self, obj):
@@ -5401,32 +5398,7 @@ class ComplaintCaseImportBatchAdmin(ReadOnlyAuditAdmin):
     list_filter = ('status', 'group_id', 'created_at')
     search_fields = ('source_telegram_message_id', 'actor_label', 'initiated_by__username')
     readonly_fields = [field.name for field in ComplaintCaseImportBatch._meta.fields]
-    actions = ('retry_selected_imports', 'cancel_selected_imports')
-
-    def get_actions(self, request):
-        return super().get_actions(request) if request.user.is_superuser else {}
-
-    @admin.action(description='Retry failed/cancelled complaint import items')
-    def retry_selected_imports(self, request, queryset):
-        from core.services.complaint_imports import retry_complaint_import_batch
-
-        count = 0
-        for batch in queryset:
-            before = batch.status
-            updated = retry_complaint_import_batch(batch=batch)
-            count += int(updated.status != before)
-        self.message_user(request, f'Queued {count} complaint import batch(es) for retry.')
-
-    @admin.action(description='Cancel selected queued complaint imports')
-    def cancel_selected_imports(self, request, queryset):
-        from core.services.complaint_imports import cancel_complaint_import_batch
-
-        count = 0
-        for batch in queryset:
-            before = batch.status
-            updated = cancel_complaint_import_batch(batch=batch)
-            count += int(updated.status != before)
-        self.message_user(request, f'Cancelled {count} complaint import batch(es).')
+    actions = None
 
 
 @admin.register(ComplaintCaseImportItem)
@@ -5739,12 +5711,9 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
         ('Case / Complaints Settings', {
             'fields': (
                 'complaint_sheet_projection_enabled',
-                'case_header_row',
-                'case_field_headers',
             ),
             'description': (
-                'Header row and optional canonical-field header mappings for '
-                'the complaint register workflow.'
+                'The governed Complaint register has fixed headers on row 1 and data from row 2.'
             ),
             'classes': ('tab', 'preset-section', 'preset-case'),
         }),

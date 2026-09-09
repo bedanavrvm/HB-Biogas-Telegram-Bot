@@ -14,13 +14,18 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date
 
 from core.models import ComplaintCategory, GroupSheetConfiguration, ParsedMessage
-from core.services.complaint_cases import ComplaintCaseError, format_datetime, sla_payload
+from core.services.complaint_cases import (
+    ComplaintCaseError, format_datetime, resolution_history_entries,
+    resolution_history_text, sla_payload,
+)
 
 
 EXPORT_FIELDS = (
-    'Complaint ID', 'Customer Name', 'Phone Number', 'Customer ID', 'Branch',
-    'Category', 'Complaint', 'Status', 'Reported At', 'Resolved At',
-    'Days Open', 'Resolution',
+    '#', 'Complaint ID', 'Date Reported', 'Status', 'Customer Name',
+    'Customer National ID', 'Primary Phone Number', 'Secondary Phone No',
+    'County', 'Constituency', 'Village', 'Branch', 'JBL Reported By',
+    'Complaint Type', 'Complaint Description', 'GPS Link', 'Resolution Details',
+    'Date Resolved', 'Days Open', 'Resolution History',
 )
 
 SORT_FIELDS = {
@@ -183,10 +188,16 @@ def _report_datetime(value) -> str:
     return timezone.localtime(value).isoformat()
 
 
+def _display_date(value) -> str:
+    return timezone.localtime(value).strftime('%d-%m-%y') if value else ''
+
+
 def _report_status(case: ParsedMessage) -> tuple[str, bool]:
-    return ('Resolved', False) if case.complaint_status == 'Closed' else (
-        'Pending', case.complaint_status == 'Review Needed'
-    )
+    if case.complaint_status == 'Closed':
+        return 'CLOSED', False
+    if case.complaint_status == 'Reopened':
+        return 'REOPENED', False
+    return 'OPEN', case.complaint_status == 'Review Needed'
 
 
 def _safe_report_link(value: Any) -> str:
@@ -206,6 +217,10 @@ def serialize_report_case(case: ParsedMessage) -> dict[str, Any]:
         'customer_name': case.customer_name,
         'customer_id': case.customer_id,
         'phone_number': case.customer_phone,
+        'secondary_phone_number': case.secondary_phone,
+        'county': case.county,
+        'constituency': case.sub_county,
+        'village': case.village,
         'reported_by': case.sender,
         'branch_region': (
             control.branch_ref.name if control.branch_ref_id else case.branch_region
@@ -220,6 +235,7 @@ def serialize_report_case(case: ParsedMessage) -> dict[str, Any]:
         'resolution_details': case.resolution_details,
         'date_resolved': _report_datetime(case.date_resolved),
         'days_open': _days_open(case),
+        'resolution_history_count': len(resolution_history_entries(case)),
     }
 
 
@@ -235,12 +251,14 @@ def _report_queryset():
 
 def _apply_report_filters(queryset, filters: dict[str, Any]):
     status = str(filters.get('status') or '').strip().casefold()
-    if status == 'pending':
-        queryset = queryset.exclude(complaint_status='Closed')
-    elif status == 'resolved':
+    if status in {'open', 'pending'}:
+        queryset = queryset.exclude(complaint_status__in=['Closed', 'Reopened'])
+    elif status == 'reopened':
+        queryset = queryset.filter(complaint_status='Reopened')
+    elif status in {'closed', 'resolved'}:
         queryset = queryset.filter(complaint_status='Closed')
     elif status:
-        raise ComplaintCaseError('Status must be Pending or Resolved.')
+        raise ComplaintCaseError('Status must be Open, Reopened, or Closed.')
     branch = str(filters.get('branch') or '').strip()
     if branch.casefold() == 'not provided':
         queryset = queryset.filter(
@@ -514,15 +532,16 @@ def export_register_xlsx(*, actor, request_id: str) -> tuple[bytes, int]:
     for cell in sheet[1]:
         cell.font = Font(bold=True)
     count = 0
-    for case in queryset.iterator(chunk_size=500):
-        row = serialize_register_case(case, groups)
+    for count, case in enumerate(queryset.iterator(chunk_size=500), start=1):
+        row = serialize_report_case(case)
         sheet.append(tuple(_excel_text(value) for value in (
-            row['reference_number'], row['customer_name'], row['customer_phone'],
-            row['customer_id'], row['branch'], row['category'], row['description'],
-            row['status'], row['reported_at'], row['resolved_at'],
-            row['days_open'], row['resolution_details'],
+            count, row['complaint_id'], _display_date(case.timestamp or case.created_at),
+            row['status'], row['customer_name'], row['customer_id'], row['phone_number'],
+            row['secondary_phone_number'], row['county'], row['constituency'], row['village'],
+            row['branch_region'], row['reported_by'], row['complaint_category'],
+            row['complaint_description'], row['gps_link'], row['resolution_details'],
+            _display_date(case.date_resolved), row['days_open'], resolution_history_text(case),
         )))
-        count += 1
     sheet.freeze_panes = 'A2'
     sheet.auto_filter.ref = sheet.dimensions
     output = BytesIO()

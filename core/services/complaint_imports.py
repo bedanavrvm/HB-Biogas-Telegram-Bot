@@ -1,4 +1,9 @@
-"""Durable, leased execution for auditable WhatsApp complaint imports."""
+"""Read-only compatibility helpers for archived WhatsApp complaint imports.
+
+New complaints are recorded through the Complaint Mini App. The archived
+models remain available for audit evidence, but no new batch can be reserved
+or claimed for processing.
+"""
 
 from __future__ import annotations
 
@@ -81,14 +86,27 @@ def _snapshot_hash(snapshot: dict) -> str:
     return hashlib.sha256(encoded.encode('utf-8')).hexdigest()
 
 
-@transaction.atomic
 def reserve_complaint_import_batch(
     *, actor, group_id: str, source_telegram_message_id: str,
     telegram_user_id: str, source_hash: str, source_count: int,
     entries: list[dict] | None = None, fallback_sender: str = '',
     fallback_received_at=None, analysis_snapshot: dict | None = None,
 ) -> ComplaintImportReservation:
-    """Reserve a batch and all immutable entry snapshots in one transaction."""
+    """Reject creation now that complaint batch imports are retired."""
+    _require_import_actor(actor)
+    raise ComplaintImportAuthorizationError(
+        'Complaint batch imports are retired. Record new complaints in the Complaint Mini App.'
+    )
+
+
+@transaction.atomic
+def _archived_reserve_complaint_import_batch(
+    *, actor, group_id: str, source_telegram_message_id: str,
+    telegram_user_id: str, source_hash: str, source_count: int,
+    entries: list[dict] | None = None, fallback_sender: str = '',
+    fallback_received_at=None, analysis_snapshot: dict | None = None,
+) -> ComplaintImportReservation:
+    """Historical reservation implementation retained for audit archaeology."""
     _require_import_actor(actor)
     normalized_group_id = str(group_id or '').strip()
     normalized_message_id = str(source_telegram_message_id or '').strip()
@@ -233,6 +251,12 @@ def _parse_snapshot_time(value: str):
 
 @transaction.atomic
 def claim_complaint_import_batch(*, lease_seconds: int | None = None):
+    """Return an empty claim because the complaint import runner is retired."""
+    return None, None
+
+
+@transaction.atomic
+def _archived_claim_complaint_import_batch(*, lease_seconds: int | None = None):
     """Claim one queued or stale batch using a cross-process database lease."""
     now = timezone.now()
     lease = max(30, int(lease_seconds or getattr(settings, 'DURABLE_JOB_LEASE_SECONDS', 300) or 300))
@@ -434,13 +458,16 @@ def process_complaint_import_batch_chunk(batch_id, *, lease_token, item_limit: i
 
 
 def process_next_complaint_import_batch(*, item_limit: int) -> dict | None:
-    batch, token = claim_complaint_import_batch()
-    if batch is None:
-        return None
-    return process_complaint_import_batch_chunk(batch.pk, lease_token=token, item_limit=item_limit)
+    """Do no work because complaint import processing is retired."""
+    return None
 
 
 def deliver_complaint_import_notifications(*, limit: int = 10) -> int:
+    """Do not send notifications for the archived import workflow."""
+    return 0
+
+
+def _archived_deliver_complaint_import_notifications(*, limit: int = 10) -> int:
     """Attempt due completion notifications with one durable attempt each."""
     from core.services.external_resilience import ExternalOperationError, execute_operation
     now = timezone.now()
@@ -483,6 +510,15 @@ def deliver_complaint_import_notifications(*, limit: int = 10) -> int:
 
 @transaction.atomic
 def retry_complaint_import_batch(*, batch: ComplaintCaseImportBatch) -> ComplaintCaseImportBatch:
+    """Reject retries of archived complaint import batches."""
+    raise ComplaintImportAuthorizationError(
+        'Complaint batch imports are retired and archived batches cannot be retried.'
+    )
+
+
+@transaction.atomic
+def _archived_retry_complaint_import_batch(*, batch: ComplaintCaseImportBatch) -> ComplaintCaseImportBatch:
+    """Historical retry implementation retained for audit archaeology."""
     locked = ComplaintCaseImportBatch.objects.select_for_update().get(pk=batch.pk)
     if locked.status not in {
         ComplaintCaseImportBatch.STATUS_PARTIAL,

@@ -8,7 +8,6 @@ from django.db.models import Q
 from django.utils import timezone
 
 
-COMPLAINT_IMPORT_RUNNER = 'complaint_imports'
 TAT_REPAIR_RUNNER = 'tat_repairs'
 
 
@@ -54,11 +53,7 @@ def finish_runner(runner_key: str, *, processed_count: int = 0, error_code: str 
 def durable_job_health(*, now=None, max_silence_seconds: int | None = None) -> dict:
     """Return aggregate-only runner freshness and stalled-job counts."""
     from django.conf import settings
-    from core.models import (
-        ComplaintCaseImportBatch,
-        DurableJobRunnerHeartbeat,
-        TatRepairJob,
-    )
+    from core.models import DurableJobRunnerHeartbeat, TatRepairJob
 
     current = now or timezone.now()
     silence = max(60, int(
@@ -72,7 +67,7 @@ def durable_job_health(*, now=None, max_silence_seconds: int | None = None) -> d
     )))
 
     runners = {}
-    for key in (COMPLAINT_IMPORT_RUNNER, TAT_REPAIR_RUNNER):
+    for key in (TAT_REPAIR_RUNNER,):
         row = DurableJobRunnerHeartbeat.objects.filter(runner_key=key).first()
         runners[key] = {
             'fresh': bool(row and row.heartbeat_at and row.heartbeat_at >= cutoff),
@@ -85,18 +80,6 @@ def durable_job_health(*, now=None, max_silence_seconds: int | None = None) -> d
     return {
         'max_silence_seconds': silence,
         'runners': runners,
-        'complaint_imports': {
-            'queued': ComplaintCaseImportBatch.objects.filter(
-                status=ComplaintCaseImportBatch.STATUS_QUEUED,
-            ).count(),
-            'stalled': ComplaintCaseImportBatch.objects.filter(
-                Q(status=ComplaintCaseImportBatch.STATUS_RUNNING),
-                Q(heartbeat_at__lt=lease_cutoff) | Q(heartbeat_at__isnull=True),
-            ).count(),
-            'partial': ComplaintCaseImportBatch.objects.filter(
-                status=ComplaintCaseImportBatch.STATUS_PARTIAL,
-            ).count(),
-        },
         'tat_repairs': {
             'queued': TatRepairJob.objects.filter(status='queued').count(),
             'stalled': TatRepairJob.objects.filter(

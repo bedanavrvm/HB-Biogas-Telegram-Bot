@@ -2985,6 +2985,15 @@ def _process_telegram_message(message_data: dict) -> dict:
                 sender=sender,
                 telegram_message_id=telegram_message_id,
             )
+        complaint_workflow = False
+        if group_config:
+            from core.services.complaint_cases import is_complaint_workflow
+            complaint_workflow = is_complaint_workflow(group_config)
+        if complaint_workflow and _looks_like_status_update(update_content):
+            return {
+                'status': 'command',
+                'reply_text': 'Use the Complaint Cases Mini App to update complaint status.',
+            }
         if reply_to_id and _looks_like_status_update(update_content):
             from core.services.case_updates import handle_case_status_reply
             update_result = handle_case_status_reply(
@@ -3046,6 +3055,15 @@ def _process_telegram_message(message_data: dict) -> dict:
         )
         if command_result:
             return command_result
+
+        if complaint_workflow:
+            return {
+                'status': 'command',
+                'reply_text': (
+                    'Complaint intake through Telegram messages and batch uploads is retired. '
+                    'Use the Complaint Cases Mini App to record a complaint.'
+                ),
+            }
 
         messages = _split_if_batch(content, sender, has_image, received_at)
 
@@ -3127,6 +3145,24 @@ def _process_whatsapp_batch_command(
     group_id: str,
     telegram_message_id: str,
 ) -> dict:
+    return {
+        'status': 'command',
+        'reply_text': (
+            'Complaint batch imports are retired. '
+            'Use the Complaint Cases Mini App to record each complaint.'
+        ),
+    }
+
+
+def _archived_process_whatsapp_batch_command(
+    message_data: dict,
+    command_content: str,
+    sender: str,
+    received_at: datetime,
+    group_id: str,
+    telegram_message_id: str,
+) -> dict:
+    """Historical implementation retained only to explain archived records."""
     from core.services.telegram_identity import identity_from_user_payload, resolve_or_bind_telegram_user
 
     telegram_actor = resolve_or_bind_telegram_user(

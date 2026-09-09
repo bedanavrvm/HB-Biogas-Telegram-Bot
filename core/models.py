@@ -112,7 +112,11 @@ class ParsedMessage(models.Model):
     
     customer_name = models.CharField(max_length=255, blank=True, default='')
     customer_phone = models.CharField(max_length=255, blank=True, default='')
+    secondary_phone = models.CharField(max_length=255, blank=True, default='')
     customer_id = models.CharField(max_length=255, blank=True, default='')
+    county = models.CharField(max_length=128, blank=True, default='')
+    sub_county = models.CharField(max_length=128, blank=True, default='')
+    village = models.CharField(max_length=255, blank=True, default='')
     branch_region = models.CharField(max_length=255, blank=True, default='')
     complaint_category = models.CharField(max_length=255, blank=True, default='')
     complaint_description = models.TextField(blank=True, default='')
@@ -192,54 +196,33 @@ class ParsedMessage(models.Model):
         return str(value or '')
 
     def to_sheet_row(self):
-        """
-        Convert to Google Sheet row format (21 columns).
-        
-        Column mapping (CRITICAL):
-        [0]  Complaint ID (FORMULA - bot leaves blank, different from message_id)
-        [1]  message_id (bot dedup key)
-        [2]  Date Reported (bot writes)
-        [3]  Customer Name (bot writes - CAPITALIZED)
-        [4]  Customer ID / Account (bot writes)
-        [5]  Phone Number (bot writes)
-        [6]  JBL Reported By (bot writes - Telegram sender/tag)
-        [7]  Branch / Region (bot writes - best effort)
-        [8]  Complaint Category (bot writes - must match dropdown, not description)
-        [9]  Complaint Description (bot writes)
-        [10] raw_message (bot writes - audit trail)
-        [11] gps_link (bot writes)
-        [12] image_flag (bot writes - string: "TRUE" or "")
-        [13] source (bot writes - "telegram bot")
-        [14] Loan Status (HUMAN - dropdown)
-        [15] Loan at Risk (HUMAN - dropdown)
-        [16] Risk Level (HUMAN)
-        [17] Status (HUMAN - dropdown: Open/Closed)
-        [18] Resolution Details (HUMAN)
-        [19] Date Resolved (HUMAN)
-        [20] Days Open (FORMULA - bot should NOT write)
+        """Legacy 21-column serializer retained for non-complaint callers.
+
+        Complaint register publication uses ``SheetSchema.row_for_message``
+        and never this compatibility method.
         """
         return [
-            '',                                                                          # [0] Complaint ID (blank, different from message_id)
-            self.message_id,                                                              # [1] message_id
-            self._format_sheet_date(self.timestamp),                                     # [2] Date Reported
-            self.customer_name.upper() if self.customer_name else '',                    # [3] Customer Name (CAPITALIZED)
-            self.customer_id,                                                             # [4] Customer ID / Account
-            self._format_phone(self.customer_phone),                                      # [5] Phone Number
-            self.sender or bot_display_name(),                                            # [6] Reported By (message sender)
-            self.branch_region,                                                           # [7] Branch / Region
-            self.complaint_category,                                                      # [8] Complaint Category
-            self.complaint_description,                                                   # [9] Complaint Description
-            self.raw_message,                                                             # [10] raw_message
-            self.gps_link,                                                                # [11] gps_link
-            'TRUE' if self.image_flag else '',                                            # [12] image_flag
-            self.source,                                                                  # [13] source
-            self.loan_status,                                                             # [14] Loan Status
-            self.loan_at_risk,                                                            # [15] Loan at Risk
-            self.risk_level,                                                              # [16] Risk Level
-            self.complaint_status,                                                        # [17] Status
-            self.resolution_details,                                                      # [18] Resolution Details
-            self._format_sheet_date(self.date_resolved),                                # [19] Date Resolved
-            str(self.days_open) if self.days_open is not None else '',                   # [20] Days Open
+            '',
+            self.message_id,
+            self._format_sheet_date(self.timestamp),
+            self.customer_name.upper() if self.customer_name else '',
+            self.customer_id,
+            self._format_phone(self.customer_phone),
+            self.sender or bot_display_name(),
+            self.branch_region,
+            self.complaint_category,
+            self.complaint_description,
+            self.raw_message,
+            self.gps_link,
+            'TRUE' if self.image_flag else '',
+            self.source,
+            self.loan_status,
+            self.loan_at_risk,
+            self.risk_level,
+            self.complaint_status,
+            self.resolution_details,
+            self._format_sheet_date(self.date_resolved),
+            str(self.days_open) if self.days_open is not None else '',
         ]
 
 
@@ -475,6 +458,14 @@ class ComplaintCaseControl(models.Model):
         'OperationalLocation', null=True, blank=True, on_delete=models.PROTECT,
         related_name='complaint_cases', limit_choices_to={'location_type': 'branch'},
     )
+    county_ref = models.ForeignKey(
+        'OperationalLocation', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='complaint_county_cases', limit_choices_to={'location_type': 'county'},
+    )
+    sub_county_ref = models.ForeignKey(
+        'OperationalLocation', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='complaint_sub_county_cases', limit_choices_to={'location_type': 'sub_county'},
+    )
     customer = models.ForeignKey(
         'JawabuCustomer', null=True, blank=True, on_delete=models.SET_NULL, related_name='complaint_cases',
     )
@@ -604,8 +595,8 @@ class ComplaintCaseImportBatch(models.Model):
             fields=['group_id', 'source_telegram_message_id'],
             name='unique_complaint_import_source_message',
         )]
-        verbose_name = 'Complaint case import batch'
-        verbose_name_plural = 'Complaint case import batches'
+        verbose_name = 'Archived complaint import batch'
+        verbose_name_plural = 'Archived complaint import batches'
 
 
 class ComplaintCaseImportItem(models.Model):
@@ -655,8 +646,8 @@ class ComplaintCaseImportItem(models.Model):
         constraints = [models.UniqueConstraint(
             fields=['batch', 'source_index'], name='unique_complaint_import_source_index',
         )]
-        verbose_name = 'Complaint case import item'
-        verbose_name_plural = 'Complaint case import items'
+        verbose_name = 'Archived complaint import item'
+        verbose_name_plural = 'Archived complaint import items'
 
 
 class OrderApprovalUpdate(models.Model):

@@ -186,7 +186,7 @@ def _system_identifier_indexes(group_config, headers: list[str]) -> set[int]:
         }
     else:
         schema = SheetSchema.from_config(group_config.sheet_schema or {})
-        identifier_headers = {schema.header('message_id')}
+        identifier_headers = {schema.header(schema.row_key_field)}
     normalized = {_normalize_header(value) for value in identifier_headers}
     return {
         index

@@ -6128,14 +6128,8 @@ NATURE OF THE PROBLEM: Gas leakage"""
         })
 
         self.assertEqual(result['status'], 'command')
-        self.assertIn('complaint import queued', result['reply_text'])
-        batch = ComplaintCaseImportBatch.objects.get(source_telegram_message_id='123')
-        self.assertEqual(batch.status, ComplaintCaseImportBatch.STATUS_QUEUED)
-        self.assertEqual(batch.items.count(), 3)
-        first_complaint = batch.items.get(source_index=1)
-        self.assertEqual(first_complaint.normalized_entry_snapshot['sender'], 'Alice Agent')
-        self.assertIn('No gas supply', first_complaint.normalized_entry_snapshot['content'])
-        self.assertEqual(len(first_complaint.content_hash), 64)
+        self.assertIn('retired', result['reply_text'])
+        self.assertFalse(ComplaintCaseImportBatch.objects.filter(source_telegram_message_id='123').exists())
         mock_process.assert_not_called()
         mock_sync.assert_not_called()
 
@@ -6171,12 +6165,8 @@ NATURE OF THE PROBLEM: No gas supply"""
         })
 
         self.assertEqual(result['status'], 'command')
-        batch = ComplaintCaseImportBatch.objects.get(source_telegram_message_id='124')
-        self.assertEqual(batch.items.count(), 1)
-        self.assertNotIn(
-            'CUSTOMER COMPLAINT',
-            batch.items.get().normalized_entry_snapshot['content'].upper(),
-        )
+        self.assertIn('retired', result['reply_text'])
+        self.assertFalse(ComplaintCaseImportBatch.objects.filter(source_telegram_message_id='124').exists())
         mock_process.assert_not_called()
         mock_sync.assert_not_called()
 
@@ -6190,7 +6180,7 @@ NATURE OF THE PROBLEM: No gas supply"""
         )
 
         self.assertEqual(result['status'], 'command')
-        self.assertIn('restricted to an active Django Superuser', result['reply_text'])
+        self.assertIn('retired', result['reply_text'])
 
     @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
     @patch('core.api.views._process_single_message')
@@ -6221,8 +6211,7 @@ NATURE OF THE PROBLEM: Gas leakage"""
         })
 
         self.assertEqual(result['status'], 'command')
-        self.assertIn('complaint import queued', result['reply_text'])
-        self.assertIn('Export messages reserved: 2', result['reply_text'])
+        self.assertIn('retired', result['reply_text'])
         replay = _process_telegram_message({
             'message_id': 123,
             'from': {'id': 999001, 'first_name': 'Test', 'username': 'batch_admin'},
@@ -6231,9 +6220,9 @@ NATURE OF THE PROBLEM: Gas leakage"""
             'text': payload_text,
         })
         self.assertEqual(replay['status'], 'command')
-        self.assertIn('already being processed', replay['reply_text'])
+        self.assertIn('retired', replay['reply_text'])
         mock_process.assert_not_called()
-        self.assertEqual(ComplaintCaseImportItem.objects.filter(batch__source_telegram_message_id='123').count(), 2)
+        self.assertFalse(ComplaintCaseImportItem.objects.filter(batch__source_telegram_message_id='123').exists())
 
     @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
     @patch('core.api.views._process_single_message')
@@ -6250,7 +6239,7 @@ NATURE OF THE PROBLEM: Gas leakage"""
         })
 
         self.assertEqual(result['status'], 'command')
-        self.assertIn('WhatsApp export', result['reply_text'])
+        self.assertIn('retired', result['reply_text'])
         mock_process.assert_not_called()
 
     @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
@@ -6293,8 +6282,8 @@ NATURE OF THE PROBLEM: No gas supply""",
         })
 
         self.assertEqual(result['status'], 'command')
-        self.assertIn('complaint import queued', result['reply_text'])
-        mock_download.assert_called_once()
+        self.assertIn('retired', result['reply_text'])
+        mock_download.assert_not_called()
         mock_process.assert_not_called()
         mock_sync.assert_not_called()
 

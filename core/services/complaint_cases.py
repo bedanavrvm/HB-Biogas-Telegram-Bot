@@ -43,8 +43,8 @@ from core.services.sheets import append_parsed_message_to_sheet, get_sheets_serv
 logger = logging.getLogger(__name__)
 
 
-ACTIVE_STATUSES = {'Open', 'In Progress', 'Review Needed', ''}
-STATUS_VALUES = {'Open', 'In Progress', 'Closed'}
+ACTIVE_STATUSES = {'Open', 'Reopened', 'In Progress', 'Review Needed', ''}
+STATUS_VALUES = {'Open', 'Reopened', 'In Progress', 'Closed'}
 MANAGER_ROLE = 'MANAGER'
 CATEGORY_SUGGESTION_RULES = (
     ('relocation-request', (
@@ -225,6 +225,11 @@ def ensure_case_control(case: ParsedMessage, group_config=None) -> ComplaintCase
                 label__iexact='Other Complaint',
             ).first()
     branch = resolve_branch(case.branch_region)
+    from core.services.location_catalog import resolve_location
+    county = resolve_location(case.county, location_type='county') if case.county else None
+    sub_county = resolve_location(
+        case.sub_county, location_type='sub_county', parent=county,
+    ) if case.sub_county else None
     customer, match_status = match_customer(case.customer_id, case.customer_phone)
     priority = category.default_priority if category else 'normal'
     target = {'high': 24, 'normal': 72, 'low': 120}[priority]
@@ -232,7 +237,8 @@ def ensure_case_control(case: ParsedMessage, group_config=None) -> ComplaintCase
     control, _ = ComplaintCaseControl.objects.get_or_create(
         parsed_message=case,
         defaults={
-            'category': category, 'branch_ref': branch, 'customer': customer,
+            'category': category, 'branch_ref': branch, 'county_ref': county,
+            'sub_county_ref': sub_county, 'customer': customer,
             'customer_match_status': match_status, 'priority': priority,
             'sla_target_hours': target, 'sla_started_at': started,
             'sla_due_at': started + timedelta(hours=target),
@@ -309,10 +315,8 @@ def actor_can_access_case(group_config, actor: ComplaintCaseActor, capability: s
 
 def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
     cases = _case_queryset(group_config.group_id, actor=actor)
-    from core.services.workflow_catalog import resolve_workflow_catalog
-    branch_values = resolve_workflow_catalog(
-        'complaint_cases', group_config,
-    )['effective_branches']
+    from core.services.location_catalog import location_options
+    locations = location_options(user=actor.user, access=actor.access)
     resolved = cases.filter(complaint_status='Closed').count()
     needs_details = cases.filter(complaint_status='Review Needed').count()
     total = cases.count()
@@ -322,7 +326,8 @@ def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
             'capabilities': sorted(actor.capabilities),
         },
         'statuses': ['pending', 'resolved', 'all'],
-        'branches': sorted(branch_values, key=str.casefold),
+        'branches': [item['name'] for item in locations['branches']],
+        'location_options': locations,
         'categories': list(available_categories(group_config).values_list('label', flat=True)),
         'category_catalogue': list(available_categories(group_config).values('key', 'label', 'description')),
         'evidence_limits': {
@@ -419,7 +424,7 @@ def case_detail(group_config, case_id: str, actor: ComplaintCaseActor | None = N
     updates = list(case.case_updates.all())
     payload['updates'] = [serialize_update(update) for update in updates]
     resolution = next((item for item in updates if item.new_status == 'Closed'), None)
-    reopen = next((item for item in updates if item.old_status == 'Closed' and item.new_status != 'Closed'), None)
+    reopen = next((item for item in updates if item.new_status == 'Reopened'), None)
     payload['latest_resolution'] = serialize_update(resolution) if resolution else None
     payload['latest_reopen'] = serialize_update(reopen) if reopen else None
     payload['evidence'] = [serialize_evidence(evidence) for evidence in case.complaint_evidence.all()]
@@ -497,7 +502,7 @@ def reopen_case(group_config, actor, case_id: str, fields: dict[str, Any]) -> di
     reason = fields.get('reason') if fields.get('reason') is not None else fields.get('resolution_text')
     return update_case(
         group_config, actor, case_id,
-        {**fields, 'status': 'Open', 'resolution_text': reason}, [],
+        {**fields, 'status': 'Reopened', 'resolution_text': reason}, [],
         required_capability='complaint.case.reopen',
     )
 
@@ -512,7 +517,7 @@ def create_complaint_case(
         raise ComplaintCaseError('Your role does not permit creating complaints in this group.')
     request_id = create_request_id(fields.get('client_request_id'))
     validate_uploaded_files(uploaded_files)
-    values = validate_new_case_fields(group_config, fields)
+    values = validate_new_case_fields(group_config, actor, request_id, fields)
     payload_hash = mutation_payload_hash(values)
     request_hash = complaint_case_hash(group_config.group_id, request_id)
     case = ParsedMessage.objects.filter(
@@ -555,7 +560,11 @@ def create_complaint_case(
                         source='complaint_mini_app',
                         customer_name=values['client_name'],
                         customer_phone=values['customer_phone'],
+                        secondary_phone=values['secondary_phone'],
                         customer_id=values['customer_id'],
+                        county=values['county'],
+                        sub_county=values['sub_county'],
+                        village=values['village'],
                         branch_region=values['branch_region'],
                         complaint_category=values['complaint_category'],
                         complaint_description=values['complaint_description'],
@@ -649,7 +658,9 @@ def create_request_id(value: Any) -> str:
     return request_id
 
 
-def validate_new_case_fields(group_config, fields: dict[str, Any]) -> dict[str, Any]:
+def validate_new_case_fields(
+    group_config, actor: ComplaintCaseActor, request_id: str, fields: dict[str, Any],
+) -> dict[str, Any]:
     client_name = normalize_customer_name(fields.get('client_name'))
     branch_region = required_case_text(fields.get('branch_region'), 'Branch')
     category_text = required_case_text(fields.get('complaint_category'), 'Complaint category')
@@ -661,18 +672,50 @@ def validate_new_case_fields(group_config, fields: dict[str, Any]) -> dict[str, 
         raise ComplaintCaseError('Enter a valid Kenyan phone number.')
     if not customer_phone and not customer_id:
         raise ComplaintCaseError('Enter a phone number or customer ID.')
+    secondary_input = str(fields.get('secondary_phone') or '').strip()
+    secondary_phone = normalize_kenyan_phone(secondary_input) if secondary_input else ''
+    if secondary_input and not secondary_phone:
+        raise ComplaintCaseError('Enter a valid secondary Kenyan phone number or leave it blank.')
+    if secondary_phone and secondary_phone == customer_phone:
+        raise ComplaintCaseError('Primary and secondary phone numbers must be different.')
     category = resolve_category(group_config, category_text)
     latitude, longitude, gps_link = normalize_location(fields)
-    branch_ref = resolve_branch(branch_region)
+    county_value = required_case_text(fields.get('county'), 'County')
+    sub_county_value = required_case_text(fields.get('sub_county'), 'Constituency')
+    village = required_case_text(fields.get('village'), 'Village')
+    from core.services.location_catalog import LocationCatalogError, validate_location_selection
+    try:
+        branch_ref, county_ref, sub_county_ref = validate_location_selection(
+            branch_value=branch_region, county_value=county_value,
+            sub_county_value=sub_county_value, source_workflow='complaint_cases',
+            source_model='ParsedMessage', source_record_id=request_id,
+            actor=actor.user, request_id=request_id,
+        )
+    except LocationCatalogError as exc:
+        raise ComplaintCaseError(str(exc)) from exc
+    if not branch_ref or not county_ref or not sub_county_ref:
+        raise ComplaintCaseError('Choose an active branch, county, and constituency.')
+    from core.services.workflow_access import workflow_access_decision
+    if not workflow_access_decision(
+        actor.user, 'complaint_cases', 'complaint.case.create', access=actor.access,
+        group_configuration=group_config, branch=branch_ref.name,
+    ).allowed:
+        raise ComplaintCaseError('Choose a branch within your authorized complaint scope.')
     customer, match_status = match_customer(customer_id, customer_phone)
     return {
         'client_name': client_name,
         'customer_phone': customer_phone,
+        'secondary_phone': secondary_phone,
         'customer_id': customer_id,
-        'branch_region': branch_region,
+        'county': county_ref.name,
+        'sub_county': sub_county_ref.name,
+        'village': village,
+        'branch_region': branch_ref.name,
         'complaint_category': category.label,
         'category': category,
         'branch_ref': branch_ref,
+        'county_ref': county_ref,
+        'sub_county_ref': sub_county_ref,
         'customer': customer,
         'customer_match_status': match_status,
         'complaint_description': complaint_description,
@@ -689,6 +732,7 @@ def create_case_control(case: ParsedMessage, values: dict[str, Any], group_confi
     control = ComplaintCaseControl.objects.create(
         parsed_message=case,
         category=values['category'], branch_ref=values['branch_ref'],
+        county_ref=values['county_ref'], sub_county_ref=values['sub_county_ref'],
         customer=values['customer'], customer_match_status=values['customer_match_status'],
         priority=priority, sla_target_hours=target, sla_started_at=started,
         sla_due_at=started + timedelta(hours=target),
@@ -986,7 +1030,11 @@ def new_case_raw_content(values: dict[str, Any], actor: ComplaintCaseActor) -> s
             'created_by': actor.name,
             'client_name': values['client_name'],
             'customer_phone': values['customer_phone'],
+            'secondary_phone': values['secondary_phone'],
             'customer_id': values['customer_id'],
+            'county': values['county'],
+            'sub_county': values['sub_county'],
+            'village': values['village'],
             'branch_region': values['branch_region'],
             'complaint_category': values['complaint_category'],
             'complaint_description': values['complaint_description'],
@@ -1012,8 +1060,8 @@ def sync_new_case_to_sheet(group_config, case: ParsedMessage) -> bool:
 def validate_update_fields(group_config, case: ParsedMessage, actor: ComplaintCaseActor, fields: dict[str, Any]) -> dict[str, Any]:
     control = ensure_case_control(case, group_config)
     status = str(fields.get('status') or case.complaint_status or 'Open').strip()
-    if status not in {'Open', 'Closed'}:
-        raise ComplaintCaseError('Complaint cases can only be Pending or Resolved.')
+    if status not in {'Open', 'Reopened', 'Closed'}:
+        raise ComplaintCaseError('Complaint cases can only be Open, Reopened, or Closed.')
     if status == 'Closed' and case.complaint_status != 'Closed' and not actor_can(group_config, actor, 'complaint.case.close'):
         raise ComplaintCaseError('Only authorized HomeBiogas resolution staff can resolve a complaint.')
     if case.complaint_status == 'Closed' and status != 'Closed' and not actor_can(group_config, actor, 'complaint.case.reopen'):
@@ -1089,7 +1137,7 @@ def apply_case_update(
             sync_status='pending' if projection_enabled else 'not_required',
         )
         update_case_fields(case, values, resolution_details, resolved_at)
-        reopened = before['status'] == 'Closed' and values['status'] == 'Open'
+        reopened = before['status'] == 'Closed' and values['status'] == 'Reopened'
         action = 'reopened' if reopened else 'resolved'
         control.revision += 1
         control.sync_status = 'pending' if projection_enabled else 'not_required'
@@ -1103,7 +1151,7 @@ def apply_case_update(
         record_complaint_update(update, case, actor, action=f'complaint.case.{action}')
     if projection_enabled:
         try:
-            synced = update_sheet_case(group_config, case, sheet_updates(values, resolution_details, resolved_at))
+            synced = update_sheet_case(group_config, case, sheet_updates(case, values, resolution_details, resolved_at))
         except Exception:
             logger.exception('Complaint update publication failed for case %s.', case.pk)
             synced = False
@@ -1169,10 +1217,16 @@ def update_case_fields(case: ParsedMessage, values: dict[str, Any], resolution_d
     case.save(update_fields=['complaint_status', 'resolution_details', 'date_resolved', 'gps_link'])
 
 
-def sheet_updates(values: dict[str, Any], resolution_details: str, resolved_at) -> dict[str, str]:
-    updates = {'status': values['status'], 'resolution_details': resolution_details}
+def sheet_updates(case: ParsedMessage, values: dict[str, Any], resolution_details: str, resolved_at) -> dict[str, str]:
+    updates = {
+        'status': 'CLOSED' if values['status'] == 'Closed' else values['status'].upper(),
+        'resolution_details': resolution_details,
+        'resolution_history': resolution_history_text(case),
+    }
     if resolved_at:
-        updates['date_resolved'] = timezone.localtime(resolved_at).strftime('%d/%m/%Y')
+        updates['date_resolved'] = timezone.localtime(resolved_at).strftime('%d-%m-%y')
+    elif values['status'] == 'Reopened':
+        updates['date_resolved'] = ''
     if values['gps_link']:
         updates['gps_link'] = values['gps_link']
     return updates
@@ -1186,7 +1240,8 @@ def update_sheet_case(group_config, case: ParsedMessage, updates: dict[str, str]
         sheet_name=group_config.sheet_name,
         sheet_schema=group_config.sheet_schema_config,
     )
-    return service.update_case_row(case.message_id, updates)
+    control = ensure_case_control(case, group_config)
+    return service.update_case_row(control.reference_number, updates)
 
 
 def retry_case_sync(group_config, actor: ComplaintCaseActor, case_id: str) -> dict[str, Any]:
@@ -1199,12 +1254,17 @@ def retry_case_sync(group_config, actor: ComplaintCaseActor, case_id: str) -> di
         raise ComplaintCaseError('Your role cannot retry publication for this case.')
     control = ensure_case_control(case, group_config)
     updates = {
-        'status': case.complaint_status or 'Open',
+        'status': 'CLOSED' if case.complaint_status == 'Closed' else (
+            'REOPENED' if case.complaint_status == 'Reopened' else 'OPEN'
+        ),
         'resolution_details': case.resolution_details or '',
+        'resolution_history': resolution_history_text(case),
         'gps_link': case.gps_link or '',
     }
     if case.date_resolved:
-        updates['date_resolved'] = timezone.localtime(case.date_resolved).strftime('%d/%m/%Y')
+        updates['date_resolved'] = timezone.localtime(case.date_resolved).strftime('%d-%m-%y')
+    elif case.complaint_status == 'Reopened':
+        updates['date_resolved'] = ''
     try:
         synced = update_sheet_case(group_config, case, updates) if case.synced_to_sheets else sync_new_case_to_sheet(group_config, case)
     except Exception:
@@ -1247,6 +1307,28 @@ def append_resolution_note(existing: str, actor_name: str, note: str) -> str:
         return existing or ''
     stamped_note = f'[{timezone.localtime():%d/%m/%Y %H:%M} {actor_name}] {note}'
     return '\n'.join(part for part in [existing.strip(), stamped_note] if part)
+
+
+def resolution_history_entries(case: ParsedMessage) -> list[dict[str, str]]:
+    entries = []
+    updates = case.case_updates.filter(new_status__in=['Closed', 'Reopened']).order_by('created_at', 'pk')
+    for update in updates:
+        action = 'CLOSED' if update.new_status == 'Closed' else 'REOPENED'
+        local_time = timezone.localtime(update.created_at)
+        entries.append({
+            'timestamp': local_time.strftime('%d-%B-%Y %H:%M'),
+            'actor': update.updated_by or 'Unknown staff member',
+            'action': action,
+            'reason': update.resolution_text or '',
+        })
+    return entries
+
+
+def resolution_history_text(case: ParsedMessage) -> str:
+    return '\n'.join(
+        f"[{entry['timestamp']}] {entry['actor']} - {entry['action']}: {entry['reason']}"
+        for entry in resolution_history_entries(case)
+    )
 
 
 def validate_uploaded_files(uploaded_files: list) -> None:
@@ -1397,6 +1479,8 @@ def control_snapshot(control: ComplaintCaseControl, case: ParsedMessage) -> dict
         'status': case.complaint_status or 'Open',
         'category_key': control.category.key if control.category_id else '',
         'branch_code': control.branch_ref.code if control.branch_ref_id else '',
+        'county_code': control.county_ref.code if control.county_ref_id else '',
+        'sub_county_code': control.sub_county_ref.code if control.sub_county_ref_id else '',
         'customer_id': str(control.customer_id or ''),
         'customer_match_status': control.customer_match_status,
         'assigned_to_id': str(control.assigned_to_id or ''),
@@ -1455,20 +1539,25 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
     age_ended_at = case.date_resolved if resolved and case.date_resolved else timezone.now()
     age_days = max(0, int((age_ended_at - reported_at).total_seconds() // 86400))
     if resolved:
-        age_label = f'Resolved after {age_days} day' + ('s' if age_days != 1 else '')
+        age_label = f'Closed after {age_days} day' + ('s' if age_days != 1 else '')
     else:
-        age_label = 'Pending today' if age_days == 0 else f'Pending for {age_days} day' + ('s' if age_days != 1 else '')
+        age_label = 'Opened today' if age_days == 0 else f'Open for {age_days} day' + ('s' if age_days != 1 else '')
+    public_status = 'CLOSED' if resolved else ('REOPENED' if case.complaint_status == 'Reopened' else 'OPEN')
     return {
         'id': str(case.id),
         'case_id': case.message_id,
         'reference_number': control.reference_number,
         'customer_name': case.customer_name,
         'customer_phone': case.customer_phone,
+        'secondary_phone': case.secondary_phone,
         'customer_id': case.customer_id,
+        'county': case.county,
+        'constituency': case.sub_county,
+        'village': case.village,
         'branch': case.branch_region,
         'category': control.category.label if control.category_id else case.complaint_category,
         'description': case.complaint_description,
-        'status': 'Resolved' if resolved else 'Pending',
+        'status': public_status,
         'stored_status': case.complaint_status or 'Open',
         'needs_details': case.complaint_status == 'Review Needed',
         'reported_at': format_datetime(case.timestamp),
@@ -1543,6 +1632,7 @@ def format_datetime(value) -> str:
 def _case_queryset(group_id: str, actor: ComplaintCaseActor | None = None):
     cases = ParsedMessage.objects.filter(group_id=str(group_id)).select_related(
         'complaint_control__category', 'complaint_control__branch_ref',
+        'complaint_control__county_ref', 'complaint_control__sub_county_ref',
         'complaint_control__customer', 'complaint_control__assigned_to',
     ).order_by('-timestamp', '-pk')
     # Complaint work is deliberately shared across branches inside one
@@ -1565,6 +1655,10 @@ def _filter_status(cases, status: str):
         return cases.filter(Q(complaint_status__in=ACTIVE_STATUSES) | Q(complaint_status=''))
     if status == 'closed':
         return cases.filter(complaint_status='Closed')
+    if status == 'reopened':
+        return cases.filter(complaint_status='Reopened')
+    if status == 'open':
+        return cases.exclude(complaint_status__in=['Closed', 'Reopened'])
     if status == 'resolved':
         return cases.filter(complaint_status='Closed')
     if status == 'pending':
