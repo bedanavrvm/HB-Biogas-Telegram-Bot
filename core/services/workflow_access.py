@@ -73,12 +73,18 @@ def allowed_roles_for_capability(workflow: str, capability: str, roles) -> set[s
     normalized_roles = {str(role or '').strip().upper() for role in roles if _normalized(role)}
     if not normalized_roles:
         return set()
-    return set(WorkflowRoleCapability.objects.filter(
+    allowed = set(WorkflowRoleCapability.objects.filter(
         workflow=workflow,
         role__in=normalized_roles,
         capability_key=capability,
         effect=WorkflowRoleCapability.EFFECT_ALLOW,
     ).values_list('role', flat=True))
+    # IT is the mandatory technical override role in every controlled Mini App.
+    # It still reaches this function through a real, active AccessGrant, so the
+    # grant's group/branch/product scope continues to be enforced below.
+    if 'IT' in normalized_roles:
+        allowed.add('IT')
+    return allowed
 
 
 def matching_capability_grants(
@@ -150,10 +156,15 @@ def workflow_access_decision(
         workflow, capability, access=access, resource=resource, branch=branch,
         product=product, group_configuration=group_configuration,
     )
+    it_override = any(
+        str(getattr(row, 'role', '') or '').strip().upper() == 'IT'
+        for row in matching
+    )
     return WorkflowAccessDecision(
         bool(matching), workflow, capability,
         roles=tuple(sorted({str(getattr(row, 'role', '') or '').strip().upper() for row in matching})),
         grant_ids=tuple(str(getattr(row, 'pk', '')) for row in matching),
+        technical_override=it_override,
     )
 
 

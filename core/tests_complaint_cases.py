@@ -25,6 +25,7 @@ from core.models import (
     ComplaintCaseImportBatch,
     ComplaintCaseImportItem,
     ComplaintCategory,
+    ComplaintCategoryAlias,
     BranchServiceArea,
     ComplaintCaseSequence,
     GroupSheetConfiguration,
@@ -123,6 +124,14 @@ class ComplaintCaseServiceTests(TestCase):
         UserProfile.objects.create(user=self.hb_staff, telegram_id='300', telegram_username='hb_resolver')
         AccessGrant.objects.create(
             user=self.hb_staff, workflow='complaint_cases', role='HB_STAFF',
+            group_configuration=self.group,
+        )
+        self.it_user = User.objects.create_user(
+            username='complaint-it', first_name='Complaint', last_name='IT', is_active=True,
+        )
+        UserProfile.objects.create(user=self.it_user, telegram_id='400', telegram_username='complaint_it')
+        AccessGrant.objects.create(
+            user=self.it_user, workflow='complaint_cases', role='IT',
             group_configuration=self.group,
         )
 
@@ -286,6 +295,16 @@ class ComplaintCaseServiceTests(TestCase):
         cases = list_cases(self.config, self.actor('100'))
 
         self.assertEqual([case['case_id'] for case in cases], ['CASE-1', 'CASE-3'])
+
+    def test_it_combines_all_live_complaint_role_capabilities(self):
+        actor = self.actor('400')
+        self.assertTrue({
+            'complaint.case.create', 'complaint.case.details.complete',
+            'complaint.case.update', 'complaint.case.close', 'complaint.case.reopen',
+            'complaint.case.source.view', 'complaint.case.evidence.view',
+            'complaint.case.evidence.manage', 'complaint.case.sync.retry',
+            'complaint.case.export', 'complaint.reports.view',
+        }.issubset(actor.capabilities))
 
     def test_branch_scoped_manager_can_reopen_any_resolved_case_in_the_group(self):
         AccessGrant.objects.filter(user=self.manager, workflow='complaint_cases').update(branch='Nakuru')
@@ -1517,6 +1536,10 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn("submitTransition(event, 'resolve')", script)
         self.assertIn("submitTransition(event, 'reopen')", script)
         self.assertIn('function submitCompleteDetails(event)', script)
+        self.assertIn('function validateCreateFields(formNode)', script)
+        self.assertIn('function normalizedKenyanPhone(value)', script)
+        self.assertIn('formNode.checkValidity()', script)
+        self.assertIn('Primary and secondary phone numbers must be different.', script)
         self.assertIn("getUserMedia({ video: { facingMode: { ideal: 'environment' } }", script)
         self.assertIn("telegram?.onEvent?.('deactivated'", script)
         self.assertIn("document.addEventListener('visibilitychange'", script)
@@ -1560,13 +1583,21 @@ class ComplaintCategoryCatalogueTests(TestCase):
                 'Physical pipe/connection problems where leakage is NOT the primary complaint'
             ),
             'System Performance': 'Low/no gas production or poor system performance',
-            'Installation Delay': "Installation hasn't happened/delayed",
-            'Commissioning Delay': 'Commissioning/start-up delayed',
-            'Accessories Delay': 'Accessories requested but delayed',
+            'Installation': 'Installation-related complaints of any kind',
+            'Commissioning': 'Commissioning and system start-up complaints',
+            'Accessories': 'Accessory supply, condition, compatibility, or support complaints',
+            'System Damage': 'Damage affecting the digester, appliance, or installed system',
+            'Technical Support': 'Technical guidance, diagnosis, or support requests',
+            'Appraisal': 'Appraisal, assessment, or valuation-related complaints',
+            'Payments & Accounts': 'Payments, balances, receipts, statements, or account-related complaints',
             'Relocation Request': 'Customer wants system relocated',
             'Other Complaint': "Doesn't fit any category",
         })
         self.assertEqual(ComplaintCategory.objects.get(key='other-complaint').default_sla_hours, 72)
+        self.assertEqual(
+            ComplaintCategoryAlias.objects.get(normalized_alias='installation delay').category.key,
+            'installation-delay',
+        )
 
 
 class ComplaintCaseAdminTests(TestCase):

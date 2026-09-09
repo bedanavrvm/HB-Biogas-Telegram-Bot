@@ -73,6 +73,8 @@ def can_approve_physical_signoff(user, access: dict | None, document_type: str) 
     if getattr(user, 'is_superuser', False):
         return True
     roles = set((access or {}).get('roles') or [])
+    if 'IT' in {str(role or '').strip().upper() for role in roles}:
+        return True
     return bool(roles.intersection(policy.effective_approval_roles))
 
 

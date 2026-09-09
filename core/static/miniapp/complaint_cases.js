@@ -21,6 +21,7 @@
     evidence: { create: [], resolve: [] },
     categoryDescriptions: new Map(),
     locationOptions: { branches: [], counties: [], sub_counties: [] },
+    locationOptionsLoading: false, locationOptionsSequence: 0,
     evidenceLimits: { max_files: 10, max_file_size_mb: 10, max_total_upload_mb: 30 },
     cameraStream: null, cameraTarget: '', cameraReplaceId: '', cameraSessionStartCount: 0,
     mediaViewerObjectUrl: '', mediaViewerRestoreFocus: null,
@@ -156,18 +157,27 @@
     const formNode = $('createCaseForm');
     const branch = formNode.elements.branch_region.value;
     const county = formNode.elements.county.value;
-    const response = await getJson('location-options/', { branch, county });
-    state.locationOptions = response.data || {};
-    const previousCounty = county;
-    locationSelectOptions(formNode.elements.county, state.locationOptions.counties, 'Select county');
-    const retainedCounty = [...formNode.elements.county.options].some(option => option.value === previousCounty);
-    if (retainedCounty) formNode.elements.county.value = previousCounty;
-    locationSelectOptions(
-      formNode.elements.sub_county,
-      retainedCounty ? state.locationOptions.sub_counties : [],
-      retainedCounty ? 'Select constituency' : 'Select county first',
-    );
-    formNode.elements.sub_county.disabled = !retainedCounty;
+    const sequence = ++state.locationOptionsSequence;
+    state.locationOptionsLoading = true; $('createSaveBtn').disabled = true;
+    try {
+      const response = await getJson('location-options/', { branch, county });
+      if (sequence !== state.locationOptionsSequence) return;
+      state.locationOptions = response.data || {};
+      const previousCounty = county;
+      locationSelectOptions(formNode.elements.county, state.locationOptions.counties, 'Select county');
+      const retainedCounty = [...formNode.elements.county.options].some(option => option.value === previousCounty);
+      if (retainedCounty) formNode.elements.county.value = previousCounty;
+      locationSelectOptions(
+        formNode.elements.sub_county,
+        retainedCounty ? state.locationOptions.sub_counties : [],
+        retainedCounty ? 'Select constituency' : 'Select county first',
+      );
+      formNode.elements.sub_county.disabled = !retainedCounty;
+    } finally {
+      if (sequence === state.locationOptionsSequence) {
+        state.locationOptionsLoading = false; $('createSaveBtn').disabled = false;
+      }
+    }
   }
   function updateCounts(counts) {
     $('pendingCount').textContent = counts.pending || 0;
@@ -545,6 +555,7 @@
   async function submitTransition(event, action) {
     event.preventDefault(); if (!state.currentCase || state.submitting) return;
     const formNode = event.currentTarget; const data = new FormData(formNode);
+    if (!validateRequiredForm(formNode)) return;
     const targetGroup = state.currentCase.group_id || state.groupId;
     data.set('expected_revision', state.currentCase.revision);
     data.set('client_request_id', requestId('complaint-transition'));
@@ -566,6 +577,7 @@
     const formNode = event.currentTarget; const data = new FormData(formNode);
     const idError = validateCustomerId(formNode.elements.customer_id);
     if (idError) return notify(idError, true);
+    if (!validateContactPair(formNode) || !validateRequiredForm(formNode)) return;
     const targetGroup = state.currentCase.group_id || state.groupId;
     data.set('expected_revision', state.currentCase.revision);
     data.set('client_request_id', requestId('complaint-details'));
@@ -592,6 +604,7 @@
     const data = new FormData(formNode);
     const idError = validateCustomerId(formNode.elements.customer_id);
     if (idError) return notify(idError, true);
+    if (!validateContactPair(formNode) || !validateCreateFields(formNode)) return;
     data.set('client_request_id', requestId('complaint-create')); appendEvidence(data, 'create');
     if (state.latitude) { data.set('latitude', state.latitude); data.set('longitude', state.longitude); }
     const button = $('createSaveBtn'); state.submitting = true; setActionLoading(button, true, 'Creating');
@@ -616,6 +629,73 @@
       return 'Customer ID must contain numbers only.';
     }
     input?.setCustomValidity?.(''); return '';
+  }
+  function normalizedKenyanPhone(value) {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (/^254[17]\d{8}$/.test(digits)) return digits;
+    if (/^0[17]\d{8}$/.test(digits)) return `254${digits.slice(1)}`;
+    if (/^[17]\d{8}$/.test(digits)) return `254${digits}`;
+    return '';
+  }
+  function setFieldError(input, message) {
+    if (!input) return;
+    input.setCustomValidity(message || '');
+    input.setAttribute('aria-invalid', message ? 'true' : 'false');
+  }
+  function showFirstFormError(formNode) {
+    const invalid = formNode.querySelector(':invalid');
+    if (invalid) {
+      invalid.focus(); invalid.reportValidity();
+      notify(invalid.validationMessage || 'Review the highlighted field.', true);
+    }
+    return false;
+  }
+  function validateRequiredForm(formNode) {
+    for (const input of formNode.querySelectorAll('[required]')) {
+      setFieldError(
+        input,
+        String(input.value || '').trim()
+          ? ''
+          : `${input.closest('label')?.querySelector('span')?.textContent || input.name.replace(/_/g, ' ')} is required.`,
+      );
+    }
+    return formNode.checkValidity() || showFirstFormError(formNode);
+  }
+  function validateContactPair(formNode) {
+    const primary = formNode.elements.customer_phone;
+    const secondary = formNode.elements.secondary_phone;
+    const customerId = formNode.elements.customer_id;
+    const primaryValue = String(primary?.value || '').trim();
+    const secondaryValue = String(secondary?.value || '').trim();
+    const normalizedPrimary = primaryValue ? normalizedKenyanPhone(primaryValue) : '';
+    const normalizedSecondary = secondaryValue ? normalizedKenyanPhone(secondaryValue) : '';
+    setFieldError(primary, primaryValue && !normalizedPrimary ? 'Enter a valid Kenyan phone number.' : '');
+    setFieldError(secondary, secondaryValue && !normalizedSecondary ? 'Enter a valid secondary Kenyan phone number or leave it blank.' : '');
+    if (!primaryValue && !String(customerId?.value || '').trim()) {
+      setFieldError(primary, 'Enter a primary phone number or Customer National ID.');
+    }
+    if (normalizedPrimary && normalizedSecondary && normalizedPrimary === normalizedSecondary) {
+      setFieldError(secondary, 'Primary and secondary phone numbers must be different.');
+    }
+    if (!formNode.checkValidity()) return showFirstFormError(formNode);
+    return true;
+  }
+  function validateCreateFields(formNode) {
+    if (state.locationOptionsLoading) {
+      notify('Wait for the location choices to finish loading.', true);
+      return false;
+    }
+    const whitespaceFields = ['client_name', 'village', 'complaint_description'];
+    whitespaceFields.forEach(name => {
+      const input = formNode.elements[name];
+      setFieldError(input, String(input?.value || '').trim() ? '' : `${name.replace(/_/g, ' ')} is required.`);
+    });
+    const constituency = formNode.elements.sub_county;
+    const validConstituency = !constituency.disabled && [...constituency.options].some(
+      option => option.value && option.value === constituency.value,
+    );
+    setFieldError(constituency, validConstituency ? '' : 'Choose a constituency available for the selected county and branch.');
+    return validateRequiredForm(formNode);
   }
   function normalizeCustomerNameInput(input) {
     if (!input) return;
@@ -1258,6 +1338,9 @@
   $('createCaseForm').elements.branch_region.addEventListener('change', () => refreshLocationOptions().catch(error => notify(error.message, true)));
   $('createCaseForm').elements.county.addEventListener('change', () => refreshLocationOptions().catch(error => notify(error.message, true)));
   $('createCaseForm').elements.client_name.addEventListener('blur', event => normalizeCustomerNameInput(event.currentTarget));
+  document.querySelectorAll('#createCaseForm input, #createCaseForm textarea, #createCaseForm select, #completeDetailsForm input, #completeDetailsForm select, #resolveForm textarea, #reopenForm textarea').forEach(input => input.addEventListener('input', () => {
+    input.setCustomValidity(''); input.setAttribute('aria-invalid', 'false');
+  }));
   document.querySelectorAll('input[name="customer_id"]').forEach(input => input.addEventListener('input', () => validateCustomerId(input)));
   $('categorySuggestion').addEventListener('click', () => {
     if (!state.suggestedCategory) return;

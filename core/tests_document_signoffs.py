@@ -39,11 +39,17 @@ class PhysicalDocumentSignoffTests(TestCase):
         self.officer = get_user_model().objects.create_user(
             username='document-officer', is_active=True,
         )
+        self.it_user = get_user_model().objects.create_user(
+            username='document-it', is_active=True,
+        )
         AccessGrant.objects.create(
             user=self.admin_user, workflow='jawabu_portal', role='BUSINESS_ADMIN', branch='EMBU',
         )
         AccessGrant.objects.create(
             user=self.officer, workflow='jawabu_portal', role='JBL_OFFICER', branch='EMBU',
+        )
+        AccessGrant.objects.create(
+            user=self.it_user, workflow='jawabu_portal', role='IT', branch='EMBU',
         )
         self.batch = RequisitionBatch.objects.create(
             order_number='SIGN-001',
@@ -127,6 +133,20 @@ class PhysicalDocumentSignoffTests(TestCase):
                 uploaded_file=self._scan(), actor=self.officer,
                 access=user_access(self.officer, 'jawabu_portal'), request_id='denied-request',
             )
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_scoped_it_can_complete_a_business_role_signoff(self, storage):
+        storage.return_value.upload.return_value = ('drive-it-scan', 'https://drive.test/it-scan')
+
+        signoff, replayed = submit_physical_signoff(
+            document_type='requisition', document_id=str(self.batch.id),
+            uploaded_file=self._scan(), actor=self.it_user,
+            access=user_access(self.it_user, 'jawabu_portal'), request_id='it-signed-scan',
+        )
+
+        self.assertFalse(replayed)
+        self.assertEqual(signoff.status, DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED)
+        self.assertEqual(signoff.approved_by, self.it_user)
 
     def test_signoff_policy_change_requires_independent_approver(self):
         maker = get_user_model().objects.create_superuser(

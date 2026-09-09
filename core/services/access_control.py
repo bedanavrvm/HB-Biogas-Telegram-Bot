@@ -324,6 +324,10 @@ def create_capability_request(
         raise ValidationError('Choose at least one valid workflow role.')
     allowed = {definition.key for definition in capabilities_for_workflow(workflow)}
     selected = dependency_closure(workflow, set(capability_keys).intersection(allowed))
+    if 'IT' in normalized_roles and selected != allowed:
+        raise ValidationError(
+            'IT is the mandatory scoped override role and must retain every live capability.'
+        )
     before_by_role = {
         target_role: _capability_state(workflow, target_role)
         for target_role in normalized_roles
@@ -518,6 +522,8 @@ def _apply_capability_request(request: AccessControlChangeRequest) -> None:
     definitions = {definition.key for definition in capabilities_for_workflow(request.workflow)}
     for role in roles:
         proposed = proposed_by_role.get(role) or (request.proposed_snapshot or {}).get('capabilities') or {}
+        if str(role or '').strip().upper() == 'IT':
+            proposed = {key: WorkflowRoleCapability.EFFECT_ALLOW for key in definitions}
         for key in definitions:
             effect = proposed.get(key, WorkflowRoleCapability.EFFECT_DENY)
             WorkflowRoleCapability.objects.update_or_create(

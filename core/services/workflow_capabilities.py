@@ -78,8 +78,6 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     CapabilityDefinition('complaint.case.create', 'complaint_cases', 'Create complaints', 'Cases', _roles('OFFICER', 'MANAGER'), ('complaint.queue.view',)),
     CapabilityDefinition('complaint.case.details.complete', 'complaint_cases', 'Complete missing complaint intake details', 'Cases', _roles('OFFICER', 'MANAGER'), ('complaint.queue.view',)),
     CapabilityDefinition('complaint.case.update', 'complaint_cases', 'Legacy complaint transition endpoint', 'Compatibility', _roles('MANAGER'), ('complaint.queue.view',)),
-    CapabilityDefinition('complaint.case.claim', 'complaint_cases', 'Retired complaint claiming', 'Compatibility', _roles(), ('complaint.queue.view',)),
-    CapabilityDefinition('complaint.case.assign', 'complaint_cases', 'Retired complaint assignment', 'Compatibility', _roles(), ('complaint.queue.view',)),
     CapabilityDefinition('complaint.case.close', 'complaint_cases', 'Resolve complaints', 'Transitions', _roles('HB_STAFF'), ('complaint.queue.view',)),
     CapabilityDefinition('complaint.case.reopen', 'complaint_cases', 'Reopen complaints', 'Transitions', _roles('MANAGER'), ('complaint.queue.view',)),
     CapabilityDefinition('complaint.case.source.view', 'complaint_cases', 'View confidential complaint source', 'Evidence', _roles('MANAGER'), ('complaint.queue.view',)),
@@ -91,9 +89,9 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     CapabilityDefinition('complaint.case.manage', 'complaint_cases', 'Legacy complaint manager access', 'Cases', _roles('MANAGER'), ('complaint.queue.view',)),
     # TAT tracker.  Individual stages are appended dynamically below.
     CapabilityDefinition('tat.home.view', 'tat_tracker', 'View TAT queue', 'Queue', _roles('BRO', BUSINESS_ADMIN_ROLE, 'CA', 'BM', 'SECRETARY', 'CHAIR', 'LOAN_APPROVER', 'FINANCE', 'IT', 'MANAGEMENT')),
-    CapabilityDefinition('tat.reports.view', 'tat_tracker', 'View TAT reports', 'Reporting', _roles('BRO', BUSINESS_ADMIN_ROLE, 'CA', 'BM', 'SECRETARY', 'CHAIR', 'LOAN_APPROVER', 'FINANCE', 'IT', 'MANAGEMENT'), ('tat.home.view',)),
-    CapabilityDefinition('tat.reports.people.view', 'tat_tracker', 'View named TAT performance', 'Reporting', _roles('IT'), ('tat.reports.view',)),
-    CapabilityDefinition('tat.case.create', 'tat_tracker', 'Create TAT cases', 'Cases', _roles('BRO', BUSINESS_ADMIN_ROLE, 'CA', 'BM', 'SECRETARY', 'CHAIR', 'LOAN_APPROVER', 'FINANCE', 'IT', 'MANAGEMENT'), ('tat.home.view',)),
+    CapabilityDefinition('tat.reports.view', 'tat_tracker', 'View TAT reports', 'Reporting', _roles('IT', 'MANAGEMENT'), ('tat.home.view',)),
+    CapabilityDefinition('tat.reports.people.view', 'tat_tracker', 'View named TAT performance', 'Reporting', _roles('IT', 'MANAGEMENT'), ('tat.reports.view',)),
+    CapabilityDefinition('tat.case.create', 'tat_tracker', 'Create TAT cases', 'Cases', _roles('BRO', BUSINESS_ADMIN_ROLE, 'IT'), ('tat.home.view',)),
     CapabilityDefinition('tat.case.search', 'tat_tracker', 'Search TAT cases', 'Cases', _roles('BRO', BUSINESS_ADMIN_ROLE, 'CA', 'BM', 'SECRETARY', 'CHAIR', 'LOAN_APPROVER', 'FINANCE', 'IT', 'MANAGEMENT'), ('tat.home.view',)),
     CapabilityDefinition('tat.case.correct', 'tat_tracker', 'Correct TAT case details', 'Cases', _roles('BRO', 'IT', BUSINESS_ADMIN_ROLE), ('tat.home.view',)),
     CapabilityDefinition('tat.stage.correct', 'tat_tracker', 'Correct completed TAT stages', 'Cases', _roles('IT'), ('tat.home.view',)),
@@ -154,6 +152,8 @@ def capabilities_for_workflow(workflow: str) -> tuple[CapabilityDefinition, ...]
 
 def default_enabled_capability_keys(workflow: str, role: str) -> set[str]:
     normalized_role = str(role or '').strip().upper()
+    if normalized_role == 'IT':
+        return {item.key for item in capabilities_for_workflow(workflow)}
     return {
         item.key for item in capabilities_for_workflow(workflow)
         if normalized_role in item.default_roles
@@ -201,6 +201,8 @@ def effective_capability_keys(user, workflow: str, *, access: dict | None = None
     if user.is_superuser:
         return available
     roles = (access or {}).get('roles') or []
+    if any(str(role or '').strip().upper() == 'IT' for role in roles):
+        return available
     return _policy_enabled_keys(workflow, roles).intersection(available)
 
 

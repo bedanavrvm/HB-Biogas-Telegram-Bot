@@ -7655,10 +7655,15 @@ class WorkflowRoleCapabilityAdmin(CompactModelAdmin):
                     return HttpResponseRedirect(reverse('admin:core_accesscontrolchangerequest_changelist'))
         selected_role = canonical_access_role(selected_workflow, request.GET.get('role') or (role_options[0][0] if role_options else ''))
         copy_from_role = canonical_access_role(selected_workflow, request.GET.get('copy_from') or '')
-        enabled_keys = set(WorkflowRoleCapability.objects.filter(
-            workflow=selected_workflow, role=copy_from_role or selected_role,
-            effect=WorkflowRoleCapability.EFFECT_ALLOW,
-        ).values_list('capability_key', flat=True))
+        matrix_role = copy_from_role or selected_role
+        enabled_keys = (
+            {item.key for item in definitions}
+            if matrix_role == 'IT'
+            else set(WorkflowRoleCapability.objects.filter(
+                workflow=selected_workflow, role=matrix_role,
+                effect=WorkflowRoleCapability.EFFECT_ALLOW,
+            ).values_list('capability_key', flat=True))
+        )
         rows = [
             {'definition': definition, 'enabled': definition.key in enabled_keys}
             for definition in definitions
@@ -7677,6 +7682,7 @@ class WorkflowRoleCapabilityAdmin(CompactModelAdmin):
             'role_impacts': {value: capability_impact(selected_workflow, value) for value, _label in role_options},
             'impact': capability_impact(selected_workflow, selected_role),
             'selected_role': selected_role,
+            'mandatory_it_policy': selected_role == 'IT',
             'copy_from_role': copy_from_role,
             'rows': rows,
             'request_key': uuid.uuid4(),

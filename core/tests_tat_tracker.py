@@ -124,6 +124,16 @@ class TatTrackerWorkflowTest(TestCase):
             user=self.admin_user, workflow='tat_tracker', role='BUSINESS_ADMIN',
             branch='Nakuru', product='business', group_configuration=self.config,
         )
+        self.management_user = User.objects.create_user(
+            username='management-user', first_name='Management', last_name='User', is_active=True,
+        )
+        UserProfile.objects.create(
+            user=self.management_user, telegram_id='555', telegram_username='management_user',
+        )
+        AccessGrant.objects.create(
+            user=self.management_user, workflow='tat_tracker', role='MANAGEMENT',
+            branch='Nakuru', product='business', group_configuration=self.config,
+        )
 
     def signed_init_data(self, telegram_id='111', username='bro_user'):
         pairs = {
@@ -715,6 +725,8 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('vendor-ag-grid-community-36.1.0.min.js', template)
         self.assertIn('vendor-chartjs-4.5.1.umd.min.js', template)
         self.assertIn('data-required-capability="tat.reports.view"', template)
+        self.assertIn('Use scoped IT override', source)
+        self.assertIn('review_comment: reviewComment', source)
         self.assertIn("actionWrap.classList.add('correction-open')", source)
         self.assertIn('.stage-action-wrap.correction-open { grid-template-columns:repeat(2,minmax(0,1fr)); }', stylesheet)
         self.assertIn('state.report.abortController?.abort()', source)
@@ -1548,7 +1560,12 @@ class TatTrackerWorkflowTest(TestCase):
             call_command('snapshot_workflow_tat', '--previous-day', '--date', timezone.localdate().isoformat())
 
     def test_tat_report_capabilities_and_correction_rebuild_request(self):
-        self.assertIn('tat.reports.view', default_enabled_capability_keys('tat_tracker', 'BRO'))
+        self.assertNotIn('tat.reports.view', default_enabled_capability_keys('tat_tracker', 'BRO'))
+        self.assertNotIn('tat.case.create', default_enabled_capability_keys('tat_tracker', 'MANAGEMENT'))
+        self.assertIn('tat.case.create', default_enabled_capability_keys('tat_tracker', 'BRO'))
+        self.assertIn('tat.case.create', default_enabled_capability_keys('tat_tracker', 'BUSINESS_ADMIN'))
+        self.assertIn('tat.reports.view', default_enabled_capability_keys('tat_tracker', 'MANAGEMENT'))
+        self.assertIn('tat.reports.people.view', default_enabled_capability_keys('tat_tracker', 'MANAGEMENT'))
         self.assertNotIn('tat.reports.people.view', default_enabled_capability_keys('tat_tracker', 'BRO'))
         self.assertIn('tat.reports.people.view', default_enabled_capability_keys('tat_tracker', 'IT'))
         case = TatTrackerCase.objects.create(
@@ -1571,13 +1588,17 @@ class TatTrackerWorkflowTest(TestCase):
             product_label='Business', client_name='API CLIENT', branch='Nakuru', status='Active',
             stage_values={'created': timezone.now().isoformat()},
         )
-        payload = {'group_id': self.config.group_id, 'init_data': self.signed_init_data(), 'view': 'current'}
+        payload = {
+            'group_id': self.config.group_id,
+            'init_data': self.signed_init_data('555', 'management_user'),
+            'view': 'current',
+        }
         headers = {'X-MiniApp-Message-Contract': '2', 'X-Request-ID': 'tat-report-api-1', 'Idempotency-Key': 'tat-report-api-1'}
         payload['client_request_id'] = 'tat-report-api-1'
         response = self.client.post(reverse('tat_tracker_reports_cases'), data=json.dumps(payload), content_type='application/json', headers=headers)
         self.assertEqual(response.status_code, 200, response.content.decode())
         row = response.json()['data']['results'][0]
-        self.assertNotIn('responsible_person', row)
+        self.assertIn('responsible_person', row)
         bad_headers = {'X-MiniApp-Message-Contract': '2', 'X-Request-ID': 'tat-report-api-2', 'Idempotency-Key': 'tat-report-api-2'}
         bad_sort = self.client.post(reverse('tat_tracker_reports_cases'), data=json.dumps({**payload, 'client_request_id': 'tat-report-api-2', 'sort': 'national_id'}), content_type='application/json', headers=bad_headers)
         self.assertEqual(bad_sort.status_code, 400)
@@ -1585,11 +1606,12 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(bad_sort.json()['message'], 'This report column cannot be sorted.')
         self.assertNotIn('We could not understand that request', bad_sort.json()['message'])
         self.assertEqual(bad_sort.json()['request_id'], 'tat-report-api-2')
-        WorkflowRoleCapability.objects.filter(
-            workflow='tat_tracker', role='BRO', capability_key='tat.reports.view',
-        ).update(effect=WorkflowRoleCapability.EFFECT_DENY)
+        denied_payload = {
+            **payload,
+            'init_data': self.signed_init_data('111', 'bro_user'),
+        }
         denied_headers = {'X-MiniApp-Message-Contract': '2', 'X-Request-ID': 'tat-report-api-3', 'Idempotency-Key': 'tat-report-api-3'}
-        denied = self.client.post(reverse('tat_tracker_reports_summary'), data=json.dumps({**payload, 'client_request_id': 'tat-report-api-3'}), content_type='application/json', headers=denied_headers)
+        denied = self.client.post(reverse('tat_tracker_reports_summary'), data=json.dumps({**denied_payload, 'client_request_id': 'tat-report-api-3'}), content_type='application/json', headers=denied_headers)
         self.assertEqual(denied.status_code, 403)
 
     def test_queue_polling_uses_shared_visibility_runtime_and_health_feedback(self):
@@ -1938,9 +1960,8 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertTrue(payload['data']['account']['roles'])
         self.assertEqual(payload['data']['configuration']['settings_version'], 1)
 
-    def test_preference_and_tat_target_proposal_require_independent_approval(self):
+    def test_preference_and_tat_target_proposal_allow_audited_it_override(self):
         it_actor = staff_user_for_payload(self.config, {'id': 444, 'username': 'it_user'})
-        admin_actor = staff_user_for_payload(self.config, {'id': 222, 'username': 'admin_user'})
         preference = update_preference(self.it_user, 'tat_tracker', {
             'default_screen': 'home', 'default_filters': {'branch': 'Nakuru'},
             'compact_cards': True, 'show_business_hours_time': False, 'alert_mode': 'quiet',
@@ -1959,12 +1980,16 @@ class TatTrackerWorkflowTest(TestCase):
         self_approver = dict(it_actor)
         self_approver['roles'] = list(self_approver.get('roles') or []) + ['BUSINESS_ADMIN']
         self_approver['capabilities'] = list(self_approver.get('capabilities') or []) + ['tat.settings.targets.approve']
-        with self.assertRaisesRegex(PermissionError, 'different authorised Business Admin'):
+        with self.assertRaisesRegex(ValueError, 'IT override approval requires a reason'):
             review_tat_configuration_request(str(proposal.pk), self_approver, approve=True)
 
-        reviewed = review_tat_configuration_request(str(proposal.pk), admin_actor, approve=True)
+        reviewed = review_tat_configuration_request(
+            str(proposal.pk), self_approver, approve=True,
+            review_comment='Emergency IT override after confirming the proposed target values.',
+        )
         self.config.refresh_from_db()
         self.assertEqual(reviewed.status, WorkflowConfigurationChangeRequest.STATUS_APPROVED)
+        self.assertIn('Emergency IT override', reviewed.review_comment)
         self.assertEqual(self.config.workflow['tat_targets_minutes']['business']['stages']['mpesa_to_admin'], 30)
 
     def test_stage_target_is_frozen_when_case_enters_stage(self):

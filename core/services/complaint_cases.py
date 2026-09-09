@@ -51,16 +51,26 @@ CATEGORY_SUGGESTION_RULES = (
         r'\brelocat(?:e|ed|ing|ion)\b', r'\b(?:move|moving|shift)\b.{0,30}\b(?:system|digester|unit)\b',
     )),
     ('installation-delay', (
-        r'\binstall(?:ation|ed|ing)?\b.{0,45}\b(?:delay(?:ed)?|pending|waiting|not done|not happened|hasn.t happened)\b',
-        r'\b(?:delay(?:ed)?|pending|waiting)\b.{0,30}\binstall(?:ation|ed|ing)?\b',
+        r'\binstall(?:ation|ed|ing)?\b',
     )),
     ('commissioning-delay', (
-        r'\b(?:commission(?:ing|ed)?|start[ -]?up)\b.{0,45}\b(?:delay(?:ed)?|pending|waiting|not done|not happened)\b',
-        r'\b(?:delay(?:ed)?|pending|waiting)\b.{0,30}\b(?:commission(?:ing|ed)?|start[ -]?up)\b',
+        r'\b(?:commission(?:ing|ed)?|start[ -]?up)\b',
     )),
     ('accessories-delay', (
-        r'\baccessor(?:y|ies)\b.{0,45}\b(?:delay(?:ed)?|pending|waiting|missing|not received|not delivered)\b',
-        r'\b(?:delay(?:ed)?|pending|waiting|missing)\b.{0,30}\baccessor(?:y|ies)\b',
+        r'\baccessor(?:y|ies)\b',
+    )),
+    ('payments-accounts', (
+        r'\b(?:payment|paid|mpesa|m-pesa|receipt|balance|statement|account)\b',
+    )),
+    ('appraisal', (
+        r'\b(?:appraisal|valuation|site assessment)\b',
+    )),
+    ('technical-support', (
+        r'\btechnical support\b', r'\b(?:troubleshoot|diagnos(?:e|is|tic))\b',
+    )),
+    ('system-damage', (
+        r'\b(?:system|digester|appliance|unit)\b.{0,35}\b(?:damage(?:d)?|broken|crack(?:ed)?)\b',
+        r'\b(?:damage(?:d)?|broken|crack(?:ed)?)\b.{0,35}\b(?:system|digester|appliance|unit)\b',
     )),
     ('leakage', (
         r'\bleak(?:age|ing|s|ed)?\b', r'\bgas\s+(?:is\s+)?escap(?:e|ing)\b', r'\b(?:smell|odou?r)\s+of\s+gas\b', r'\bgas\s+smell\b',

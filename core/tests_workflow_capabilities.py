@@ -44,6 +44,7 @@ from core.services.access_control import (
 from core.services.access_policies import WORKFLOW_ROLES
 from core.services.business_admin import legacy_business_admin_cutover_issues
 from core.services.portal_permissions import portal_access_decision, scope_portal_case_queryset
+from core.services.origination_access import queue_capabilities
 from core.services.telegram_identity import (
     TelegramAuthenticationError, user_access, validate_telegram_init_data,
 )
@@ -255,6 +256,61 @@ class WorkflowCapabilityPolicyTests(TestCase):
                 effect=WorkflowRoleCapability.EFFECT_ALLOW,
             ).values_list('capability_key', flat=True))
             self.assertTrue(expected.issubset(enabled), workflow)
+
+    def test_it_receives_every_live_capability_but_keeps_grant_scope(self):
+        it_user = get_user_model().objects.create_user(username='scoped-it', is_active=True)
+        scoped_group = SimpleNamespace(pk='group-one', group_id='-1001')
+        other_group = SimpleNamespace(pk='group-two', group_id='-1002')
+        grant = SimpleNamespace(
+            pk='it-grant', role='IT', branch='EMBU', product='',
+            group_configuration_id='group-one', group_configuration=scoped_group,
+        )
+        access = {'authorized': True, 'roles': ['IT'], 'grants': [grant]}
+        WorkflowRoleCapability.objects.filter(
+            workflow='complaint_cases', role='IT',
+        ).update(enabled=False, effect='deny')
+
+        expected = {item.key for item in capabilities_for_workflow('complaint_cases')}
+        self.assertEqual(
+            effective_capability_keys(it_user, 'complaint_cases', access=access), expected,
+        )
+        self.assertTrue(workflow_access_decision(
+            it_user, 'complaint_cases', 'complaint.case.close', access=access,
+            branch='EMBU', group_configuration=scoped_group,
+        ).allowed)
+        self.assertFalse(workflow_access_decision(
+            it_user, 'complaint_cases', 'complaint.case.close', access=access,
+            branch='NAKURU', group_configuration=scoped_group,
+        ).allowed)
+        self.assertFalse(workflow_access_decision(
+            it_user, 'complaint_cases', 'complaint.case.close', access=access,
+            branch='EMBU', group_configuration=other_group,
+        ).allowed)
+
+        portal_grant = SimpleNamespace(
+            pk='portal-it-grant', role='IT', branch='EMBU', product='',
+            group_configuration_id=None, group_configuration=None,
+        )
+        portal_access = {'authorized': True, 'roles': ['IT'], 'grants': [portal_grant]}
+        signing = queue_capabilities(user=it_user, access=portal_access)
+        self.assertTrue(signing['can_staff_sign'])
+        self.assertEqual(
+            set(signing['staff_signer_roles']),
+            {
+                'bro_1', 'bro_2', 'loan_officer', 'officer',
+                'branch_manager', 'management_approver', 'credit_analyst',
+            },
+        )
+
+    def test_it_capability_policy_cannot_be_reduced(self):
+        maker = get_user_model().objects.create_superuser(
+            username='it-policy-maker', email='it-policy@example.test', password='password',
+        )
+        with self.assertRaisesMessage(ValidationError, 'mandatory scoped override role'):
+            create_capability_request(
+                requester=maker, workflow='complaint_cases', role='IT',
+                capability_keys={'complaint.queue.view'}, reason='Attempt to reduce IT policy.',
+            )
 
     def test_only_it_gets_the_portal_maintenance_capability(self):
         jbl_access = user_access(self.user, 'jawabu_portal')

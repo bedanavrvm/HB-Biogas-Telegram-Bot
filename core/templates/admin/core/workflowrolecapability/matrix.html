@@ -34,18 +34,19 @@
       <input type="hidden" name="role" value="{{ selected_role }}">
       <div class="border-b border-base-200 p-4 dark:border-base-800">
         <h2 class="font-semibold">{{ selected_role }} capabilities</h2>
+        {% if mandatory_it_policy %}<p class="mt-2 rounded border border-primary-200 bg-primary-50 p-3 text-sm dark:border-primary-800 dark:bg-primary-950">IT is the mandatory scoped override role. Every live capability is enabled and cannot be removed in this matrix.</p>{% endif %}
         <p class="mt-1 text-sm text-font-subtle-light dark:text-font-subtle-dark">Impact: {{ impact.staff_count }} active staff across {{ impact.branch_count }} branch{{ impact.branch_count|pluralize:"es" }}. Required view capabilities are included automatically in the approval diff.</p>
         <label class="mt-3 block text-sm font-medium">Find capability<input id="capability-filter" type="search" class="mt-1 block w-full" placeholder="Search e.g. stage.update or payment"></label>
       </div>
       <div class="divide-y divide-base-200 dark:divide-base-800">{% regroup rows by definition.module as modules %}
         {% for module in modules %}<details open><summary class="cursor-pointer bg-base-50 px-4 py-3 font-medium dark:bg-base-800">{{ module.grouper }} ({{ module.list|length }})</summary>{% for row in module.list %}
           <label data-capability-row data-search="{{ row.definition.label|lower }} {{ row.definition.module|lower }} {{ row.definition.key|lower }}" class="flex min-h-14 cursor-pointer items-center gap-4 px-4 py-3 hover:bg-base-50 dark:hover:bg-base-800">
-            <input type="checkbox" name="capability:{{ row.definition.key }}" {% if row.enabled %}checked{% endif %} class="h-5 w-5">
+            <input type="checkbox" name="capability:{{ row.definition.key }}" {% if row.enabled %}checked{% endif %} {% if mandatory_it_policy %}disabled{% endif %} class="h-5 w-5">
             <span class="min-w-0 flex-1"><strong class="block">{{ row.definition.label }}</strong><span class="text-sm text-font-subtle-light dark:text-font-subtle-dark">{{ row.definition.module }} / {{ row.definition.key }}</span></span>
           </label>{% endfor %}</details>
         {% empty %}<p class="p-4">No capabilities are configured for this workflow.</p>{% endfor %}
       </div>
-      <div class="border-t border-base-200 p-4 dark:border-base-800">
+      <div class="border-t border-base-200 p-4 dark:border-base-800" {% if mandatory_it_policy %}hidden{% endif %}>
         <label class="block text-sm font-medium">Business reason<textarea name="reason" required rows="3" class="mt-1 block w-full" placeholder="Why is this role policy changing, and what operational approval supports it?"></textarea></label>
         <label class="mt-3 block text-sm font-medium">Also submit this same policy for
           <select name="apply_roles" multiple class="mt-1 block w-full" aria-describedby="bulk-help">{% for role in role_rows %}{% if role.value != selected_role %}<option value="{{ role.value }}">{{ role.label }} — {{ role.impact.staff_count }} staff</option>{% endif %}{% endfor %}</select>
@@ -53,7 +54,9 @@
         </label>
       </div>
       <div class="flex flex-wrap gap-3 border-t border-base-200 p-4 dark:border-base-800">
+        {% if not mandatory_it_policy %}
         <button type="submit" name="propose_matrix" value="1" class="min-h-11 rounded bg-primary-600 px-5 font-medium text-white hover:bg-primary-700">Submit for approval</button>
+        {% endif %}
         <a href="{% url 'admin:core_workflowrolecapability_changelist' %}" class="inline-flex min-h-11 items-center rounded border px-4">All capability rows</a>
       </div>
     </form>

@@ -1,19 +1,24 @@
 import importlib
 from unittest.mock import Mock, patch
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from django.apps import apps
 
 from core.models import (
+    AccessControlChangeRequest,
     CaseUpdate,
     ComplaintCaseImportBatch,
     ComplaintCaseImportItem,
     ComplaintCaseControl,
+    ComplaintCategory,
+    ComplaintCategoryAlias,
     GroupSheetConfiguration,
     ParsedMessage,
     ProcessedMessage,
     RawMessage,
+    WorkflowRoleCapability,
 )
 from core.services.sheet_schema import COMPLAINT_REGISTER_FIELD_HEADERS, SheetSchema
 from core.services.sheets import GoogleSheetsService
@@ -164,6 +169,41 @@ class ComplaintRegisterCutoverTests(TestCase):
         self.assertEqual(config.sheet_schema['row_key_field'], 'complaint_id')
         self.assertEqual(config.workflow['header_row'], 1)
         self.assertEqual(self.case.complaint_status, 'Reopened')
+
+    def test_role_and_category_migration_is_idempotent_and_cancels_conflicting_it_request(self):
+        apply_policy = importlib.import_module(
+            'core.migrations.0163_it_override_tat_roles_complaint_categories'
+        ).apply_policy_and_catalogue
+        user = get_user_model().objects.create_user(username='policy-migration-user')
+        request = AccessControlChangeRequest.objects.create(
+            change_type=AccessControlChangeRequest.TYPE_CAPABILITY,
+            workflow='complaint_cases', role='IT', target_roles=['IT'],
+            reason='Old editable IT policy.', status=AccessControlChangeRequest.STATUS_PENDING,
+            requested_by=user,
+        )
+
+        apply_policy(apps, None)
+        apply_policy(apps, None)
+
+        request.refresh_from_db()
+        self.assertEqual(request.status, AccessControlChangeRequest.STATUS_CANCELLED)
+        self.assertEqual(
+            set(WorkflowRoleCapability.objects.filter(
+                workflow='tat_tracker', capability_key='tat.case.create', effect='allow',
+            ).values_list('role', flat=True)),
+            {'BRO', 'BUSINESS_ADMIN', 'IT'},
+        )
+        self.assertEqual(
+            set(WorkflowRoleCapability.objects.filter(
+                workflow='tat_tracker', capability_key='tat.reports.view', effect='allow',
+            ).values_list('role', flat=True)),
+            {'MANAGEMENT', 'IT'},
+        )
+        self.assertTrue(ComplaintCategory.objects.filter(label='Payments & Accounts', active=True).exists())
+        self.assertEqual(
+            ComplaintCategoryAlias.objects.get(normalized_alias='installation delay').category.label,
+            'Installation',
+        )
 
     @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
     @patch('core.api.views._process_single_message')

@@ -149,7 +149,11 @@ def queue_capabilities(*, user, access: dict | None) -> dict:
     access_roles = {
         str(role or '').strip().upper() for role in (access or {}).get('roles', [])
     }
-    if access is None or getattr(user, 'is_superuser', False):
+    if (
+        access is None
+        or getattr(user, 'is_superuser', False)
+        or 'IT' in access_roles
+    ):
         staff_signer_roles = sorted(STAFF_SIGNER_ACCESS_ROLES)
     else:
         staff_signer_roles = sorted(

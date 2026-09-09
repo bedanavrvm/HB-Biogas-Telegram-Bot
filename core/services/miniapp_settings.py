@@ -388,11 +388,14 @@ def review_tat_configuration_request(request_id: str, actor: dict, *, approve: b
             raise ValueError('Business Calendar reviews are unavailable while business-hours TAT is globally hidden.')
     approve_capability = SETTING_CAPABILITIES[request.setting_key][1]
     actor_roles = {str(role or '').strip().upper() for role in (actor.get('roles') or [])}
-    if BUSINESS_ADMIN_ROLE not in actor_roles or not _capable(actor, approve_capability):
-        raise PermissionError('Only an authorised Business Admin can approve this setting change.')
+    if not actor_roles.intersection({BUSINESS_ADMIN_ROLE, 'IT'}) or not _capable(actor, approve_capability):
+        raise PermissionError('Only an authorised Business Admin or scoped IT user can approve this setting change.')
+    it_override = 'IT' in actor_roles
+    if it_override and len(str(review_comment or '').strip()) < 8:
+        raise ValueError('IT override approval requires a reason of at least 8 characters.')
     reviewer = _request_user(actor)
-    if reviewer.pk == request.requested_by_id:
-        raise PermissionError('A different authorised Business Admin must review this change.')
+    if reviewer.pk == request.requested_by_id and not it_override:
+        raise PermissionError('A different authorised Business Admin or scoped IT user must review this change.')
     if request.status != WorkflowConfigurationChangeRequest.STATUS_PENDING:
         raise ValueError('This setting proposal has already been reviewed.')
     request.reviewed_by = reviewer

@@ -1188,16 +1188,17 @@
     }) };
   }
 
-  function renderConfigurationReviews(configuration) {
+  function renderConfigurationReviews(configuration, account = {}) {
     const list = $('configurationReviewList');
     const pending = configuration.pending || [];
     const canApprove = Object.values(configuration.cards || {}).some((card) => card.can_approve);
+    const isItOverride = (account.roles || []).some((role) => String(role || '').toUpperCase() === 'IT');
     if (!pending.length || !canApprove) {
       list.classList.add('hidden');
       list.innerHTML = '';
       return;
     }
-    list.innerHTML = `<div class="form-heading"><h2>Pending configuration reviews</h2><p>Approve only changes you did not propose.</p></div>${pending.map((item) => `
+    list.innerHTML = `<div class="form-heading"><h2>Pending configuration reviews</h2><p>${isItOverride ? 'IT overrides require confirmation and an audit reason.' : 'Approve only changes you did not propose.'}</p></div>${pending.map((item) => `
       <article class="settings-review-item">
         <strong>${escapeHtml(item.setting_key.replace(/_/g, ' '))}</strong>
         <span>${escapeHtml(item.reason)}</span>
@@ -1207,10 +1208,21 @@
     list.classList.remove('hidden');
     list.querySelectorAll('[data-review-setting]').forEach((button) => button.addEventListener('click', async () => {
       try {
+        let reviewComment = '';
+        if (isItOverride) {
+          const decision = button.dataset.reviewApprove === 'true' ? 'approve and apply' : 'reject';
+          if (!window.confirm(`Use scoped IT override to ${decision} this configuration change?`)) return;
+          reviewComment = String(window.prompt('Record the reason for this IT override:') || '').trim();
+          if (reviewComment.length < 8) {
+            setStatus('IT override reason must be at least 8 characters.', 'error');
+            return;
+          }
+        }
         setButtonLoading(button, true, button.dataset.reviewApprove === 'true' ? 'Approving' : 'Rejecting');
         await api('/api/tat-tracker/settings/proposals/review/', {
           proposal_id: button.dataset.reviewSetting,
           approve: button.dataset.reviewApprove,
+          review_comment: reviewComment,
         });
         setStatus('Configuration review recorded.', 'ok');
         await loadSettings();
@@ -1248,7 +1260,7 @@
     const escalationCard = (configuration.cards || {}).tat_escalation || {};
     $('escalationSettingsForm').classList.toggle('hidden', !escalationCard.can_propose);
     if (escalationCard.can_propose) renderEscalationSettings((configuration.escalation || {}).rules || []);
-    renderConfigurationReviews(configuration);
+    renderConfigurationReviews(configuration, result.data.account || {});
   }
 
   async function saveTargetSettings() {
