@@ -37,8 +37,8 @@ migration plan and verifies the backup reference. Only then can it migrate. It
 runs Django's deploy check after migration, skips Superuser bootstrap if that
 check fails, and records a secret-free `ProductionReleaseAudit`. It deliberately
 does **not** contact Telegram or Google. Run `python manage.py
-sync_telegram_commands` only as an explicit, reviewed operation after confirming
-the group configuration; use `--dry-run` first.
+sync_telegram_commands` only as an explicit, reviewed operation to clear the
+archived Telegram command UI and stale bot-profile button; use `--dry-run` first.
 
 The application strips request bodies, query strings, cookies, headers,
 user identity, and arbitrary extras before Sentry receives an error event.

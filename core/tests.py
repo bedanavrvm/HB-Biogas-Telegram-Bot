@@ -5481,7 +5481,7 @@ class TelegramCommandMenuTest(TestCase):
 
     @override_settings(TELEGRAM_BOT_TOKEN='token', API_REQUEST_TIMEOUT=5)
     @patch('core.management.commands.sync_telegram_commands.requests.post')
-    def test_sync_telegram_commands_sets_workflow_specific_group_scopes(self, mock_post):
+    def test_sync_telegram_commands_clears_all_visible_command_scopes(self, mock_post):
         response = MagicMock()
         response.status_code = 200
         response.json.return_value = {'ok': True, 'result': True}
@@ -5514,62 +5514,24 @@ class TelegramCommandMenuTest(TestCase):
         output = StringIO()
         call_command('sync_telegram_commands', stdout=output)
 
-        set_calls = [
-            call for call in mock_post.call_args_list
-            if call.args[0].endswith('/setMyCommands')
-        ]
         delete_calls = [
             call for call in mock_post.call_args_list
             if call.args[0].endswith('/deleteMyCommands')
         ]
-        payloads = [call.kwargs['json'] for call in set_calls]
+        menu_calls = [
+            call for call in mock_post.call_args_list
+            if call.args[0].endswith('/setChatMenuButton')
+        ]
+        self.assertFalse(any(call.args[0].endswith('/setMyCommands') for call in mock_post.call_args_list))
+        self.assertEqual(len(menu_calls), 1)
+        self.assertEqual(menu_calls[0].kwargs['json'], {'menu_button': {'type': 'default'}})
+        payloads = [call.kwargs['json'] for call in delete_calls]
         scopes = [payload['scope'] for payload in payloads]
         self.assertIn({'type': 'all_private_chats'}, scopes)
-        self.assertNotIn({'type': 'all_group_chats'}, scopes)
+        self.assertIn({'type': 'all_group_chats'}, scopes)
         self.assertIn({'type': 'chat', 'chat_id': '-100order'}, scopes)
         self.assertIn({'type': 'chat', 'chat_id': '-100cases'}, scopes)
         self.assertIn({'type': 'chat', 'chat_id': '-100jawabu'}, scopes)
-        self.assertEqual(
-            delete_calls[0].kwargs['json']['scope'],
-            {'type': 'all_group_chats'},
-        )
-        order_payload = next(
-            payload for payload in payloads
-            if payload['scope'] == {'type': 'chat', 'chat_id': '-100order'}
-        )
-        order_commands = [item['command'] for item in order_payload['commands']]
-        self.assertIn('order', order_commands)
-        self.assertIn('form', order_commands)
-        self.assertIn('group', order_commands)
-        self.assertNotIn('last', order_commands)
-        self.assertNotIn('case', order_commands)
-        case_payload = next(
-            payload for payload in payloads
-            if payload['scope'] == {'type': 'chat', 'chat_id': '-100cases'}
-        )
-        case_commands = [item['command'] for item in case_payload['commands']]
-        self.assertIn('last', case_commands)
-        self.assertIn('case', case_commands)
-        self.assertIn('group', case_commands)
-        jawabu_payload = next(
-            payload for payload in payloads
-            if payload['scope'] == {'type': 'chat', 'chat_id': '-100jawabu'}
-        )
-        jawabu_commands = [item['command'] for item in jawabu_payload['commands']]
-        self.assertIn('batch', jawabu_commands)
-        self.assertIn('farmup', jawabu_commands)
-        self.assertIn('sysup', jawabu_commands)
-        self.assertIn('fcaup', jawabu_commands)
-        self.assertIn('group', jawabu_commands)
-        self.assertNotIn('order', jawabu_commands)
-        self.assertNotIn('case', jawabu_commands)
-        private_payload = next(
-            payload for payload in payloads
-            if payload['scope'] == {'type': 'all_private_chats'}
-        )
-        private_commands = [item['command'] for item in private_payload['commands']]
-        self.assertEqual(private_commands.count('fcaup'), 1)
-        self.assertNotIn('order', case_commands)
 
     def test_sync_telegram_commands_dry_run_lists_group_scope_without_token(self):
         GroupSheetConfiguration.objects.create(
@@ -5585,9 +5547,9 @@ class TelegramCommandMenuTest(TestCase):
         call_command('sync_telegram_commands', '--dry-run', '--group-id=-100order', stdout=output)
 
         text = output.getvalue()
-        self.assertIn('Would sync chat -100order', text)
-        self.assertIn('/order', text)
-        self.assertIn('/group', text)
+        self.assertIn('Would clear chat -100order command menu', text)
+        self.assertNotIn('/order', text)
+        self.assertNotIn('/group', text)
 
     @override_settings(TELEGRAM_BOT_TOKEN='token', API_REQUEST_TIMEOUT=5)
     @patch('core.management.commands.sync_telegram_commands.requests.post')

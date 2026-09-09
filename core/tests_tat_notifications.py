@@ -638,7 +638,7 @@ class TatPrivateTaskTests(TestCase):
                 'setChatMenuButton',
                 {
                     'chat_id': str(self.primary.staff_profile.telegram_id),
-                    'menu_button': {'type': 'commands'},
+                    'menu_button': {'type': 'default'},
                 },
             ),
         )

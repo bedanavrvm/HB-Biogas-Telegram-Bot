@@ -5,14 +5,10 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from core.models import GroupSheetConfiguration
-from core.services.telegram_command_menu import (
-    bot_commands_for_workflow,
-    private_chat_bot_commands,
-)
 
 
 class Command(BaseCommand):
-    help = "Sync Telegram native bot command autocomplete menus."
+    help = "Clear archived Telegram command menus and stale default Web App buttons."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -50,7 +46,6 @@ class Command(BaseCommand):
                 (
                     'all_private_chats',
                     {'type': 'all_private_chats'},
-                    private_chat_bot_commands(),
                     None,
                 ),
             ])
@@ -62,12 +57,9 @@ class Command(BaseCommand):
             queryset = queryset.filter(group_id=str(group_id))
 
         for config in queryset:
-            workflow = config.workflow or {}
-            workflow_type = str(workflow.get('type') or '')
             scopes.append((
                 f"chat {config.group_id}",
                 {'type': 'chat', 'chat_id': config.group_id},
-                bot_commands_for_workflow(workflow_type),
                 config,
             ))
 
@@ -75,6 +67,11 @@ class Command(BaseCommand):
             raise CommandError(f'No configured group found for {group_id}.')
 
         if not group_id:
+            if dry_run:
+                self.stdout.write("Would reset the bot-profile menu button")
+            else:
+                self._reset_default_menu_button(token, options['timeout'])
+                self.stdout.write(self.style.SUCCESS("Reset the bot-profile menu button"))
             group_scope = {'type': 'all_group_chats'}
             if dry_run:
                 self.stdout.write("Would clear all_group_chats command fallback")
@@ -87,44 +84,34 @@ class Command(BaseCommand):
                 )
                 self.stdout.write(self.style.SUCCESS("Cleared all_group_chats fallback"))
 
-        for label, scope, commands, config in scopes:
+        for label, scope, config in scopes:
             if dry_run:
-                command_names = ', '.join(f"/{item['command']}" for item in commands)
-                self.stdout.write(f"Would sync {label}: {command_names}")
+                self.stdout.write(f"Would clear {label} command menu")
                 continue
-            self._set_commands(
+            self._delete_commands(
                 token=token,
                 scope=scope,
-                commands=commands,
                 timeout=options['timeout'],
                 label=label,
                 config=config,
             )
-            self.stdout.write(self.style.SUCCESS(f"Synced {label}"))
+            self.stdout.write(self.style.SUCCESS(f"Cleared {label} command menu"))
 
-    def _delete_commands(self, token: str, scope: dict, timeout: int, label: str) -> None:
+    def _reset_default_menu_button(self, token: str, timeout: int) -> None:
         response = requests.post(
-            f'https://api.telegram.org/bot{token}/deleteMyCommands',
-            json={'scope': scope},
+            f'https://api.telegram.org/bot{token}/setChatMenuButton',
+            json={'menu_button': {'type': 'default'}},
             timeout=timeout,
         )
-        self._validate_response(response, label, 'deleteMyCommands')
+        self._validate_response(response, 'default bot profile', 'setChatMenuButton')
 
-    def _set_commands(
-        self,
-        token: str,
-        scope: dict,
-        commands: list[dict],
-        timeout: int,
-        label: str,
+    def _delete_commands(
+        self, token: str, scope: dict, timeout: int, label: str,
         config: GroupSheetConfiguration | None = None,
     ) -> None:
         response = requests.post(
-            f'https://api.telegram.org/bot{token}/setMyCommands',
-            json={
-                'scope': scope,
-                'commands': commands,
-            },
+            f'https://api.telegram.org/bot{token}/deleteMyCommands',
+            json={'scope': scope},
             timeout=timeout,
         )
         migrated_chat_id = self._migrated_chat_id(response)
@@ -133,21 +120,15 @@ class Command(BaseCommand):
             new_group_id = str(migrated_chat_id)
             if not self._apply_migrated_chat_id(config, new_group_id):
                 return
-            self.stdout.write(
-                self.style.WARNING(
-                    f"Updated migrated Telegram group {old_group_id} -> {new_group_id}"
-                )
-            )
+            self.stdout.write(self.style.WARNING(
+                f"Updated migrated Telegram group {old_group_id} -> {new_group_id}"
+            ))
             scope = {**scope, 'chat_id': new_group_id}
             response = requests.post(
-                f'https://api.telegram.org/bot{token}/setMyCommands',
-                json={
-                    'scope': scope,
-                    'commands': commands,
-                },
-                timeout=timeout,
+                f'https://api.telegram.org/bot{token}/deleteMyCommands',
+                json={'scope': scope}, timeout=timeout,
             )
-        self._validate_response(response, label, 'setMyCommands')
+        self._validate_response(response, label, 'deleteMyCommands')
 
     def _migrated_chat_id(self, response) -> str:
         if response.status_code != 400:

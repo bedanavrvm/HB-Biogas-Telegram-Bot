@@ -566,8 +566,11 @@ def handle_order_webapp_command(group_config, content: str) -> dict | None:
     if normalized not in {'/order', 'order', '/form', 'form'}:
         return None
 
-    if not getattr(settings, 'ORDER_APPROVAL_WEBAPP_ENABLED', True):
-        return _order_reply('Order approval form is not enabled.', status='failed')
+    if not getattr(settings, 'ORDER_APPROVAL_WEBAPP_ENABLED', False):
+        return _order_reply(
+            'Order Approval has been archived and is no longer available.',
+            status='failed',
+        )
 
     base_url = getattr(settings, 'APP_BASE_URL', '')
     if not base_url:

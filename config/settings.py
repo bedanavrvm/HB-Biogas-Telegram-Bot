@@ -341,7 +341,10 @@ ORDER_APPROVAL_IMAGE_PREVIEW_LIMIT = config(
     cast=int,
 )
 GOOGLE_DRIVE_MEDIA_FOLDER_ID = config('GOOGLE_DRIVE_MEDIA_FOLDER_ID', default='')
-ORDER_APPROVAL_WEBAPP_ENABLED = config('ORDER_APPROVAL_WEBAPP_ENABLED', default=True, cast=bool)
+# Order Approval is archived. Tests may override this setting to exercise the
+# retained historical implementation, but deployments cannot re-enable it via
+# a stale environment variable.
+ORDER_APPROVAL_WEBAPP_ENABLED = False
 ORDER_APPROVAL_MINI_APP_SHORT_NAME = config('ORDER_APPROVAL_MINI_APP_SHORT_NAME', default='').strip().strip('/')
 FARMUP_MINI_APP_SHORT_NAME = config('FARMUP_MINI_APP_SHORT_NAME', default='').strip().strip('/')
 FCAUP_MINI_APP_SHORT_NAME = config('FCAUP_MINI_APP_SHORT_NAME', default='').strip().strip('/')

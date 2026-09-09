@@ -1267,6 +1267,7 @@ class OrderApprovalMediaTest(TestCase):
         self.assertEqual(attachments[1].upload_error, 'Reused existing Drive upload.')
 
 
+@override_settings(ORDER_APPROVAL_WEBAPP_ENABLED=True)
 class OrderApprovalWebAppTest(TestCase):
     def _group_config(self):
         return MagicMock(
@@ -1428,6 +1429,18 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertContains(response, 'id="browser-fallback"')
         self.assertContains(response, 'class="form-section"')
         self.assertContains(response, 'class="section-toggle"')
+
+    @override_settings(ORDER_APPROVAL_WEBAPP_ENABLED=False)
+    def test_archived_order_approval_form_returns_gone(self):
+        response = self.client.get('/order-approval/?group_id=-100222')
+
+        self.assertEqual(response.status_code, 410)
+        self.assertContains(response, 'Order Approval Archived', status_code=410)
+        self.assertContains(response, 'Historical Order Approval records remain preserved', status_code=410)
+
+        command_result = handle_order_webapp_command(self._group_config(), '/order')
+        self.assertEqual(command_result['order_status'], 'failed')
+        self.assertIn('archived', command_result['reply_text'])
 
     @override_settings(ORDER_APPROVAL_BRANCH_CHOICES='Biogas Unit, Muranga, Thika Road')
     def test_order_approval_form_uses_configured_branch_choices(self):

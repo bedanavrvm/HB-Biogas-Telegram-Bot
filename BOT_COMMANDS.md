@@ -10,14 +10,10 @@ Example:
 
 In a direct chat, the command can be sent without the mention.
 
-Telegram autocomplete is handled by Telegram's native bot command menu, not by
-chat replies. After syncing the command menu, each configured group gets a
-workflow-specific command list. Complaint/case groups show case commands, while
-order approval groups show `/order`, `/form`, and shared admin checks only.
-Jawabu HomeBiogas groups show `/batch` plus shared admin checks only.
-Staff can type `/` plus a letter, for example `/g` or `/o`, and Telegram will
-show matching options to select. In groups, Telegram may insert commands as
-`/group@hb_biogas_cases_bot`; the bot accepts that form.
+Telegram's native slash-command autocomplete UI is archived. The command below
+clears global, private, and configured-group command scopes and removes a stale
+bot-profile Web App button. Existing handlers remain temporarily available for
+legacy links and deliberately typed commands, but are not advertised in the UI.
 
 ```text
 python manage.py sync_telegram_commands

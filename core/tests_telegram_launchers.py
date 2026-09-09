@@ -60,16 +60,15 @@ class TelegramLauncherTests(TestCase):
             for button in row
         ]
         self.assertEqual([button['text'] for button in buttons], [
-            'TAT Tracker', 'SPIN / CRB', 'Order Approval', 'Pipeline Portal', 'Loan Origination',
+            'TAT Tracker', 'SPIN / CRB', 'Pipeline Portal', 'Loan Origination',
         ])
-        self.assertEqual(len(preview['reply_markup']['inline_keyboard']), 3)
+        self.assertEqual(len(preview['reply_markup']['inline_keyboard']), 2)
 
-        from core.services.order_approval import decode_order_approval_start_param
         from core.services.spin_credit import decode_spin_start_param
         from core.services.tat_tracker import decode_tat_start_param
 
-        decoders = [decode_tat_start_param, decode_spin_start_param, decode_order_approval_start_param]
-        for button, decoder in zip(buttons[:3], decoders):
+        decoders = [decode_tat_start_param, decode_spin_start_param]
+        for button, decoder in zip(buttons[:2], decoders):
             start_param = parse_qs(urlsplit(button['url']).query)['startapp'][0]
             self.assertEqual(decoder(start_param), {'group_id': '-100launcher', 'token': ''})
 
@@ -78,10 +77,17 @@ class TelegramLauncherTests(TestCase):
             'https://t.me/jbl_bot/origination',
         )
 
-    def test_origination_is_exposed_in_private_and_relevant_group_commands(self):
-        self.assertIn('origination', {item['command'] for item in private_chat_bot_commands()})
+    def test_native_command_menus_are_archived(self):
+        self.assertEqual(private_chat_bot_commands(), [])
         for workflow in ('jawabu_homebiogas', 'order_approval', 'spin_credit_analysis', 'tat_tracker'):
-            self.assertIn('origination', {item['command'] for item in bot_commands_for_workflow(workflow)})
+            self.assertEqual(bot_commands_for_workflow(workflow), [])
+
+    def test_order_approval_is_removed_from_launcher_choices(self):
+        self.assertNotIn('Order Approval', {
+            button['text'] for row in preview_group_launcher(self.config)['reply_markup']['inline_keyboard']
+            for button in row
+        })
+        self.assertEqual(build_launcher_url('order_approval', self.config.group_id), '')
 
     @override_settings(TELEGRAM_BOT_USERNAME='', ORIGINATION_MINI_APP_SHORT_NAME='', APP_BASE_URL='https://app.example.test')
     def test_origination_launcher_has_deployed_url_fallback(self):

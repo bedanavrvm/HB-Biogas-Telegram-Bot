@@ -1,4 +1,7 @@
-# Order Approval Render Deployment And Production Testing
+# Order Approval Render Deployment And Production Testing (Archived)
+
+> Historical reference only. Order Approval is archived and cannot be enabled
+> by deployment configuration. Do not follow this guide for a new deployment.
 
 This guide enables the separate Telegram group workflow for the live Google Sheet version of `ORDER APPROVAL APRIL 2026.xlsx`.
 

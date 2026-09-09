@@ -1274,11 +1274,11 @@ def _send_tat_next_role_alert(group_config, case_data: dict) -> None:
 @require_http_methods(["GET"])
 def order_approval_form(request):
     """Render the Telegram Web App form for order approval updates."""
-    if not getattr(settings, 'ORDER_APPROVAL_WEBAPP_ENABLED', True):
+    if not getattr(settings, 'ORDER_APPROVAL_WEBAPP_ENABLED', False):
         return render(
             request,
             'order_approval/unavailable.html',
-            status=404,
+            status=410,
         )
 
     from core.services.order_approval import (
@@ -1466,6 +1466,16 @@ def order_approval_webapp_suggest(request):
 
 
 def _order_approval_webapp_context(post_data):
+    if not getattr(settings, 'ORDER_APPROVAL_WEBAPP_ENABLED', False):
+        return (
+            str(post_data.get('group_id') or '').strip(),
+            None,
+            {},
+            JsonResponse(
+                {'success': False, 'message': 'Order Approval has been archived and is no longer available.'},
+                status=410,
+            ),
+        )
     from core.services.group_config import GroupRegistry
     from core.services.order_approval import (
         is_order_approval_workflow,
@@ -2937,6 +2947,11 @@ def _process_telegram_message(message_data: dict) -> dict:
                         sender=sender,
                         telegram_message_id=telegram_message_id,
                     )
+                if not getattr(settings, 'ORDER_APPROVAL_WEBAPP_ENABLED', False):
+                    return {
+                        'status': 'command',
+                        'reply_text': 'Order Approval has been archived and is no longer available.',
+                    }
                 if content is None and not (reply_to_id and has_image):
                     logger.debug(
                         f"Ignoring order approval message {telegram_message_id}: "
