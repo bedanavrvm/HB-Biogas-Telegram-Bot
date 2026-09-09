@@ -22,7 +22,6 @@
   <script defer src="{% static 'miniapp/miniapp-nav.js' %}?v=21"></script>
 </head>
 <body class="workflow-standard portal-app">
-  <div id="shell-progress" class="shell-progress htmx-indicator" role="progressbar" aria-label="Loading"></div>
   <header class="app-shell-header">
     <button id="shell-menu-button" class="shell-menu-button" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">
       <i data-lucide="menu"></i>
@@ -43,8 +42,7 @@
 
   <main id="content"
         hx-target="this"
-        hx-swap="innerHTML transition:true"
-        hx-indicator="#shell-progress">
+        hx-swap="innerHTML transition:true">
     {% block content %}{% endblock %}
   </main>
 

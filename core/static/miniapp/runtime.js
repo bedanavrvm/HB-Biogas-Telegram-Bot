@@ -5,8 +5,11 @@
   const visibilitySubscribers = new Set();
   let visible = document.visibilityState !== 'hidden';
   let activeRequests = 0;
-  let progressTimer = null;
+  let progressStartTimer = null;
+  let progressFinishTimer = null;
+  let progressResetTimer = null;
   let progressStartedAt = 0;
+  let progressPhase = 'idle';
   let toastTimer = null;
 
   function ensureProgressLine() {
@@ -22,31 +25,50 @@
     return line;
   }
 
-  function beginProgress() {
-    activeRequests += 1;
-    if (activeRequests !== 1) return;
-    window.clearTimeout(progressTimer);
-    progressTimer = window.setTimeout(function () {
-      if (!activeRequests) return;
+  function scheduleProgressStart() {
+    if (!activeRequests || progressPhase !== 'idle' || progressStartTimer !== null) return;
+    progressStartTimer = window.setTimeout(function () {
+      progressStartTimer = null;
+      if (!activeRequests || progressPhase !== 'idle') return;
       const line = ensureProgressLine();
       progressStartedAt = Date.now();
+      progressPhase = 'active';
       line.className = 'miniapp-top-progress is-active';
       line.setAttribute('aria-hidden', 'false');
     }, 120);
   }
 
+  function beginProgress() {
+    activeRequests += 1;
+    window.clearTimeout(progressFinishTimer);
+    progressFinishTimer = null;
+    // Requests started while the completion fade is running join the next
+    // batch. They must not reactivate the fading line and create a second flash.
+    if (progressPhase === 'completing') return;
+    scheduleProgressStart();
+  }
+
   function endProgress() {
     activeRequests = Math.max(0, activeRequests - 1);
     if (activeRequests) return;
-    window.clearTimeout(progressTimer);
+    window.clearTimeout(progressStartTimer);
+    progressStartTimer = null;
     const line = document.getElementById('miniapp-top-progress');
-    if (!line || !line.classList.contains('is-active')) return;
-    const remaining = Math.max(0, 240 - (Date.now() - progressStartedAt));
-    progressTimer = window.setTimeout(function () {
+    if (!line || progressPhase !== 'active') return;
+    // Keep one continuous indicator across immediately chained requests and
+    // guarantee a readable minimum display time.
+    const remaining = Math.max(80, 240 - (Date.now() - progressStartedAt));
+    progressFinishTimer = window.setTimeout(function () {
+      progressFinishTimer = null;
+      if (activeRequests || progressPhase !== 'active') return;
+      progressPhase = 'completing';
       line.className = 'miniapp-top-progress is-complete';
-      window.setTimeout(function () {
+      progressResetTimer = window.setTimeout(function () {
+        progressResetTimer = null;
         line.className = 'miniapp-top-progress';
         line.setAttribute('aria-hidden', 'true');
+        progressPhase = 'idle';
+        scheduleProgressStart();
       }, 180);
     }, remaining);
   }
@@ -85,6 +107,8 @@
     progressFetch._miniAppProgressWrapped = true;
     window.fetch = progressFetch;
   }
+  document.addEventListener('htmx:beforeRequest', beginProgress);
+  document.addEventListener('htmx:afterRequest', endProgress);
 
   function currentVisible() {
     return document.visibilityState !== 'hidden';
