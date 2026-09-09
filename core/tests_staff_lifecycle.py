@@ -753,6 +753,35 @@ class StaffTelegramOnboardingTests(TestCase):
             {self.group.pk, second_group.pk},
         )
 
+    def test_lifecycle_scope_cards_filter_roles_by_selected_workflow(self):
+        from pathlib import Path
+
+        script = Path('core/static/admin/js/access_grant_inline.js').read_text(encoding='utf-8')
+        template = Path('core/templates/admin/auth/user/staff_lifecycle.html').read_text(
+            encoding='utf-8',
+        )
+
+        self.assertIn("document.querySelectorAll('.inline-related, [data-scope-card]')", script)
+        self.assertIn(
+            "closest('.inline-related, #enroll-telegram-user, [data-scope-card]')",
+            script,
+        )
+        self.assertIn("new CustomEvent('formset:added',{bubbles:true})", template)
+
+    def test_lifecycle_scope_rejects_a_role_from_another_workflow(self):
+        from core.admin import StaffLifecycleGrantFormSet
+
+        formset = StaffLifecycleGrantFormSet(data={
+            'grants-TOTAL_FORMS': '1', 'grants-INITIAL_FORMS': '0',
+            'grants-MIN_NUM_FORMS': '0', 'grants-MAX_NUM_FORMS': '20',
+            'grants-0-include': 'on', 'grants-0-workflow': 'complaint_cases',
+            'grants-0-role': 'BRO', 'grants-0-all_branches': 'on',
+            'grants-0-all_products': 'on', 'grants-0-all_groups': 'on',
+        }, prefix='grants')
+
+        self.assertFalse(formset.is_valid())
+        self.assertIn('Select a role valid for Complaint Cases.', str(formset.errors))
+
     def test_launcher_readiness_command_is_diagnostic_only(self):
         plan, _ = self._onboard()
         profile = plan.target_user.staff_profile
