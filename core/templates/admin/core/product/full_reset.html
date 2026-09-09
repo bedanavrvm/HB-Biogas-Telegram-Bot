@@ -1,0 +1,85 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=8">
+{% endblock %}
+
+{% block content %}
+  <section class="opb-shell opb-god-mode opb-full-reset">
+    <header>
+      <p class="opb-danger-kicker">PRODUCT CATALOGUE TESTING DANGER ZONE</p>
+      <h1>Reset product catalogue</h1>
+      <p>Delete unused draft product families and safely tombstone products that must remain as historical references.</p>
+    </header>
+
+    <div class="opb-god-warning">
+      <b>This cannot be undone.</b>
+      <p>Unused draft-only products are physically deleted with their aliases, versions, terms, fees, requirements, custom attributes, availability, TAT product configuration, document eligibility, and product-owned Origination setup.</p>
+      <p>Operational TAT cases, SPIN requests, farmer/customer records, Origination applications, signed documents, Google Sheets rows, Drive files, users, locations, and immutable compliance evidence are never deleted by this control.</p>
+      <p>Connected products and products with published, scheduled, or retired versions remain under the same stable ID and code as inactive tombstones. Their live availability, document eligibility, and product-scoped access are removed or revoked.</p>
+      <p>To restore a tombstoned product later, reactivate its existing identity and create a governed successor version; do not create a duplicate product code.</p>
+    </div>
+
+    {% if preview.tombstone_products %}
+      <div class="opb-god-warning">
+        <b>{{ preview.tombstone_count }} connected or legacy product{{ preview.tombstone_count|pluralize }} will be tombstoned, not deleted.</b>
+        <ul>
+          {% for product in preview.tombstone_products %}
+            <li><strong>{{ product.name }} ({{ product.code }})</strong>: {{ product.reasons|join:"; " }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    <div class="opb-reset-total">
+      <b>{{ preview.total }}</b>
+      <span>product/configuration record{{ preview.total|pluralize }} currently scheduled for deletion</span>
+    </div>
+
+    <div class="opb-reset-groups">
+      {% for group in preview.groups %}
+        <details {% if group.count %}open{% endif %}>
+          <summary><span>{{ group.label }}</span><b>{{ group.count }}</b></summary>
+          <table><tbody>
+            {% for item in group.models %}
+              <tr><td>{{ item.label }}</td><td>{{ item.count }}</td></tr>
+            {% empty %}
+              <tr><td>No records</td><td>0</td></tr>
+            {% endfor %}
+          </tbody></table>
+        </details>
+      {% endfor %}
+    </div>
+
+    {% if error %}<div class="opb-errors" role="alert">{{ error }}</div>{% endif %}
+    <form method="post" class="opb-god-form" data-single-submit>
+      {% csrf_token %}
+      <input type="hidden" name="request_id" value="{{ request_id }}">
+      <label>Reason for permanent reset
+        <textarea name="reason" required maxlength="500" placeholder="Example: Clearing synthetic product setup before rebuilding the test catalogue">{{ reason }}</textarea>
+      </label>
+      <label>Type this exact phrase to confirm
+        <code>{{ confirmation_phrase }}</code>
+        <input name="confirmation" required autocomplete="off" spellcheck="false" value="{{ confirmation }}">
+      </label>
+      <div class="opb-actions">
+        <a class="button" href="{{ back_url }}">Cancel</a>
+        <button type="submit" class="button opb-danger-button"{% if not preview.can_reset %} disabled{% endif %}>Reset product catalogue</button>
+      </div>
+    </form>
+  </section>
+  <script>
+    (() => {
+      const form = document.querySelector('[data-single-submit]');
+      if (!form) return;
+      form.addEventListener('submit', () => {
+        const button = form.querySelector('button[type="submit"]');
+        if (!button || button.disabled) return;
+        button.disabled = true;
+        button.textContent = 'Resetting products...';
+      });
+    })();
+  </script>
+{% endblock %}

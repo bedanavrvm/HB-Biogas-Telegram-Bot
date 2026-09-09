@@ -22,6 +22,7 @@ from core.models import (
     JawabuFarmerMaster,
     LoanOriginationApplication,
     OriginationCommercialException,
+    OriginationDocumentProductEligibility,
     OriginationDocumentTemplate,
     OriginationDocumentTemplateEvent,
     OriginationFieldReviewIssue,
@@ -57,6 +58,7 @@ REVIEWED_PRODUCT_RELATION_ACCESSORS = frozenset({
     'jawabu_farmer_records', 'jawabu_approval_delegations',
     'tat_daily_metrics', 'aliases', 'versions', 'availability_assignments',
     'mapping_issues', 'access_grants', 'emergency_access_grants',
+    'eligible_origination_document_templates', 'origination_document_eligibilities',
 })
 REVIEWED_PRODUCT_VERSION_RELATION_ACCESSORS = frozenset({
     'spin_credit_requests', 'tat_cases', 'jawabu_farmer_records',
@@ -70,7 +72,7 @@ REVIEWED_ORIGINATION_DEFINITION_RELATION_ACCESSORS = frozenset({
 })
 REVIEWED_ORIGINATION_TEMPLATE_RELATION_ACCESSORS = frozenset({
     'product_assignments', 'events', 'configuration_revisions',
-    'application_documents',
+    'application_documents', 'product_eligibilities',
 })
 
 
@@ -102,6 +104,21 @@ def _definition_ids(product: Product) -> list[object]:
     return list(_definition_queryset(product).values_list('pk', flat=True))
 
 
+def _shared_owned_templates(*, product: Product, definition_ids: list[object], template_ids: list[object]):
+    """Legacy-owned templates still assigned or eligible outside this product."""
+    return OriginationDocumentTemplate.objects.filter(
+        pk__in=template_ids,
+    ).filter(
+        Q(product_assignments__isnull=False)
+        | Q(product_eligibilities__isnull=False)
+    ).filter(
+        Q(product_assignments__isnull=False)
+        & ~Q(product_assignments__product_definition_id__in=definition_ids)
+        | Q(product_eligibilities__isnull=False)
+        & ~Q(product_eligibilities__product_id=product.pk)
+    ).distinct()
+
+
 def preview_product_deletion(product: Product) -> ProductDeletionPreview:
     """Classify every known Product relationship before a destructive write."""
     version_ids = list(product.versions.values_list('pk', flat=True))
@@ -113,18 +130,29 @@ def preview_product_deletion(product: Product) -> ProductDeletionPreview:
 
     blocker_counts = {
         'SPIN request(s)': SpinCreditRequest.objects.filter(
-            Q(product_id=product.pk) | Q(product_version_id__in=version_ids),
+            Q(product_id=product.pk)
+            | Q(product_version_id__in=version_ids)
+            | Q(loan_product__iexact=product.code)
+            | Q(loan_product__iexact=product.name),
         ).distinct().count(),
         'TAT case(s)': TatTrackerCase.objects.filter(
-            Q(product_id=product.pk) | Q(product_version_id__in=version_ids),
+            Q(product_id=product.pk)
+            | Q(product_version_id__in=version_ids)
+            | Q(product_key__iexact=product.code)
+            | Q(product_label__iexact=product.name),
         ).distinct().count(),
-        'TAT repair job(s)': TatRepairJob.objects.filter(product_id=product.pk).count(),
+        'TAT repair job(s)': TatRepairJob.objects.filter(
+            Q(product_id=product.pk) | Q(product_key__iexact=product.code),
+        ).distinct().count(),
         'farmer/customer workflow record(s)': JawabuFarmerMaster.objects.filter(
-            Q(product_id=product.pk) | Q(product_version_id__in=version_ids),
+            Q(product_id=product.pk)
+            | Q(product_version_id__in=version_ids)
+            | Q(payment_product__iexact=product.code)
+            | Q(payment_product__iexact=product.name),
         ).distinct().count(),
         'TAT daily metric(s)': WorkflowTatDailyMetric.objects.filter(
-            product_id=product.pk,
-        ).count(),
+            Q(product_id=product.pk) | Q(product_key__iexact=product.code),
+        ).distinct().count(),
         'loan origination application(s)': LoanOriginationApplication.objects.filter(
             Q(product_definition_id__in=definition_ids)
             | Q(product_version_id__in=version_ids),
@@ -169,16 +197,18 @@ def preview_product_deletion(product: Product) -> ProductDeletionPreview:
 
     outside_template_count = 0
     if definition_ids and owned_template_ids:
-        outside_template_count = OriginationDocumentTemplate.objects.filter(
-            pk__in=owned_template_ids,
-            product_assignments__isnull=False,
-        ).exclude(
-            product_assignments__product_definition_id__in=definition_ids,
-        ).distinct().count()
+        outside_template_count = _shared_owned_templates(
+            product=product,
+            definition_ids=definition_ids,
+            template_ids=owned_template_ids,
+        ).count()
 
     delete_counts = {
         'aliases': product.aliases.count(),
         'availability_assignments': product.availability_assignments.count(),
+        'document_product_eligibilities': OriginationDocumentProductEligibility.objects.filter(
+            product_id=product.pk,
+        ).count(),
         'product_versions': len(version_ids),
         'product_version_events': ProductVersionEvent.objects.filter(
             product_version_id__in=version_ids,
@@ -222,6 +252,9 @@ def _configuration_snapshot(
         'aliases': _rows(product.aliases.all()),
         'availability_assignments': _rows(
             ProductAvailability.objects.filter(product_id=product.pk)
+        ),
+        'document_product_eligibilities': _rows(
+            OriginationDocumentProductEligibility.objects.filter(product_id=product.pk)
         ),
         'product_versions': _rows(ProductVersion.objects.filter(pk__in=version_ids)),
         'fees': _rows(ProductFee.objects.filter(product_version_id__in=version_ids)),
@@ -328,16 +361,23 @@ def delete_product_family(*, product_id, actor, request_id: str = '') -> dict:
     # Preserve reusable templates. Their assignments to this product are
     # removed with the definitions; ownership is detached first so the
     # Origination cleanup cannot delete a template shared by another product.
-    shared_template_ids = list(OriginationDocumentTemplate.objects.filter(
+    owned_template_ids = list(OriginationDocumentTemplate.objects.filter(
         product_definition_id__in=definition_ids,
-        product_assignments__isnull=False,
-    ).exclude(
-        product_assignments__product_definition_id__in=definition_ids,
-    ).distinct().values_list('pk', flat=True))
+    ).values_list('pk', flat=True))
+    shared_template_ids = list(_shared_owned_templates(
+        product=product,
+        definition_ids=definition_ids,
+        template_ids=owned_template_ids,
+    ).values_list('pk', flat=True))
     if shared_template_ids:
         OriginationDocumentTemplate.objects.filter(
             pk__in=shared_template_ids,
         ).update(product_definition=None)
+
+    # Catalogue documents can be reused across global products. Remove only
+    # this product's eligibility rows and retain the document itself unless it
+    # is exclusively owned by this product's legacy definition.
+    OriginationDocumentProductEligibility.objects.filter(product_id=product.pk).delete()
 
     # Remove product-specific Origination configuration only. Operational
     # applications and application documents were verified absent above.

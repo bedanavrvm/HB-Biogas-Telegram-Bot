@@ -272,6 +272,17 @@ def _tat_full_reset_allowed(request) -> bool:
     )
 
 
+def _product_catalog_full_reset_allowed(request) -> bool:
+    user = getattr(request, "user", None)
+    return bool(
+        getattr(settings, 'PRODUCT_CATALOG_FULL_RESET_ENABLED', False)
+        and user
+        and user.is_authenticated
+        and user.is_active
+        and user.is_superuser
+    )
+
+
 def get_admin_navigation(request) -> list[dict]:
     """Return the small, workflow-oriented sidebar shown in Django Admin."""
 
@@ -310,6 +321,12 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("core.LocationPolicyState", "Location enforcement", "policy"),
         _model_item("core.Product", "Global products", "inventory_2"),
         _model_item("core.ProductVersion", "Product terms and requirements", "price_change"),
+        _custom_item(
+            "Reset product catalogue",
+            "admin:core_product_full_reset",
+            "delete_forever",
+            _product_catalog_full_reset_allowed,
+        ),
         _custom_item(
             "Guided Origination product setup",
             "admin:core_origination_setup_dashboard",

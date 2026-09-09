@@ -1691,6 +1691,8 @@ class ProductAliasInline(TabularInline):
 class ProductAdmin(CompactModelAdmin):
     """Canonical identity shared by every workflow and external adapter."""
 
+    full_reset_confirmation = 'RESET ALL PRODUCT DATA'
+    change_list_template = 'admin/core/product/change_list.html'
     list_display = ('name', 'code', 'category', 'active', 'current_terms', 'sort_order', 'updated_at')
     list_filter = ('active', 'category')
     search_fields = ('name', 'code', 'aliases__alias')
@@ -1707,11 +1709,100 @@ class ProductAdmin(CompactModelAdmin):
     def get_urls(self):
         return [
             path(
+                'full-reset/',
+                self.admin_site.admin_view(self.full_reset_view),
+                name='core_product_full_reset',
+            ),
+            path(
                 '<path:object_id>/availability/',
                 self.admin_site.admin_view(self.availability_workspace_view),
                 name='core_product_availability',
             ),
         ] + super().get_urls()
+
+    def changelist_view(self, request, extra_context=None):
+        context = dict(extra_context or {})
+        if (
+            getattr(settings, 'PRODUCT_CATALOG_FULL_RESET_ENABLED', False)
+            and request.user.is_active
+            and request.user.is_superuser
+        ):
+            context['product_full_reset_url'] = reverse('admin:core_product_full_reset')
+        return super().changelist_view(request, extra_context=context)
+
+    def full_reset_view(self, request):
+        if (
+            not getattr(settings, 'PRODUCT_CATALOG_FULL_RESET_ENABLED', False)
+            or not request.user.is_active
+            or not request.user.is_superuser
+        ):
+            raise PermissionDenied
+
+        from core.services.product_catalog_full_reset import (
+            ProductCatalogFullResetError,
+            preview_full_product_catalog_reset,
+            reset_full_product_catalog,
+        )
+
+        error = ''
+        reason = str(request.POST.get('reason') or '').strip()
+        confirmation = str(request.POST.get('confirmation') or '').strip()
+        request_id = re.sub(
+            r'[^A-Za-z0-9._-]', '',
+            str(request.POST.get('request_id') or uuid.uuid4()),
+        )[:128] or str(uuid.uuid4())
+        if request.method == 'POST':
+            if confirmation != self.full_reset_confirmation:
+                error = f'Type the exact confirmation phrase: {self.full_reset_confirmation}'
+            elif not reason:
+                error = 'Provide a reason for this permanent reset.'
+            elif len(reason) > 500:
+                error = 'The reset reason must be 500 characters or fewer.'
+            else:
+                try:
+                    result = reset_full_product_catalog(
+                        actor=request.user,
+                        reason=reason,
+                        request_id=request_id,
+                    )
+                except ProductCatalogFullResetError as exc:
+                    error = str(exc)
+                except Exception:
+                    logger.exception(
+                        'Product catalogue reset failed: actor_id=%s request_id=%s',
+                        request.user.pk,
+                        request_id,
+                    )
+                    error = 'The product catalogue reset failed. No database changes were committed.'
+                else:
+                    self.message_user(
+                        request,
+                        f"Product catalogue reset complete. Hard-deleted "
+                        f"{len(result['before']['deletable_product_ids'])} product(s) and tombstoned "
+                        f"{result['before']['tombstone_count']} connected or legacy product(s). "
+                        'Operational records, external files, Google Sheets, and the compliance '
+                        'ledger were untouched.',
+                        level=messages.WARNING,
+                    )
+                    return HttpResponseRedirect(reverse('admin:core_product_full_reset'))
+        elif request.method != 'GET':
+            response = HttpResponse(status=405)
+            response['Allow'] = 'GET, POST'
+            return response
+
+        preview = preview_full_product_catalog_reset()
+        return TemplateResponse(request, 'admin/core/product/full_reset.html', {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': 'Reset product catalogue',
+            'preview': preview,
+            'confirmation_phrase': self.full_reset_confirmation,
+            'confirmation': confirmation,
+            'reason': reason,
+            'request_id': request_id,
+            'error': error,
+            'back_url': reverse('admin:core_product_changelist'),
+        }, status=400 if error else 200)
 
     def availability_workspace_view(self, request, object_id):
         if not request.user.is_active or not request.user.is_superuser:

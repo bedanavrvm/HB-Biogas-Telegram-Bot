@@ -58,6 +58,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **Workflow data mode** | The immutable Pilot or Production classification captured when a SPIN/TAT operational record is created. Production records remain operational; while a workflow is in Pilot mode, normal reads also include only its currently active Pilot cycle. |
 | **Pilot cycle** | A versioned SPIN or TAT test-data scope. Rotating a cycle closes the old scope, makes it read-only and purge-eligible, and starts a new active scope that cannot be purged. |
 | **Global product** | The stable `Product` identity shared across workflows. Commercial terms and product-specific configuration belong to immutable, effective-dated `ProductVersion` records; workflow cases retain their selected version and snapshots. |
+| **Product catalogue reset** | A testing-only, active-Superuser clean-slate control. It hard-deletes unused draft product families, retains connected or governed legacy products as inactive tombstones, revokes their live availability/access, and never deletes operational records or external files. |
 | **Global location** | The stable `OperationalLocation` identity for branches, counties, and sub-counties. Codes and hierarchy are immutable; aliases preserve legacy labels, branch service areas govern availability, and workflow records retain canonical references plus historical display values. |
 | **Mini App** | A Telegram Web App (mobile-first web UI launched inside Telegram) backed by Django templates/static assets under `core/templates/*` and `core/static/miniapp/`. |
 | **`initData`** | Telegram's signed payload proving a Mini App session belongs to a specific Telegram user; must be HMAC-verified server-side before trust. |
@@ -148,6 +149,7 @@ Key modules:
 - `order_approval.py` — order-approval workflow and attachments
 - `parser.py` — complaint/message parsing
 - `product_catalog.py` — canonical product resolution, effective-dated Superuser publication, availability assignments, mapping review, requirements, and typed custom attributes
+- `product_catalog_full_reset.py` — testing-only hard deletion of unused draft product families plus inactive tombstones for connected or governed legacy references
 - `product_quotes.py` — Decimal-only product quote calculations for interest, repayment frequency, and fixed/percentage fees
 - `origination_commercial_terms.py` — officer-entered contractual lending terms, arithmetic/policy readiness, immutable quote hashes, and exact revision-bound Superuser exceptions
 - `requisition.py` — requisition generation and files
@@ -259,6 +261,7 @@ The Mini Apps use Django templates and mostly vanilla JavaScript. Preserve Teleg
 - `core/tests_staff_lifecycle.py`
 - `core/tests_user_hard_delete.py`
 - `core/tests_tat_full_reset.py`
+- `core/tests_product_catalog_full_reset.py`
 - `core/tests_telegram_authentication.py`
 - `core/tests_durable_jobs.py`
 - `core/tests_idempotency_cutover.py`
@@ -308,6 +311,7 @@ This is a template of variables this class of system typically needs. Treat it a
 | `GOOGLE_SERVICE_ACCOUNT_JSON` / `GOOGLE_APPLICATION_CREDENTIALS` | Service-account credentials for Sheets/Drive API access | Yes |
 | Sheet/Drive IDs (e.g. `*_SHEET_ID`, `*_FOLDER_ID`) | Identify target spreadsheets/folders per workflow | Treat as sensitive unless confirmed non-sensitive |
 | `TAT_TRACKER_SIGNATURES_ENABLED` | Enables external TAT e-signature dispatch and stage gating | No |
+| `PRODUCT_CATALOG_FULL_RESET_ENABLED` | Enables the testing-only Superuser product catalogue reset; defaults to disabled | No |
 | `ESIGNATURES_BASE_URL` / `ESIGNATURES_API_KEY` / `ESIGNATURES_WEBHOOK_SECRET` | Active TAT e-signature provider endpoint, credential, and callback verification secret | Yes except the base URL |
 | `TAT_NOTIFICATION_SCHEDULER_REQUIRED` / `TAT_NOTIFICATION_PROCESSOR_LOCK_SECONDS` | Requires the production private-alert runner and bounds its database-backed overlap lease | No |
 | `TAT_NOTIFICATION_SCHEDULER_MAX_SILENCE_SECONDS` / `TAT_NOTIFICATION_RUN_RETENTION_DAYS` | Controls the missed-run readiness threshold and privacy-safe processor-health retention | No |
