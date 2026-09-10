@@ -1,0 +1,28 @@
+flowchart LR
+  access["Access"]
+  audit["Audit"]
+  catalog["Catalog"]
+  complaints["Complaints"]
+  integration["Integration"]
+  jawabu["Jawabu"]
+  order_approval["Order Approval"]
+  origination["Origination"]
+  platform["Platform"]
+  spin["Spin"]
+  tat["Tat"]
+  access --> catalog
+  access --> platform
+  complaints --> catalog
+  complaints --> jawabu
+  complaints --> platform
+  integration --> platform
+  jawabu --> catalog
+  jawabu --> order_approval
+  order_approval --> catalog
+  order_approval --> jawabu
+  origination --> catalog
+  origination --> jawabu
+  platform --> jawabu
+  spin --> catalog
+  tat --> catalog
+  tat --> platform

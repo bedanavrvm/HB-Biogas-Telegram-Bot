@@ -38,6 +38,7 @@ If you read nothing else, follow these:
 8. **Don't trust root-level Markdown docs as current truth.** Code, migrations, tests, and settings win over old status write-ups (see [Instruction precedence](#instruction-precedence)).
 9. **One bounded change per PR.** Don't mix architecture refactors with business-rule changes.
 10. Unsure which workflow owns something? Check the [Workflow ownership guide](#workflow-ownership-guide) before guessing.
+11. **New persistent models require a bounded-domain app and database-catalogue metadata.** Do not add new models to the legacy `core` app. Use the predictable `<domain>_<entity>_<role>` table convention and declare purpose, lifecycle, retention, source-of-truth status, PostgreSQL table/column comments, intentional reverse relationship names, and a reason for every explicit index. Never change production schema outside a checked-in Django migration.
 
 ---
 
@@ -202,6 +203,7 @@ Key modules:
 - `superuser_bootstrap.py` — transactional, idempotent deployment Superuser bootstrap
 - `fresh_database_baseline.py` — read-first, fresh-database-only reconciliation of governed locations, products, complaint categories, capabilities, and singleton policies
 - `environment_audit.py` — value-safe environment-name audit and conservative removal of deprecated or redundant default dotenv entries
+- `database_catalog.py` — customer-data-free database dictionary, bounded-domain classification, relationship maps, PostgreSQL comments, and code-usage discovery
 - `portal_publication.py` — durable, request-assisted Portal register publication for free Render; local workflow commits never wait for Google Sheets
 - `access_control.py` — maker-checker access changes, emergency grants, notifications, and policy versioning
 - `staff_lifecycle.py` — atomic idempotent Superuser staff lifecycle execution, optional checker review, access, routing, leave, return, offboarding, and Telegram activation controls
@@ -266,6 +268,7 @@ The Mini Apps use Django templates and mostly vanilla JavaScript. Preserve Teleg
 - `core/tests_product_catalog_full_reset.py`
 - `core/tests_fresh_database_baseline.py`
 - `core/tests_environment_audit.py`
+- `core/tests_database_catalog.py`
 - `core/tests_telegram_authentication.py`
 - `core/tests_durable_jobs.py`
 - `core/tests_idempotency_cutover.py`

@@ -1,0 +1,67 @@
+erDiagram
+  core_branchservicearea {
+    string id
+  }
+  core_locationconfigurationevent {
+    string id
+  }
+  core_locationmappingissue {
+    string id
+  }
+  core_locationpolicystate {
+    string id
+  }
+  core_operationallocation {
+    string id
+  }
+  core_operationallocationalias {
+    string id
+  }
+  core_product {
+    string id
+  }
+  core_productalias {
+    string id
+  }
+  core_productavailability {
+    string id
+  }
+  core_productcustomattribute {
+    string id
+  }
+  core_productfee {
+    string id
+  }
+  core_productionreleaseaudit {
+    string id
+  }
+  core_productmappingissue {
+    string id
+  }
+  core_productrequirement {
+    string id
+  }
+  core_producttatconfiguration {
+    string id
+  }
+  core_productversion {
+    string id
+  }
+  core_productversionevent {
+    string id
+  }
+  core_operationallocation ||--o{ core_branchservicearea : contains
+  core_operationallocation ||--o{ core_locationmappingissue : contains
+  core_operationallocation ||--o{ core_operationallocation : contains
+  core_operationallocation ||--o{ core_operationallocationalias : contains
+  core_product ||--o{ core_productalias : contains
+  core_operationallocation ||--o{ core_productavailability : contains
+  core_product ||--o{ core_productavailability : contains
+  core_productversion ||--o{ core_productcustomattribute : contains
+  core_productversion ||--o{ core_productfee : contains
+  core_product ||--o{ core_productmappingissue : contains
+  core_productversion ||--o{ core_productrequirement : contains
+  core_productversion ||--o{ core_producttatconfiguration : contains
+  core_product ||--o{ core_productversion : contains
+  core_productversion ||--o{ core_productversion : contains
+  core_productversion ||--o{ core_productversionevent : contains

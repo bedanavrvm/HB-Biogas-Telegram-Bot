@@ -1,0 +1,122 @@
+erDiagram
+  core_fcaimportrecord {
+    string id
+  }
+  core_invoiceidentityreview {
+    string id
+  }
+  core_invoicenamechangebatch {
+    string id
+  }
+  core_invoicenamechangeitem {
+    string id
+  }
+  core_invoicenamechangeletterartifact {
+    string id
+  }
+  core_invoicenamechangelettertemplate {
+    string id
+  }
+  core_invoiceuploadbatch {
+    string id
+  }
+  core_jawabuapprovalcondition {
+    string id
+  }
+  core_jawabuapprovaldelegation {
+    string id
+  }
+  core_jawabuapprovaldelegationevent {
+    string id
+  }
+  core_jawabuapprovalrecord {
+    string id
+  }
+  core_jawabucasecomment {
+    string id
+  }
+  core_jawabucustomer {
+    string id
+  }
+  core_jawabucustomerfieldprovenance {
+    string id
+  }
+  core_jawabucustomerphonehistory {
+    string id
+  }
+  core_jawabudataqualityissue {
+    string id
+  }
+  core_jawabudataqualityresolution {
+    string id
+  }
+  core_jawabufarmermaster {
+    string id
+  }
+  core_jawabufarmeruploadbatch {
+    string id
+  }
+  core_jawabuhouseholdrelationship {
+    string id
+  }
+  core_jawabumediaaccessevent {
+    string id
+  }
+  core_jawabupipelineevent {
+    string id
+  }
+  core_jawaburelatedperson {
+    string id
+  }
+  core_jawabuvisitrecord {
+    string id
+  }
+  core_parsedinvoice {
+    string id
+  }
+  core_parsedinvoiceevent {
+    string id
+  }
+  core_paymentdocument {
+    string id
+  }
+  core_paymentdocumenttemplate {
+    string id
+  }
+  core_requisitionbatch {
+    string id
+  }
+  core_requisitiontemplate {
+    string id
+  }
+  core_jawabufarmermaster ||--o{ core_invoiceidentityreview : contains
+  core_parsedinvoice ||--o{ core_invoiceidentityreview : contains
+  core_invoicenamechangeletterartifact ||--o{ core_invoicenamechangebatch : contains
+  core_invoiceidentityreview ||--o{ core_invoicenamechangeitem : contains
+  core_invoicenamechangebatch ||--o{ core_invoicenamechangeitem : contains
+  core_invoicenamechangeitem ||--o{ core_invoicenamechangeitem : contains
+  core_jawabufarmermaster ||--o{ core_invoicenamechangeitem : contains
+  core_jawabuhouseholdrelationship ||--o{ core_invoicenamechangeitem : contains
+  core_parsedinvoice ||--o{ core_invoicenamechangeitem : contains
+  core_invoicenamechangebatch ||--o{ core_invoicenamechangeletterartifact : contains
+  core_invoicenamechangelettertemplate ||--o{ core_invoicenamechangeletterartifact : contains
+  core_jawabuapprovalrecord ||--o{ core_jawabuapprovalcondition : contains
+  core_jawabuapprovaldelegation ||--o{ core_jawabuapprovaldelegationevent : contains
+  core_jawabuapprovaldelegation ||--o{ core_jawabuapprovalrecord : contains
+  core_jawabufarmermaster ||--o{ core_jawabuapprovalrecord : contains
+  core_paymentdocument ||--o{ core_jawabuapprovalrecord : contains
+  core_jawabufarmermaster ||--o{ core_jawabucasecomment : contains
+  core_jawabupipelineevent ||--o{ core_jawabucasecomment : contains
+  core_jawabufarmermaster ||--o{ core_jawabucustomerfieldprovenance : contains
+  core_jawabucustomer ||--o{ core_jawabucustomerphonehistory : contains
+  core_jawabufarmermaster ||--o{ core_jawabudataqualityissue : contains
+  core_jawabudataqualityissue ||--o{ core_jawabudataqualityresolution : contains
+  core_jawabucustomer ||--o{ core_jawabufarmermaster : contains
+  core_jawabufarmermaster ||--o{ core_jawabuhouseholdrelationship : contains
+  core_jawaburelatedperson ||--o{ core_jawabuhouseholdrelationship : contains
+  core_jawabufarmermaster ||--o{ core_jawabumediaaccessevent : contains
+  core_jawabufarmermaster ||--o{ core_jawabupipelineevent : contains
+  core_jawabucustomer ||--o{ core_jawaburelatedperson : contains
+  core_invoiceuploadbatch ||--o{ core_parsedinvoice : contains
+  core_jawabufarmermaster ||--o{ core_parsedinvoice : contains
+  core_parsedinvoice ||--o{ core_parsedinvoiceevent : contains

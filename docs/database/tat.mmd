@@ -1,0 +1,88 @@
+erDiagram
+  core_businesscalendarholiday {
+    string id
+  }
+  core_tatactiontask {
+    string id
+  }
+  core_tatactiontasklocator {
+    string id
+  }
+  core_tatactiontaskrecipient {
+    string id
+  }
+  core_tatcasesequence {
+    string id
+  }
+  core_tatconfigurationevent {
+    string id
+  }
+  core_tatescalationrule {
+    string id
+  }
+  core_tatgroupexceptionstatus {
+    string id
+  }
+  core_tatnotificationprocessorrun {
+    string id
+  }
+  core_tatpresentationsettings {
+    string id
+  }
+  core_tatprivatealertconnection {
+    string id
+  }
+  core_tatprivatealertconnectionevent {
+    string id
+  }
+  core_tatrepairjob {
+    string id
+  }
+  core_tatresponsibilityassignment {
+    string id
+  }
+  core_tatresponsibilitybackup {
+    string id
+  }
+  core_tatresponsibilitychangeplan {
+    string id
+  }
+  core_tatresponsibilityevent {
+    string id
+  }
+  core_tattaskrerouteevent {
+    string id
+  }
+  core_tattrackerapprovalcertificate {
+    string id
+  }
+  core_tattrackercase {
+    string id
+  }
+  core_tattrackerevent {
+    string id
+  }
+  core_tatupdatesideeffectdispatch {
+    string id
+  }
+  core_workflowtatdailymetric {
+    string id
+  }
+  core_workflowtatmetricrebuildrequest {
+    string id
+  }
+  core_tatactiontask ||--o{ core_tatactiontask : contains
+  core_tatresponsibilityassignment ||--o{ core_tatactiontask : contains
+  core_tattrackercase ||--o{ core_tatactiontask : contains
+  core_tatactiontask ||--o{ core_tatactiontasklocator : contains
+  core_tatactiontask ||--o{ core_tatactiontaskrecipient : contains
+  core_tatprivatealertconnection ||--o{ core_tatprivatealertconnectionevent : contains
+  core_tatresponsibilityassignment ||--o{ core_tatresponsibilitybackup : contains
+  core_tatresponsibilityassignment ||--o{ core_tatresponsibilitychangeplan : contains
+  core_tatresponsibilityassignment ||--o{ core_tatresponsibilityevent : contains
+  core_tatactiontask ||--o{ core_tattaskrerouteevent : contains
+  core_tattrackercase ||--o{ core_tattrackerapprovalcertificate : contains
+  core_tattrackerevent ||--o{ core_tattrackerapprovalcertificate : contains
+  core_tattrackercase ||--o{ core_tattrackerevent : contains
+  core_tattrackercase ||--o{ core_tatupdatesideeffectdispatch : contains
+  core_tattrackercase ||--o{ core_workflowtatmetricrebuildrequest : contains

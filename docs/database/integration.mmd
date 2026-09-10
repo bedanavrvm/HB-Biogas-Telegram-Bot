@@ -1,0 +1,24 @@
+erDiagram
+  core_documentsignoffpolicy {
+    string id
+  }
+  core_integrationcircuitstate {
+    string id
+  }
+  core_integrationoperation {
+    string id
+  }
+  core_livesheetrecordchange {
+    string id
+  }
+  core_sheetregistercontract {
+    string id
+  }
+  core_sheetsyncauditsnapshot {
+    string id
+  }
+  core_sheetsyncdiscrepancy {
+    string id
+  }
+  core_sheetregistercontract ||--o{ core_sheetsyncauditsnapshot : contains
+  core_sheetsyncauditsnapshot ||--o{ core_sheetsyncdiscrepancy : contains

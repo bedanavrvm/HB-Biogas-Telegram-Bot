@@ -1,0 +1,120 @@
+erDiagram
+  core_loanoriginationapplication {
+    string id
+  }
+  core_originationapplicationdocument {
+    string id
+  }
+  core_originationapplicationevent {
+    string id
+  }
+  core_originationcommercialexception {
+    string id
+  }
+  core_originationconsentpolicyversion {
+    string id
+  }
+  core_originationcorrectionitem {
+    string id
+  }
+  core_originationcorrectionrequest {
+    string id
+  }
+  core_originationdatafield {
+    string id
+  }
+  core_originationdatafieldevent {
+    string id
+  }
+  core_originationdocumentproducteligibility {
+    string id
+  }
+  core_originationdocumenttemplate {
+    string id
+  }
+  core_originationdocumenttemplateevent {
+    string id
+  }
+  core_originationfieldreviewissue {
+    string id
+  }
+  core_originationotpchallenge {
+    string id
+  }
+  core_originationproductdefinition {
+    string id
+  }
+  core_originationproductdefinitionevent {
+    string id
+  }
+  core_originationproductdocumentassignment {
+    string id
+  }
+  core_originationreportingvalue {
+    string id
+  }
+  core_originationrequirementevidence {
+    string id
+  }
+  core_originationreviewernotice {
+    string id
+  }
+  core_originationsignersession {
+    string id
+  }
+  core_originationsigningaction {
+    string id
+  }
+  core_originationsigningactioninvalidation {
+    string id
+  }
+  core_originationsigningpackage {
+    string id
+  }
+  core_originationsigningrequestevent {
+    string id
+  }
+  core_originationstampasset {
+    string id
+  }
+  core_originationtemplateconfigurationrevision {
+    string id
+  }
+  core_loanoriginationapplication ||--o{ core_loanoriginationapplication : contains
+  core_originationproductdefinition ||--o{ core_loanoriginationapplication : contains
+  core_loanoriginationapplication ||--o{ core_originationapplicationdocument : contains
+  core_originationdocumenttemplate ||--o{ core_originationapplicationdocument : contains
+  core_originationproductdocumentassignment ||--o{ core_originationapplicationdocument : contains
+  core_loanoriginationapplication ||--o{ core_originationapplicationevent : contains
+  core_loanoriginationapplication ||--o{ core_originationcommercialexception : contains
+  core_originationcorrectionrequest ||--o{ core_originationcorrectionitem : contains
+  core_loanoriginationapplication ||--o{ core_originationcorrectionrequest : contains
+  core_originationdatafield ||--o{ core_originationdatafield : contains
+  core_originationdatafield ||--o{ core_originationdatafieldevent : contains
+  core_originationdocumenttemplate ||--o{ core_originationdocumentproducteligibility : contains
+  core_originationconsentpolicyversion ||--o{ core_originationdocumenttemplate : contains
+  core_originationproductdefinition ||--o{ core_originationdocumenttemplate : contains
+  core_originationtemplateconfigurationrevision ||--o{ core_originationdocumenttemplate : contains
+  core_originationdocumenttemplate ||--o{ core_originationdocumenttemplateevent : contains
+  core_originationdatafield ||--o{ core_originationfieldreviewissue : contains
+  core_originationproductdefinition ||--o{ core_originationfieldreviewissue : contains
+  core_originationsignersession ||--o{ core_originationotpchallenge : contains
+  core_originationproductdefinition ||--o{ core_originationproductdefinition : contains
+  core_originationproductdefinition ||--o{ core_originationproductdefinitionevent : contains
+  core_originationdocumenttemplate ||--o{ core_originationproductdocumentassignment : contains
+  core_originationproductdefinition ||--o{ core_originationproductdocumentassignment : contains
+  core_loanoriginationapplication ||--o{ core_originationreportingvalue : contains
+  core_originationdatafield ||--o{ core_originationreportingvalue : contains
+  core_loanoriginationapplication ||--o{ core_originationrequirementevidence : contains
+  core_loanoriginationapplication ||--o{ core_originationreviewernotice : contains
+  core_originationsigningpackage ||--o{ core_originationreviewernotice : contains
+  core_originationsigningpackage ||--o{ core_originationsignersession : contains
+  core_originationsignersession ||--o{ core_originationsigningaction : contains
+  core_originationsigningaction ||--o{ core_originationsigningaction : contains
+  core_originationsigningpackage ||--o{ core_originationsigningaction : contains
+  core_originationstampasset ||--o{ core_originationsigningaction : contains
+  core_originationsigningaction ||--o{ core_originationsigningactioninvalidation : contains
+  core_loanoriginationapplication ||--o{ core_originationsigningpackage : contains
+  core_originationconsentpolicyversion ||--o{ core_originationsigningpackage : contains
+  core_originationsignersession ||--o{ core_originationsigningrequestevent : contains
+  core_originationdocumenttemplate ||--o{ core_originationtemplateconfigurationrevision : contains

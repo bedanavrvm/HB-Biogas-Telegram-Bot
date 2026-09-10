@@ -1,0 +1,48 @@
+erDiagram
+  core_accesscontrolchangerequest {
+    string id
+  }
+  core_accesscontrolcheckerassignment {
+    string id
+  }
+  core_accesscontrolnotification {
+    string id
+  }
+  core_accesscontrolpolicysnapshot {
+    string id
+  }
+  core_accesscontrolpolicystate {
+    string id
+  }
+  core_accessgrant {
+    string id
+  }
+  core_capabilityusagedaily {
+    string id
+  }
+  core_emergencyaccessgrant {
+    string id
+  }
+  core_stafflifecyclechangeplan {
+    string id
+  }
+  core_stafftelegramgroupinvitation {
+    string id
+  }
+  core_stafftelegramonboarding {
+    string id
+  }
+  core_userprofile {
+    string id
+  }
+  core_workflowrolecapability {
+    string id
+  }
+  core_workflowrolecapabilityauditevent {
+    string id
+  }
+  core_accesscontrolchangerequest ||--o{ core_accesscontrolchangerequest : contains
+  core_accesscontrolchangerequest ||--o{ core_accesscontrolnotification : contains
+  core_accesscontrolchangerequest ||--o{ core_accesscontrolpolicysnapshot : contains
+  core_stafftelegramonboarding ||--o{ core_stafftelegramgroupinvitation : contains
+  core_stafflifecyclechangeplan ||--o{ core_stafftelegramonboarding : contains

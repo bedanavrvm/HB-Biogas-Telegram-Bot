@@ -1,0 +1,52 @@
+erDiagram
+  core_caseupdate {
+    string id
+  }
+  core_complaintcasecontrol {
+    string id
+  }
+  core_complaintcaseevent {
+    string id
+  }
+  core_complaintcaseevidence {
+    string id
+  }
+  core_complaintcaseimportbatch {
+    string id
+  }
+  core_complaintcaseimportitem {
+    string id
+  }
+  core_complaintcasesequence {
+    string id
+  }
+  core_complaintcategory {
+    string id
+  }
+  core_complaintcategoryalias {
+    string id
+  }
+  core_complaintcategoryavailability {
+    string id
+  }
+  core_parsedmessage {
+    string id
+  }
+  core_processedmessage {
+    string id
+  }
+  core_rawmessage {
+    string id
+  }
+  core_parsedmessage ||--o{ core_caseupdate : contains
+  core_complaintcategory ||--o{ core_complaintcasecontrol : contains
+  core_parsedmessage ||--o{ core_complaintcasecontrol : contains
+  core_complaintcasecontrol ||--o{ core_complaintcaseevent : contains
+  core_caseupdate ||--o{ core_complaintcaseevidence : contains
+  core_parsedmessage ||--o{ core_complaintcaseevidence : contains
+  core_complaintcaseimportbatch ||--o{ core_complaintcaseimportitem : contains
+  core_parsedmessage ||--o{ core_complaintcaseimportitem : contains
+  core_complaintcategory ||--o{ core_complaintcategoryalias : contains
+  core_complaintcategory ||--o{ core_complaintcategoryavailability : contains
+  core_processedmessage ||--o{ core_parsedmessage : contains
+  core_rawmessage ||--o{ core_processedmessage : contains

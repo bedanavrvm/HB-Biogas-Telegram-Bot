@@ -160,7 +160,6 @@ class ParsedMessage(models.Model):
             ),
         ]
         indexes = [
-            models.Index(fields=['message_id']),
             models.Index(fields=['group_id', 'sheet_id']),
             models.Index(fields=['synced_to_sheets']),
             models.Index(
@@ -702,7 +701,6 @@ class OrderApprovalUpdate(models.Model):
         indexes = [
             models.Index(fields=['group_id', 'created_at']),
             models.Index(fields=['group_id', 'id_number']),
-            models.Index(fields=['telegram_message_id']),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -774,7 +772,6 @@ class MediaAttachment(models.Model):
         indexes = [
             models.Index(fields=['group_id', 'created_at']),
             models.Index(fields=['business_key_type', 'business_key_value']),
-            models.Index(fields=['telegram_file_id']),
             models.Index(fields=['jawabu_farmer', 'file_type', 'upload_status']),
         ]
 
@@ -863,7 +860,6 @@ class SpinCreditRequest(models.Model):
             models.Index(fields=['group_id', 'public_sequence_year', 'public_sequence_number']),
             models.Index(fields=['group_id', 'national_id', 'primary_phone']),
             models.Index(fields=['group_id', 'import_status']),
-            models.Index(fields=['source_message_hash']),
             models.Index(fields=['data_mode', 'pilot_cycle_id', 'created_at']),
         ]
         constraints = [
@@ -2220,7 +2216,6 @@ class LiveSheetRecordChange(models.Model):
         indexes = [
             models.Index(fields=['group_id', 'created_at']),
             models.Index(fields=['sheet_id', 'sheet_tab']),
-            models.Index(fields=['record_key']),
         ]
         verbose_name = 'Live sheet record change'
         verbose_name_plural = 'Live sheet record changes'
@@ -2589,19 +2584,11 @@ class JawabuFarmerMaster(models.Model):
     class Meta:
         ordering = ['customer_name', 'national_id', 'primary_phone']
         indexes = [
-            models.Index(fields=['duplicate_key']),
             models.Index(fields=['national_id', 'primary_phone']),
             models.Index(fields=['customer_name', 'county']),
-            models.Index(fields=['hbg_contract_name']),
-            models.Index(fields=['hb_sales_person']),
             models.Index(fields=['status', 'updated_at']),
             models.Index(fields=['source', 'source_fingerprint']),
             # Pipeline stage indexes
-            models.Index(fields=['jbl_visit_date']),
-            models.Index(fields=['credit_decision']),
-            models.Index(fields=['customer_no']),
-            models.Index(fields=['final_decision']),
-            models.Index(fields=['order_number']),
             models.Index(fields=['customer', 'unit_number']),
             models.Index(fields=['deferred_until', 'status']),
         ]
@@ -6938,7 +6925,6 @@ class JawabuFarmerUploadBatch(models.Model):
         indexes = [
             models.Index(fields=['group_id', 'created_at']),
             models.Index(fields=['status', 'created_at']),
-            models.Index(fields=['telegram_message_id']),
             models.Index(fields=['archive_next_retry_at']),
             models.Index(fields=['is_portal_archived', 'group_id', 'created_at']),
         ]
@@ -7917,7 +7903,6 @@ class ParsedInvoice(models.Model):
     class Meta:
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['invoice_no']),
             models.Index(fields=['status', 'created_at']),
             models.Index(fields=['matched_order_number', 'status']),
         ]

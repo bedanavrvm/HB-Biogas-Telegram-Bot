@@ -106,6 +106,19 @@ python manage.py test
 
 ## 🔧 Configuration
 
+### Database catalogue
+
+Application tables remain in PostgreSQL's `public` schema during the low-risk documentation phase. Migration `0168` adds searchable comments to every current `core` table and column and creates the read-only `database_catalog` view with live row estimates, storage, parents, children, foreign-key counts, index counts, domain, and lifecycle.
+
+The checked-in catalogue separates physical table, Django model, and business-domain identity and includes repository usage locations plus system/per-domain Mermaid relationship maps:
+
+```bash
+python manage.py generate_database_catalog
+python manage.py generate_database_catalog --check
+```
+
+Use `--live --output-dir <private-directory>` when generating a private operational JSON report from PostgreSQL; never commit operational output. CI rejects stale generated documentation and undocumented models introduced after catalogue adoption. Physical table moves into bounded-domain apps or PostgreSQL schemas are intentionally deferred to separately reviewed migrations.
+
 ### Environment Variables
 
 | Variable | Required | Description |

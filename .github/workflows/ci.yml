@@ -69,6 +69,8 @@ jobs:
       - name: Check governed routes, settings, dependencies, and boundaries
         run: |
           python scripts/check_architecture_boundaries.py
+          python scripts/check_database_governance.py
+          python manage.py generate_database_catalog --check
           python scripts/check_miniapp_write_inventory.py
           python scripts/check_settings_env_parity.py
           python scripts/check_dependency_parity.py

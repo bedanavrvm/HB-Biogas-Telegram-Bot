@@ -1,0 +1,89 @@
+erDiagram
+  core_deleteduseridentity {
+    string id
+  }
+  core_documentphysicalsignoff {
+    string id
+  }
+  core_documentphysicalsignoffevent {
+    string id
+  }
+  core_durablejobrunnerheartbeat {
+    string id
+  }
+  core_groupsheetconfiguration {
+    string id
+  }
+  core_miniappdiagnosticdailyaggregate {
+    string id
+  }
+  core_miniappdiagnosticevent {
+    string id
+  }
+  core_miniappdiagnosticsession {
+    string id
+  }
+  core_miniappdraft {
+    string id
+  }
+  core_miniapplegacywritedailyaggregate {
+    string id
+  }
+  core_portalcaseworkspace {
+    string id
+  }
+  core_portalmaintenancestate {
+    string id
+  }
+  core_portalreportchart {
+    string id
+  }
+  core_portalreportdefinition {
+    string id
+  }
+  core_portalsavedview {
+    string id
+  }
+  core_portalvoicetranscriptionattempt {
+    string id
+  }
+  core_publicendpointthrottlebucket {
+    string id
+  }
+  core_telegramstaffactivation {
+    string id
+  }
+  core_userharddeletionbatch {
+    string id
+  }
+  core_userminiapppreference {
+    string id
+  }
+  core_workflowconfigurationchangerequest {
+    string id
+  }
+  core_workflowdatamodeevent {
+    string id
+  }
+  core_workflowdatamodestate {
+    string id
+  }
+  core_workflowpilotformulareadiness {
+    string id
+  }
+  core_workflowpilotpurgerun {
+    string id
+  }
+  core_workflowslaescalation {
+    string id
+  }
+  core_workflowtimelineannotation {
+    string id
+  }
+  core_userharddeletionbatch ||--o{ core_deleteduseridentity : contains
+  core_documentphysicalsignoff ||--o{ core_documentphysicalsignoffevent : contains
+  core_miniappdiagnosticsession ||--o{ core_miniappdiagnosticevent : contains
+  core_portalreportdefinition ||--o{ core_portalreportchart : contains
+  core_portalvoicetranscriptionattempt ||--o{ core_portalvoicetranscriptionattempt : contains
+  core_groupsheetconfiguration ||--o{ core_workflowconfigurationchangerequest : contains
+  core_groupsheetconfiguration ||--o{ core_workflowpilotformulareadiness : contains
