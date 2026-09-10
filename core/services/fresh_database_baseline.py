@@ -8,6 +8,14 @@ from django.apps import apps
 from django.db import transaction
 
 
+DEFAULT_PRODUCT_SPECS = (
+    ('business', 'Business'),
+    ('logbook', 'Logbook'),
+    ('mjengo', 'Mjengo'),
+    ('micro_asset', 'Micro-Asset'),
+)
+
+
 @dataclass(frozen=True)
 class BaselineItem:
     area: str
@@ -47,7 +55,7 @@ def audit_baseline() -> dict:
     )
     from core.services.workflow_capabilities import capability_definitions
 
-    branch_names, counties, products_seed, descriptions = _expected()
+    branch_names, counties, _products_seed, descriptions = _expected()
     items: list[BaselineItem] = []
     for name in branch_names:
         row = OperationalLocation.objects.filter(location_type='branch', name__iexact=name).first()
@@ -64,16 +72,24 @@ def audit_baseline() -> dict:
                     'sub_counties', f'KE-{number:02d}', 'conflicting',
                     f'expected {len(sub_counties)}, found {actual}',
                 ))
-    expected_product_codes = set(products_seed.TAT_PRODUCTS)
-    expected_product_codes.update(
-        products_seed._normalized(name) for name in products_seed.SPIN_PRODUCTS
-    )
-    expected_product_codes.add('partnership')
-    for code in sorted(expected_product_codes):
+    expected_products = dict(DEFAULT_PRODUCT_SPECS)
+    for code, expected_name in DEFAULT_PRODUCT_SPECS:
         product = Product.objects.filter(code__iexact=code).first()
         published = bool(product and product.versions.filter(status='published').exists())
-        state = 'correct' if product and product.active and published else ('conflicting' if product else 'missing')
-        items.append(BaselineItem('products', code, state, 'active product with a published version'))
+        state = (
+            'correct'
+            if product and product.name == expected_name and product.active and published
+            else ('conflicting' if product else 'missing')
+        )
+        items.append(BaselineItem(
+            'products', code, state,
+            f'{expected_name}: active product with a published version',
+        ))
+    for product in Product.objects.exclude(code__in=expected_products).order_by('code'):
+        items.append(BaselineItem(
+            'products', product.code or str(product.pk), 'conflicting',
+            'not part of the approved fresh-database default catalogue',
+        ))
     for key, description in descriptions.items():
         category = ComplaintCategory.objects.filter(key=key).first()
         state = (
@@ -131,7 +147,7 @@ def apply_baseline(*, actor=None) -> dict:
             defaults={'code': code, 'active': True, 'sort_order': sort_order},
         )
     _migration('0112_branchservicearea_locationconfigurationevent_and_more').seed_and_backfill_locations(apps, None)
-    _migration('0108_product_productalias_productavailability_and_more').backfill_global_products(apps, None)
+    _reconcile_default_products()
     _migration('0070_seed_workflow_role_capabilities').seed_capabilities(apps, None)
     _migration('0154_complaint_category_catalogue').seed_complaint_categories(apps, None)
     _migration('0163_it_override_tat_roles_complaint_categories').apply_policy_and_catalogue(apps, None)
@@ -154,3 +170,35 @@ def apply_baseline(*, actor=None) -> dict:
             sensitive=True,
         )
     return report
+
+
+def _reconcile_default_products() -> None:
+    """Leave a fresh database with only the explicitly approved defaults."""
+    from core.models import OriginationProductDefinition, Product, ProductVersion
+
+    approved_codes = {code for code, _name in DEFAULT_PRODUCT_SPECS}
+    unwanted = Product.objects.exclude(code__in=approved_codes).order_by('pk')
+    for product in unwanted:
+        # Historical migrations may have attached a dormant Origination schema
+        # to a generated global product. Preserve the schema for later manual
+        # configuration, but do not keep the product as a catalogue default.
+        OriginationProductDefinition.objects.filter(
+            product_version__product=product,
+        ).update(product_version=None)
+        ProductVersion.objects.filter(product=product).delete()
+        product.delete()
+
+    for sort_order, (code, name) in enumerate(DEFAULT_PRODUCT_SPECS):
+        product = Product.objects.get(code=code)
+        changed = []
+        if product.name != name:
+            product.name = name
+            changed.append('name')
+        if not product.active:
+            product.active = True
+            changed.append('active')
+        if product.sort_order != sort_order:
+            product.sort_order = sort_order
+            changed.append('sort_order')
+        if changed:
+            product.save(update_fields=[*changed, 'updated_at'])

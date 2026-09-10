@@ -5,7 +5,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase
 
-from core.models import ComplaintCategory, GroupSheetConfiguration, OperationalLocation
+from core.models import ComplaintCategory, GroupSheetConfiguration, OperationalLocation, Product
 from core.services.fresh_database_baseline import apply_baseline, audit_baseline
 
 
@@ -16,12 +16,22 @@ class FreshDatabaseBaselineTests(TestCase):
         )
 
     def test_migrated_database_has_the_reviewed_location_baseline(self):
+        apply_baseline(actor=self.actor)
         report = audit_baseline()
 
         self.assertTrue(report['ok'], report)
         self.assertEqual(report['location_counts']['counties'], 47)
         self.assertEqual(report['location_counts']['sub_counties'], 349)
         self.assertGreaterEqual(report['location_counts']['branches'], 9)
+        self.assertEqual(
+            list(Product.objects.order_by('sort_order').values_list('code', 'name')),
+            [
+                ('business', 'Business'),
+                ('logbook', 'Logbook'),
+                ('mjengo', 'Mjengo'),
+                ('micro_asset', 'Micro-Asset'),
+            ],
+        )
 
     def test_apply_restores_missing_reference_data_and_is_idempotent(self):
         ComplaintCategory.objects.filter(key='technical-support').delete()
@@ -35,6 +45,21 @@ class FreshDatabaseBaselineTests(TestCase):
         self.assertTrue(first['ok'], first)
         self.assertTrue(second['ok'], second)
         self.assertEqual(first['summary'], second['summary'])
+        self.assertEqual(Product.objects.count(), 4)
+
+    def test_audit_rejects_an_unapproved_default_product(self):
+        apply_baseline(actor=self.actor)
+        Product.objects.create(name='Unexpected', code='unexpected', active=True)
+
+        report = audit_baseline()
+
+        self.assertFalse(report['ok'])
+        self.assertTrue(any(
+            item['area'] == 'products'
+            and item['key'] == 'unexpected'
+            and item['state'] == 'conflicting'
+            for item in report['items']
+        ))
 
     def test_apply_refuses_a_database_with_operational_configuration(self):
         GroupSheetConfiguration.objects.create(
@@ -46,6 +71,7 @@ class FreshDatabaseBaselineTests(TestCase):
 
     def test_management_command_is_read_only_by_default(self):
         output = StringIO()
+        apply_baseline(actor=self.actor)
 
         call_command('seed_fresh_database_baseline', stdout=output)
 
