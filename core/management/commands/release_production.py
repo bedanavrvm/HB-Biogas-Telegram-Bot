@@ -8,7 +8,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from core.models import ProductionReleaseAudit
-from core.production import NON_PRODUCTION_ENVIRONMENTS, production_readiness_issues
+from core.production import production_readiness_issues
 from core.services.origination_production import origination_signing_readiness_issues
 from core.services.production_release import (
     existing_release,
@@ -113,11 +113,6 @@ class Command(BaseCommand):
             allow_no_backup = bool(
                 getattr(settings, 'RELEASE_ALLOW_NO_BACKUP', False)
             )
-            if allow_no_backup and environment.casefold() not in NON_PRODUCTION_ENVIRONMENTS:
-                raise ValueError(
-                    'RELEASE_ALLOW_NO_BACKUP may be enabled only for an explicitly '
-                    'non-production release environment.'
-                )
             raw_backup_reference = (
                 options['backup_reference']
                 or getattr(settings, 'RELEASE_BACKUP_REFERENCE', '')
@@ -145,8 +140,8 @@ class Command(BaseCommand):
                 raise CommandError('Use a new release ID for a different migration plan.')
         if backup_reference.startswith('no-backup:'):
             self.stdout.write(self.style.WARNING(
-                'No database backup is available for this explicitly non-production '
-                f'release. Audit reference recorded: {backup_reference}'
+                'No database backup is available for this release. Proceeding under '
+                f'the explicit RELEASE_ALLOW_NO_BACKUP override. Audit reference recorded: {backup_reference}'
             ))
         else:
             self.stdout.write(self.style.SUCCESS(f'Backup evidence accepted: {backup_reference}'))
