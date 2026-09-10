@@ -1067,11 +1067,13 @@ def _activation_digest(user_id, code: str) -> str:
 
 
 @transaction.atomic
-def generate_telegram_activation(*, user, actor) -> tuple[TelegramStaffActivation, str]:
+def generate_telegram_activation(*, user, actor, allow_superuser=False) -> tuple[TelegramStaffActivation, str]:
     if not actor or not actor.is_active or not actor.is_superuser:
         raise PermissionDenied('Only an active Superuser may issue a Telegram activation code.')
-    if user.is_superuser or not hasattr(user, 'staff_profile'):
-        raise ValidationError('Choose a non-Superuser staff account with an enrolled Telegram profile.')
+    if (user.is_superuser and not allow_superuser) or not hasattr(user, 'staff_profile'):
+        raise ValidationError('Choose an eligible account with an enrolled Telegram profile.')
+    if str(user.staff_profile.telegram_id or '').strip():
+        raise ValidationError('This account already has a verified Telegram identity.')
     now = timezone.now()
     TelegramStaffActivation.objects.select_for_update().filter(
         user=user, consumed_at__isnull=True, invalidated_at__isnull=True,
@@ -1081,6 +1083,17 @@ def generate_telegram_activation(*, user, actor) -> tuple[TelegramStaffActivatio
         user=user, code_digest=_activation_digest(user.pk, code),
         expires_at=now + timedelta(minutes=ACTIVATION_TTL_MINUTES), created_by=actor,
     )
+    if user.is_superuser:
+        from core.services.compliance_audit import record_event
+        record_event(
+            workflow='access_control', action='superuser.telegram_activation_issued',
+            category='authentication', subject_type='user', subject_id=str(user.pk),
+            actor=actor, authority_user=actor, request_id=str(challenge.pk),
+            source_model='TelegramStaffActivation', source_event_id=str(challenge.pk),
+            deduplication_key=f'superuser-telegram-activation:{challenge.pk}',
+            metadata={'expires_at': challenge.expires_at.isoformat()}, sensitive=True,
+            occurred_at=now,
+        )
     return challenge, code
 
 

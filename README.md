@@ -56,7 +56,7 @@ pip install -r requirements.txt
 2. **Configure environment:**
 ```bash
 cp .env.example .env
-# Edit .env with your configuration
+# Edit required settings; copy only intentional overrides from .env.optional.example
 ```
 
 3. **Setup Google Sheets:**
@@ -76,12 +76,30 @@ python manage.py migrate
 python manage.py createsuperuser
 ```
 
-6. **Run development server:**
+6. **Seed governed reference data on a fresh database:**
+```bash
+# Read-only readiness and row-count audit
+python manage.py seed_fresh_database_baseline
+
+# Apply using the deployment Superuser for audit attribution
+python manage.py seed_fresh_database_baseline --apply --actor <superuser-username>
+```
+The command refuses to seed a database that already contains operational workflow rows. It creates governed locations, product/version defaults, TAT and SPIN definitions, complaint categories, capability policy rows, and singleton policy records. It does not create live Telegram groups, Sheet/Drive bindings, customer records, or published Origination LAFs.
+
+Attach the Superuser to Telegram from its Django Admin user page using **Attach Telegram identity**; the password-confirmed activation code is single-use and expires.
+
+Prepare the reviewed Main LAF catalogue separately after configuring its approved Drive folder. Dry-run first; `--apply` creates unpublished entries that still require visual alignment and preview review in Admin. Supporting documents are not seeded by this command.
+```bash
+python manage.py seed_origination_main_lafs --laf-root <path-to-LAFS> --actor <superuser-username>
+python manage.py seed_origination_main_lafs --laf-root <path-to-LAFS> --actor <superuser-username> --apply
+```
+
+7. **Run development server:**
 ```bash
 python manage.py runserver
 ```
 
-7. **Test the system:**
+8. **Run tests:**
 ```bash
 python manage.py test
 ```
@@ -268,8 +286,9 @@ coverage report -m
    - Start Command: `gunicorn config.wsgi:application --log-file -`
 
 2. **Add Environment Variables:**
-   - Copy all values from `.env.example`
-   - Set them in Render dashboard
+   - Set the required values from `.env.example`
+   - Add only enabled-feature or deliberate overrides from `.env.optional.example`
+   - Run `python manage.py audit_environment` to inspect names without printing values
 
 3. **Add Credentials File:**
    - Upload `credentials.json` as a Render Secret File

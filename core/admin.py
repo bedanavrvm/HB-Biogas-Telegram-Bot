@@ -4451,13 +4451,11 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
     def _set_catalog_choices(self, workflow: dict) -> None:
         branch_mode, selected_branches, _source = scope_selection(workflow, 'branches')
         product_mode, selected_products, _source = scope_selection(workflow, 'products')
-        branches = list(dict.fromkeys([*global_branch_choices(), *selected_branches]))
-        products = list(Product.objects.order_by('sort_order', 'name').values_list('code', 'name'))
-        known_codes = {code for code, _label in products}
-        products.extend(
-            (code, f'{code} (saved legacy value)')
-            for code in selected_products if code not in known_codes
-        )
+        branches = list(global_branch_choices())
+        products = [
+            (product.code, product.name)
+            for product in Product.objects.filter(active=True).order_by('sort_order', 'name')
+        ]
         self.fields['catalog_branches'].choices = [(value, value) for value in branches]
         self.fields['catalog_products'].choices = products
         self.initial.update({
@@ -4468,10 +4466,17 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         })
 
     def _set_spin_branch_choices(self, workflow: dict) -> None:
+        active_branches = list(global_branch_choices())
+        active_lookup = {value.casefold(): value for value in active_branches}
         configured = configured_workflow_branches(
             workflow,
-            default=global_branch_choices(),
+            default=active_branches,
         )
+        configured = [
+            active_lookup[value.casefold()]
+            for value in configured
+            if value.casefold() in active_lookup
+        ]
         if self.is_bound:
             raw_posted = (
                 self.data.getlist('catalog_branches')
@@ -4485,13 +4490,12 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 if str(value).strip()
             ]
             if posted:
-                configured = posted
-        available = list(dict.fromkeys([
-            *global_branch_choices(),
-            *configured,
-            str(workflow.get('default_branch') or '').strip(),
-        ]))
-        available = [branch for branch in available if branch]
+                configured = [
+                    active_lookup[value.casefold()]
+                    for value in posted
+                    if value.casefold() in active_lookup
+                ]
+        available = active_branches
         self.fields['spin_branches'].choices = [
             (branch, branch) for branch in available
         ]
@@ -7475,6 +7479,22 @@ class UserProfileInline(StackedInline):
     )
 
 
+class SuperuserTelegramActivationForm(forms.Form):
+    telegram_username = forms.CharField(
+        max_length=100,
+        label='Telegram username',
+        help_text='Enter the username from the intended Telegram account, without @.',
+    )
+    password = forms.CharField(
+        widget=forms.PasswordInput(render_value=False),
+        label='Your Django Admin password',
+        help_text='Required before issuing a high-privilege identity activation code.',
+    )
+
+    def clean_telegram_username(self):
+        return str(self.cleaned_data['telegram_username']).strip().lstrip('@').lower()
+
+
 class WorkflowScopedSelect(forms.Select):
     def __init__(self, *args, workflow_map=None, **kwargs):
         self.workflow_map = workflow_map or {}
@@ -9122,7 +9142,45 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
         if user is None:
             raise PermissionDenied
         activation_code = ''
-        if request.method == 'POST':
+        profile = getattr(user, 'staff_profile', None)
+        superuser_form = None
+        if user.is_superuser:
+            superuser_form = SuperuserTelegramActivationForm(
+                request.POST or None,
+                initial={'telegram_username': getattr(profile, 'telegram_username', '')},
+            )
+        if request.method == 'POST' and user.is_superuser and superuser_form.is_valid():
+            if not request.user.check_password(superuser_form.cleaned_data['password']):
+                superuser_form.add_error('password', 'Your Django Admin password is incorrect.')
+            if profile is not None and profile.telegram_id:
+                superuser_form.add_error(
+                    None,
+                    'This account already has a verified Telegram identity. '
+                    'Remove or replace it through the audited staff lifecycle workflow.',
+                )
+            username = superuser_form.cleaned_data['telegram_username']
+            if UserProfile.objects.filter(
+                telegram_username__iexact=username,
+            ).exclude(user=user).exists():
+                superuser_form.add_error('telegram_username', 'That Telegram username is already enrolled.')
+            if superuser_form.is_valid():
+                profile, _created = UserProfile.objects.get_or_create(user=user)
+                profile.telegram_username = username
+                profile.telegram_metadata = {
+                    **(profile.telegram_metadata or {}),
+                    'activation_required': True,
+                    'superuser_activation': True,
+                }
+                profile.save(update_fields=['telegram_username', 'telegram_metadata', 'updated_at'])
+                try:
+                    _challenge, activation_code = generate_telegram_activation(
+                        user=user, actor=request.user, allow_superuser=True,
+                    )
+                except (PermissionDenied, ValidationError) as exc:
+                    superuser_form.add_error(None, '; '.join(getattr(exc, 'messages', [str(exc)])))
+                else:
+                    messages.warning(request, 'The activation code is shown once and expires in 15 minutes.')
+        elif request.method == 'POST' and not user.is_superuser:
             try:
                 _challenge, activation_code = generate_telegram_activation(user=user, actor=request.user)
             except (PermissionDenied, ValidationError) as exc:
@@ -9133,6 +9191,7 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             **self.admin_site.each_context(request), 'opts': self.model._meta,
             'title': f'Telegram activation: {user}', 'target_user': user,
             'activation_code': activation_code,
+            'superuser_form': superuser_form,
         })
 
     def add_staff_view(self, request):

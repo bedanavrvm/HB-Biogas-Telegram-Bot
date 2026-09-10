@@ -133,6 +133,9 @@ class CanonicalTelegramAuthenticationTests(TestCase):
             HTTP_X_TELEGRAM_INIT_DATA=signed_init_data(user={
                 'id': 731002, 'username': 'valid_without_access',
             }),
+            HTTP_X_MINIAPP_MESSAGE_CONTRACT='2',
+            HTTP_X_REQUEST_ID='complaint-auth-no-grant-1',
+            HTTP_IDEMPOTENCY_KEY='complaint-auth-no-grant-1',
         )
 
         self.assertEqual(response.status_code, 403)
@@ -160,6 +163,9 @@ class CanonicalTelegramAuthenticationTests(TestCase):
             reverse('complaint_cases_bootstrap'),
             data=json.dumps({'group_id': group.group_id}),
             content_type='application/json',
+            HTTP_X_MINIAPP_MESSAGE_CONTRACT='2',
+            HTTP_X_REQUEST_ID='complaint-auth-test-mode-1',
+            HTTP_IDEMPOTENCY_KEY='complaint-auth-test-mode-1',
         )
 
         self.assertEqual(response.status_code, 200)

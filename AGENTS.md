@@ -200,6 +200,8 @@ Key modules:
 - `production_release.py` — read-only migration-plan inspection, immutable release attribution, and durable secret-free release evidence
 - `origination_production.py` — enabled Origination signing/conditional-approval production readiness projection
 - `superuser_bootstrap.py` — transactional, idempotent deployment Superuser bootstrap
+- `fresh_database_baseline.py` — read-first, fresh-database-only reconciliation of governed locations, products, complaint categories, capabilities, and singleton policies
+- `environment_audit.py` — value-safe environment-name audit and conservative removal of deprecated or redundant default dotenv entries
 - `portal_publication.py` — durable, request-assisted Portal register publication for free Render; local workflow commits never wait for Google Sheets
 - `access_control.py` — maker-checker access changes, emergency grants, notifications, and policy versioning
 - `staff_lifecycle.py` — atomic idempotent Superuser staff lifecycle execution, optional checker review, access, routing, leave, return, offboarding, and Telegram activation controls
@@ -262,6 +264,8 @@ The Mini Apps use Django templates and mostly vanilla JavaScript. Preserve Teleg
 - `core/tests_user_hard_delete.py`
 - `core/tests_tat_full_reset.py`
 - `core/tests_product_catalog_full_reset.py`
+- `core/tests_fresh_database_baseline.py`
+- `core/tests_environment_audit.py`
 - `core/tests_telegram_authentication.py`
 - `core/tests_durable_jobs.py`
 - `core/tests_idempotency_cutover.py`

@@ -494,6 +494,68 @@ class TelegramStaffActivationTests(TestCase):
         self.assertContains(response, "typeof tg.close==='function'")
         self.assertContains(response, 'closeAfterActivation();')
 
+    def test_superuser_can_bind_only_through_explicit_activation_mode(self):
+        profile = UserProfile.objects.create(
+            user=self.root, telegram_username='activation_root',
+            telegram_metadata={'activation_required': True},
+        )
+        identity = TelegramIdentity(
+            telegram_id='887766', username='activation_root', first_name='Root',
+            last_name='', payload={'id': 887766, 'username': 'activation_root'},
+        )
+        with self.assertRaises(ValidationError):
+            generate_telegram_activation(user=self.root, actor=self.root)
+
+        challenge, code = generate_telegram_activation(
+            user=self.root, actor=self.root, allow_superuser=True,
+        )
+
+        self.assertEqual(resolve_or_bind_telegram_user(identity, activation_code=code), self.root)
+        profile.refresh_from_db()
+        challenge.refresh_from_db()
+        self.assertEqual(profile.telegram_id, '887766')
+        self.assertIsNotNone(challenge.consumed_at)
+
+    def test_superuser_admin_activation_requires_current_password(self):
+        self.client.force_login(self.root)
+        url = reverse('admin:auth_user_telegram_activation', args=[self.root.pk])
+
+        rejected = self.client.post(url, {
+            'telegram_username': 'activation_root', 'password': 'wrong-password',
+        })
+        self.assertEqual(rejected.status_code, 200)
+        self.assertContains(rejected, 'Django Admin password is incorrect')
+        self.assertFalse(TelegramStaffActivation.objects.filter(user=self.root).exists())
+
+        accepted = self.client.post(url, {
+            'telegram_username': 'activation_root', 'password': 'password',
+        })
+        self.assertEqual(accepted.status_code, 200)
+        self.assertTrue(TelegramStaffActivation.objects.filter(user=self.root).exists())
+        self.assertEqual(self.root.staff_profile.telegram_username, 'activation_root')
+
+    def test_superuser_admin_activation_does_not_mutate_an_existing_binding(self):
+        UserProfile.objects.create(
+            user=self.root,
+            telegram_id='887766',
+            telegram_username='existing_root',
+            telegram_metadata={'activation_required': False},
+        )
+        self.client.force_login(self.root)
+
+        response = self.client.post(
+            reverse('admin:auth_user_telegram_activation', args=[self.root.pk]),
+            {'telegram_username': 'replacement_root', 'password': 'password'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'already has a verified Telegram identity')
+        profile = self.root.staff_profile
+        profile.refresh_from_db()
+        self.assertEqual(profile.telegram_id, '887766')
+        self.assertEqual(profile.telegram_username, 'existing_root')
+        self.assertFalse(TelegramStaffActivation.objects.filter(user=self.root).exists())
+
 
 @override_settings(TELEGRAM_BOT_TOKEN='test-token')
 class StaffTelegramOnboardingTests(TestCase):

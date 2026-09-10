@@ -142,6 +142,19 @@ def resolve_or_bind_telegram_user(identity: TelegramIdentity, *, activation_code
         'activation_required': False,
     }
     profile.save(update_fields=['telegram_id', 'telegram_username', 'telegram_metadata', 'updated_at'])
+    bound_user = profile.user
+    if bound_user.is_superuser:
+        from core.services.compliance_audit import record_event
+        telegram_digest = hashlib.sha256(identity.telegram_id.encode()).hexdigest()
+        record_event(
+            workflow='access_control', action='superuser.telegram_identity_bound',
+            category='authentication', subject_type='user', subject_id=str(bound_user.pk),
+            actor=bound_user, authority_user=bound_user,
+            request_id=f'superuser-telegram-binding:{bound_user.pk}:{telegram_digest[:16]}',
+            source_model='UserProfile', source_event_id=f'{profile.pk}:{telegram_digest[:16]}',
+            deduplication_key=f'superuser-telegram-binding:{bound_user.pk}:{telegram_digest}',
+            metadata={'telegram_id_sha256': telegram_digest}, sensitive=True,
+        )
     return profile.user
 
 

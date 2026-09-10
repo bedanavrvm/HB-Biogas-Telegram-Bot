@@ -276,6 +276,64 @@ class GuidedWorkflowConfigurationAdminTest(TestCase):
 
         self.assertNotIsInstance(form.fields['workflow'].widget, forms.HiddenInput)
 
+    def test_guided_form_never_offers_inactive_catalogue_values(self):
+        from core.admin import GroupSheetConfigurationAdminForm
+
+        retired_branch = OperationalLocation.objects.create(
+            location_type='branch', name='Inactive Guided Branch',
+            code='INACTIVE-GUIDED-BRANCH', active=False, sort_order=921,
+        )
+        inactive_product = Product.objects.create(
+            name='Inactive Guided Product', code='inactive_guided_product',
+            active=False, sort_order=921,
+        )
+        self.group.workflow = {
+            **self.group.workflow,
+            'branches': [retired_branch.name],
+            'products': [inactive_product.code],
+        }
+        self.group.save(update_fields=['workflow'])
+
+        form = GroupSheetConfigurationAdminForm(instance=self.group)
+
+        self.assertNotIn(
+            retired_branch.name,
+            {value for value, _label in form.fields['catalog_branches'].choices},
+        )
+        self.assertNotIn(
+            inactive_product.code,
+            {value for value, _label in form.fields['catalog_products'].choices},
+        )
+
+    def test_guided_form_rejects_posted_inactive_catalogue_values(self):
+        from core.admin import GroupSheetConfigurationAdminForm
+
+        retired_branch = OperationalLocation.objects.create(
+            location_type='branch', name='Forged Retired Branch',
+            code='FORGED-RETIRED-BRANCH', active=False, sort_order=922,
+        )
+        data = {
+            'workflow_preset': 'tat_tracker',
+            'group_id': self.group.group_id,
+            'display_name': self.group.display_name,
+            'enabled': 'on',
+            'sheet_id': '',
+            'sheet_name': self.group.sheet_name,
+            'sheet_schema': '{}',
+            'workflow': json.dumps(self.group.workflow),
+            'parser_rules': '{}',
+            'metadata': '{}',
+            'catalog_branch_mode': SCOPE_SELECTED,
+            'catalog_branches': [retired_branch.name],
+            'catalog_product_mode': SCOPE_SELECTED,
+            'catalog_products': [self.product.code],
+        }
+
+        form = GroupSheetConfigurationAdminForm(data=data, instance=self.group)
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('Select a valid choice', str(form.errors['catalog_branches']))
+
     def test_guided_form_rejects_a_stale_configuration_submission(self):
         from core.admin import GroupSheetConfigurationAdminForm
 

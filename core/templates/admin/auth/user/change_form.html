@@ -11,6 +11,8 @@
       {% if not original.is_superuser %}
         <a class="inline-flex min-h-11 items-center rounded border border-amber-500 px-4 text-amber-700" href="{% url 'admin:auth_user_emergency_access' original.pk %}">Emergency access · 4 hours</a>
         {% if original.staff_profile.telegram_username and not original.staff_profile.telegram_id %}<a class="inline-flex min-h-11 items-center rounded border px-4" href="{% url 'admin:auth_user_telegram_activation' original.pk %}">Telegram activation</a>{% endif %}
+      {% elif not original.staff_profile.telegram_id %}
+        <a class="inline-flex min-h-11 items-center rounded border px-4" href="{% url 'admin:auth_user_telegram_activation' original.pk %}">Attach Telegram identity</a>
       {% endif %}
       {% if original.pk != request.user.pk and original.username|slice:':15' != '__deleted_user_' %}<a class="inline-flex min-h-11 items-center rounded border border-red-500 px-4 font-medium text-red-700" href="{% url 'admin:auth_user_delete' original.pk %}">Hard delete account</a>{% endif %}
     </div>

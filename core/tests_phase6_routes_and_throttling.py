@@ -146,6 +146,10 @@ class FocusedRateLimitingTests(TestCase):
 class ReconciledConfigurationTests(TestCase):
     def test_order_approval_limit_is_reviewed_30_mb_value(self):
         self.assertEqual(settings.ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB, 30)
-        env_text = (Path(settings.BASE_DIR) / '.env.example').read_text(encoding='utf-8')
-        self.assertIn('ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB=30', env_text)
+        env_text = '\n'.join(
+            (Path(settings.BASE_DIR) / name).read_text(encoding='utf-8')
+            for name in ('.env.example', '.env.optional.example')
+        )
+        self.assertIn('COMPLAINT_CASE_MAX_TOTAL_UPLOAD_MB=30', env_text)
+        self.assertNotIn('ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB=', env_text)
         self.assertNotIn('RATELIMIT_ENABLE=', env_text)
