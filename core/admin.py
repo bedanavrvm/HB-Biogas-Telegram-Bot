@@ -5811,7 +5811,8 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
         'created_at', 'updated_at', 'sheet_link', 'sheet_analyzer_link',
         'sheet_coverage_link', 'live_records_link', 'data_records_link', 'media_records_link',
         'reset_group_data_link', 'tat_repair_link', 'tat_duplicate_link',
-        'effective_configuration_preview', 'technical_configuration_preview',
+        'tat_control_center_link', 'effective_configuration_preview',
+        'technical_configuration_preview',
     ]
     fieldsets = (
         ('Group Routing', {
@@ -5819,7 +5820,8 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 'enabled', 'group_id', 'display_name', 'sheet_id',
                 'sheet_name', 'sheet_link', 'live_records_link', 'data_records_link',
                 'media_records_link', 'sheet_analyzer_link', 'sheet_coverage_link', 'reset_group_data_link',
-                'tat_repair_link', 'tat_duplicate_link', 'effective_configuration_preview',
+                'tat_control_center_link', 'tat_repair_link', 'tat_duplicate_link',
+                'effective_configuration_preview',
             ),
             'description': (
                 'Map one Telegram group to its workflow and optional Google Sheet tab. '
@@ -6452,6 +6454,20 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
         if not url:
             return '-'
         return format_html('<a href="{}" target="_blank" rel="noopener">Open sheet</a>', url)
+
+    @admin.display(description='TAT Sheet publication')
+    def tat_control_center_link(self, obj):
+        if not obj or not obj.pk:
+            return 'Save this configuration before managing TAT Sheet publication.'
+        if str((obj.workflow or {}).get('type') or '') != 'tat_tracker':
+            return 'Not applicable to this workflow.'
+        url = reverse('admin:core_tat_control_center', args=[obj.pk])
+        state = 'Enabled' if obj.tat_sheet_projection_enabled else 'Disabled'
+        action = 'Review or disable' if obj.tat_sheet_projection_enabled else 'Enable governed projection'
+        return format_html(
+            '<strong>{}</strong> &middot; <a class="button" href="{}#projection">{}</a>',
+            state, url, action,
+        )
 
     @admin.display(description='Analyze sheet')
     def sheet_analyzer_link(self, obj):

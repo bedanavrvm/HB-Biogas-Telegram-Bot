@@ -58,6 +58,24 @@ def dispatch_ids_for_case_revision(case: TatTrackerCase) -> list[str]:
     ]
 
 
+def dispatch_outcomes_for_case_revision(case: TatTrackerCase) -> list[dict]:
+    """Return privacy-safe effect state for the current authoritative revision."""
+    return [
+        {
+            'id': str(row['pk']),
+            'effect': row['effect_type'],
+            'status': row['status'],
+            'error_code': row['last_error_code'] if row['status'] in {
+                TatUpdateSideEffectDispatch.STATUS_RETRYABLE,
+                TatUpdateSideEffectDispatch.STATUS_NEEDS_ATTENTION,
+            } else '',
+        }
+        for row in case.update_dispatches.filter(
+            workflow_revision=case.workflow_revision,
+        ).order_by('effect_type').values('pk', 'effect_type', 'status', 'last_error_code')
+    ]
+
+
 def attention_count(*, group_id: str | None = None) -> int:
     rows = TatUpdateSideEffectDispatch.objects.filter(
         status=TatUpdateSideEffectDispatch.STATUS_NEEDS_ATTENTION,
@@ -131,7 +149,11 @@ def _run_effect(dispatch: TatUpdateSideEffectDispatch) -> str:
     group_config = _group_config(case)
     if dispatch.effect_type == TatUpdateSideEffectDispatch.EFFECT_SHEET:
         from core.services.tat_tracker import sync_case_to_sheet
-        sync_case_to_sheet(group_config, case)
+        published = sync_case_to_sheet(group_config, case)
+        if not published:
+            # Projection may have been deliberately disabled after this work
+            # was reserved. It is no longer an applicable external effect.
+            return TatUpdateSideEffectDispatch.STATUS_SUPERSEDED
         return TatUpdateSideEffectDispatch.STATUS_SUCCEEDED
 
     if dispatch.effect_type == TatUpdateSideEffectDispatch.EFFECT_SIGNATURE:

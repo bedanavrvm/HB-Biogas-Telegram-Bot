@@ -79,7 +79,15 @@ class TatUpdateDispatchTest(TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['processed'], len(dispatch_ids))
+        body = response.json()
+        self.assertEqual(body['processed'], len(dispatch_ids))
+        self.assertEqual(body['sheet_projection'], {
+            'enabled': True, 'requested': True, 'status': 'succeeded',
+        })
+        self.assertEqual(
+            {row['effect']: row['status'] for row in body['dispatches']},
+            {'next_role_alert': 'succeeded', 'sheet_projection': 'succeeded'},
+        )
         sync.assert_called_once()
         self.assertFalse(TatUpdateSideEffectDispatch.objects.exclude(
             status=TatUpdateSideEffectDispatch.STATUS_SUCCEEDED,
@@ -139,6 +147,21 @@ class TatUpdateDispatchTest(TestCase):
             self.assertEqual(process_dispatches(limit=1, dispatch_ids=[str(dispatch.pk)]), 1)
 
         sheet_sync.assert_not_called()
+        dispatch.refresh_from_db()
+        self.assertEqual(dispatch.status, TatUpdateSideEffectDispatch.STATUS_SUPERSEDED)
+
+    def test_reserved_sheet_dispatch_is_superseded_if_projection_was_disabled(self):
+        reserve_update_dispatches(self.config, self.case, request_id='request-disabled')
+        dispatch = TatUpdateSideEffectDispatch.objects.get(
+            effect_type=TatUpdateSideEffectDispatch.EFFECT_SHEET,
+        )
+        self.config.tat_sheet_projection_enabled = False
+        self.config.save(update_fields=['tat_sheet_projection_enabled', 'updated_at'])
+
+        with patch('core.services.tat_tracker.sync_case_to_sheet', return_value=False) as sync:
+            self.assertEqual(process_dispatches(limit=1, dispatch_ids=[str(dispatch.pk)]), 1)
+
+        sync.assert_called_once()
         dispatch.refresh_from_db()
         self.assertEqual(dispatch.status, TatUpdateSideEffectDispatch.STATUS_SUPERSEDED)
 

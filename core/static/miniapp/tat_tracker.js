@@ -213,6 +213,18 @@
         'Idempotency-Key': requestId,
       },
       body: JSON.stringify(payload),
+    }).then(async (response) => {
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.ok) return;
+      const projection = result.sheet_projection || {};
+      if (projection.requested && ['retryable', 'needs_attention'].includes(projection.status)) {
+        setStatus(
+          projection.status === 'needs_attention'
+            ? 'Saved in TAT Tracker. Google Sheet publication needs administrator attention.'
+            : 'Saved in TAT Tracker. Google Sheet publication is queued for retry.',
+          'error',
+        );
+      }
     }).catch(() => {
       // This only accelerates durable work. The scheduled processor remains
       // responsible if the WebView closes or connectivity drops.

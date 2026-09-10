@@ -2910,6 +2910,26 @@ class TatTrackerWorkflowTest(TestCase):
 
         self.assertIn('tat_target_business_total', form_class.base_fields)
         self.assertIn('tat_target_logbook_ca_analysis_sent', form_class.base_fields)
+
+    def test_group_admin_surfaces_governed_tat_sheet_projection_control(self):
+        request = RequestFactory().get('/admin/core/groupsheetconfiguration/2/change/')
+        request.user = get_user_model().objects.create_superuser(
+            username='projection-admin',
+            email='projection-admin@example.test',
+            password='password',
+        )
+
+        model_admin = admin.site._registry[GroupSheetConfiguration]
+        fieldsets = model_admin.get_fieldsets(request, self.config)
+        routing_fields = next(options['fields'] for title, options in fieldsets if title == 'Group Routing')
+        self.config.tat_sheet_projection_enabled = False
+        rendered = str(model_admin.tat_control_center_link(self.config))
+
+        self.assertIn('tat_control_center_link', routing_fields)
+        self.assertIn('Disabled', rendered)
+        self.assertIn('Enable governed projection', rendered)
+        self.assertNotIn('tat_sheet_projection_enabled', routing_fields)
+
     def test_staff_user_matches_canonical_telegram_id(self):
         user = staff_user_for_payload(self.config, {'id': 111, 'username': 'someone_else'})
         self.assertTrue(user['authorized'])

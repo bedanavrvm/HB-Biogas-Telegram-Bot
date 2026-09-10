@@ -1129,16 +1129,30 @@ def tat_tracker_update(request):
             custom_values=payload.get('product_custom_values'),
             selected_fee_keys=payload.get('product_selected_fee_keys'),
         )
-        from core.models import TatTrackerCase
-        from core.services.tat_update_dispatch import dispatch_ids_for_case_revision
+        from core.models import TatTrackerCase, TatUpdateSideEffectDispatch
+        from core.services.tat_update_dispatch import (
+            dispatch_ids_for_case_revision,
+            dispatch_outcomes_for_case_revision,
+        )
         case = TatTrackerCase.objects.get(
             group_id=str(group_config.group_id), case_id=str(payload.get('case_id') or ''), is_deleted=False,
         )
+        dispatch_ids = dispatch_ids_for_case_revision(case)
+        dispatches = dispatch_outcomes_for_case_revision(case)
+        sheet_dispatch = next((
+            row for row in dispatches if row['effect'] == TatUpdateSideEffectDispatch.EFFECT_SHEET
+        ), None)
         return JsonResponse({
             'ok': True,
             'data': data,
-            'dispatch_ids': dispatch_ids_for_case_revision(case),
+            'dispatch_ids': dispatch_ids,
             'dispatch_status': 'pending',
+            'dispatches': dispatches,
+            'sheet_projection': {
+                'enabled': bool(group_config.tat_sheet_projection_enabled),
+                'requested': sheet_dispatch is not None,
+                'status': sheet_dispatch['status'] if sheet_dispatch else 'disabled',
+            },
         })
     except WorkflowModeChanged as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'code': exc.code}, status=409)
@@ -1192,7 +1206,31 @@ def tat_tracker_process_update_dispatches(request):
         get_case_detail(group_config, user, case_id)
     from core.services.tat_update_dispatch import process_dispatches
     processed = process_dispatches(limit=3, dispatch_ids=[str(row.pk) for row in rows])
-    return JsonResponse({'ok': True, 'processed': processed})
+    refreshed = list(TatUpdateSideEffectDispatch.objects.filter(
+        pk__in=[row.pk for row in rows],
+    ).order_by('effect_type').values('pk', 'effect_type', 'status', 'last_error_code'))
+    dispatches = [{
+        'id': str(row['pk']),
+        'effect': row['effect_type'],
+        'status': row['status'],
+        'error_code': row['last_error_code'] if row['status'] in {
+            TatUpdateSideEffectDispatch.STATUS_RETRYABLE,
+            TatUpdateSideEffectDispatch.STATUS_NEEDS_ATTENTION,
+        } else '',
+    } for row in refreshed]
+    sheet_dispatch = next((
+        row for row in dispatches if row['effect'] == TatUpdateSideEffectDispatch.EFFECT_SHEET
+    ), None)
+    return JsonResponse({
+        'ok': True,
+        'processed': processed,
+        'dispatches': dispatches,
+        'sheet_projection': {
+            'enabled': bool(group_config.tat_sheet_projection_enabled),
+            'requested': sheet_dispatch is not None,
+            'status': sheet_dispatch['status'] if sheet_dispatch else 'disabled',
+        },
+    })
 
 
 def _dispatch_tat_approval_certificate(case_id: str, user: dict) -> None:
