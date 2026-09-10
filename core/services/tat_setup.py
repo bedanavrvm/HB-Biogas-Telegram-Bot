@@ -56,11 +56,8 @@ def setup_readiness(group: GroupSheetConfiguration) -> dict:
         {'key': 'access', 'label': 'Access coverage', 'complete': bool(roles and grants.exists())},
         {'key': 'routing', 'label': 'Responsibilities', 'complete': bool(assignments.exists())},
         {'key': 'alerts', 'label': 'Alerts and SLA', 'complete': str(workflow.get('tat_notification_mode') or '') in {'group', 'shadow', 'hybrid'}},
-        {'key': 'projection', 'label': 'Register projection', 'complete': (
-            not group.tat_sheet_projection_enabled or SheetRegisterContract.objects.filter(
-                group_configuration=group, subject_type=SheetRegisterContract.SUBJECT_TAT_CASE,
-                enabled=True,
-            ).exists()
+        {'key': 'projection', 'label': 'Sheet projection', 'complete': (
+            not group.tat_sheet_projection_enabled or bool(group.sheet_id)
         )},
         {'key': 'review', 'label': 'Review', 'complete': not unresolved},
     ]
@@ -225,11 +222,6 @@ def enable_sheet_projection(*, group: GroupSheetConfiguration, actor, reason: st
     group = GroupSheetConfiguration.objects.select_for_update().get(pk=group.pk)
     if not group.sheet_id:
         raise TatSetupError('Configure the Google Sheet ID before enabling projection.')
-    if not SheetRegisterContract.objects.filter(
-        group_configuration=group, subject_type=SheetRegisterContract.SUBJECT_TAT_CASE,
-        enabled=True,
-    ).exists():
-        raise TatSetupError('Create and enable the governed TAT Sheet register contract first.')
     group.tat_sheet_projection_enabled = True
     group.tat_sheet_projection_disabled_at = None
     group.save(update_fields=['tat_sheet_projection_enabled', 'tat_sheet_projection_disabled_at', 'updated_at'])

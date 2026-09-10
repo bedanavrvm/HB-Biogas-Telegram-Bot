@@ -2927,8 +2927,27 @@ class TatTrackerWorkflowTest(TestCase):
 
         self.assertIn('tat_control_center_link', routing_fields)
         self.assertIn('Disabled', rendered)
-        self.assertIn('Enable governed projection', rendered)
+        self.assertIn('Enable Sheet projection', rendered)
         self.assertNotIn('tat_sheet_projection_enabled', routing_fields)
+
+    def test_tat_sheet_projection_can_be_enabled_without_register_contract(self):
+        from core.services.tat_setup import enable_sheet_projection
+
+        self.config.tat_sheet_projection_enabled = False
+        self.config.save(update_fields=['tat_sheet_projection_enabled', 'updated_at'])
+        self.config.sheet_register_contracts.all().delete()
+        actor = get_user_model().objects.create_superuser(
+            username='sheet-admin', email='sheet-admin@example.test', password='password',
+        )
+
+        enabled = enable_sheet_projection(
+            group=self.config,
+            actor=actor,
+            reason='Publish TAT updates to the configured Sheet.',
+            request_id='enable-sheet-without-contract',
+        )
+
+        self.assertTrue(enabled.tat_sheet_projection_enabled)
 
     def test_staff_user_matches_canonical_telegram_id(self):
         user = staff_user_for_payload(self.config, {'id': 111, 'username': 'someone_else'})

@@ -6463,7 +6463,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
             return 'Not applicable to this workflow.'
         url = reverse('admin:core_tat_control_center', args=[obj.pk])
         state = 'Enabled' if obj.tat_sheet_projection_enabled else 'Disabled'
-        action = 'Review or disable' if obj.tat_sheet_projection_enabled else 'Enable governed projection'
+        action = 'Review or disable' if obj.tat_sheet_projection_enabled else 'Enable Sheet projection'
         return format_html(
             '<strong>{}</strong> &middot; <a class="button" href="{}#projection">{}</a>',
             state, url, action,
