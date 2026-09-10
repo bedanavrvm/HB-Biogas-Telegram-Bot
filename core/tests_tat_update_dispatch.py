@@ -117,6 +117,47 @@ class TatUpdateDispatchTest(TestCase):
         self.assertEqual(detail['summary']['workflow_revision'], 3)
         self.assertTrue(self.case.update_dispatches.exists())
 
+    def test_update_endpoint_returns_named_final_amount_lock_message(self):
+        from core.services.tat_tracker import TatUpdateValidationError
+
+        user = {'capabilities': ['tat.home.view']}
+        with (
+            patch(
+                'core.api.views._tat_context',
+                return_value=(self.config.group_id, self.config, {}, user, None),
+            ),
+            patch(
+                'core.services.tat_tracker.update_case',
+                side_effect=TatUpdateValidationError(
+                    'tat_update_final_amount_locked',
+                    'Later loan-processing work has already started. Ask IT to correct the final loan amount.',
+                ),
+            ),
+        ):
+            response = self.client.post(
+                '/api/tat-tracker/update/',
+                data={
+                    'group_id': self.config.group_id,
+                    'case_id': self.case.case_id,
+                    'workflow_revision': self.case.workflow_revision,
+                    'request_id': 'tat-final-amount-locked',
+                    'updates': [{'field': 'final_loan_amount', 'value': '70000'}],
+                },
+                content_type='application/json',
+                headers={
+                    'Idempotency-Key': 'tat-final-amount-locked',
+                    'X-Request-ID': 'tat-final-amount-locked',
+                    'X-MiniApp-Message-Contract': '2',
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['code'], 'tat_update_final_amount_locked')
+        self.assertEqual(
+            response.json()['message'],
+            'Later loan-processing work has already started. Ask IT to correct the final loan amount.',
+        )
+
     def test_failed_retry_reuses_dispatch_and_becomes_visible_for_attention(self):
         reserve_update_dispatches(self.config, self.case, request_id='request-2')
         dispatch_id = str(TatUpdateSideEffectDispatch.objects.get(

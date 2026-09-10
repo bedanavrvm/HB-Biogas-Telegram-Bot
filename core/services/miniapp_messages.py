@@ -79,6 +79,18 @@ MESSAGE_CATALOG: dict[str, MiniAppMessage] = {
     "tat_create_validation_failed": MiniAppMessage(
         "Review the case information and try again.", 400,
     ),
+    "tat_update_final_amount_required": MiniAppMessage(
+        "Enter the final loan amount before marking the loan as applied.", 400,
+    ),
+    "tat_update_final_amount_locked": MiniAppMessage(
+        "Later loan-processing work has already started. Ask IT to correct the final loan amount.", 400,
+    ),
+    "tat_update_stage_locked": MiniAppMessage(
+        "Later loan-processing work has already started. Ask IT to correct this earlier outcome.", 400,
+    ),
+    "tat_update_validation_failed": MiniAppMessage(
+        "Review the case update and try again.", 400,
+    ),
     "invalid_idempotency_key": MiniAppMessage(
         "The request retry identifier is invalid. Refresh the Mini App and try again.", 400,
         tone="error",

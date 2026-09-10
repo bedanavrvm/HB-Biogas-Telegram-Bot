@@ -94,6 +94,15 @@ class TatCreateValidationError(ValueError):
         super().__init__(message)
 
 
+class TatUpdateValidationError(ValueError):
+    """A categorized update failure safe for Mini App responses and logs."""
+
+    def __init__(self, code: str, message: str, *, status: int = 400):
+        self.code = str(code)
+        self.status = int(status)
+        super().__init__(message)
+
+
 @dataclass(frozen=True)
 class StageConfig:
     key: str
@@ -1663,7 +1672,10 @@ def update_case(
         and (case.stage_values or {}).get('bro_applied') == 'Met'
         and case.final_loan_amount is None
     ):
-        raise ValueError('Enter the final loan amount before marking the loan as applied.')
+        raise TatUpdateValidationError(
+            'tat_update_final_amount_required',
+            'Enter the final loan amount before marking the loan as applied.',
+        )
     next_stage = next_action(case)
     case.current_stage = next_stage.key if next_stage else ''
     if next_stage:
@@ -1713,12 +1725,19 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
         stage = stage_by_key(product, 'bro_applied')
         if not stage:
             raise ValueError('This case has no BRO application stage.')
-        allowed = (
-            can_user_correct_stage(user, case, stage)
-            if correction or case.stage_values.get('bro_applied')
-            else can_user_edit_stage(user, case, stage)
+        existing_outcome = bool((case.stage_values or {}).get('bro_applied'))
+        downstream_started = later_stages_started(case, stage, product)
+        has_correction_authority = can_user_correct_stage(user, case, stage)
+        bro_may_adjust = can_user_edit_stage(user, case, stage) and not downstream_started
+        allowed = has_correction_authority or (
+            bro_may_adjust if correction or existing_outcome else can_user_edit_stage(user, case, stage)
         )
         if not allowed:
+            if downstream_started:
+                raise TatUpdateValidationError(
+                    'tat_update_final_amount_locked',
+                    'Later loan-processing work has already started. Ask IT to correct the final loan amount.',
+                )
             raise ValueError('Only the responsible BRO or an authorized override may set the final loan amount.')
         new_value = parse_amount(item.get('value'))
         validate_amount(product, new_value)
@@ -1726,7 +1745,10 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
             raise ValueError('Final loan amount cannot exceed the original requested amount.')
         old = case.final_loan_amount
         if old == new_value:
-            raise ValueError('Final loan amount is already set to that value.')
+            # Composite BRO outcome saves resend the displayed amount. Treat
+            # the unchanged value as idempotent so the dropdown may still
+            # make a legitimate transition in the same transaction.
+            return
         case.final_loan_amount = new_value
         record_tat_event(
             case=case, group_id=case.group_id,
@@ -1821,6 +1843,11 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
                 raise ValueError(f'Complete the previous stage before {stage.label}.')
             if old and stage.kind != 'dropdown':
                 raise ValueError(f'{stage.label} is already completed.')
+            if old and stage.kind == 'dropdown' and later_stages_started(case, stage, product):
+                raise TatUpdateValidationError(
+                    'tat_update_stage_locked',
+                    'Later loan-processing work has already started. Ask IT to correct this earlier outcome.',
+                )
         if stage.kind == 'timestamp':
             if correction:
                 parsed = parse_iso_datetime(item.get('value'))
@@ -3069,6 +3096,18 @@ def previous_stages_complete(case: TatTrackerCase, stage: StageConfig) -> bool:
     return True
 
 
+def later_stages_started(case: TatTrackerCase, stage: StageConfig, product: ProductConfig | None = None) -> bool:
+    """Return whether an authoritative stage after ``stage`` already has a value."""
+    product = product or product_for_case(case)
+    found = False
+    for current in product.stages:
+        if found and bool((case.stage_values or {}).get(current.key)):
+            return True
+        if current.key == stage.key:
+            found = True
+    return False
+
+
 def can_user_edit_stage(user: dict, case: TatTrackerCase, stage: StageConfig) -> bool:
     return _tat_scope_allowed(user, f'tat.stage.{stage.key}.update', case)
 
@@ -3123,7 +3162,13 @@ def serialize_case_detail(
     fields = []
     for stage in (() if unresolved else product.stages):
         value = case.stage_values.get(stage.key, '')
-        editable = (not read_only) and previous_stages_complete(case, stage) and can_user_edit_stage(user, case, stage) and (not value or stage.kind == 'dropdown')
+        dropdown_change_open = stage.kind == 'dropdown' and not later_stages_started(case, stage, product)
+        editable = (
+            (not read_only)
+            and previous_stages_complete(case, stage)
+            and can_user_edit_stage(user, case, stage)
+            and (not value or dropdown_change_open)
+        )
         tat_minutes = stage_tat_minutes(case, stage, now=calculated_at)
         tat_seconds = stage_tat_seconds(case, stage, now=calculated_at)
         business_minutes = stage_business_tat_minutes(case, stage, now=calculated_at) if include_business_time else None

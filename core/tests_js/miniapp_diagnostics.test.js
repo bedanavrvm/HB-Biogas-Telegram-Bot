@@ -91,5 +91,7 @@ assert.equal(recoveredHidden.events[0].visibility, 'hidden', 'acked background s
 
 assert.doesNotThrow(() => launch({ brokenStorage: true, brokenSentry: true }));
 assert.equal(typeof third.window.MiniAppDiagnostics.intentionalClose, 'function');
+assert.match(source, /response\.status === 404 && data\.code === 'diagnostic_session_not_found'/);
+assert.match(source, /session\.server_started = false/);
 
 console.log('miniapp diagnostics client tests passed');

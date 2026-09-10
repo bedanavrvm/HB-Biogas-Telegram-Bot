@@ -296,6 +296,15 @@
           }
         );
         const data = await response.json().catch(function () { return {}; });
+        if (response.status === 404 && data.code === 'diagnostic_session_not_found') {
+          // A fresh database or raw-retention cleanup can remove a session
+          // still cached by the browser. Re-register it on the next flush
+          // instead of retrying the dead signal URL forever.
+          session.server_started = false;
+          session.signal_token = '';
+          writeStore(store);
+          throw new Error('diagnostic_session_reset');
+        }
         if (!response.ok || data.ok === false) throw new Error('diagnostic_signal_failed');
         const acknowledged = new Set(Array.isArray(data.acknowledged) ? data.acknowledged : []);
         if (!acknowledged.size) throw new Error('diagnostic_ack_missing');

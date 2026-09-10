@@ -310,6 +310,49 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(case.stage_values['bro_applied'], 'Met')
         self.assertEqual(case.tat_configuration_snapshot['workflow_path'], 'HOCC')
 
+    def test_bro_may_adjust_final_amount_only_before_downstream_work_starts(self):
+        from core.services.tat_tracker import TatUpdateValidationError
+
+        version = ProductVersion.objects.get(product__code='business', status='published')
+        snapshot = resolve_tat_configuration(version, requested_amount=Decimal('100000'))
+        values = {'created': timezone.now().isoformat()}
+        for stage in snapshot['stages']:
+            if stage['key'] == 'bro_applied':
+                break
+            values[stage['key']] = 'Met' if stage['key'] == 'sanctions' else 'Approved'
+        values['bro_applied'] = 'Met'
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='JBL-BS-2026-AMOUNT-CORRECTION',
+            product=version.product, product_version=version,
+            product_key='business', product_label='Business', client_name='AMOUNT CHANGE',
+            branch='Nakuru', bro_name='BRO User', amount=Decimal('100000'),
+            final_loan_amount=Decimal('80000'), status='Active',
+            stage_values=values, tat_configuration_snapshot=snapshot,
+            configuration_binding_status=TatTrackerCase.CONFIG_VERSIONED,
+        )
+        bro = {'name': 'BRO User', 'roles': ['BRO']}
+
+        # An unchanged composite value is idempotent, and the responsible BRO
+        # may adjust the amount while the next stage is still untouched.
+        apply_update(case, bro, {
+            'field': 'final_loan_amount', 'value': '80000.00', 'correction': True,
+        })
+        apply_update(case, bro, {
+            'field': 'final_loan_amount', 'value': '75000', 'correction': True,
+        })
+        self.assertEqual(case.final_loan_amount, Decimal('75000'))
+
+        case.stage_values['disbursement_register'] = '10:00am'
+        with self.assertRaises(TatUpdateValidationError) as amount_error:
+            apply_update(case, bro, {
+                'field': 'final_loan_amount', 'value': '70000', 'correction': True,
+            })
+        self.assertEqual(amount_error.exception.code, 'tat_update_final_amount_locked')
+
+        with self.assertRaises(TatUpdateValidationError) as outcome_error:
+            apply_update(case, bro, {'field': 'bro_applied', 'value': 'Pending'})
+        self.assertEqual(outcome_error.exception.code, 'tat_update_stage_locked')
+
     def test_overdue_tat_stage_records_one_pending_follow_up_per_day(self):
         # SLA time is measured only during the official Nairobi business
         # calendar.  Keep this test inside a weekday business window rather

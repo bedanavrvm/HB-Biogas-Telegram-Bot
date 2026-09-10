@@ -1108,7 +1108,8 @@ def tat_tracker_update(request):
     capability_error = _tat_capability_error(user, 'tat.home.view', group_config)
     if capability_error:
         return capability_error
-    from core.services.tat_tracker import update_case
+    from core.services.tat_tracker import TatUpdateValidationError, update_case
+    from core.services.miniapp_messages import miniapp_error_response
     from core.services.workflow_transitions import (
         WorkflowRevisionConflict,
         WorkflowRevisionRequired,
@@ -1166,8 +1167,24 @@ def tat_tracker_update(request):
         }, status=409)
     except WorkflowRevisionRequired as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'code': exc.code}, status=428)
+    except TatUpdateValidationError as exc:
+        return miniapp_error_response(
+            request,
+            exc.code,
+            workflow='tat_tracker',
+            status=exc.status,
+            developer_message=f'{type(exc).__name__}:{exc.code}',
+            exception=exc,
+        )
     except ValueError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return miniapp_error_response(
+            request,
+            'tat_update_validation_failed',
+            workflow='tat_tracker',
+            status=400,
+            developer_message=type(exc).__name__,
+            exception=exc,
+        )
     except Exception as exc:
         from core.services.miniapp_messages import unexpected_miniapp_error
         return unexpected_miniapp_error(request, exc, workflow='tat_tracker')

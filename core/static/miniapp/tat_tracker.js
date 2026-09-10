@@ -1684,20 +1684,35 @@
           select.setAttribute('aria-label', 'Update ' + field.label);
           select.innerHTML = '<option value="">Select outcome...</option>' + (field.options || []).map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`).join('');
           select.value = field.value || '';
-          select.addEventListener('change', async () => {
-            const selected = select.value;
-            if (selected === 'Met' && finalAmountInput && !finalAmountInput.value.trim()) {
-              select.value = field.value || '';
-              setStatus('Enter the final loan amount before marking the loan as applied.', 'error');
-              finalAmountInput.focus();
-              return;
-            }
-            if (selected) await updateStageOnce(
-              select, field, selected,
-              finalAmountInput ? finalAmountInput.value.trim() : '',
-            );
-          });
           actionWrap.appendChild(select);
+          if (field.key === 'bro_applied') {
+            const saveOutcome = document.createElement('button');
+            saveOutcome.type = 'button';
+            saveOutcome.className = 'primary compact-btn';
+            saveOutcome.textContent = 'Save outcome';
+            saveOutcome.addEventListener('click', async () => {
+              const selected = select.value;
+              if (!selected) {
+                setStatus('Select the loan application outcome.', 'error');
+                select.focus();
+                return;
+              }
+              if (selected === 'Met' && !finalAmountInput.value.trim()) {
+                setStatus('Enter the final loan amount before marking the loan as applied.', 'error');
+                finalAmountInput.focus();
+                return;
+              }
+              await updateStageOnce(
+                saveOutcome, field, selected, finalAmountInput.value.trim(),
+              );
+            });
+            actionWrap.appendChild(saveOutcome);
+          } else {
+            select.addEventListener('change', async () => {
+              const selected = select.value;
+              if (selected) await updateStageOnce(select, field, selected, '');
+            });
+          }
         } else {
           const button = document.createElement('button');
           button.type = 'button';
@@ -1958,13 +1973,28 @@
       else control.disabled = true;
       const updates = [];
       if (field.key === 'bro_applied' && value === 'Met') {
-        updates.push({
-          field: 'final_loan_amount',
-          value: finalLoanAmount,
-          correction: Boolean(state.detail.summary.final_loan_amount),
-        });
+        const currentAmount = String(state.detail.summary.final_loan_amount || '').trim();
+        const submittedAmount = String(finalLoanAmount || '').trim();
+        const amountUnchanged = currentAmount
+          && Number.isFinite(Number(currentAmount))
+          && Number.isFinite(Number(submittedAmount))
+          && Number(currentAmount) === Number(submittedAmount);
+        if (!amountUnchanged) {
+          updates.push({
+            field: 'final_loan_amount',
+            value: submittedAmount,
+            correction: Boolean(currentAmount),
+          });
+        }
       }
-      updates.push({ field: field.key, value });
+      if (String(value) !== String(field.raw_value || field.value || '')) {
+        updates.push({ field: field.key, value });
+      }
+      if (!updates.length) {
+        state.pendingStageUpdate = null;
+        setStatus('No changes to save.', 'ok');
+        return;
+      }
       await submitUpdate(updates, {
         caseId: pending.caseId,
         workflowRevision: pending.workflowRevision,

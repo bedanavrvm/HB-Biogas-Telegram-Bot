@@ -87,5 +87,7 @@ const submitStart = tracker.indexOf("$('newCaseForm').addEventListener('submit'"
 const validationCall = tracker.indexOf('validateNewCaseAmount(true)', submitStart);
 const createRequest = tracker.indexOf("api('/api/tat-tracker/create/'", submitStart);
 assert.ok(validationCall > submitStart && validationCall < createRequest, 'amount limits are checked before the request');
+assert.match(tracker, /saveOutcome\.textContent = 'Save outcome'/, 'BRO amount and outcome use an explicit save action');
+assert.match(tracker, /if \(!updates\.length\)/, 'unchanged composite outcomes do not make an invalid request');
 
 console.log('TAT case client validation tests passed');
