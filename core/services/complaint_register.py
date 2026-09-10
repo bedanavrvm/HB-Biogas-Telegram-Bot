@@ -16,7 +16,7 @@ from django.utils.dateparse import parse_date
 from core.models import ComplaintCategory, GroupSheetConfiguration, ParsedMessage
 from core.services.complaint_cases import (
     ComplaintCaseError, format_datetime, resolution_history_entries,
-    resolution_history_text, sla_payload,
+    latest_resolution_text, resolution_history_text, serialize_update, sla_payload,
 )
 
 
@@ -515,7 +515,13 @@ def register_case(case_uuid: str) -> dict[str, Any]:
     case = _base_queryset().filter(pk=case_uuid).first()
     if not case:
         raise ComplaintCaseError('Complaint case was not found.')
-    return serialize_register_case(case, groups)
+    payload = serialize_register_case(case, groups)
+    updates = list(case.case_updates.filter(new_status__in=['Closed', 'Reopened']))
+    resolution = next((item for item in updates if item.new_status == 'Closed'), None)
+    reopen = next((item for item in updates if item.new_status == 'Reopened'), None)
+    payload['latest_resolution'] = serialize_update(resolution) if resolution else None
+    payload['latest_reopen'] = serialize_update(reopen) if reopen else None
+    return payload
 
 
 def _excel_text(value: Any) -> Any:
@@ -547,7 +553,7 @@ def export_register_xlsx(*, actor, request_id: str) -> tuple[bytes, int]:
             _export_upper(row['county']), _export_upper(row['constituency']),
             _export_upper(row['village']), _export_upper(row['branch_region']),
             _export_upper(row['reported_by']), _export_upper(row['complaint_category']),
-            row['complaint_description'], row['gps_link'], row['resolution_details'],
+            row['complaint_description'], row['gps_link'], latest_resolution_text(case),
             _export_date(case.date_resolved), row['days_open'], resolution_history_text(case),
         )))
         sheet.cell(row=count + 1, column=3).number_format = 'dd-mmm-yyyy'

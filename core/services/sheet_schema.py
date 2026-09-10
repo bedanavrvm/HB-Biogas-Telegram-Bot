@@ -222,15 +222,22 @@ class SheetSchema:
             new_status__in=['Closed', 'Reopened'],
         ).order_by('created_at', 'pk')
         history = []
+        latest_resolution = ''
         for update in updates:
             stamp = update.created_at
             if stamp and getattr(stamp, 'tzinfo', None):
                 stamp = timezone.localtime(stamp)
             label = 'CLOSED' if update.new_status == 'Closed' else 'REOPENED'
-            history.append(
-                f'[{stamp:%d-%B-%Y %H:%M}] {update.updated_by or "Unknown staff member"} - '
-                f'{label}: {update.resolution_text}'
-            )
+            actor = update.updated_by or 'Unknown staff member'
+            history.append('\n'.join(filter(None, (
+                update.resolution_text or '',
+                f'{label} · {stamp:%d-%b-%Y %H:%M} · {actor}',
+            ))))
+            if update.new_status == 'Closed':
+                latest_resolution = '\n'.join(filter(None, (
+                    update.resolution_text or '',
+                    f'{stamp:%d-%b-%Y %H:%M} · {actor}',
+                )))
         public_status = (
             'CLOSED' if parsed_message.complaint_status == 'Closed'
             else ('REOPENED' if parsed_message.complaint_status == 'Reopened' else 'OPEN')
@@ -280,10 +287,10 @@ class SheetSchema:
             'loan_status': parsed_message.loan_status,
             'loan_at_risk': parsed_message.loan_at_risk,
             'risk_level': parsed_message.risk_level,
-            'resolution_details': parsed_message.resolution_details,
+            'resolution_details': latest_resolution or parsed_message.resolution_details,
             'date_resolved': display_date(parsed_message.date_resolved),
             'days_open': projected_days_open,
-            'resolution_history': '\n'.join(history),
+            'resolution_history': '\n\n'.join(history),
         }
         return {
             self.normalize(self.header(field)): value

@@ -1,4 +1,5 @@
 import importlib
+from datetime import timedelta
 from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
@@ -106,8 +107,12 @@ class ComplaintRegisterCutoverTests(TestCase):
         self.assertEqual(row[8:12], ['Nakuru County', 'Nakuru East', 'Test Village', 'Nakuru'])
         self.assertEqual(row[12], 'Officer Example')
         self.assertEqual(row[18], 0)
-        self.assertIn('Resolver One - CLOSED: Initial repair completed.', row[19])
-        self.assertIn('Manager One - REOPENED: Customer reported the issue again.', row[19])
+        self.assertTrue(row[16].startswith('Initial repair completed.\n'))
+        self.assertIn('· Resolver One', row[16])
+        self.assertIn('Initial repair completed.\nCLOSED · ', row[19])
+        self.assertIn('· Resolver One', row[19])
+        self.assertIn('Customer reported the issue again.\nREOPENED · ', row[19])
+        self.assertIn('· Manager One', row[19])
         self.assertNotIn('internal-uuid-like-id', row)
         self.assertNotIn('private source', row)
 
@@ -152,9 +157,12 @@ class ComplaintRegisterCutoverTests(TestCase):
         )
         self.case.complaint_status = 'Open'
         self.case.save(update_fields=['complaint_status'])
-        CaseUpdate.objects.create(
+        legacy_reopen = CaseUpdate.objects.create(
             parsed_message=self.case, group_id=self.case.group_id,
             old_status='Closed', new_status='Open', resolution_text='Legacy reopen.',
+        )
+        CaseUpdate.objects.filter(pk=legacy_reopen.pk).update(
+            created_at=timezone.now() + timedelta(seconds=1),
         )
 
         prepare_cutover(apps, None)

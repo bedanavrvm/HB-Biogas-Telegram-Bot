@@ -85,7 +85,7 @@
           <label>Constituency<select name="sub_county" required disabled><option value="">Select county first</option></select></label>
           <label class="full">Village<input name="village" maxlength="255" autocomplete="address-level3" placeholder="Enter village" required></label>
           <label class="full"><span class="label-line"><span>What happened?</span><button id="categorySuggestion" class="category-suggestion" type="button" role="status" aria-live="polite" hidden></button></span><textarea name="complaint_description" rows="4" maxlength="5000" placeholder="Describe the complaint in detail..." required></textarea></label>
-          <label class="full">Complaint Type<select name="complaint_category" required><option value="">Select complaint type</option></select><small id="categoryGuidance" class="muted">What is the complaint about?</small></label>
+          <label class="full">Complaint Type<select name="complaint_category" required><option value="">Select complaint type</option></select><small id="categoryGuidance" class="muted">Choose the option that best matches the main issue.</small></label>
         </div>
         <section class="optional-row location-field" aria-labelledby="locationFieldLabel"><div class="optional-heading"><span id="locationFieldLabel" class="field-label">Location</span><span class="muted">Optional</span></div><button id="captureLocationBtn" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-map-pin"></use></svg><span>Use My Current Location</span></button><span id="captureState" class="muted" role="status" aria-live="polite">Location not added</span></section>
         <section class="evidence-picker create-evidence-picker" aria-labelledby="createEvidenceTitle"><div><p id="createEvidenceTitle" class="field-label">Supporting Documents or Photos</p><p id="createEvidenceHint" class="muted">Optional: photos or PDF</p></div><div class="evidence-actions"><button type="button" data-camera-target="create"><svg class="lucide" aria-hidden="true"><use href="#lucide-camera"></use></svg><span>Take Photos</span></button><button type="button" data-files-target="create"><svg class="lucide" aria-hidden="true"><use href="#lucide-upload"></use></svg><span>Upload Files</span></button></div><input id="createEvidenceInput" class="sr-only" type="file" multiple accept="image/jpeg,image/png,image/webp,.pdf"></section>
@@ -126,6 +126,6 @@
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
   <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=3"></script>
   <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=7"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=43"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=44"></script>
 </body>
 </html>

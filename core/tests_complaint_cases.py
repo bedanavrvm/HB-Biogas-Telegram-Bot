@@ -285,6 +285,17 @@ class ComplaintCaseServiceTests(TestCase):
             'max_files': 4, 'max_file_size_mb': 7, 'max_total_upload_mb': 18,
         })
 
+    def test_bootstrap_lists_every_current_group_role_in_policy_order(self):
+        AccessGrant.objects.create(
+            user=self.officer, workflow='complaint_cases', role='MANAGER',
+            group_configuration=self.group,
+        )
+
+        data = bootstrap_data(self.config, self.actor('100'))
+
+        self.assertEqual(data['actor']['roles'], ['OFFICER', 'MANAGER'])
+        self.assertEqual(data['actor']['role'], 'MANAGER')
+
     def test_branch_scoped_grant_still_sees_the_shared_group_queue(self):
         AccessGrant.objects.filter(user=self.officer, workflow='complaint_cases').update(branch='Nakuru')
         self.case.branch_region = 'Nakuru'
@@ -567,6 +578,7 @@ class ComplaintCaseServiceTests(TestCase):
         categories = (
             ('leakage', 'Leakage'), ('pipe-connection-fault', 'Pipe/Connection Fault'),
             ('burner-knob-fault', 'Burner/Knob Fault'), ('installation-delay', 'Installation Delay'),
+            ('accessories-delay', 'Accessories'),
             ('other-complaint', 'Other Complaint'),
         )
         for key, label in categories:
@@ -576,11 +588,13 @@ class ComplaintCaseServiceTests(TestCase):
 
         leakage = suggest_category(self.config, 'The broken pipe is leaking gas at the connection.')
         ambiguous = suggest_category(self.config, 'Installation is delayed and the burner will not ignite.')
+        accessory = suggest_category(self.config, 'The customer is requesting an extra burner.')
         fallback = suggest_category(self.config, 'Customer has an unusual concern.')
 
         self.assertEqual(leakage['suggestion']['key'], 'leakage')
         self.assertEqual(ambiguous['state'], 'ambiguous')
         self.assertEqual({item['key'] for item in ambiguous['candidates']}, {'installation-delay', 'burner-knob-fault'})
+        self.assertEqual(accessory['suggestion']['key'], 'accessories-delay')
         self.assertEqual(fallback['suggestion']['key'], 'other-complaint')
         self.assertEqual(self.case.complaint_category, '')
 
@@ -1320,6 +1334,35 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
         self.assertNotIn('private raw source', json.dumps(audit.after_values))
 
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_mobile_export_uses_short_lived_reauthorized_download(self):
+        prepared = self.post('complaint_cases_global_export', {
+            'confirm_all': True, 'delivery': 'signed_url',
+            'client_request_id': 'global-export-mobile-1',
+        })
+
+        self.assertEqual(prepared.status_code, 200)
+        payload = prepared.json()
+        self.assertTrue(payload['download_url'].startswith('http://testserver/api/complaints/global/export/download/'))
+        self.assertTrue(payload['filename'].endswith('.xlsx'))
+        downloaded = self.client.get(payload['download_url'])
+        self.assertEqual(downloaded.status_code, 200)
+        self.assertEqual(
+            downloaded['Content-Type'],
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        self.assertEqual(downloaded['Cache-Control'], 'private, no-store, max-age=0')
+        self.assertEqual(downloaded['X-Content-Type-Options'], 'nosniff')
+        self.assertEqual(downloaded['Access-Control-Allow-Origin'], 'https://web.telegram.org')
+        self.assertEqual(downloaded['X-Export-Row-Count'], '2')
+        self.assertTrue(ComplianceAuditEvent.objects.filter(
+            workflow='complaint_cases', action='register.exported',
+            request_id='global-export-mobile-1',
+        ).exists())
+
+        tampered = payload['download_url'][:-2] + 'xx/'
+        self.assertEqual(self.client.get(tampered).status_code, 404)
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
     def test_report_advertises_and_applies_only_the_requested_filters(self):
         self.case_b.complaint_status = 'Closed'
         self.case_b.date_resolved = timezone.now()
@@ -1548,8 +1591,9 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertNotIn('unpkg.com/lucide', template)
         self.assertIn('This download includes all ${count} complaints across all complaint groups', script)
         self.assertIn('Check Downloads for ${state.exportFilename}', script)
-        self.assertIn("navigator.canShare({ files: [state.exportFile] })", script)
-        self.assertIn("navigator.share({ files: [state.exportFile]", script)
+        self.assertIn("delivery: 'signed_url'", script)
+        self.assertIn("telegram.downloadFile({ url: state.exportDownloadUrl, file_name: state.exportFilename }", script)
+        self.assertIn("telegram.openLink(state.exportDownloadUrl)", script)
         self.assertIn("match[3]}-${months[Number(match[2]) - 1]}-${match[1]}", script)
         self.assertIn('function formatReportUppercase(value)', script)
         self.assertIn("link.href = params.value; link.target = '_blank'; link.rel = 'noopener noreferrer'", script)
@@ -1572,7 +1616,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         for wording in (
             '<h1>Complaints</h1>', '<span>Complaints</span>', '<span>Data Overview</span>',
             'Record a New Complaint', 'Enter the customer&rsquo;s complaint details below.',
-            'Complaint Type', 'What is the complaint about?', 'Use My Current Location',
+            'Complaint Type', 'Choose the option that best matches the main issue.', 'Use My Current Location',
             'Supporting Documents or Photos', 'Take Photos', 'Upload Files',
             'Not Saved', 'Submit Complaint',
         ):
@@ -1610,6 +1654,8 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn("can('complaint.reports.view')", script)
         self.assertIn("getJson('reports/data/'", script)
         self.assertIn("getJson('reports/summary/'", script)
+        self.assertIn("[data.actor.name, ...actorRoles].join(' · ')", script)
+        self.assertIn('Choose the option that best matches the main issue.', template)
         self.assertIn('function monthBoundaries(value)', script)
         self.assertIn('filter_options?.branches', script)
         self.assertIn('overflow-x:hidden', styles)
@@ -1665,22 +1711,20 @@ class ComplaintCategoryCatalogueTests(TestCase):
         active = dict(ComplaintCategory.objects.filter(active=True).values_list('label', 'description'))
 
         self.assertEqual(active, {
-            'Leakage': 'Gas, bag, pipe, connection, valve, etc.',
-            'Blockage': 'Inlet or outlet blockage',
-            'Burner/Knob Fault': 'Burner, knob, flame, ignition issues',
-            'Pipe/Connection Fault': (
-                'Physical pipe/connection problems where leakage is NOT the primary complaint'
-            ),
-            'System Performance': 'Low/no gas production or poor system performance',
-            'Installation': 'Installation-related complaints of any kind',
-            'Commissioning': 'Commissioning and system start-up complaints',
-            'Accessories': 'Accessory supply, condition, compatibility, or support complaints',
-            'System Damage': 'Damage affecting the digester, appliance, or installed system',
-            'Technical Support': 'Technical guidance, diagnosis, or support requests',
-            'Appraisal': 'Appraisal, assessment, or valuation-related complaints',
-            'Payments & Accounts': 'Payments, balances, receipts, statements, or account-related complaints',
-            'Relocation Request': 'Customer wants system relocated',
-            'Other Complaint': "Doesn't fit any category",
+            'Installation': 'Installation dates/scheduling, delays, readiness, holds, incomplete work, requirements, follow-up.',
+            'Commissioning': 'Commissioning dates/scheduling, delays, readiness, incomplete work, multi-unit commissioning, follow-up.',
+            'System Performance': 'No/low gas, short cooking time, no inflation, gas not reaching stove, weak/unstable performance, unexpected stopping.',
+            'Leakage': 'Gas escape/smell at stove, kitchen, pipe, joint, connection, digester, bag, burner, cap.',
+            'Pipe/Connection Fault': 'Broken/cracked/loose/disconnected/sagging/burnt/blocked/misaligned pipes, joints, inlets, outlets, supports, connections.',
+            'Burner/Knob Fault': 'Burner/stove not working/lighting/staying on, weak flame, blockage, looseness, broken/stuck knob.',
+            'System Damage': 'Tears, punctures, cracks, holes, bursts, fire/weather/animal/falling-object damage to system/components.',
+            'Blockage': 'Blocked inlet/outlet/pipe/system, backflow, scum, feeding difficulty, contamination.',
+            'Accessories': 'Accessory/spare-part requests, non-delivery, delays, damage, incompatibility, replacement.',
+            'Relocation Request': 'System/stove/burner/pipe relocation, rerouting, cooking-point/position/direction changes, decommissioning, scheduling.',
+            'Technical Support': 'Diagnosis, troubleshooting, technical visits, follow-up, phone support, usage/feeding guidance, training, reinoculation.',
+            'Appraisal': 'Appraisal readiness, scheduling, delays, pending assessments, valuation questions, outcomes, follow-up.',
+            'Payments & Accounts': 'Balances, repayments, payment status/confirmation, paybill, receipts/statements, outstanding amounts, related payments.',
+            'Other Complaint': 'Complaints/enquiries outside the listed types.',
         })
         self.assertEqual(ComplaintCategory.objects.get(key='other-complaint').default_sla_hours, 72)
         self.assertEqual(

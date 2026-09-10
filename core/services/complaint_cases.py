@@ -58,6 +58,8 @@ CATEGORY_SUGGESTION_RULES = (
     )),
     ('accessories-delay', (
         r'\baccessor(?:y|ies)\b',
+        r'\b(?:request(?:ing)?|need(?:s|ed)?|deliver(?:y|ed)?|missing|replacement)\b.{0,30}\b(?:filter|volcano|cover|stand|grill|extra burner|spare part)\b',
+        r'\b(?:extra|spare|replacement)\s+(?:burner|knob|filter|cover|stand|grill|post|part)\b',
     )),
     ('payments-accounts', (
         r'\b(?:payment|paid|mpesa|m-pesa|receipt|balance|statement|account)\b',
@@ -113,6 +115,7 @@ class ComplaintCaseActor:
     role: str
     capabilities: frozenset[str]
     access: dict | None = None
+    roles: tuple[str, ...] = ()
 
     @property
     def is_manager(self) -> bool:
@@ -159,10 +162,13 @@ def suggest_category(group_config, description: Any) -> dict[str, Any]:
         key for key, patterns in CATEGORY_SUGGESTION_RULES
         if any(re.search(pattern, text) for pattern in patterns)
     ]
-    # A leak in a pipe or connection is still primarily Leakage. This is the
-    # only deliberate dominance rule; unrelated collisions stay ambiguous.
+    # A leak in a pipe or connection is still primarily Leakage. A supply-only
+    # burner or knob request is Accessories, while a faulty component remains
+    # Burner/Knob Fault. Unrelated collisions stay ambiguous.
     if 'leakage' in matched_keys and 'pipe-connection-fault' in matched_keys:
         matched_keys.remove('pipe-connection-fault')
+    if 'accessories-delay' in matched_keys and 'burner-knob-fault' in matched_keys:
+        matched_keys.remove('burner-knob-fault')
     categories = {category.key: category for category in available_categories(group_config)}
     matched = [categories[key] for key in matched_keys if key in categories]
     if len(matched) == 1:
@@ -277,6 +283,12 @@ def staff_actor_for_user(group_config, canonical_user, *, identity=None) -> Comp
     if not access['authorized']:
         raise ComplaintCaseError('Your Telegram account is not configured for complaint cases in this group.')
     roles = {str(role).upper() for role in access['roles']}
+    from core.services.access_policies import WORKFLOW_ROLES
+    role_order = {
+        role_code: index
+        for index, (role_code, _label) in enumerate(WORKFLOW_ROLES['complaint_cases'])
+    }
+    ordered_roles = tuple(sorted(roles, key=lambda value: (role_order.get(value, 999), value)))
     role = MANAGER_ROLE if MANAGER_ROLE in roles else (
         'OFFICER' if 'OFFICER' in roles else ('HB_STAFF' if 'HB_STAFF' in roles else ('IT' if 'IT' in roles else ''))
     )
@@ -291,6 +303,7 @@ def staff_actor_for_user(group_config, canonical_user, *, identity=None) -> Comp
         role=role,
         capabilities=frozenset(effective_capability_keys(canonical_user, 'complaint_cases', access=access)),
         access=access,
+        roles=ordered_roles,
     )
 
 
@@ -333,6 +346,7 @@ def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
     return {
         'actor': {
             'name': actor.name, 'role': actor.role, 'is_manager': actor.is_manager,
+            'roles': list(actor.roles or (actor.role,)),
             'capabilities': sorted(actor.capabilities),
         },
         'statuses': ['pending', 'resolved', 'all'],
@@ -1231,7 +1245,7 @@ def sheet_updates(case: ParsedMessage, values: dict[str, Any], resolution_detail
     ended_at = case.date_resolved if case.complaint_status == 'Closed' and case.date_resolved else timezone.now()
     updates = {
         'status': 'CLOSED' if values['status'] == 'Closed' else values['status'].upper(),
-        'resolution_details': resolution_details,
+        'resolution_details': latest_resolution_text(case),
         'resolution_history': resolution_history_text(case),
         'days_open': max(0, int((ended_at - reported_at).total_seconds() // 86400)),
     }
@@ -1269,7 +1283,7 @@ def retry_case_sync(group_config, actor: ComplaintCaseActor, case_id: str) -> di
         'status': 'CLOSED' if case.complaint_status == 'Closed' else (
             'REOPENED' if case.complaint_status == 'Reopened' else 'OPEN'
         ),
-        'resolution_details': case.resolution_details or '',
+        'resolution_details': latest_resolution_text(case),
         'resolution_history': resolution_history_text(case),
         'gps_link': case.gps_link or '',
         'days_open': max(0, int(((
@@ -1378,7 +1392,7 @@ def resolution_history_entries(case: ParsedMessage) -> list[dict[str, str]]:
         action = 'CLOSED' if update.new_status == 'Closed' else 'REOPENED'
         local_time = timezone.localtime(update.created_at)
         entries.append({
-            'timestamp': local_time.strftime('%d-%B-%Y %H:%M'),
+            'timestamp': local_time.strftime('%d-%b-%Y %H:%M'),
             'actor': update.updated_by or 'Unknown staff member',
             'action': action,
             'reason': update.resolution_text or '',
@@ -1386,11 +1400,23 @@ def resolution_history_entries(case: ParsedMessage) -> list[dict[str, str]]:
     return entries
 
 
+def latest_resolution_text(case: ParsedMessage) -> str:
+    update = case.case_updates.filter(new_status='Closed').order_by('-created_at', '-pk').first()
+    if not update:
+        return case.resolution_details or ''
+    local_time = timezone.localtime(update.created_at)
+    return '\n'.join(filter(None, (
+        update.resolution_text or '',
+        f'{local_time:%d-%b-%Y %H:%M} · {update.updated_by or "Unknown staff member"}',
+    )))
+
+
 def resolution_history_text(case: ParsedMessage) -> str:
-    return '\n'.join(
-        f"[{entry['timestamp']}] {entry['actor']} - {entry['action']}: {entry['reason']}"
-        for entry in resolution_history_entries(case)
-    )
+    entries = []
+    for entry in resolution_history_entries(case):
+        lines = [entry['reason'], f"{entry['action']} · {entry['timestamp']} · {entry['actor']}"]
+        entries.append('\n'.join(line for line in lines if line))
+    return '\n\n'.join(entries)
 
 
 def validate_uploaded_files(uploaded_files: list) -> None:

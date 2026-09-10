@@ -7,8 +7,11 @@ import time
 from functools import wraps
 
 from django.conf import settings
+from django.core import signing
+from django.contrib.auth import get_user_model
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
+from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
@@ -440,10 +443,27 @@ def complaint_cases_global_export(request):
             'message': 'Confirm that you intend to export every complaint case across all groups.',
         }, status=400)
     from core.services.complaint_register import export_filename, export_register_xlsx
+    export_request_id = str(
+        payload.get('client_request_id') or request.headers.get('X-Request-ID') or ''
+    )
+    filename = export_filename()
+    if payload.get('delivery') == 'signed_url':
+        token = signing.dumps({
+            'user_id': str(actor.user.pk),
+            'group_id': str(group_config.group_id),
+            'request_id': export_request_id,
+        }, salt='complaint-register-download', compress=True)
+        return JsonResponse({
+            'ok': True,
+            'download_url': request.build_absolute_uri(reverse(
+                'complaint_cases_global_export_download', args=[token],
+            )),
+            'filename': filename,
+        })
     try:
         workbook, row_count = export_register_xlsx(
             actor=actor.user,
-            request_id=str(payload.get('client_request_id') or request.headers.get('X-Request-ID') or ''),
+            request_id=export_request_id,
         )
     except Exception as exc:
         return unexpected_miniapp_error(request, exc, workflow='complaints')
@@ -451,8 +471,60 @@ def complaint_cases_global_export(request):
         workbook,
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     )
-    response['Content-Disposition'] = f'attachment; filename="{export_filename()}"'
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
     response['X-Export-Row-Count'] = str(row_count)
+    return response
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'HEAD'])
+def complaint_cases_global_export_download(request, token: str):
+    """Serve an authorized XLSX through an HTTPS URL Telegram can download."""
+    try:
+        payload = signing.loads(
+            token, salt='complaint-register-download', max_age=300,
+        )
+        user_id = str(payload['user_id'])
+        group_id = str(payload['group_id'])
+        export_request_id = str(payload['request_id'])
+    except (signing.BadSignature, signing.SignatureExpired, KeyError, TypeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'This download link has expired.'}, status=404)
+
+    actor_user = get_user_model().objects.filter(pk=user_id, is_active=True).first()
+    group_config = GroupRegistry.get_instance().get_group(group_id)
+    if not actor_user or not group_config or not is_complaint_workflow(group_config):
+        return JsonResponse({'ok': False, 'error': 'This download is no longer authorized.'}, status=403)
+    try:
+        actor = staff_actor_for_user(group_config, actor_user)
+    except ComplaintCaseError:
+        return JsonResponse({'ok': False, 'error': 'This download is no longer authorized.'}, status=403)
+    if not (
+        actor_can(group_config, actor, 'complaint.reports.view')
+        and actor_can(group_config, actor, 'complaint.case.export')
+    ):
+        return JsonResponse({'ok': False, 'error': 'This download is no longer authorized.'}, status=403)
+
+    from core.services.complaint_register import export_filename, export_register_xlsx
+    filename = export_filename()
+    workbook = b''
+    row_count = ''
+    if request.method == 'GET':
+        try:
+            workbook, row_count = export_register_xlsx(
+                actor=actor_user, request_id=export_request_id,
+            )
+        except Exception as exc:
+            return unexpected_miniapp_error(request, exc, workflow='complaints')
+    response = HttpResponse(
+        workbook,
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response['Cache-Control'] = 'private, no-store, max-age=0'
+    response['X-Content-Type-Options'] = 'nosniff'
+    response['Access-Control-Allow-Origin'] = 'https://web.telegram.org'
+    if row_count != '':
+        response['X-Export-Row-Count'] = str(row_count)
     return response
 
 
