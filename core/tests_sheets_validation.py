@@ -4,6 +4,7 @@ Tests for Google Sheets validation features.
 Tests the Sheet Structure Detection and Dropdown Validation safety features.
 """
 import logging
+from datetime import date
 from django.test import TestCase
 from unittest.mock import Mock, patch, MagicMock
 from core.services.sheets import GoogleSheetsService
@@ -59,6 +60,121 @@ class GoogleSheetsValidationTests(TestCase):
                 {'red': 1.0, 'green': 0.929, 'blue': 0.835},
                 {'red': 0.863, 'green': 0.988, 'blue': 0.906},
             ],
+        )
+
+    def test_strict_complaint_projection_uppercases_only_short_text(self):
+        service = GoogleSheetsService(sheet_schema={'schema_version': 2})
+        normalize = service._normalize_header
+
+        self.assertEqual(service._complaint_projection_value(normalize('Customer Name'), 'Jane McDoe'), 'JANE MCDOE')
+        self.assertEqual(service._complaint_projection_value(normalize('County'), 'Nakuru County'), 'NAKURU COUNTY')
+        self.assertEqual(service._complaint_projection_value(normalize('Complaint Type'), 'Technical Support'), 'TECHNICAL SUPPORT')
+        self.assertEqual(service._complaint_projection_value(normalize('Complaint Description'), 'No Gas at eCitizen URL'), 'No Gas at eCitizen URL')
+        self.assertEqual(service._complaint_projection_value(normalize('Resolution Details'), 'Valve replaced by Jane'), 'Valve replaced by Jane')
+        self.assertEqual(service._complaint_projection_value(normalize('Resolution History'), '[06-May-2026] Jane - CLOSED: Fixed'), '[06-May-2026] Jane - CLOSED: Fixed')
+        self.assertEqual(service._complaint_projection_value(normalize('GPS Link'), 'https://maps.example/AaBb'), 'https://maps.example/AaBb')
+        self.assertEqual(service._complaint_projection_value(normalize('GPS Link'), '=IMPORTDATA("bad")'), '')
+        self.assertEqual(service._complaint_projection_value(normalize('Customer National ID'), '00123456'), '00123456')
+
+    def test_strict_complaint_dates_are_real_sheet_dates_with_required_format(self):
+        service = GoogleSheetsService(sheet_schema={'schema_version': 2})
+        expected_serial = (date(2026, 5, 6) - date(1899, 12, 30)).days
+        self.assertEqual(
+            service._complaint_projection_value(service._normalize_header('Date Reported'), '06-05-26'),
+            expected_serial,
+        )
+        self.assertEqual(
+            service._complaint_projection_value(service._normalize_header('Date Resolved'), '06/05/2026'),
+            expected_serial,
+        )
+        self.assertEqual(
+            service._complaint_projection_value(service._normalize_header('Date Resolved'), ''),
+            '',
+        )
+
+        mock_sheet = Mock()
+        mock_sheet.row_values.return_value = service.sheet_columns
+        service._sheet = mock_sheet
+        service._format_complaint_date_rows([2])
+
+        formats = mock_sheet.batch_format.call_args.args[0]
+        self.assertEqual([item['range'] for item in formats], ['C2', 'R2'])
+        self.assertTrue(all(
+            item['format']['numberFormat'] == {'type': 'DATE', 'pattern': 'dd-mmm-yyyy'}
+            for item in formats
+        ))
+
+    def test_strict_complaint_append_normalizes_values_at_sheet_boundary(self):
+        service = GoogleSheetsService(sheet_schema={'schema_version': 2})
+        row = [''] * len(service.sheet_columns)
+        values = {
+            'Complaint ID': 'cmp-12', 'Date Reported': '06-05-26', 'Status': 'Open',
+            'Customer Name': 'Jane McDoe', 'Customer National ID': '00123456',
+            'Primary Phone Number': '254700000001', 'County': 'Nakuru County',
+            'Constituency': 'Nakuru East', 'Village': 'Mwariki', 'Branch': 'Nakuru',
+            'JBL Reported By': 'Officer One', 'Complaint Type': 'Technical Support',
+            'Complaint Description': 'No Gas at eCitizen URL',
+            'GPS Link': 'https://maps.example/AaBb',
+            'Days Open': 4,
+        }
+        for header, value in values.items():
+            row[service.sheet_columns.index(header)] = value
+        mock_sheet = Mock()
+        mock_sheet.row_values.return_value = service.sheet_columns
+        mock_sheet.get_all_values.return_value = [service.sheet_columns]
+        service._sheet = mock_sheet
+
+        with patch.object(service, 'is_available', return_value=True), patch.object(service, '_message_exists', return_value=False):
+            self.assertTrue(service.append_row(row, message_id='CMP-12'))
+
+        updates = {call.args[0]: call.args[1] for call in mock_sheet.update.call_args_list}
+        expected_serial = (date(2026, 5, 6) - date(1899, 12, 30)).days
+        self.assertEqual(updates['A2:B2'][0][1], 'CMP-12')
+        self.assertEqual(updates['C2:C2'], [[expected_serial]])
+        short_values = updates['D2:O2'][0]
+        self.assertEqual(short_values[0], 'OPEN')
+        self.assertEqual(short_values[1], 'JANE MCDOE')
+        self.assertEqual(short_values[5:11], ['NAKURU COUNTY', 'NAKURU EAST', 'MWARIKI', 'NAKURU', 'OFFICER ONE', 'TECHNICAL SUPPORT'])
+        self.assertEqual(short_values[11], 'No Gas at eCitizen URL')
+        self.assertEqual(updates['P2:P2'], [['https://maps.example/AaBb']])
+        self.assertEqual(updates['S2:S2'], [[4]])
+        text_call = next(call for call in mock_sheet.update.call_args_list if call.args[0] == 'D2:O2')
+        self.assertEqual(text_call.kwargs['value_input_option'], 'RAW')
+        self.assertTrue(any(
+            call.args[0] == 'P2:P2' and call.kwargs['value_input_option'] == 'USER_ENTERED'
+            for call in mock_sheet.update.call_args_list
+        ))
+
+    def test_strict_complaint_update_normalizes_without_rewriting_narratives(self):
+        service = GoogleSheetsService(sheet_schema={'schema_version': 2})
+        mock_sheet = Mock()
+        mock_sheet.row_values.return_value = service.sheet_columns
+        mock_sheet.col_values.return_value = ['Complaint ID', 'CMP-12']
+        service._sheet = mock_sheet
+
+        with patch.object(service, 'is_available', return_value=True):
+            self.assertTrue(service.update_case_row('CMP-12', {
+                'status': 'Closed',
+                'resolution_details': 'Valve replaced by Jane',
+                'date_resolved': '06/05/2026',
+                'days_open': 3,
+            }))
+
+        updates = {call.args[0]: call.args[1] for call in mock_sheet.update.call_args_list}
+        expected_serial = (date(2026, 5, 6) - date(1899, 12, 30)).days
+        self.assertEqual(updates['D2:D2'], [['CLOSED']])
+        self.assertEqual(updates['Q2:Q2'], [['Valve replaced by Jane']])
+        self.assertEqual(updates['R2:R2'], [[expected_serial]])
+        self.assertEqual(updates['S2:S2'], [[3]])
+        date_format_calls = [
+            call.args[0]
+            for call in mock_sheet.batch_format.call_args_list
+            if any(item['range'] == 'R2' for item in call.args[0])
+        ]
+        self.assertEqual(len(date_format_calls), 1)
+        self.assertEqual(
+            date_format_calls[0][0]['format']['numberFormat'],
+            {'type': 'DATE', 'pattern': 'dd-mmm-yyyy'},
         )
     
     def test_validate_sheet_structure_wrong_column_count(self):

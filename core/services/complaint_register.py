@@ -188,8 +188,13 @@ def _report_datetime(value) -> str:
     return timezone.localtime(value).isoformat()
 
 
-def _display_date(value) -> str:
-    return timezone.localtime(value).strftime('%d-%m-%y') if value else ''
+def _export_date(value):
+    """Return a genuine local Excel date; cell formatting controls its display."""
+    return timezone.localtime(value).date() if value else ''
+
+
+def _export_upper(value: Any) -> Any:
+    return value.upper() if isinstance(value, str) else value
 
 
 def _report_status(case: ParsedMessage) -> tuple[str, bool]:
@@ -535,13 +540,22 @@ def export_register_xlsx(*, actor, request_id: str) -> tuple[bytes, int]:
     for count, case in enumerate(queryset.iterator(chunk_size=500), start=1):
         row = serialize_report_case(case)
         sheet.append(tuple(_excel_text(value) for value in (
-            count, row['complaint_id'], _display_date(case.timestamp or case.created_at),
-            row['status'], row['customer_name'], row['customer_id'], row['phone_number'],
-            row['secondary_phone_number'], row['county'], row['constituency'], row['village'],
-            row['branch_region'], row['reported_by'], row['complaint_category'],
+            count, _export_upper(row['complaint_id']),
+            _export_date(case.timestamp or case.created_at),
+            _export_upper(row['status']), _export_upper(row['customer_name']),
+            row['customer_id'], row['phone_number'], row['secondary_phone_number'],
+            _export_upper(row['county']), _export_upper(row['constituency']),
+            _export_upper(row['village']), _export_upper(row['branch_region']),
+            _export_upper(row['reported_by']), _export_upper(row['complaint_category']),
             row['complaint_description'], row['gps_link'], row['resolution_details'],
-            _display_date(case.date_resolved), row['days_open'], resolution_history_text(case),
+            _export_date(case.date_resolved), row['days_open'], resolution_history_text(case),
         )))
+        sheet.cell(row=count + 1, column=3).number_format = 'dd-mmm-yyyy'
+        sheet.cell(row=count + 1, column=18).number_format = 'dd-mmm-yyyy'
+        if row['gps_link']:
+            gps_cell = sheet.cell(row=count + 1, column=16)
+            gps_cell.hyperlink = row['gps_link']
+            gps_cell.style = 'Hyperlink'
         status_styles = {
             'OPEN': ('FEF3C7', '92400E'),
             'REOPENED': ('FFEDD5', '9A3412'),

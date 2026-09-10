@@ -41,7 +41,9 @@ Schema (FIXED — 21 columns):
   [20] Days Open (formula — DO NOT WRITE)
 """
 import logging
+from datetime import date, datetime
 from typing import Optional
+from urllib.parse import urlparse
 from django.conf import settings
 from core.services.sheet_schema import SheetSchema
 
@@ -51,6 +53,14 @@ COMPLAINT_STATUS_FORMATS = {
     'OPEN': {'backgroundColor': {'red': 0.996, 'green': 0.953, 'blue': 0.780}, 'textFormat': {'foregroundColor': {'red': 0.573, 'green': 0.251, 'blue': 0.055}, 'bold': True}},
     'REOPENED': {'backgroundColor': {'red': 1.0, 'green': 0.929, 'blue': 0.835}, 'textFormat': {'foregroundColor': {'red': 0.604, 'green': 0.204, 'blue': 0.071}, 'bold': True}},
     'CLOSED': {'backgroundColor': {'red': 0.863, 'green': 0.988, 'blue': 0.906}, 'textFormat': {'foregroundColor': {'red': 0.086, 'green': 0.396, 'blue': 0.204}, 'bold': True}},
+}
+
+COMPLAINT_UPPERCASE_FIELDS = frozenset({
+    'complaint_id', 'status', 'customer_name', 'county', 'sub_county',
+    'village', 'branch_region', 'reported_by', 'complaint_category',
+})
+COMPLAINT_DATE_NUMBER_FORMAT = {
+    'numberFormat': {'type': 'DATE', 'pattern': 'dd-mmm-yyyy'},
 }
 
 
@@ -220,6 +230,65 @@ class GoogleSheetsService:
             return
         self._client = None
         self._sheet = None
+
+    @property
+    def _is_strict_complaint_register(self) -> bool:
+        return bool(self.schema.strict_headers and self.schema.row_key_field == 'complaint_id')
+
+    def _canonical_field_for_header(self, normalized_header: str) -> str:
+        for field, header in self.schema.field_headers.items():
+            if self._normalize_header(header) == normalized_header:
+                return field
+        return ''
+
+    @staticmethod
+    def _complaint_date_serial(value):
+        """Return a locale-independent Google Sheets date serial."""
+        if value in (None, ''):
+            return ''
+        parsed = value
+        if isinstance(parsed, datetime):
+            if parsed.tzinfo is not None:
+                from django.utils import timezone
+                parsed = timezone.localtime(parsed)
+            parsed = parsed.date()
+        elif not isinstance(parsed, date):
+            text = str(parsed).strip()
+            for pattern in ('%d-%m-%y', '%d/%m/%Y', '%d-%b-%Y', '%d-%B-%Y', '%Y-%m-%d'):
+                try:
+                    parsed = datetime.strptime(text, pattern).date()
+                    break
+                except ValueError:
+                    continue
+            if not isinstance(parsed, date):
+                return value
+        return (parsed - date(1899, 12, 30)).days
+
+    def _complaint_projection_value(self, normalized_header: str, value):
+        """Normalize only values leaving Django for a strict Complaint sheet."""
+        if not self._is_strict_complaint_register:
+            return value
+        field = self._canonical_field_for_header(normalized_header)
+        if field in self.schema.date_fields:
+            return self._complaint_date_serial(value)
+        if field == 'gps_link':
+            text = str(value or '').strip()
+            return text if urlparse(text).scheme.casefold() in {'http', 'https'} else ''
+        if field in COMPLAINT_UPPERCASE_FIELDS and isinstance(value, str):
+            return value.upper()
+        return value
+
+    def _sheet_input_option(self, normalized_header: str) -> str:
+        if normalized_header in {
+            self._normalize_header(column) for column in self.date_columns
+        }:
+            return 'USER_ENTERED'
+        if (
+            self._is_strict_complaint_register
+            and self._canonical_field_for_header(normalized_header) == 'gps_link'
+        ):
+            return 'USER_ENTERED'
+        return 'RAW'
 
     # ------------------------------------------------------------------
     # Initialisation
@@ -561,6 +630,7 @@ class GoogleSheetsService:
                 self._format_complaint_status_rows([
                     (written_row, row[self.sheet_columns.index(status_header)]),
                 ])
+            self._format_complaint_date_rows([written_row])
             logger.info(
                 f"Wrote row {written_row} to sheet {self._sheet_id}: "
                 f"message_id={message_id or 'unknown'}"
@@ -693,20 +763,17 @@ class GoogleSheetsService:
                 self._normalize_header(column)
                 for column in self.case_update_writable_columns
             }
-            values_by_header = self.schema.update_values_by_header(updates or {})
+            values_by_header = {
+                header: self._complaint_projection_value(header, value)
+                for header, value in self.schema.update_values_by_header(updates or {}).items()
+            }
 
             columns = []
             for zero_idx, header in enumerate(headers):
                 normalized = self._normalize_header(header)
                 if normalized not in writable or normalized not in values_by_header:
                     continue
-                input_option = (
-                    'USER_ENTERED'
-                    if normalized == self._normalize_header(
-                        self.schema.header('date_resolved')
-                    )
-                    else 'RAW'
-                )
+                input_option = self._sheet_input_option(normalized)
                 columns.append((
                     zero_idx + 1,
                     values_by_header.get(normalized, ''),
@@ -734,6 +801,13 @@ class GoogleSheetsService:
             status_value = (updates or {}).get('status')
             if status_value is not None:
                 self._format_complaint_status_rows([(row_number, status_value)])
+            updated_date_headers = {
+                self._normalize_header(column)
+                for column in self.date_columns
+                if self._normalize_header(column) in values_by_header
+            }
+            if updated_date_headers:
+                self._format_complaint_date_rows([row_number], only_headers=updated_date_headers)
 
             logger.info(
                 f"Updated case row {row_number} in sheet {self._sheet_id}: "
@@ -913,15 +987,11 @@ class GoogleSheetsService:
             self._normalize_header(column)
             for column in self.bot_writable_columns
         }
-        date_columns = {
-            self._normalize_header(column)
-            for column in self.date_columns
-        }
         columns = []
         for zero_idx, header in enumerate(headers):
             normalized = self._normalize_header(header)
             if normalized in writable:
-                input_option = 'USER_ENTERED' if normalized in date_columns else 'RAW'
+                input_option = self._sheet_input_option(normalized)
                 columns.append((zero_idx + 1, normalized, input_option))
         column_groups = self._group_consecutive_columns(columns)
         if not column_groups:
@@ -943,7 +1013,9 @@ class GoogleSheetsService:
         values_by_row = []
         for row_offset, row in enumerate(rows):
             values = {
-                self._normalize_header(column): row[idx]
+                self._normalize_header(column): self._complaint_projection_value(
+                    self._normalize_header(column), row[idx],
+                )
                 for idx, column in enumerate(self.sheet_columns)
             }
             values[self._normalize_header(self.schema.header('row_number'))] = str(
@@ -978,6 +1050,9 @@ class GoogleSheetsService:
             (start_row + offset, values.get(status_header, ''))
             for offset, values in enumerate(values_by_row)
         ])
+        self._format_complaint_date_rows([
+            start_row + offset for offset in range(len(values_by_row))
+        ])
 
     def _format_complaint_status_rows(self, rows: list[tuple[int, object]]) -> None:
         """Colour projected status cells without making formatting authoritative."""
@@ -1011,6 +1086,44 @@ class GoogleSheetsService:
             # Values remain canonical even when a cosmetic format call fails.
             logger.warning(
                 'Could not apply complaint status highlighting in sheet %s.',
+                self._sheet_id, exc_info=True,
+            )
+
+    def _format_complaint_date_rows(
+        self, row_numbers: list[int], *, only_headers: set[str] | None = None,
+    ) -> None:
+        """Display strict Complaint date values as 06-May-2026 style dates."""
+        if not self._is_strict_complaint_register or not row_numbers:
+            return
+        headers = self._header_values()
+        date_headers = {
+            self._normalize_header(column) for column in self.date_columns
+        }
+        if only_headers is not None:
+            date_headers &= set(only_headers)
+        date_columns = [
+            index + 1 for index, header in enumerate(headers)
+            if self._normalize_header(header) in date_headers
+        ]
+        formats = [
+            {
+                'range': f'{self._column_letter(column)}{int(row_number)}',
+                'format': COMPLAINT_DATE_NUMBER_FORMAT,
+            }
+            for row_number in row_numbers
+            for column in date_columns
+        ]
+        if not formats:
+            return
+        try:
+            if hasattr(self._sheet, 'batch_format'):
+                self._sheet.batch_format(formats)
+            elif hasattr(self._sheet, 'format'):
+                for item in formats:
+                    self._sheet.format(item['range'], item['format'])
+        except Exception:
+            logger.warning(
+                'Could not apply complaint date formatting in sheet %s.',
                 self._sheet_id, exc_info=True,
             )
 
@@ -1104,7 +1217,9 @@ class GoogleSheetsService:
 
         target_row = self._next_case_row(headers)
         values_by_header = {
-            self._normalize_header(column): row[idx]
+            self._normalize_header(column): self._complaint_projection_value(
+                self._normalize_header(column), row[idx],
+            )
             for idx, column in enumerate(self.sheet_columns)
         }
         values_by_header[self._normalize_header(self.schema.header('row_number'))] = str(
@@ -1119,14 +1234,7 @@ class GoogleSheetsService:
         for zero_idx, header in enumerate(headers):
             normalized = self._normalize_header(header)
             if normalized in writable:
-                input_option = (
-                    'USER_ENTERED'
-                    if normalized in {
-                        self._normalize_header(column)
-                        for column in self.date_columns
-                    }
-                    else 'RAW'
-                )
+                input_option = self._sheet_input_option(normalized)
                 columns.append((
                     zero_idx + 1,
                     values_by_header.get(normalized, ''),

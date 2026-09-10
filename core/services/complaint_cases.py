@@ -1227,10 +1227,13 @@ def update_case_fields(case: ParsedMessage, values: dict[str, Any], resolution_d
 
 
 def sheet_updates(case: ParsedMessage, values: dict[str, Any], resolution_details: str, resolved_at) -> dict[str, str]:
+    reported_at = case.timestamp or case.created_at
+    ended_at = case.date_resolved if case.complaint_status == 'Closed' and case.date_resolved else timezone.now()
     updates = {
         'status': 'CLOSED' if values['status'] == 'Closed' else values['status'].upper(),
         'resolution_details': resolution_details,
         'resolution_history': resolution_history_text(case),
+        'days_open': max(0, int((ended_at - reported_at).total_seconds() // 86400)),
     }
     if resolved_at:
         updates['date_resolved'] = timezone.localtime(resolved_at).strftime('%d-%m-%y')
@@ -1269,6 +1272,11 @@ def retry_case_sync(group_config, actor: ComplaintCaseActor, case_id: str) -> di
         'resolution_details': case.resolution_details or '',
         'resolution_history': resolution_history_text(case),
         'gps_link': case.gps_link or '',
+        'days_open': max(0, int(((
+            case.date_resolved
+            if case.complaint_status == 'Closed' and case.date_resolved
+            else timezone.now()
+        ) - (case.timestamp or case.created_at)).total_seconds() // 86400)),
     }
     if case.date_resolved:
         updates['date_resolved'] = timezone.localtime(case.date_resolved).strftime('%d-%m-%y')

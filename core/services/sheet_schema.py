@@ -33,7 +33,7 @@ COMPLAINT_REGISTER_FIELD_HEADERS = {
 }
 
 COMPLAINT_REGISTER_FIELD_ORDER = list(COMPLAINT_REGISTER_FIELD_HEADERS.keys())
-COMPLAINT_REGISTER_FORMULA_FIELDS = {'days_open'}
+COMPLAINT_REGISTER_FORMULA_FIELDS = set()
 COMPLAINT_REGISTER_DATE_FIELDS = {'date_reported', 'date_resolved'}
 COMPLAINT_REGISTER_BOT_WRITABLE_FIELDS = {
     'row_number',
@@ -52,6 +52,7 @@ COMPLAINT_REGISTER_BOT_WRITABLE_FIELDS = {
     'complaint_description',
     'gps_link',
     'status',
+    'days_open',
 }
 COMPLAINT_REGISTER_CASE_UPDATE_FIELDS = {
     'status',
@@ -59,6 +60,7 @@ COMPLAINT_REGISTER_CASE_UPDATE_FIELDS = {
     'date_resolved',
     'gps_link',
     'resolution_history',
+    'days_open',
 }
 
 # Version-one schemas remain available for non-complaint legacy adapters. All
@@ -114,7 +116,9 @@ class SheetSchema:
             for field in DEFAULT_FIELD_ORDER
             if field in self.field_headers
         ]
-        self.formula_fields = set(formula_fields or DEFAULT_FORMULA_FIELDS)
+        self.formula_fields = set(
+            DEFAULT_FORMULA_FIELDS if formula_fields is None else formula_fields
+        )
         self.bot_writable_fields = set(
             bot_writable_fields or DEFAULT_BOT_WRITABLE_FIELDS
         )
@@ -231,6 +235,21 @@ class SheetSchema:
             'CLOSED' if parsed_message.complaint_status == 'Closed'
             else ('REOPENED' if parsed_message.complaint_status == 'Reopened' else 'OPEN')
         )
+        reported_at = parsed_message.timestamp or parsed_message.created_at
+        if reported_at:
+            days_ended_at = (
+                parsed_message.date_resolved
+                if parsed_message.complaint_status == 'Closed' and parsed_message.date_resolved
+                else timezone.now()
+            )
+            projected_days_open = max(
+                0, int((days_ended_at - reported_at).total_seconds() // 86400),
+            )
+        else:
+            projected_days_open = (
+                parsed_message.days_open
+                if parsed_message.days_open is not None else ''
+            )
         field_values = {
             'row_number': '',
             'complaint_id': complaint_id,
@@ -263,10 +282,7 @@ class SheetSchema:
             'risk_level': parsed_message.risk_level,
             'resolution_details': parsed_message.resolution_details,
             'date_resolved': display_date(parsed_message.date_resolved),
-            'days_open': (
-                str(parsed_message.days_open)
-                if parsed_message.days_open is not None else ''
-            ),
+            'days_open': projected_days_open,
             'resolution_history': '\n'.join(history),
         }
         return {

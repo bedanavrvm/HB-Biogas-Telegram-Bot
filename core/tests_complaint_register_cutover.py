@@ -90,6 +90,9 @@ class ComplaintRegisterCutoverTests(TestCase):
         self.assertEqual(schema.header_row, 1)
         self.assertEqual(schema.row_key_field, 'complaint_id')
         self.assertTrue(schema.strict_headers)
+        self.assertNotIn('Days Open', schema.formula_headers)
+        self.assertIn('Days Open', schema.bot_writable_headers)
+        self.assertIn('Days Open', schema.case_update_headers)
 
     def test_projection_has_twenty_columns_and_full_resolution_history(self):
         schema = SheetSchema.from_config({'schema_version': 2})
@@ -102,6 +105,7 @@ class ComplaintRegisterCutoverTests(TestCase):
         self.assertEqual(row[7], '254700000002')
         self.assertEqual(row[8:12], ['Nakuru County', 'Nakuru East', 'Test Village', 'Nakuru'])
         self.assertEqual(row[12], 'Officer Example')
+        self.assertEqual(row[18], 0)
         self.assertIn('Resolver One - CLOSED: Initial repair completed.', row[19])
         self.assertIn('Manager One - REOPENED: Customer reported the issue again.', row[19])
         self.assertNotIn('internal-uuid-like-id', row)

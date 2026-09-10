@@ -1179,14 +1179,18 @@
   }
   function formatReportDate(value) {
     if (!value) return '';
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (match) return `${match[3]}-${match[2]}-${match[1].slice(-2)}`;
+    if (match) return `${match[3]}-${months[Number(match[2]) - 1]}-${match[1]}`;
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return value;
-    return [String(parsed.getDate()).padStart(2, '0'), String(parsed.getMonth() + 1).padStart(2, '0'), String(parsed.getFullYear()).slice(-2)].join('-');
+    return [String(parsed.getDate()).padStart(2, '0'), months[parsed.getMonth()], parsed.getFullYear()].join('-');
+  }
+  function formatReportUppercase(value) {
+    return typeof value === 'string' ? value.toUpperCase() : value;
   }
   function reportStatusRenderer(params) {
-    const label = params.value || 'OPEN';
+    const label = formatReportUppercase(params.value || 'OPEN');
     const statusKey = String(label).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
     return textNode('span', label, `report-status ${statusKey}`);
   }
@@ -1220,19 +1224,19 @@
       defaultColDef: { sortable: true, resizable: !touchManagedColumns, suppressHeaderMenuButton: true, unSortIcon: true },
       columnDefs: [
         { headerName: '#', colId: 'row_number', width: 52, minWidth: 52, maxWidth: 52, sortable: false, resizable: false, pinned: 'left', valueGetter: p => ((state.globalPage - 1) * state.globalPageSize) + p.node.rowIndex + 1 },
-        { headerName: 'Complaint ID', field: 'complaint_id', width: 125, sortable: false },
+        { headerName: 'Complaint ID', field: 'complaint_id', width: 125, sortable: false, valueFormatter: p => formatReportUppercase(p.value) },
         { headerName: 'Date Reported', field: 'date_reported', width: 130, valueFormatter: p => formatReportDate(p.value) },
         { headerName: 'Status', field: 'status', width: 170, cellRenderer: reportStatusRenderer },
-        { headerName: 'Customer Name', field: 'customer_name', width: 190, sortable: false },
+        { headerName: 'Customer Name', field: 'customer_name', width: 190, sortable: false, valueFormatter: p => formatReportUppercase(p.value) },
         { headerName: 'Customer National ID', field: 'customer_id', width: 155, sortable: false },
         { headerName: 'Primary Phone Number', field: 'phone_number', width: 165, sortable: false },
         { headerName: 'Secondary Phone No', field: 'secondary_phone_number', width: 155, sortable: false },
-        { headerName: 'County', field: 'county', width: 135, sortable: false },
-        { headerName: 'Constituency', field: 'constituency', width: 155, sortable: false },
-        { headerName: 'Village', field: 'village', width: 145, sortable: false },
-        { headerName: 'Branch', field: 'branch_region', width: 145 },
-        { headerName: 'JBL Reported By', field: 'reported_by', width: 165, sortable: false },
-        { headerName: 'Complaint Type', field: 'complaint_category', width: 180, sortable: false },
+        { headerName: 'County', field: 'county', width: 135, sortable: false, valueFormatter: p => formatReportUppercase(p.value) },
+        { headerName: 'Constituency', field: 'constituency', width: 155, sortable: false, valueFormatter: p => formatReportUppercase(p.value) },
+        { headerName: 'Village', field: 'village', width: 145, sortable: false, valueFormatter: p => formatReportUppercase(p.value) },
+        { headerName: 'Branch', field: 'branch_region', width: 145, valueFormatter: p => formatReportUppercase(p.value) },
+        { headerName: 'JBL Reported By', field: 'reported_by', width: 165, sortable: false, valueFormatter: p => formatReportUppercase(p.value) },
+        { headerName: 'Complaint Type', field: 'complaint_category', width: 180, sortable: false, valueFormatter: p => formatReportUppercase(p.value) },
         { headerName: 'Complaint Description', field: 'complaint_description', width: 280, sortable: false },
         { headerName: 'GPS Link', field: 'gps_link', width: 105, sortable: false, cellRenderer: reportGpsRenderer },
         { headerName: 'Resolution Details', field: 'resolution_details', width: 260, sortable: false },

@@ -2,7 +2,7 @@ import hashlib
 import hmac
 import json
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlencode
@@ -1275,6 +1275,8 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
 
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
     def test_export_requires_all_case_confirmation_and_audits_safe_workbook(self):
+        self.case_a.gps_link = 'https://maps.example/CMP900001'
+        self.case_a.save(update_fields=['gps_link'])
         denied = self.post('complaint_cases_global_export', {'confirm_all': False})
         self.assertEqual(denied.status_code, 400)
 
@@ -1296,9 +1298,18 @@ class ComplaintCaseGlobalRegisterTests(TestCase):
         ))
         customer_column = rows[0].index('Customer Name')
         phone_column = rows[0].index('Primary Phone Number')
-        self.assertIn("'=HYPERLINK(\"bad\")", {row[customer_column] for row in rows[1:]})
+        self.assertIn("'=HYPERLINK(\"BAD\")", {row[customer_column] for row in rows[1:]})
         self.assertTrue(all(str(row[phone_column]).startswith("'") for row in rows[1:]))
         self.assertEqual({row[1] for row in rows[1:]}, {'CMP900001', 'CMP900002'})
+        self.assertEqual({row[11] for row in rows[1:]}, {'NAKURU', 'EMBU'})
+        self.assertEqual({row[12] for row in rows[1:]}, {'FIELD OFFICER'})
+        self.assertEqual({row[13] for row in rows[1:]}, {'PRODUCT ISSUE'})
+        self.assertEqual({row[14] for row in rows[1:]}, {'Unit is not producing gas.'})
+        self.assertTrue(all(isinstance(row[2], date) for row in rows[1:]))
+        self.assertEqual({sheet.cell(row=index, column=3).number_format for index in (2, 3)}, {'dd-mmm-yyyy'})
+        self.assertEqual({sheet.cell(row=index, column=18).number_format for index in (2, 3)}, {'dd-mmm-yyyy'})
+        linked_row = next(index for index in (2, 3) if sheet.cell(row=index, column=2).value == 'CMP900001')
+        self.assertEqual(sheet.cell(row=linked_row, column=16).hyperlink.target, 'https://maps.example/CMP900001')
         self.assertEqual(sheet['D2'].fill.fgColor.rgb, '00FEF3C7')
         self.assertTrue(sheet['D2'].font.bold)
         audit = ComplianceAuditEvent.objects.get(
@@ -1539,7 +1550,18 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('Check Downloads for ${state.exportFilename}', script)
         self.assertIn("navigator.canShare({ files: [state.exportFile] })", script)
         self.assertIn("navigator.share({ files: [state.exportFile]", script)
-        self.assertIn("match[3]}-${match[2]}-${match[1].slice(-2)", script)
+        self.assertIn("match[3]}-${months[Number(match[2]) - 1]}-${match[1]}", script)
+        self.assertIn('function formatReportUppercase(value)', script)
+        self.assertIn("link.href = params.value; link.target = '_blank'; link.rel = 'noopener noreferrer'", script)
+        for field in (
+            'complaint_id', 'customer_name', 'county', 'constituency', 'village',
+            'branch_region', 'reported_by', 'complaint_category',
+        ):
+            self.assertIn(
+                f"field: '{field}'", script,
+            )
+        self.assertNotIn("field: 'complaint_description', width: 280, sortable: false, valueFormatter", script)
+        self.assertNotIn("field: 'resolution_details', width: 260, sortable: false, valueFormatter", script)
         self.assertIn('unSortIcon: true', script)
         self.assertIn('.report-status{font-size:inherit;font-weight:850;white-space:nowrap}', styles)
         self.assertIn('.report-status{display:inline-flex', styles)
