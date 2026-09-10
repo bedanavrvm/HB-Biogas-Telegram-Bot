@@ -53,6 +53,38 @@ class TatUpdateDispatchTest(TestCase):
         dispatch.refresh_from_db()
         self.assertEqual(dispatch.status, TatUpdateSideEffectDispatch.STATUS_SUCCEEDED)
 
+    def test_client_dispatch_endpoint_processes_reserved_sheet_write(self):
+        dispatch_ids = reserve_update_dispatches(
+            self.config, self.case, request_id='request-endpoint',
+        )
+        user = {'capabilities': ['tat.home.view']}
+
+        with (
+            patch(
+                'core.api.views._tat_context',
+                return_value=(self.config.group_id, self.config, {}, user, None),
+            ),
+            patch('core.services.tat_tracker.get_case_detail', return_value={}),
+            patch('core.services.tat_tracker.sync_case_to_sheet', return_value=True) as sync,
+        ):
+            response = self.client.post(
+                '/api/tat-tracker/update/process-dispatches/',
+                data={'group_id': self.config.group_id, 'dispatch_ids': dispatch_ids},
+                content_type='application/json',
+                headers={
+                    'Idempotency-Key': 'tat-dispatch-endpoint-1',
+                    'X-Request-ID': 'tat-dispatch-endpoint-1',
+                    'X-MiniApp-Message-Contract': '2',
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['processed'], len(dispatch_ids))
+        sync.assert_called_once()
+        self.assertFalse(TatUpdateSideEffectDispatch.objects.exclude(
+            status=TatUpdateSideEffectDispatch.STATUS_SUCCEEDED,
+        ).exists())
+
     def test_stage_update_commits_without_calling_external_sheet(self):
         self.case.stage_values = {'created': timezone.now().isoformat()}
         self.case.current_stage = 'mpesa_to_admin'
