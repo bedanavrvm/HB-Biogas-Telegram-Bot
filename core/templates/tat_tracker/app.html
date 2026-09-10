@@ -253,7 +253,7 @@
       <form id="targetSettingsForm" class="form-card hidden">
         <div class="form-heading">
           <h2>TAT Targets</h2>
-          <p>Propose the overall and per-stage target in minutes. A different authorised Business Admin must approve it before it becomes active.</p>
+          <p>Set every product stage in minutes. Total target is optional and otherwise uses the applicable loan-cycle stage sum. A different authorised Business Admin must approve changes.</p>
         </div>
         <div id="targetSettingsList" class="target-settings-list" aria-live="polite"></div>
         <label>Reason for change<textarea id="targetSettingsReason" required placeholder="Why is this target changing?"></textarea></label>
@@ -420,6 +420,6 @@
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
   <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=3"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=91"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=92"></script>
 </body>
 </html>

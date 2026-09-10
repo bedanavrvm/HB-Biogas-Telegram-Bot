@@ -2499,12 +2499,17 @@ def stage_completed_at(case: TatTrackerCase, stage: StageConfig):
 
 def tat_targets_for_product(workflow: dict | None, product: ProductConfig) -> dict:
     workflow = workflow or {}
-    configured = workflow.get('tat_targets_minutes') or {}
+    configured_value = workflow.get('tat_targets_minutes')
+    configured = configured_value if isinstance(configured_value, dict) else {}
     product_targets = configured.get(product.key) or configured.get(product.sheet_name) or {}
     defaults = DEFAULT_TAT_TARGETS_MINUTES.get(product.key, {})
+    # Once an administrator has saved the target configuration, an omitted
+    # total is intentional: it is calculated from the applicable stage
+    # targets instead of silently restoring the legacy 14-day default.
+    use_defaults = not isinstance(configured_value, dict)
     return {
-        'total': product_targets.get('total', defaults.get('total')),
-        'stages': product_targets.get('stages') or defaults.get('stages') or {},
+        'total': product_targets.get('total') if not use_defaults else defaults.get('total'),
+        'stages': product_targets.get('stages') or (defaults.get('stages') if use_defaults else {}) or {},
     }
 
 
@@ -2725,13 +2730,48 @@ def stage_target_minutes_for_case(case: TatTrackerCase, workflow: dict | None, p
 
 
 def total_target_minutes(workflow: dict | None, product: ProductConfig) -> Decimal | None:
-    value = tat_targets_for_product(workflow, product).get('total')
-    if value in (None, ''):
-        return None
-    try:
-        return Decimal(str(value))
-    except (InvalidOperation, ValueError):
-        return None
+    targets = tat_targets_for_product(workflow, product)
+    value = targets.get('total')
+    if value not in (None, ''):
+        try:
+            return Decimal(str(value))
+        except (InvalidOperation, ValueError):
+            return None
+
+    stage_total = Decimal('0')
+    has_stage_target = False
+    for stage in product.stages:
+        target = stage_target_minutes(workflow, product, stage)
+        if target is None:
+            continue
+        stage_total += target
+        has_stage_target = True
+    return stage_total if has_stage_target else None
+
+
+def total_target_minutes_for_case(
+    case: TatTrackerCase,
+    workflow: dict | None,
+    product: ProductConfig,
+) -> Decimal | None:
+    """Resolve the overall SLA against the case's frozen loan-cycle stages."""
+    targets = tat_targets_for_product(workflow, product)
+    value = targets.get('total')
+    if value not in (None, ''):
+        try:
+            return Decimal(str(value))
+        except (InvalidOperation, ValueError):
+            return None
+
+    stage_total = Decimal('0')
+    has_stage_target = False
+    for stage in product.stages:
+        target = stage_target_minutes_for_case(case, workflow, product, stage)
+        if target is None:
+            continue
+        stage_total += target
+        has_stage_target = True
+    return stage_total if has_stage_target else None
 
 
 def sla_status(minutes: Decimal | None, target: Decimal | None) -> str:
@@ -3059,7 +3099,7 @@ def serialize_case_summary(
     business_minutes = calculated_business_tat_minutes(case, now=calculated_at) if include_business_time else None
     tat_hours = calculated_tat_hours(case, now=calculated_at) if tat_minutes is not None else None
     tat_days = calculated_tat_days(case, now=calculated_at) if tat_minutes is not None else None
-    total_target = total_target_minutes(workflow, product)
+    total_target = total_target_minutes_for_case(case, workflow, product)
     certificates = {certificate.stage_key: certificate.status for certificate in case.approval_certificates.all()}
     read_only = unresolved or not is_record_operational(case)
     payload = {'case_id': case.case_id, 'product': case.product_label or product.label, 'product_key': case.product_key, 'client_name': case.client_name, 'national_id': case.national_id, 'primary_phone': case.primary_phone, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'requested_amount': str(case.amount or ''), 'final_loan_amount': str(case.final_loan_amount or ''), 'workflow_path': product.workflow_path, 'status': tat_reporting_status(case, workflow=workflow, now=calculated_at), 'current_stage': case.current_stage, 'workflow_revision': int(case.workflow_revision or 1), 'next_stage': next_stage.label if next_stage and not read_only else '', 'next_stage_key': next_stage.key if next_stage and not read_only else '', 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'wall_clock_minutes': str(tat_minutes) if tat_minutes is not None else '', 'elapsed_seconds': tat_seconds, 'calculated_at': calculated_at.isoformat(), 'server_now': calculated_at.isoformat(), 'running': overall_tat_running(case), 'target_seconds': int(total_target * 60) if total_target is not None else None, 'sla_minutes': str(tat_minutes) if tat_minutes is not None else '', 'tat_hours': str(tat_hours) if tat_hours is not None else '', 'tat_days': str(tat_days) if tat_days is not None else '', 'target_minutes': str(total_target) if total_target is not None else '', 'sla_status': sla_status(tat_minutes, total_target), 'certificate_statuses': certificates, 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at), 'updated_at_local': format_local_datetime(case.updated_at), 'created_at_local': format_local_datetime(case.created_at), 'updated_at_iso': case.updated_at.isoformat(), 'created_at_iso': case.created_at.isoformat(), 'data_mode': case.data_mode, 'is_pilot': case.data_mode == 'pilot', 'read_only': read_only, 'configuration_binding_status': case.configuration_binding_status, 'configuration_blocker': 'Resolve the legacy product version in TAT Control Center before editing this case.' if unresolved else '', 'pilot_cycle_id': str(case.pilot_cycle_id or '')}

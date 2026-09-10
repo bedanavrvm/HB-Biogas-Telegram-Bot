@@ -1084,7 +1084,7 @@
     return capabilities.includes('tat.settings.targets.propose');
   }
 
-  function appendTargetInput(container, label, productKey, stageKey, minutes) {
+  function appendTargetInput(container, label, productKey, stageKey, minutes, placeholder) {
     const field = document.createElement('label');
     field.textContent = label;
     const input = document.createElement('input');
@@ -1092,7 +1092,7 @@
     input.inputMode = 'numeric';
     input.min = '0';
     input.step = '1';
-    input.placeholder = 'Not set';
+    input.placeholder = placeholder || 'Not set';
     input.value = minutes || '';
     input.dataset.productKey = productKey;
     input.dataset.stageKey = stageKey || '';
@@ -1112,7 +1112,7 @@
       const grid = document.createElement('div');
       grid.className = 'form-grid target-input-grid';
       if ((1 + (product.stages || []).length) % 2) grid.classList.add('target-input-grid--odd');
-      appendTargetInput(grid, 'Overall target (minutes)', product.key, '', product.total_minutes);
+      appendTargetInput(grid, 'Total target (optional)', product.key, '', product.total_minutes, 'Sum of stages');
       (product.stages || []).forEach((stage) => appendTargetInput(grid, stage.label + ' (minutes)', product.key, stage.key, stage.target_minutes));
       section.appendChild(grid);
       list.appendChild(section);

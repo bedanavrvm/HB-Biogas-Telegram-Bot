@@ -3993,11 +3993,10 @@ def _tat_target_field_name(product_key: str, target_key: str) -> str:
     return f'tat_target_{product_key}_{safe_key}'
 
 
-def _tat_target_form_field(product_key: str, target_key: str) -> forms.IntegerField:
-    product = PRODUCTS[product_key]
+def _tat_target_form_field(product, target_key: str) -> forms.IntegerField:
     if target_key == 'total':
         label = f'{product.label} total target minutes'
-        help_text = 'Overall case SLA target in minutes.'
+        help_text = 'Optional. Leave blank to use the sum of the applicable loan-cycle stage targets.'
     else:
         stage = next(stage for stage in product.stages if stage.key == target_key)
         label = f'{product.label}: {stage.label} target minutes'
@@ -4018,6 +4017,27 @@ for _product_key, _product in PRODUCTS.items():
         for stage in _product.stages
     )
     TAT_TARGET_FIELD_GROUPS.append((_product_key, _product.label, tuple(_fields)))
+
+
+def _configured_tat_target_field_groups(workflow: dict | None) -> list[tuple[str, str, tuple[str, ...]]]:
+    """Return target fields from the active governed product/stage catalogue."""
+    try:
+        products = configured_products(workflow or {})
+    except Exception:
+        products = list(PRODUCTS.values())
+    groups = []
+    for product in products:
+        field_names = [_tat_target_field_name(product.key, 'total')]
+        field_names.extend(_tat_target_field_name(product.key, stage.key) for stage in product.stages)
+        groups.append((product.key, product.label, tuple(field_names)))
+    return groups
+
+
+def _tat_product_for_target_fields(product_key: str, workflow: dict | None):
+    try:
+        return next(product for product in configured_products(workflow or {}) if product.key == product_key)
+    except Exception:
+        return PRODUCTS.get(product_key)
 
 
 class ReadOnlyAuditAdmin(ModelAdmin):
@@ -4336,6 +4356,22 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         workflow = getattr(self.instance, 'workflow', None) or {}
+        self._tat_target_field_groups = _configured_tat_target_field_groups(workflow)
+        allowed_target_fields = {
+            field_name
+            for _key, _label, field_names in self._tat_target_field_groups
+            for field_name in field_names
+        }
+        for field_name in list(self.fields):
+            if field_name.startswith('tat_target_') and field_name not in allowed_target_fields:
+                self.fields.pop(field_name)
+        for product_key, _product_label, field_names in self._tat_target_field_groups:
+            product = _tat_product_for_target_fields(product_key, workflow)
+            if product is None:
+                continue
+            for field_name in field_names:
+                target_key = field_name.replace(f'tat_target_{product_key}_', '', 1)
+                self.fields[field_name] = _tat_target_form_field(product, target_key)
         if getattr(self.instance, 'pk', None) and getattr(self.instance, 'updated_at', None):
             self.fields['expected_updated_at'].initial = self.instance.updated_at.isoformat()
         self._set_catalog_choices(workflow)
@@ -4719,13 +4755,15 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
             for product_key, product_targets in current_targets.items()
             if isinstance(product_targets, dict)
         }
-        for product_key, _label, field_names in TAT_TARGET_FIELD_GROUPS:
+        for product_key, _label, field_names in self._tat_target_field_groups:
             product_targets = targets.setdefault(product_key, {'stages': {}})
             product_targets.setdefault('stages', {})
             total_field = _tat_target_field_name(product_key, 'total')
             total = self.cleaned_data.get(total_field)
             if total is not None:
                 product_targets['total'] = int(total)
+            else:
+                product_targets.pop('total', None)
             for field_name in field_names:
                 stage_key = field_name.replace(f'tat_target_{product_key}_', '', 1)
                 if stage_key == 'total':
@@ -4744,10 +4782,15 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         }
 
     def _populate_tat_target_initials(self, workflow: dict):
-        targets = workflow.get('tat_targets_minutes') or {}
+        configured_targets = workflow.get('tat_targets_minutes')
+        targets = configured_targets if isinstance(configured_targets, dict) else {}
         defaults = defaults_for_preset('tat_tracker')['workflow'].get('tat_targets_minutes') or {}
-        for product_key, _product_label, field_names in TAT_TARGET_FIELD_GROUPS:
-            product_targets = targets.get(product_key) or defaults.get(product_key) or {}
+        for product_key, _product_label, field_names in self._tat_target_field_groups:
+            product_targets = (
+                targets.get(product_key) or {}
+                if isinstance(configured_targets, dict)
+                else defaults.get(product_key) or {}
+            )
             stage_targets = product_targets.get('stages') or {}
             total_field = _tat_target_field_name(product_key, 'total')
             self.fields[total_field].initial = product_targets.get('total')
@@ -4787,7 +4830,7 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
 for _product_key, _product_label, _field_names in TAT_TARGET_FIELD_GROUPS:
     for _field_name in _field_names:
         _target_key = _field_name.replace(f'tat_target_{_product_key}_', '', 1)
-        _field = _tat_target_form_field(_product_key, _target_key)
+        _field = _tat_target_form_field(PRODUCTS[_product_key], _target_key)
         GroupSheetConfigurationAdminForm.base_fields[_field_name] = _field
         GroupSheetConfigurationAdminForm.declared_fields[_field_name] = _field
 
@@ -5896,6 +5939,35 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
             'classes': ('tab',),
         }),
     )
+
+    def get_fieldsets(self, request, obj=None):
+        workflow = getattr(obj, 'workflow', None) or {}
+        groups = _configured_tat_target_field_groups(workflow)
+        for product_key, _product_label, field_names in groups:
+            product = _tat_product_for_target_fields(product_key, workflow)
+            if product is None:
+                continue
+            for field_name in field_names:
+                target_key = field_name.replace(f'tat_target_{product_key}_', '', 1)
+                field = _tat_target_form_field(product, target_key)
+                GroupSheetConfigurationAdminForm.base_fields[field_name] = field
+                GroupSheetConfigurationAdminForm.declared_fields[field_name] = field
+
+        resolved = deepcopy(self.fieldsets)
+        target_fields = tuple(
+            ['tat_notification_mode']
+            + [field_name for _key, _label, field_names in groups for field_name in field_names]
+        )
+        for title, options in resolved:
+            if title == 'TAT Tracker Targets':
+                options['fields'] = target_fields
+                options['description'] = (
+                    'SLA targets in minutes for every active product and stage available to this group. '
+                    'Leave Total target blank to use the sum of the applicable loan-cycle stage targets. '
+                    'Leave a stage blank to show minutes without SLA status for that stage.'
+                )
+                break
+        return resolved
 
     class Media:
         js = ('admin/js/workflow_preset_toggle.js',)

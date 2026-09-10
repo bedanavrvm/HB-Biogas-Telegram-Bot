@@ -358,7 +358,7 @@ def build_workflow_from_preset(
         if isinstance(existing_workflow, dict) and existing_workflow.get('type') == 'tat_tracker':
             workflow.update(deepcopy(existing_workflow))
         tat_targets_minutes = overrides.get('tat_targets_minutes')
-        if tat_targets_minutes:
+        if tat_targets_minutes is not None:
             workflow['tat_targets_minutes'] = tat_targets_minutes
         notification_mode = str(overrides.get('tat_notification_mode') or '').strip().lower()
         if notification_mode in {'group', 'shadow', 'hybrid'}:

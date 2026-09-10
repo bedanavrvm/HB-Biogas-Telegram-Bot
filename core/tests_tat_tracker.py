@@ -34,6 +34,7 @@ from core.services.tat_tracker import (
     calculated_tat_hours,
     calculated_tat_minutes,
     canonical_tat_status,
+    configured_products,
     create_tat_start_param,
     decode_tat_start_param,
     get_case_detail,
@@ -68,6 +69,8 @@ from core.services.tat_tracker import (
     search_cases,
     soft_delete_tat_case,
     sync_tat_target_settings_to_sheet,
+    total_target_minutes,
+    total_target_minutes_for_case,
     tat_batch_format_message,
     tat_case_identity_context,
     tat_reporting_status,
@@ -194,6 +197,37 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertNotIn('valuation_ready', {row['key'] for row in hocc['stages']})
         self.assertIn('valuation_ready', {row['key'] for row in valuation['stages']})
         self.assertIn('valuation_ready', {row['key'] for row in valuation_hocc['stages']})
+
+    def test_blank_total_target_sums_only_stages_in_the_resolved_loan_cycle(self):
+        version = ProductVersion.objects.get(product__code='business', status='published')
+        standard = product_config_from_snapshot(resolve_tat_configuration(
+            version, requested_amount=Decimal('99999'),
+        ))
+        stage_targets = {stage.key: 10 for stage in standard.stages}
+        stage_targets['bm_hocc_request'] = 999
+        workflow = {
+            'tat_targets_minutes': {
+                'business': {'stages': stage_targets},
+            },
+        }
+
+        self.assertEqual(
+            total_target_minutes(workflow, standard),
+            Decimal(10 * len(standard.stages)),
+        )
+        case = TatTrackerCase(
+            product_key='business',
+            stage_target_snapshots={
+                standard.stages[0].key: {'target_minutes': '25'},
+            },
+        )
+        self.assertEqual(
+            total_target_minutes_for_case(case, workflow, standard),
+            Decimal(10 * len(standard.stages) + 15),
+        )
+        workflow['tat_targets_minutes']['business']['total'] = 777
+        self.assertEqual(total_target_minutes(workflow, standard), Decimal('777'))
+        self.assertEqual(total_target_minutes_for_case(case, workflow, standard), Decimal('777'))
 
     def test_global_tat_configuration_uses_correct_hocc_label(self):
         config = ProductVersion.objects.get(
@@ -745,7 +779,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Ready for my role', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=91", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=92", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -814,6 +848,8 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn("const displayedLoanAmountLabel = summary.final_loan_amount ? 'Final loan amount' : 'Requested amount';", source)
         self.assertNotIn('<small>Loan cycle</small>', source)
         self.assertNotIn('Pending BRO application', source)
+        self.assertIn("appendTargetInput(grid, 'Total target (optional)'", source)
+        self.assertIn("'Sum of stages'", source)
         self.assertIn('id="tatReportMetrics"', template)
         self.assertIn("show('dashboard');", source)
         self.assertIn('.home-queue-tabs {', stylesheet)
@@ -2049,6 +2085,41 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(targets['stages']['mpesa_to_admin'], 30)
         sync_targets.assert_called_once()
 
+    def test_admin_and_authorized_miniapp_expose_every_configured_product_stage_target(self):
+        products = configured_products(self.config.workflow)
+        expected = {
+            product.key: {stage.key for stage in product.stages}
+            for product in products
+        }
+        from core.services.miniapp_settings import tat_settings_payload
+        settings_payload = tat_settings_payload(self.config, {
+            'capabilities': ['tat.settings.targets.propose'],
+        })
+        miniapp_targets = {
+            product['key']: {stage['key'] for stage in product['stages']}
+            for product in settings_payload['targets']
+        }
+
+        from core.admin import GroupSheetConfigurationAdminForm
+        form = GroupSheetConfigurationAdminForm(instance=self.config)
+        admin_targets = {
+            product.key: {
+                field_name.replace(f'tat_target_{product.key}_', '', 1)
+                for field_name in form.fields
+                if field_name.startswith(f'tat_target_{product.key}_')
+                and not field_name.endswith('_total')
+            }
+            for product in products
+        }
+
+        self.assertEqual(miniapp_targets, expected)
+        self.assertEqual(admin_targets, expected)
+        self.assertTrue(settings_payload['cards']['tat_targets']['can_propose'])
+        for product in products:
+            self.assertIn(f'tat_target_{product.key}_total', form.fields)
+        self.assertNotIn('kilimo', miniapp_targets)
+        self.assertFalse(any(name.startswith('tat_target_kilimo_') for name in form.fields))
+
     def test_admin_cannot_save_tat_targets(self):
         user = staff_user_for_payload(self.config, {'id': 222, 'username': 'admin_user'})
 
@@ -2725,6 +2796,7 @@ class TatTrackerWorkflowTest(TestCase):
             workflow['tat_targets_minutes']['business']['stages']['ca_analysis_sent'],
             180,
         )
+        self.assertNotIn('total', workflow['tat_targets_minutes']['business'])
 
     def test_group_admin_form_preserves_existing_tat_workflow_settings(self):
         self.config.workflow.update({

@@ -34,6 +34,7 @@ from core.services.tat_tracker import (
     calculated_tat_seconds, canonical_tat_status, minutes_between,
     overall_tat_end, parse_iso_datetime, product_for_case,
     stage_target_minutes_for_case, tat_reporting_status,
+    total_target_minutes_for_case,
 )
 from core.services.workflow_data_mode import operational_tat_cases
 
@@ -324,15 +325,8 @@ def _case_target(case, product, stage=None, *, config=None):
     if stage is not None:
         config = config or GroupSheetConfiguration.objects.filter(group_id=case.group_id).first()
         return stage_target_minutes_for_case(case, (config.workflow if config else {}), product, stage)
-    values = []
-    for item in (case.stage_target_snapshots or {}).values():
-        try:
-            value = Decimal(str((item or {}).get('target_minutes')))
-        except Exception:
-            continue
-        if value > 0:
-            values.append(value)
-    return sum(values, Decimal('0')) if values else None
+    config = config or GroupSheetConfiguration.objects.filter(group_id=case.group_id).first()
+    return total_target_minutes_for_case(case, (config.workflow if config else {}), product)
 
 
 def _sla_state_for_minutes(elapsed, target, *, near_target_ratio=None):
