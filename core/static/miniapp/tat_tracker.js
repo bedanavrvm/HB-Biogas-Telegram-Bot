@@ -1543,6 +1543,8 @@
   function renderDetail(detail) {
     const summary = detail.summary;
     const escalation = detail.escalation || null;
+    const displayedLoanAmount = summary.final_loan_amount || summary.requested_amount || summary.amount || '';
+    const displayedLoanAmountLabel = summary.final_loan_amount ? 'Final loan amount' : 'Requested amount';
     const correctionButton = $('correctCaseDetailsBtn');
     if (correctionButton) {
       correctionButton.classList.toggle('hidden', !detail.can_correct_details);
@@ -1565,16 +1567,8 @@
       ${summary.read_only ? `<div class="closed-pilot-notice" role="status"><strong>Closed Pilot cycle</strong><span>This case is retained for reference and can no longer be edited. Reload the queue to continue with current work.</span></div>` : ''}
       <div class="summary-facts">
         <div class="fact">
-          <small>Requested amount</small>
-          <span class="highlight-val">KES ${escapeHtml(formatMoney(summary.requested_amount || summary.amount || ''))}</span>
-        </div>
-        <div class="fact">
-          <small>Final loan amount</small>
-          <span class="highlight-val">${summary.final_loan_amount ? `KES ${escapeHtml(formatMoney(summary.final_loan_amount))}` : 'Pending BRO application'}</span>
-        </div>
-        <div class="fact">
-          <small>Loan cycle</small>
-          <span>${escapeHtml(summary.workflow_path || 'Standard')}</span>
+          <small>${displayedLoanAmountLabel}</small>
+          <span class="highlight-val">KES ${escapeHtml(formatMoney(displayedLoanAmount))}</span>
         </div>
         <div class="fact">
           <small>ID Number</small>

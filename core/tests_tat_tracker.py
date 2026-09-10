@@ -745,7 +745,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Ready for my role', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=90", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=91", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -810,6 +810,10 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('id="dashboardWorkspaceBtn"', template)
         self.assertIn("classList.toggle('single-tab', !capabilities.has('tat.reports.view'))", source)
         self.assertIn('.workspace-tabs.single-tab { grid-template-columns: minmax(0, 1fr); }', stylesheet)
+        self.assertIn("const displayedLoanAmount = summary.final_loan_amount || summary.requested_amount || summary.amount || '';", source)
+        self.assertIn("const displayedLoanAmountLabel = summary.final_loan_amount ? 'Final loan amount' : 'Requested amount';", source)
+        self.assertNotIn('<small>Loan cycle</small>', source)
+        self.assertNotIn('Pending BRO application', source)
         self.assertIn('id="tatReportMetrics"', template)
         self.assertIn("show('dashboard');", source)
         self.assertIn('.home-queue-tabs {', stylesheet)
