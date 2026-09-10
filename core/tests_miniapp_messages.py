@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import re
+from unittest.mock import patch
 
 from django.http import JsonResponse
 from django.test import RequestFactory, SimpleTestCase
@@ -104,3 +105,25 @@ class MiniAppMessageContractTests(SimpleTestCase):
         guide = Path('docs/miniapp-message-catalogue.md').read_text(encoding='utf-8')
         self.assertIn('OriginationConsentPolicyVersion', guide)
         self.assertIn('compliance', guide.casefold())
+
+    def test_unexpected_exception_is_captured_once_with_safe_response(self):
+        request = self.factory.post(
+            '/api/complaints/cases/create/', HTTP_X_REQUEST_ID='fault-12345678',
+            HTTP_X_MINIAPP_MESSAGE_CONTRACT='2',
+        )
+        failure = RuntimeError('customer secret must remain private')
+
+        with patch('sentry_sdk.capture_exception') as capture:
+            response = miniapp_error_response(
+                request, 'unexpected_error', workflow='complaints',
+                status=500, exception=failure, developer_message='RuntimeError',
+            )
+
+        payload = json.loads(response.content)
+        capture.assert_called_once_with(failure)
+        self.assertEqual(payload['request_id'], 'fault-12345678')
+        self.assertNotIn('customer secret', response.content.decode())
+
+    def test_service_unavailable_does_not_claim_an_unknown_write_is_saved(self):
+        message = MESSAGE_CATALOG['service_unavailable'].text.casefold()
+        self.assertNotIn('saved work is safe', message)

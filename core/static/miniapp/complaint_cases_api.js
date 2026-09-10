@@ -1,6 +1,32 @@
 (function () {
   'use strict';
 
+  function responseError(response, result, utils, fallback) {
+    const normalized = utils?.normalizeResponsePayload ? utils.normalizeResponsePayload(response, result, fallback) : result;
+    const error = new Error(normalized.message || normalized.error || fallback || 'We could not complete that action.');
+    error.code = normalized.code || '';
+    error.status = response?.status || 0;
+    error.details = normalized.details || {};
+    error.presentation = normalized.presentation || {};
+    error.requestId = normalized.request_id || response?.headers?.get('X-Request-ID') || '';
+    error.payload = normalized;
+    return error;
+  }
+
+  async function transportFetch(url, options, utils) {
+    try {
+      return await fetch(url, options);
+    } catch (error) {
+      if (error?.name === 'AbortError') throw error;
+      if (utils?.clientRequestError) throw utils.clientRequestError(error?.name === 'TimeoutError' ? 'timeout' : 'network', options);
+      const safe = new Error('The app could not reach JBL. Check your connection and try again.');
+      safe.code = 'client_network_unavailable';
+      safe.requestId = options?.headers?.['X-Request-ID'] || '';
+      safe.presentation = { tone: 'error', persistence: 'until_resolved', surface_hint: 'banner' };
+      throw safe;
+    }
+  }
+
   async function postJson(path, payload, initData, utils) {
     const body = payload || {};
     const requestId = utils && utils.ensureRequestId
@@ -19,17 +45,13 @@
     };
     const operation = () => (utils && utils.fetchJson
       ? utils.fetchJson(`/api/complaints/${path}`, options)
-      : fetch(`/api/complaints/${path}`, options));
+      : transportFetch(`/api/complaints/${path}`, options, utils));
     if (utils && utils.fetchJson) return utils.singleFlight
       ? utils.singleFlight(requestId, operation) : operation();
     const response = await (utils?.singleFlight ? utils.singleFlight(requestId, operation) : operation());
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.ok) {
-      const normalized = utils?.normalizeResponsePayload ? utils.normalizeResponsePayload(response, result) : result;
-      const error = new Error(normalized.message || normalized.error || 'We could not complete that action.');
-      error.status = response.status;
-      error.payload = normalized;
-      throw error;
+      throw responseError(response, result, utils, 'We could not complete that action.');
     }
     return result;
   }
@@ -51,17 +73,13 @@
     };
     const operation = () => (utils && utils.fetchJson
       ? utils.fetchJson(`/api/complaints/${path}`, options)
-      : fetch(`/api/complaints/${path}`, options));
+      : transportFetch(`/api/complaints/${path}`, options, utils));
     if (utils && utils.fetchJson) return utils.singleFlight
       ? utils.singleFlight(requestId, operation) : operation();
     const response = await (utils?.singleFlight ? utils.singleFlight(requestId, operation) : operation());
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.ok) {
-      const normalized = utils?.normalizeResponsePayload ? utils.normalizeResponsePayload(response, result) : result;
-      const error = new Error(normalized.message || normalized.error || 'We could not complete that action.');
-      error.status = response.status;
-      error.payload = normalized;
-      throw error;
+      throw responseError(response, result, utils, 'We could not complete that action.');
     }
     return result;
   }
@@ -76,20 +94,22 @@
       headers: {
         'X-Telegram-Init-Data': initData || '',
         'X-MiniApp-Message-Contract': '2',
+        'X-Request-ID': requestSettings?.requestId || (utils?.createRequestId ? utils.createRequestId('complaint-read') : `${Date.now()}-${Math.random().toString(16).slice(2)}`),
       },
     };
     if (requestSettings?.signal) options.signal = requestSettings.signal;
     const queryString = query.toString();
     const url = `/api/complaints/${path}${queryString ? `?${queryString}` : ''}`;
     if (utils && utils.fetchJson) return utils.fetchJson(url, options);
-    const response = await fetch(url, options);
-    const result = await response.json().catch(() => ({}));
+    const response = await transportFetch(url, options, utils);
+    let invalidJson = false;
+    const result = await response.json().catch(() => { invalidJson = true; return {}; });
+    if (response.ok && invalidJson) {
+      if (utils?.clientRequestError) throw utils.clientRequestError('invalid_response', options);
+      throw responseError(response, {}, utils, 'The server returned an unreadable response. Please try again.');
+    }
     if (!response.ok) {
-      const normalized = utils?.normalizeResponsePayload ? utils.normalizeResponsePayload(response, result) : result;
-      const error = new Error(normalized.message || normalized.error || 'The complaints report could not be loaded.');
-      error.status = response.status;
-      error.payload = normalized;
-      throw error;
+      throw responseError(response, result, utils, 'The complaints report could not be loaded.');
     }
     return result;
   }
@@ -99,7 +119,7 @@
     const requestId = utils && utils.ensureRequestId
       ? utils.ensureRequestId(body, 'complaint-export')
       : (body.client_request_id || `${Date.now()}-${Math.random().toString(16).slice(2)}`);
-    const response = await fetch(`/api/complaints/${path}`, {
+    const options = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -109,14 +129,11 @@
         'X-MiniApp-Message-Contract': '2',
       },
       body: JSON.stringify(body),
-    });
+    };
+    const response = await transportFetch(`/api/complaints/${path}`, options, utils);
     if (!response.ok) {
       const result = await response.json().catch(() => ({}));
-      const normalized = utils?.normalizeResponsePayload ? utils.normalizeResponsePayload(response, result) : result;
-      const error = new Error(normalized.message || normalized.error || 'The export could not be downloaded.');
-      error.status = response.status;
-      error.payload = normalized;
-      throw error;
+      throw responseError(response, result, utils, 'The export could not be downloaded.');
     }
     const disposition = response.headers.get('Content-Disposition') || '';
     const match = disposition.match(/filename="?([^";]+)"?/i);
@@ -139,7 +156,7 @@
         body: utils.formBody(body),
       });
     }
-    const response = await fetch(path, {
+    const options = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
@@ -148,9 +165,14 @@
         'Idempotency-Key': requestId,
       },
       body: new URLSearchParams(body).toString(),
-    });
+    };
+    const response = await transportFetch(path, options, utils);
     const html = await response.text();
-    if (!response.ok) throw new Error(html || 'Could not load cases.');
+    if (!response.ok) {
+      let result = {};
+      try { result = JSON.parse(html); } catch (_) { result = {}; }
+      throw responseError(response, result, utils, 'Could not load cases.');
+    }
     return html;
   }
 

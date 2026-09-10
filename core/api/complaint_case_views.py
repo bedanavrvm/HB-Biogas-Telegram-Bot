@@ -37,9 +37,19 @@ from core.services.complaint_cases import (
 )
 from core.services.group_config import GroupRegistry
 from core.services.order_approval import GoogleDriveMediaStorage
+from core.services.miniapp_messages import miniapp_error_response, request_reference, unexpected_miniapp_error
 
 
 logger = logging.getLogger(__name__)
+
+
+def _complaint_error(request, exc: Exception, *, status: int = 400, code: str = ''):
+    """Expose only the deliberately staff-safe ComplaintCaseError copy."""
+    stable_code = code or ({403: 'permission_denied', 404: 'item_not_found'}.get(status, 'validation_failed'))
+    return miniapp_error_response(
+        request, stable_code, workflow='complaints', status=status,
+        user_message=str(exc), developer_message=type(exc).__name__,
+    )
 
 
 def _bind_miniapp_write_request(request, payload: dict):
@@ -71,7 +81,6 @@ def miniapp_write_response(view_func):
             try:
                 response = view_func(request, *args, **kwargs)
             except Exception as exc:
-                logger.exception('Complaint Mini App request failed unexpectedly: path=%s', request.path)
                 response = unexpected_miniapp_error(request, exc, workflow="complaints")
         response = attach_miniapp_request_metadata(request, response)
         return normalize_miniapp_response(request, response, workflow="complaints")
@@ -165,7 +174,7 @@ def _context(request, payload: dict):
             group_config, canonical_user, identity=identity,
         ), None
     except ComplaintCaseError as exc:
-        return None, None, JsonResponse({'ok': False, 'error': str(exc)}, status=403)
+        return None, None, _complaint_error(request, exc, status=403)
 
 
 def _capability_error(actor, capability: str, group_config, *, resource=None, branch: str = ''):
@@ -289,7 +298,7 @@ def complaint_cases_list(request):
             page=payload.get('page') if 'page' in payload else None, page_size=10,
         )
     except ComplaintCaseError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return _complaint_error(request, exc)
     return JsonResponse({
         'ok': True,
         'cases': result['items'],
@@ -317,7 +326,7 @@ def complaint_cases_list_fragment(request):
             page=payload.get('page') or 1, page_size=10,
         )
     except ComplaintCaseError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return _complaint_error(request, exc)
     return render(request, 'complaint_cases/partials/case_list.html', {
         'cases': result['items'],
         'next_cursor': result['next_cursor'],
@@ -359,7 +368,7 @@ def complaint_cases_global_list(request):
             page_size=50, sort=str(payload.get('sort') or '-reported_at'),
         )
     except ComplaintCaseError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return _complaint_error(request, exc)
     return JsonResponse({'ok': True, **result})
 
 
@@ -402,7 +411,7 @@ def complaint_cases_global_detail(request, case_uuid):
     try:
         item = register_case(str(case_uuid))
     except ComplaintCaseError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=404)
+        return _complaint_error(request, exc, status=404)
     item['actions'] = _global_target_actions(actor, item)
     return JsonResponse({'ok': True, 'case': item})
 
@@ -436,9 +445,8 @@ def complaint_cases_global_export(request):
             actor=actor.user,
             request_id=str(payload.get('client_request_id') or request.headers.get('X-Request-ID') or ''),
         )
-    except Exception:
-        logger.exception('Global Complaint Cases export failed for user %s.', actor.user.pk)
-        return JsonResponse({'ok': False, 'error': 'The complaint register could not be exported. Try again.'}, status=500)
+    except Exception as exc:
+        return unexpected_miniapp_error(request, exc, workflow='complaints')
     response = HttpResponse(
         workbook,
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -521,10 +529,9 @@ def complaint_cases_create(request):
             request.FILES.getlist('evidence'),
         )
     except ComplaintCaseError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
-    except Exception:
-        logger.exception('Complaint case creation failed for group %s.', group_config.group_id)
-        return JsonResponse({'ok': False, 'error': 'The complaint could not be created. Try again.'}, status=500)
+        return _complaint_error(request, exc)
+    except Exception as exc:
+        return unexpected_miniapp_error(request, exc, workflow='complaints')
     if not actor_can_access_case(group_config, actor, 'complaint.case.source.view', result['case']['case_id']):
         result['case'].pop('raw_message', None)
     message = 'Complaint created.' if result['created'] else 'Existing complaint opened.'
@@ -539,8 +546,8 @@ def complaint_cases_create(request):
     response['Server-Timing'] = f'complaint_create;dur={elapsed_ms:.1f}'
     if elapsed_ms >= 5000:
         logger.warning(
-            'Complaint local create exceeded five seconds: duration_ms=%.1f files=%s group=%s',
-            elapsed_ms, len(request.FILES.getlist('evidence')), group_config.group_id,
+            'Complaint local create exceeded five seconds: duration_ms=%.1f files=%s group=%s request_id=%s',
+            elapsed_ms, len(request.FILES.getlist('evidence')), group_config.group_id, request_reference(request),
         )
     return response
 
@@ -567,7 +574,7 @@ def complaint_cases_finish_created(request, case_id: str):
             uploaded_files=request.FILES.getlist('evidence'),
         )
     except ComplaintCaseError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return _complaint_error(request, exc)
     return JsonResponse({
         'ok': True, 'case': detail,
         'message': 'Evidence and Complaint Sheet publication completed.',
@@ -588,7 +595,7 @@ def complaint_cases_detail(request, case_id: str):
     try:
         detail = case_detail(group_config, case_id, actor)
     except ComplaintCaseError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=404)
+        return _complaint_error(request, exc, status=404)
     if not actor_can_access_case(group_config, actor, 'complaint.case.source.view', case_id):
         detail.pop('raw_message', None)
     return JsonResponse({'ok': True, 'case': detail})
@@ -620,10 +627,9 @@ def complaint_cases_update(request, case_id: str):
     except ComplaintCaseConflict as exc:
         return _conflict_response(group_config, actor, case_id, exc)
     except ComplaintCaseError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
-    except Exception:
-        logger.exception('Complaint case update failed for group %s case %s.', group_config.group_id, case_id)
-        return JsonResponse({'ok': False, 'error': 'The case update could not be saved. Try again.'}, status=500)
+        return _complaint_error(request, exc)
+    except Exception as exc:
+        return unexpected_miniapp_error(request, exc, workflow='complaints')
     if not actor_can_access_case(group_config, actor, 'complaint.case.source.view', case_id):
         result.pop('raw_message', None)
     logger.warning(
@@ -654,10 +660,9 @@ def complaint_cases_complete_details(request, case_id: str):
     except ComplaintCaseConflict as exc:
         return _conflict_response(group_config, actor, case_id, exc)
     except ComplaintCaseError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
-    except Exception:
-        logger.exception('Complaint detail completion failed for group %s case %s.', group_config.group_id, case_id)
-        return JsonResponse({'ok': False, 'error': 'The complaint details could not be saved. Try again.'}, status=500)
+        return _complaint_error(request, exc)
+    except Exception as exc:
+        return unexpected_miniapp_error(request, exc, workflow='complaints')
     return JsonResponse({'ok': True, 'case': result, 'message': 'Required details completed.'})
 
 
@@ -692,10 +697,9 @@ def complaint_cases_resolve(request, case_id: str):
     except ComplaintCaseConflict as exc:
         return _conflict_response(group_config, actor, case_id, exc)
     except ComplaintCaseError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
-    except Exception:
-        logger.exception('Complaint resolution failed for group %s case %s.', group_config.group_id, case_id)
-        return JsonResponse({'ok': False, 'error': 'The resolution could not be saved. Try again.'}, status=500)
+        return _complaint_error(request, exc)
+    except Exception as exc:
+        return unexpected_miniapp_error(request, exc, workflow='complaints')
     return JsonResponse({'ok': True, 'case': result, 'message': 'Complaint resolved.'})
 
 
@@ -718,10 +722,9 @@ def complaint_cases_reopen(request, case_id: str):
     except ComplaintCaseConflict as exc:
         return _conflict_response(group_config, actor, case_id, exc)
     except ComplaintCaseError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
-    except Exception:
-        logger.exception('Complaint reopen failed for group %s case %s.', group_config.group_id, case_id)
-        return JsonResponse({'ok': False, 'error': 'The complaint could not be reopened. Try again.'}, status=500)
+        return _complaint_error(request, exc)
+    except Exception as exc:
+        return unexpected_miniapp_error(request, exc, workflow='complaints')
     return JsonResponse({'ok': True, 'case': result, 'message': 'Complaint reopened.'})
 
 
@@ -739,7 +742,7 @@ def complaint_cases_evidence_access(request, evidence_id: str):
     try:
         evidence = evidence_for_preview(group_config, actor, evidence_id)
     except ComplaintCaseError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=404)
+        return _complaint_error(request, exc, status=404)
     try:
         content = GoogleDriveMediaStorage().download(evidence.drive_file_id)
     except Exception:
@@ -792,5 +795,5 @@ def complaint_cases_sync_retry(request, case_id: str):
     try:
         detail = retry_case_sync(group_config, actor, case_id)
     except ComplaintCaseError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return _complaint_error(request, exc)
     return JsonResponse({'ok': True, 'case': detail, 'message': 'Complaint register publication retried.'})

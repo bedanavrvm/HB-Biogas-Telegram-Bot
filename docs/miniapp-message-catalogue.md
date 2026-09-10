@@ -46,6 +46,19 @@ or "try again later".  Exact throttle counters remain private.  Correlation IDs
 are safe to display, but logs must join them only to allowlisted workflow and
 record identifiers rather than raw applicant or signer details.
 
+The shared browser client also creates local `client_network_unavailable`,
+`client_request_timeout`, and `client_invalid_response` errors. These never
+reuse browser exception text or response HTML. Intentional `AbortError`
+cancellation remains silent. A write with an unknown outcome is retried only
+after a staff action and must retain its original idempotency key; reads may
+use a new request reference when deliberately refreshed.
+
+Unexpected server exceptions are captured once at the shared boundary with
+workflow, stable code, request reference, and route tags. Expected validation,
+permission, conflict, and throttle responses are not exception-monitoring
+events. Logs and monitoring must not include request bodies or exception text
+that may contain staff or customer values.
+
 ## Consent wording is separate
 
 Origination consent, conditional-finality, and completion wording is not part

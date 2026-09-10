@@ -269,6 +269,17 @@
     toast.classList.remove('hidden');
     noticeTimeout = setTimeout(closeNotice, 5000);
   }
+  function presentTatError(error, suffix) {
+    if (!error || error.name === 'AbortError') return;
+    const presentation = error.presentation || error.payload?.presentation || {};
+    const message = `${error.message || 'We could not complete that action.'}${suffix || ''}`;
+    if (presentation.surface_hint === 'toast' && presentation.persistence === 'transient') {
+      showNotice(message, presentation.tone === 'warning' ? 'error' : (presentation.tone || 'error'));
+      return;
+    }
+    setStatus(message, 'error');
+    utils.haptic?.('error');
+  }
   function setStatus(message, tone) {
     if (statusTimeout) {
       clearTimeout(statusTimeout);
@@ -312,7 +323,7 @@
     }
     el.innerHTML = `${icon}<span>${escapeHtml(message)}</span>`;
     el.className = 'status-bar' + (tone ? ' ' + tone : '');
-    if (tone === 'ok' || tone === 'error') showNotice(message, tone);
+    if (tone === 'ok') showNotice(message, tone);
 
     if (tone === 'ok') {
       statusTimeout = setTimeout(() => {
@@ -1231,7 +1242,7 @@
         setStatus('Configuration review recorded.', 'ok');
         await loadSettings();
       } catch (error) {
-        setStatus(error.message, 'error');
+        presentTatError(error);
       } finally {
         setButtonLoading(button, false);
       }
@@ -1824,7 +1835,7 @@
         }
         await submitUpdate([{ field: field.key, value: correctionValue, correction: true }]);
       } catch (error) {
-        setStatus(error.message, 'error');
+        presentTatError(error);
         save.disabled = false;
       }
     });
@@ -1877,7 +1888,7 @@
       caseCorrectionProtection?.markClean();
       $('caseCorrectionPanel').classList.add('hidden');
     } catch (error) {
-      setStatus(`${error.message} Retry will safely check the same correction.`, 'error');
+      presentTatError(error, ' Retry will safely check the same correction.');
     } finally {
       setButtonLoading(button, false);
     }
@@ -1917,7 +1928,7 @@
       setStatus(value === 'STAMP' ? `${field.label} stamped.` : `${field.label} recorded.`, 'ok');
     } catch (error) {
       if (!isButton) control.value = field.value || '';
-      setStatus(`${error.message} Retry will safely check the same update.`, 'error');
+      presentTatError(error, ' Retry will safely check the same update.');
     } finally {
       if (isButton) setButtonLoading(control, false);
       else control.disabled = false;
@@ -1951,7 +1962,7 @@
       await submitUpdate([{ field: field.key, value: select.value, correction: Boolean(field.value) }]);
     } catch (error) {
       select.value = previousValue;
-      setStatus(error.message, 'error');
+      presentTatError(error);
     } finally {
       select.disabled = false;
     }
@@ -3010,7 +3021,7 @@
 
   document.querySelectorAll('.tabs button').forEach((button) => button.addEventListener('click', () => {
     show(button.dataset.view);
-    if (button.dataset.view === 'settings') loadSettings().catch((error) => setStatus(error.message, 'error'));
+    if (button.dataset.view === 'settings') loadSettings().catch(presentTatError);
   }));
   $('casesWorkspaceBtn').addEventListener('click', () => show('queue'));
   $('dashboardWorkspaceBtn').addEventListener('click', () => {
@@ -3069,7 +3080,7 @@
   $('tatReportCharts').addEventListener('touchcancel', () => { state.report.touchStart = null; }, { passive: true });
   $('tatOldestCases').addEventListener('click', event => {
     const button = event.target.closest('[data-oldest-case]');
-    if (button) openCase(button.dataset.oldestCase).catch(error => setStatus(error.message, 'error'));
+    if (button) openCase(button.dataset.oldestCase).catch(presentTatError);
   });
   let tatReportFilterTimer = null;
   let tatReportFiltersDirty = false;
@@ -3146,10 +3157,10 @@
   });
   $('backBtn').addEventListener('click', returnToQueue);
   document.querySelectorAll('[data-home-queue]').forEach((button) => button.addEventListener('click', () => {
-    selectHomeQueue(button.dataset.homeQueue).catch((error) => setStatus(error.message, 'error'));
+    selectHomeQueue(button.dataset.homeQueue).catch(presentTatError);
   }));
-  $('queuePreviousBtn').addEventListener('click', () => changeHomePage(-1).catch((error) => setStatus(error.message, 'error')));
-  $('queueNextBtn').addEventListener('click', () => changeHomePage(1).catch((error) => setStatus(error.message, 'error')));
+  $('queuePreviousBtn').addEventListener('click', () => changeHomePage(-1).catch(presentTatError));
+  $('queueNextBtn').addEventListener('click', () => changeHomePage(1).catch(presentTatError));
   $('openQueueFiltersBtn').addEventListener('click', (event) => openQueueFilters(event.currentTarget));
   $('closeQueueFiltersBtn').addEventListener('click', () => closeQueueFilters());
   $('queueFilterOverlay').addEventListener('click', (event) => {
@@ -3158,11 +3169,11 @@
   $('queueFilterSheet').addEventListener('keydown', trapFilterSheetFocus);
   $('queueFilterForm').addEventListener('submit', (event) => {
     event.preventDefault();
-    applyQueueFilters().catch((error) => setStatus(error.message, 'error'));
+    applyQueueFilters().catch(presentTatError);
   });
   $('resetQueueFiltersBtn').addEventListener('click', () => {
     ['queueProductFilters', 'queueBranchFilters', 'queueStatusFilters'].forEach((id) => setCheckedFilterValues(id, []));
-    applyQueueFilters().catch((error) => setStatus(error.message, 'error'));
+    applyQueueFilters().catch(presentTatError);
   });
   $('saveRemarksBtn').addEventListener('click', async (event) => {
     const button = event.currentTarget;
@@ -3170,7 +3181,7 @@
       setButtonLoading(button, true, 'Saving');
       await submitUpdate([{ field: 'remarks', value: $('remarksInput').value }]);
     } catch (error) {
-      setStatus(error.message, 'error');
+      presentTatError(error);
     } finally {
       setButtonLoading(button, false);
     }
@@ -3200,7 +3211,7 @@
       await saveTargetSettings();
       targetSettingsProtection?.markClean();
     } catch (error) {
-      setStatus(error.message, 'error');
+      presentTatError(error);
     } finally {
       state.savingTargets = false;
       setButtonLoading($('saveTargetSettingsBtn'), false);
@@ -3216,7 +3227,7 @@
       $('escalationSettingsReason').value = '';
       escalationSettingsProtection?.markClean();
     } catch (error) {
-      setStatus(error.message, 'error');
+      presentTatError(error);
     } finally {
       setButtonLoading(button, false);
     }
@@ -3242,7 +3253,7 @@
         'ok',
       );
     } catch (error) {
-      setStatus(error.message, 'error');
+      presentTatError(error);
     } finally {
       setButtonLoading(button, false);
       if (connection) renderPrivateAlertConnection(connection);
@@ -3278,7 +3289,7 @@
         renderList('searchList', result.results, 'No matching cases', 'Try a client name, ID number, phone, case ID, branch, or BRO.');
       }
     } catch (error) {
-      if (requestNumber === state.searchRequestNumber) setStatus(error.message, 'error');
+      if (requestNumber === state.searchRequestNumber) presentTatError(error);
     }
   }
 
@@ -3325,7 +3336,7 @@
       setStatus('Case created. Continue from the highlighted stage.', 'ok');
       refresh({ background: true }).catch(() => {});
     } catch (error) {
-      setStatus(error.message, 'error');
+      presentTatError(error);
     } finally {
       state.creatingCase = false;
       setButtonLoading(submitButton, false);
@@ -3352,7 +3363,7 @@
         ? 'Compact cards saved. Queue cards now hide identifiers and timestamps; open a case for full detail.'
         : 'Standard case cards restored.', 'ok');
     } catch (error) {
-      setStatus(error.message, 'error');
+      presentTatError(error);
     } finally {
       setButtonLoading(button, false);
     }
@@ -3448,5 +3459,5 @@
   }
   startApp()
     .then(startRuntimeTimers)
-    .catch((error) => setStatus(error.message, 'error'));
+    .catch(presentTatError);
 })();

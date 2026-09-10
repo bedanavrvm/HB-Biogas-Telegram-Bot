@@ -30,6 +30,9 @@
     mediaViewerPointers: new Map(), mediaViewerSwipe: null,
     mediaViewerPinch: null, mediaViewerZoom: 100,
     exportObjectUrl: '', exportFilename: '', exportFile: null,
+    errorRetry: null,
+    pendingWrites: new Map(),
+    errorRetryTimer: null,
   };
 
   function requestId(prefix) {
@@ -39,6 +42,7 @@
   }
   function can(key) { return state.capabilities.has(key); }
   function notify(message, error) {
+    if (!error) clearPresentedError();
     if (window.MiniAppRuntime?.showToast) {
       window.MiniAppRuntime.showToast(message, { tone: error ? 'error' : 'success' });
       utils.haptic?.(error ? 'error' : 'success');
@@ -51,6 +55,73 @@
     utils.haptic?.(error ? 'error' : 'success');
     clearTimeout(node._timer);
     node._timer = setTimeout(() => node.classList.remove('visible'), 4000);
+  }
+  function pendingWriteId(key, prefix) {
+    if (!state.pendingWrites.has(key)) state.pendingWrites.set(key, requestId(prefix));
+    return state.pendingWrites.get(key);
+  }
+  function settleWrite(key, error) {
+    const status = Number(error?.status || 0);
+    if (!error || (status >= 400 && status < 500)) state.pendingWrites.delete(key);
+  }
+  function clearPresentedError() {
+    const banner = $('errorBanner');
+    if (banner) banner.hidden = true;
+    state.errorRetry = null;
+    if (state.errorRetryTimer) clearInterval(state.errorRetryTimer);
+    state.errorRetryTimer = null;
+  }
+  function focusErrorField(error) {
+    const fields = Array.isArray(error?.details?.fields)
+      ? error.details.fields : (error?.details?.field ? [error.details.field] : []);
+    document.querySelectorAll('[aria-invalid="true"]').forEach(node => node.removeAttribute('aria-invalid'));
+    let first = null;
+    fields.forEach(name => {
+      const node = document.getElementsByName(String(name))[0];
+      if (!node) return;
+      node.setAttribute('aria-invalid', 'true');
+      if (!first) first = node;
+    });
+    if (first) first.focus({ preventScroll: false });
+  }
+  function presentError(error, retry) {
+    if (!error || error.name === 'AbortError') return;
+    const presentation = error.presentation || error.payload?.presentation || {};
+    if (presentation.surface_hint === 'toast' && presentation.persistence === 'transient') {
+      notify(error.message || 'We could not complete that action.', true);
+      return;
+    }
+    const banner = $('errorBanner');
+    if (!banner) { notify(error.message || 'We could not complete that action.', true); return; }
+    state.errorRetry = typeof retry === 'function' ? retry : null;
+    $('errorBannerTitle').textContent = presentation.tone === 'warning' ? 'Please check' : 'Action needed';
+    $('errorBannerMessage').textContent = error.message || 'We could not complete that action.';
+    const reference = String(error.requestId || error.payload?.request_id || '').trim();
+    $('errorBannerReference').textContent = reference ? `Reference: ${reference}` : '';
+    $('errorBannerReference').hidden = !reference;
+    $('errorBannerRetry').hidden = !state.errorRetry;
+    $('errorBannerCloseApp').hidden = !['authentication_required', 'outdated_client'].includes(error.code || error.payload?.code || '');
+    $('errorBannerDismiss').hidden = presentation.persistence === 'until_resolved';
+    banner.hidden = false;
+    const retryAfter = Math.min(300, Math.max(0, Number(error.details?.retry_after || 0)));
+    if (state.errorRetry && retryAfter) {
+      let remaining = Math.ceil(retryAfter);
+      const retryButton = $('errorBannerRetry');
+      retryButton.disabled = true;
+      retryButton.textContent = `Try Again in ${remaining}s`;
+      state.errorRetryTimer = setInterval(() => {
+        remaining -= 1;
+        if (remaining > 0) { retryButton.textContent = `Try Again in ${remaining}s`; return; }
+        clearInterval(state.errorRetryTimer); state.errorRetryTimer = null;
+        retryButton.disabled = false; retryButton.textContent = 'Try Again';
+      }, 1000);
+    } else {
+      $('errorBannerRetry').disabled = false;
+      $('errorBannerRetry').textContent = 'Try Again';
+    }
+    focusErrorField(error);
+    banner.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    utils.haptic?.('error');
   }
   function json(path, payload) {
     return apiClient.postJson(path, Object.assign({ group_id: state.groupId }, payload || {}), state.initData, utils);
@@ -216,7 +287,7 @@
       await loadCases();
     } catch (error) {
       $('loadingState').textContent = error.message || 'Complaints could not be opened.';
-      notify(error.message, true);
+      presentError(error, bootstrap);
     }
   }
 
@@ -234,7 +305,7 @@
       $('queueNextBtn').disabled = pagination.page >= pagination.pages;
     } catch (error) {
       $('caseList').replaceChildren(textNode('p', 'Complaints could not be loaded.', 'empty'));
-      notify(error.message, true);
+      presentError(error, loadCases);
     }
   }
 
@@ -274,7 +345,7 @@
       const response = await json(`cases/${encodeURIComponent(caseId)}/`);
       response.case.group_id = state.groupId; response.case.global_read = false;
       state.returnWorkspace = 'queue'; renderDetail(response.case); setView('detailView');
-    } catch (error) { notify(error.message, true); }
+    } catch (error) { presentError(error, () => openCase(caseId)); }
     finally { setActionLoading(source, false); }
   }
   async function openGlobalCase(caseUuid) {
@@ -282,7 +353,7 @@
       const response = await json(`global/cases/${encodeURIComponent(caseUuid)}/`);
       response.case.global_read = true; state.returnWorkspace = 'global';
       renderDetail(response.case); setView('detailView');
-    } catch (error) { notify(error.message, true); }
+    } catch (error) { presentError(error, () => openGlobalCase(caseUuid)); }
   }
   function syncLabel(value) {
     return ({ success: 'Synced', pending: 'Pending', failed: 'Failed', not_required: 'Not enabled', suspended: 'Not enabled' })[value] || value || 'Not recorded';
@@ -539,7 +610,7 @@
 
   function showConflict(error) {
     const current = error.payload?.current_case;
-    if (!current) { notify(error.message, true); return; }
+    if (!current) { presentError(error); return; }
     const draft = $('resolveForm').elements.resolution_text.value || $('reopenForm').elements.reason.value || (current.needs_details ? 'Your entered complaint details remain in the form.' : '');
     current.group_id = state.currentCase.group_id; current.global_read = state.currentCase.global_read;
     state.currentCase = current; $('conflictMessage').textContent = error.message;
@@ -566,17 +637,19 @@
     if (!validateRequiredForm(formNode)) return;
     const targetGroup = state.currentCase.group_id || state.groupId;
     data.set('expected_revision', state.currentCase.revision);
-    data.set('client_request_id', requestId('complaint-transition'));
+    const writeKey = `transition:${action}:${state.currentCase.case_id}`;
+    data.set('client_request_id', pendingWriteId(writeKey, 'complaint-transition'));
     if (action === 'resolve') appendEvidence(data, 'resolve');
     const button = formNode.querySelector('button[type="submit"]');
     state.submitting = true; setActionLoading(button, true, action === 'resolve' ? 'Resolving' : 'Reopening'); utils.setCloseProtection?.('complaint-operation', true);
     try {
       const response = await form(`cases/${encodeURIComponent(state.currentCase.case_id)}/${action}/`, data, targetGroup);
+      settleWrite(writeKey);
       response.case.group_id = targetGroup; notify(response.message); clearEvidence('resolve');
       utils.setCloseProtection?.('complaint-transition-draft', false); await refreshCounts();
       if (state.returnWorkspace === 'global') { await refreshGlobal(); await openGlobalCase(response.case.id); }
       else { response.case.global_read = false; renderDetail(response.case); }
-    } catch (error) { if (error.status === 409) showConflict(error); else notify(error.message, true); }
+    } catch (error) { settleWrite(writeKey, error); if (error.status === 409) showConflict(error); else presentError(error, () => formNode.requestSubmit()); }
     finally { state.submitting = false; setActionLoading(button, false); utils.setCloseProtection?.('complaint-operation', false); }
   }
 
@@ -588,16 +661,18 @@
     if (!validateContactPair(formNode) || !validateRequiredForm(formNode)) return;
     const targetGroup = state.currentCase.group_id || state.groupId;
     data.set('expected_revision', state.currentCase.revision);
-    data.set('client_request_id', requestId('complaint-details'));
+    const writeKey = `details:${state.currentCase.case_id}`;
+    data.set('client_request_id', pendingWriteId(writeKey, 'complaint-details'));
     const button = formNode.querySelector('button[type="submit"]');
     state.submitting = true; setActionLoading(button, true, 'Saving details'); utils.setCloseProtection?.('complaint-operation', true);
     try {
       const response = await form(`cases/${encodeURIComponent(state.currentCase.case_id)}/complete-details/`, data, targetGroup);
+      settleWrite(writeKey);
       response.case.group_id = targetGroup; notify(response.message);
       utils.setCloseProtection?.('complaint-transition-draft', false); await refreshCounts();
       if (state.returnWorkspace === 'global') { await refreshGlobal(); await openGlobalCase(response.case.id); }
       else { response.case.global_read = false; renderDetail(response.case); }
-    } catch (error) { if (error.status === 409) showConflict(error); else notify(error.message, true); }
+    } catch (error) { settleWrite(writeKey, error); if (error.status === 409) showConflict(error); else presentError(error, () => formNode.requestSubmit()); }
     finally { state.submitting = false; setActionLoading(button, false); utils.setCloseProtection?.('complaint-operation', false); }
   }
 
@@ -613,14 +688,15 @@
     const idError = validateCustomerId(formNode.elements.customer_id);
     if (idError) return notify(idError, true);
     if (!validateContactPair(formNode) || !validateCreateFields(formNode)) return;
-    const creationRequestId = requestId('complaint-create');
+    const writeKey = 'create';
+    const creationRequestId = pendingWriteId(writeKey, 'complaint-create');
     const pendingEvidence = state.evidence.create.map(item => item.file);
     data.set('client_request_id', creationRequestId);
     if (state.latitude) { data.set('latitude', state.latitude); data.set('longitude', state.longitude); }
     const button = $('createSaveBtn'); state.submitting = true; setActionLoading(button, true, 'Creating');
     utils.setCloseProtection?.('complaint-operation', true); $('createSaveState').textContent = 'Saving…';
     try {
-      const response = await form('cases/create/', data); formNode.reset();
+      const response = await form('cases/create/', data); settleWrite(writeKey); formNode.reset();
       locationSelectOptions(formNode.elements.sub_county, [], 'Select county first');
       formNode.elements.sub_county.disabled = true;
       state.latitude = ''; state.longitude = ''; resetLocationCapture(); hideSuggestion();
@@ -631,7 +707,7 @@
       if (pendingEvidence.length || response.publication_deferred) {
         void finishCreatedCase(response.case, creationRequestId, pendingEvidence);
       } else clearEvidence('create');
-    } catch (error) { $('createSaveState').textContent = 'Not Saved'; notify(error.message, true); }
+    } catch (error) { settleWrite(writeKey, error); $('createSaveState').textContent = 'Not Saved'; presentError(error, () => formNode.requestSubmit()); }
     finally { state.submitting = false; setActionLoading(button, false); utils.setCloseProtection?.('complaint-operation', false); }
   }
   async function finishCreatedCase(caseItem, creationRequestId, files) {
@@ -1044,7 +1120,7 @@
       state.globalLoaded = true; return summary;
     } catch (error) {
       if (sequence === state.reportSummarySequence) {
-        setChartState('category', error.message); setChartState('time', error.message); notify(error.message, true);
+        setChartState('category', error.message); setChartState('time', error.message); presentError(error, refreshReport);
       }
       return null;
     }
@@ -1181,6 +1257,7 @@
     const controller = typeof AbortController === 'function' ? new AbortController() : null;
     state.reportTableAbortController = controller;
     let requestTimedOut = false;
+    const reportRequestId = requestId('complaint-report');
     let timeout;
     const timeoutPromise = new Promise((resolve, reject) => {
       timeout = setTimeout(() => {
@@ -1193,7 +1270,7 @@
     try {
       const response = await Promise.race([getJson('reports/data/', Object.assign({}, filters, {
         page: state.globalPage, page_size: state.globalPageSize, sort: state.globalSort,
-      }), controller ? { signal: controller.signal } : undefined), timeoutPromise]);
+      }), { signal: controller?.signal, requestId: reportRequestId }), timeoutPromise]);
       if (sequence !== state.reportTableSequence) return;
       state.globalPage = response.page; state.globalPages = Math.max(1, Math.ceil(response.count / response.page_size));
       $('globalResultCount').textContent = `${response.count} complaint${response.count === 1 ? '' : 's'} found`;
@@ -1207,7 +1284,9 @@
     } catch (error) {
       if (sequence === state.reportTableSequence) {
         state.reportGridApi?.hideOverlay(); state.reportGridApi?.showNoRowsOverlay();
-        notify(requestTimedOut ? 'The complaints table took too long to load. Please try the filter again.' : error.message, true);
+        const displayed = requestTimedOut && utils.clientRequestError
+          ? utils.clientRequestError('timeout', { headers: { 'X-Request-ID': reportRequestId } }) : error;
+        presentError(displayed, () => refreshReport({ summary: false }));
       }
     } finally {
       clearTimeout(timeout);
@@ -1230,7 +1309,7 @@
       const overview = await getJson('reports/summary/', { granularity: 'year' }); const count = overview.total || 0;
       $('exportConfirmText').textContent = `This download includes all ${count} complaints across all complaint groups, not only your current filters. Continue?`;
       $('exportConfirm').hidden = false; $('cancelExportBtn').focus();
-    } catch (error) { notify(error.message, true); }
+    } catch (error) { presentError(error, openGlobalWorkspace); }
   }
   function cancelExport() { $('exportConfirm').hidden = true; $('exportAllBtn').focus(); }
   function releaseExportDownload() {
@@ -1296,7 +1375,7 @@
       } else {
         startExportDownload(); notify(`Download started. Check Downloads for ${state.exportFilename}.`);
       }
-    } catch (error) { notify(error.message, true); }
+    } catch (error) { presentError(error, confirmExport); }
     finally { setActionLoading(button, false); }
   }
   function downloadAgain() {
@@ -1372,8 +1451,8 @@
   $('mediaViewerContent').addEventListener('lostpointercapture', event => finishMediaViewerPointer(event, true));
   $('createCaseForm').elements.complaint_description.addEventListener('input', scheduleCategorySuggestion);
   $('createCaseForm').elements.complaint_category.addEventListener('input', updateCategoryGuidance);
-  $('createCaseForm').elements.branch_region.addEventListener('change', () => refreshLocationOptions().catch(error => notify(error.message, true)));
-  $('createCaseForm').elements.county.addEventListener('change', () => refreshLocationOptions().catch(error => notify(error.message, true)));
+  $('createCaseForm').elements.branch_region.addEventListener('change', () => refreshLocationOptions().catch(error => presentError(error, refreshLocationOptions)));
+  $('createCaseForm').elements.county.addEventListener('change', () => refreshLocationOptions().catch(error => presentError(error, refreshLocationOptions)));
   $('createCaseForm').elements.client_name.addEventListener('blur', event => normalizeCustomerNameInput(event.currentTarget));
   document.querySelectorAll('#createCaseForm input, #createCaseForm textarea, #createCaseForm select, #completeDetailsForm input, #completeDetailsForm select, #resolveForm textarea, #reopenForm textarea').forEach(input => input.addEventListener('input', () => {
     input.setCustomValidity(''); input.setAttribute('aria-invalid', 'false');
@@ -1391,6 +1470,13 @@
   $('resolveForm').addEventListener('submit', event => submitTransition(event, 'resolve'));
   $('reopenForm').addEventListener('submit', event => submitTransition(event, 'reopen'));
   $('copyConflictDraftBtn').addEventListener('click', copyConflictDraft);
+  $('errorBannerDismiss').addEventListener('click', clearPresentedError);
+  $('errorBannerRetry').addEventListener('click', () => {
+    const retry = state.errorRetry;
+    clearPresentedError();
+    if (retry) Promise.resolve().then(retry).catch(error => presentError(error, retry));
+  });
+  $('errorBannerCloseApp').addEventListener('click', () => telegram?.close?.());
   $('reviewConflictBtn').addEventListener('click', () => state.currentCase.global_read ? openGlobalCase(state.currentCase.id) : openCase(state.currentCase.case_id));
   $('createCaseForm').addEventListener('input', () => utils.setCloseProtection?.('complaint-create-draft', true));
   $('createCaseForm').addEventListener('change', () => utils.setCloseProtection?.('complaint-create-draft', true));

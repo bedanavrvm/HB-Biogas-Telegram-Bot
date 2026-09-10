@@ -257,6 +257,10 @@
     const failed = !response || !response.ok || data.ok === false || data.success === false;
     const suppliedPresentation = data.presentation && typeof data.presentation === 'object'
       ? data.presentation : {};
+    const retryAfter = response && response.headers ? response.headers.get('Retry-After') : '';
+    if (retryAfter && !data.details?.retry_after) {
+      data.details = Object.assign({}, data.details || {}, { retry_after: String(retryAfter).slice(0, 160) });
+    }
     data.presentation = {
       tone: suppliedPresentation.tone || (failed ? (response?.status === 409 || response?.status === 429 ? 'warning' : 'error') : 'success'),
       persistence: suppliedPresentation.persistence || (failed ? 'until_resolved' : 'transient'),
@@ -285,6 +289,52 @@
     error.requestId = data.request_id || '';
     error.payload = data;
     return error;
+  }
+
+  function requestHeaderValue(options, name) {
+    const headers = options && options.headers;
+    if (!headers) return '';
+    if (typeof headers.get === 'function') return headers.get(name) || '';
+    const wanted = String(name).toLowerCase();
+    const key = Object.keys(headers).find(function (item) { return String(item).toLowerCase() === wanted; });
+    return key ? String(headers[key] || '') : '';
+  }
+
+  function clientRequestError(kind, options) {
+    const requestId = requestHeaderValue(options, 'X-Request-ID');
+    const timeout = kind === 'timeout';
+    const invalidResponse = kind === 'invalid_response';
+    const error = new Error(
+      timeout
+        ? 'This is taking longer than expected. Check your connection and try again.'
+        : invalidResponse
+          ? 'The server returned an unreadable response. Please try again.'
+          : 'The app could not reach JBL. Check your connection and try again.'
+    );
+    error.code = timeout ? 'client_request_timeout' : (invalidResponse ? 'client_invalid_response' : 'client_network_unavailable');
+    error.status = 0;
+    error.details = {};
+    error.presentation = { tone: 'error', persistence: 'until_resolved', surface_hint: 'banner' };
+    error.requestId = requestId;
+    error.payload = {
+      ok: false,
+      success: false,
+      code: error.code,
+      message: error.message,
+      request_id: requestId,
+      presentation: error.presentation,
+    };
+    return error;
+  }
+
+  async function safeFetch(url, options) {
+    try {
+      return await fetch(url, options);
+    } catch (error) {
+      if (error && error.name === 'AbortError') throw error;
+      if (error && error.name === 'TimeoutError') throw clientRequestError('timeout', options);
+      throw clientRequestError('network', options);
+    }
   }
 
   function parseDisplayDate(value) {
@@ -318,6 +368,9 @@
     const requestOptions = Object.assign({}, options || {});
     requestOptions.headers = messageHeaders(requestOptions.headers);
     const method = String(requestOptions.method || 'GET').toUpperCase();
+    if (!requestHeaderValue(requestOptions, 'X-Request-ID')) {
+      requestOptions.headers['X-Request-ID'] = createRequestId('miniapp-read');
+    }
     if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
       let bodyKey = '';
       if (typeof requestOptions.body === 'string') {
@@ -335,8 +388,15 @@
       const key = bodyKey || requestOptions.headers['Idempotency-Key'] || requestOptions.headers['X-Request-ID'] || createRequestId();
       Object.assign(requestOptions.headers, idempotencyHeaders(key));
     }
-    const response = await fetch(url, requestOptions);
-    const data = normalizeResponsePayload(response, await response.json().catch(function () { return {}; }));
+    const response = await safeFetch(url, requestOptions);
+    let parsed = null;
+    try {
+      parsed = await response.json();
+    } catch (_) {
+      if (response.ok && response.status !== 204) throw clientRequestError('invalid_response', requestOptions);
+      parsed = {};
+    }
+    const data = normalizeResponsePayload(response, parsed);
     if (!response.ok || data.ok === false) {
       throw apiError(response, data);
     }
@@ -345,15 +405,19 @@
 
   async function fetchHtml(url, options) {
     const requestOptions = Object.assign({}, options || {});
-    requestOptions.headers = Object.assign({}, requestOptions.headers || {});
+    requestOptions.headers = messageHeaders(requestOptions.headers);
     const method = String(requestOptions.method || 'GET').toUpperCase();
     if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
       const key = requestOptions.headers['Idempotency-Key'] || requestOptions.headers['X-Request-ID'] || createRequestId();
       Object.assign(requestOptions.headers, idempotencyHeaders(key));
     }
-    const response = await fetch(url, requestOptions);
+    const response = await safeFetch(url, requestOptions);
     const html = await response.text();
-    if (!response.ok) throw new Error(html || 'Request failed.');
+    if (!response.ok) {
+      let payload = {};
+      try { payload = JSON.parse(html); } catch (_) { payload = {}; }
+      throw apiError(response, payload);
+    }
     return html;
   }
 
@@ -674,6 +738,7 @@
     handledMessageCodes: handledMessageCodes,
     messageHeaders: messageHeaders,
     normalizeResponsePayload: normalizeResponsePayload,
+    clientRequestError: clientRequestError,
     runButtonAction: runButtonAction,
     setButtonFeedback: setButtonFeedback,
     setButtonLoading: setButtonLoading,

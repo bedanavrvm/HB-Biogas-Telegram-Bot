@@ -254,7 +254,6 @@ def miniapp_write_response(view_func):
             try:
                 response = view_func(request, *args, **kwargs)
             except Exception as exc:
-                logger.exception('Mini App request failed unexpectedly: path=%s', request.path)
                 response = unexpected_miniapp_error(request, exc, workflow="miniapp")
         response = attach_miniapp_request_metadata(request, response)
         return normalize_miniapp_response(request, response, workflow="miniapp")
@@ -444,8 +443,8 @@ def _tat_capability_error(user: dict, capability: str, group_config):
     if not allowed:
         return JsonResponse({
             'ok': False,
-            'code': 'tat_capability_denied',
-            'message': f'Your assigned TAT role does not include {capability}. Ask your administrator to review the role capability policy.',
+            'code': 'permission_denied',
+            'message': 'Your assigned TAT role does not permit this action. Ask your administrator to review your access.',
         }, status=403)
     user_id = user.get('user_id')
     if user_id:
@@ -1033,9 +1032,9 @@ def tat_tracker_create(request):
             developer_message=type(exc).__name__,
             exception=exc,
         )
-    except Exception:
-        logger.exception('TAT Tracker create failed for group %s.', group_id)
-        return JsonResponse({'ok': False, 'error': 'The TAT case could not be created. Try again.'}, status=500)
+    except Exception as exc:
+        from core.services.miniapp_messages import unexpected_miniapp_error
+        return unexpected_miniapp_error(request, exc, workflow='tat_tracker')
 
 
 @csrf_exempt
@@ -1068,9 +1067,9 @@ def tat_tracker_identity_context(request):
         })
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
-    except Exception:
-        logger.exception('TAT Tracker identity context failed for group %s.', group_id)
-        return JsonResponse({'ok': False, 'error': 'Existing loan context could not be loaded. Continue only if you are creating a new loan.'}, status=500)
+    except Exception as exc:
+        from core.services.miniapp_messages import unexpected_miniapp_error
+        return unexpected_miniapp_error(request, exc, workflow='tat_tracker')
 
 
 @csrf_exempt
@@ -1089,9 +1088,9 @@ def tat_tracker_detail(request):
         return JsonResponse({'ok': True, 'data': get_case_detail(group_config, user, payload.get('case_id', ''))})
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=404)
-    except Exception:
-        logger.exception('TAT Tracker detail failed for group %s.', group_id)
-        return JsonResponse({'ok': False, 'error': 'The TAT case could not be loaded. Try again.'}, status=500)
+    except Exception as exc:
+        from core.services.miniapp_messages import unexpected_miniapp_error
+        return unexpected_miniapp_error(request, exc, workflow='tat_tracker')
 
 
 @csrf_exempt
@@ -1154,9 +1153,9 @@ def tat_tracker_update(request):
         return JsonResponse({'ok': False, 'error': str(exc), 'code': exc.code}, status=428)
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
-    except Exception:
-        logger.exception('TAT Tracker update failed for group %s.', group_id)
-        return JsonResponse({'ok': False, 'error': 'The TAT case could not be updated. Try again.'}, status=500)
+    except Exception as exc:
+        from core.services.miniapp_messages import unexpected_miniapp_error
+        return unexpected_miniapp_error(request, exc, workflow='tat_tracker')
 
 
 @csrf_exempt

@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Complaints</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="{% static 'miniapp/utils.js' %}?v=11"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=12"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=33">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=34">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
   {% include "complaint_cases/lucide_icons.html" %}
@@ -24,6 +24,10 @@
       <button id="refreshBtn" class="icon-button" type="button" aria-label="Refresh complaints" title="Refresh complaints"><svg class="lucide" aria-hidden="true"><use href="#lucide-refresh-cw"></use></svg></button>
     </header>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <section id="errorBanner" class="error-banner" role="alert" aria-live="assertive" hidden>
+      <div class="error-banner-copy"><strong id="errorBannerTitle">Action needed</strong><p id="errorBannerMessage"></p><small id="errorBannerReference" hidden></small></div>
+      <div class="error-banner-actions"><button id="errorBannerRetry" type="button" hidden>Try Again</button><button id="errorBannerCloseApp" type="button" hidden>Close Mini App</button><button id="errorBannerDismiss" type="button">Dismiss</button></div>
+    </section>
     <section id="loadingState" class="loading-state" aria-live="polite"><span class="spinner-inline" aria-hidden="true"></span><span>Loading complaints...</span></section>
     <nav id="workspaceTabs" class="workspace-tabs" aria-label="Complaint workspace" hidden>
       <button id="queueWorkspaceBtn" type="button" class="active"><svg class="lucide" aria-hidden="true"><use href="#lucide-clipboard-list"></use></svg><span>Complaints</span></button>
@@ -121,7 +125,7 @@
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
   <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=3"></script>
-  <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=6"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=41"></script>
+  <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=7"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=42"></script>
 </body>
 </html>

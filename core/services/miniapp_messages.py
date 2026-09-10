@@ -107,10 +107,10 @@ MESSAGE_CATALOG: dict[str, MiniAppMessage] = {
     ),
     "retry_later": MiniAppMessage(
         "There have been too many attempts. Please wait a short while and try again.", 429,
-        tone="warning", persistence="transient", surface_hint="toast",
+        tone="warning", persistence="until_resolved", surface_hint="banner",
     ),
     "service_unavailable": MiniAppMessage(
-        "We cannot complete this right now. Your saved work is safe; please try again shortly.", 503,
+        "We cannot complete this right now. Please try again shortly.", 503,
     ),
     "portal_read_only_maintenance": MiniAppMessage(
         "The Portal is temporarily read-only for maintenance. Your saved work is safe; try again shortly.", 503,
@@ -323,7 +323,12 @@ def miniapp_error_response(
     if final_status >= 500 and exception is not None:
         try:
             import sentry_sdk
-            sentry_sdk.capture_exception(exception)
+            with sentry_sdk.push_scope() as scope:
+                scope.set_tag('miniapp.workflow', workflow)
+                scope.set_tag('miniapp.error_code', code)
+                scope.set_tag('miniapp.request_id', request_id)
+                scope.set_tag('miniapp.path', request.path)
+                sentry_sdk.capture_exception(exception)
         except ImportError:
             pass
     return response

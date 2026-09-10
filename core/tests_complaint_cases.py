@@ -361,6 +361,23 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(payload['start_index'], 1)
 
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_list_validation_uses_stable_message_contract(self):
+        response = self.client.post(
+            reverse('complaint_cases_list'),
+            data=json.dumps({'group_id': self.group.group_id, 'status': 'all', 'page': 'invalid'}),
+            content_type='application/json',
+            HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('100'),
+            HTTP_X_REQUEST_ID='complaint-invalid-page-1',
+            HTTP_IDEMPOTENCY_KEY='complaint-invalid-page-1',
+            HTTP_X_MINIAPP_MESSAGE_CONTRACT='2',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['code'], 'validation_failed')
+        self.assertEqual(response.json()['request_id'], 'complaint-invalid-page-1')
+        self.assertNotIn('error', response.json())
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
     def test_hb_resolves_and_manager_reopens_through_dedicated_endpoints(self):
         with patch('core.services.complaint_cases.get_sheets_service') as get_service:
             get_service.return_value.update_case_row.return_value = True
