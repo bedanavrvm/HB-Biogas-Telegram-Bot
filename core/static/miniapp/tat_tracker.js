@@ -1316,6 +1316,7 @@
     document.querySelectorAll('[data-required-capability]').forEach((node) => {
       node.hidden = !capabilities.has(node.dataset.requiredCapability);
     });
+    $('workspaceTabs').classList.toggle('single-tab', !capabilities.has('tat.reports.view'));
     const roles = (user.roles || []).join(', ') || 'Staff';
     $('userLine').textContent = `${user.name || 'Staff'} | ${roles}`;
     const productInput = $('newCaseForm')?.elements.product_key;

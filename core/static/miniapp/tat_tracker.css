@@ -297,6 +297,7 @@ h2 { font-size: 13px; font-weight: 750; }
 .workspace-tabs button { min-width: 0; min-height: 32px; border: 0; background: transparent; color: color-mix(in srgb, var(--tat-text) 68%, var(--tat-muted)); }
 .workspace-tabs button.active { background: var(--tat-accent-soft); color: var(--tat-accent); }
 .workspace-tabs svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.workspace-tabs.single-tab { grid-template-columns: minmax(0, 1fr); }
 [data-required-capability][hidden] { display: none !important; }
 .tabs[hidden] { display: none; }
 .dashboard-view { gap: 8px; }
