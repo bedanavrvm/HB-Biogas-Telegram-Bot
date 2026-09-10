@@ -1564,8 +1564,16 @@
       ${summary.read_only ? `<div class="closed-pilot-notice" role="status"><strong>Closed Pilot cycle</strong><span>This case is retained for reference and can no longer be edited. Reload the queue to continue with current work.</span></div>` : ''}
       <div class="summary-facts">
         <div class="fact">
-          <small>Amount</small>
-          <span class="highlight-val">KES ${escapeHtml(formatMoney(summary.amount || ''))}</span>
+          <small>Requested amount</small>
+          <span class="highlight-val">KES ${escapeHtml(formatMoney(summary.requested_amount || summary.amount || ''))}</span>
+        </div>
+        <div class="fact">
+          <small>Final loan amount</small>
+          <span class="highlight-val">${summary.final_loan_amount ? `KES ${escapeHtml(formatMoney(summary.final_loan_amount))}` : 'Pending BRO application'}</span>
+        </div>
+        <div class="fact">
+          <small>Loan cycle</small>
+          <span>${escapeHtml(summary.workflow_path || 'Standard')}</span>
         </div>
         <div class="fact">
           <small>ID Number</small>
@@ -1650,13 +1658,37 @@
           actionWrap.appendChild(requirements);
         }
         if (field.kind === 'dropdown') {
+          let finalAmountInput = null;
+          if (field.key === 'bro_applied') {
+            const amountLabel = document.createElement('label');
+            amountLabel.className = 'tat-final-loan-amount';
+            amountLabel.innerHTML = '<span>Final loan amount (KES)</span>';
+            finalAmountInput = document.createElement('input');
+            finalAmountInput.type = 'number';
+            finalAmountInput.inputMode = 'decimal';
+            finalAmountInput.min = '0';
+            finalAmountInput.step = '1';
+            finalAmountInput.value = summary.final_loan_amount || '';
+            finalAmountInput.placeholder = 'Amount applied on the loan system';
+            amountLabel.appendChild(finalAmountInput);
+            actionWrap.appendChild(amountLabel);
+          }
           const select = document.createElement('select');
           select.setAttribute('aria-label', 'Update ' + field.label);
           select.innerHTML = '<option value="">Select outcome...</option>' + (field.options || []).map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`).join('');
           select.value = field.value || '';
           select.addEventListener('change', async () => {
             const selected = select.value;
-            if (selected) await updateStageOnce(select, field, selected);
+            if (selected === 'Met' && finalAmountInput && !finalAmountInput.value.trim()) {
+              select.value = field.value || '';
+              setStatus('Enter the final loan amount before marking the loan as applied.', 'error');
+              finalAmountInput.focus();
+              return;
+            }
+            if (selected) await updateStageOnce(
+              select, field, selected,
+              finalAmountInput ? finalAmountInput.value.trim() : '',
+            );
           });
           actionWrap.appendChild(select);
         } else {
@@ -1729,7 +1761,7 @@
   function fillCaseCorrectionForm(summary, branches) {
     const form = $('caseCorrectionForm');
     if (!form || !summary) return;
-    ['client_name', 'national_id', 'primary_phone', 'branch', 'bro_name', 'amount'].forEach((field) => {
+    ['client_name', 'national_id', 'primary_phone', 'branch', 'bro_name'].forEach((field) => {
       const input = form.elements[field];
       if (!input) return;
       if (field === 'branch' && input.tagName === 'SELECT') {
@@ -1853,7 +1885,7 @@
     event.preventDefault();
     if (!state.detail || !state.detail.can_correct_details) return;
     const form = event.currentTarget;
-    const fields = ['client_name', 'national_id', 'primary_phone', 'branch', 'bro_name', 'amount'];
+    const fields = ['client_name', 'national_id', 'primary_phone', 'branch', 'bro_name'];
     const current = state.detail.summary || {};
     const updates = fields
       .map((field) => ({ field, value: String(form.elements[field]?.value || '').trim(), correction: true }))
@@ -1894,19 +1926,19 @@
     }
   }
 
-  async function updateStageOnce(control, field, value) {
+  async function updateStageOnce(control, field, value, finalLoanAmount) {
     if (!state.detail || !field || !field.editable || control.disabled || !value) return;
     const caseId = state.detail.summary.case_id;
     const workflowRevision = Number(state.detail.summary.workflow_revision || 1);
     if (!state.pendingStageUpdate
       || state.pendingStageUpdate.caseId !== caseId
       || state.pendingStageUpdate.fieldKey !== field.key
-      || state.pendingStageUpdate.value !== value
+      || state.pendingStageUpdate.value !== `${value}|${finalLoanAmount || ''}`
       || state.pendingStageUpdate.workflowRevision !== workflowRevision) {
       state.pendingStageUpdate = {
         caseId,
         fieldKey: field.key,
-        value,
+        value: `${value}|${finalLoanAmount || ''}`,
         workflowRevision,
         requestId: newRequestId(),
       };
@@ -1917,7 +1949,16 @@
       utils.haptic?.('light');
       if (isButton) setButtonLoading(control, true, 'Stamping');
       else control.disabled = true;
-      await submitUpdate([{ field: field.key, value }], {
+      const updates = [];
+      if (field.key === 'bro_applied' && value === 'Met') {
+        updates.push({
+          field: 'final_loan_amount',
+          value: finalLoanAmount,
+          correction: Boolean(state.detail.summary.final_loan_amount),
+        });
+      }
+      updates.push({ field: field.key, value });
+      await submitUpdate(updates, {
         caseId: pending.caseId,
         workflowRevision: pending.workflowRevision,
         requestId: pending.requestId,

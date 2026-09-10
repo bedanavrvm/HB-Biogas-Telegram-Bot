@@ -103,11 +103,11 @@ WORKFLOW_PRESETS = {
     'tat_tracker': {
         'label': 'TAT Tracker',
         'description': 'Role-based TAT case tracker with Mini App queues and Google Sheet mirroring.',
-        'sheet_name': 'TRACKER-Business',
+        'sheet_name': 'TAT Register',
         'workflow': {
             'type': 'tat_tracker',
-            'header_row': 2,
-            'data_start_row': 5,
+            'header_row': 1,
+            'data_start_row': 2,
             'catalog_scope': {
                 'branches': {'mode': 'catalog', 'values': []},
                 'products': {'mode': 'catalog', 'values': []},
@@ -119,7 +119,6 @@ WORKFLOW_PRESETS = {
                 'business': {'total': 20160, 'stages': {}},
                 'logbook': {'total': 20160, 'stages': {}},
                 'mjengo': {'total': 20160, 'stages': {}},
-                'kilimo': {'total': 20160, 'stages': {}},
                 'micro_asset': {'total': 20160, 'stages': {}},
             },
             'staff': [],

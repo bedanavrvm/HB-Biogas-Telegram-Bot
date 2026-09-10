@@ -1064,6 +1064,17 @@ class TatTrackerCase(models.Model):
     branch = models.CharField(max_length=120, blank=True, default='', db_index=True)
     bro_name = models.CharField(max_length=255, blank=True, default='')
     amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    final_loan_amount = models.DecimalField(
+        max_digits=14, decimal_places=2, null=True, blank=True,
+        db_comment=(
+            'Final loan amount recorded by the BRO at system-application stage; '
+            'the original requested amount remains the immutable route selector.'
+        ),
+        help_text=(
+            'Final amount entered by the BRO when the loan is applied on the system. '
+            'The original amount remains the immutable TAT routing amount.'
+        ),
+    )
 
     stage_values = models.JSONField(blank=True, default=dict)
     # Keep the SLA target that was active when each stage began. A later
@@ -3747,6 +3758,16 @@ class ProductTatConfiguration(models.Model):
     stage_columns = models.JSONField(default=dict)
     stages = models.JSONField(default=list)
     stage_tat_columns = models.JSONField(default=list, blank=True)
+    requires_valuation = models.BooleanField(
+        default=False,
+        db_comment='Whether this product version includes the Logbook valuation stage in its frozen TAT path.',
+        help_text='Include the Valuation ready stage for cases using this product version.',
+    )
+    hocc_threshold = models.DecimalField(
+        max_digits=14, decimal_places=2, default=100000,
+        db_comment='Requested-amount threshold that selects the HOCC loan-cycle path.',
+        help_text='Requested amount at or above which the frozen case path includes HOCC stages.',
+    )
 
     def __str__(self):
         return f'{self.product_version}: TAT configuration'
@@ -3754,6 +3775,8 @@ class ProductTatConfiguration(models.Model):
     def clean(self):
         super().clean()
         errors = {}
+        if self.hocc_threshold is None or self.hocc_threshold <= 0:
+            errors['hocc_threshold'] = 'The HOCC threshold must be greater than zero.'
         stages = self.stages if isinstance(self.stages, list) else []
         if not stages:
             errors['stages'] = 'Configure at least one ordered TAT stage.'
@@ -3781,6 +3804,8 @@ class ProductTatConfiguration(models.Model):
 
     def save(self, *args, **kwargs):
         _require_draft_product_configuration(self.product_version)
+        from core.services.tat_configuration import apply_global_register_defaults
+        apply_global_register_defaults(self)
         self.full_clean()
         return super().save(*args, **kwargs)
 

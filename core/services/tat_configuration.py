@@ -1,11 +1,71 @@
 """Immutable TAT configuration snapshots and explicit legacy reconciliation."""
 from __future__ import annotations
 
+from copy import deepcopy
 from decimal import Decimal
 
 from django.db import transaction
 
 from core.models import ProductTatConfiguration, ProductVersion, TatConfigurationEvent, TatTrackerCase
+
+
+VALUATION_STAGE_KEY = 'valuation_ready'
+HOCC_STAGE_KEYS = {
+    'bm_hocc_request', 'tat_scheduled', 'tat_held', 'decision',
+    'minutes_shared', 'sanctions',
+}
+
+GLOBAL_TAT_SHEET_NAME = 'TAT Register'
+GLOBAL_TAT_STAGES = [
+    {'key': 'mpesa_to_admin', 'label': 'MPESA sent to Admin', 'column': 11, 'role': 'BRO', 'kind': 'timestamp'},
+    {'key': 'mpesa_verified', 'label': 'MPESA verified by Business Admin and sent to CA', 'column': 12, 'role': 'BUSINESS_ADMIN', 'kind': 'timestamp'},
+    {'key': 'ca_analysis_sent', 'label': 'Credit analysis sent', 'column': 13, 'role': 'CA', 'kind': 'timestamp'},
+    {'key': 'bro_response', 'label': 'BRO response to CA', 'column': 14, 'role': 'BRO', 'kind': 'timestamp'},
+    {'key': 'bm_response', 'label': 'BM response to CA', 'column': 15, 'role': 'BM', 'kind': 'dropdown', 'options': ['Approved', 'Declined'], 'auto_timestamp_key': 'bm_response_ts', 'requires_signature_certificate': True},
+    {'key': 'valuation_ready', 'label': 'Valuation ready', 'column': 17, 'role': 'BM', 'kind': 'timestamp'},
+    {'key': 'bm_hocc_request', 'label': 'BM HOCC request', 'column': 18, 'role': 'BM', 'kind': 'timestamp'},
+    {'key': 'tat_scheduled', 'label': 'HOCC scheduled', 'column': 19, 'role': 'SECRETARY', 'kind': 'timestamp'},
+    {'key': 'tat_held', 'label': 'HOCC held', 'column': 20, 'role': 'SECRETARY', 'kind': 'timestamp'},
+    {'key': 'decision', 'label': 'Decision', 'column': 21, 'role': 'CHAIR', 'kind': 'dropdown', 'options': ['Approved', 'Rejected', 'Deferred'], 'auto_timestamp_key': 'decision_ts'},
+    {'key': 'minutes_shared', 'label': 'Minutes shared', 'column': 23, 'role': 'SECRETARY', 'kind': 'dropdown', 'options': ['Yes', 'No'], 'auto_timestamp_key': 'minutes_shared_ts'},
+    {'key': 'sanctions', 'label': 'Sanctions', 'column': 25, 'role': 'LOAN_APPROVER', 'kind': 'dropdown', 'options': ['Pending', 'Met', 'Not Met'], 'auto_timestamp_key': 'sanctions_ts'},
+    {'key': 'bro_applied', 'label': 'BRO applied loan on system', 'column': 27, 'role': 'BRO', 'kind': 'dropdown', 'options': ['Pending', 'Met', 'Not Met'], 'auto_timestamp_key': 'bro_applied_ts'},
+    {'key': 'disbursement_register', 'label': 'Business Admin disbursement register', 'column': 30, 'role': 'BUSINESS_ADMIN', 'kind': 'dropdown', 'options': ['10:00am', '1:00pm', '3:30pm'], 'auto_timestamp_key': 'register_ts'},
+    {'key': 'register_approved', 'label': 'Register approved', 'column': 32, 'role': 'LOAN_APPROVER', 'kind': 'dropdown', 'options': ['Approved', 'Pending'], 'auto_timestamp_key': 'register_approved_ts'},
+    {'key': 'disbursement', 'label': 'Finance disbursement', 'column': 33, 'role': 'FINANCE', 'kind': 'timestamp'},
+]
+
+
+def apply_global_register_defaults(config: ProductTatConfiguration) -> ProductTatConfiguration:
+    """Apply the governed global-register adapter without exposing JSON editing."""
+    config.sheet_name = GLOBAL_TAT_SHEET_NAME
+    config.remarks_col = 35
+    config.status_col = 34
+    config.tat_start_col = 36
+    config.stage_columns = {
+        'created': 8,
+        'bm_response_ts': 16,
+        'decision_ts': 22,
+        'minutes_shared_ts': 24,
+        'sanctions_ts': 26,
+        'bro_applied_ts': 28,
+        'final_loan_amount': 29,
+        'register_ts': 31,
+    }
+    config.stages = deepcopy(GLOBAL_TAT_STAGES)
+    config.stage_tat_columns = [
+        {
+            'stage_key': stage['key'],
+            'fallback_col': 39 + index,
+            'aliases': [
+                f"{stage['label']} TAT Minutes",
+                f"{stage['label']} TAT",
+                f"{stage['key']} TAT Minutes",
+            ],
+        }
+        for index, stage in enumerate(GLOBAL_TAT_STAGES)
+    ]
+    return config
 
 
 class TatConfigurationError(ValueError):
@@ -36,7 +96,40 @@ def serialize_tat_configuration(version: ProductVersion) -> dict:
         'stage_columns': dict(config.stage_columns or {}),
         'stages': list(config.stages or []),
         'stage_tat_columns': list(config.stage_tat_columns or []),
+        'requires_valuation': bool(config.requires_valuation),
+        'hocc_threshold': str(config.hocc_threshold) if config.hocc_threshold is not None else '',
     }
+
+
+def resolve_tat_configuration(version: ProductVersion, *, requested_amount: Decimal) -> dict:
+    """Freeze only stages applicable to this product and routing amount."""
+    snapshot = serialize_tat_configuration(version)
+    amount = Decimal(str(requested_amount))
+    threshold_raw = snapshot.get('hocc_threshold')
+    threshold = Decimal(str(threshold_raw)) if threshold_raw not in (None, '') else None
+    valuation = bool(snapshot.get('requires_valuation'))
+    hocc = threshold is not None and amount >= threshold
+
+    applicable = []
+    for stage in snapshot.get('stages') or []:
+        key = str(stage.get('key') or '')
+        if key == VALUATION_STAGE_KEY and not valuation:
+            continue
+        if key in HOCC_STAGE_KEYS and not hocc:
+            continue
+        applicable.append(stage)
+    applicable_keys = {str(stage.get('key') or '') for stage in applicable}
+    snapshot['stages'] = applicable
+    snapshot['stage_tat_columns'] = [
+        row for row in (snapshot.get('stage_tat_columns') or [])
+        if str(row.get('stage_key') or '') in applicable_keys
+    ]
+    path = 'HOCC' if hocc else 'Standard'
+    if valuation:
+        path += ' + Valuation'
+    snapshot['workflow_path'] = path
+    snapshot['routing_amount'] = str(amount)
+    return snapshot
 
 
 def product_config_from_snapshot(snapshot: dict):
@@ -85,6 +178,7 @@ def product_config_from_snapshot(snapshot: dict):
         product_id=snapshot.get('product_id'),
         version_id=str(snapshot.get('product_version_id') or ''),
         stage_tat_columns=tat_columns,
+        workflow_path=str(snapshot.get('workflow_path') or 'Standard'),
     )
 
 
@@ -100,8 +194,11 @@ def product_config_for_case(case: TatTrackerCase):
     # Compatibility for pre-migration/test rows explicitly classified as
     # legacy_assumed. This remains visible as a non-deterministic binding and
     # is excluded from bulk migration and Sheet cutover readiness.
-    from core.services.tat_tracker import product_by_key
-    return product_by_key(case.product_key)
+    from core.services.tat_tracker import PRODUCTS
+    try:
+        return PRODUCTS[case.product_key]
+    except KeyError as exc:
+        raise TatConfigurationError('This legacy case has no compatible static TAT configuration.') from exc
 
 
 @transaction.atomic

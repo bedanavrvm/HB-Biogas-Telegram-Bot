@@ -28,19 +28,13 @@
  */
 
 const TAT_CONFIG = {
-  HEADER_ROW: 2,
-  DATA_START_ROW: 5,
+  HEADER_ROW: 1,
+  DATA_START_ROW: 2,
   DEFAULT_MAX_ROWS: 500,
   DATE_TIME_FORMAT: 'dd-mmm-yyyy hh:mm',
   MONEY_FORMAT: '#,##0',
   TAT_HOURS_TARGET: 336,
-  TRACKER_SHEETS: [
-    'TRACKER-Business',
-    'TRACKER-LOGBOOK',
-    'TRACKER-MJENGO',
-    'TRACKER-KILIMO',
-    'TRACKER-MICRO-ASSET',
-  ],
+  TRACKER_SHEETS: ['TAT Register'],
   SUPPORT_SHEETS: [
     'CASE_INDEX',
     'AUDIT LOG',
@@ -54,182 +48,71 @@ const TAT_CONFIG = {
       'West Nairobi',
     ],
     DECISION: ['Approved', 'Rejected', 'Deferred'],
+    BM_RESPONSE: ['Approved', 'Declined'],
     SANCTIONS: ['Pending', 'Met', 'Not Met'],
     MINUTES_SHARED: ['Yes', 'No'],
     BRO_APPLIED: ['Pending', 'Met', 'Not Met'],
     REGISTER: ['10:00am', '1:00pm', '3:30pm'],
     REGISTER_APPROVED: ['Approved', 'Pending'],
-    STATUS: ['Active', 'Disbursed', 'Rejected', 'Declined', 'Deferred', 'Stalled', 'Pending Docs'],
+    STATUS: ['Active', 'Stalled', 'Declined', 'Disbursed'],
   },
 };
 
 const PRODUCT_LAYOUTS = {
-  'TRACKER-Business': {
-    productKey: 'business',
-    title: 'TAT TRACKER - Business',
+  'TAT Register': {
+    productKey: '',
+    title: 'TAT REGISTER',
     maxAmount: null,
-    minAmount: 5000,
+    minAmount: 0,
     headers: [
-      'Case ID', 'Client Name', 'ID NUMBER', 'PHONE NUMBER', 'Branch', 'BRO Name', 'Amount',
-      'Case Created', 'MPESA Sent to Admin', 'MPESA Verified and Sent to CA',
-      'Credit Analysis Sent', 'BRO Response to CA', 'BM Response to CA',
-      'BRO Applied Loan on System', 'Disbursement Register', 'Register Timestamp',
-      'Register Approved', 'Finance Disbursement', 'Status', 'Remarks / Delays',
-      'TAT Hours', 'TAT Days'
-    ].concat(businessStageTatHeaders_()),
+      'Case ID', 'Client Name', 'ID NUMBER', 'PHONE NUMBER', 'Branch', 'BRO Name',
+      'Requested Amount', 'Case Created', 'Product', 'Loan Cycle Path',
+      'MPESA Sent to Admin', 'MPESA Verified and Sent to CA', 'Credit Analysis Sent',
+      'BRO Response to CA', 'BM Response to CA', 'BM Response Timestamp',
+      'Valuation Ready', 'BM HOCC Request', 'HOCC Scheduled', 'HOCC Held',
+      'Decision', 'Decision Timestamp', 'Minutes Shared', 'Minutes Shared Timestamp',
+      'Sanctions', 'Sanctions Timestamp', 'BRO Applied on System',
+      'BRO Applied Timestamp', 'Final Loan Amount', 'Disbursement Register',
+      'Register Timestamp', 'Register Approved', 'Finance Disbursement', 'Status',
+      'Remarks / Delays', 'TAT Hours', 'TAT Days', 'Total TAT Minutes'
+    ].concat(globalStageTatHeaders_()).concat(['Product Key']),
     cols: {
       amount: 7,
       created: 8,
-      register: 15,
-      registerTs: 16,
-      registerApproved: 17,
-      disbursement: 18,
-      status: 19,
-      remarks: 20,
-      tatHours: 21,
-      tatDays: 22,
+      decision: 21,
+      decisionTs: 22,
+      minutesShared: 23,
+      sanctions: 25,
+      sanctionsTs: 26,
+      broApplied: 27,
+      register: 30,
+      registerTs: 31,
+      registerApproved: 32,
+      disbursement: 33,
+      status: 34,
+      remarks: 35,
+      tatHours: 36,
+      tatDays: 37,
     },
-    dateCols: [8, 9, 10, 11, 12, 13, 14, 16, 18],
-    stageCols: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
-    stageTatKeys: businessStageTatKeys_(),
+    dateCols: [8, 11, 12, 13, 14, 16, 17, 18, 19, 20, 22, 24, 26, 28, 31, 33],
+    stageCols: [11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 23, 25, 27, 30, 32, 33],
+    stageTatKeys: globalStageTatKeys_(),
   },
-  'TRACKER-LOGBOOK': {
-    productKey: 'logbook',
-    title: 'TAT TRACKER - LOGBOOK',
-    maxAmount: 700000,
-    minAmount: 50000,
-    headers: [
-      'Case ID', 'Client Name', 'ID NUMBER', 'PHONE NUMBER', 'Branch', 'BRO Name', 'Amount',
-      'Case Created', 'MPESA Sent to Admin', 'MPESA Verified and Sent to CA',
-      'Credit Analysis Sent', 'BRO Response to CA', 'Valuation Ready',
-      'BM TAT Request Sent', 'HOCC Scheduled', 'HOCC Held', 'Decision',
-      'Decision Timestamp', 'Minutes Shared', 'Sanctions', 'Sanctions Timestamp',
-      'BRO Applied on System', 'Disbursement Register', 'Register Timestamp',
-      'Register Approved', 'Finance Disbursement', 'Status', 'Remarks / Delays',
-      'TAT Hours', 'TAT Days'
-    ].concat(logbookStageTatHeaders_()),
-    cols: {
-      amount: 7,
-      created: 8,
-      decision: 17,
-      decisionTs: 18,
-      minutesShared: 19,
-      sanctions: 20,
-      sanctionsTs: 21,
-      broApplied: 22,
-      register: 23,
-      registerTs: 24,
-      registerApproved: 25,
-      disbursement: 26,
-      status: 27,
-      remarks: 28,
-      tatHours: 29,
-      tatDays: 30,
-    },
-    dateCols: [8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 21, 24, 26],
-    stageCols: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
-    stageTatKeys: logbookStageTatKeys_(),
-  },
-  'TRACKER-MJENGO': null,
-  'TRACKER-KILIMO': null,
-  'TRACKER-MICRO-ASSET': null,
 };
 
-PRODUCT_LAYOUTS['TRACKER-MJENGO'] = noValuationLayout('mjengo', 'TAT TRACKER - MJENGO', 10000, 500000);
-PRODUCT_LAYOUTS['TRACKER-KILIMO'] = noValuationLayout('kilimo', 'TAT TRACKER - KILIMO', 50000, 300000);
-PRODUCT_LAYOUTS['TRACKER-MICRO-ASSET'] = noValuationLayout('micro_asset', 'TAT TRACKER - MICRO-ASSET', 10000, 300000);
-
-function noValuationLayout(productKey, title, minAmount, maxAmount) {
-  return {
-    title: title,
-    minAmount: minAmount,
-    maxAmount: maxAmount,
-    headers: [
-      'Case ID', 'Client Name', 'ID NUMBER', 'PHONE NUMBER', 'Branch', 'BRO Name', 'Amount',
-      'Case Created', 'MPESA Sent to Admin', 'MPESA Verified and Sent to CA',
-      'Credit Analysis Sent', 'BRO Response to CA', 'BM TAT Request Sent',
-      'HOCC Scheduled', 'HOCC Held', 'Decision', 'Decision Timestamp',
-      'Minutes Shared', 'Sanctions', 'Sanctions Timestamp',
-      'BRO Applied on System', 'Disbursement Register', 'Register Timestamp',
-      'Register Approved', 'Finance Disbursement', 'Status', 'Remarks / Delays',
-      'TAT Hours', 'TAT Days'
-    ].concat(noValuationStageTatHeaders_()),
-    cols: {
-      amount: 7,
-      created: 8,
-      decision: 16,
-      decisionTs: 17,
-      minutesShared: 18,
-      sanctions: 19,
-      sanctionsTs: 20,
-      broApplied: 21,
-      register: 22,
-      registerTs: 23,
-      registerApproved: 24,
-      disbursement: 25,
-      status: 26,
-      remarks: 27,
-      tatHours: 28,
-      tatDays: 29,
-    },
-    dateCols: [8, 9, 10, 11, 12, 13, 14, 15, 17, 20, 23, 25],
-    stageCols: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25],
-    stageTatKeys: noValuationStageTatKeys_(),
-  };
+function globalStageTatKeys_() {
+  return ['mpesa_to_admin', 'mpesa_verified', 'ca_analysis_sent', 'bro_response', 'bm_response', 'valuation_ready', 'bm_hocc_request', 'tat_scheduled', 'tat_held', 'decision', 'minutes_shared', 'sanctions', 'bro_applied', 'disbursement_register', 'register_approved', 'disbursement'];
 }
 
-function businessStageTatKeys_() {
-  return ['mpesa_to_admin', 'mpesa_verified', 'ca_analysis_sent', 'bro_response', 'bm_response', 'bro_applied', 'disbursement_register', 'register_approved', 'disbursement'];
-}
-
-function noValuationStageTatKeys_() {
-  return ['mpesa_to_admin', 'mpesa_verified', 'ca_analysis_sent', 'bro_response', 'bm_tat_request', 'tat_scheduled', 'tat_held', 'decision', 'minutes_shared', 'sanctions', 'bro_applied', 'disbursement_register', 'register_approved', 'disbursement'];
-}
-
-function logbookStageTatKeys_() {
-  return ['mpesa_to_admin', 'mpesa_verified', 'ca_analysis_sent', 'bro_response', 'valuation_ready', 'bm_tat_request', 'tat_scheduled', 'tat_held', 'decision', 'minutes_shared', 'sanctions', 'bro_applied', 'disbursement_register', 'register_approved', 'disbursement'];
-}
-function businessStageTatHeaders_() {
+function globalStageTatHeaders_() {
   return [
     'MPESA sent to Admin TAT Minutes',
     'MPESA verified and sent to CA TAT Minutes',
     'Credit analysis sent TAT Minutes',
     'BRO response to CA TAT Minutes',
     'BM response to CA TAT Minutes',
-    'BRO applied loan on system TAT Minutes',
-    'Disbursement register TAT Minutes',
-    'Register approved TAT Minutes',
-    'Finance disbursement TAT Minutes',
-  ];
-}
-
-function noValuationStageTatHeaders_() {
-  return [
-    'MPESA sent to Admin TAT Minutes',
-    'MPESA verified and sent to CA TAT Minutes',
-    'Credit analysis sent TAT Minutes',
-    'BRO response to CA TAT Minutes',
-    'BM TAT request sent TAT Minutes',
-    'HOCC scheduled TAT Minutes',
-    'HOCC held TAT Minutes',
-    'Decision TAT Minutes',
-    'Minutes shared TAT Minutes',
-    'Sanctions TAT Minutes',
-    'BRO applied on system TAT Minutes',
-    'Disbursement register TAT Minutes',
-    'Register approved TAT Minutes',
-    'Finance disbursement TAT Minutes',
-  ];
-}
-
-function logbookStageTatHeaders_() {
-  return [
-    'MPESA sent to Admin TAT Minutes',
-    'MPESA verified and sent to CA TAT Minutes',
-    'Credit analysis sent TAT Minutes',
-    'BRO response to CA TAT Minutes',
     'Valuation ready TAT Minutes',
-    'BM TAT request sent TAT Minutes',
+    'BM HOCC request TAT Minutes',
     'HOCC scheduled TAT Minutes',
     'HOCC held TAT Minutes',
     'Decision TAT Minutes',
@@ -246,12 +129,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('TAT Tracker')
     .addItem('Setup / refresh workbook', 'setupTatTrackerWorkbook')
-    .addItem('Setup current tracker tab only', 'setupCurrentTatTrackerSheet')
-    .addItem('Setup Business tab', 'setupTatBusinessSheet')
-    .addItem('Setup Logbook tab', 'setupTatLogbookSheet')
-    .addItem('Setup Mjengo tab', 'setupTatMjengoSheet')
-    .addItem('Setup Kilimo tab', 'setupTatKilimoSheet')
-    .addItem('Setup Micro Asset tab', 'setupTatMicroAssetSheet')
+    .addItem('Setup TAT Register only', 'setupCurrentTatTrackerSheet')
     .addItem('Remove legacy protections', 'removeLegacyTatProtectionsMenu')
     .addItem('Refresh validations only', 'refreshTatValidations')
     .addItem('Refresh TAT value formatting', 'refreshTatFormulas')
@@ -275,28 +153,7 @@ function setupTatTrackerWorkbook() {
 }
 
 function setupCurrentTatTrackerSheet() {
-  const sheet = SpreadsheetApp.getActiveSheet();
-  setupSingleTatTrackerSheet_(sheet.getName());
-}
-
-function setupTatBusinessSheet() {
-  setupSingleTatTrackerSheet_('TRACKER-Business');
-}
-
-function setupTatLogbookSheet() {
-  setupSingleTatTrackerSheet_('TRACKER-LOGBOOK');
-}
-
-function setupTatMjengoSheet() {
-  setupSingleTatTrackerSheet_('TRACKER-MJENGO');
-}
-
-function setupTatKilimoSheet() {
-  setupSingleTatTrackerSheet_('TRACKER-KILIMO');
-}
-
-function setupTatMicroAssetSheet() {
-  setupSingleTatTrackerSheet_('TRACKER-MICRO-ASSET');
+  setupSingleTatTrackerSheet_('TAT Register');
 }
 
 function setupSingleTatTrackerSheet_(sheetName) {
@@ -374,7 +231,7 @@ function refreshTatHighlighting() {
     const sheet = ss.getSheetByName(sheetName);
     if (sheet) applyStatusConditionalFormatting_(sheet, PRODUCT_LAYOUTS[sheetName]);
   });
-  SpreadsheetApp.getUi().alert('TAT value highlighting refreshed from row 5 downward. Rows 1-3 were not touched.');
+  SpreadsheetApp.getUi().alert('TAT value highlighting refreshed from row 2 downward. The header row was not touched.');
 }
 
 function removeLegacyTatProtectionsMenu() {
@@ -421,13 +278,19 @@ function removeLegacyProtectionsFromSheet_(sheet) {
 function setupTrackerSheet_(sheet, layout) {
   ensureRowsAndColumns_(sheet, TAT_CONFIG.DEFAULT_MAX_ROWS, layout.headers.length);
   sheet.getRange(TAT_CONFIG.HEADER_ROW, 1, 1, layout.headers.length).setValues([layout.headers]);
+  sheet.hideColumns(layout.headers.length, 1);
   sheet.getRange(TAT_CONFIG.DATA_START_ROW, 1, TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1, layout.headers.length).setWrap(true);
   sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.amount, TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1, 1).setNumberFormat(TAT_CONFIG.MONEY_FORMAT);
+  sheet.getRange(TAT_CONFIG.DATA_START_ROW, 29, TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1, 1).setNumberFormat(TAT_CONFIG.MONEY_FORMAT);
   layout.dateCols.forEach(function(col) {
     sheet.getRange(TAT_CONFIG.DATA_START_ROW, col, TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1, 1).setNumberFormat(TAT_CONFIG.DATE_TIME_FORMAT);
   });
   applyValidations_(sheet, layout);
   applyTatFormulas_(sheet, layout);
+  sheet.setFrozenRows(TAT_CONFIG.HEADER_ROW);
+  if (!sheet.getFilter()) {
+    sheet.getRange(TAT_CONFIG.HEADER_ROW, 1, TAT_CONFIG.DEFAULT_MAX_ROWS, layout.headers.length).createFilter();
+  }
   applyStatusConditionalFormattingIfEmpty_(sheet, layout);
 }
 
@@ -437,6 +300,7 @@ function applyValidations_(sheet, layout) {
   const statusRule = listRule_(TAT_CONFIG.DROPDOWNS.STATUS, true);
   sheet.getRange(TAT_CONFIG.DATA_START_ROW, 5, rows, 1).setDataValidation(branchRule);
   sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.status, rows, 1).setDataValidation(statusRule);
+  sheet.getRange(TAT_CONFIG.DATA_START_ROW, 15, rows, 1).setDataValidation(listRule_(TAT_CONFIG.DROPDOWNS.BM_RESPONSE, true));
   if (layout.cols.decision) sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.decision, rows, 1).setDataValidation(listRule_(TAT_CONFIG.DROPDOWNS.DECISION, true));
   if (layout.cols.minutesShared) sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.minutesShared, rows, 1).setDataValidation(listRule_(TAT_CONFIG.DROPDOWNS.MINUTES_SHARED, true));
   if (layout.cols.sanctions) sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.sanctions, rows, 1).setDataValidation(listRule_(TAT_CONFIG.DROPDOWNS.SANCTIONS, true));
@@ -495,6 +359,10 @@ function removeLegacyFormulaProtections_(sheet) {
 }
 
 function applyStatusConditionalFormatting_(sheet, layout) {
+  if (!layout.productKey) {
+    applyGlobalRegisterConditionalFormatting_(sheet, layout);
+    return;
+  }
   const dataRows = TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1;
   const row = TAT_CONFIG.DATA_START_ROW;
   const tatHours = colLetter_(layout.cols.tatHours);
@@ -524,10 +392,60 @@ function applyStatusConditionalFormatting_(sheet, layout) {
   sheet.setConditionalFormatRules(rules);
 }
 
-function setupTatHighlightingTargets_(sheet, layout) {
-  if (!layout.productKey) {
-    throw new Error('TAT highlighting needs a product key for ' + sheet.getName() + '.');
+function applyGlobalRegisterConditionalFormatting_(sheet, layout) {
+  const dataRows = TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1;
+  const row = TAT_CONFIG.DATA_START_ROW;
+  const targetColumns = setupGlobalTatHighlightingTargets_(sheet, layout);
+  const rules = [];
+  const addDynamicTraffic = function(column, targetColumn, divisor) {
+    const letter = colLetter_(column);
+    const value = `${letter}${row}`;
+    const target = `($${colLetter_(targetColumn)}${row}/${divisor})`;
+    const range = sheet.getRange(TAT_CONFIG.DATA_START_ROW, column, dataRows, 1);
+    rules.push(colorRule_(range, `=AND(${value}<>"",${target}>0,${value}<=${target}*0.8)`, '#d9ead3'));
+    rules.push(colorRule_(range, `=AND(${value}<>"",${target}>0,${value}>${target}*0.8,${value}<=${target})`, '#fff2cc'));
+    rules.push(colorRule_(range, `=AND(${value}<>"",${target}>0,${value}>${target})`, '#f4cccc'));
+  };
+  addDynamicTraffic(layout.cols.tatHours, targetColumns.total, 60);
+  addDynamicTraffic(layout.cols.tatDays, targetColumns.total, 1440);
+  (layout.stageTatKeys || []).forEach(function(stageKey, index) {
+    addDynamicTraffic(layout.cols.tatDays + 2 + index, targetColumns.stages[index], 1);
+  });
+  const statusRange = sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.status, dataRows, 1);
+  const statusCell = `${colLetter_(layout.cols.status)}${row}`;
+  rules.push(colorRule_(statusRange, `=${statusCell}="Active"`, '#d9ead3'));
+  rules.push(colorRule_(statusRange, `=${statusCell}="Stalled"`, '#fff2cc'));
+  rules.push(colorRule_(statusRange, `=${statusCell}="Declined"`, '#f4cccc'));
+  rules.push(colorRule_(statusRange, `=${statusCell}="Disbursed"`, '#c9daf8'));
+  sheet.setConditionalFormatRules(rules);
+}
+
+function setupGlobalTatHighlightingTargets_(sheet, layout) {
+  const start = TAT_CONFIG.DATA_START_ROW;
+  const rows = TAT_CONFIG.DEFAULT_MAX_ROWS - start + 1;
+  const productColumn = layout.headers.length;
+  const helperStart = productColumn + 1;
+  const stageKeys = layout.stageTatKeys || [];
+  const keys = ['__total__'].concat(stageKeys);
+  ensureRowsAndColumns_(sheet, TAT_CONFIG.DEFAULT_MAX_ROWS, helperStart + keys.length - 1);
+  const formulas = [];
+  for (let offset = 0; offset < rows; offset += 1) {
+    const currentRow = start + offset;
+    const productCell = `$${colLetter_(productColumn)}${currentRow}`;
+    formulas.push(keys.map(function(stageKey) {
+      return `=IF(${productCell}="","",SUMIFS('TAT TARGETS'!$C:$C,'TAT TARGETS'!$A:$A,${productCell},'TAT TARGETS'!$B:$B,"${stageKey}"))`;
+    }));
   }
+  sheet.getRange(start, helperStart, rows, keys.length).setFormulas(formulas).setNumberFormat('0');
+  sheet.hideColumns(helperStart, keys.length);
+  return {
+    total: helperStart,
+    stages: stageKeys.map(function(_, index) { return helperStart + 1 + index; }),
+  };
+}
+
+function setupTatHighlightingTargets_(sheet, layout) {
+  if (!layout.productKey) return null;
   // Conditional-format formulas cannot reliably query another sheet. Store the
   // TAT TARGETS lookups in hidden cells on this tracker sheet instead, then
   // keep every conditional rule entirely sheet-local.
@@ -602,8 +520,8 @@ function setupTatTargets_(sheet) {
   sheet.getRange(1, 1, 1, 4).setFontWeight('bold').setBackground('#1c4587').setFontColor('#ffffff');
   sheet.setFrozenRows(1);
   if (sheet.getLastRow() < 2) {
-    const rows = Object.keys(PRODUCT_LAYOUTS).map(function(sheetName) {
-      return [PRODUCT_LAYOUTS[sheetName].productKey, '__total__', TAT_CONFIG.TAT_HOURS_TARGET * 60, 0.8];
+    const rows = ['business', 'logbook', 'mjengo', 'micro_asset'].map(function(productKey) {
+      return [productKey, '__total__', TAT_CONFIG.TAT_HOURS_TARGET * 60, 0.8];
     });
     sheet.getRange(2, 1, rows.length, 4).setValues(rows);
   }

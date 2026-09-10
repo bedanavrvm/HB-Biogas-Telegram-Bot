@@ -149,6 +149,10 @@ def apply_baseline(*, actor=None) -> dict:
     _migration('0112_branchservicearea_locationconfigurationevent_and_more').seed_and_backfill_locations(apps, None)
     _reconcile_default_products()
     _migration('0070_seed_workflow_role_capabilities').seed_capabilities(apps, None)
+    from core.models import WorkflowRoleCapability
+    WorkflowRoleCapability.objects.filter(
+        workflow='tat_tracker', capability_key='tat.stage.bm_tat_request.update',
+    ).delete()
     _migration('0154_complaint_category_catalogue').seed_complaint_categories(apps, None)
     _migration('0163_it_override_tat_roles_complaint_categories').apply_policy_and_catalogue(apps, None)
     _migration('0166_compact_complaint_category_descriptions').update_descriptions(apps, None)

@@ -14,7 +14,8 @@ from core.services.workflow_data_mode import operational_tat_cases
 
 
 EXPORT_FIELDS = (
-    'Case reference', 'Branch', 'Product', 'Product version', 'Stage',
+    'Case reference', 'Branch', 'Product', 'Product version', 'Loan cycle',
+    'Requested amount', 'Final loan amount', 'Stage',
     'Responsible role', 'Current owner', 'Status', 'Stage elapsed minutes',
     'Stage target minutes', 'Created at', 'Updated at',
 )
@@ -66,6 +67,9 @@ def _row(case, workflow: dict) -> dict:
         'task_id': str(task.pk) if task else '',
         'product': case.product_label or (product.label if product else case.product_key), 'product_key': case.product_key,
         'product_version': version, 'stage': stage.label if stage else 'Complete',
+        'workflow_path': product.workflow_path if product else '',
+        'requested_amount': str(case.amount or ''),
+        'final_loan_amount': str(case.final_loan_amount or ''),
         'stage_key': stage.key if stage else '', 'role': stage.role if stage else '',
         'owner': _owner(task), 'status': case.status,
         'elapsed_minutes': str(elapsed) if elapsed is not None else '',
@@ -165,6 +169,7 @@ def export_xlsx(*, group, actor, request_id: str, filters: dict | None = None) -
     for row in rows:
         sheet.append((
             row['case_reference'], row['branch'], row['product'], row['product_version'],
+            row['workflow_path'], row['requested_amount'], row['final_loan_amount'],
             row['stage'], row['role'], row['owner'], row['status'],
             row['elapsed_minutes'], row['target_minutes'],
             row['created_at'].isoformat(), row['updated_at'].isoformat(),

@@ -20,13 +20,15 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import AccessGrant, BusinessCalendarHoliday, GroupSheetConfiguration, LiveSheetRecordChange, SheetRegisterContract, SheetSyncAuditSnapshot, TatActionTask, TatActionTaskRecipient, TatConfigurationEvent, TatEscalationRule, TatPresentationSettings, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, UserMiniAppPreference, UserProfile, WorkflowConfigurationChangeRequest, WorkflowRoleCapability, WorkflowSlaEscalation, WorkflowTatMetricRebuildRequest
+from core.models import AccessGrant, BusinessCalendarHoliday, GroupSheetConfiguration, LiveSheetRecordChange, ProductTatConfiguration, ProductVersion, SheetRegisterContract, SheetSyncAuditSnapshot, TatActionTask, TatActionTaskRecipient, TatConfigurationEvent, TatEscalationRule, TatPresentationSettings, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, UserMiniAppPreference, UserProfile, WorkflowConfigurationChangeRequest, WorkflowRoleCapability, WorkflowSlaEscalation, WorkflowTatMetricRebuildRequest
 from core.api.views import _dispatch_tat_approval_certificate, _process_telegram_message, tat_tracker_identity_context, tat_tracker_settings
 from core.services.group_config import GroupConfig, GroupRegistry
 from core.services.tat_tracker import (
     _TAT_HEADER_CACHE,
     apply_side_effects,
+    apply_update,
     bootstrap,
+    build_tat_sheet_row_data,
     build_tat_tracker_url,
     calculated_tat_days,
     calculated_tat_hours,
@@ -74,6 +76,7 @@ from core.services.tat_tracker import (
     workflow_branches,
 )
 from core.services.workflow_transitions import WorkflowRevisionConflict
+from core.services.tat_configuration import product_config_from_snapshot, resolve_tat_configuration
 from core.services.workflow_sla import collect_sla_candidates, collect_tat_daily_metrics, record_sla_candidates
 from core.services.miniapp_settings import create_tat_configuration_request, preference_payload, review_tat_configuration_request, update_preference
 from core.services.tat_presentation import update_presentation_settings
@@ -171,6 +174,107 @@ class TatTrackerWorkflowTest(TestCase):
             {'min_amount': '50000.00', 'max_amount': '700000.00'},
         )
         self.assertEqual(serialize_product(product_by_key('business'))['max_amount'], '')
+
+    def test_case_stage_plan_is_frozen_from_product_and_requested_amount(self):
+        business = ProductVersion.objects.get(product__code='business', status='published')
+        logbook = ProductVersion.objects.get(product__code='logbook', status='published')
+
+        standard = resolve_tat_configuration(business, requested_amount=Decimal('99999'))
+        hocc = resolve_tat_configuration(business, requested_amount=Decimal('100000'))
+        valuation = resolve_tat_configuration(logbook, requested_amount=Decimal('99999'))
+        valuation_hocc = resolve_tat_configuration(logbook, requested_amount=Decimal('100000'))
+
+        self.assertEqual(standard['workflow_path'], 'Standard')
+        self.assertEqual(hocc['workflow_path'], 'HOCC')
+        self.assertEqual(valuation['workflow_path'], 'Standard + Valuation')
+        self.assertEqual(valuation_hocc['workflow_path'], 'HOCC + Valuation')
+        self.assertIn('bm_response', {row['key'] for row in standard['stages']})
+        self.assertNotIn('bm_hocc_request', {row['key'] for row in standard['stages']})
+        self.assertIn('bm_hocc_request', {row['key'] for row in hocc['stages']})
+        self.assertNotIn('valuation_ready', {row['key'] for row in hocc['stages']})
+        self.assertIn('valuation_ready', {row['key'] for row in valuation['stages']})
+        self.assertIn('valuation_ready', {row['key'] for row in valuation_hocc['stages']})
+
+    def test_global_tat_configuration_uses_correct_hocc_label(self):
+        config = ProductVersion.objects.get(
+            product__code='business', status='published',
+        ).tat_configuration
+        stages = {row['key']: row for row in config.stages}
+
+        self.assertNotIn('bm_tat_request', stages)
+        self.assertEqual(stages['bm_hocc_request']['label'], 'BM HOCC request')
+        self.assertEqual(config.sheet_name, 'TAT Register')
+
+    def test_new_tat_product_configuration_uses_guided_global_defaults(self):
+        published = ProductVersion.objects.get(product__code='business', status='published')
+        draft = ProductVersion.objects.create(product=published.product, version=999)
+
+        config = ProductTatConfiguration.objects.create(
+            product_version=draft, case_prefix='JBL-NEW', sheet_name='ignored',
+            remarks_col=1, status_col=2, tat_start_col=3,
+        )
+
+        self.assertEqual(config.sheet_name, 'TAT Register')
+        self.assertEqual(config.status_col, 34)
+        self.assertEqual(config.remarks_col, 35)
+        self.assertEqual(config.tat_start_col, 36)
+        self.assertIn('bm_hocc_request', {stage['key'] for stage in config.stages})
+        self.assertNotIn('bm_tat_request', {stage['key'] for stage in config.stages})
+
+    def test_global_sheet_blanks_irrelevant_stage_cells_and_writes_product_key(self):
+        version = ProductVersion.objects.get(product__code='business', status='published')
+        snapshot = resolve_tat_configuration(version, requested_amount=Decimal('99999'))
+        product = product_config_from_snapshot(snapshot)
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            case_id='JBL-BS-2026-STANDARD', product=version.product, product_version=version,
+            product_key='business', product_label='Business',
+            client_name='STANDARD CASE', amount=Decimal('99999'), status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+            tat_configuration_snapshot=snapshot,
+            configuration_binding_status=TatTrackerCase.CONFIG_VERSIONED,
+        )
+        headers = [''] * 55
+        headers[8] = 'Product'
+        headers[9] = 'Loan Cycle Path'
+        headers[54] = 'Product Key'
+        existing = ['STALE'] * 55
+
+        row = build_tat_sheet_row_data(self.config, case, product, headers, existing)
+
+        self.assertEqual(row[8], 'Business')
+        self.assertEqual(row[9], 'Standard')
+        self.assertEqual(row[54], 'business')
+        self.assertEqual(row[16], '')  # Valuation ready.
+        self.assertEqual(row[17], '')  # BM HOCC request.
+        self.assertEqual(row[43], '')  # Valuation stage TAT.
+        self.assertEqual(row[44], '')  # BM HOCC request TAT.
+
+    def test_bro_records_lower_final_amount_without_changing_hocc_path(self):
+        version = ProductVersion.objects.get(product__code='business', status='published')
+        snapshot = resolve_tat_configuration(version, requested_amount=Decimal('100000'))
+        values = {'created': timezone.now().isoformat()}
+        for stage in snapshot['stages']:
+            if stage['key'] == 'bro_applied':
+                break
+            values[stage['key']] = 'Met' if stage['key'] == 'sanctions' else 'Approved'
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id, case_id='JBL-BS-2026-FINAL-AMOUNT',
+            product=version.product, product_version=version,
+            product_key='business', product_label='Business', client_name='AMOUNT CASE',
+            branch='Nakuru', bro_name='BRO User', amount=Decimal('100000'),
+            status='Active', stage_values=values,
+            tat_configuration_snapshot=snapshot,
+            configuration_binding_status=TatTrackerCase.CONFIG_VERSIONED,
+        )
+        bro = {'name': 'BRO User', 'roles': ['BRO']}
+
+        apply_update(case, bro, {'field': 'final_loan_amount', 'value': '80000'})
+        apply_update(case, bro, {'field': 'bro_applied', 'value': 'Met'})
+
+        self.assertEqual(case.final_loan_amount, Decimal('80000'))
+        self.assertEqual(case.stage_values['bro_applied'], 'Met')
+        self.assertEqual(case.tat_configuration_snapshot['workflow_path'], 'HOCC')
 
     def test_overdue_tat_stage_records_one_pending_follow_up_per_day(self):
         # SLA time is measured only during the official Nairobi business
@@ -2509,12 +2613,12 @@ class TatTrackerWorkflowTest(TestCase):
         logbook = product_by_key('logbook')
         mjengo = product_by_key('mjengo')
 
-        self.assertEqual(tat_hours_formula(business, 5), '=IF(OR($H5="",$R5=""),"",ROUND(($R5-$H5)*24,2))')
-        self.assertEqual(tat_days_formula(business, 5), '=IF(U5="","",ROUND(U5/24,2))')
-        self.assertEqual(tat_hours_formula(logbook, 5), '=IF(OR($H5="",$Z5=""),"",ROUND(($Z5-$H5)*24,2))')
-        self.assertEqual(tat_days_formula(logbook, 5), '=IF(AC5="","",ROUND(AC5/24,2))')
-        self.assertEqual(tat_hours_formula(mjengo, 5), '=IF(OR($H5="",$Y5=""),"",ROUND(($Y5-$H5)*24,2))')
-        self.assertEqual(tat_days_formula(mjengo, 5), '=IF(AB5="","",ROUND(AB5/24,2))')
+        for product in (business, logbook, mjengo):
+            self.assertEqual(
+                tat_hours_formula(product, 5),
+                '=IF(OR($H5="",$AG5=""),"",ROUND(($AG5-$H5)*24,2))',
+            )
+            self.assertEqual(tat_days_formula(product, 5), '=IF(AJ5="","",ROUND(AJ5/24,2))')
     def test_tat_access_comes_from_canonical_user_grants(self):
         group_config = type('GroupConfigLike', (), self.config.as_group_config_kwargs())()
         user = staff_user_for_payload(group_config, {'id': 111, 'username': 'bro_user'})
@@ -2812,7 +2916,7 @@ class TatTrackerWorkflowTest(TestCase):
                 self.updates = []
 
             def row_values(self, row):
-                if row == 2:
+                if row == 1:
                     return [''] * 31
                 values = [''] * 31
                 values[29] = 'legacy TAT value'
@@ -2920,7 +3024,7 @@ class TatTrackerWorkflowTest(TestCase):
                 self.updates = []
 
             def row_values(self, row):
-                if row == 2:
+                if row == 1:
                     return [''] * 43
                 return []
 
@@ -2984,7 +3088,7 @@ class TatTrackerWorkflowTest(TestCase):
                 self.updates = []
 
             def row_values(self, row):
-                if row == 2:
+                if row == 1:
                     return [''] * 43
                 return []
 
@@ -3128,7 +3232,7 @@ class TatTrackerWorkflowTest(TestCase):
 
         self.assertEqual(case.row_number, 6)
         self.assertEqual(len(sheet.appended), 1)
-        self.assertEqual(sheet.row_values_calls, [2])
+        self.assertEqual(sheet.row_values_calls, [1])
         self.assertTrue(sheet.col_values_called)
 
     def test_sync_case_to_sheet_follows_case_id_when_stored_row_is_stale(self):
@@ -3138,7 +3242,7 @@ class TatTrackerWorkflowTest(TestCase):
                 self.appended = []
 
             def row_values(self, row):
-                if row == 2:
+                if row == 1:
                     headers = [''] * 31
                     headers[2] = 'ID NUMBER'
                     headers[3] = 'PHONE NUMBER'
@@ -3395,7 +3499,7 @@ class TatTrackerWorkflowTest(TestCase):
     def test_tat_sync_refuses_a_registered_sheet_schema_that_has_drifted(self):
         class FakeSheet:
             def row_values(self, row):
-                if row == 2:
+                if row == 1:
                     return ['Changed Case ID', '', 'ID NUMBER', 'PHONE NUMBER']
                 raise AssertionError('Schema guard should stop the sync before any case row is read.')
 
@@ -3532,7 +3636,7 @@ class TatTrackerWorkflowTest(TestCase):
             result = sync_tat_batch_created_cases(self.config, [case_one, case_two])
 
         self.assertEqual(result, {'synced': 2, 'failed': []})
-        self.assertEqual(sheet.row_values_calls, [2])
+        self.assertEqual(sheet.row_values_calls, [1])
         self.assertEqual(len(sheet.appended_rows), 1)
         self.assertEqual(sheet.appended_rows[0][1], 'USER_ENTERED')
         self.assertEqual(len(sheet.appended_rows[0][0]), 2)
@@ -3547,7 +3651,7 @@ class TatTrackerWorkflowTest(TestCase):
                 self.updates = []
 
             def row_values(self, row):
-                if row == 2:
+                if row == 1:
                     headers = [''] * 34
                     headers[2] = 'ID NUMBER'
                     headers[3] = 'PHONE NUMBER'

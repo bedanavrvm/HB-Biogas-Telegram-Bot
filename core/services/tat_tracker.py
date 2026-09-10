@@ -45,7 +45,9 @@ _TAT_HEADER_CACHE_TTL_SECONDS = 300
 _TAT_HEADER_CACHE: dict[tuple[str, str, str], tuple[float, list[Any]]] = {}
 
 TAT_TRACKER_WORKFLOW_TYPE = 'tat_tracker'
-TAT_TRACKER_HEADER_ROW = 2
+TAT_TRACKER_HEADER_ROW = 1
+TAT_TRACKER_DATA_START_ROW = 2
+TAT_GLOBAL_SHEET_NAME = 'TAT Register'
 TAT_FORM_TOKEN_SALT = 'tat-tracker-mini-app'
 
 BRANCHES = DEFAULT_WORKFLOW_BRANCHES
@@ -64,7 +66,7 @@ TAT_BATCH_FORMAT_TEXT = (
     "Product, Client Name, National ID, Phone, Branch, Amount\n\n"
     "Example row:\n"
     "business, Mary Wanjiku, 12345678, 254712345678, Nakuru, 25000\n\n"
-    "Accepted products: business, logbook, mjengo, kilimo, micro_asset.\n"
+    "Accepted products: business, logbook, mjengo, micro_asset.\n"
     "The uploader must be configured as a BRO for the selected branch/product."
 )
 DEFAULT_TAT_TARGETS_MINUTES = {
@@ -120,6 +122,7 @@ class ProductConfig:
     product_id: int | None = None
     version_id: str = ''
     stage_tat_columns: tuple['StageTatColumn', ...] = ()
+    workflow_path: str = 'Standard'
 
 
 @dataclass(frozen=True)
@@ -279,6 +282,11 @@ def _database_product_by_key(key: str) -> ProductConfig:
         stage_columns=configuration.stage_columns or {}, stages=stages,
         product_id=product.pk, version_id=str(version.pk), stage_tat_columns=tat_columns,
     )
+
+
+def tat_projection_sheet_name(group_config) -> str:
+    """Return the one product-neutral worksheet owned by this TAT configuration."""
+    return str(getattr(group_config, 'sheet_name', '') or TAT_GLOBAL_SHEET_NAME).strip()
 
 
 def workflow_branches(workflow: dict | None = None) -> list[str]:
@@ -987,8 +995,13 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
             validate_custom_values,
         )
         product_version = ProductVersion.objects.select_related('product').get(pk=product.version_id)
-        from core.services.tat_configuration import serialize_tat_configuration
-        tat_configuration_snapshot = serialize_tat_configuration(product_version)
+        from core.services.tat_configuration import (
+            product_config_from_snapshot, resolve_tat_configuration,
+        )
+        tat_configuration_snapshot = resolve_tat_configuration(
+            product_version, requested_amount=amount,
+        )
+        product = product_config_from_snapshot(tat_configuration_snapshot)
         configuration_binding_status = TatTrackerCase.CONFIG_VERSIONED
         branch_record = OperationalLocation.objects.filter(location_type='branch', name__iexact=branch, active=True).first()
         if not product_is_available(product_version.product, branch=branch_record, workflow='tat_tracker', channel='portal'):
@@ -1070,7 +1083,8 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
             }
     case = TatTrackerCase.objects.create(
         **scope.creation_fields(),
-        group_id=str(group_config.group_id), sheet_id=str(group_config.sheet_id or ''), sheet_name=product.sheet_name,
+        group_id=str(group_config.group_id), sheet_id=str(group_config.sheet_id or ''),
+        sheet_name=tat_projection_sheet_name(group_config),
         create_request_id=create_request_id,
         case_id=case_id, product_key=product.key, product_label=product.label, client_name=client_name,
         product_id=product.product_id, product_version=product_version,
@@ -1490,7 +1504,8 @@ def sync_tat_batch_created_cases(group_config, cases: list[TatTrackerCase]) -> d
 
     for product_key, product_cases in cases_by_product.items():
         product = product_by_key(product_key)
-        service = get_sheets_service(sheet_id=group_config.sheet_id, sheet_name=product.sheet_name)
+        projection_sheet = tat_projection_sheet_name(group_config)
+        service = get_sheets_service(sheet_id=group_config.sheet_id, sheet_name=projection_sheet)
         if not service.is_available():
             error = 'Google Sheets service unavailable.'
             for case in product_cases:
@@ -1501,14 +1516,15 @@ def sync_tat_batch_created_cases(group_config, cases: list[TatTrackerCase]) -> d
             continue
         sheet = service._sheet
         try:
-            headers = cached_tat_sheet_headers(group_config, product, sheet)
+            headers = cached_tat_sheet_headers(group_config, product, sheet, sheet_name=projection_sheet)
             validate_tracker_identity_headers(headers)
             existing_case_ids = sheet.col_values(1) if hasattr(sheet, 'col_values') else None
             existing_cases = []
             new_cases = []
             for case in product_cases:
                 if existing_case_ids is not None and any(
-                    idx >= 5 and str(value or '').strip() == str(case.case_id).strip()
+                    idx >= TAT_TRACKER_DATA_START_ROW
+                    and str(value or '').strip() == str(case.case_id).strip()
                     for idx, value in enumerate(existing_case_ids, start=1)
                 ):
                     existing_cases.append(case)
@@ -1523,7 +1539,7 @@ def sync_tat_batch_created_cases(group_config, cases: list[TatTrackerCase]) -> d
                 result['synced'] += 1
 
             rows = [
-                build_tat_sheet_row_data(group_config, case, product, headers)
+                build_tat_sheet_row_data(group_config, case, product_for_case(case), headers)
                 for case in new_cases
             ]
             append_result = append_tat_batch_rows(sheet, rows) if rows else None
@@ -1532,7 +1548,7 @@ def sync_tat_batch_created_cases(group_config, cases: list[TatTrackerCase]) -> d
             for index, case in enumerate(new_cases):
                 if start_row:
                     case.row_number = start_row + index
-                case.sheet_name = product.sheet_name
+                case.sheet_name = projection_sheet
                 case.last_synced_at = now
                 case.sync_error = ''
                 case.save(update_fields=['row_number', 'sheet_name', 'last_synced_at', 'sync_error', 'updated_at'])
@@ -1642,12 +1658,18 @@ def update_case(
                 correction_dates.append(timezone.localdate(parsed))
     for item in updates:
         apply_update(case, user, item, workflow=workflow)
+    if (
+        case.configuration_binding_status == TatTrackerCase.CONFIG_VERSIONED
+        and (case.stage_values or {}).get('bro_applied') == 'Met'
+        and case.final_loan_amount is None
+    ):
+        raise ValueError('Enter the final loan amount before marking the loan as applied.')
     next_stage = next_action(case)
     case.current_stage = next_stage.key if next_stage else ''
     if next_stage:
         snapshot_stage_target(case, workflow, product_for_case(case), next_stage)
     case.last_updated_by = user.get('name', '')
-    case.save(update_fields=['stage_values', 'stage_target_snapshots', 'status', 'remarks', 'current_stage', 'last_updated_by', 'workflow_revision', 'updated_at', 'client_name', 'national_id', 'primary_phone', 'branch', 'bro_name', 'amount', 'product_requirement_evidence', 'product_custom_values', 'product_selected_fee_keys'])
+    case.save(update_fields=['stage_values', 'stage_target_snapshots', 'status', 'remarks', 'current_stage', 'last_updated_by', 'workflow_revision', 'updated_at', 'client_name', 'national_id', 'primary_phone', 'branch', 'bro_name', 'amount', 'final_loan_amount', 'product_requirement_evidence', 'product_custom_values', 'product_selected_fee_keys'])
     record_tat_event(
         case=case,
         group_id=case.group_id,
@@ -1686,7 +1708,42 @@ def update_case(
 def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict | None = None) -> None:
     field = str(item.get('field') or '').strip()
     correction = bool(item.get('correction'))
-    if field in {'client_name', 'national_id', 'primary_phone', 'branch', 'bro_name', 'amount'}:
+    if field == 'final_loan_amount':
+        product = product_for_case(case)
+        stage = stage_by_key(product, 'bro_applied')
+        if not stage:
+            raise ValueError('This case has no BRO application stage.')
+        allowed = (
+            can_user_correct_stage(user, case, stage)
+            if correction or case.stage_values.get('bro_applied')
+            else can_user_edit_stage(user, case, stage)
+        )
+        if not allowed:
+            raise ValueError('Only the responsible BRO or an authorized override may set the final loan amount.')
+        new_value = parse_amount(item.get('value'))
+        validate_amount(product, new_value)
+        if case.amount is not None and new_value > case.amount:
+            raise ValueError('Final loan amount cannot exceed the original requested amount.')
+        old = case.final_loan_amount
+        if old == new_value:
+            raise ValueError('Final loan amount is already set to that value.')
+        case.final_loan_amount = new_value
+        record_tat_event(
+            case=case, group_id=case.group_id,
+            actor_name=user.get('name', ''),
+            actor_telegram_id=user.get('telegram_id', ''),
+            actor_role=','.join(user.get('roles') or []),
+            actor_user_id=user.get('user_id') or None,
+            authority_user_id=user.get('user_id') or None,
+            stage_key='final_loan_amount', stage_label='Final loan amount',
+            old_value=str(old or ''), new_value=str(new_value),
+            source='admin_correction' if correction else 'mini_app',
+            sheet_name=case.sheet_name, row_number=case.row_number,
+        )
+        return
+    if field == 'amount':
+        raise ValueError('Requested amount is frozen because it determines the TAT workflow path.')
+    if field in {'client_name', 'national_id', 'primary_phone', 'branch', 'bro_name'}:
         if not correction:
             raise ValueError('Case detail changes must be submitted as corrections.')
         if not can_user_correct_case_details(user, case):
@@ -1718,10 +1775,6 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
             new_value = raw_value
             if not new_value:
                 raise ValueError('BRO name is required.')
-        else:
-            product = product_for_case(case)
-            new_value = parse_amount(raw_value)
-            validate_amount(product, new_value)
         if str(old or '') == str(new_value or ''):
             raise ValueError(f'{field.replace("_", " ").title()} is already set to that value.')
         setattr(case, field, new_value)
@@ -1818,7 +1871,7 @@ def create_approval_certificate(case: TatTrackerCase, event: TatTrackerEvent, us
 
 def apply_side_effects(case: TatTrackerCase, product: ProductConfig, stage: StageConfig, value: str) -> None:
     now = timezone.now().isoformat()
-    if stage.key == 'bro_applied' and product.stage_columns.get('sanctions_ts') and case.stage_values.get('sanctions') != 'Met':
+    if stage.key == 'bro_applied' and stage_by_key(product, 'sanctions') and case.stage_values.get('sanctions') != 'Met':
         raise ValueError('Sanctions must be marked Met before applying on system.')
     if stage.key == 'disbursement' and case.stage_values.get('register_approved') != 'Approved':
         raise ValueError('Register must be approved before disbursement.')
@@ -1828,6 +1881,11 @@ def apply_side_effects(case: TatTrackerCase, product: ProductConfig, stage: Stag
         if value in {'Rejected', 'Deferred'}:
             # Keep the exact negative decision in stage_values/events for
             # audit, but expose one terminal negative workflow status.
+            case.status = 'Declined'
+        elif value == 'Approved' and case.status in TAT_NEGATIVE_OUTCOME_STATUSES:
+            case.status = 'Active'
+    if stage.key == 'bm_response':
+        if value == 'Declined':
             case.status = 'Declined'
         elif value == 'Approved' and case.status in TAT_NEGATIVE_OUTCOME_STATUSES:
             case.status = 'Active'
@@ -1912,7 +1970,8 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> bool:
             case.save(update_fields=['sync_error', 'updated_at'])
         return False
     product = product_for_case(case)
-    service = get_sheets_service(sheet_id=group_config.sheet_id, sheet_name=product.sheet_name)
+    projection_sheet = tat_projection_sheet_name(group_config)
+    service = get_sheets_service(sheet_id=group_config.sheet_id, sheet_name=projection_sheet)
     if not service.is_available():
         case.sync_error = 'Google Sheets service unavailable.'
         case.save(update_fields=['sync_error', 'updated_at'])
@@ -1922,7 +1981,7 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> bool:
     try:
         # TAT values are Django-calculated display columns. Keeping them out
         # of sheet formulas avoids delayed spreadsheet recalculation.
-        headers = cached_tat_sheet_headers(group_config, product, sheet)
+        headers = cached_tat_sheet_headers(group_config, product, sheet, sheet_name=projection_sheet)
         validate_tracker_identity_headers(headers)
         # A configured register contract turns schema drift into a safe,
         # retryable sync failure before a canonical case can be written into
@@ -1930,7 +1989,7 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> bool:
         # operator explicitly creates and enables their contract.
         from core.services.sync_governance import assert_registered_schema_before_publish
 
-        assert_registered_schema_before_publish(group_config, product.sheet_name, headers)
+        assert_registered_schema_before_publish(group_config, projection_sheet, headers)
         # The persisted row number is only a hint: staff can sort or insert
         # rows in Sheets. Resolve the immutable case ID in column A before
         # writing so a stale row number cannot overwrite another customer.
@@ -1979,7 +2038,7 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> bool:
         else:
             row = append_case_row(sheet, row_data)
         case.row_number = row
-        case.sheet_name = product.sheet_name
+        case.sheet_name = projection_sheet
         synced_at = timezone.now()
         case.last_synced_at = synced_at
         case.sync_error = ''
@@ -2028,6 +2087,21 @@ def build_tat_sheet_row_data(
     row_data = [''] * width
     for idx, value in enumerate((existing_values or [])[:width], start=1):
         row_data[idx - 1] = value
+    if product.sheet_name == TAT_GLOBAL_SHEET_NAME:
+        # The register exposes the superset of stage columns. Clear any stale
+        # or manually entered values for stages excluded from this case's
+        # immutable path so the projection never implies work was applicable.
+        from core.services.tat_configuration import GLOBAL_TAT_STAGES
+        applicable_keys = {stage.key for stage in product.stages}
+        for index, stage_definition in enumerate(GLOBAL_TAT_STAGES):
+            if stage_definition['key'] in applicable_keys:
+                continue
+            row_data[int(stage_definition['column']) - 1] = ''
+            timestamp_key = str(stage_definition.get('auto_timestamp_key') or '')
+            timestamp_column = product.stage_columns.get(timestamp_key) if timestamp_key else None
+            if timestamp_column:
+                row_data[timestamp_column - 1] = ''
+            row_data[39 + index - 1] = ''
     row_data[0] = case.case_id
     row_data[1] = case.client_name
     row_data[2] = case.national_id
@@ -2076,19 +2150,30 @@ def build_tat_sheet_row_data(
                 return
 
     put_optional(case.product_label or product.label, 'Product', 'Product Name')
+    put_optional(case.product_key or product.key, 'Product Key')
+    put_optional(product.workflow_path, 'Loan Cycle Path', 'Workflow Path')
+    put_optional(
+        float(case.final_loan_amount) if case.final_loan_amount is not None else '',
+        'Final Loan Amount',
+    )
     put_optional(case.current_stage, 'Current Stage')
     put_optional(case.status, 'Status')
-    put_optional(case.created_at, 'Created At')
-    put_optional(case.updated_at, 'Last Updated At')
+    put_optional(sheet_datetime(case.created_at), 'Created At')
+    put_optional(sheet_datetime(case.updated_at), 'Last Updated At')
     put_optional(case.last_updated_by, 'Last Updated By')
     return row_data
 
 
-def cached_tat_sheet_headers(group_config, product: ProductConfig, sheet) -> list[Any]:
+def cached_tat_sheet_headers(
+    group_config, product: ProductConfig, sheet, *, sheet_name: str | None = None,
+) -> list[Any]:
     if not hasattr(sheet, 'row_values'):
         return []
     group_key = str(getattr(group_config, 'pk', '') or getattr(group_config, 'group_id', '') or '')
-    cache_key = (group_key, str(group_config.sheet_id or ''), product.sheet_name)
+    cache_key = (
+        group_key, str(group_config.sheet_id or ''),
+        str(sheet_name or product.sheet_name),
+    )
     now = time.monotonic()
     cached = _TAT_HEADER_CACHE.get(cache_key)
     if cached and now - cached[0] < _TAT_HEADER_CACHE_TTL_SECONDS:
@@ -2193,7 +2278,7 @@ def validate_tracker_identity_headers(headers: list[Any]) -> None:
     expected = ('idnumber', 'phonenumber')
     actual = tuple(normalize_header(headers[index]) if len(headers) > index else '' for index in (2, 3))
     if actual != expected:
-        raise ValueError('Tracker sheet row 2 must have ID NUMBER in column C and PHONE NUMBER in column D before cases can be synced.')
+        raise ValueError('TAT Register row 1 must have ID NUMBER in column C and PHONE NUMBER in column D before cases can be synced.')
 
 
 def append_case_row(sheet, row_data: list[Any]) -> int:
@@ -2710,23 +2795,23 @@ def resolve_case_sheet_row(sheet, case: TatTrackerCase, *, case_ids: list[Any] |
         if current_id == str(case.case_id).strip():
             return case.row_number
     for idx, value in enumerate(case_ids, start=1):
-        if idx >= 5 and str(value or '').strip() == case.case_id:
+        if idx >= TAT_TRACKER_DATA_START_ROW and str(value or '').strip() == case.case_id:
             return idx
     return next_sheet_row(sheet, values=case_ids)
 
 def next_sheet_row(sheet, *, values: list[Any] | None = None) -> int:
     values = values if values is not None else sheet.col_values(1)
-    for idx in range(len(values), 4, -1):
+    for idx in range(len(values), TAT_TRACKER_DATA_START_ROW - 1, -1):
         if str(values[idx - 1] or '').strip():
             return idx + 1
-    return 5
+    return TAT_TRACKER_DATA_START_ROW
 
 
 def inspect_tat_sheet_duplicate_case_ids(
     sheet,
     *,
     group_id: str = '',
-    data_start_row: int = 5,
+    data_start_row: int = TAT_TRACKER_DATA_START_ROW,
 ) -> list[dict[str, Any]]:
     """Report duplicate case-ID rows without changing the sheet.
 
@@ -2783,7 +2868,7 @@ def cleanup_tat_sheet_duplicate_case_ids(
     actor: str = '',
     apply: bool = False,
     include_unlinked: bool = False,
-    data_start_row: int = 5,
+    data_start_row: int = TAT_TRACKER_DATA_START_ROW,
 ) -> list[dict[str, Any]]:
     """Optionally delete duplicate sheet rows and verify/re-publish survivors.
 
@@ -2977,7 +3062,7 @@ def serialize_case_summary(
     total_target = total_target_minutes(workflow, product)
     certificates = {certificate.stage_key: certificate.status for certificate in case.approval_certificates.all()}
     read_only = unresolved or not is_record_operational(case)
-    payload = {'case_id': case.case_id, 'product': case.product_label or product.label, 'product_key': case.product_key, 'client_name': case.client_name, 'national_id': case.national_id, 'primary_phone': case.primary_phone, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'status': tat_reporting_status(case, workflow=workflow, now=calculated_at), 'current_stage': case.current_stage, 'workflow_revision': int(case.workflow_revision or 1), 'next_stage': next_stage.label if next_stage and not read_only else '', 'next_stage_key': next_stage.key if next_stage and not read_only else '', 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'wall_clock_minutes': str(tat_minutes) if tat_minutes is not None else '', 'elapsed_seconds': tat_seconds, 'calculated_at': calculated_at.isoformat(), 'server_now': calculated_at.isoformat(), 'running': overall_tat_running(case), 'target_seconds': int(total_target * 60) if total_target is not None else None, 'sla_minutes': str(tat_minutes) if tat_minutes is not None else '', 'tat_hours': str(tat_hours) if tat_hours is not None else '', 'tat_days': str(tat_days) if tat_days is not None else '', 'target_minutes': str(total_target) if total_target is not None else '', 'sla_status': sla_status(tat_minutes, total_target), 'certificate_statuses': certificates, 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at), 'updated_at_local': format_local_datetime(case.updated_at), 'created_at_local': format_local_datetime(case.created_at), 'updated_at_iso': case.updated_at.isoformat(), 'created_at_iso': case.created_at.isoformat(), 'data_mode': case.data_mode, 'is_pilot': case.data_mode == 'pilot', 'read_only': read_only, 'configuration_binding_status': case.configuration_binding_status, 'configuration_blocker': 'Resolve the legacy product version in TAT Control Center before editing this case.' if unresolved else '', 'pilot_cycle_id': str(case.pilot_cycle_id or '')}
+    payload = {'case_id': case.case_id, 'product': case.product_label or product.label, 'product_key': case.product_key, 'client_name': case.client_name, 'national_id': case.national_id, 'primary_phone': case.primary_phone, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'requested_amount': str(case.amount or ''), 'final_loan_amount': str(case.final_loan_amount or ''), 'workflow_path': product.workflow_path, 'status': tat_reporting_status(case, workflow=workflow, now=calculated_at), 'current_stage': case.current_stage, 'workflow_revision': int(case.workflow_revision or 1), 'next_stage': next_stage.label if next_stage and not read_only else '', 'next_stage_key': next_stage.key if next_stage and not read_only else '', 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'wall_clock_minutes': str(tat_minutes) if tat_minutes is not None else '', 'elapsed_seconds': tat_seconds, 'calculated_at': calculated_at.isoformat(), 'server_now': calculated_at.isoformat(), 'running': overall_tat_running(case), 'target_seconds': int(total_target * 60) if total_target is not None else None, 'sla_minutes': str(tat_minutes) if tat_minutes is not None else '', 'tat_hours': str(tat_hours) if tat_hours is not None else '', 'tat_days': str(tat_days) if tat_days is not None else '', 'target_minutes': str(total_target) if total_target is not None else '', 'sla_status': sla_status(tat_minutes, total_target), 'certificate_statuses': certificates, 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at), 'updated_at_local': format_local_datetime(case.updated_at), 'created_at_local': format_local_datetime(case.created_at), 'updated_at_iso': case.updated_at.isoformat(), 'created_at_iso': case.created_at.isoformat(), 'data_mode': case.data_mode, 'is_pilot': case.data_mode == 'pilot', 'read_only': read_only, 'configuration_binding_status': case.configuration_binding_status, 'configuration_blocker': 'Resolve the legacy product version in TAT Control Center before editing this case.' if unresolved else '', 'pilot_cycle_id': str(case.pilot_cycle_id or '')}
     if include_business_time:
         payload['business_minutes'] = str(business_minutes) if business_minutes is not None else ''
     return payload

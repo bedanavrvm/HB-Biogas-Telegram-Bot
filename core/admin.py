@@ -2145,15 +2145,24 @@ class ProductCustomAttributeInline(StackedInline):
     )
 
 
+class ProductTatConfigurationForm(forms.ModelForm):
+    class Meta:
+        model = ProductTatConfiguration
+        fields = ('case_prefix', 'requires_valuation', 'hocc_threshold')
+
+    def clean(self):
+        cleaned = super().clean()
+        from core.services.tat_configuration import apply_global_register_defaults
+        apply_global_register_defaults(self.instance)
+        return cleaned
+
+
 class ProductTatConfigurationInline(StackedInline):
     model = ProductTatConfiguration
-    extra = 0
+    form = ProductTatConfigurationForm
+    extra = 1
     max_num = 1
-    fields = (
-        ('sheet_name', 'case_prefix'), ('remarks_col', 'status_col', 'tat_start_col'),
-        'stage_columns', 'stages', 'stage_tat_columns',
-    )
-    classes = ('collapse',)
+    fields = ('case_prefix', ('requires_valuation', 'hocc_threshold'))
 
 
 @admin.register(ProductVersion)
@@ -6059,45 +6068,29 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
         return json.dumps(normalized, sort_keys=True, separators=(',', ':'))
 
     def _scan_tat_duplicate_rows(self, config, selected_product=''):
-        """Read duplicate IDs from configured TAT sheets without modifying them."""
-        products = configured_products(config.workflow)
-        if selected_product:
-            products = [product for product in products if product.key == selected_product]
-
+        """Read duplicate IDs once from the product-neutral TAT Register."""
         product_reports = []
         errors = []
-        for product in products:
-            try:
-                from core.services.sheets import get_sheets_service
+        try:
+            from core.services.sheets import get_sheets_service
+            from core.services.tat_tracker import tat_projection_sheet_name
 
-                service = get_sheets_service(
-                    sheet_id=config.sheet_id,
-                    sheet_name=product.sheet_name,
-                )
-                if not service.is_available() or not getattr(service, '_sheet', None):
-                    raise RuntimeError('Google Sheets is unavailable for this product sheet.')
-                reports = cleanup_tat_sheet_duplicate_case_ids(
-                    service._sheet,
-                    group_id=config.group_id,
-                    apply=False,
-                )
-                product_reports.append({
-                    'product': product.key,
-                    'label': product.label,
-                    'sheet_name': product.sheet_name,
-                    'reports': reports,
-                })
-            except Exception:
-                # Keep provider details out of the Admin response; the server
-                # log retains the underlying exception for diagnosis.
-                logger.exception(
-                    'Could not scan TAT duplicate rows for group %s product %s',
-                    config.group_id,
-                    product.key,
-                )
-                errors.append(
-                    f'{product.label}: Google Sheets could not be read. Check the sheet configuration and server logs.'
-                )
+            sheet_name = tat_projection_sheet_name(config)
+            service = get_sheets_service(sheet_id=config.sheet_id, sheet_name=sheet_name)
+            if not service.is_available() or not getattr(service, '_sheet', None):
+                raise RuntimeError('Google Sheets is unavailable for the TAT Register.')
+            reports = cleanup_tat_sheet_duplicate_case_ids(
+                service._sheet, group_id=config.group_id, apply=False,
+            )
+            product_reports.append({
+                'product': '', 'label': 'All products',
+                'sheet_name': sheet_name, 'reports': reports,
+            })
+        except Exception:
+            logger.exception('Could not scan TAT duplicate rows for group %s', config.group_id)
+            errors.append(
+                'TAT Register: Google Sheets could not be read. Check the sheet configuration and server logs.'
+            )
         return product_reports, errors
 
     def tat_duplicate_view(self, request, object_id):

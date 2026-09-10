@@ -55,6 +55,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **TAT** | Turnaround Time — tracked per loan/case stage with role- and product-based rules (`tat_tracker.py`). |
 | **TAT configuration binding** | The case-level classification proving which stage definition governs a TAT case: `versioned`, `legacy_assumed`, or `unresolved`. Versioned cases retain exact immutable stage bytes; unresolved cases are read-only until audited reconciliation. |
 | **TAT Control Center** | The Superuser-only guided setup, stage-design, routing-maintenance, and built-in-register workspace. It projects durable Django configuration and never grants workflow access by itself. |
+| **TAT loan-cycle path** | The immutable Standard, Standard + Valuation, HOCC, or HOCC + Valuation path selected from the product version and original requested amount when a case is created. A later BRO-entered final loan amount may be lower but never changes the frozen path. |
 | **SPIN** | Credit/CRB-report-linked request workflow handled by `spin_credit.py`, completed by credit analysts. |
 | **Workflow data mode** | The immutable Pilot or Production classification captured when a SPIN/TAT operational record is created. Production records remain operational; while a workflow is in Pilot mode, normal reads also include only its currently active Pilot cycle. |
 | **Pilot cycle** | A versioned SPIN or TAT test-data scope. Rotating a cycle closes the old scope, makes it read-only and purge-eligible, and starts a new active scope that cannot be purged. |
