@@ -404,6 +404,43 @@ class JblPipelineServiceTestCase(TestCase):
 
     @patch('core.services.jawabu_pipeline._jawabu_group_config')
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_master_sheet_sync_appends_once_then_updates_by_immutable_uuid(self, mock_get_sheets, mock_group_config):
+        """A newly committed FarmUp case must not depend on a pre-existing Sheet row."""
+        from core.tests import FakeJawabuService, FakeMasterDataSheet
+
+        headers = ['No.', 'Customer Name', 'National ID', 'Primary Phone', 'County']
+        fake_sheet = FakeMasterDataSheet(headers)
+        mock_get_sheets.return_value = FakeJawabuService(fake_sheet)
+        mock_group_config.return_value = SimpleNamespace(
+            group_id=self.config.group_id,
+            workflow=self.config.workflow,
+        )
+
+        self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
+        first_row = list(fake_sheet.values[4])
+        published_headers = fake_sheet.values[2]
+        record_id_index = published_headers.index('Master Record ID')
+        self.assertEqual(first_row[record_id_index], str(self.farmer_stage1.pk))
+        self.assertEqual(first_row[published_headers.index('Customer Name')], self.farmer_stage1.customer_name)
+        self.assertEqual(len(fake_sheet.values), 5)
+
+        # Mutable matching fields may change, but the same UUID must still
+        # update this row rather than append a duplicate. Remove the local
+        # row-pointer cache to prove the Sheet's UUID is independently usable.
+        LiveSheetRecordChange.objects.all().delete()
+        self.farmer_stage1.national_id = '22222222'
+        self.farmer_stage1.county = 'Muranga'
+        self.farmer_stage1.save(update_fields=['national_id', 'county', 'updated_at'])
+        self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
+
+        self.assertEqual(len(fake_sheet.values), 5)
+        updated_row = fake_sheet.values[4]
+        self.assertEqual(updated_row[record_id_index], str(self.farmer_stage1.pk))
+        self.assertEqual(updated_row[published_headers.index('National ID')], '22222222')
+        self.assertEqual(updated_row[published_headers.index('County')], 'Muranga')
+
+    @patch('core.services.jawabu_pipeline._jawabu_group_config')
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
     def test_internal_order_sheet_sync_serializes_decimal_fields(self, mock_get_sheets, mock_group_config):
         """Financial fields must cross the Google JSON boundary as primitives."""
         from core.tests import FakeJawabuService, FakeMasterDataSheet

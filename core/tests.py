@@ -1602,6 +1602,17 @@ Mary Njeri njihia
             def add_cols(self, count):
                 self.col_count += count
 
+            def insert_cols(self, values, col=1, value_input_option=None):
+                self.col_count += 1
+                inserted_column = list(values[0])
+                while len(self.values) < len(inserted_column):
+                    self.values.append([])
+                for row_index, row in enumerate(self.values):
+                    while len(row) < col - 1:
+                        row.append('')
+                    inserted = inserted_column[row_index] if row_index < len(inserted_column) else ''
+                    row.insert(col - 1, inserted)
+
             def update_cell(self, row, col, value):
                 while len(self.values) < row:
                     self.values.append([])
@@ -1647,6 +1658,7 @@ Mary Njeri njihia
             data_start_row=5,
             batch=batch,
             cleaned_rows=[{
+                'id': '84d748d6-abf5-4460-9c65-f72f770a07aa',
                 'customer_name': 'DAVID MUGAMBI',
                 'national_id': '23215888',
                 'primary_phone': '254721997481',
@@ -1659,9 +1671,11 @@ Mary Njeri njihia
 
         self.assertEqual(result['created'], 1)
         self.assertEqual(result['errors'], [])
-        self.assertEqual(headers[44:54], MASTER_SYSTEM_HEADERS)
-        self.assertEqual(sheet.values[4][1], 'DAVID MUGAMBI')
-        self.assertEqual(sheet.values[4][5], '5000')
+        self.assertEqual(headers[1], 'Case ID')
+        self.assertEqual(headers[45:55], MASTER_SYSTEM_HEADERS)
+        self.assertEqual(sheet.values[4][1], '84d748d6-abf5-4460-9c65-f72f770a07aa')
+        self.assertEqual(sheet.values[4][2], 'DAVID MUGAMBI')
+        self.assertEqual(sheet.values[4][6], '5000')
         self.assertEqual(sheet.values[4][headers.index('Import Status')], 'created')
         self.assertEqual(sheet.update_options, ['RAW'])
         self.assertTrue(sheet.spreadsheet.requests)

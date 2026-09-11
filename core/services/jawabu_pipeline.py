@@ -1925,46 +1925,25 @@ def sync_farmer_to_master_sheet(
 
     Also records a LiveSheetRecordChange audit entry for traceability.
     """
-    from django.conf import settings
     from core.models import GroupSheetConfiguration, LiveSheetRecordChange
-    from core.services.group_config import GroupRegistry
     from core.services.sheets import GoogleSheetsService
     from core.services.jawabu_master import (
+        MASTER_CASE_ID_HEADER,
         add_master_index_row,
-        header_lookup_from_headers,
         build_master_existing_index,
+        ensure_master_system_headers,
         find_master_row_number,
         first_existing_header,
+        header_lookup_from_headers,
         master_date_column_indexes,
+        next_master_append_row,
         set_header_value,
         update_master_sheet_row,
         normalize_header,
     )
     from core.services.sheet_publication import aliases_for
 
-    group_config = None
-    # 1. Try GroupRegistry (loaded from settings at startup)
-    from core.services.jawabu import is_jawabu_workflow
-    for config in GroupRegistry.get_instance().list_groups().values():
-        if is_jawabu_workflow(config):
-            group_config = config
-            break
-
-    # 2. Fallback: query DB directly (covers test environments and admin-only configs)
-    if not group_config:
-        from core.models import GroupSheetConfiguration
-        from core.services.group_config import GroupConfig
-        db_config = GroupSheetConfiguration.objects.filter(enabled=True).first()
-        if db_config:
-            workflow = db_config.workflow or {}
-            if workflow.get('type') == 'jawabu' or workflow.get('master_sync_enabled'):
-                group_config = GroupConfig(
-                    group_id=db_config.group_id,
-                    sheet_id=db_config.sheet_id,
-                    sheet_name=db_config.sheet_name or '',
-                    enabled=db_config.enabled,
-                    workflow=workflow,
-                )
+    group_config = _jawabu_group_config()
 
     if not group_config:
         logger.warning("No group configuration found for sync of farmer %s", farmer.id)
@@ -1991,9 +1970,13 @@ def sync_farmer_to_master_sheet(
             return False
         sheet = service._sheet
 
-        headers = list(sheet.row_values(header_row))
+        headers = ensure_master_system_headers(sheet, header_row)
         header_lookup = header_lookup_from_headers(headers)
+        if not first_existing_header(header_lookup, ['No.']) or not first_existing_header(header_lookup, ['Customer Name']):
+            logger.error('Master Data publication requires No. and Customer Name headers')
+            return False
         cleaned = {
+            'id': str(farmer.pk),
             'duplicate_key': farmer.duplicate_key,
             'national_id': farmer.national_id,
             'primary_phone': farmer.primary_phone,
@@ -2006,7 +1989,7 @@ def sync_farmer_to_master_sheet(
         candidate_rows = []
         record_keys = [
             str(value).strip() for value in (
-                farmer.duplicate_key, farmer.national_id, farmer.primary_phone,
+                farmer.pk, farmer.duplicate_key, farmer.national_id, farmer.primary_phone,
             ) if str(value or '').strip()
         ]
         if record_keys:
@@ -2022,6 +2005,7 @@ def sync_farmer_to_master_sheet(
 
         row_number = 0
         row_values = None
+        created_sheet_row = False
         for candidate in dict.fromkeys(int(value) for value in candidate_rows if value):
             if candidate < data_start_row:
                 continue
@@ -2039,8 +2023,10 @@ def sync_farmer_to_master_sheet(
             existing = build_master_existing_index(values, header_lookup, data_start_row)
             row_number = find_master_row_number(cleaned, existing)
         if not row_number:
-            logger.warning("Farmer %s not found in master sheet rows", farmer.id)
-            return False
+            row_number = next_master_append_row(values, header_lookup, data_start_row)
+            row_values = [''] * len(headers)
+            set_header_value(row_values, header_lookup, 'No.', row_number - data_start_row + 1)
+            created_sheet_row = True
 
         # Get row values and pad if needed
         if row_values is None:
@@ -2051,6 +2037,15 @@ def sync_farmer_to_master_sheet(
         # Update pipeline fields
         now_text = timezone.now().strftime('%d-%B-%Y %H:%M')
         changes = {}
+
+        for header in (MASTER_CASE_ID_HEADER, 'Master Record ID'):
+            if normalize_header(header) not in header_lookup:
+                continue
+            current_value = row_values[header_lookup[normalize_header(header)] - 1]
+            case_id = str(farmer.pk)
+            if str(current_value or '').strip().casefold() != case_id.casefold():
+                set_header_value(row_values, header_lookup, header, case_id)
+                changes[header] = {'before': current_value, 'after': case_id}
 
         from core.services.jawabu_validation import normalize_date_text, parse_business_date
         hbg_visit_date = farmer.hbg_visit_date or parse_business_date(farmer.sign_date)
@@ -2153,8 +2148,8 @@ def sync_farmer_to_master_sheet(
                 sheet_id=sheet_id,
                 sheet_tab=sheet_name,
                 row_number=row_number,
-                record_key=farmer.duplicate_key or farmer.national_id or farmer.primary_phone,
-                action='update',
+                record_key=str(farmer.pk),
+                action='create' if created_sheet_row else 'update',
                 changed_by='portal',
                 changes=changes,
                 status='success',
@@ -2177,8 +2172,7 @@ def _jawabu_group_config():
         if is_jawabu_workflow(config):
             return config
 
-    db_config = GroupSheetConfiguration.objects.filter(enabled=True).first()
-    if db_config:
+    for db_config in GroupSheetConfiguration.objects.filter(enabled=True).order_by('group_id'):
         workflow = db_config.workflow or {}
         if workflow.get('type') in {'jawabu', 'jawabu_homebiogas'} or workflow.get('master_sync_enabled'):
             return GroupConfig(

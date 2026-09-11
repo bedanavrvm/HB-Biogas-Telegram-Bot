@@ -202,6 +202,9 @@ MASTER_SYSTEM_HEADERS = [
     'Last Updated At',
 ]
 
+MASTER_CASE_ID_HEADER = 'Case ID'
+MASTER_CASE_ID_DESCRIPTION = 'BACKEND-OWNED: immutable Django case UUID used to prevent duplicate rows.'
+
 MASTER_FIELD_HEADERS = {
     'unit_number': ['Unit Number'],
     'customer_name': ['Customer Name'],
@@ -518,6 +521,10 @@ def commit_farmup_review_batch(
             continue
         cleaned['_farmer_created'] = farmer_created
         cleaned['_farmer_status'] = farmer_status
+        # Bind every Sheet publication to the immutable canonical record. The
+        # uploaded identity fields may legitimately be corrected later and are
+        # therefore unsuitable as the long-term row key.
+        cleaned['id'] = str(farmer.pk)
         committed_cleaned_rows.append(cleaned)
         committed_farmers.append(farmer)
         committed += 1
@@ -653,15 +660,16 @@ def sync_committed_farmup_rows_to_master_sheet(
 
 
 def ensure_master_system_headers(sheet, header_row: int) -> list[str]:
-    headers = list(sheet.row_values(header_row))
-    unit_col = 44  # AR. Visible backend-owned application sequence.
+    headers = ensure_master_case_id_header(sheet, header_row)
+    has_case_id = bool(first_existing_header(header_lookup_from_headers(headers), [MASTER_CASE_ID_HEADER]))
+    unit_col = 45 if has_case_id else 44  # AS after visible Case ID; AR for legacy/fake sheets.
     if len(headers) < unit_col:
         headers.extend([''] * (unit_col - len(headers)))
     if not first_existing_header(header_lookup_from_headers(headers), ['Unit Number']) and not str(headers[unit_col - 1] or '').strip():
         sheet.update_cell(header_row, unit_col, 'Unit Number')
         sheet.update_cell(header_row + 1, unit_col, 'BACKEND-OWNED: 1st, 2nd, 3rd unit application number.')
         headers[unit_col - 1] = 'Unit Number'
-    start_col = 45  # AS. Keep system metadata at the far-right fixed block.
+    start_col = unit_col + 1  # Keep system metadata immediately after Unit Number.
     end_col = start_col + len(MASTER_SYSTEM_HEADERS) - 1
     if end_col > getattr(sheet, 'col_count', end_col):
         sheet.add_cols(end_col - sheet.col_count)
@@ -690,6 +698,39 @@ def ensure_master_system_headers(sheet, header_row: int) -> list[str]:
 
     update_sheet_cells(sheet, cleanup_cells)
     hide_master_system_columns(sheet, start_col, end_col)
+    return headers
+
+
+def ensure_master_case_id_header(sheet, header_row: int) -> list[str]:
+    """Place the immutable visible case UUID between No. and Customer Name.
+
+    Existing production sheets are migrated with a column insertion so
+    formulas and staff-entered values shift together. Lightweight test/legacy
+    adapters without structural-column support retain the hidden exact UUID
+    until their sheet schema is upgraded.
+    """
+    headers = list(sheet.row_values(header_row))
+    lookup = header_lookup_from_headers(headers)
+    if first_existing_header(lookup, [MASTER_CASE_ID_HEADER]):
+        return headers
+    number_col = lookup.get(normalize_header('No.'), 0)
+    customer_col = lookup.get(normalize_header('Customer Name'), 0)
+    if not number_col or not customer_col:
+        logger.warning('Master Data Case ID placement needs No. and Customer Name headers')
+        return headers
+    target_col = number_col + 1
+    if customer_col > target_col and not str(headers[target_col - 1] or '').strip():
+        sheet.update_cell(header_row, target_col, MASTER_CASE_ID_HEADER)
+        sheet.update_cell(header_row + 1, target_col, MASTER_CASE_ID_DESCRIPTION)
+        return list(sheet.row_values(header_row))
+    if customer_col == target_col and hasattr(sheet, 'insert_cols'):
+        column_values = ['' for _ in range(max(header_row - 1, 0))]
+        column_values.extend([MASTER_CASE_ID_HEADER, MASTER_CASE_ID_DESCRIPTION])
+        sheet.insert_cols([column_values], col=target_col, value_input_option='RAW')
+        return list(sheet.row_values(header_row))
+    logger.warning(
+        'Master Data Case ID column could not be inserted; exact UUID will remain in hidden metadata'
+    )
     return headers
 
 
@@ -940,7 +981,9 @@ def merge_master_row_values(
         row_values[idx] = new_value
 
     status = 'created' if created else 'updated'
-    set_header_value(row_values, header_lookup, 'Master Record ID', str(cleaned.get('id') or cleaned.get('duplicate_key') or ''))
+    record_id = str(cleaned.get('id') or cleaned.get('duplicate_key') or '')
+    set_header_value(row_values, header_lookup, MASTER_CASE_ID_HEADER, record_id)
+    set_header_value(row_values, header_lookup, 'Master Record ID', record_id)
     set_header_value(row_values, header_lookup, 'Import Batch ID', str(batch.id))
     set_header_value(row_values, header_lookup, 'Source Filename', batch.source_filename)
     set_header_value(row_values, header_lookup, 'Source Row', cleaned.get('source_row_number') or '')
@@ -1016,6 +1059,10 @@ def build_master_existing_index(values: list[list[str]], header_lookup: dict[str
 
 
 def add_master_index_row(existing: dict[str, int], row_number: int, row_values: list, header_lookup: dict[str, int]) -> None:
+    for header in ('Master Record ID', MASTER_CASE_ID_HEADER):
+        record_id = header_row_value(row_values, header_lookup, header).casefold()
+        if record_id:
+            existing.setdefault(f'record_id:{record_id}', row_number)
     duplicate_key = header_row_value(row_values, header_lookup, 'Duplicate Key')
     if duplicate_key:
         existing[f'duplicate_key:{duplicate_key}'] = row_number
@@ -1030,10 +1077,12 @@ def add_master_index_row(existing: dict[str, int], row_number: int, row_values: 
 
 
 def find_master_row_number(cleaned: dict, existing: dict[str, int]) -> int:
+    record_id = str(cleaned.get('id') or '').strip().casefold()
     duplicate_key = cleaned.get('duplicate_key') or ''
     national_id = cleaned.get('national_id') or ''
     primary_phone = cleaned.get('primary_phone') or ''
     for key in (
+        f'record_id:{record_id}' if record_id else '',
         f'duplicate_key:{duplicate_key}' if duplicate_key else '',
         f'id_phone:{national_id}|{primary_phone}' if national_id and primary_phone else '',
         f'id:{national_id}' if national_id else '',
