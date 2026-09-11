@@ -116,7 +116,10 @@
     const result = await api.apiFetch('/farmup/', {}, tg);
     if (!activeScreen()) return;
     if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'FarmUp batches could not be loaded.');
-    batches = result.data.batches || []; batches.forEach(batch => api.schedulePublication?.(batch.publication, tg)); renderBatches();
+    const receivedBatches = Array.isArray(result.data.batches) ? result.data.batches : [];
+    batches = receivedBatches.filter(batch => batch && typeof batch === 'object');
+    batches.forEach(batch => api.schedulePublication?.(batch.publication || {}, tg));
+    renderBatches();
     if (node('portal-farmup-upload')) node('portal-farmup-upload').hidden = !can('portal.farmup.stage');
   }
   function statusRenderer(params) {

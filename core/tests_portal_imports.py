@@ -615,7 +615,11 @@ class PortalImportStagingTests(TestCase):
         active_list = self.client.get('/api/portal/farmup/')
         self.assertEqual(active_list.status_code, 200)
         self.assertEqual(len(active_list.json()['batches']), 1)
-        self.assertTrue(active_list.json()['batches'][0]['is_portal_archived'])
+        listed_batch = active_list.json()['batches'][0]
+        self.assertIsInstance(listed_batch, dict)
+        self.assertTrue(listed_batch['is_portal_archived'])
+        self.assertIsInstance(listed_batch['publication'], dict)
+        self.assertEqual(listed_batch['publication']['status'], 'not_required')
         retained_detail = self.client.get(f'/api/portal/farmup/{batch.pk}/')
         self.assertEqual(retained_detail.status_code, 200)
         self.assertEqual(len(retained_detail.json()['batch']['rows']), 1)

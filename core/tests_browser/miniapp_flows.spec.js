@@ -107,7 +107,7 @@ test('Portal FarmUp renders a compact mobile grid with explicit selection counts
     window.__farmupCommits = [];
     window.PortalMiniAppApi = {
       async apiFetch(path) {
-        if (path === '/farmup/') return { ok: true, data: { ok: true, batches: [batch] } };
+        if (path === '/farmup/') return { ok: true, data: { ok: true, batches: [null, batch] } };
         return { ok: true, data: { ok: true, batch: { ...batch, mapping, validation, rows: [{ ...row }], revision_token: 'opaque-token' } } };
       },
       async postJson(path, payload) {

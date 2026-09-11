@@ -1402,36 +1402,6 @@ def serialize_import_batch(
         key: sum(1 for row in review_rows if str(row.get('disposition') or '') == key)
         for key in ('commit_now', 'hold', 'exclude', 'excluded', 'committed', 'already_committed')
     }
-
-
-def _farmup_publication_summary(batch: JawabuFarmerUploadBatch) -> dict[str, Any]:
-    replay_ledgers = JawabuFarmerUploadBatch.objects.filter(
-        worklist_id=batch.worklist_id, import_kind='farmers',
-    ).values_list('portal_commit_replays', flat=True)
-    operation_ids = {
-        str(operation.get('id'))
-        for ledger in replay_ledgers
-        for replay in list(ledger or [])
-        if replay.get('operation') in (None, 'commit')
-        for publication in list((replay.get('result') or {}).get('publications') or [])
-        for operation in list(publication.get('operations') or [])
-        if operation.get('id')
-    }
-    if not operation_ids:
-        return {'status': 'not_required', 'total': 0, 'synced': 0, 'pending_operation_ids': []}
-    operations = list(IntegrationOperation.objects.filter(pk__in=operation_ids))
-    pending_statuses = {
-        IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RUNNING,
-        IntegrationOperation.STATUS_RETRYABLE,
-    }
-    pending = [str(item.pk) for item in operations if item.status in pending_statuses]
-    failed = sum(1 for item in operations if item.status == IntegrationOperation.STATUS_DEAD_LETTER)
-    synced = sum(1 for item in operations if item.status == IntegrationOperation.STATUS_SUCCEEDED)
-    status = 'needs_attention' if failed else ('pending' if pending else 'synced')
-    return {
-        'status': status, 'total': len(operations), 'synced': synced,
-        'needs_attention': failed, 'pending_operation_ids': pending,
-    }
     payload: dict[str, Any] = {
         'id': str(batch.pk),
         'kind': 'farmup' if batch.import_kind == 'farmers' else 'sysup',
@@ -1495,3 +1465,33 @@ def _farmup_publication_summary(batch: JawabuFarmerUploadBatch) -> dict[str, Any
     else:
         payload['mapping_state'] = _batch_mapping_payload(batch).get('state', 'legacy')
     return payload
+
+
+def _farmup_publication_summary(batch: JawabuFarmerUploadBatch) -> dict[str, Any]:
+    replay_ledgers = JawabuFarmerUploadBatch.objects.filter(
+        worklist_id=batch.worklist_id, import_kind='farmers',
+    ).values_list('portal_commit_replays', flat=True)
+    operation_ids = {
+        str(operation.get('id'))
+        for ledger in replay_ledgers
+        for replay in list(ledger or [])
+        if replay.get('operation') in (None, 'commit')
+        for publication in list((replay.get('result') or {}).get('publications') or [])
+        for operation in list(publication.get('operations') or [])
+        if operation.get('id')
+    }
+    if not operation_ids:
+        return {'status': 'not_required', 'total': 0, 'synced': 0, 'pending_operation_ids': []}
+    operations = list(IntegrationOperation.objects.filter(pk__in=operation_ids))
+    pending_statuses = {
+        IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RUNNING,
+        IntegrationOperation.STATUS_RETRYABLE,
+    }
+    pending = [str(item.pk) for item in operations if item.status in pending_statuses]
+    failed = sum(1 for item in operations if item.status == IntegrationOperation.STATUS_DEAD_LETTER)
+    synced = sum(1 for item in operations if item.status == IntegrationOperation.STATUS_SUCCEEDED)
+    status = 'needs_attention' if failed else ('pending' if pending else 'synced')
+    return {
+        'status': status, 'total': len(operations), 'synced': synced,
+        'needs_attention': failed, 'pending_operation_ids': pending,
+    }
