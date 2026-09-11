@@ -239,6 +239,12 @@ for the Portal reporting workspace. Chart.js 4.5.1 provides responsive charts
 without a build step; a runtime CDN was rejected for unreliable field/offline
 connectivity, and hand-written canvas charting was rejected for maintenance risk.
 
+The Portal shell also vendors HTMX 2.0.4, Lucide 1.44.0, and Leaflet 1.9.4
+under `core/static/miniapp/`, with matching license files. These pinned local
+assets keep navigation, icons, and maps available on unreliable field
+connections. Do not replace them with runtime CDN imports; update the pinned
+asset and its license together.
+
 `core/static/miniapp/vendor-ag-grid-community-36.1.0.min.js`, its styles, and
 the matching Quartz icon-font stylesheet are intentionally vendored for the
 management-only Complaints Data Overview. Only

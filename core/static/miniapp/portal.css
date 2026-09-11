@@ -25,6 +25,47 @@
   --portal-z-toast: 300;
 }
 
+.portal-context-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 32px;
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.25;
+}
+.portal-context-identity { display: flex; align-items: center; min-width: 0; gap: 6px; }
+.portal-context-identity strong { min-width: 0; max-width: 180px; overflow: hidden; color: var(--text-color); text-overflow: ellipsis; white-space: nowrap; }
+.portal-context-identity #portal-actor-role { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.portal-connection-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: var(--portal-status-success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--portal-status-success) 15%, transparent); }
+.portal-connection-dot.is-offline { background: var(--portal-status-danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--portal-status-danger) 15%, transparent); }
+#portal-freshness { flex: 0 0 auto; white-space: nowrap; }
+#portal-freshness.is-stale { color: var(--portal-status-warning); font-weight: 700; }
+.dashboard-refresh-button.is-loading svg,
+.queue-refresh-button.is-loading svg { animation: portal-refresh-spin .8s linear infinite; }
+@keyframes portal-refresh-spin { to { transform: rotate(360deg); } }
+.batch-generate-button { display: inline-flex; align-items: center; gap: 6px; }
+body.portal-overlay-open { overflow: hidden; }
+.sheet-overlay[aria-hidden="true"] { visibility: hidden; }
+.sheet-overlay[aria-hidden="false"] { visibility: visible; }
+
+@media (max-width: 480px) {
+  .portal-context-bar { align-items: flex-start; }
+  .portal-context-identity { display: grid; grid-template-columns: auto minmax(0, 1fr); }
+  .portal-context-identity #portal-actor-role { grid-column: 2; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-refresh-button.is-loading svg,
+  .queue-refresh-button.is-loading svg { animation-duration: 1.6s; }
+}
+
 /* Shared labelled values replace one-off stat/field implementations. */
 .portal-info-tile {
   min-width: 0;
@@ -38,11 +79,45 @@
 .portal-info-tile > span { color: var(--text-muted); font-size: var(--portal-text-label); font-weight: 700; line-height: 1.2; text-transform: uppercase; }
 .portal-info-tile > strong { min-width: 0; overflow-wrap: anywhere; color: var(--text-primary); font-size: var(--portal-text-body); line-height: 1.2; }
 #portal-offline-banner {
+  display: none;
+  position: sticky;
+  top: 0;
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--portal-status-danger) 25%, var(--border-color));
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
   z-index: var(--portal-z-banner) !important;
   border-color: color-mix(in srgb, var(--portal-status-danger) 30%, var(--border-color)) !important;
   background: var(--portal-status-danger-bg) !important;
   color: var(--portal-status-danger) !important;
 }
+.portal-initially-hidden { display: none; }
+.portal-block { display: block; }
+.portal-action-wrap { display: flex; flex-wrap: wrap; gap: 8px; }
+.batch-form-end { align-items: end; }
+.sheet-heading-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.sheet-map-container { margin: 12px 0; }
+.sheet-form-content { margin-top: 12px; }
+.invoice-upload-copy { margin: 0 0 12px; color: var(--text-muted); font-size: 14px; }
+.invoice-upload-form { display: flex; flex-direction: column; gap: 16px; }
+.invoice-upload-dropzone { display: block; padding: 24px; cursor: pointer; border: 2px dashed var(--border-color); border-radius: 12px; background: var(--bg-color); text-align: center; }
+.invoice-upload-dropzone:focus-within { border-color: var(--brand-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 18%, transparent); }
+.invoice-upload-icon { display: block; width: 48px; height: 48px; margin: 0 auto 12px; color: var(--text-muted); }
+.invoice-upload-dropzone strong, .invoice-upload-dropzone small { display: block; }
+.invoice-upload-dropzone strong { margin-bottom: 4px; color: var(--text-color); }
+.invoice-upload-dropzone small { color: var(--text-muted); font-size: 12px; }
+.invoice-file-info { padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--portal-status-success) 35%, var(--border-color)); border-radius: 6px; background: var(--portal-status-success-bg); color: var(--portal-status-success); font-size: 13px; font-weight: 600; }
+.invoice-submit-button { width: 100%; justify-content: center; }
+.invoice-results { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color); }
+.invoice-results h3 { margin: 0 0 12px; font-size: 15px; font-weight: 700; }
+.invoice-results-summary { margin-bottom: 10px; color: var(--text-color); font-size: 13px; font-weight: 600; }
+.invoice-results-list { display: flex; flex-direction: column; gap: 8px; max-height: 200px; padding-right: 4px; overflow-y: auto; }
+.batch-card { cursor: default; }
+.batch-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.batch-card-status { margin-left: 4px; }
+.batch-card-meta-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-color); }
 
 .tab-bar {
   position: sticky;

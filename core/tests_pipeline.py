@@ -811,6 +811,17 @@ class JblPipelineServiceTestCase(TestCase):
 
 
 class PortalMiniAppAuthTestCase(TestCase):
+    def test_portal_shell_uses_pinned_local_runtime_assets(self):
+        template = Path(__file__).resolve().parent / 'templates' / 'base_shell.html'
+        source = template.read_text(encoding='utf-8')
+        self.assertIn('vendor-htmx-2.0.4.min.js', source)
+        self.assertIn('vendor-lucide-1.44.0.min.js', source)
+        self.assertIn('vendor-leaflet-1.9.4.js', source)
+        self.assertIn("miniapp/runtime.js", source)
+        self.assertIn("miniapp/portal_dialogs.js", source)
+        self.assertNotIn('alpinejs', source)
+        self.assertNotIn('unpkg.com', source)
+
     def test_portal_workspace_controls_are_not_rendered_while_feature_is_on_hold(self):
         template = Path(__file__).resolve().parent / 'templates' / 'portal' / 'portal.html'
         source = template.read_text(encoding='utf-8')
@@ -975,6 +986,28 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertTrue(response.json()['ok'])
         self.assertEqual(response['X-Request-ID'], 'portal-test-request-001')
         self.assertEqual(response.json()['request_id'], 'portal-test-request-001')
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
+    def test_portal_core_reads_include_actor_and_freshness_contracts(self):
+        self.grant_portal_access(role='IT')
+        headers = {'HTTP_X_TELEGRAM_INIT_DATA': self._signed_init_data()}
+
+        meta = self.client.get(reverse('portal_meta'), **headers)
+        self.assertEqual(meta.status_code, 200)
+        self.assertEqual(meta.json()['actor']['name'], 'Portal User')
+        self.assertIn('IT', meta.json()['actor']['roles'])
+
+        for route_name in ('portal_dashboard', 'portal_jbl_queue'):
+            response = self.client.get(reverse(route_name), **headers)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.json()['calculated_at'])
+
+        fragment = self.client.get(
+            reverse('portal_queue_fragment', kwargs={'queue_key': 'jbl'}),
+            **headers,
+        )
+        self.assertEqual(fragment.status_code, 200)
+        self.assertContains(fragment, 'data-calculated-at=')
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_jbl_visit_recovery_draft_is_staff_scoped_and_field_only(self):

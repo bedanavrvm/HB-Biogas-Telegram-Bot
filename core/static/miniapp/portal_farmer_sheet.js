@@ -2347,11 +2347,11 @@
       return;
     }
     const uploaded = Number(data.stored_count || 0);
-    deps.showToast(data.already_completed ? 'This visit was already saved.' : `JBL visit logged${uploaded ? ` with ${uploaded} new evidence file${uploaded === 1 ? '' : 's'}` : ''}.`, 'success');
+    const successMessage = data.already_completed ? 'This visit was already saved.' : `JBL visit logged${uploaded ? ` with ${uploaded} new evidence file${uploaded === 1 ? '' : 's'}` : ''}.`;
     await clearJblVisitDraft(farmer);
     closeSheet({ saveDraft: false });
-    deps.reloadCurrentQueue();
-    deps.loadDashboard();
+    await Promise.all([deps.reloadCurrentQueue(), deps.loadDashboard()]);
+    deps.showToast(successMessage, 'success');
   }
 
   async function submitCreditDecision() {
@@ -2378,11 +2378,10 @@
     });
     deps.setButtonLoading(btn, false);
     if (!ok) return deps.showToast(data.error || 'Save failed', 'error');
-    deps.showToast('Credit decision saved', 'success');
     await clearWorkflowDraft(farmer, 'credit');
     closeSheet({ saveDraft: false });
-    deps.reloadCurrentQueue();
-    deps.loadDashboard();
+    await Promise.all([deps.reloadCurrentQueue(), deps.loadDashboard()]);
+    deps.showToast('Credit decision saved', 'success');
   }
 
   async function submitFinalDecision() {
@@ -2413,11 +2412,10 @@
     });
     deps.setButtonLoading(btn, false);
     if (!ok) return deps.showToast(data.error || 'Save failed', 'error');
-    deps.showToast('Final review saved', 'success');
     await clearWorkflowDraft(farmer, 'final_review');
     closeSheet({ saveDraft: false });
-    deps.reloadCurrentQueue();
-    deps.loadDashboard();
+    await Promise.all([deps.reloadCurrentQueue(), deps.loadDashboard()]);
+    deps.showToast('Final review saved', 'success');
   }
 
   function bindEvents() {

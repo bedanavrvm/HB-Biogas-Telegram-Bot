@@ -1,9 +1,14 @@
 {% if not portal_fragment_only %}
 <div id="portal-shell">
-  <div id="portal-offline-banner" style="display:none; position:sticky; top:0; z-index:80; margin:0 0 10px; padding:10px 12px; border:1px solid rgba(255,59,48,.25); border-radius:8px; background:#ffe5e5; color:#b42318; font-size:13px; font-weight:600;">Offline. You can view already loaded data, but uploads and updates need a connection.</div>
+  <div id="portal-offline-banner">Offline. You can view already loaded data, but uploads and updates need a connection.</div>
 {% endif %}
 
 <div id="portal-screen" data-screen="{{ active_screen }}" data-case-farmer-id="{{ case_history_farmer_id|default:'' }}" data-report-view="{{ report_view|default:'' }}" data-report-id="{{ report_id|default:'' }}" data-report-step="{{ report_step|default:'' }}" data-invoice-view="{{ invoice_view|default:'' }}" data-invoice-id="{{ invoice_id|default:'' }}" data-top-level="{% if case_history_farmer_id %}false{% elif report_view and report_view != 'catalogue' %}false{% elif invoice_view and invoice_view != 'inbox' %}false{% else %}true{% endif %}">
+
+  <div class="portal-context-bar" role="status" aria-live="polite">
+    <span class="portal-context-identity"><span class="portal-connection-dot" aria-hidden="true"></span><strong id="portal-actor-name">Connecting</strong><span id="portal-actor-role"></span></span>
+    <span id="portal-freshness">Loading current data</span>
+  </div>
 
   <!-- Dashboard -->
   {% if active_screen == 'dashboard' %}
@@ -22,7 +27,7 @@
         <span></span><span></span><span></span><span></span>
       </div>
     </div>
-    <div id="dash-counts" class="count-grid" style="display:none">
+    <div id="dash-counts" class="count-grid portal-initially-hidden">
       <a class="count-card priority-queue" data-page="jbl" id="card-jbl" data-required-capability="portal.jbl_queue.view" href="{% url 'portal_screen' screen='jbl' %}">
         <span class="queue-card-icon"><i data-lucide="home"></i></span>
         <span class="queue-card-body">
@@ -182,7 +187,7 @@
       <div><h1>Requisition Queue</h1><p class="meta">Final decision approved - assign order number</p></div>
       <button type="button" class="queue-refresh-button" data-queue-refresh="requisition" aria-label="Refresh requisition queue" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
-    <div id="requisition-batch-panel" class="batch-panel" data-required-capability="portal.requisition.write" style="display: none;">
+    <div id="requisition-batch-panel" class="batch-panel portal-initially-hidden" data-required-capability="portal.requisition.write">
       <div class="batch-title">
         <span class="badge" id="batch-selected-count">0 selected</span>
         <span>Assign Order No &amp; Generate Requisition Sheet</span>
@@ -198,7 +203,7 @@
             <label for="batch-req-date">Requisition Date</label>
             <input type="date" id="batch-req-date">
           </div>
-          <button class="btn btn-primary" id="btn-generate-requisition" data-required-capability="portal.requisition.write" style="display: inline-flex; align-items: center; gap: 6px;">
+          <button type="button" class="btn btn-primary batch-generate-button" id="btn-generate-requisition" data-required-capability="portal.requisition.write">
             <i data-lucide="file-spreadsheet"></i> Generate Form
           </button>
         </div>
@@ -244,7 +249,7 @@
     <div class="invoice-list-toolbar">
       <label class="invoice-search-control" for="invoice-name-change-search"><span class="sr-only">Search name changes</span><input type="search" id="invoice-name-change-search" placeholder="Applicant, invoice holder, invoice, or letter"></label>
     </div>
-    <div class="invoice-name-change-selection" id="invoice-name-change-selection" style="display:none;">
+    <div class="invoice-name-change-selection portal-initially-hidden" id="invoice-name-change-selection">
       <strong id="invoice-name-change-selected-count">0 selected</strong>
       <button type="button" class="btn btn-primary" id="invoice-name-change-create-batch">Create letter batch</button>
       <button type="button" class="btn btn-secondary" id="invoice-name-change-clear">Clear</button>
@@ -260,12 +265,12 @@
       </div>
       <a class="btn btn-secondary" href="{% url 'portal_invoices_screen' %}" hx-get="{% url 'portal_invoices_screen' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Back to inbox</a>
     </header>
-    <div class="batch-panel" data-required-capability="portal.invoice.write" style="display:block;">
+    <div class="batch-panel portal-block" data-required-capability="portal.invoice.write">
       <div class="batch-title">
         <span class="badge badge-blue">Invoice pool</span>
         <span>Upload invoices without selecting an order</span>
       </div>
-      <form id="invoice-pool-upload-form" class="batch-form" style="align-items:end;">
+      <form id="invoice-pool-upload-form" class="batch-form batch-form-end">
         <div class="field-group">
           <label for="invoice-pool-order">Order number <span class="meta">(optional)</span></label>
           <input type="text" id="invoice-pool-order" name="order_number" autocomplete="off" placeholder="Leave blank for the global pool">
@@ -316,12 +321,12 @@
         <button class="btn btn-secondary" id="invoice-pool-clear" type="button">Clear</button>
       </details>
     </div>
-    <div class="batch-panel" id="invoice-bulk-toolbar" data-required-capability="portal.invoice.write" style="display:none;">
+    <div class="batch-panel portal-initially-hidden" id="invoice-bulk-toolbar" data-required-capability="portal.invoice.write">
       <div class="batch-title">
         <span class="badge badge-blue" id="invoice-selected-count">0 selected</span>
         <span>Bulk review actions</span>
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <div class="portal-action-wrap">
         <button class="btn btn-secondary" id="invoice-bulk-ignore" type="button">Ignore selected</button>
         <button class="btn btn-secondary" id="invoice-bulk-restore" type="button">Restore selected</button>
         <button class="btn btn-secondary" id="invoice-selection-clear" type="button">Clear selection</button>
@@ -544,18 +549,18 @@
       </div>
     </div>
     <div class="sheet-body">
-      <div class="gate-warning" id="sheet-gate-warning" style="display:none;"></div>
+      <div class="gate-warning portal-initially-hidden" id="sheet-gate-warning"></div>
       <ul class="info-list" id="sheet-info"></ul>
       <div class="sheet-quick-actions">
         <section id="sheet-client-media" class="sheet-client-media" hidden></section>
         <button type="button" id="case360-toggle" class="btn btn-secondary case360-toggle"><i data-lucide="history" aria-hidden="true"></i><span>Open Case History</span></button>
       </div>
-      <div id="sheet-map-container" style="display:none; margin: 12px 0;">
+      <div id="sheet-map-container" class="sheet-map-container portal-initially-hidden">
         <div class="sheet-map-heading"><span class="sheet-map-location-icon"><i data-lucide="map-pin" aria-hidden="true"></i></span><span class="sheet-map-copy"><strong>Recorded location</strong><span id="sheet-map-meta">GPS unavailable</span></span><span class="sheet-map-actions"><button type="button" id="sheet-map-refresh" class="map-refresh-button" title="Refresh map" aria-label="Refresh map"><i data-lucide="refresh-cw" aria-hidden="true"></i></button><a id="sheet-map-link" href="#" target="_blank" rel="noopener" hidden><span>Open Maps</span><i data-lucide="external-link" aria-hidden="true"></i></a></span></div>
         <div id="sheet-map"></div>
         <div id="sheet-map-fallback" class="sheet-map-fallback" hidden>Map tiles are unavailable. Use “Open in Maps” to view this location.</div>
       </div>
-      <div id="sheet-form" style="margin-top: 12px;"></div>
+      <div id="sheet-form" class="sheet-form-content"></div>
     </div>
     <div class="sheet-footer" id="sheet-footer"></div>
   </div>
@@ -565,7 +570,7 @@
 <div class="sheet-overlay media-viewer-overlay" id="media-viewer-overlay" role="dialog" aria-modal="true" aria-labelledby="media-viewer-title">
   <div class="sheet-panel media-viewer-panel">
     <div class="sheet-header">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+      <div class="sheet-heading-row">
         <div>
           <h2 id="media-viewer-title">Client media</h2>
           <p class="sheet-sub" id="media-viewer-sub"></p>
@@ -584,12 +589,12 @@
   <div class="sheet-panel workbook-preview-panel">
     <div class="sheet-handle"></div>
     <div class="sheet-header">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+      <div class="sheet-heading-row">
         <div>
           <h2>Preview Requisition Batch</h2>
           <p class="sheet-sub" id="requisition-preview-sub">Review selected clients before generation</p>
         </div>
-        <button id="requisition-preview-close" class="sheet-close-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
+        <button type="button" id="requisition-preview-close" class="sheet-close-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
       </div>
     </div>
     <div class="sheet-body">
@@ -612,12 +617,12 @@
   <div class="sheet-panel">
     <div class="sheet-handle"></div>
     <div class="sheet-header">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+      <div class="sheet-heading-row">
         <div>
           <h2 id="batch-detail-title">Batch</h2>
           <p class="sheet-sub" id="batch-detail-sub">Generated output details</p>
         </div>
-        <button id="batch-detail-close" class="sheet-close-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
+        <button type="button" id="batch-detail-close" class="sheet-close-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
       </div>
     </div>
     <div class="sheet-body">
@@ -633,35 +638,35 @@
   <div class="sheet-panel">
     <div class="sheet-handle"></div>
     <div class="sheet-header">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+      <div class="sheet-heading-row">
         <div>
           <h2>Upload Invoice PDF</h2>
           <p class="sheet-sub" id="invoice-overlay-sub">Batch: -</p>
         </div>
-        <button id="invoice-overlay-close" class="sheet-close-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
+        <button type="button" id="invoice-overlay-close" class="sheet-close-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
       </div>
     </div>
     <div class="sheet-body">
-      <p style="margin-bottom:12px; font-size:14px; color:#5c6e84;">Upload a combined PDF containing the invoices for this batch. The engine will extract the invoice numbers, dates, and amounts, match them to the correct farmers, and automatically sync the details to the Master Data sheet.</p>
+      <p class="invoice-upload-copy">Upload a combined PDF containing the invoices for this batch. The engine will extract the invoice numbers, dates, and amounts, match them to the correct farmers, and automatically sync the details to the Master Data sheet.</p>
 
-      <form id="invoice-upload-form" style="display:flex; flex-direction:column; gap:16px;">
+      <form id="invoice-upload-form" class="invoice-upload-form">
         <input type="hidden" id="invoice-batch-number" name="order_number">
-        <div style="border:2px dashed #cbd5e1; padding:24px; border-radius:12px; text-align:center; cursor:pointer; background:#f8fafc;" onclick="document.getElementById('invoice-file-input').click()">
-          <svg style="width:48px; height:48px; margin:0 auto 12px auto; color:#64748b;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <label class="invoice-upload-dropzone" for="invoice-file-input">
+          <svg class="invoice-upload-icon" aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
           </svg>
-          <p style="font-weight:600; color:#334155; margin-bottom:4px;">Click to upload PDF file</p>
-          <p style="font-size:12px; color:#64748b;">Combined PDF invoices only</p>
-          <input type="file" id="invoice-file-input" name="file" accept="application/pdf" style="display:none;">
-        </div>
-        <div id="invoice-file-info" style="display:none; font-size:13px; font-weight:600; color:#0f766e; background:#f0fdfa; padding:8px 12px; border-radius:6px; border:1px solid #99f6e4;"></div>
-        <button type="submit" id="invoice-submit-btn" class="btn" style="width:100%; justify-content:center;" disabled>Extract & Match Invoices</button>
+          <strong>Choose a PDF file</strong>
+          <small>Combined PDF invoices only</small>
+          <input type="file" id="invoice-file-input" name="file" accept="application/pdf" hidden>
+        </label>
+        <div id="invoice-file-info" class="invoice-file-info portal-initially-hidden"></div>
+        <button type="submit" id="invoice-submit-btn" class="btn invoice-submit-button" disabled>Extract &amp; Match Invoices</button>
       </form>
 
-      <div id="invoice-results" style="display:none; margin-top:20px; border-top:1px solid #e2e8f0; padding-top:16px;">
-        <h3 style="font-size:15px; font-weight:700; margin-bottom:12px;">Extraction Results</h3>
-        <div id="invoice-results-summary" style="font-size:13px; font-weight:600; margin-bottom:10px; color:#1e293b;"></div>
-        <div id="invoice-results-list" style="display:flex; flex-direction:column; gap:8px; max-height:200px; overflow-y:auto; padding-right:4px;"></div>
+      <div id="invoice-results" class="invoice-results portal-initially-hidden">
+        <h3>Extraction Results</h3>
+        <div id="invoice-results-summary" class="invoice-results-summary"></div>
+        <div id="invoice-results-list" class="invoice-results-list"></div>
       </div>
     </div>
   </div>
@@ -671,12 +676,12 @@
   <div class="sheet-panel">
     <div class="sheet-handle"></div>
     <div class="sheet-header">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+      <div class="sheet-heading-row">
         <div>
           <h2>Match Invoice</h2>
           <p class="sheet-sub" id="invoice-match-sub">Search and select the correct farmer record</p>
         </div>
-        <button id="invoice-match-close" class="sheet-close-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
+        <button type="button" id="invoice-match-close" class="sheet-close-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
       </div>
     </div>
     <div class="sheet-body">
@@ -700,12 +705,12 @@
   <div class="sheet-panel">
     <div class="sheet-handle"></div>
     <div class="sheet-header">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+      <div class="sheet-heading-row">
         <div>
           <h2>Invoice Detail</h2>
           <p class="sheet-sub">Parsed fields, duplicate checks, and reconciliation history</p>
         </div>
-        <button id="invoice-detail-close" class="sheet-close-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
+        <button type="button" id="invoice-detail-close" class="sheet-close-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
       </div>
     </div>
     <div class="sheet-body">
@@ -718,12 +723,12 @@
   <div class="sheet-panel workbook-preview-panel">
     <div class="sheet-handle"></div>
     <div class="sheet-header">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+      <div class="sheet-heading-row">
         <div>
           <h2 id="payment-preview-title">Payment Preview</h2>
           <p class="sheet-sub" id="payment-preview-sub">Printable payment details</p>
         </div>
-        <button id="payment-preview-close" class="sheet-close-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
+        <button type="button" id="payment-preview-close" class="sheet-close-button" aria-label="Close"><i data-lucide="x" aria-hidden="true"></i></button>
       </div>
     </div>
     <div class="sheet-body" id="payment-preview-content"></div>

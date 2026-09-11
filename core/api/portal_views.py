@@ -1989,7 +1989,7 @@ def portal_dashboard(request):
         getattr(request, 'portal_user', None),
         access=getattr(request, 'portal_access', None),
     )
-    return JsonResponse({'ok': True, **payload})
+    return JsonResponse({'ok': True, 'calculated_at': timezone.now().isoformat(), **payload})
 
 
 # ── Meta / dropdown lists ─────────────────────────────────────────────────────
@@ -2031,6 +2031,11 @@ def portal_meta(request):
             expires_at__gt=timezone.now(), revoked_at__isnull=True,
         ).values_list('gate', flat=True).distinct())
     capabilities = _portal_capabilities(request)
+    actor_name = ''
+    actor_roles = []
+    if portal_user:
+        actor_name = portal_user.get_full_name().strip() or portal_user.get_username()
+        actor_roles = list((getattr(request, 'portal_access', None) or {}).get('roles', []))
     from core.services.portal_permissions import portal_capability_scope
     capability_scopes = {
         capability: portal_capability_scope(
@@ -2053,6 +2058,7 @@ def portal_meta(request):
         'final_decisions': [c[0] for c in JawabuFarmerMaster.FINAL_DECISION_CHOICES],
         'approval_delegation_gates': delegation_gates,
         'capabilities': capabilities,
+        'actor': {'name': actor_name, 'roles': actor_roles},
         'capability_scopes': capability_scopes,
         'access_policy_version': policy_version(),
         'carto_basemaps': {
@@ -2710,6 +2716,7 @@ def portal_jbl_queue(request):
     items, pagination = _paginate_qs(qs, request, page_size=10)
     return JsonResponse({
         'ok': True,
+        'calculated_at': timezone.now().isoformat(),
         'queue': 'jbl_visit',
         'farmers': _numbered_farmer_cards(items, pagination),
         'pagination': pagination,
@@ -2735,6 +2742,7 @@ def portal_my_visits(request):
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
+        'calculated_at': timezone.now().isoformat(),
         'queue': 'my_visits',
         'farmers': _numbered_farmer_cards(items, pagination),
         'pagination': pagination,
@@ -2778,6 +2786,7 @@ def portal_queue_fragment(request, queue_key: str):
         'empty_title': config['empty_title'],
         'empty_sub': config['empty_sub'],
         'can_requisition_write': _portal_capability_error(request, 'portal.requisition.write') is None,
+        'calculated_at': timezone.now().isoformat(),
     })
 
 
@@ -3937,6 +3946,7 @@ def portal_credit_queue(request):
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
+        'calculated_at': timezone.now().isoformat(),
         'queue': 'credit',
         'farmers': _numbered_farmer_cards(items, pagination),
         'pagination': pagination,
@@ -4043,6 +4053,7 @@ def portal_final_review_queue(request):
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
+        'calculated_at': timezone.now().isoformat(),
         'queue': 'final_review',
         'review_stage': stage,
         'farmers': _numbered_farmer_cards(items, pagination, review_map=review_map),
@@ -4210,6 +4221,7 @@ def portal_requisition_queue(request):
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
+        'calculated_at': timezone.now().isoformat(),
         'queue': 'requisition',
         'farmers': _numbered_farmer_cards(items, pagination),
         'pagination': pagination,
@@ -4268,6 +4280,7 @@ def portal_all_cases(request):
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
+        'calculated_at': timezone.now().isoformat(),
         'farmers': _numbered_farmer_cards(items, pagination),
         'pagination': pagination,
     })
@@ -4291,6 +4304,7 @@ def portal_deferred(request):
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
+        'calculated_at': timezone.now().isoformat(),
         'queue': 'deferred',
         'farmers': _numbered_farmer_cards(items, pagination),
         'pagination': pagination,
@@ -4738,6 +4752,7 @@ def portal_requisition_batches(request):
     paged_batches, pagination = _portal_requisition_batches_payload(request)
     return JsonResponse({
         'ok': True,
+        'calculated_at': timezone.now().isoformat(),
         'batches': paged_batches,
         'pagination': pagination,
     })
@@ -4758,6 +4773,7 @@ def portal_requisition_batches_fragment(request):
         'branch': request.GET.get('branch', '').strip(),
         'empty_title': 'No batches found',
         'empty_sub': 'No requisition batches match the current filters.',
+        'calculated_at': timezone.now().isoformat(),
     })
 
 

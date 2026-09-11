@@ -693,6 +693,63 @@ test('multipart upload failure can retry with the same request key', async ({ pa
   expect(result.requests[1].idempotencyKey).toBe(result.key);
 });
 
+test('Portal dialogs trap focus, protect edits, and restore the opener', async ({ page }) => {
+  await page.setContent(`
+    <button id="open-dialog" type="button">Open case</button>
+    <div id="sheet-overlay" class="sheet-overlay" role="dialog" aria-modal="true">
+      <div class="sheet-panel">
+        <button id="sheet-close" type="button">Close</button>
+        <label>Comment<textarea id="case-comment"></textarea></label>
+        <button id="save-case" type="button">Save</button>
+      </div>
+    </div>
+    <style>.sheet-overlay { display:none }.sheet-overlay.open { display:block }</style>
+  `);
+  await page.evaluate(() => {
+    window.__closingCalls = [];
+    window.Telegram = { WebApp: {
+      ready() {}, expand() {}, disableVerticalSwipes() {},
+      enableClosingConfirmation() { window.__closingCalls.push('enable'); },
+      disableClosingConfirmation() { window.__closingCalls.push('disable'); },
+    } };
+  });
+  await loadUtilities(page);
+  await page.addScriptTag({ path: asset('portal_dialogs.js') });
+  await page.evaluate(() => {
+    const opener = document.getElementById('open-dialog');
+    const overlay = document.getElementById('sheet-overlay');
+    opener.addEventListener('click', () => overlay.classList.add('open'));
+    document.getElementById('sheet-close').addEventListener('click', () => overlay.classList.remove('open'));
+  });
+
+  await page.locator('#open-dialog').click();
+  await expect(page.locator('#sheet-close')).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(page.locator('#save-case')).toBeFocused();
+  await page.locator('#case-comment').fill('Reviewed in the field');
+  await expect.poll(() => page.evaluate(() => window.__closingCalls.includes('enable'))).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#sheet-overlay')).not.toHaveClass(/open/);
+  await expect(page.locator('#open-dialog')).toBeFocused();
+  await expect.poll(() => page.evaluate(() => window.__closingCalls.at(-1))).toBe('disable');
+});
+
+test('Portal pinned shell dependencies load without runtime CDNs', async ({ page }) => {
+  await page.setContent('<main><i data-lucide="menu"></i><div id="map"></div></main>');
+  await page.addScriptTag({ path: asset('vendor-htmx-2.0.4.min.js') });
+  await page.addScriptTag({ path: asset('vendor-lucide-1.44.0.min.js') });
+  await page.addScriptTag({ path: asset('vendor-leaflet-1.9.4.js') });
+  const loaded = await page.evaluate(() => {
+    window.lucide.createIcons();
+    return {
+      htmx: window.htmx.version,
+      lucide: Boolean(document.querySelector('svg.lucide-menu')),
+      leaflet: window.L.version,
+    };
+  });
+  expect(loaded).toEqual({ htmx: '2.0.4', lucide: true, leaflet: '1.9.4' });
+});
+
 function signingHtml() {
   return `<!doctype html><body>
     <main class="sign-shell" data-session-url="/api/origination/sign/api/session/">

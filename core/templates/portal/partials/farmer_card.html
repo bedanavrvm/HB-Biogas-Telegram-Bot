@@ -8,7 +8,6 @@
       type="checkbox"
       class="farmer-card-checkbox"
       data-id="{{ farmer.id }}"
-      onclick="event.stopPropagation();"
     >
   {% endif %}
   {% if queue_key == "jbl" or queue_key == "my_visits" %}
@@ -86,7 +85,7 @@
       {% endif %}
     </div>
     {% if review_stage == 'payment' and farmer.payment_review_document_id %}
-      <button type="button" class="btn btn-secondary btn-open-payment-review operational-queue-card-action" data-payment-document-id="{{ farmer.payment_review_document_id }}" onclick="event.stopPropagation();"><i data-lucide="file-check" aria-hidden="true"></i><span>Open Payment Review</span></button>
+      <button type="button" class="btn btn-secondary btn-open-payment-review operational-queue-card-action" data-payment-document-id="{{ farmer.payment_review_document_id }}"><i data-lucide="file-check" aria-hidden="true"></i><span>Open Payment Review</span></button>
     {% endif %}
   </div>
   {% endif %}

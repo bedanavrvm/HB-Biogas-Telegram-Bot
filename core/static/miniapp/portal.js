@@ -64,9 +64,14 @@
     selectedRequisitionRevisions: new Map(),
     pendingRequisitionPayload: null
   };
+  state.actor = { name: '', roles: [] };
+  state.lastRefreshedAt = 0;
   let historyKind = 'orders';
   let lastShellScreen = null;
   const queueLoadVersions = new Map();
+  const queueLoadsActive = new Map();
+  let dashboardLoadVersion = 0;
+  let dashboardLoading = false;
   let caseHistoryLoadVersion = 0;
   const CASE_HISTORY_WATCHDOG_MS = 22000;
 
@@ -81,6 +86,37 @@
   function isCurrentScreen(page) {
     const root = currentScreenRoot();
     return Boolean(root && state.activePage === page && root.dataset.screen === page);
+  }
+
+  function roleLabel(roles) {
+    return (roles || []).map(role => String(role).replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, letter => letter.toUpperCase())).join(', ');
+  }
+
+  function updatePortalContext() {
+    const name = el('portal-actor-name');
+    const role = el('portal-actor-role');
+    const freshness = el('portal-freshness');
+    const dot = document.querySelector('.portal-connection-dot');
+    if (name) name.textContent = state.actor?.name || 'Portal staff';
+    if (role) role.textContent = roleLabel(state.actor?.roles);
+    if (dot) dot.classList.toggle('is-offline', navigator.onLine === false);
+    if (!freshness) return;
+    if (!state.lastRefreshedAt) {
+      freshness.textContent = navigator.onLine === false ? 'Offline' : 'Loading current data';
+      return;
+    }
+    const ageSeconds = Math.max(0, Math.floor((Date.now() - state.lastRefreshedAt) / 1000));
+    const age = ageSeconds < 10 ? 'Updated now'
+      : ageSeconds < 60 ? `Updated ${ageSeconds}s ago`
+      : `Updated ${Math.floor(ageSeconds / 60)}m ago`;
+    freshness.textContent = navigator.onLine === false ? `${age} · Offline` : age;
+    freshness.classList.toggle('is-stale', ageSeconds >= 90);
+  }
+
+  function markPortalFresh(calculatedAt) {
+    const parsed = Date.parse(String(calculatedAt || ''));
+    state.lastRefreshedAt = Number.isFinite(parsed) ? parsed : Date.now();
+    updatePortalContext();
   }
 
   function renderScreenLoadFailure(page, error) {
@@ -331,6 +367,10 @@
 
   let _toastTimer = null;
   function showToast(msg, type = '') {
+    if (window.MiniAppRuntime?.showToast) {
+      window.MiniAppRuntime.showToast(msg, { tone: ['success', 'error', 'warning', 'info'].includes(type) ? type : 'info' });
+      return;
+    }
     const t = el('toast');
     if (utils.showToast) {
       utils.showToast(t, msg, {
@@ -497,14 +537,31 @@
     return Boolean(pageElement);
   }
   // Dashboard
-  async function loadDashboard() {
+  async function loadDashboard(options = {}) {
     const loading = el('dash-loading');
     if (!loading || !isCurrentScreen('dashboard')) return;
+    if (options.skipIfBusy && dashboardLoading) return;
+    dashboardLoading = true;
+    const refreshButton = el('dashboard-refresh');
+    if (refreshButton) {
+      refreshButton.disabled = true;
+      refreshButton.setAttribute('aria-busy', 'true');
+      refreshButton.classList.add('is-loading');
+    }
+    loading.innerHTML = '<span class="dashboard-loading-copy">Preparing current workload</span>'
+      + '<div class="dashboard-skeletons" aria-hidden="true"><span></span><span></span><span></span><span></span></div>';
     loading.style.display = 'block';
     loading.setAttribute('aria-busy', 'true');
     el('dash-counts').style.display = 'none';
-    const { ok, status, data } = await apiFetch('/dashboard/');
-    if (!isCurrentScreen('dashboard')) return;
+    const loadVersion = ++dashboardLoadVersion;
+    const { ok, status, data, requestId } = await apiFetch('/dashboard/');
+    dashboardLoading = false;
+    if (!isCurrentScreen('dashboard') || loadVersion !== dashboardLoadVersion) return;
+    if (refreshButton) {
+      refreshButton.disabled = false;
+      refreshButton.removeAttribute('aria-busy');
+      refreshButton.classList.remove('is-loading');
+    }
     if (!ok) {
       const message = data?.error || data?.message || 'The dashboard request failed.';
       const guidance = status === 403
@@ -512,6 +569,8 @@
         : 'Check your connection and try again.';
       loading.innerHTML = '<strong>Dashboard unavailable</strong><span>'
         + escapeHtml(message) + '</span><span>' + escapeHtml(guidance) + '</span>';
+      if (requestId) loading.insertAdjacentHTML('beforeend', '<span class="error-reference">Reference: ' + escapeHtml(requestId) + '</span>');
+      loading.insertAdjacentHTML('beforeend', '<button type="button" class="btn btn-secondary portal-dashboard-retry">Retry</button>');
       loading.setAttribute('aria-busy', 'false');
       loading.style.display = 'block';
       return;
@@ -520,6 +579,7 @@
     loading.style.display = 'none';
     state.counts = data.counts || {};
     state.dashboard = data || {};
+    markPortalFresh(data.calculated_at);
     renderDashboard();
     if (canManagePortalWorkspace()) {
       try { await loadPortalWorkspace({ includeSummary: true }); } catch (_) { /* Workspace shortcuts are non-critical to queue work. */ }
@@ -597,6 +657,11 @@
   document.addEventListener('click', event => {
     const refresh = event.target.closest('#dashboard-refresh');
     if (refresh) {
+      event.preventDefault();
+      loadDashboard();
+      return;
+    }
+    if (event.target.closest('.portal-dashboard-retry')) {
       event.preventDefault();
       loadDashboard();
       return;
@@ -690,11 +755,16 @@
     listEl.querySelector('.queue-retry')?.addEventListener('click', () => loadQueue(qKey, state.pages[qKey] || page));
   }
 
-  async function loadQueue(qKey, page = 1) {
+  async function loadQueue(qKey, page = 1, options = {}) {
     const cfg = queueConfig[qKey];
     if (!cfg) return;
     const listEl = el(cfg.listId);
     if (!listEl || !isCurrentScreen(qKey)) return;
+    if (options.skipIfBusy && Number(queueLoadsActive.get(qKey) || 0) > 0) return;
+    queueLoadsActive.set(qKey, Number(queueLoadsActive.get(qKey) || 0) + 1);
+    const preserveView = Boolean(options.preserveView);
+    const savedScrollY = preserveView ? window.scrollY : 0;
+    if (preserveView) listEl.style.minHeight = `${listEl.offsetHeight}px`;
     const loadVersion = beginQueueLoad(qKey);
     listEl.innerHTML = '<div class="mini-skeleton-list" role="status" aria-label="Loading queue">'
       + (utils.skeletonCards ? utils.skeletonCards(3) : '<div class="empty-state"><div class="spinner-inline"></div></div>')
@@ -717,6 +787,7 @@
         state.pagination[qKey] = {};
         state.pages[qKey] = page;
         updateFilterOptions([]);
+        markPortalFresh(listEl.querySelector('[data-calculated-at]')?.dataset.calculatedAt);
         return;
       }
       const url = portalQueues.queueUrl ? portalQueues.queueUrl(qKey, page, state) : cfg.endpoint + '?page=' + page;
@@ -746,6 +817,7 @@
           renderBatchesList(listEl, batches, cfg);
           renderPagination(qKey, data.pagination);
         }
+        markPortalFresh(data.calculated_at || listEl.querySelector('[data-calculated-at]')?.dataset.calculatedAt);
         return;
       }
 
@@ -780,9 +852,16 @@
       if (!(cfg.fragmentEndpoint && window.htmx)) {
         renderPagination(qKey, data.pagination);
       }
+      markPortalFresh(data.calculated_at || listEl.querySelector('[data-calculated-at]')?.dataset.calculatedAt);
     } catch (error) {
       if (!isCurrentQueueLoad(qKey, loadVersion)) return;
       renderQueueFailure(listEl, qKey, page, 'The queue could not be loaded. Please try again.');
+    } finally {
+      queueLoadsActive.set(qKey, Math.max(0, Number(queueLoadsActive.get(qKey) || 1) - 1));
+      if (preserveView) {
+        listEl.style.minHeight = '';
+        window.requestAnimationFrame(() => window.scrollTo({ top: savedScrollY, behavior: 'auto' }));
+      }
     }
   }
 
@@ -845,6 +924,14 @@
         requisitionCheckbox.disabled = true;
         requisitionCheckbox.setAttribute('aria-label', 'Order generation is not assigned to your role');
       }
+      if (requisitionCheckbox && state.selectedRequisitions.has(requisitionCheckbox.dataset.id)) {
+        requisitionCheckbox.checked = true;
+        state.selectedRequisitionRevisions.set(
+          requisitionCheckbox.dataset.id,
+          Number(requisitionCheckbox.dataset.revision || 1),
+        );
+      }
+      requisitionCheckbox?.addEventListener('click', event => event.stopPropagation());
       requisitionCheckbox?.addEventListener('change', event => {
         if (!hasCapability('portal.requisition.write')) {
           event.target.checked = false;
@@ -1290,7 +1377,8 @@
 
   function reloadCurrentQueue() {
     const p = state.activePage;
-    if (queueConfig[p]) loadQueue(p, state.pages[p] || 1);
+    if (queueConfig[p]) return loadQueue(p, state.pages[p] || 1, { preserveView: true });
+    return Promise.resolve();
   }
 
   // An assigned order leaves the "Ready for order" queue by design.  Take the
@@ -1331,6 +1419,8 @@
     state.jblVisitMediaMaxTotalBytes = Number(data.jbl_visit_media_max_total_bytes || state.jblVisitMediaMaxTotalBytes);
     state.jblVisitDraftFields = Array.isArray(data.jbl_visit_draft_fields) ? data.jbl_visit_draft_fields : [];
     state.voiceInput = data.voice_input || state.voiceInput;
+    state.actor = data.actor || state.actor;
+    updatePortalContext();
     if (portalApi.schedulePublication && Array.isArray(data.due_publication_operation_ids)) {
       portalApi.schedulePublication({ pending_operation_ids: data.due_publication_operation_ids }, tg);
     }
@@ -1935,7 +2025,19 @@
     if (canManagePortalWorkspace()) {
       try { await loadPortalWorkspace(); } catch (_) { /* Workspace is optional convenience data. */ }
     }
-    window.setInterval(loadMeta, 60000);
+    const runtime = window.MiniAppRuntime;
+    if (runtime?.createVisibleInterval) {
+      runtime.createVisibleInterval(loadMeta, 60000, { immediateOnResume: true });
+      runtime.createVisibleInterval(function () {
+        if (!state.lastRefreshedAt || Date.now() - state.lastRefreshedAt < 30000) return;
+        if (state.activePage === 'dashboard') return loadDashboard({ skipIfBusy: true });
+        if (queueConfig[state.activePage]) return loadQueue(state.activePage, state.pages[state.activePage] || 1, { preserveView: true, skipIfBusy: true });
+      }, 60000, { immediateOnResume: true });
+      runtime.createVisibleInterval(updatePortalContext, 10000, { immediateOnResume: true });
+    } else {
+      window.setInterval(loadMeta, 60000);
+      window.setInterval(updatePortalContext, 10000);
+    }
     const shellScreen = document.getElementById('portal-screen')?.dataset.screen || 'dashboard';
     const isRootLanding = /\/portal\/?$/.test(window.location.pathname);
     const savedFilters = state.personalPreference?.default_filters || {};

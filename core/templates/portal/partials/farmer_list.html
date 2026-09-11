@@ -1,3 +1,4 @@
+<span class="portal-fragment-freshness" data-calculated-at="{{ calculated_at }}" hidden></span>
 {% if farmers %}
   {% for farmer in farmers %}
     {% include "portal/partials/farmer_card.html" with farmer=farmer queue_key=queue_key mode=mode %}
