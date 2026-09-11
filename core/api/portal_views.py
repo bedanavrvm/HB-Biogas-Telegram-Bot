@@ -2529,7 +2529,11 @@ def portal_farmup_stage(request):
     return JsonResponse({
         'ok': True, 'replayed': replayed, 'batch': serialize_import_batch(batch),
         'archive_operation_id': str(operation.pk),
-        'message': 'FarmUp CSV parsed. Review the rows before committing.',
+        'message': (
+            'FarmUp CSV saved. Match the unfamiliar columns before reviewing rows.'
+            if serialize_import_batch(batch).get('mapping_state') == 'needs_mapping'
+            else 'FarmUp CSV parsed. Review the rows before committing.'
+        ),
     }, status=200 if replayed else 201)
 
 
@@ -2553,7 +2557,73 @@ def portal_farmup_detail(request, batch_id: str):
     )
     payload['revision_token'] = farmup_revision_token(batch)
     payload['editable_fields'] = list(FARMUP_EDITABLE_FIELDS)
+    if payload.get('rows'):
+        from core.services.portal_imports import validate_portal_farmup
+        _validated_batch, validation, counts = validate_portal_farmup(
+            batch_id=batch_id, rows=payload['rows'],
+            revision_token=payload['revision_token'],
+            allowed_group_ids=_portal_import_group_ids(request),
+        )
+        payload['validation'] = validation
+        payload['review_counts'] = counts
     return JsonResponse({'ok': True, 'batch': payload})
+
+
+@portal_auth_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_farmup_mapping(request, batch_id: str):
+    access_error = _portal_read_access_error(request, capability='portal.farmup.stage')
+    if access_error:
+        return access_error
+    payload = _portal_request_data(request)
+    try:
+        from core.services.portal_imports import (
+            PortalImportConflict, PortalImportError, apply_portal_farmup_mapping,
+            archive_operation_ids, farmup_revision_token, serialize_import_batch,
+        )
+        batch, replayed = apply_portal_farmup_mapping(
+            batch_id=batch_id, decisions=payload.get('mapping'),
+            revision_token=str(payload.get('revision_token') or ''),
+            request_id=_portal_request_id(request, payload),
+            actor=getattr(request, 'portal_user', None),
+            allowed_group_ids=_portal_import_group_ids(request),
+        )
+    except PortalImportConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'code': 'farmup_revision_conflict'}, status=409)
+    except PortalImportError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
+    response_batch = serialize_import_batch(
+        batch, include_rows=True,
+        archive_operation_id=archive_operation_ids([batch]).get(str(batch.pk), ''),
+    )
+    response_batch['revision_token'] = farmup_revision_token(batch)
+    response_batch['editable_fields'] = list(FARMUP_EDITABLE_FIELDS)
+    return JsonResponse({'ok': True, 'replayed': replayed, 'batch': response_batch})
+
+
+@portal_auth_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_farmup_validate(request, batch_id: str):
+    access_error = _portal_read_access_error(request, capability='portal.farmup.commit')
+    if access_error:
+        return access_error
+    payload = _portal_request_data(request)
+    try:
+        from core.services.portal_imports import (
+            PortalImportConflict, PortalImportError, validate_portal_farmup,
+        )
+        _batch, rows, counts = validate_portal_farmup(
+            batch_id=batch_id, rows=payload.get('rows'),
+            revision_token=str(payload.get('revision_token') or ''),
+            allowed_group_ids=_portal_import_group_ids(request),
+        )
+    except PortalImportConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'code': 'farmup_revision_conflict'}, status=409)
+    except PortalImportError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
+    return JsonResponse({'ok': True, 'rows': rows, 'counts': counts})
 
 
 @portal_auth_required

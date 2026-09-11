@@ -13,13 +13,16 @@ from core.models import ComplianceAuditEvent, GroupSheetConfiguration, JawabuFar
 from core.services.portal_imports import (
     PortalImportConflict,
     PortalImportError,
+    apply_portal_farmup_mapping,
     archive_portal_import_working_list,
     attempt_import_archive,
     commit_portal_farmup,
     farmup_revision_token,
+    farmup_mapping_analysis,
     serialize_import_batch,
     source_table_page,
     stage_portal_import,
+    validate_portal_farmup,
 )
 
 
@@ -163,7 +166,106 @@ class PortalImportStagingTests(TestCase):
             'portal_import_archive',
         )
         self.assertEqual(resolve('/api/portal/farmup/stage/').func.__name__, 'portal_farmup_stage')
+        self.assertEqual(resolve('/api/portal/farmup/example-batch/mapping/').func.__name__, 'portal_farmup_mapping')
+        self.assertEqual(resolve('/api/portal/farmup/example-batch/validate/').func.__name__, 'portal_farmup_validate')
         self.assertEqual(resolve('/api/portal/farmup/example-batch/commit/').func.__name__, 'portal_farmup_commit')
+
+    def test_reordered_known_columns_are_mapped_without_position_assumptions(self):
+        csv_text = (
+            'Sales Person,Phone,Sign Date,Actual Receipts,Mobile,HBG Hub,ID NUMBER,Full Name\n'
+            'Jane Sales,+254704408281,01/05/2026,5000,+254721997481,Embu,23215888,David Mugambi\n'
+        ).encode('utf-8')
+        batch, _operation, _replayed = stage_portal_import(
+            kind='farmup', filename='reordered.csv', content=csv_text,
+            request_id='portal-farmup-reordered-0001', actor=self.user,
+            allowed_group_ids={self.group.group_id},
+        )
+        self.assertEqual(batch.mapping['state'], 'auto_ready')
+        self.assertEqual(batch.parsed_rows[0]['Customer Name'], 'DAVID MUGAMBI')
+        self.assertEqual(batch.parsed_rows[0]['National ID'], '23215888')
+
+    def test_unknown_header_requires_explicit_mapping_then_reparses_idempotently(self):
+        csv_text = FARMUP_CSV.replace(b'Full Name', b'Applicant Legal Name')
+        batch, _operation, _replayed = stage_portal_import(
+            kind='farmup', filename='renamed.csv', content=csv_text,
+            request_id='portal-farmup-guided-0001', actor=self.user,
+            allowed_group_ids={self.group.group_id},
+        )
+        self.assertEqual(batch.mapping['state'], 'needs_mapping')
+        self.assertEqual(batch.parsed_rows, [])
+        self.assertNotIn('sample_values', batch.mapping['columns'][0])
+        decisions = [
+            {
+                'source_id': item['source_id'],
+                'target_field': 'customer_name' if item['source_id'] == 'Applicant Legal Name' else item['target_field'],
+            }
+            for item in batch.mapping['columns']
+        ]
+        mapped, replayed = apply_portal_farmup_mapping(
+            batch_id=str(batch.pk), decisions=decisions,
+            revision_token=farmup_revision_token(batch),
+            request_id='portal-farmup-mapping-0001', actor=self.user,
+            allowed_group_ids={self.group.group_id},
+        )
+        self.assertFalse(replayed)
+        self.assertEqual(mapped.mapping['state'], 'confirmed')
+        self.assertEqual(mapped.parsed_rows[0]['Customer Name'], 'DAVID MUGAMBI')
+        self.assertTrue(ComplianceAuditEvent.objects.filter(action='portal.farmup.mapping_changed').exists())
+        repeated, replayed = apply_portal_farmup_mapping(
+            batch_id=str(batch.pk), decisions=decisions,
+            revision_token=farmup_revision_token(batch),
+            request_id='portal-farmup-mapping-0001', actor=self.user,
+            allowed_group_ids={self.group.group_id},
+        )
+        self.assertTrue(replayed)
+        self.assertEqual(repeated.pk, mapped.pk)
+
+    def test_mapping_rejects_duplicate_targets_and_can_leave_required_field_for_row_entry(self):
+        analysis = farmup_mapping_analysis(FARMUP_CSV.decode('utf-8'))
+        decisions = [
+            {'source_id': item['source_id'], 'target_field': item['target_field']}
+            for item in analysis['columns']
+        ]
+        decisions[1]['target_field'] = decisions[0]['target_field']
+        with self.assertRaisesMessage(PortalImportError, 'More than one CSV column'):
+            farmup_mapping_analysis(FARMUP_CSV.decode('utf-8'), decisions)
+
+        missing_name = [
+            {'source_id': item['source_id'], 'target_field': '' if item['target_field'] == 'customer_name' else item['target_field']}
+            for item in analysis['columns']
+        ]
+        remapped = farmup_mapping_analysis(FARMUP_CSV.decode('utf-8'), missing_name)
+        self.assertIn('customer_name', remapped['missing_required_fields'])
+        self.assertEqual(remapped['state'], 'confirmed')
+
+    def test_mapping_rejects_missing_headers_and_overflow_rows(self):
+        with self.assertRaisesMessage(PortalImportError, 'no usable header row'):
+            farmup_mapping_analysis('')
+        with self.assertRaisesMessage(PortalImportError, 'more values than the header row'):
+            farmup_mapping_analysis('Full Name,Mobile\nJane,254700000001,unexpected\n')
+
+    def test_warning_rows_require_actor_acknowledgement(self):
+        batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})
+        row = dict(batch.parsed_rows[0], **{'National ID': '123456', 'approved': True})
+        _batch, validation, counts = validate_portal_farmup(
+            batch_id=str(batch.pk), rows=[row], revision_token=farmup_revision_token(batch),
+            allowed_group_ids={self.group.group_id},
+        )
+        self.assertEqual(validation[0]['state'], 'warning')
+        self.assertEqual(counts['selected'], 0)
+        with self.assertRaisesMessage(PortalImportError, 'must be acknowledged'):
+            commit_portal_farmup(
+                batch_id=str(batch.pk), rows=[row], revision_token=farmup_revision_token(batch),
+                request_id='portal-farmup-warning-0001', actor=self.user,
+                allowed_group_ids={self.group.group_id},
+            )
+        row['warning_acknowledged'] = True
+        _batch, _validation, counts = validate_portal_farmup(
+            batch_id=str(batch.pk), rows=[row], revision_token=farmup_revision_token(batch),
+            allowed_group_ids={self.group.group_id},
+        )
+        self.assertEqual(counts['selected'], 1)
+        self.assertEqual(counts['warning_overrides'], 1)
 
     def test_portal_farmup_commit_is_revision_bound_and_exactly_replayable(self):
         batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})

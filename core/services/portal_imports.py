@@ -47,8 +47,25 @@ FARMUP_EDITABLE_FIELDS = (
     'Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone',
     'Application Action', 'Additional Unit Reason', 'County',
     'HBG Visit Date', 'Deposit Paid to HB', 'HB Sales Person',
-    'Cleaning Notes',
 )
+FARMUP_REQUIRED_FIELDS = (
+    'customer_name', 'national_id', 'primary_phone', 'secondary_phone',
+    'county', 'sign_date', 'actual_receipts', 'hb_sales_person',
+)
+FARMUP_FIELD_LABELS = {
+    'customer_name': 'Customer Name',
+    'national_id': 'National ID',
+    'primary_phone': 'Primary Phone',
+    'secondary_phone': 'Secondary Phone',
+    'county': 'County',
+    'sub_county': 'Constituency',
+    'village': 'Village',
+    'lead_source': 'Lead Source',
+    'sign_date': 'HBG Visit Date',
+    'comments': 'HBG Visit Comment',
+    'actual_receipts': 'Deposit Paid to HB',
+    'hb_sales_person': 'HB Sales Person',
+}
 _FARMUP_REVISION_SALT = 'portal-farmup-batch-revision-v1'
 
 
@@ -109,6 +126,137 @@ def _decode_farmup_csv(content: bytes) -> str:
         except UnicodeDecodeError:
             continue
     raise PortalImportError('FarmUp CSV must be UTF-8 encoded.')
+
+
+def _farmup_mapping_digest(decisions: list[dict]) -> str:
+    normalized = [
+        {
+            'source_id': str(item.get('source_id') or ''),
+            'target_field': str(item.get('target_field') or ''),
+        }
+        for item in decisions
+    ]
+    return hashlib.sha256(json.dumps(
+        normalized, sort_keys=True, separators=(',', ':'), ensure_ascii=False,
+    ).encode('utf-8')).hexdigest()
+
+
+def farmup_mapping_analysis(csv_text: str, decisions: list[dict] | None = None) -> dict[str, Any]:
+    """Describe a positional, explicit source-to-canonical FarmUp mapping."""
+    from core.services.jawabu_master import (
+        CANONICAL_FIELDS, build_header_map, read_csv_rows,
+    )
+
+    raw_table = list(csv.reader(io.StringIO(csv_text)))
+    if not raw_table or not any(str(value or '').strip() for value in raw_table[0]):
+        raise PortalImportError('FarmUp CSV has no usable header row.')
+    overflow_rows = [
+        index for index, values in enumerate(raw_table[1:], start=2)
+        if len(values) > len(raw_table[0]) and any(str(value or '').strip() for value in values)
+    ]
+    if overflow_rows:
+        sample = ', '.join(str(value) for value in overflow_rows[:5])
+        raise PortalImportError(f'FarmUp CSV rows {sample} contain more values than the header row.')
+    rows, headers = read_csv_rows(io.StringIO(csv_text))
+    if decisions is not None:
+        submitted_ids = [str(item.get('source_id') or '') for item in decisions if isinstance(item, dict)]
+        if len(submitted_ids) != len(set(submitted_ids)) or set(submitted_ids) != set(headers):
+            raise PortalImportError('Every CSV column must be mapped or explicitly ignored exactly once.')
+    inferred = build_header_map(headers)
+    inferred_by_source = {source: field for field, source in inferred.items()}
+    supplied = {
+        str(item.get('source_id') or ''): str(item.get('target_field') or '')
+        for item in (decisions or []) if isinstance(item, dict)
+    }
+    columns = []
+    used_targets: set[str] = set()
+    for index, source_id in enumerate(headers):
+        target = supplied.get(source_id) if decisions is not None else inferred_by_source.get(source_id, '')
+        if target and target not in CANONICAL_FIELDS:
+            raise PortalImportError(f'Column {source_id} was mapped to an unsupported FarmUp field.')
+        if target and target in used_targets:
+            raise PortalImportError(f'More than one CSV column was mapped to {FARMUP_FIELD_LABELS.get(target, target)}.')
+        if target:
+            used_targets.add(target)
+        # The established export intentionally uses the second Sign Date.
+        known_ignored = source_id == 'Sign Date' and inferred.get('sign_date') == 'Sign Date__2'
+        resolution = 'manual' if decisions is not None else ('auto' if target else ('ignored' if known_ignored else 'unresolved'))
+        samples = []
+        for _row_number, row in rows:
+            value = str(row.get(source_id) or '').strip()
+            if value and value not in samples:
+                samples.append(value)
+            if len(samples) == 3:
+                break
+        display_header = re.sub(r'__\d+$', '', source_id)
+        columns.append({
+            'source_id': source_id,
+            'source_header': display_header,
+            'column_number': index + 1,
+            'target_field': target,
+            'suggested_field': inferred_by_source.get(source_id, ''),
+            'resolution': resolution,
+            'sample_values': samples,
+        })
+    unresolved = [item['source_id'] for item in columns if item['resolution'] == 'unresolved']
+    missing_required = [field for field in FARMUP_REQUIRED_FIELDS if field not in used_targets]
+    normalized_decisions = [
+        {'source_id': item['source_id'], 'target_field': item['target_field']}
+        for item in columns
+    ]
+    return {
+        'version': 1,
+        'state': 'needs_mapping' if unresolved else ('confirmed' if decisions is not None else 'auto_ready'),
+        'columns': columns,
+        'canonical_fields': [
+            {'key': field, 'label': FARMUP_FIELD_LABELS.get(field, field.replace('_', ' ').title()), 'required': field in FARMUP_REQUIRED_FIELDS}
+            for field in CANONICAL_FIELDS
+        ],
+        'unresolved_columns': unresolved,
+        'missing_required_fields': missing_required,
+        'source_row_count': sum(1 for _number, row in rows if any(str(value or '').strip() for value in row.values())),
+        'digest': _farmup_mapping_digest(normalized_decisions),
+    }
+
+
+def _mapping_without_samples(mapping: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(mapping)
+    payload['columns'] = []
+    for item in mapping.get('columns', []):
+        column = dict(item)
+        column.pop('sample_values', None)
+        payload['columns'].append(column)
+    return payload
+
+
+def _batch_mapping_payload(batch: JawabuFarmerUploadBatch, *, include_samples: bool = False) -> dict[str, Any]:
+    mapping = batch.mapping if isinstance(batch.mapping, dict) else {}
+    if mapping.get('version') == 1:
+        payload = dict(mapping)
+        payload['columns'] = [dict(item) for item in mapping.get('columns', [])]
+    elif batch.source_content:
+        payload = farmup_mapping_analysis(_decode_farmup_csv(bytes(batch.source_content)))
+        # Existing standalone and pre-Portal batches were already parsed with
+        # the established alias rules. Preserve that usable review surface;
+        # guided mapping applies only to new Portal staging or an explicit
+        # remap request.
+        if batch.parsed_rows:
+            payload['state'] = 'legacy_ready'
+    else:
+        payload = {'version': 1, 'state': 'legacy', 'columns': [], 'canonical_fields': [], 'unresolved_columns': [], 'missing_required_fields': [], 'digest': ''}
+    if include_samples and batch.source_content and payload.get('columns'):
+        decisions = [
+            {'source_id': item.get('source_id'), 'target_field': item.get('target_field', '')}
+            for item in payload['columns']
+        ]
+        sampled = farmup_mapping_analysis(_decode_farmup_csv(bytes(batch.source_content)), decisions)
+        samples = {item['source_id']: item.get('sample_values', []) for item in sampled['columns']}
+        for column in payload['columns']:
+            column['sample_values'] = samples.get(column.get('source_id'), [])
+    elif not include_samples:
+        for column in payload.get('columns', []):
+            column.pop('sample_values', None)
+    return payload
 
 
 def _decode_sysup_csv(content: bytes) -> str:
@@ -311,6 +459,7 @@ def _farmup_commit_rows(batch: JawabuFarmerUploadBatch, submitted_rows: Any) -> 
             if field in submitted:
                 merged[field] = str(submitted.get(field) or '')
         merged['approved'] = bool(submitted.get('approved'))
+        merged['warning_acknowledged'] = bool(submitted.get('warning_acknowledged'))
         merged_rows.append(merged)
     if submitted_ids != set(by_id):
         raise PortalImportConflict('The FarmUp row selection changed. Reload the batch before committing.')
@@ -322,12 +471,169 @@ def _farmup_payload_digest(rows: list[dict]) -> str:
         {
             'row_id': str(row.get('row_id') or ''),
             'approved': bool(row.get('approved')),
+            'warning_acknowledged': bool(row.get('warning_acknowledged')),
             **{field: str(row.get(field) or '') for field in FARMUP_EDITABLE_FIELDS},
         }
         for row in rows
     ]
     encoded = json.dumps(editable, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
     return hashlib.sha256(encoded.encode('utf-8')).hexdigest()
+
+
+def _farmup_row_issues(batch: JawabuFarmerUploadBatch, row: dict, index: int) -> list[dict[str, str]]:
+    from core.services.jawabu import is_valid_phone
+    from core.services.jawabu_master import (
+        clean_national_id, cleaned_master_row_from_review,
+        farmup_review_validation_notes, is_valid_national_id,
+    )
+
+    cleaned = cleaned_master_row_from_review(row, batch, index, timezone.now())
+    blockers = []
+    if not cleaned.get('customer_name'):
+        blockers.append('Customer Name is required')
+    blockers.extend(farmup_review_validation_notes(row, cleaned))
+    if cleaned.get('primary_phone') and not is_valid_phone(cleaned['primary_phone']):
+        blockers.append('Primary Phone must be in 254 format')
+    if cleaned.get('secondary_phone') and not is_valid_phone(cleaned['secondary_phone']):
+        blockers.append('Secondary Phone must be in 254 format')
+    issues = [{'severity': 'blocker', 'message': message} for message in dict.fromkeys(blockers)]
+    raw_id = str(row.get('National ID') or '').strip()
+    numeric_id = clean_national_id(raw_id)
+    if numeric_id and not is_valid_national_id(numeric_id):
+        issues.append({
+            'severity': 'warning',
+            'message': 'National ID is outside the usual 7-9 digit range',
+        })
+    notes = str(row.get('Cleaning Notes') or '').strip()
+    if row.get('Import Status') == 'review_needed' and not issues and notes.startswith('Master Data conflict before commit:'):
+        issues.append({'severity': 'warning', 'message': notes})
+    return issues
+
+
+def validate_portal_farmup(
+    *,
+    batch_id: str,
+    rows: list[dict],
+    revision_token: str,
+    allowed_group_ids: set[str] | None = None,
+) -> tuple[JawabuFarmerUploadBatch, list[dict], dict[str, int]]:
+    """Validate an exact client review without changing workflow state."""
+    batch = JawabuFarmerUploadBatch.objects.filter(pk=batch_id).first()
+    if batch is None:
+        raise PortalImportError('This FarmUp batch is unavailable.')
+    _assert_replay_is_in_scope(batch, allowed_group_ids=allowed_group_ids)
+    _assert_farmup_batch(batch)
+    if _revision_from_token(batch, revision_token) != int(batch.portal_revision or 1):
+        raise PortalImportConflict('Another reviewer changed this FarmUp batch. Reload it before continuing.')
+    merged = _farmup_commit_rows(batch, rows)
+    results = []
+    counts = {'total': len(merged), 'selected': 0, 'warning_overrides': 0, 'skipped': 0, 'unresolved': 0}
+    for index, row in enumerate(merged, start=1):
+        issues = _farmup_row_issues(batch, row, index)
+        blockers = [item for item in issues if item['severity'] == 'blocker']
+        warnings = [item for item in issues if item['severity'] == 'warning']
+        selected = bool(row.get('approved'))
+        acknowledged = bool(row.get('warning_acknowledged'))
+        if selected and blockers:
+            state = 'needs_correction'
+            counts['unresolved'] += 1
+        elif selected and warnings and not acknowledged:
+            state = 'warning'
+            counts['unresolved'] += 1
+        elif selected:
+            state = 'warning' if warnings else 'ready'
+            counts['selected'] += 1
+            if warnings:
+                counts['warning_overrides'] += 1
+        elif blockers or warnings:
+            state = 'needs_correction' if blockers else 'warning'
+            counts['unresolved'] += 1
+        else:
+            state = 'ready'
+            counts['skipped'] += 1
+        results.append({
+            'row_id': str(row.get('row_id') or ''),
+            'state': state,
+            'selected': selected,
+            'warning_acknowledged': acknowledged,
+            'issues': issues,
+        })
+    return batch, results, counts
+
+
+@transaction.atomic
+def apply_portal_farmup_mapping(
+    *, batch_id: str, decisions: list[dict], revision_token: str,
+    request_id: str, actor, allowed_group_ids: set[str] | None = None,
+) -> tuple[JawabuFarmerUploadBatch, bool]:
+    """Apply one explicit, idempotent mapping and reparse retained source."""
+    request_id = str(request_id or '').strip()
+    if not request_id:
+        raise PortalImportError('This mapping change needs a retry key.')
+    if not isinstance(decisions, list) or any(not isinstance(item, dict) for item in decisions):
+        raise PortalImportError('FarmUp column mappings must be submitted as a list.')
+    batch = JawabuFarmerUploadBatch.objects.select_for_update().filter(pk=batch_id).first()
+    if batch is None:
+        raise PortalImportError('This FarmUp batch is unavailable.')
+    _assert_replay_is_in_scope(batch, allowed_group_ids=allowed_group_ids)
+    _assert_farmup_batch(batch)
+    payload_hash = _farmup_mapping_digest(decisions)
+    for replay in list(batch.portal_commit_replays or []):
+        if replay.get('operation') != 'mapping' or replay.get('request_id') != request_id:
+            continue
+        if replay.get('payload_hash') != payload_hash:
+            raise PortalImportConflict('This retry key was already used with a different column mapping.')
+        return batch, True
+    if _revision_from_token(batch, revision_token) != int(batch.portal_revision or 1):
+        raise PortalImportConflict('Another reviewer changed this FarmUp batch. Reload it before changing the mapping.')
+    if batch.committed_count:
+        raise PortalImportConflict('Column mapping is locked after the first FarmUp commit.')
+    if not batch.source_content:
+        raise PortalImportError('The original FarmUp CSV is unavailable for remapping.')
+    csv_text = _decode_farmup_csv(bytes(batch.source_content))
+    analysis = farmup_mapping_analysis(csv_text, decisions)
+    from core.services.jawabu_master import build_cleaned_master_preview
+
+    canonical_map = {
+        item['target_field']: item['source_id']
+        for item in analysis['columns'] if item.get('target_field')
+    }
+    rows, stats = build_cleaned_master_preview(
+        io.StringIO(csv_text), source_name=batch.source_filename,
+        header_mapping=canonical_map,
+    )
+    batch.parsed_rows = [
+        {**row, 'row_id': index, 'approved': row.get('Import Status') != 'review_needed'}
+        for index, row in enumerate(rows, start=1)
+    ]
+    batch.total_rows = int(stats.get('total_rows') or 0)
+    batch.review_needed = int(stats.get('review_needed') or 0)
+    batch.mapping = _mapping_without_samples(analysis)
+    previous_revision = int(batch.portal_revision or 1)
+    batch.portal_revision = previous_revision + 1
+    replays = list(batch.portal_commit_replays or [])
+    replays.append({'operation': 'mapping', 'request_id': request_id[:128], 'payload_hash': payload_hash})
+    batch.portal_commit_replays = replays[-100:]
+    batch.save(update_fields=[
+        'parsed_rows', 'total_rows', 'review_needed', 'mapping',
+        'portal_revision', 'portal_commit_replays', 'updated_at',
+    ])
+    record_event(
+        workflow='portal', action='portal.farmup.mapping_changed', category='workflow',
+        subject_type='JawabuFarmerUploadBatch', subject_id=str(batch.pk),
+        deduplication_key=f'portal-farmup-mapping:{batch.pk}:{request_id}',
+        actor=actor, request_id=request_id, source_model='JawabuFarmerUploadBatch',
+        source_event_id=f'{batch.pk}:mapping:{request_id}',
+        before_values={'revision': previous_revision},
+        after_values={'revision': batch.portal_revision, 'mapping_digest': analysis['digest']},
+        metadata={
+            'group_id': batch.group_id,
+            'mapped_columns': sum(1 for item in analysis['columns'] if item.get('target_field')),
+            'ignored_columns': sum(1 for item in analysis['columns'] if not item.get('target_field')),
+            'missing_required_count': len(analysis['missing_required_fields']),
+        }, sensitive=False,
+    )
+    return batch, False
 
 
 @transaction.atomic
@@ -357,6 +663,8 @@ def commit_portal_farmup(
     payload_hash = _farmup_payload_digest(rows)
 
     for replay in list(batch.portal_commit_replays or []):
+        if replay.get('operation') not in (None, 'commit'):
+            continue
         if str(replay.get('request_id') or '') != request_id:
             continue
         if replay.get('payload_hash') != payload_hash:
@@ -367,6 +675,17 @@ def commit_portal_farmup(
     expected_revision = _revision_from_token(batch, revision_token)
     if expected_revision != int(batch.portal_revision or 1):
         raise PortalImportConflict('Another reviewer changed this FarmUp batch. Reload it before committing.')
+    warning_overrides = 0
+    for index, row in enumerate(merged_rows, start=1):
+        if not row.get('approved'):
+            continue
+        issues = _farmup_row_issues(batch, row, index)
+        if any(item['severity'] == 'blocker' for item in issues):
+            raise PortalImportError(f'Row {row.get("row_id") or index} still needs correction before it can be selected.')
+        if any(item['severity'] == 'warning' for item in issues):
+            if not row.get('warning_acknowledged'):
+                raise PortalImportError(f'Row {row.get("row_id") or index} has a warning that must be acknowledged before commit.')
+            warning_overrides += 1
 
     from core.services.jawabu_master import commit_farmup_review_batch
 
@@ -389,6 +708,7 @@ def commit_portal_farmup(
     batch.portal_revision = int(batch.portal_revision or 1) + 1
     replays = list(batch.portal_commit_replays or [])
     replays.append({
+        'operation': 'commit',
         'request_id': request_id[:128],
         'payload_hash': payload_hash,
         'result': safe_result,
@@ -419,6 +739,7 @@ def commit_portal_farmup(
             'approved_rows': sum(1 for row in merged_rows if row.get('approved')),
             'skipped_rows': sum(1 for row in merged_rows if not row.get('approved')),
             'unresolved_rows': safe_result['review_needed'],
+            'warning_overrides': warning_overrides,
         },
         sensitive=False,
     )
@@ -544,14 +865,21 @@ def stage_portal_import(
             if normalized_kind == IMPORT_KIND_FARMUP:
                 from core.services.jawabu_master import create_farmup_review_batch
 
+                csv_text = _decode_farmup_csv(payload)
+                mapping = farmup_mapping_analysis(csv_text)
                 batch, _stats = create_farmup_review_batch(
                     group_id=group_configuration.group_id,
                     telegram_message_id='',
                     sender=str(getattr(actor, 'get_full_name', lambda: '')() or getattr(actor, 'username', '') or ''),
                     source_filename=safe_name,
-                    csv_text=_decode_farmup_csv(payload),
+                    csv_text=csv_text,
                     group_config=group_configuration,
                 )
+                batch.mapping = _mapping_without_samples(mapping)
+                if mapping['state'] == 'needs_mapping':
+                    batch.parsed_rows = []
+                    batch.total_rows = mapping['source_row_count']
+                    batch.review_needed = mapping['source_row_count']
             else:
                 from core.services.system_export import create_system_export_review_batch
 
@@ -570,7 +898,8 @@ def stage_portal_import(
             batch.source_content = payload
             batch.save(update_fields=[
                 'created_by', 'upload_request_id', 'source_mime_type', 'source_size',
-                'source_content_hash', 'source_content', 'updated_at',
+                'source_content_hash', 'source_content', 'mapping', 'parsed_rows',
+                'total_rows', 'review_needed', 'updated_at',
             ])
             operation = reserve_import_archive(batch, request_id=request_id, user=actor)
             return batch, operation, False
@@ -709,6 +1038,8 @@ def serialize_import_batch(
         ),
     }
     if include_rows:
-        payload['mapping'] = list(batch.mapping or [])
+        payload['mapping'] = _batch_mapping_payload(batch, include_samples=True)
         payload['rows'] = list(batch.parsed_rows or [])
+    else:
+        payload['mapping_state'] = _batch_mapping_payload(batch).get('state', 'legacy')
     return payload

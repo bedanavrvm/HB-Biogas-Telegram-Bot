@@ -7,7 +7,15 @@
   <meta name="description" content="JBL Pipeline Portal">
   <title>{% block title %}Jawabu Portal{% endblock %}</title>
   <script>
-    window.PORTAL_CONFIG = {invoiceUploadMaxFileSizeMb: {{ invoice_upload_max_file_size_mb|default:8 }}};
+    window.PORTAL_CONFIG = {
+      invoiceUploadMaxFileSizeMb: {{ invoice_upload_max_file_size_mb|default:8 }},
+      farmupAgGridScript: "{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}",
+      farmupAgGridStyles: [
+        "{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}",
+        "{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}",
+        "{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}"
+      ]
+    };
   </script>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="{% static 'miniapp/vendor-htmx-2.0.4.min.js' %}?v=2.0.4"></script>
@@ -15,7 +23,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-leaflet-1.9.4.css' %}?v=1.9.4">
   <script src="{% static 'miniapp/vendor-leaflet-1.9.4.js' %}?v=1.9.4"></script>
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=8">
-  <link rel="stylesheet" href="{% static 'miniapp/portal.css' %}?v=93">
+  <link rel="stylesheet" href="{% static 'miniapp/portal.css' %}?v=94">
   <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=17">
   <link rel="stylesheet" href="{% static 'miniapp/theme.css' %}?v=9">
   <script defer src="{% static 'miniapp/miniapp-nav.js' %}?v=21"></script>
@@ -26,6 +34,11 @@
       <i data-lucide="menu"></i>
     </button>
     <div class="shell-title"><h1>Pipeline Portal</h1><p>JBL HomeBiogas</p></div>
+    <div class="shell-actor" role="status" aria-live="polite">
+      <span class="portal-connection-dot" aria-hidden="true"></span>
+      <span class="shell-actor-copy"><strong id="portal-actor-name">Connecting</strong><span id="portal-actor-role"></span></span>
+      <span id="portal-freshness">Loading current data</span>
+    </div>
   </header>
 
   <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="Close navigation" tabindex="-1"></button>
@@ -67,7 +80,7 @@
   <script src="{% static 'miniapp/portal_invoices.js' %}?v=16"></script>
   <script src="{% static 'miniapp/portal_payments.js' %}?v=7"></script>
   <script src="{% static 'miniapp/portal_imports.js' %}?v=7"></script>
-  <script src="{% static 'miniapp/portal_farmup.js' %}?v=1"></script>
+  <script src="{% static 'miniapp/portal_farmup.js' %}?v=2"></script>
   <!-- Pinned local asset: Chart.js 4.5.1; no runtime CDN dependency. -->
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}?v=4.5.1"></script>
   <script src="{% static 'miniapp/portal_reports.js' %}?v=14"></script>

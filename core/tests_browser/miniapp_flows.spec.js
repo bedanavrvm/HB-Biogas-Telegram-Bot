@@ -76,7 +76,7 @@ test('Portal shell follows live viewport while sheets wait for stable Telegram h
   expect(await dimensions()).toMatchObject({ body: 390, bottom: 390, sheet: 390, live: '390px', stable: '390px' });
 });
 
-test('Portal FarmUp renders mobile row cards and confirms aggregate commit counts', async ({ page }) => {
+test('Portal FarmUp renders a compact mobile grid with explicit selection counts', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 700 });
   await page.setContent(`
     <div id="portal-screen" data-screen="farmup">
@@ -87,6 +87,9 @@ test('Portal FarmUp renders mobile row cards and confirms aggregate commit count
   `);
   await page.addStyleTag({ path: asset('base.css') });
   await page.addStyleTag({ path: asset('portal.css') });
+  await page.addStyleTag({ path: asset('vendor-ag-grid-community-36.1.0.min.css') });
+  await page.addStyleTag({ path: asset('vendor-ag-grid-theme-quartz-36.1.0.min.css') });
+  await page.addScriptTag({ path: asset('vendor-ag-grid-community-36.1.0.min.js') });
   await page.evaluate(() => {
     const row = {
       row_id: 1, approved: true, 'Import Status': 'active', 'Customer Name': 'Test Farmer',
@@ -95,7 +98,9 @@ test('Portal FarmUp renders mobile row cards and confirms aggregate commit count
       'HBG Visit Date': '01-05-2026', 'Deposit Paid to HB': '5000', 'HB Sales Person': 'Test Officer',
       'Cleaning Notes': '',
     };
-    const batch = { id: 'batch-1', source_filename: 'farmers.csv', status: 'pending_review', total_rows: 1, review_needed: 0, committed_count: 0, archive_state: 'archived' };
+    const mapping = { state: 'auto_ready', columns: [], canonical_fields: [], missing_required_fields: [] };
+    const validation = [{ row_id: '1', state: 'ready', selected: true, warning_acknowledged: false, issues: [] }];
+    const batch = { id: 'batch-1', source_filename: 'farmers.csv', status: 'pending_review', total_rows: 1, review_needed: 0, committed_count: 0, archive_state: 'archived', mapping_state: 'auto_ready' };
     window.PortalAppShell = { hasCapability: () => true };
     window.Telegram = { WebApp: {} };
     window.MiniAppUtils = { createRequestId: () => 'farmup-browser-request-1' };
@@ -103,9 +108,10 @@ test('Portal FarmUp renders mobile row cards and confirms aggregate commit count
     window.PortalMiniAppApi = {
       async apiFetch(path) {
         if (path === '/farmup/') return { ok: true, data: { ok: true, batches: [batch] } };
-        return { ok: true, data: { ok: true, batch: { ...batch, rows: [{ ...row }], revision_token: 'opaque-token' } } };
+        return { ok: true, data: { ok: true, batch: { ...batch, mapping, validation, rows: [{ ...row }], revision_token: 'opaque-token' } } };
       },
       async postJson(path, payload) {
+        if (path.includes('/validate/')) return { ok: true, data: { ok: true, rows: validation, counts: { selected: 1, warning_overrides: 0, skipped: 0, unresolved: 0 } } };
         if (path.includes('/commit/')) window.__farmupCommits.push(payload);
         return { ok: true, data: { ok: true, result: { success: true, committed: 1, skipped: 0, review_needed: 0 }, batch } };
       },
@@ -114,10 +120,16 @@ test('Portal FarmUp renders mobile row cards and confirms aggregate commit count
   await page.addScriptTag({ path: asset('portal_farmup.js') });
   await page.evaluate(() => window.PortalMiniAppFarmUp.load());
   await page.locator('.farmup-open').click();
-  await expect(page.locator('.farmup-row-table tr[data-row-id="1"]')).toBeVisible();
-  await expect(page.locator('.farmup-row-table tr[data-row-id="1"]')).toHaveCSS('display', 'grid');
+  await expect(page.locator('#farmup-grid .ag-root-wrapper')).toBeVisible();
+  await expect(page.locator('#farmup-selection-summary')).toContainText('1 selected to commit');
+  expect(await page.locator('.farmup-grid-wrap').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+  await page.locator('#farmup-clear-all').click();
+  await expect(page.locator('#farmup-selection-summary')).toContainText('0 selected to commit');
+  await expect(page.locator('#farmup-selection-summary')).toContainText('1 not selected (will be skipped)');
+  await page.locator('#farmup-select-all').click();
+  await expect(page.locator('#farmup-selection-summary')).toContainText('1 selected to commit');
   await page.locator('#farmup-commit').click();
-  await expect(page.locator('.farmup-confirm-dialog')).toContainText('1Approved');
+  await expect(page.locator('.farmup-confirm-dialog')).toContainText('1Selected');
   await expect(page.locator('.farmup-confirm-dialog')).toContainText('0Skipped');
   await expect(page.locator('.farmup-confirm-dialog')).toContainText('0Unresolved');
   await page.locator('.farmup-confirm-dialog button[value="confirm"]').click();

@@ -116,6 +116,15 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('.miniapp-shared-toast.is-visible', styles)
         self.assertIn('env(safe-area-inset-top)', styles)
 
+    def test_portal_uses_one_shell_header_for_actor_role_and_freshness(self):
+        shell = Path('core/templates/base_shell.html').read_text(encoding='utf-8')
+        portal = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')
+
+        self.assertIn('class="shell-actor"', shell)
+        self.assertIn('id="portal-actor-role"', shell)
+        self.assertIn('id="portal-freshness"', shell)
+        self.assertNotIn('portal-context-bar', portal)
+
     def test_high_risk_miniapps_use_state_aware_close_protection(self):
         origination = Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
         signing = Path('core/static/miniapp/origination_signing.js').read_text(encoding='utf-8')

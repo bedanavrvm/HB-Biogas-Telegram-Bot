@@ -1222,9 +1222,19 @@ def build_cleaned_master_preview(
     csv_file: TextIO,
     *,
     source_name: str = '',
+    header_mapping: dict[str, str] | None = None,
 ) -> tuple[list[dict], dict]:
     rows, headers = read_csv_rows(csv_file)
     header_map = build_header_map(headers)
+    if header_mapping is not None:
+        # Portal mapping decisions are canonical-field -> unique source header.
+        # Replace the inferred map completely so an explicit Ignore decision
+        # cannot be silently undone by the alias resolver.
+        header_map = {
+            str(field): str(header)
+            for field, header in header_mapping.items()
+            if field in CANONICAL_FIELDS and header in headers
+        }
     preview_rows = []
     stats = {
         'total_rows': 0,
@@ -1238,7 +1248,10 @@ def build_cleaned_master_preview(
         if is_blank_row(raw_row):
             stats['skipped_blank'] += 1
             continue
-        cleaned = clean_farmer_row(raw_row, header_map)
+        cleaned = clean_farmer_row(
+            raw_row, header_map,
+            sign_date_fallback=header_mapping is None,
+        )
         if cleaned['status'] == 'review_needed':
             stats['review_needed'] += 1
         preview_rows.append(master_preview_row(cleaned, source_name, source_row_number))
@@ -1310,14 +1323,20 @@ def is_blank_row(row: dict) -> bool:
     return not any(str(value or '').strip() for value in row.values())
 
 
-def clean_farmer_row(raw_row: dict, header_map: dict[str, str]) -> dict:
+def clean_farmer_row(
+    raw_row: dict,
+    header_map: dict[str, str],
+    *,
+    sign_date_fallback: bool = True,
+) -> dict:
     raw_data = {
         str(key or '').strip(): str(value or '').strip()
         for key, value in raw_row.items()
         if str(key or '').strip()
     }
     values = {field: raw_value(raw_row, header_map, field) for field in CANONICAL_FIELDS}
-    values['sign_date'] = first_non_blank(raw_row, ['Sign Date__2', 'Sign Date'])
+    if sign_date_fallback:
+        values['sign_date'] = values.get('sign_date') or first_non_blank(raw_row, ['Sign Date__2', 'Sign Date'])
     raw_name = clean_text(values['customer_name'])
     bracketed_id_value = bracketed_id_token(raw_name)
     bracketed_id = extract_bracketed_id(raw_name)
