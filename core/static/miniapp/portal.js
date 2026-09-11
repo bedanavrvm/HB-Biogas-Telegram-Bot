@@ -505,7 +505,7 @@
     if (portalHelpers.jblBadge) return portalHelpers.jblBadge(farmer);
     if (!farmer.jbl_visit_status) return '';
     const cls = farmer.jbl_visit_status.startsWith('Approved') ? 'badge-green'
-      : farmer.jbl_visit_status === 'Awaiting Analysis' ? 'badge-blue'
+      : farmer.jbl_visit_status === 'Visited, Awaiting Credit Analysis' ? 'badge-blue'
       : farmer.jbl_visit_status.includes('Reject') || farmer.jbl_visit_status.includes('Cancel') ? 'badge-red'
       : 'badge-orange';
     return `<span class="badge ${cls}">${farmer.jbl_visit_status}</span>`;

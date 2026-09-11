@@ -6,10 +6,17 @@
   let activeBatch = null;
   let activePaymentPrintPayload = null;
   let activePaymentReviewId = null;
+  let sequenceRevision = 0;
+  let sequenceGroupId = '';
 
   function el(id) { return deps.el(id); }
   function state() { return deps.state; }
   function csrfHeader() { return { 'X-CSRFToken': deps.getCookie('csrftoken') || '' }; }
+  function requisitionRequestId() {
+    return window.crypto?.randomUUID
+      ? window.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
 
   function scheduleRequisitionDriveSync(batch, options = {}) {
     const openWhenReady = Boolean(options.openWhenReady);
@@ -406,20 +413,55 @@
     }
   }
 
+  async function loadOrderSequence() {
+    if (!state().capabilities?.has('portal.requisition.sequence.manage') || !el('requisition-sequence-panel')) return;
+    const response = await deps.apiFetch('/requisition-numbering/');
+    const row = response.data?.sequences?.[0];
+    const status = el('requisition-sequence-status');
+    if (!response.ok || !response.data?.ok) {
+      if (status) status.textContent = response.data?.error || 'Could not load the official sequence.';
+      return;
+    }
+    sequenceRevision = Number(row?.revision || 0);
+    sequenceGroupId = String(row?.group_id || '');
+    if (el('requisition-sequence-next')) el('requisition-sequence-next').value = row?.next_number || '';
+    if (status) status.textContent = row
+      ? `Last finalized: ${row.last_finalized_number || 'none'} · next: ${row.next_number}`
+      : 'Not initialized. Enter the next number shown on the official paperwork.';
+  }
+
+  async function saveOrderSequence(button) {
+    const nextNumber = Number(el('requisition-sequence-next')?.value || 0);
+    const reason = String(el('requisition-sequence-reason')?.value || '').trim();
+    if (!Number.isInteger(nextNumber) || nextNumber < 1 || !reason) {
+      deps.showToast('Enter a positive next number and an adjustment reason.', 'error');
+      return;
+    }
+    deps.setButtonLoading(button, true, 'Saving...');
+    try {
+      const response = await deps.portalApi.postJson('/requisition-numbering/', {
+        group_id: sequenceGroupId, next_number: nextNumber,
+        expected_revision: sequenceRevision, reason,
+      }, deps.tg, csrfHeader());
+      if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not save the sequence.');
+      el('requisition-sequence-reason').value = '';
+      deps.showToast(`Next official order is ${response.data.next_number}.`, 'success');
+      await loadOrderSequence();
+    } catch (error) {
+      deps.showToast(error.message, 'error');
+    } finally {
+      deps.setButtonLoading(button, false);
+    }
+  }
+
   function currentRequisitionPayload() {
-    const orderNoInput = el('batch-order-num');
     const reqDateInput = el('batch-req-date');
-    if (!orderNoInput || !reqDateInput) return null;
-    const order_number = orderNoInput.value.trim();
+    if (!reqDateInput) return null;
     const requisition_date = reqDateInput.value.trim();
     const farmer_ids = Array.from(state().selectedRequisitions);
     const workflow_revisions = Object.fromEntries(
       farmer_ids.map(id => [id, Number(state().selectedRequisitionRevisions.get(id) || 0)])
     );
-    if (!order_number) {
-      alert('Please enter an Order Number / Batch Ref.');
-      return null;
-    }
     if (!requisition_date) {
       alert('Please select a Requisition Date.');
       return null;
@@ -428,7 +470,7 @@
       alert('No farmers selected.');
       return null;
     }
-    return { farmer_ids, workflow_revisions, order_number, requisition_date, return_url: true };
+    return { farmer_ids, workflow_revisions, requisition_date, return_url: true };
   }
 
   function payloadAtPreviewRevision(payload, preview) {
@@ -656,7 +698,7 @@
           ? '<button class="btn btn-primary" disabled>Saving to Drive…</button>'
           : driveRetryNeeded
             ? '<button class="btn btn-secondary" id="batch-detail-retry-sync">Retry Drive storage</button>'
-            : '<button class="btn btn-primary" id="batch-detail-generate">Generate and Save Excel</button><span class="badge badge-grey">No generated requisition form yet</span>'}
+            : '<span class="badge badge-grey">Legacy batch has no stored final form</span>'}
       <button class="btn btn-secondary" id="batch-detail-preview">Preview in App</button>
       <button class="btn btn-secondary" id="batch-detail-upload">Upload Invoices</button>
     `;
@@ -694,7 +736,12 @@
       // Preview is deliberately read-only. Use the revision snapshot returned
       // with it so the confirmed write detects a change after the preview,
       // rather than a stale checkbox revision from an earlier queue refresh.
-      state().pendingRequisitionPayload = payloadAtPreviewRevision(payload, data);
+      state().pendingRequisitionPayload = {
+        ...payloadAtPreviewRevision(payload, data),
+        preview_token: data.preview_token,
+        finalize_request_id: requisitionRequestId(),
+      };
+      if (el('batch-order-num')) el('batch-order-num').value = `Order ${data.order_number}`;
       openRequisitionPreview(data, { readOnly: false });
     } catch (err) {
       console.error(err);
@@ -734,9 +781,9 @@
     confirm.hidden = readOnly || usesTelegramMainButton;
     confirm.toggleAttribute('aria-hidden', readOnly || usesTelegramMainButton);
     if (readOnly) confirm.removeAttribute('data-main-action');
-    else confirm.dataset.mainAction = 'Generate and Save Excel';
+    else confirm.dataset.mainAction = 'Finalize Order';
     confirm.disabled = readOnly || (data.blocked_count || 0) > 0 || !(data.ready_count || 0);
-    confirm.textContent = confirm.disabled && !readOnly ? 'Resolve Blocked Items' : 'Generate and Save Excel';
+    confirm.textContent = confirm.disabled && !readOnly ? 'Resolve Blocked Items' : 'Finalize Order';
     if (cancel) cancel.textContent = readOnly ? 'Close Preview' : 'Back';
     overlay.classList.add('open');
   }
@@ -764,20 +811,23 @@
       deps.setButtonLoading(confirm, true, 'Generating...');
     }
     try {
-      const response = await deps.portalApi.postJson('/requisition-queue/generate/', payload, deps.tg, csrfHeader());
+      const response = await deps.portalApi.postJson('/requisition-queue/finalize/', {
+        preview_token: payload.preview_token,
+        client_request_id: payload.finalize_request_id,
+      }, deps.tg, csrfHeader());
       const result = response.data || {};
       if (!response.ok || !result.ok) {
-        deps.showToast(result.error || 'Requisition generation failed.', 'error');
+        deps.showToast(result.error || 'Order finalization failed.', 'error');
         return;
       }
       deps.showToast(result.drive_sync_pending
         ? 'Requisition saved. Saving the current workbook to Drive.'
-        : 'Requisition generated and saved to Batches.', 'success');
+        : 'Official order finalized and saved to Batches.', 'success');
       await scheduleRequisitionDriveSync(result.batch, { openWhenReady: true });
       state().selectedRequisitions.clear();
       state().selectedRequisitionRevisions.clear();
       state().pendingRequisitionPayload = null;
-      el('batch-order-num').value = '';
+      el('batch-order-num').value = 'Assigned on preview';
       el('batch-req-date').value = '';
       updateBatchPanel();
       el('requisition-preview-overlay').classList.remove('open');
@@ -788,13 +838,13 @@
       deps.loadQueue('batches', 1);
     } catch (err) {
       console.error(err);
-      deps.showToast('An error occurred during generation.', 'error');
+      deps.showToast('An error occurred while finalizing the order.', 'error');
     } finally {
       state().generatingRequisition = false;
       if (progress) progress.hidden = true;
       if (usingTelegramMainButton) {
         mainButton.hideProgress?.();
-        mainButton.setText?.('Generate and Save Excel');
+        mainButton.setText?.('Finalize Order');
       } else {
         deps.setButtonLoading(confirm, false);
       }
@@ -946,11 +996,12 @@
           '#btn-generate-requisition, #requisition-preview-confirm, '
           + '#requisition-preview-close, #requisition-preview-cancel, #batch-detail-close, '
           + '#batch-detail-download, #batch-detail-generate, #batch-detail-preview, '
-          + '#batch-detail-upload, #batch-detail-retry-sync'
+          + '#batch-detail-upload, #batch-detail-retry-sync, #requisition-sequence-save'
         );
         if (action) {
           event.preventDefault();
           if (action.id === 'btn-generate-requisition') requestRequisitionPreview();
+          else if (action.id === 'requisition-sequence-save') saveOrderSequence(action);
           else if (action.id === 'requisition-preview-confirm') generateRequisitionFromPreview();
           else if (action.id === 'requisition-preview-close' || action.id === 'requisition-preview-cancel') {
             const confirm = el('requisition-preview-confirm');
@@ -1032,6 +1083,7 @@
   function init(initialDeps) {
     deps = initialDeps;
     bindEvents();
+    window.setTimeout(loadOrderSequence, 0);
   }
 
   window.PortalMiniAppRequisitions = {

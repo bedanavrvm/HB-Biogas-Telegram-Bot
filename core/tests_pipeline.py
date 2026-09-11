@@ -85,7 +85,7 @@ class JblPipelineServiceTestCase(TestCase):
             branch='Thika',
             jbl_visit_date=date(2026, 6, 25),
             jbl_officer='Officer Bob',
-            jbl_visit_status='Awaiting Analysis',
+            jbl_visit_status='Visited, Awaiting Credit Analysis',
             status='active',
         )
 
@@ -268,7 +268,7 @@ class JblPipelineServiceTestCase(TestCase):
             self.farmer_stage1,
             visit_date=date(2026, 6, 28),
             officer='Officer Joe',
-            visit_status='Awaiting Analysis',
+            visit_status='Visited, Awaiting Credit Analysis',
             comment='Ready for credit review',
             county='Muranga',
             sub_county='Kandara',
@@ -276,7 +276,7 @@ class JblPipelineServiceTestCase(TestCase):
         )
         self.assertTrue(ok)
         self.assertEqual(error, '')
-        self.assertEqual(self.farmer_stage1.jbl_visit_status, 'Awaiting Analysis')
+        self.assertEqual(self.farmer_stage1.jbl_visit_status, 'Visited, Awaiting Credit Analysis')
         self.assertEqual(self.farmer_stage1.jbl_officer, 'Officer Joe')
         self.assertEqual(self.farmer_stage1.jbl_visit_date, date(2026, 6, 28))
         self.assertEqual(self.farmer_stage1.jbl_visit_comment, 'Ready for credit review')
@@ -292,7 +292,7 @@ class JblPipelineServiceTestCase(TestCase):
             self.farmer_stage1,
             visit_date=date(2026, 6, 28),
             officer='Officer Joe',
-            visit_status='Awaiting Analysis',
+            visit_status='Visited, Awaiting Credit Analysis',
             comment='Client requested a morning follow-up.',
             sender='Officer Joe',
             request_id=request_id,
@@ -309,7 +309,7 @@ class JblPipelineServiceTestCase(TestCase):
             self.farmer_stage1,
             visit_date=date(2026, 6, 28),
             officer='Officer Joe',
-            visit_status='Awaiting Analysis',
+            visit_status='Visited, Awaiting Credit Analysis',
             comment='Client requested a morning follow-up.',
             sender='Officer Joe',
             request_id=request_id,
@@ -324,7 +324,7 @@ class JblPipelineServiceTestCase(TestCase):
             self.farmer_stage1,
             visit_date=date(2026, 6, 23),
             officer='Officer Joe',
-            visit_status='Awaiting Analysis',
+            visit_status='Visited, Awaiting Credit Analysis',
         )
         self.assertFalse(ok)
         self.assertIn('cannot be earlier than the HBG visit date', error)
@@ -338,7 +338,7 @@ class JblPipelineServiceTestCase(TestCase):
             self.farmer_stage1,
             visit_date=timezone.localdate() + timedelta(days=1),
             officer='Officer Joe',
-            visit_status='Awaiting Analysis',
+            visit_status='Visited, Awaiting Credit Analysis',
         )
 
         self.assertFalse(ok)
@@ -491,7 +491,7 @@ class JblPipelineServiceTestCase(TestCase):
                 categorized_files={'LAF': [laf]},
                 visit_date=date(2026, 6, 28),
                 officer='Officer Joe',
-                visit_status='Awaiting Analysis',
+                visit_status='Visited, Awaiting Credit Analysis',
                 latitude=-1.2921,
                 longitude=36.8219,
                 request_id='visit-missing-photo-001',
@@ -533,7 +533,7 @@ class JblPipelineServiceTestCase(TestCase):
             categorized_files={'LAF': [laf], 'JBL_VISIT_PHOTO': [photo]},
             visit_date=date(2026, 6, 28),
             officer='Officer Joe',
-            visit_status='Awaiting Analysis',
+            visit_status='Visited, Awaiting Credit Analysis',
             latitude=-1.2921,
             longitude=36.8219,
             request_id='visit-revision-chain-001',
@@ -1600,7 +1600,7 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.farmer_stage2 = JawabuFarmerMaster.objects.create(
             customer_name='State Two', national_id='55555222', primary_phone='254755555222',
             sign_date='24-June-2026', jbl_visit_date=date(2026, 6, 25),
-            jbl_visit_status='Awaiting Analysis', status='active',
+            jbl_visit_status='Visited, Awaiting Credit Analysis', status='active',
         )
         self.farmer_stage_review = JawabuFarmerMaster.objects.create(
             customer_name='State Review', national_id='55555333', primary_phone='254755555333',
@@ -1990,7 +1990,7 @@ class JblPipelineApiTestCase(TestCase):
             primary_phone='254777777777',
             sign_date='24-June-2026',
             jbl_visit_date=date(2026, 7, 1),
-            jbl_visit_status='Awaiting Analysis',
+            jbl_visit_status='Visited, Awaiting Credit Analysis',
             county='Kiambu',
             branch='Ruiru',
             status='active',
@@ -2092,7 +2092,7 @@ class JblPipelineApiTestCase(TestCase):
                 'client_request_id': 'atomic-visit-001',
                 'workflow_revision': self.farmer.workflow_revision,
                 'visit_date': '2026-07-01',
-                'visit_status': 'Awaiting Analysis',
+                'visit_status': 'Visited, Awaiting Credit Analysis',
                 'officer': 'JBL Officer Alpha',
                 'capture_latitude': '-1.2921',
                 'capture_longitude': '36.8219',
@@ -2130,6 +2130,25 @@ class JblPipelineApiTestCase(TestCase):
         self.assertTrue(response.json()['visit_logged'])
         mock_voice_validation.assert_not_called()
         mock_complete.assert_not_called()
+
+    @patch('core.services.jawabu_case360.event_request_already_processed', return_value=True)
+    def test_jbl_visit_completion_status_confirms_an_interrupted_response(self, _mock_processed):
+        response = self.client.get(
+            reverse('portal_jbl_visit_completion_status', args=[self.farmer.id]),
+            {'request_id': 'atomic-visit-lost-response'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['completed'])
+        self.assertEqual(response.json()['farmer']['id'], str(self.farmer.id))
+
+    def test_jbl_visit_completion_status_requires_the_original_request_key(self):
+        response = self.client.get(
+            reverse('portal_jbl_visit_completion_status', args=[self.farmer.id]),
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.json()['ok'])
 
     @patch('core.services.jawabu_pipeline.complete_jbl_visit')
     def test_atomic_jbl_visit_completion_returns_field_specific_coordinate_error(self, mock_complete):
@@ -2204,7 +2223,7 @@ class JblPipelineApiTestCase(TestCase):
             {
                 'client_request_id': 'atomic-visit-file-limit',
                 'workflow_revision': self.farmer.workflow_revision,
-                'visit_status': 'Awaiting Analysis',
+                'visit_status': 'Visited, Awaiting Credit Analysis',
                 'jbl_visit_photo_files': files,
             },
         )
@@ -2223,7 +2242,7 @@ class JblPipelineApiTestCase(TestCase):
             {
                 'client_request_id': 'atomic-visit-total-limit',
                 'workflow_revision': self.farmer.workflow_revision,
-                'visit_status': 'Awaiting Analysis',
+                'visit_status': 'Visited, Awaiting Credit Analysis',
                 'laf_files': laf,
                 'jbl_visit_photo_files': photo,
             },
@@ -2238,7 +2257,7 @@ class JblPipelineApiTestCase(TestCase):
             reverse('portal_complete_jbl_visit', args=[self.farmer.id]),
             {
                 'visit_date': '2026-07-01',
-                'visit_status': 'Awaiting Analysis',
+                'visit_status': 'Visited, Awaiting Credit Analysis',
                 'officer': 'JBL Officer Alpha',
             },
         )

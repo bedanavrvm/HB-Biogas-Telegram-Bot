@@ -1772,6 +1772,9 @@ def _set_pending_jbl_visit_status(farmer: JawabuFarmerMaster) -> bool:
     has_hbg_visit = bool(farmer.hbg_visit_date or parse_business_date(farmer.sign_date))
     if has_hbg_visit and not farmer.jbl_visit_date and not str(farmer.jbl_visit_status or '').strip():
         farmer.jbl_visit_status = 'JBL to Schedule Visit'
+        farmer.workflow_state = 'jbl_visit'
+        if farmer.workflow_state_entered_at is None:
+            farmer.workflow_state_entered_at = timezone.now()
         return True
     return False
 
@@ -1875,7 +1878,8 @@ def upsert_farmer(cleaned: dict, *, return_instance: bool = False):
     farmer.save(update_fields=[
         'national_id', 'primary_phone', 'secondary_phone', 'hbg_visit_date',
         'deposit_paid_hbg', 'latitude_value', 'longitude_value',
-        'repayment_day', 'repayment_tenor_months', 'jbl_visit_status', 'updated_at',
+        'repayment_day', 'repayment_tenor_months', 'jbl_visit_status',
+        'workflow_state', 'workflow_state_entered_at', 'updated_at',
         'branch', 'county', 'sub_county', 'branch_ref', 'county_ref', 'sub_county_ref',
     ])
     from core.services.jawabu_validation import refresh_data_quality_issues

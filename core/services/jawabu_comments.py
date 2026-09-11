@@ -68,5 +68,5 @@ def master_comment_history(farmer: JawabuFarmerMaster) -> str:
         timestamp = local_time.strftime('%d-%B-%Y %H:%M')
         actor = str(entry.actor or '').strip() or 'Unknown staff member'
         role = str(entry.role_label or entry.role_code or 'Portal staff').strip()
-        lines.append(f'[{timestamp}] {actor} / {role} - {entry.comment}')
-    return '\n'.join(lines)
+        lines.append(f'{entry.comment}\n{timestamp} · {actor} · {role}')
+    return '\n\n'.join(lines)

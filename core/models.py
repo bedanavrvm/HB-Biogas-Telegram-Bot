@@ -2367,30 +2367,26 @@ class JawabuFarmerMaster(models.Model):
 
     # Stage 2 Ã¢â‚¬â€ JBL visit status dropdown (aligns with FCAUP_STATUS_VALUES in fca.py)
     JBL_VISIT_STATUS_CHOICES = [
-        ('Approved', 'Approved'),
-        ('Awaiting Analysis', 'Awaiting Analysis'),
         ('JBL to Schedule Visit', 'JBL to Schedule Visit'),
+        ('Visited, Awaiting Credit Analysis', 'Visited, Awaiting Credit Analysis'),
         ('Rescheduled', 'Rescheduled'),
         ('Deferred / On Hold', 'Deferred / On Hold'),
         ('Rejected by JBL', 'Rejected by JBL'),
         ('Opted for Cash', 'Opted for Cash'),
-        ('Opted for other Partner', 'Opted for other Partner'),
+        ('Opted for Other Partner', 'Opted for Other Partner'),
     ]
 
     # Stage 3 Ã¢â‚¬â€ Credit Decision values (master data dropdown)
     CREDIT_DECISION_CHOICES = [
         ('Approved', 'Approved'),
         ('Rejected', 'Rejected'),
-        ('Deferred', 'Deferred'),
-        ('Exemption Approved', 'Exemption Approved'),
-        ('Pending', 'Pending'),
+        ('Deferred / On Hold', 'Deferred / On Hold'),
     ]
 
     FINAL_DECISION_CHOICES = [
         ('Approved', 'Approved'),
         ('Rejected', 'Rejected'),
-        ('Deferred', 'Deferred'),
-        ('Under Review', 'Under Review'),
+        ('Deferred / On Hold', 'Deferred / On Hold'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -2457,7 +2453,7 @@ class JawabuFarmerMaster(models.Model):
     jbl_visit_status = models.CharField(
         max_length=80, blank=True, default='',
         choices=JBL_VISIT_STATUS_CHOICES, db_index=True,
-        help_text='Jawabu Comment After Visit Ã¢â‚¬â€ 12-option dropdown set by JBL officer.',
+        help_text='Outcome recorded by the JBL officer after a visit.',
     )
     jbl_visit_comment = models.TextField(
         blank=True, default='',
@@ -2466,7 +2462,7 @@ class JawabuFarmerMaster(models.Model):
 
     # Ã¢â€â‚¬Ã¢â€â‚¬ Stage 3: Credit decision Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     credit_decision = models.CharField(
-        max_length=80, blank=True, default='Pending',
+        max_length=80, blank=True, default='',
         choices=CREDIT_DECISION_CHOICES, db_index=True,
         help_text='Credit Analysis decision from master data dropdown.',
     )
@@ -7694,6 +7690,10 @@ class RequisitionBatch(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    group_configuration = models.ForeignKey(
+        'GroupSheetConfiguration', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='requisition_batches',
+    )
     order_number = models.CharField(max_length=128, unique=True, db_index=True)
     generation_request_id = models.CharField(
         max_length=128,
@@ -7720,6 +7720,14 @@ class RequisitionBatch(models.Model):
         default='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     )
     file_content = models.BinaryField(blank=True, default=bytes)
+    content_checksum = models.CharField(max_length=64, blank=True, default='')
+    membership_digest = models.CharField(max_length=64, blank=True, default='')
+    finalization_payload_digest = models.CharField(max_length=64, blank=True, default='')
+    finalized_at = models.DateTimeField(null=True, blank=True)
+    finalized_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='+',
+    )
     drive_file_id = models.CharField(max_length=255, blank=True, default='')
     drive_url = models.URLField(max_length=1000, blank=True, default='')
     drive_upload_error = models.TextField(blank=True, default='')

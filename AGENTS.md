@@ -67,6 +67,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **Portal** | The aggregated staff-facing view across pipeline/workflow data, served by `core/api/portal_views.py`. |
 | **Portal report** | An IT-only, catalogue-constrained live report over canonical Portal cases. It is not a generic SQL/ORM builder and has no cross-workflow identity join. |
 | **FarmUp monthly worklist** | The group-scoped, month-labelled Portal intake workspace whose immutable CSV versions are reconciled cumulatively. Committed unchanged rows are recognized, unselected rows remain held, and Google publication is tracked separately from canonical Django commits. |
+| **Official requisition order** | An Operations-finalized, immutable requisition workbook whose plain numeric order number is allocated transactionally from the IT-aligned, group-scoped Django sequence. Drive is publication only and does not define finality. |
 | **Jawabu Case ID** | The immutable Django UUID projected into the visible Master Data `Case ID` column and hidden metadata. Sheet publication uses it before mutable customer identifiers so retries and later corrections update one row instead of creating duplicates. |
 | **Complaint case import batch** | The auditable record of one Superuser-authorized WhatsApp complaint export import. It attributes imported cases to the uploader and source message without making the spreadsheet or Telegram message a second workflow database. |
 | **Complaint Needs details** | A legacy Pending complaint stored as `Review Needed` before both identifiers became mandatory. New Mini App and Telegram/WhatsApp complaint intake requires both a primary phone number and a digits-only Customer National ID; incomplete intake is rejected without creating workflow rows. An authorized Complaint Officer or Manager may complete historical records through an audited, revision-checked action. |
@@ -119,6 +120,7 @@ Many root-level Markdown documents describe earlier versions of the project. The
 - `core/api/urls.py` — canonical `/api/` workflow and API route definitions
 - `core/api/browser_urls.py` — intentional root browser/Mini App entry points
 - `core/api/legacy_urls.py` — individually declared, logged root compatibility aliases
+- `requisitions/` — bounded order-number governance domain; owns the group-scoped official requisition sequence
 - `core/api/views.py` — Telegram webhook and several Mini App/API endpoints
 - `core/api/portal_views.py` — Jawabu pipeline portal endpoints
 - `core/models.py` — database models for all workflows

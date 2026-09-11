@@ -71,7 +71,7 @@
     if (!farmer.jbl_visit_status) return '';
     const status = String(farmer.jbl_visit_status);
     const cls = status.startsWith('Approved') ? 'badge-green'
-      : status === 'Awaiting Analysis' ? 'badge-blue'
+      : status === 'Visited, Awaiting Credit Analysis' ? 'badge-blue'
       : status.includes('Reject') || status.includes('Cancel') ? 'badge-red'
       : 'badge-orange';
     return `<span class="badge ${cls}">${escapeHtml(status)}</span>`;

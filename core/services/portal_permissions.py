@@ -17,6 +17,8 @@ PORTAL_ACTION_CAPABILITIES: dict[str, str] = {
     'credit.write': 'portal.credit.write',
     'final_review.write': 'portal.final_review.write',
     'requisition.write': 'portal.requisition.write',
+    'requisition.finalize': 'portal.requisition.finalize',
+    'requisition.sequence.manage': 'portal.requisition.sequence.manage',
     'invoice.write': 'portal.invoice.write',
     'invoice_identity.manage': 'portal.invoice_identity.manage',
     'payment.review': 'portal.payment.review',

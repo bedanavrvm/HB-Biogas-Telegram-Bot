@@ -11,6 +11,7 @@ branch, product, and group grants.
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import re
 import time
@@ -1071,6 +1072,10 @@ def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> d
         'requisition_date': batch.requisition_date.strftime('%Y-%m-%d') if batch.requisition_date else None,
         'generated_by': batch.generated_by,
         'generated_at': batch.created_at.isoformat() if batch.created_at else None,
+        'finalized_at': batch.finalized_at.isoformat() if getattr(batch, 'finalized_at', None) else None,
+        'finalized': bool(getattr(batch, 'finalized_at', None)),
+        'content_checksum': getattr(batch, 'content_checksum', '') or '',
+        'membership_digest': getattr(batch, 'membership_digest', '') or '',
         'updated_at': batch.updated_at.isoformat() if batch.updated_at else None,
         'filename': batch.filename,
         'has_requisition_file': bool(batch.file_content),
@@ -1148,7 +1153,7 @@ def _batch_amount_summary(farmers) -> dict:
     return {key: str(totals[key]) if present[key] else None for key in keys}
 
 
-def _parse_requisition_workbook_payload(request, *, allow_blocked: bool = False):
+def _parse_requisition_workbook_payload(request, *, allow_blocked: bool = False, forced_order_number: str = ''):
     from datetime import date as _date
     from core.models import JawabuFarmerMaster
 
@@ -1158,7 +1163,7 @@ def _parse_requisition_workbook_payload(request, *, allow_blocked: bool = False)
         return None, JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
 
     farmer_ids = body.get('farmer_ids') or []
-    order_number = str(body.get('order_number') or '').strip()
+    order_number = str(forced_order_number or body.get('order_number') or '').strip()
     requisition_date_raw = str(body.get('requisition_date') or '').strip()
 
     if not farmer_ids:
@@ -2052,7 +2057,11 @@ def portal_meta(request):
         'branches': branches,
         'counties': [item['name'] for item in location_catalog['counties']],
         'location_catalog': location_catalog,
-        'jbl_visit_statuses': [c[0] for c in JawabuFarmerMaster.JBL_VISIT_STATUS_CHOICES],
+        'jbl_visit_current_statuses': [c[0] for c in JawabuFarmerMaster.JBL_VISIT_STATUS_CHOICES],
+        'jbl_visit_statuses': [
+            'Visited, Awaiting Credit Analysis', 'Rescheduled', 'Deferred / On Hold',
+            'Rejected by JBL', 'Opted for Cash', 'Opted for Other Partner',
+        ],
         'jbl_visit_draft_fields': list(PORTAL_JBL_VISIT_DRAFT_FIELDS),
         'credit_decisions': [c[0] for c in JawabuFarmerMaster.CREDIT_DECISION_CHOICES],
         'imab_created_options': ['Yes', 'No', 'Pending'],
@@ -4310,6 +4319,32 @@ def portal_credit_queue(request):
 
 
 @csrf_exempt
+@require_http_methods(["GET"])
+def portal_jbl_visit_completion_status(request, farmer_id: str):
+    """Resolve an interrupted mobile response without repeating attachments."""
+    from core.models import JawabuFarmerMaster
+    from core.services.jawabu_case360 import event_request_already_processed
+    from core.services.jawabu_pipeline import farmer_to_card
+
+    farmer = JawabuFarmerMaster.objects.filter(pk=farmer_id).first()
+    if not farmer:
+        return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
+    access_error = _portal_capability_error(request, 'portal.jbl_visit.write', farmer)
+    if access_error:
+        return access_error
+    request_id = str(request.GET.get('request_id') or '').strip()
+    if not request_id:
+        return JsonResponse({'ok': False, 'error': 'The visit request key is required.'}, status=400)
+    completed = event_request_already_processed(farmer, request_id)
+    return JsonResponse({
+        'ok': True,
+        'completed': completed,
+        'farmer': farmer_to_card(farmer) if completed else None,
+        'outcome': farmer.jbl_visit_status if completed else '',
+    })
+
+
+@csrf_exempt
 @require_http_methods(["POST"])
 def portal_set_credit_decision(request, farmer_id: str):
     """
@@ -4749,14 +4784,131 @@ def portal_farmer_detail(request, farmer_id: str):
 
 
 
+def _requisition_sequence_queryset(request):
+    from requisitions.models import OrderSequenceState
+    allowed = _portal_import_group_ids(request)
+    queryset = OrderSequenceState.objects.select_related('group_configuration').filter(group_configuration__enabled=True)
+    if allowed is not None:
+        queryset = queryset.filter(group_configuration__group_id__in=allowed)
+    return queryset.order_by('group_configuration__group_id')
+
+
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def portal_requisition_numbering(request):
+    access_error = _portal_capability_error(request, 'portal.requisition.sequence.manage')
+    if access_error:
+        return access_error
+    from core.models import GroupSheetConfiguration, RequisitionBatch
+    from requisitions.models import OrderSequenceEvent, OrderSequenceState
+    if request.method == 'GET':
+        return JsonResponse({'ok': True, 'sequences': [{
+            'group_id': row.group_configuration.group_id,
+            'group_name': row.group_configuration.display_name or row.group_configuration.group_id,
+            'next_number': row.next_number,
+            'last_finalized_number': max([
+                int(value) for value in RequisitionBatch.objects.filter(
+                    group_configuration=row.group_configuration, finalized_at__isnull=False,
+                ).values_list('order_number', flat=True) if str(value).isdigit()
+            ] or [0]),
+            'revision': row.revision,
+        } for row in _requisition_sequence_queryset(request)]})
+    try:
+        body = json.loads(request.body)
+        next_number = int(body.get('next_number'))
+        expected_revision = int(body.get('expected_revision') or 0)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return JsonResponse({'ok': False, 'error': 'Enter a valid positive next order number and revision.'}, status=400)
+    reason = str(body.get('reason') or '').strip()
+    request_id = _portal_request_id(request, body)
+    requested_group = str(body.get('group_id') or '').strip()
+    if not reason:
+        return JsonResponse({'ok': False, 'error': 'Enter an adjustment reason.'}, status=400)
+    existing_event = OrderSequenceEvent.objects.filter(request_id=request_id).first() if request_id else None
+    if existing_event:
+        if existing_event.number_after != next_number or existing_event.reason != reason:
+            return JsonResponse({'ok': False, 'error': 'This request key was already used for a different sequence adjustment.'}, status=409)
+        return JsonResponse({'ok': True, 'idempotent_replay': True,
+                             'group_id': existing_event.sequence.group_configuration.group_id,
+                             'next_number': existing_event.number_after,
+                             'revision': existing_event.revision_after})
+    allowed = _portal_import_group_ids(request)
+    groups = GroupSheetConfiguration.objects.filter(enabled=True)
+    if allowed is not None:
+        groups = groups.filter(group_id__in=allowed)
+    if requested_group:
+        groups = groups.filter(group_id=requested_group)
+    group = next((item for item in groups.order_by('group_id') if (item.workflow or {}).get('type') in {'jawabu_homebiogas', 'jawabu'}), None)
+    if not group:
+        return JsonResponse({'ok': False, 'error': 'No scoped Jawabu HomeBiogas group is available.'}, status=403)
+    finalized = [int(value) for value in RequisitionBatch.objects.filter(
+        group_configuration=group, finalized_at__isnull=False,
+    ).values_list('order_number', flat=True) if str(value).isdigit()]
+    last_finalized = max(finalized or [0])
+    if next_number <= last_finalized:
+        return JsonResponse({'ok': False, 'error': f'The next number must be at least {last_finalized + 1}.'}, status=409)
+    from django.db import transaction
+    with transaction.atomic():
+        row = OrderSequenceState.objects.select_for_update().filter(group_configuration=group).first()
+        if row and row.revision != expected_revision:
+            return JsonResponse({'ok': False, 'error': 'The order sequence changed. Reload it before saving.', 'revision': row.revision}, status=409)
+        if row is None:
+            if expected_revision not in (0, 1):
+                return JsonResponse({'ok': False, 'error': 'The order sequence has not been initialized.'}, status=409)
+            row = OrderSequenceState(group_configuration=group, next_number=next_number)
+            number_before = next_number
+        else:
+            number_before = row.next_number
+            row.next_number = next_number
+            row.revision += 1
+        row.updated_by = getattr(request, 'portal_user', None)
+        row.adjustment_reason = reason
+        row.save()
+        OrderSequenceEvent.objects.create(
+            sequence=row, action='adjusted', number_before=number_before,
+            number_after=row.next_number, revision_after=row.revision,
+            actor=getattr(request, 'portal_user', None), reason=reason, request_id=request_id,
+        )
+    return JsonResponse({'ok': True, 'group_id': group.group_id, 'next_number': row.next_number, 'revision': row.revision})
+
+
+def _active_requisition_sequence(request):
+    rows = list(_requisition_sequence_queryset(request)[:2])
+    if not rows:
+        if getattr(request, 'portal_access', None) is None:
+            # Authentication-disabled local/test mode has no governed staff or
+            # group scope. Preserve data-only preview fixtures without making
+            # this a production fallback or allowing finalization.
+            from types import SimpleNamespace
+            try:
+                body = json.loads(request.body)
+            except (json.JSONDecodeError, ValueError):
+                body = {}
+            legacy_number = str(body.get('order_number') or '').strip()
+            if legacy_number:
+                return SimpleNamespace(pk=0, revision=0, next_number=legacy_number), None
+        return None, JsonResponse({'ok': False, 'error': 'IT must configure the official order number before a requisition can be previewed.', 'code': 'sequence_not_initialized'}, status=409)
+    if len(rows) > 1:
+        return None, JsonResponse({'ok': False, 'error': 'More than one order sequence is in scope. Use a group-scoped Portal grant.'}, status=409)
+    return rows[0], None
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_requisition_preview(request):
     """POST /api/portal/requisition-queue/preview/ - validate selected clients before generating Excel."""
     # The in-app preview is intentionally data-only. Workbook rendering in a
     # Telegram WebView is unreliable and belongs to the confirmed download.
+    access_error = _portal_capability_error(request, 'portal.requisition.finalize')
+    if access_error:
+        return access_error
     preview_format = 'document'
-    parsed, error_response = _parse_requisition_workbook_payload(request, allow_blocked=True)
+    sequence, sequence_error = _active_requisition_sequence(request)
+    if sequence_error:
+        return sequence_error
+    parsed, error_response = _parse_requisition_workbook_payload(
+        request, allow_blocked=True, forced_order_number=str(sequence.next_number),
+    )
     if error_response:
         return error_response
 
@@ -4764,7 +4916,7 @@ def portal_requisition_preview(request):
     farmer_ids = parsed['farmer_ids']
     order_number = parsed['order_number']
     requisition_date = parsed['requisition_date']
-    access_error = _portal_capability_error(request, 'portal.requisition.write') or _portal_farmers_scope_error(request, farmers, capability='portal.requisition.write')
+    access_error = _portal_farmers_scope_error(request, farmers, capability='portal.requisition.finalize')
     if access_error:
         return access_error
 
@@ -4777,6 +4929,18 @@ def portal_requisition_preview(request):
                 "This preview includes the original clients and the newly selected clients."
             ),
         })
+    revisions = {
+        str(farmer.id): int(getattr(farmer, 'workflow_revision', 1) or 1)
+        for farmer in farmers
+    }
+    signed = {
+        'user_id': str(getattr(getattr(request, 'portal_user', None), 'pk', '') or ''),
+        'sequence_id': sequence.pk, 'sequence_revision': sequence.revision,
+        'order_number': sequence.next_number, 'requisition_date': requisition_date.isoformat(),
+        'farmer_ids': sorted(str(farmer.id) for farmer in farmers),
+        'workflow_revisions': revisions,
+    }
+    preview_token = TimestampSigner(salt='portal-requisition-finalize').sign(json.dumps(signed, sort_keys=True))
     return JsonResponse({
         'ok': True,
         'order_number': order_number,
@@ -4792,10 +4956,9 @@ def portal_requisition_preview(request):
         # server revisions so the subsequent write protects only changes made
         # after this preview, rather than failing because a background queue
         # refresh left the checkbox with an older display revision.
-        'workflow_revisions': {
-            str(farmer.id): int(getattr(farmer, 'workflow_revision', 1) or 1)
-            for farmer in farmers
-        },
+        'workflow_revisions': revisions,
+        'sequence_revision': sequence.revision,
+        'preview_token': preview_token,
         'workbook_preview': None,
         'preview_format': preview_format,
     })
@@ -4893,11 +5056,131 @@ def portal_requisition_workbook_preview(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+def portal_requisition_finalize(request):
+    """Finalize exactly the revision-bound preview under the official sequence."""
+    access_error = _portal_capability_error(request, 'portal.requisition.finalize')
+    if access_error:
+        return access_error
+    try:
+        body = json.loads(request.body)
+        token = str(body.get('preview_token') or '')
+        signed = json.loads(TimestampSigner(salt='portal-requisition-finalize').unsign(token, max_age=900))
+    except (json.JSONDecodeError, BadSignature, TypeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'This preview expired. Preview the selected cases again.', 'code': 'preview_expired'}, status=409)
+    actor_id = str(getattr(getattr(request, 'portal_user', None), 'pk', '') or '')
+    if str(signed.get('user_id') or '') != actor_id:
+        return JsonResponse({'ok': False, 'error': 'This preview belongs to another Portal user.'}, status=403)
+    request_id = _portal_request_id(request, body)
+    if not request_id:
+        return JsonResponse({'ok': False, 'error': 'A request key is required to finalize an order.'}, status=400)
+
+    from datetime import date as _date
+    from django.db import transaction
+    from core.models import JawabuFarmerMaster, RequisitionBatch
+    from core.services.jawabu_pipeline import assign_order
+    from core.services.requisition import RequisitionTemplateError, generate_requisition_excel
+    from core.services.workflow_transitions import validate_workflow_revision
+    from requisitions.models import OrderSequenceEvent, OrderSequenceState
+
+    farmer_ids = sorted(str(value) for value in signed.get('farmer_ids') or [])
+    membership_digest = hashlib.sha256('\n'.join(farmer_ids).encode()).hexdigest()
+    payload_digest = hashlib.sha256(
+        json.dumps(signed, sort_keys=True, separators=(',', ':')).encode()
+    ).hexdigest()
+    existing = RequisitionBatch.objects.filter(generation_request_id=request_id).first()
+    if existing:
+        if existing.finalization_payload_digest and existing.finalization_payload_digest != payload_digest:
+            return JsonResponse({'ok': False, 'error': 'This request key was already used for a different finalization preview.'}, status=409)
+        if not existing.finalization_payload_digest and (
+            existing.membership_digest != membership_digest
+            or str(existing.order_number) != str(signed.get('order_number'))
+            or (existing.requisition_date.isoformat() if existing.requisition_date else '') != str(signed.get('requisition_date'))
+        ):
+            return JsonResponse({'ok': False, 'error': 'This request key was already used for a different finalization payload.'}, status=409)
+        farmers = _farmers_for_batch(existing.order_number, existing.farmer_ids)
+        scope_error = _portal_farmers_scope_error(
+            request, farmers, capability='portal.requisition.finalize',
+        )
+        if scope_error:
+            return scope_error
+        return JsonResponse({'ok': True, 'idempotent_replay': True, 'filename': existing.filename,
+                             'batch': _serialize_batch(existing, farmers, request),
+                             'download_url': _batch_download_url(request, existing.order_number)})
+    try:
+        requisition_date = _date.fromisoformat(str(signed['requisition_date']))
+        with transaction.atomic():
+            sequence = OrderSequenceState.objects.select_for_update().get(pk=signed['sequence_id'])
+            if sequence.revision != int(signed['sequence_revision']) or sequence.next_number != int(signed['order_number']):
+                return JsonResponse({'ok': False, 'error': 'The official order number changed. Preview again.', 'code': 'sequence_changed'}, status=409)
+            farmers = list(JawabuFarmerMaster.objects.select_for_update().filter(id__in=farmer_ids).order_by('id'))
+            if len(farmers) != len(farmer_ids):
+                return JsonResponse({'ok': False, 'error': 'One or more previewed cases no longer exists.'}, status=409)
+            scope_error = _portal_farmers_scope_error(request, farmers, capability='portal.requisition.finalize')
+            if scope_error:
+                return scope_error
+            revisions = signed.get('workflow_revisions') or {}
+            for farmer in farmers:
+                validate_workflow_revision(farmer, revisions.get(str(farmer.id)))
+            ready, blocked, _warnings = _validate_requisition_farmers(farmers)
+            if blocked or len(ready) != len(farmers):
+                return JsonResponse({'ok': False, 'error': 'One or more cases is no longer ready. Preview again.', 'blocked': blocked}, status=409)
+            order_number = str(sequence.next_number)
+            xlsx_bytes = generate_requisition_excel(farmers, order_number, requisition_date)
+            sender = _portal_sender_from_request(request)
+            for farmer in farmers:
+                ok, assignment_error = assign_order(
+                    farmer, order_number=order_number, requisition_date=requisition_date,
+                    sender=sender, request_id=f'{request_id}:{farmer.id}',
+                    expected_revision=revisions[str(farmer.id)],
+                    actor_user=getattr(request, 'portal_user', None),
+                )
+                if not ok:
+                    raise ValueError(assignment_error)
+            checksum = hashlib.sha256(xlsx_bytes).hexdigest()
+            batch = RequisitionBatch.objects.create(
+                group_configuration=sequence.group_configuration,
+                order_number=order_number, generation_request_id=request_id, version=1,
+                requisition_date=requisition_date, generated_by=sender,
+                filename=f'JBL_Requisition_Form_{order_number}_v1.xlsx', file_content=xlsx_bytes,
+                content_checksum=checksum, membership_digest=membership_digest,
+                finalization_payload_digest=payload_digest,
+                finalized_at=timezone.now(), finalized_by=getattr(request, 'portal_user', None),
+                farmer_ids=farmer_ids, farmer_count=len(farmers), status='generated',
+                drive_upload_error='Drive synchronization pending.',
+                invoice_summary=_invoice_summary_for_batch(farmers, {}),
+            )
+            sequence.next_number += 1
+            sequence.revision += 1
+            sequence.updated_by = getattr(request, 'portal_user', None)
+            sequence.adjustment_reason = f'Consumed by finalized order {order_number}'
+            sequence.save()
+            OrderSequenceEvent.objects.create(
+                sequence=sequence, action='consumed', number_before=int(order_number),
+                number_after=sequence.next_number, revision_after=sequence.revision,
+                actor=getattr(request, 'portal_user', None),
+                reason=f'Finalized official order {order_number}', request_id=request_id,
+            )
+    except (OrderSequenceState.DoesNotExist, KeyError, TypeError, ValueError, RequisitionTemplateError) as exc:
+        response = _portal_workflow_error(exc)
+        return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'filename': batch.filename,
+                         'download_url': _batch_download_url(request, batch.order_number),
+                         'batch': _serialize_batch(batch, farmers, request), 'drive_sync_pending': True})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
 def portal_requisition_generate(request):
     """
     POST /api/portal/requisition-queue/generate/
     Body: { farmer_ids: [...], order_number: "...", requisition_date: "..." }
     """
+    return JsonResponse({
+        'ok': False,
+        'error': 'This Portal version can no longer generate an editable order. Preview the cases and use Finalize Order.',
+        'code': 'client_upgrade_required',
+    }, status=426)
+
     from core.models import RequisitionBatch
     from core.services.jawabu_pipeline import assign_order
     from core.services.requisition import RequisitionTemplateError, generate_requisition_excel

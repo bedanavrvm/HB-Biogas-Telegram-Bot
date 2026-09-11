@@ -417,8 +417,19 @@ _add(
     request_key_binding=_PORTAL_KEY, domain_replay=_PORTAL_REPLAY,
 )
 _add(
-    'portal_requisition_preview portal_requisition_workbook_preview portal_requisition_generate '
-    'portal_assign_order portal_requisition_batch_retry_sync',
+    'portal_requisition_preview portal_requisition_finalize',
+    authentication=_PORTAL_AUTH, capability='portal.requisition.finalize', scope=_PORTAL_SCOPE,
+    request_key_binding=_PORTAL_KEY,
+    domain_replay='Signed preview hash, exact payload digest, case revisions, and official sequence lock',
+)
+_add(
+    'portal_requisition_numbering',
+    authentication=_PORTAL_AUTH, capability='portal.requisition.sequence.manage', scope=_PORTAL_SCOPE,
+    request_key_binding=_PORTAL_KEY,
+    domain_replay='Group sequence revision, immutable request-keyed adjustment event, and finalized-number floor',
+)
+_add(
+    'portal_requisition_workbook_preview portal_requisition_generate portal_assign_order portal_requisition_batch_retry_sync',
     authentication=_PORTAL_AUTH, capability='portal.requisition.write', scope=_PORTAL_SCOPE,
     request_key_binding=_PORTAL_KEY,
     domain_replay='Order/batch request uniqueness, revision, document hash/version, and external operation',

@@ -36,6 +36,22 @@ DOMAIN_RULES = (
 # New models must be explicitly declared here. Existing models are covered by
 # scripts/database_catalog_existing_models.json and deterministic inference.
 MODEL_OVERRIDES: dict[str, dict[str, Any]] = {
+    'requisitions.OrderSequenceState': {
+        'domain': 'requisitions',
+        'purpose': 'Group-scoped source of truth for the next official requisition order number.',
+        'classification': 'configuration_state',
+        'source_of_truth': True,
+        'lifecycle': 'active',
+        'retention': 'Retain permanently; adjustments are attributed and finalized numbers are never rewritten.',
+    },
+    'requisitions.OrderSequenceEvent': {
+        'domain': 'requisitions',
+        'purpose': 'Immutable customer-data-free evidence for each official sequence mutation.',
+        'classification': 'immutable_event',
+        'source_of_truth': True,
+        'lifecycle': 'active',
+        'retention': 'Permanent; sequence audit events are never edited or deleted.',
+    },
     'core.TatTrackerCase': {
         'domain': 'tat',
         'purpose': 'Authoritative TAT case and its current workflow stage.',

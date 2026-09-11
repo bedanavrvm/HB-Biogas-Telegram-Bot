@@ -51,6 +51,34 @@
   }
   function requestId() { return window.crypto?.randomUUID?.() || `portal-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
 
+  function persistedJblSubmission(farmerId) {
+    try {
+      return JSON.parse(sessionStorage.getItem(`portal:jbl:submission:${farmerId}`) || 'null');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function reconcilePersistedJblSubmission(farmer) {
+    const persisted = persistedJblSubmission(farmer.id);
+    if (!persisted?.key) return false;
+    try {
+      const check = await deps.apiFetch(
+        `/jbl-queue/${encodeURIComponent(farmer.id)}/completion-status/?request_id=${encodeURIComponent(persisted.key)}`,
+      );
+      if (!check.ok || !check.data?.completed) return false;
+      pendingJblVisitSubmission = null;
+      sessionStorage.removeItem(`portal:jbl:submission:${farmer.id}`);
+      await clearJblVisitDraft(farmer);
+      closeSheet({ saveDraft: false });
+      await Promise.all([deps.reloadCurrentQueue(), deps.loadDashboard()]);
+      deps.showToast('This visit was already saved.', 'success');
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   function savedVoiceLanguage() {
     try {
       const value = localStorage.getItem(VOICE_LANGUAGE_KEY) || 'auto';
@@ -706,12 +734,12 @@
       el('btn-submit-credit').addEventListener('click', submitCreditDecision);
       wireCreditImabFields();
       wireWorkflowDraft(farmer, mode);
-      wireVoiceWidget('final_decision_comment');
     } else if (mode === 'final_review') {
       formEl.innerHTML = buildFinalReviewForm(farmer);
       footerEl.innerHTML = '<button class="primary" id="btn-submit-final">Save Final Review</button>';
       el('btn-submit-final').addEventListener('click', submitFinalDecision);
       wireWorkflowDraft(farmer, mode);
+      wireVoiceWidget('final_decision_comment');
     } else if (mode === 'requisition') {
       formEl.innerHTML = buildRequisitionBatchNotice();
     }
@@ -729,6 +757,16 @@
       destroyMap();
     }
     if (window.lucide) window.lucide.createIcons();
+  }
+
+  function portalMarkerIcon() {
+    return L.divIcon({
+      className: 'portal-map-marker',
+      html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>',
+      iconSize: [30, 36],
+      iconAnchor: [15, 36],
+      popupAnchor: [0, -32],
+    });
   }
 
   function initMap(lat, lng) {
@@ -783,14 +821,14 @@
       const tiles = L.tileLayer(tileUrl, { attribution, maxZoom: 20 }).addTo(mapInstance);
       tiles.on('tileerror', showMapFallback);
       tiles.on('load', hideMapFallback);
-      mapMarker = L.marker([lat, lng]).addTo(mapInstance).bindPopup(`Recorded location<br><small>${lat.toFixed(6)}, ${lng.toFixed(6)}</small>`);
+      mapMarker = L.marker([lat, lng], { icon: portalMarkerIcon() }).addTo(mapInstance).bindPopup(`Recorded location<br><small>${lat.toFixed(6)}, ${lng.toFixed(6)}</small>`);
     } else {
       mapInstance.setView([lat, lng], 15);
       mapInstance.eachLayer(layer => {
         if (layer instanceof L.TileLayer) layer.setUrl(tileUrl);
       });
       if (mapMarker) mapMarker.setLatLng([lat, lng]);
-      else mapMarker = L.marker([lat, lng]).addTo(mapInstance);
+      else mapMarker = L.marker([lat, lng], { icon: portalMarkerIcon() }).addTo(mapInstance);
       mapMarker.bindPopup(`Recorded location<br><small>${lat.toFixed(6)}, ${lng.toFixed(6)}</small>`);
     }
 
@@ -1606,7 +1644,7 @@
     return true;
   }
 
-  const JBL_FORWARD_VISIT_STATUSES = new Set(['Approved', 'Awaiting Analysis']);
+  const JBL_FORWARD_VISIT_STATUSES = new Set(['Visited, Awaiting Credit Analysis']);
 
   function clearJblFieldErrors() {
     document.querySelectorAll('[data-jbl-field]').forEach(node => {
@@ -2036,7 +2074,7 @@
   }
 
   function buildFinalReviewForm(farmer) {
-    const decisionOptions = state().metaFinalDecisions.filter(decision => decision !== 'Under Review').map(decision =>
+    const decisionOptions = state().metaFinalDecisions.map(decision =>
       `<option value="${deps.escapeHtml(decision)}"${farmer.final_decision === decision ? ' selected' : ''}>${deps.escapeHtml(decision)}</option>`
     ).join('');
     const phoneDigits = String(farmer.primary_phone || '').replace(/\D/g, '');
@@ -2268,6 +2306,7 @@
       deps.showToast('Review the latest case before submitting this draft.', 'error');
       return;
     }
+    if (await reconcilePersistedJblSubmission(farmer)) return;
     const visitStatus = el('jbl-status')?.value || '';
     if (!commitJblDisplayDate({ showError: false })) {
       showJblFieldErrors({ visit_date: 'Enter a valid visit date in dd-mm-yy format.' });
@@ -2302,9 +2341,13 @@
         type: item.file?.type || '', modified: item.file?.lastModified || 0,
       })),
     });
-    const key = pendingJblVisitSubmission?.signature === submissionSignature
-      ? pendingJblVisitSubmission.key : requestId();
+    const persistedSubmission = persistedJblSubmission(farmer.id);
+    const priorSubmission = pendingJblVisitSubmission?.signature === submissionSignature
+      ? pendingJblVisitSubmission
+      : persistedSubmission?.signature === submissionSignature ? persistedSubmission : null;
+    const key = priorSubmission?.key || requestId();
     pendingJblVisitSubmission = { signature: submissionSignature, key };
+    sessionStorage.setItem(`portal:jbl:submission:${farmer.id}`, JSON.stringify(pendingJblVisitSubmission));
     formData.set('client_request_id', key);
     formData.set('workflow_revision', String(Number(farmer.workflow_revision || 1)));
     formData.set('visit_date', el('jbl-date')?.value || '');
@@ -2342,8 +2385,22 @@
         { timeoutMs: 0 },
       );
     } catch (error) {
-      deps.showToast(error.message || 'The upload could not be completed. Keep the form open and retry when connected.', 'error');
-      return;
+      deps.showToast('The response was interrupted. Checking whether the visit was saved...', 'info');
+      let check = { ok: false, data: null };
+      try {
+        check = await deps.apiFetch(
+          `/jbl-queue/${encodeURIComponent(farmer.id)}/completion-status/?request_id=${encodeURIComponent(key)}`,
+        );
+      } catch (_) {
+        // Network recovery can fail for the same reason as the original
+        // response. Keep the exact request key and form so retry is safe.
+      }
+      if (check.ok && check.data?.completed) {
+        response = { ok: true, data: { ok: true, already_completed: true, stored_count: 0 } };
+      } else {
+        deps.showToast('The visit was not confirmed. Your form is still here; retry to safely continue the same request.', 'warning');
+        return;
+      }
     } finally {
       window.clearTimeout(slowUploadNotice);
       deps.setButtonLoading(btn, false);
@@ -2370,6 +2427,7 @@
       return;
     }
     pendingJblVisitSubmission = null;
+    sessionStorage.removeItem(`portal:jbl:submission:${farmer.id}`);
     const uploaded = Number(data.stored_count || 0);
     const successMessage = data.already_completed ? 'This visit was already saved.' : `JBL visit logged${uploaded ? ` with ${uploaded} new evidence file${uploaded === 1 ? '' : 's'}` : ''}.`;
     await clearJblVisitDraft(farmer);

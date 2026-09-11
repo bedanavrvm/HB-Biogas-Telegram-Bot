@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     'health_check.contrib.migrations',
     # Local apps
     'core',
+    'requisitions',
 ]
 
 UNFOLD = {

@@ -47,19 +47,19 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_payments.js'), html.index('miniapp/portal.js'))
         self.assertLess(html.index('miniapp/portal_imports.js'), html.index('miniapp/portal.js'))
         self.assertIn('miniapp/portal_queues.js?v=9', html)
-        self.assertIn('miniapp/portal_farmer_sheet.js?v=58', html)
+        self.assertIn('miniapp/portal_farmer_sheet.js?v=61', html)
         self.assertIn('miniapp/utils.js?v=12', html)
-        self.assertIn('miniapp/portal_helpers.js?v=6', html)
-        self.assertIn('miniapp/portal.css?v=92', html)
+        self.assertIn('miniapp/portal_helpers.js?v=7', html)
+        self.assertIn('miniapp/portal.css?v=96', html)
         self.assertIn('miniapp/portal_filters.js?v=11', html)
         self.assertIn('miniapp/portal_imports.js?v=7', html)
         self.assertNotIn('portal-import-group', html)
-        self.assertIn('miniapp/portal_requisitions.js?v=33', html)
+        self.assertIn('miniapp/portal_requisitions.js?v=34', html)
         self.assertIn('miniapp/portal_api.js?v=8', html)
         self.assertIn('miniapp/portal_invoices.js?v=16', html)
         self.assertIn('miniapp/portal_payments.js?v=7', html)
         self.assertIn('miniapp/portal_reports.js?v=14', html)
-        self.assertIn('miniapp/portal.js?v=75', html)
+        self.assertIn('miniapp/portal.js?v=78', html)
         self.assertIn('miniapp/portal_case_history.js?v=1', html)
         self.assertLess(html.index('miniapp/portal_case_history.js'), html.index('miniapp/portal.js'))
 
@@ -705,7 +705,7 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertNotIn('Decision reason', form)
         self.assertNotIn('approval-condition', form)
-        self.assertIn("decision !== 'Under Review'", form)
+        self.assertNotIn("decision !== 'Under Review'", form)
         self.assertIn('btn-view-client-media', form)
         self.assertIn('final-client-media', form)
         self.assertIn('loadClientMedia', source)
@@ -725,12 +725,12 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertNotIn('item.viewer_url', source)
         self.assertNotIn('item.open_url || item.view_url', source)
         self.assertIn('JBL visit photo', source)
-        self.assertIn('Signed LAF document', source)
+        self.assertIn('Signed LAF Document', source)
         self.assertIn('form-grid final-review-grid', form)
         self.assertIn('form-row form-row-wide', form)
         stylesheet = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
         self.assertIn('phone-action-field', form)
-        self.assertIn('<span>Call</span>', form)
+        self.assertIn('<span class="sr-only">Call customer</span>', form)
         self.assertIn("phoneDigits.startsWith('0')", form)
         self.assertIn('.workflow-standard.portal-app .phone-call-button span', stylesheet)
         self.assertIn('-webkit-text-fill-color: #fff', stylesheet)
@@ -739,6 +739,16 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertNotIn('final-reason-code', submit)
         self.assertNotIn('final-conditions', submit)
         self.assertNotIn('Approved with Conditions', source)
+        self.assertIn("wireVoiceWidget('final_decision_comment')", source)
+
+    def test_portal_map_uses_an_offline_inline_marker(self):
+        source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
+        shell = Path('core/templates/base_shell.html').read_text(encoding='utf-8')
+
+        self.assertNotIn('marker-icon.png', shell)
+        self.assertIn("L.divIcon({", source)
+        self.assertIn("className: 'portal-map-marker'", source)
+        self.assertIn('{ icon: portalMarkerIcon() }', source)
 
     def test_requisition_case_sheet_defers_assignment_to_selected_batch_panel(self):
         source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
@@ -751,6 +761,14 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertNotIn('req-product', source)
         self.assertNotIn('submitOrder', source)
         self.assertNotIn("requisition: 'portal.requisition.write'", source)
+
+    def test_jbl_visit_retry_reconciles_an_interrupted_response(self):
+        source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
+
+        self.assertIn('portal:jbl:submission:', source)
+        self.assertIn('/completion-status/?request_id=', source)
+        self.assertIn('already_completed: true', source)
+        self.assertIn('Your form is still here; retry to safely continue the same request.', source)
 
     def test_portal_requisitions_exposes_batch_primitives(self):
         source = Path('core/static/miniapp/portal_requisitions.js').read_text(encoding='utf-8')
@@ -903,4 +921,6 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertIn('payloadAtPreviewRevision', source)
         self.assertIn('workflow_revisions', source)
-        self.assertIn('state().pendingRequisitionPayload = payloadAtPreviewRevision(payload, data)', source)
+        self.assertIn('...payloadAtPreviewRevision(payload, data)', source)
+        self.assertIn('preview_token: data.preview_token', source)
+        self.assertIn('finalize_request_id: requisitionRequestId()', source)
