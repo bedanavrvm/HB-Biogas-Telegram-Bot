@@ -28,10 +28,10 @@ GLOBAL_TAT_STAGES = [
     {'key': 'tat_held', 'label': 'HOCC held', 'column': 20, 'role': 'SECRETARY', 'kind': 'timestamp'},
     {'key': 'decision', 'label': 'Decision', 'column': 21, 'role': 'CHAIR', 'kind': 'dropdown', 'options': ['Approved', 'Rejected', 'Deferred'], 'auto_timestamp_key': 'decision_ts'},
     {'key': 'minutes_shared', 'label': 'Minutes shared', 'column': 23, 'role': 'SECRETARY', 'kind': 'dropdown', 'options': ['Yes', 'No'], 'auto_timestamp_key': 'minutes_shared_ts'},
-    {'key': 'sanctions', 'label': 'Sanctions', 'column': 25, 'role': 'LOAN_APPROVER', 'kind': 'dropdown', 'options': ['Pending', 'Met', 'Not Met'], 'auto_timestamp_key': 'sanctions_ts'},
-    {'key': 'bro_applied', 'label': 'BRO applied loan on system', 'column': 27, 'role': 'BRO', 'kind': 'dropdown', 'options': ['Pending', 'Met', 'Not Met'], 'auto_timestamp_key': 'bro_applied_ts'},
+    {'key': 'sanctions', 'label': 'Sanctions', 'column': 25, 'role': 'LOAN_APPROVER', 'kind': 'dropdown', 'options': ['Met', 'Not Met'], 'auto_timestamp_key': 'sanctions_ts'},
+    {'key': 'bro_applied', 'label': 'BRO applied loan on system', 'column': 27, 'role': 'BRO', 'kind': 'dropdown', 'options': ['Met', 'Not Met'], 'auto_timestamp_key': 'bro_applied_ts'},
     {'key': 'disbursement_register', 'label': 'Business Admin disbursement register', 'column': 30, 'role': 'BUSINESS_ADMIN', 'kind': 'dropdown', 'options': ['10:00am', '1:00pm', '3:30pm'], 'auto_timestamp_key': 'register_ts'},
-    {'key': 'register_approved', 'label': 'Register approved', 'column': 32, 'role': 'LOAN_APPROVER', 'kind': 'dropdown', 'options': ['Approved', 'Pending'], 'auto_timestamp_key': 'register_approved_ts'},
+    {'key': 'register_approved', 'label': 'Register approved', 'column': 32, 'role': 'LOAN_APPROVER', 'kind': 'dropdown', 'options': ['Approved', 'Declined'], 'auto_timestamp_key': 'register_approved_ts'},
     {'key': 'disbursement', 'label': 'Finance disbursement', 'column': 33, 'role': 'FINANCE', 'kind': 'timestamp'},
 ]
 

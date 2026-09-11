@@ -1270,7 +1270,8 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
   gap: 4px;
 }
 .stage-action-wrap.correction-open { grid-template-columns:repeat(2,minmax(0,1fr)); }
-.stage-action-wrap.correction-open input { grid-column:1 / -1; width:100%; min-width:0; }
+.stage-action-wrap.correction-open input,
+.stage-action-wrap.correction-open select { grid-column:1 / -1; width:100%; min-width:0; }
 .stage-action-wrap.correction-open button.compact-btn { width:100%; min-height:38px; }
 .stage-action-wrap select { min-height: 32px; font-size: 12px; padding: 5px 8px; border-radius: var(--radius-sm); }
 .stage-action-wrap button.compact-btn { min-height: 32px; font-size: 12px; border-radius: var(--radius-sm); width: fit-content; }

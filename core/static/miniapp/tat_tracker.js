@@ -634,6 +634,8 @@
   }
 
   function tatCounterMarkup(record, key) {
+    const hasElapsed = record && record.elapsed_seconds !== null && record.elapsed_seconds !== undefined && record.elapsed_seconds !== '';
+    if (!hasElapsed) return escapeHtml(formatMinutes(record && (record.wall_clock_minutes || record.tat_minutes)) || 'Not started');
     const elapsed = Number(record && record.elapsed_seconds);
     if (!Number.isFinite(elapsed)) return escapeHtml(formatMinutes(record && (record.wall_clock_minutes || record.tat_minutes)) || 'Not started');
     const previous = state.counterDisplayedSeconds[key];
@@ -1629,7 +1631,8 @@
       const valueText = field.value || (field.locked_reason ? 'Pending previous stages' : 'Not started');
       const targetText = formatMinutes(field.target_minutes);
       const slaText = slaLabel(field.sla_status);
-      const hasTat = Number.isFinite(Number(field.elapsed_seconds)) || Boolean(formatMinutes(field.wall_clock_minutes || field.tat_minutes));
+      const hasElapsed = field.elapsed_seconds !== null && field.elapsed_seconds !== undefined && field.elapsed_seconds !== '';
+      const hasTat = (hasElapsed && Number.isFinite(Number(field.elapsed_seconds))) || Boolean(formatMinutes(field.wall_clock_minutes || field.tat_minutes));
       const tatMeta = hasTat ? `
         <div class="stage-tat-row">
           <span class="tat-badge ${escapeHtml(field.sla_status || '')}">${tatCounterMarkup(field, `stage:${summary.case_id}:${field.key}`)}</span>
@@ -1854,10 +1857,16 @@
 
   function openStageCorrection(actionWrap, field) {
     const current = field.raw_value || '';
-    const input = document.createElement('input');
+    const input = document.createElement(field.kind === 'dropdown' ? 'select' : 'input');
     input.className = 'tat-paste-field';
-    input.type = field.kind === 'timestamp' ? 'datetime-local' : 'text';
-    input.value = field.kind === 'timestamp' ? correctionDateTimeValue(current) : current;
+    if (field.kind === 'dropdown') {
+      input.innerHTML = '<option value="">Select corrected outcome...</option>'
+        + (field.options || []).map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`).join('');
+      input.value = current;
+    } else {
+      input.type = field.kind === 'timestamp' ? 'datetime-local' : 'text';
+      input.value = field.kind === 'timestamp' ? correctionDateTimeValue(current) : current;
+    }
     input.setAttribute('aria-label', 'Correct ' + field.label);
     const save = document.createElement('button');
     save.type = 'button';
@@ -2028,8 +2037,28 @@
     state.detail = result.data;
     renderDetail(result.data);
     kickUpdateDispatches(result.dispatch_ids || []);
+    const savedCaseId = result.data.summary.case_id;
+    const refreshRequestNumber = ++state.detailRequestNumber;
+    state.detailRequestsInFlight += 1;
+    try {
+      const refreshed = await api('/api/tat-tracker/detail/', {
+        case_id: savedCaseId,
+      });
+      if (refreshRequestNumber === state.detailRequestNumber
+        && state.detail?.summary?.case_id === savedCaseId
+        && refreshed.data?.summary) {
+        state.detail = refreshed.data;
+        state.pendingDetail = null;
+        renderDetail(refreshed.data);
+      }
+    } catch (error) {
+      // The write succeeded and its response is already visible. Periodic
+      // detail refresh will safely reconcile a transient read failure.
+    } finally {
+      state.detailRequestsInFlight = Math.max(0, state.detailRequestsInFlight - 1);
+    }
     setStatus('Saved.', 'ok');
-    return result.data;
+    return state.detail;
   }
 
   async function saveDropdownStageUpdate(select, field) {

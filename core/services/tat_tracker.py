@@ -52,13 +52,30 @@ TAT_FORM_TOKEN_SALT = 'tat-tracker-mini-app'
 
 BRANCHES = DEFAULT_WORKFLOW_BRANCHES
 DECISION_OPTIONS = ['Approved', 'Rejected', 'Deferred']
-SANCTIONS_OPTIONS = ['Pending', 'Met', 'Not Met']
+BM_RESPONSE_OPTIONS = ['Approved', 'Declined']
+SANCTIONS_OPTIONS = ['Met', 'Not Met']
 REGISTER_OPTIONS = ['10:00am', '1:00pm', '3:30pm']
-REGISTER_APPROVED_OPTIONS = ['Approved', 'Pending']
+REGISTER_APPROVED_OPTIONS = ['Approved', 'Declined']
 MINUTES_SHARED_OPTIONS = ['Yes', 'No']
-BRO_APPLIED_OPTIONS = ['Pending', 'Met', 'Not Met']
+BRO_APPLIED_OPTIONS = ['Met', 'Not Met']
 STATUS_VALUES = ['Active', 'Stalled', 'Declined', 'Disbursed']
 TAT_NEGATIVE_OUTCOME_STATUSES = frozenset({'Rejected', 'Declined', 'Deferred'})
+TAT_STAGE_OUTCOME_OPTIONS = {
+    'bm_response': tuple(BM_RESPONSE_OPTIONS),
+    'decision': tuple(DECISION_OPTIONS),
+    'minutes_shared': tuple(MINUTES_SHARED_OPTIONS),
+    'sanctions': tuple(SANCTIONS_OPTIONS),
+    'bro_applied': tuple(BRO_APPLIED_OPTIONS),
+    'register_approved': tuple(REGISTER_APPROVED_OPTIONS),
+}
+TAT_TERMINAL_OUTCOMES = {
+    'bm_response': frozenset({'Declined'}),
+    'decision': frozenset({'Rejected', 'Deferred'}),
+    'minutes_shared': frozenset({'No'}),
+    'sanctions': frozenset({'Not Met'}),
+    'bro_applied': frozenset({'Not Met'}),
+    'register_approved': frozenset({'Declined'}),
+}
 TAT_BATCH_FORMAT_TEXT = (
     "TAT batch upload format\n\n"
     "Attach an Excel .xlsx or CSV file and send @bot /batch.\n\n"
@@ -181,8 +198,12 @@ BASE_STAGES_BUSINESS = (
     StageConfig('mpesa_verified', 'MPESA verified by Business Admin and sent to CA', 10, BUSINESS_ADMIN_ROLE),
     StageConfig('ca_analysis_sent', 'Credit analysis sent', 11, 'CA'),
     StageConfig('bro_response', 'BRO response to CA', 12, 'BRO'),
-    StageConfig('bm_response', 'BM response to CA', 13, 'BM', requires_signature_certificate=True),
-    StageConfig('bro_applied', 'BRO applied loan on system', 14, 'BRO'),
+    StageConfig(
+        'bm_response', 'BM response to CA', 13, 'BM',
+        kind='dropdown', options=tuple(BM_RESPONSE_OPTIONS),
+        auto_timestamp_key='bm_response_ts', requires_signature_certificate=True,
+    ),
+    StageConfig('bro_applied', 'BRO applied loan on system', 14, 'BRO', 'dropdown', tuple(BRO_APPLIED_OPTIONS), 'bro_applied_ts'),
     StageConfig('disbursement_register', 'Business Admin disbursement register', 15, BUSINESS_ADMIN_ROLE, 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
     StageConfig('register_approved', 'Register approved', 17, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS), 'register_approved_ts'),
     StageConfig('disbursement', 'Finance disbursement', 18, 'FINANCE'),
@@ -1725,6 +1746,12 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
         stage = stage_by_key(product, 'bro_applied')
         if not stage:
             raise ValueError('This case has no BRO application stage.')
+        terminal_stage = terminal_outcome_stage(case, product)
+        if terminal_stage and stage_position(product, stage) > stage_position(product, terminal_stage):
+            raise TatUpdateValidationError(
+                'tat_update_terminal_stage_closed',
+                f'This workflow closed at {terminal_stage.label}. Correct that outcome before updating later stages.',
+            )
         existing_outcome = bool((case.stage_values or {}).get('bro_applied'))
         downstream_started = later_stages_started(case, stage, product)
         has_correction_authority = can_user_correct_stage(user, case, stage)
@@ -1741,8 +1768,6 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
             raise ValueError('Only the responsible BRO or an authorized override may set the final loan amount.')
         new_value = parse_amount(item.get('value'))
         validate_amount(product, new_value)
-        if case.amount is not None and new_value > case.amount:
-            raise ValueError('Final loan amount cannot exceed the original requested amount.')
         old = case.final_loan_amount
         if old == new_value:
             # Composite BRO outcome saves resend the displayed amount. Treat
@@ -1830,6 +1855,12 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
         stage = stage_by_key(product, field)
         if not stage:
             raise ValueError('Invalid stage submitted.')
+        terminal_stage = terminal_outcome_stage(case, product)
+        if terminal_stage and stage_position(product, stage) > stage_position(product, terminal_stage):
+            raise TatUpdateValidationError(
+                'tat_update_terminal_stage_closed',
+                f'This workflow closed at {terminal_stage.label}. Correct that outcome before updating later stages.',
+            )
         old = case.stage_values.get(stage.key, '')
         if correction:
             if not old:
@@ -1860,7 +1891,7 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
                 new = format_datetime(timezone.now())
         elif stage.kind == 'dropdown':
             value = str(item.get('value') or '').strip()
-            if value not in stage.options:
+            if value not in effective_stage_options(stage):
                 raise ValueError(f'Select a valid value for {stage.label}.')
             if value == old:
                 raise ValueError(f'{stage.label} is already set to {value}.')
@@ -1904,22 +1935,24 @@ def apply_side_effects(case: TatTrackerCase, product: ProductConfig, stage: Stag
         raise ValueError('Register must be approved before disbursement.')
     if stage.auto_timestamp_key and value:
         case.stage_values.setdefault(stage.auto_timestamp_key, now)
-    if stage.key == 'decision':
-        if value in {'Rejected', 'Deferred'}:
-            # Keep the exact negative decision in stage_values/events for
-            # audit, but expose one terminal negative workflow status.
-            case.status = 'Declined'
-        elif value == 'Approved' and case.status in TAT_NEGATIVE_OUTCOME_STATUSES:
-            case.status = 'Active'
-    if stage.key == 'bm_response':
-        if value == 'Declined':
-            case.status = 'Declined'
-        elif value == 'Approved' and case.status in TAT_NEGATIVE_OUTCOME_STATUSES:
-            case.status = 'Active'
     if stage.key == 'sanctions' and value == 'Not Met' and 'Sanctions Not Met' not in case.remarks:
         case.remarks = f"[{format_datetime(timezone.now())}: Sanctions Not Met - conditions unfulfilled] {case.remarks}".strip()
     if stage.key == 'disbursement':
         case.status = 'Disbursed'
+    elif stage.key in TAT_TERMINAL_OUTCOMES:
+        # Preserve the exact outcome in stage_values and audit events while
+        # exposing one terminal status across all negative workflow exits.
+        current_is_terminal = value in TAT_TERMINAL_OUTCOMES[stage.key]
+        another_terminal_exists = any(
+            candidate.key != stage.key
+            and str((case.stage_values or {}).get(candidate.key) or '').strip()
+            in TAT_TERMINAL_OUTCOMES.get(candidate.key, ())
+            for candidate in product.stages
+        )
+        if current_is_terminal or another_terminal_exists:
+            case.status = 'Declined'
+        elif case.status in TAT_NEGATIVE_OUTCOME_STATUSES:
+            case.status = 'Active'
 
 
 def normalize_create_request_id(value: Any) -> str:
@@ -2425,6 +2458,9 @@ def calculated_tat_days(case: TatTrackerCase, now=None) -> Decimal | None:
 def overall_tat_end(case: TatTrackerCase, now=None):
     values = case.stage_values or {}
     if case.status in TAT_NEGATIVE_OUTCOME_STATUSES:
+        terminal_stage = terminal_outcome_stage(case)
+        if terminal_stage:
+            return stage_completed_at(case, terminal_stage) or case.updated_at
         return parse_iso_datetime(values.get('decision_ts')) or parse_iso_datetime(values.get('decision')) or case.updated_at
     disbursed_at = parse_iso_datetime(values.get('disbursement'))
     if disbursed_at:
@@ -3079,9 +3115,46 @@ def next_action(case: TatTrackerCase) -> StageConfig | None:
     if case.status in TAT_COMPLETED_STATUSES:
         return None
     for stage in product.stages:
-        if not case.stage_values.get(stage.key):
+        if not stage_value_is_complete(stage, case.stage_values.get(stage.key)):
             return stage
     return None
+
+
+def effective_stage_options(stage: StageConfig) -> tuple[str, ...]:
+    """Return current outcome policy without rewriting frozen case snapshots."""
+    return TAT_STAGE_OUTCOME_OPTIONS.get(stage.key, stage.options)
+
+
+def stage_value_is_complete(stage: StageConfig, value: Any) -> bool:
+    """Keep legacy Pending placeholders from advancing canonical dropdowns."""
+    if not value:
+        return False
+    if stage.kind != 'dropdown':
+        return True
+    raw = str(value).strip()
+    if stage.key in {'minutes_shared', 'bro_applied'} and parse_iso_datetime(raw):
+        return True
+    return raw in effective_stage_options(stage)
+
+
+def terminal_outcome_stage(
+    case: TatTrackerCase, product: ProductConfig | None = None,
+) -> StageConfig | None:
+    """Return the first stage whose recorded outcome closes the workflow."""
+    product = product or product_for_case(case)
+    values = case.stage_values or {}
+    for stage in product.stages:
+        outcomes = TAT_TERMINAL_OUTCOMES.get(stage.key, ())
+        if str(values.get(stage.key) or '').strip() in outcomes:
+            return stage
+    return None
+
+
+def stage_position(product: ProductConfig, stage: StageConfig) -> int:
+    return next(
+        (position for position, candidate in enumerate(product.stages) if candidate.key == stage.key),
+        len(product.stages),
+    )
 
 
 def previous_stages_complete(case: TatTrackerCase, stage: StageConfig) -> bool:
@@ -3089,7 +3162,7 @@ def previous_stages_complete(case: TatTrackerCase, stage: StageConfig) -> bool:
     for current in product.stages:
         if current.key == stage.key:
             return True
-        if not case.stage_values.get(current.key):
+        if not stage_value_is_complete(current, case.stage_values.get(current.key)):
             return False
         if signatures_enabled() and current.requires_signature_certificate and not case.approval_certificates.filter(stage_key=current.key, status='signed').exists():
             return False
@@ -3160,6 +3233,7 @@ def serialize_case_detail(
     read_only = unresolved or not is_record_operational(case)
     can_correct_details = (not read_only) and can_user_correct_case_details(user, case)
     fields = []
+    terminal_stage = None if unresolved else terminal_outcome_stage(case, product)
     for stage in (() if unresolved else product.stages):
         value = case.stage_values.get(stage.key, '')
         dropdown_change_open = stage.kind == 'dropdown' and not later_stages_started(case, stage, product)
@@ -3174,10 +3248,12 @@ def serialize_case_detail(
         business_minutes = stage_business_tat_minutes(case, stage, now=calculated_at) if include_business_time else None
         target = stage_target_minutes_for_case(case, workflow, product, stage)
         certificate = case.approval_certificates.filter(stage_key=stage.key).first() if stage.requires_signature_certificate else None
-        field_payload = {'key': stage.key, 'label': stage.label, 'kind': stage.kind, 'value': display_stage_value(stage, value), 'raw_value': str(value or ''), 'editable': editable, 'can_correct': bool(value) and can_user_correct_stage(user, case, stage), 'options': list(stage.options), 'role': stage.role, 'locked_reason': '' if editable or (value and can_user_correct_stage(user, case, stage)) else lock_reason(case, user, stage), 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'wall_clock_minutes': str(tat_minutes) if tat_minutes is not None else '', 'elapsed_seconds': tat_seconds, 'calculated_at': calculated_at.isoformat(), 'running': stage_tat_running(case, stage), 'target_seconds': int(target * 60) if target is not None else None, 'sla_minutes': str(tat_minutes) if tat_minutes is not None else '', 'target_minutes': str(target) if target is not None else '', 'sla_status': sla_status(tat_minutes, target), 'certificate_status': certificate.status if certificate else ''}
+        field_payload = {'key': stage.key, 'label': stage.label, 'kind': stage.kind, 'value': display_stage_value(stage, value), 'raw_value': str(value or ''), 'editable': editable, 'can_correct': bool(value) and can_user_correct_stage(user, case, stage), 'options': list(effective_stage_options(stage)), 'role': stage.role, 'locked_reason': '' if editable or (value and can_user_correct_stage(user, case, stage)) else lock_reason(case, user, stage), 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'wall_clock_minutes': str(tat_minutes) if tat_minutes is not None else '', 'elapsed_seconds': tat_seconds, 'calculated_at': calculated_at.isoformat(), 'running': stage_tat_running(case, stage), 'target_seconds': int(target * 60) if target is not None else None, 'sla_minutes': str(tat_minutes) if tat_minutes is not None else '', 'target_minutes': str(target) if target is not None else '', 'sla_status': sla_status(tat_minutes, target), 'certificate_status': certificate.status if certificate else ''}
         if include_business_time:
             field_payload['business_minutes'] = str(business_minutes) if business_minutes is not None else ''
         fields.append(field_payload)
+        if terminal_stage and stage.key == terminal_stage.key:
+            break
     timeline = tat_case_timeline(case)
     legacy_events = [
         {

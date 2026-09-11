@@ -254,6 +254,10 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(config.tat_start_col, 36)
         self.assertIn('bm_hocc_request', {stage['key'] for stage in config.stages})
         self.assertNotIn('bm_tat_request', {stage['key'] for stage in config.stages})
+        stages = {stage['key']: stage for stage in config.stages}
+        self.assertEqual(stages['sanctions']['options'], ['Met', 'Not Met'])
+        self.assertEqual(stages['bro_applied']['options'], ['Met', 'Not Met'])
+        self.assertEqual(stages['register_approved']['options'], ['Approved', 'Declined'])
 
     def test_global_sheet_blanks_irrelevant_stage_cells_and_writes_product_key(self):
         version = ProductVersion.objects.get(product__code='business', status='published')
@@ -352,6 +356,35 @@ class TatTrackerWorkflowTest(TestCase):
         with self.assertRaises(TatUpdateValidationError) as outcome_error:
             apply_update(case, bro, {'field': 'bro_applied', 'value': 'Pending'})
         self.assertEqual(outcome_error.exception.code, 'tat_update_stage_locked')
+
+    def test_final_amount_may_exceed_requested_amount_without_changing_path(self):
+        version = ProductVersion.objects.get(product__code='business', status='published')
+        snapshot = resolve_tat_configuration(version, requested_amount=Decimal('50000'))
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            case_id='JBL-BS-2026-FINAL-INCREASE',
+            product=version.product,
+            product_version=version,
+            product_key='business',
+            product_label='Business',
+            client_name='INCREASE CASE',
+            branch='Nakuru',
+            bro_name='BRO User',
+            amount=Decimal('50000'),
+            status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+            tat_configuration_snapshot=snapshot,
+            configuration_binding_status=TatTrackerCase.CONFIG_VERSIONED,
+        )
+
+        apply_update(
+            case,
+            {'name': 'BRO User', 'roles': ['BRO']},
+            {'field': 'final_loan_amount', 'value': '75000'},
+        )
+
+        self.assertEqual(case.final_loan_amount, Decimal('75000'))
+        self.assertEqual(case.tat_configuration_snapshot['workflow_path'], 'Standard')
 
     def test_overdue_tat_stage_records_one_pending_follow_up_per_day(self):
         # SLA time is measured only during the official Nairobi business
@@ -822,7 +855,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Ready for my role', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=92", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=93", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -860,7 +893,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-sheet-overlay', stylesheet)
         self.assertIn('class="notice-close tat-sheet-close"', template)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
-        self.assertIn("miniapp/tat_tracker.css' %}?v=60", template)
+        self.assertIn("miniapp/tat_tracker.css' %}?v=61", template)
         self.assertIn('id="tatGridZoom"', template)
         self.assertIn('id="tatGridZoomOut"', template)
         self.assertIn('id="tatGridZoomReset"', template)
@@ -3964,6 +3997,133 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(new_case.status, 'Declined')
         apply_side_effects(new_case, product, decision_stage, 'Approved')
         self.assertEqual(new_case.status, 'Active')
+
+    def test_all_negative_outcomes_close_detail_at_the_terminal_stage(self):
+        from core.services.tat_tracker import serialize_case_detail
+
+        version = ProductVersion.objects.get(product__code='business', status='published')
+        terminal_values = {
+            'bm_response': 'Declined',
+            'decision': 'Deferred',
+            'minutes_shared': 'No',
+            'sanctions': 'Not Met',
+            'bro_applied': 'Not Met',
+            'register_approved': 'Declined',
+        }
+        positive_values = {
+            'bm_response': 'Approved',
+            'decision': 'Approved',
+            'minutes_shared': 'Yes',
+            'sanctions': 'Met',
+            'bro_applied': 'Met',
+            'disbursement_register': '10:00am',
+        }
+        actor = {'name': 'IT User', 'roles': ['IT']}
+        created = timezone.make_aware(timezone.datetime(2026, 7, 14, 8, 0))
+        closed = timezone.make_aware(timezone.datetime(2026, 7, 14, 10, 0))
+
+        for terminal_key, terminal_value in terminal_values.items():
+            snapshot = resolve_tat_configuration(version, requested_amount=Decimal('100000'))
+            product = product_config_from_snapshot(snapshot)
+            values = {'created': created.isoformat()}
+            for stage in product.stages:
+                if stage.key == terminal_key:
+                    values[stage.key] = terminal_value
+                    if stage.auto_timestamp_key:
+                        values[stage.auto_timestamp_key] = closed.isoformat()
+                    break
+                values[stage.key] = positive_values.get(stage.key, closed.isoformat())
+                if stage.auto_timestamp_key:
+                    values[stage.auto_timestamp_key] = closed.isoformat()
+            case = TatTrackerCase.objects.create(
+                group_id=self.config.group_id,
+                case_id=f'TAT-TERMINAL-{terminal_key}',
+                product=version.product,
+                product_version=version,
+                product_key='business',
+                product_label='Business',
+                client_name='Terminal Client',
+                branch='Nakuru',
+                amount=Decimal('100000'),
+                status='Active',
+                stage_values=values,
+                tat_configuration_snapshot=snapshot,
+                configuration_binding_status=TatTrackerCase.CONFIG_VERSIONED,
+            )
+            terminal_stage = stage_by_key(product, terminal_key)
+            apply_side_effects(case, product, terminal_stage, terminal_value)
+
+            detail = serialize_case_detail(case, actor, workflow=self.config.workflow)
+
+            self.assertEqual(case.status, 'Declined')
+            self.assertEqual(detail['fields'][-1]['key'], terminal_key)
+            self.assertEqual(calculated_tat_minutes(case), Decimal('120.00'))
+
+    def test_terminal_outcome_blocks_later_stage_until_corrected(self):
+        from core.services.tat_tracker import TatUpdateValidationError
+
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            case_id='TAT-CLOSED-MINUTES',
+            product_key='mjengo',
+            product_label='Mjengo',
+            client_name='Closed Client',
+            branch='Nakuru',
+            amount=Decimal('100000'),
+            status='Declined',
+            stage_values={'created': timezone.now().isoformat(), 'minutes_shared': 'No'},
+        )
+        actor = {'name': 'IT User', 'roles': ['IT']}
+
+        with self.assertRaises(TatUpdateValidationError) as error:
+            apply_update(case, actor, {'field': 'sanctions', 'value': 'Met'})
+
+        self.assertEqual(error.exception.code, 'tat_update_terminal_stage_closed')
+        apply_update(case, actor, {
+            'field': 'minutes_shared', 'value': 'Yes', 'correction': True,
+        })
+        self.assertEqual(case.status, 'Active')
+
+    def test_frozen_legacy_options_are_preserved_but_effective_options_are_canonical(self):
+        from core.services.tat_tracker import serialize_case_detail
+
+        version = ProductVersion.objects.get(product__code='business', status='published')
+        snapshot = resolve_tat_configuration(version, requested_amount=Decimal('100000'))
+        for stage in snapshot['stages']:
+            if stage['key'] == 'sanctions':
+                stage['options'] = ['Pending', 'Met', 'Not Met']
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            case_id='TAT-FROZEN-OPTIONS',
+            product=version.product,
+            product_version=version,
+            product_key='business',
+            product_label='Business',
+            client_name='Frozen Options',
+            branch='Nakuru',
+            amount=Decimal('100000'),
+            stage_values={'created': timezone.now().isoformat()},
+            tat_configuration_snapshot=snapshot,
+            configuration_binding_status=TatTrackerCase.CONFIG_VERSIONED,
+        )
+
+        detail = serialize_case_detail(case, {'name': 'IT User', 'roles': ['IT']})
+        sanctions = next(field for field in detail['fields'] if field['key'] == 'sanctions')
+
+        self.assertEqual(sanctions['options'], ['Met', 'Not Met'])
+        case.refresh_from_db()
+        frozen_sanctions = next(
+            stage for stage in case.tat_configuration_snapshot['stages']
+            if stage['key'] == 'sanctions'
+        )
+        self.assertEqual(frozen_sanctions['options'], ['Pending', 'Met', 'Not Met'])
+
+    def test_tat_frontend_refreshes_after_save_and_does_not_render_null_elapsed_as_zero(self):
+        source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
+
+        self.assertIn("api('/api/tat-tracker/detail/'", source)
+        self.assertIn('record.elapsed_seconds !== null', source)
+        self.assertIn('field.elapsed_seconds !== null', source)
 
     def test_stage_tat_minutes_use_previous_stage_and_current_pending_stage(self):
         product = product_by_key('business')
