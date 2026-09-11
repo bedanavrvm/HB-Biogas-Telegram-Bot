@@ -2662,13 +2662,17 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 /* Dedicated FarmUp intake uses the pinned local AG Grid at every viewport. */
 #page-imports .portal-import-upload-grid { grid-template-columns: minmax(0, 620px); }
 .portal-farmup-upload { max-width: 620px; }
+.portal-farmup-upload input[type="month"] { min-height: 40px; padding: 7px 9px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-surface); color: var(--text-primary); }
+.farmup-version-upload { display: flex; align-items: end; justify-content: space-between; gap: 10px; margin: 0 0 10px; padding: 10px; border: 1px dashed var(--border-color); border-radius: 9px; background: var(--bg-muted); }
+.farmup-version-upload label { display: grid; gap: 4px; color: var(--text-muted); font-size: 10px; font-weight: 700; }
+.farmup-commit-receipt { margin: 0 0 10px; padding: 10px 12px; border-left: 3px solid var(--portal-status-success); border-radius: 7px; background: color-mix(in srgb, var(--portal-status-success) 9%, var(--bg-surface)); color: var(--text-primary); font-size: 11px; }
 .farmup-mapping-alert { margin: 0; padding: 7px 8px; border-radius: 8px; background: var(--portal-status-warning-bg); color: var(--portal-status-warning); font-size: 10px; font-weight: 700; }
 .farmup-counters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 9px 0; }
 .farmup-counters span { padding: 7px; border-radius: 8px; background: var(--bg-muted); color: var(--text-muted); font-size: 9px; text-transform: uppercase; }
 .farmup-counters strong { display: block; color: var(--text-primary); font-size: 16px; }
 .farmup-counters .warning, .farmup-counters .warning strong { color: var(--portal-status-warning); }
 .farmup-counters .danger, .farmup-counters .danger strong { color: var(--portal-status-danger); }
-.farmup-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto auto; gap: 6px; margin-bottom: 9px; }
+.farmup-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) repeat(5, auto); gap: 6px; margin-bottom: 9px; }
 .farmup-toolbar input { min-width: 0; min-height: 38px; border: 1px solid var(--border-color); border-radius: 8px; padding: 7px 9px; background: var(--bg-surface); color: var(--text-primary); }
 .farmup-toolbar .btn { min-height: 38px; padding: 6px 9px; }
 .farmup-toolbar .active { border-color: var(--brand-primary); color: var(--brand-primary); }
@@ -2716,7 +2720,21 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 @media (max-width: 700px) {
   .farmup-toolbar { grid-template-columns: 1fr 1fr; }
   .farmup-toolbar input { grid-column: 1 / -1; }
-  .farmup-grid { min-width: 900px; height: min(58vh, 560px); }
+  .farmup-grid { min-width: 760px; height: min(60vh, 600px); --ag-font-size: 11px; --ag-cell-horizontal-padding: 5px; }
+  .farmup-grid { min-width: 100%; }
+  .farmup-mobile-card { display: grid; gap: 7px; height: 100%; padding: 10px; border-bottom: 1px solid var(--border-color); background: var(--bg-surface); color: var(--text-primary); }
+  .farmup-mobile-card.warning { box-shadow: inset 3px 0 var(--portal-status-warning); }
+  .farmup-mobile-card.needs_correction { box-shadow: inset 3px 0 var(--portal-status-danger); }
+  .farmup-mobile-card-head { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 8px; }
+  .farmup-mobile-card-head > div { display: grid; min-width: 0; }
+  .farmup-mobile-card-head strong, .farmup-mobile-card-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .farmup-mobile-card-head span, .farmup-mobile-card p { margin: 0; color: var(--text-muted); font-size: 9px; }
+  .farmup-mobile-card-head b { color: var(--brand-primary); font-size: 9px; text-transform: uppercase; }
+  .farmup-mobile-card summary { cursor: pointer; color: var(--brand-primary); font-size: 10px; font-weight: 800; }
+  .farmup-mobile-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 8px; }
+  .farmup-mobile-fields label { display: grid; gap: 3px; min-width: 0; color: var(--text-muted); font-size: 8px; }
+  .farmup-mobile-fields input { min-width: 0; min-height: 34px; padding: 6px; border: 1px solid var(--border-color); border-radius: 7px; background: var(--bg-surface); color: var(--text-primary); }
+  .farmup-version-upload { align-items: stretch; flex-direction: column; }
   .farmup-mapping-row { grid-template-columns: 1fr; }
   .farmup-mapping-summary { align-items: flex-start; flex-direction: column; }
   .farmup-commit-bar { bottom: 0; }

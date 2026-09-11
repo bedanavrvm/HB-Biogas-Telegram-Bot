@@ -22,6 +22,7 @@ from core.services.portal_imports import (
     serialize_import_batch,
     source_table_page,
     stage_portal_import,
+    stage_portal_farmup_version,
     validate_portal_farmup,
 )
 
@@ -67,13 +68,28 @@ class PortalImportStagingTests(TestCase):
         self.assertTrue(batch.source_content_hash)
         self.assertEqual(batch.total_rows, 1)
         self.assertFalse(JawabuFarmerMaster.objects.exists())
-
         repeated, repeated_operation, replayed = self.stage(allowed_group_ids={self.group.group_id})
         self.assertTrue(replayed)
         self.assertEqual(repeated.pk, batch.pk)
         self.assertEqual(repeated_operation.pk, operation.pk)
         self.assertEqual(JawabuFarmerUploadBatch.objects.count(), 1)
         self.assertFalse(JawabuFarmerMaster.objects.exists())
+
+    def test_exact_file_with_new_request_key_reopens_monthly_worklist(self):
+        batch, operation, _ = stage_portal_import(
+            kind='farmup', filename='farmers.csv', content=FARMUP_CSV,
+            request_id='monthly-upload-1', actor=self.user,
+            allowed_group_ids={self.group.group_id}, period='2026-08',
+        )
+        repeated, repeated_operation, replayed = stage_portal_import(
+            kind='farmup', filename='renamed-copy.csv', content=FARMUP_CSV,
+            request_id='monthly-upload-2', actor=self.user,
+            allowed_group_ids={self.group.group_id}, period='2026-08',
+        )
+        self.assertTrue(replayed)
+        self.assertEqual(repeated.pk, batch.pk)
+        self.assertEqual(repeated_operation.pk, operation.pk)
+        self.assertEqual(JawabuFarmerUploadBatch.objects.count(), 1)
 
     def test_source_review_preserves_uploaded_columns_and_values_without_parser_fields(self):
         batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})
@@ -166,6 +182,7 @@ class PortalImportStagingTests(TestCase):
             'portal_import_archive',
         )
         self.assertEqual(resolve('/api/portal/farmup/stage/').func.__name__, 'portal_farmup_stage')
+        self.assertEqual(resolve('/api/portal/farmup/example-batch/versions/').func.__name__, 'portal_farmup_version')
         self.assertEqual(resolve('/api/portal/farmup/example-batch/mapping/').func.__name__, 'portal_farmup_mapping')
         self.assertEqual(resolve('/api/portal/farmup/example-batch/validate/').func.__name__, 'portal_farmup_validate')
         self.assertEqual(resolve('/api/portal/farmup/example-batch/commit/').func.__name__, 'portal_farmup_commit')
@@ -417,6 +434,118 @@ class PortalImportStagingTests(TestCase):
         self.assertEqual(final['review_needed'], 0)
         self.assertEqual(batch.status, 'committed')
         self.assertEqual(batch.committed_count, 2)
+
+    def test_valid_unselected_row_is_held_and_can_commit_later(self):
+        batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})
+        first = dict(batch.parsed_rows[0])
+        second = dict(first)
+        second.update({
+            'row_id': 2, 'Customer Name': 'Held Farmer', 'National ID': '23215889',
+            'Primary Phone': '254722000222', 'Secondary Phone': '254733000333',
+            'approved': False, 'disposition': 'hold',
+        })
+        batch.parsed_rows = [first, second]
+        batch.total_rows = 2
+        batch.save(update_fields=['parsed_rows', 'total_rows'])
+
+        batch, result, _ = commit_portal_farmup(
+            batch_id=str(batch.pk), rows=[first, second], revision_token=farmup_revision_token(batch),
+            request_id='partial-hold-1', actor=self.user, allowed_group_ids={self.group.group_id},
+        )
+        self.assertEqual(result['committed'], 1)
+        self.assertEqual(result['held'], 1)
+        self.assertEqual(len(batch.parsed_rows), 1)
+        self.assertEqual(batch.parsed_rows[0]['disposition'], 'hold')
+
+        held = dict(batch.parsed_rows[0], approved=True, disposition='commit_now')
+        batch, result, _ = commit_portal_farmup(
+            batch_id=str(batch.pk), rows=[held], revision_token=farmup_revision_token(batch),
+            request_id='partial-hold-2', actor=self.user, allowed_group_ids={self.group.group_id},
+        )
+        self.assertEqual(result['committed'], 1)
+        self.assertEqual(batch.committed_count, 2)
+        self.assertEqual(batch.status, 'committed')
+
+    def test_updated_monthly_version_recognizes_committed_row_and_addition(self):
+        batch, _operation, _ = stage_portal_import(
+            kind='farmup', filename='august.csv', content=FARMUP_CSV,
+            request_id='monthly-v1', actor=self.user,
+            allowed_group_ids={self.group.group_id}, period='2026-08',
+        )
+        commit_portal_farmup(
+            batch_id=str(batch.pk), rows=list(batch.parsed_rows), revision_token=farmup_revision_token(batch),
+            request_id='monthly-v1-commit', actor=self.user, allowed_group_ids={self.group.group_id},
+        )
+        expanded = FARMUP_CSV + (
+            b'Held Farmer [23215889],,Embu,+254722000222,+254733000333,6000,02/05/2026,Jane Sales\n'
+        )
+        version, _operation, replayed = stage_portal_farmup_version(
+            batch_id=str(batch.pk), filename='august-latest.csv', content=expanded,
+            request_id='monthly-v2', actor=self.user, allowed_group_ids={self.group.group_id},
+        )
+        self.assertFalse(replayed)
+        self.assertEqual(version.worklist_id, batch.worklist_id)
+        self.assertEqual(version.version_number, 2)
+        _batch, rows, counts = validate_portal_farmup(
+            batch_id=str(version.pk), rows=list(version.parsed_rows),
+            revision_token=farmup_revision_token(version), allowed_group_ids={self.group.group_id},
+        )
+        self.assertEqual(counts['unchanged'], 1)
+        self.assertEqual(counts['new'], 1)
+        self.assertEqual(sum(1 for row in rows if row['disposition'] == 'already_committed'), 1)
+
+    def test_changed_existing_case_requires_update_acknowledgement(self):
+        batch, _operation, _ = stage_portal_import(
+            kind='farmup', filename='august.csv', content=FARMUP_CSV,
+            request_id='update-v1', actor=self.user,
+            allowed_group_ids={self.group.group_id}, period='2026-08',
+        )
+        commit_portal_farmup(
+            batch_id=str(batch.pk), rows=list(batch.parsed_rows), revision_token=farmup_revision_token(batch),
+            request_id='update-v1-commit', actor=self.user, allowed_group_ids={self.group.group_id},
+        )
+        changed_csv = FARMUP_CSV.replace(b'David Mugambi', b'David M. Mugambi')
+        version, _operation, _ = stage_portal_farmup_version(
+            batch_id=str(batch.pk), filename='august-latest.csv', content=changed_csv,
+            request_id='update-v2', actor=self.user, allowed_group_ids={self.group.group_id},
+        )
+        rows = list(version.parsed_rows)
+        _batch, validation, counts = validate_portal_farmup(
+            batch_id=str(version.pk), rows=rows, revision_token=farmup_revision_token(version),
+            allowed_group_ids={self.group.group_id},
+        )
+        self.assertEqual(validation[0]['match']['kind'], 'update')
+        self.assertIn('Customer Name', validation[0]['match']['changed_fields'])
+        self.assertEqual(counts['unresolved'], 1)
+        with self.assertRaisesMessage(PortalImportError, 'acknowledge'):
+            commit_portal_farmup(
+                batch_id=str(version.pk), rows=rows, revision_token=farmup_revision_token(version),
+                request_id='update-v2-commit', actor=self.user, allowed_group_ids={self.group.group_id},
+            )
+
+        acknowledged = [dict(rows[0], warning_acknowledged=True, update_acknowledged=True)]
+        _batch, result, _ = commit_portal_farmup(
+            batch_id=str(version.pk), rows=acknowledged, revision_token=farmup_revision_token(version),
+            request_id='update-v2-commit-ack', actor=self.user, allowed_group_ids={self.group.group_id},
+        )
+        self.assertEqual(result['updated'], 1)
+        self.assertEqual(JawabuFarmerMaster.objects.get().customer_name, 'DAVID M. MUGAMBI')
+
+    def test_portal_commit_queues_master_publication_without_google_call(self):
+        self.group.workflow = {'type': 'jawabu_homebiogas', 'master_sync_enabled': True}
+        self.group.save(update_fields=['workflow'])
+        batch, _operation, _ = self.stage(
+            request_id='publication-stage', allowed_group_ids={self.group.group_id},
+        )
+        with patch('core.services.portal_publication._targets_for_farmer', return_value=['jawabu_master_publish']), \
+                patch('core.services.jawabu_master.sync_committed_farmup_rows_to_master_sheet') as direct_sync:
+            _batch, result, _ = commit_portal_farmup(
+                batch_id=str(batch.pk), rows=list(batch.parsed_rows), revision_token=farmup_revision_token(batch),
+                request_id='publication-commit', actor=self.user, allowed_group_ids={self.group.group_id},
+            )
+        direct_sync.assert_not_called()
+        self.assertEqual(result['sheet_sync']['status'], 'pending')
+        self.assertTrue(result['publications'][0]['pending_operation_ids'])
 
     def test_working_list_archive_is_idempotent_and_preserves_import_evidence(self):
         batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})

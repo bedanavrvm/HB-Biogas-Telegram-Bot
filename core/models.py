@@ -6904,6 +6904,14 @@ class JawabuFarmerUploadBatch(models.Model):
     source_size = models.PositiveIntegerField(default=0)
     source_content_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
     source_content = models.BinaryField(blank=True, null=True)
+    # Portal FarmUp treats each monthly file as an immutable version of a
+    # reviewer-owned worklist. Legacy Telegram/standalone batches keep a null
+    # period and otherwise retain their original behaviour.
+    worklist_id = models.UUIDField(default=uuid.uuid4, db_index=True)
+    period_month = models.DateField(null=True, blank=True, db_index=True)
+    version_number = models.PositiveIntegerField(default=1)
+    is_current_version = models.BooleanField(default=True, db_index=True)
+    reconciliation = models.JSONField(blank=True, default=dict)
     archive_file_id = models.CharField(max_length=255, blank=True, default='')
     archive_url = models.URLField(max_length=1000, blank=True, default='')
     archive_error = models.TextField(blank=True, default='')
@@ -6958,6 +6966,22 @@ class JawabuFarmerUploadBatch(models.Model):
             models.Index(fields=['status', 'created_at']),
             models.Index(fields=['archive_next_retry_at']),
             models.Index(fields=['is_portal_archived', 'group_id', 'created_at']),
+            models.Index(fields=['worklist_id', 'version_number'], name='farmup_worklist_version_idx'),
+            models.Index(fields=['group_id', 'period_month', 'is_current_version'], name='farmup_grp_period_cur_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['worklist_id', 'version_number'],
+                name='farmup_uq_worklist_ver',
+            ),
+            models.UniqueConstraint(
+                fields=['group_id', 'period_month'],
+                condition=models.Q(
+                    import_kind='farmers', is_current_version=True,
+                    period_month__isnull=False,
+                ),
+                name='farmup_uq_current_period',
+            ),
         ]
         verbose_name = 'Jawabu farmer upload batch'
         verbose_name_plural = 'Jawabu farmer upload batches'

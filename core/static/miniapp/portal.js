@@ -393,9 +393,10 @@
   // action behind a slow register call.
   window.addEventListener('portal:publication-updated', event => {
     const status = event.detail?.publication?.status;
-    if (status === 'synced') showToast('Case saved and registers updated.', 'success');
+    const masterData = (event.detail?.publication?.operations || []).some(item => item.target === 'jawabu_master_publish');
+    if (status === 'synced') showToast(masterData ? 'Master Data Sheet synchronized.' : 'Case saved and registers updated.', 'success');
     if (status === 'needs_attention') {
-      showToast('Case is saved, but register synchronization needs attention.', 'warning');
+      showToast(masterData ? 'Portal data is saved, but Master Data Sheet sync needs retry.' : 'Case is saved, but register synchronization needs attention.', 'warning');
     }
   });
 
@@ -2489,6 +2490,7 @@
 
   window.PortalAppShell = {
     hasCapability,
+    showToast,
     activate(page) {
       if (!page) return;
       const root = currentScreenRoot();

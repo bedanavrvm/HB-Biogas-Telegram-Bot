@@ -414,7 +414,10 @@ def flag_farmup_master_sheet_conflicts(
 
 
 @transaction.atomic
-def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict], group_config=None) -> dict:
+def commit_farmup_review_batch(
+    batch: JawabuFarmerUploadBatch, rows: list[dict], group_config=None, *,
+    defer_sheet_sync: bool = False, request_id: str = '', actor=None,
+) -> dict:
     if batch.status == 'committed':
         return {
             'success': True,
@@ -424,21 +427,48 @@ def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict],
             'errors': [],
             'review_needed': 0,
             'rows': [],
+            'held': 0, 'excluded': 0, 'created': 0, 'updated': 0, 'unchanged': 0,
+            'publications': [],
             'sheet_sync': {'success': True, 'enabled': False, 'created': 0, 'updated': 0, 'conflicts': 0, 'errors': []},
         }
 
     previous_committed = batch.committed_count or 0
     committed = 0
-    skipped = 0
+    held = 0
+    excluded = 0
+    created = 0
+    updated = 0
+    unchanged = 0
     errors = []
     remaining_rows = []
-    skipped_rows = []
     committed_display_rows = []
     committed_cleaned_rows = []
+    committed_farmers = []
     now = timezone.now()
     for index, row in enumerate(rows, start=1):
         row = dict(row or {})
         row['row_id'] = row.get('row_id') or index
+        explicit_disposition = str(row.get('disposition') or '')
+        disposition = explicit_disposition or (
+            'commit_now' if row.get('approved') else (
+                'hold' if row.get('Import Status') == 'review_needed' else 'exclude'
+            )
+        )
+        if disposition in {'committed', 'already_committed', 'excluded'}:
+            if disposition == 'already_committed':
+                unchanged += 1
+            continue
+        if disposition == 'exclude':
+            row['disposition'] = 'excluded'
+            row['approved'] = False
+            excluded += 1
+            continue
+        if disposition == 'hold':
+            row['disposition'] = 'hold'
+            row['approved'] = False
+            held += 1
+            remaining_rows.append(row)
+            continue
         # A reviewer may explicitly approve an otherwise valid exception
         # (for example, a historical numeric ID outside the usual 7-9 digit
         # range).  Do not confuse that supervised approval with a missing
@@ -447,8 +477,9 @@ def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict],
             remaining_rows.append(row)
             continue
         if not row.get('approved'):
-            skipped += 1
-            skipped_rows.append(row)
+            held += 1
+            row['disposition'] = 'hold'
+            remaining_rows.append(row)
             continue
         cleaned = cleaned_master_row_from_review(row, batch, index, now)
         if not cleaned['customer_name']:
@@ -478,7 +509,7 @@ def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict],
             remaining_rows.append(row)
             continue
         try:
-            farmer_created, farmer_status = upsert_farmer(cleaned)
+            farmer_created, farmer_status, farmer = upsert_farmer(cleaned, return_instance=True)
         except ValueError as exc:
             errors.append(f"Row {index}: {exc}")
             row['Import Status'] = 'review_needed'
@@ -488,32 +519,60 @@ def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict],
         cleaned['_farmer_created'] = farmer_created
         cleaned['_farmer_status'] = farmer_status
         committed_cleaned_rows.append(cleaned)
+        committed_farmers.append(farmer)
         committed += 1
+        if farmer_created:
+            created += 1
+        else:
+            updated += 1
         row['Import Status'] = 'active'
+        row['disposition'] = 'committed'
+        row['approved'] = False
+        row['_commit_kind'] = 'created' if farmer_created else 'updated'
         committed_display_rows.append(row)
 
-    sheet_sync = sync_committed_farmup_rows_to_master_sheet(
-        batch=batch,
-        cleaned_rows=committed_cleaned_rows,
-        group_config=group_config,
-    )
+    publications = []
+    if defer_sheet_sync:
+        from core.services.portal_publication import publication_payload, reserve_farmer_publication
+        for farmer in committed_farmers:
+            reserve_farmer_publication(
+                farmer, request_id=request_id, requested_by=actor,
+                requested_by_label=batch.sender,
+                required_capability='portal.farmup.commit',
+            )
+            publications.append(publication_payload(farmer))
+        sheet_sync = {
+            'success': True, 'enabled': bool(publications), 'status': 'pending' if publications else 'not_required',
+            'created': 0, 'updated': 0, 'conflicts': 0, 'errors': [],
+        }
+    else:
+        sheet_sync = sync_committed_farmup_rows_to_master_sheet(
+            batch=batch,
+            cleaned_rows=committed_cleaned_rows,
+            group_config=group_config,
+        )
     sync_errors = sheet_sync.get('errors') or []
     success = not errors and sheet_sync.get('success', True)
-    if success:
-        saved_rows = remaining_rows
-    else:
-        saved_rows = committed_display_rows + remaining_rows + skipped_rows
+    saved_rows = remaining_rows
+    if not success and not defer_sheet_sync:
+        saved_rows = committed_display_rows + remaining_rows
         for row in committed_display_rows:
             row['Import Status'] = 'review_needed'
+            row['disposition'] = 'commit_now'
+            row['approved'] = True
             row['Cleaning Notes'] = append_note(
                 row.get('Cleaning Notes', ''),
                 'Committed locally but Master Data sheet sync needs retry'
             )
     batch.parsed_rows = saved_rows
     batch.committed_count = previous_committed + committed
-    batch.skipped_count = skipped
-    batch.review_needed = sum(1 for row in saved_rows if row.get('Import Status') == 'review_needed')
-    batch.status = 'committed' if success and not saved_rows else 'pending_review'
+    batch.skipped_count = int(batch.skipped_count or 0) + excluded
+    active_rows = [
+        row for row in saved_rows
+        if str(row.get('disposition') or '') not in {'committed', 'already_committed', 'excluded'}
+    ]
+    batch.review_needed = sum(1 for row in active_rows if row.get('Import Status') == 'review_needed')
+    batch.status = 'committed' if success and not active_rows else 'pending_review'
     batch.error = '\n'.join((errors + sync_errors)[:20])
     if batch.status == 'committed':
         batch.committed_at = now
@@ -521,12 +580,18 @@ def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict],
     return {
         'success': success,
         'message': (
-            'Batch committed.'
+            'Selected FarmUp rows committed to Portal.'
             if success
             else 'Some rows still need correction or sheet sync failed.'
         ),
         'committed': committed,
-        'skipped': skipped,
+        'skipped': excluded,
+        'held': held,
+        'excluded': excluded,
+        'created': created,
+        'updated': updated,
+        'unchanged': unchanged,
+        'publications': publications,
         'errors': (errors + sync_errors)[:20],
         'review_needed': batch.review_needed,
         'sheet_sync': sheet_sync,
@@ -1584,7 +1649,7 @@ def _set_pending_jbl_visit_status(farmer: JawabuFarmerMaster) -> bool:
 
 
 @transaction.atomic
-def upsert_farmer(cleaned: dict) -> tuple[bool, str]:
+def upsert_farmer(cleaned: dict, *, return_instance: bool = False):
     from core.services.jawabu_identity import (
         APPLICATION_ACTION_CREATE_ADDITIONAL_UNIT,
         normalize_application_action,
@@ -1612,18 +1677,34 @@ def upsert_farmer(cleaned: dict) -> tuple[bool, str]:
     if existing:
         old_values = _farmup_provenance_values(existing)
         restarted = restart_expired_reappraisal(existing, fresh_sign_date=cleaned.get('sign_date', ''))
+        farmup_owned = {
+            'customer', 'unit_number', 'source', 'source_name', 'source_row_number',
+            'source_fingerprint', 'raw_data', 'last_imported_at', 'duplicate_key',
+            'customer_name', 'national_id', 'customer_no', 'primary_phone',
+            'secondary_phone', 'county', 'sub_county', 'ward', 'village',
+            'landmark', 'payment_product', 'sign_date', 'hbg_visit_date',
+            'actual_receipts', 'actual_receipts_currency', 'deposit_paid_hbg',
+            'hb_sales_person', 'lead_source', 'contract_type',
+            'installation_status', 'comments',
+        }
         for field, value in defaults.items():
             # FarmUp files often contain county but no operational branch.
             # Do not erase a previously assigned branch merely because this
             # upload omitted that separate field.
             if field == 'branch' and not str(value or '').strip():
                 continue
+            if cleaned.get('source') == 'jawabu_farmup_review':
+                if field not in farmup_owned:
+                    continue
+                if value in (None, '') and field not in {'customer', 'unit_number'}:
+                    continue
             setattr(existing, field, value)
         from core.services.jawabu_validation import canonicalize_farmer
         canonicalize_farmer(existing, strict=True)
         from core.services.location_catalog import bind_farmer_location_fields
         bind_farmer_location_fields(existing)
         scheduled_for_jbl_visit = _set_pending_jbl_visit_status(existing)
+        existing.workflow_revision = int(existing.workflow_revision or 0) + 1
         existing.save()
         from core.services.jawabu_validation import refresh_data_quality_issues
         refresh_data_quality_issues(existing)
@@ -1655,7 +1736,8 @@ def upsert_farmer(cleaned: dict) -> tuple[bool, str]:
                 new_values={'jbl_visit_status': existing.jbl_visit_status},
                 metadata={'reason': 'HBG visit imported; awaiting JBL officer action.'},
             )
-        return False, existing.status
+        result = (False, existing.status, existing) if return_instance else (False, existing.status)
+        return result
     farmer = JawabuFarmerMaster.objects.create(**defaults)
     from core.services.jawabu_validation import canonicalize_farmer
     canonicalize_farmer(farmer, strict=True)
@@ -1694,7 +1776,8 @@ def upsert_farmer(cleaned: dict) -> tuple[bool, str]:
         )
     if action == APPLICATION_ACTION_CREATE_ADDITIONAL_UNIT:
         record_additional_unit(farmer, reason=additional_unit_reason)
-    return True, defaults['status']
+    result = (True, defaults['status'], farmer) if return_instance else (True, defaults['status'])
+    return result
 
 
 def model_fields(cleaned: dict) -> dict:

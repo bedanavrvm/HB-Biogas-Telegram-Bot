@@ -46,27 +46,36 @@
     (active?.rows || []).forEach(row => {
       row.warning_acknowledged = Boolean(row.warning_acknowledged);
       const validation = (active.validation || []).find(item => String(item.row_id) === String(row.row_id));
+      row.disposition = validation?.disposition || row.disposition || (row.approved ? 'commit_now' : 'hold');
+      row.approved = row.disposition === 'commit_now';
+      row.update_acknowledged = Boolean(validation?.update_acknowledged ?? row.update_acknowledged);
+      row._match = validation?.match || row._match || {kind:'unknown', changed_fields:[]};
       applyIssues(row, validation?.issues || localIssues(row));
     });
   }
-  function rowSelectable(row) { return row?._state === 'ready' || (row?._state === 'warning' && row.warning_acknowledged); }
+  function rowSelectable(row) { if (['unchanged','identity_conflict'].includes(row?._match?.kind)) return false; if (!['commit_now','hold'].includes(row?.disposition)) return false; return row?._state === 'ready' || (row?._state === 'warning' && row.warning_acknowledged); }
   function reviewCounts() {
     const rows = active?.rows || [], visibleIds = new Set();
     gridApi?.forEachNodeAfterFilter(n => visibleIds.add(String(n.data.row_id)));
     const filterActive = Boolean(search.trim() || needsReviewOnly);
     return {
       selected: rows.filter(r => r.approved && rowSelectable(r)).length,
+      creates: rows.filter(r => r.approved && ['new','additional_unit'].includes(r._match?.kind)).length,
+      updates: rows.filter(r => r.approved && r._match?.kind === 'update').length,
+      unchanged: rows.filter(r => r._match?.kind === 'unchanged' || r.disposition === 'already_committed').length,
       warnings: rows.filter(r => r.approved && r._state === 'warning' && r.warning_acknowledged).length,
-      skipped: rows.filter(r => !r.approved && r._state === 'ready').length,
+      held: rows.filter(r => r.disposition === 'hold').length,
+      excluded: rows.filter(r => ['exclude','excluded'].includes(r.disposition)).length,
+      removed: rows.filter(r => r._source_state === 'removed').length,
       unresolved: rows.filter(r => r._state !== 'ready' && !r.approved).length,
       hidden: rows.filter(r => r.approved && filterActive && !visibleIds.has(String(r.row_id))).length,
-      valid: rows.filter(r => r._state === 'ready').length,
+      valid: rows.filter(r => rowSelectable(r)).length,
     };
   }
   function updateSummary() {
     const c = reviewCounts(), target = node('farmup-selection-summary');
-    if (target) target.innerHTML = `<span class="selected"><strong>${c.selected}</strong> selected to commit</span><span class="warning"><strong>${c.warnings}</strong> warning overrides</span><span><strong>${c.skipped}</strong> not selected (will be skipped)</span><span class="danger"><strong>${c.unresolved}</strong> unresolved</span>${c.hidden ? `<span><strong>${c.hidden}</strong> selected but hidden by filter</span>` : ''}`;
-    if (node('farmup-select-all')) node('farmup-select-all').textContent = `Select all valid (${c.valid})`;
+    if (target) target.innerHTML = `<span class="selected"><strong>${c.selected}</strong> commit now</span><span><strong>${c.creates}</strong> new</span><span><strong>${c.updates}</strong> updates</span><span><strong>${c.unchanged}</strong> already unchanged</span><span><strong>${c.held}</strong> held</span><span><strong>${c.excluded}</strong> excluded</span><span class="warning"><strong>${c.removed}</strong> removed from latest</span><span class="danger"><strong>${c.unresolved}</strong> unresolved</span>${c.hidden ? `<span><strong>${c.hidden}</strong> selected but hidden by filter</span>` : ''}`;
+    if (node('farmup-select-all')) node('farmup-select-all').textContent = `Select all eligible (${c.valid})`;
     if (node('farmup-commit')) node('farmup-commit').disabled = !c.selected;
   }
   function loadGridAssets() {
@@ -88,10 +97,17 @@
     if (batch.archive_state === 'needs_attention') return '<span class="badge badge-orange">Drive needs attention</span>';
     return '<span class="badge badge-blue">Archive pending</span>';
   }
+  function publicationBadge(batch) {
+    const status = batch.publication?.status;
+    if (status === 'synced') return '<span class="badge badge-green">Sheet synced</span>';
+    if (status === 'needs_attention') return '<span class="badge badge-orange">Sheet needs retry</span>';
+    if (status === 'pending') return '<span class="badge badge-blue">Sheet sync queued</span>';
+    return '';
+  }
   function renderBatches() {
     const target = node('portal-farmup-list'); if (!target) return;
     if (!batches.length) { target.innerHTML = '<div class="empty-state"><div class="es-title">No FarmUp batches</div><div class="es-sub">Upload a Farmers CSV to begin a reviewed intake.</div></div>'; return; }
-    target.innerHTML = batches.map(batch => `<article class="portal-import-card"><div class="portal-import-card-title"><div><span class="settings-eyebrow">FARMUP</span><h3>${escapeHtml(batch.source_filename || 'Farmers CSV')}</h3><p>${escapeHtml(batch.created_at || '')}</p></div><div>${batch.is_portal_archived ? '<span class="badge">Working list archived</span>' : ''}${archiveBadge(batch)}</div></div><div class="portal-import-stats"><span><strong>${Number(batch.total_rows || 0)}</strong> source rows</span><span class="${batch.review_needed ? 'warning' : ''}"><strong>${Number(batch.review_needed || 0)}</strong> review needed</span><span><strong>${Number(batch.committed_count || 0)}</strong> committed</span></div>${batch.mapping_state === 'needs_mapping' ? '<p class="farmup-mapping-alert">Column mapping needs attention before row review.</p>' : ''}<div class="portal-import-actions"><button class="btn btn-primary farmup-open" data-batch-id="${escapeHtml(batch.id)}">${batch.mapping_state === 'needs_mapping' ? 'Map columns' : (batch.status === 'committed' ? 'View result' : 'Review rows')}</button>${batch.archive_state === 'needs_attention' && can('portal.farmup.stage') ? `<button class="btn btn-secondary farmup-drive-retry" data-batch-id="${escapeHtml(batch.id)}">Retry Drive archive</button>` : ''}${can('portal.farmup.stage') && !batch.is_portal_archived ? `<button class="btn btn-secondary farmup-archive" data-batch-id="${escapeHtml(batch.id)}">Archive from FarmUp</button>` : ''}</div></article>`).join('');
+    target.innerHTML = batches.map(batch => `<article class="portal-import-card"><div class="portal-import-card-title"><div><span class="settings-eyebrow">${escapeHtml(batch.period_label || 'FARMUP')} · VERSION ${Number(batch.version_number || 1)}</span><h3>${escapeHtml(batch.source_filename || 'Farmers CSV')}</h3><p>${escapeHtml(batch.created_at || '')}</p></div><div>${batch.is_portal_archived ? '<span class="badge">Worklist archived</span>' : ''}${archiveBadge(batch)}${publicationBadge(batch)}</div></div><div class="portal-import-stats"><span><strong>${Number(batch.total_rows || 0)}</strong> current rows</span><span class="${batch.review_needed ? 'warning' : ''}"><strong>${Number(batch.remaining_count || 0)}</strong> remaining</span><span><strong>${Number(batch.committed_count || 0)}</strong> committed</span></div>${batch.mapping_state === 'needs_mapping' ? '<p class="farmup-mapping-alert">Column mapping needs attention before row review.</p>' : ''}<div class="portal-import-actions"><button class="btn btn-primary farmup-open" data-batch-id="${escapeHtml(batch.id)}">${batch.mapping_state === 'needs_mapping' ? 'Map columns' : (batch.status === 'committed' ? 'View result' : 'Review rows')}</button>${batch.archive_state === 'needs_attention' && can('portal.farmup.stage') ? `<button class="btn btn-secondary farmup-drive-retry" data-batch-id="${escapeHtml(batch.id)}">Retry Drive archive</button>` : ''}${can('portal.farmup.stage') && !batch.is_portal_archived ? `<button class="btn btn-secondary farmup-archive" data-batch-id="${escapeHtml(batch.id)}">Archive worklist</button>` : ''}</div></article>`).join('');
   }
   async function load({silent = false} = {}) {
     if (!activeScreen()) return;
@@ -100,27 +116,44 @@
     const result = await api.apiFetch('/farmup/', {}, tg);
     if (!activeScreen()) return;
     if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'FarmUp batches could not be loaded.');
-    batches = result.data.batches || []; renderBatches();
+    batches = result.data.batches || []; batches.forEach(batch => api.schedulePublication?.(batch.publication, tg)); renderBatches();
     if (node('portal-farmup-upload')) node('portal-farmup-upload').hidden = !can('portal.farmup.stage');
   }
   function statusRenderer(params) {
     const wrap = document.createElement('div'); wrap.className = 'farmup-grid-status';
-    const label = params.data._state === 'needs_correction' ? 'Needs correction' : (params.data._state === 'warning' ? 'Warning' : 'Ready');
+    const match = params.data._match?.kind;
+    const label = params.data.disposition === 'committed' ? 'Committed' : (match === 'unchanged' || params.data.disposition === 'already_committed') ? 'Already committed' : match === 'update' ? 'Will update' : match === 'new' ? 'New' : params.data._state === 'needs_correction' ? 'Needs correction' : (params.data._state === 'warning' ? 'Warning' : 'Ready');
     const badge = document.createElement('span'); badge.className = `farmup-row-state ${params.data._state}`; badge.textContent = label; wrap.append(badge);
     if (params.data._state === 'warning') {
-      const button = document.createElement('button'); button.type = 'button'; button.className = 'farmup-acknowledge'; button.textContent = params.data.warning_acknowledged ? 'Acknowledged' : 'Acknowledge'; button.setAttribute('aria-pressed', String(Boolean(params.data.warning_acknowledged)));
-      button.addEventListener('click', event => { event.stopPropagation(); params.data.warning_acknowledged = !params.data.warning_acknowledged; if (!params.data.warning_acknowledged) { params.data.approved = false; params.node.setSelected(false); } params.api.refreshCells({rowNodes:[params.node], force:true}); updateSummary(); });
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'farmup-acknowledge'; button.textContent = params.data.warning_acknowledged ? 'Acknowledged' : (params.data._match?.kind === 'update' ? 'Acknowledge update' : 'Acknowledge'); button.setAttribute('aria-pressed', String(Boolean(params.data.warning_acknowledged)));
+      button.addEventListener('click', event => { event.stopPropagation(); params.data.warning_acknowledged = !params.data.warning_acknowledged; if (params.data._match?.kind === 'update') params.data.update_acknowledged = params.data.warning_acknowledged; if (!params.data.warning_acknowledged) { params.data.approved = false; params.data.disposition = 'hold'; params.node.setSelected(false); } params.api.refreshCells({rowNodes:[params.node], force:true}); updateSummary(); });
       wrap.append(button);
     }
     return wrap;
   }
-  function statusTooltip(params) { return (params.data?._issues || []).map(item => item.message).join('; ') || 'This row is ready to commit.'; }
+  function statusTooltip(params) { const changes = params.data?._match?.changed_fields || []; return [(params.data?._issues || []).map(item => item.message).join('; '), changes.length ? `Changes: ${changes.join(', ')}` : ''].filter(Boolean).join('; ') || 'This row is ready to commit.'; }
+  function mobileCardRenderer(params) {
+    const row = params.data, card = document.createElement('article'); card.className = `farmup-mobile-card ${row._state}`;
+    const header = document.createElement('div'); header.className = 'farmup-mobile-card-head';
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = Boolean(row.approved); checkbox.disabled = !rowSelectable(row); checkbox.setAttribute('aria-label', `Commit source row ${row['Source Row'] || row.row_id}`);
+    checkbox.addEventListener('change', () => { row.disposition = checkbox.checked ? 'commit_now' : 'hold'; row.approved = checkbox.checked; params.node.setSelected(checkbox.checked); updateSummary(); });
+    const identity = document.createElement('div'); identity.innerHTML = `<strong>${escapeHtml(row['Customer Name'] || 'Unnamed farmer')}</strong><span>Row ${escapeHtml(row['Source Row'] || row.row_id)} · ${escapeHtml(row['National ID'] || 'No ID')}</span>`;
+    const badge = document.createElement('b'); badge.textContent = row._match?.kind === 'update' ? 'Will update' : row._match?.kind === 'unchanged' ? 'Already committed' : row._state === 'needs_correction' ? 'Needs correction' : row._match?.kind === 'new' ? 'New' : 'Ready';
+    header.append(checkbox, identity, badge); card.append(header);
+    const note = document.createElement('p'); note.textContent = statusTooltip({data:row}); card.append(note);
+    const details = document.createElement('details'); details.open = Boolean(row._mobileExpanded); const summary = document.createElement('summary'); summary.textContent = 'Review and edit fields'; details.append(summary);
+    const fields = document.createElement('div'); fields.className = 'farmup-mobile-fields';
+    (active.editable_fields || editableFields).forEach(field => { const label = document.createElement('label'); const title = document.createElement('span'); title.textContent = field; const input = document.createElement('input'); input.value = row[field] || ''; input.disabled = !can('portal.farmup.commit'); input.addEventListener('change', () => { row[field] = input.value; applyIssues(row, localIssues(row)); active.validation = []; if (!rowSelectable(row)) { row.disposition = 'hold'; row.approved = false; checkbox.checked = false; params.node.setSelected(false); } updateSummary(); }); label.append(title, input); fields.append(label); });
+    details.append(fields); details.addEventListener('toggle', () => { row._mobileExpanded = details.open; params.api.resetRowHeights(); }); card.append(details); return card;
+  }
   function initializeGrid() {
     if (gridApi || !window.agGrid || !node('farmup-grid')) return;
+    const mobile = window.matchMedia('(max-width: 700px)').matches;
     window.agGrid.ModuleRegistry.registerModules([window.agGrid.AllCommunityModule]);
     const textColumn = (field, width = 150) => ({field, headerName:field, width, editable:can('portal.farmup.commit'), tooltipValueGetter:p => String(p.value || '')});
     gridApi = window.agGrid.createGrid(node('farmup-grid'), {
-      theme:'legacy', rowData:active.rows || [], animateRows:false, ensureDomOrder:true, rowHeight:38, headerHeight:38, suppressMovableColumns:true, enableBrowserTooltips:true,
+      theme:'legacy', rowData:active.rows || [], animateRows:false, ensureDomOrder:true, rowHeight:38, headerHeight:mobile ? 0 : 38, suppressMovableColumns:true, enableBrowserTooltips:true,
+      isFullWidthRow:() => mobile, fullWidthCellRenderer:mobileCardRenderer, getRowHeight:p => mobile ? (p.data._mobileExpanded ? 520 : 150) : 38,
       getRowId:p => String(p.data.row_id), rowSelection:'multiple', suppressRowClickSelection:true,
       isExternalFilterPresent:() => needsReviewOnly, doesExternalFilterPass:p => !needsReviewOnly || p.data._state !== 'ready',
       defaultColDef:{sortable:true, resizable:true, suppressHeaderMenuButton:true},
@@ -134,7 +167,7 @@
       ],
       rowClassRules:{'farmup-grid-row-blocked':p => p.data._state === 'needs_correction','farmup-grid-row-warning':p => p.data._state === 'warning','farmup-grid-row-unselected':p => p.data._state === 'ready' && !p.data.approved},
       onGridReady:event => { event.api.forEachNode(n => n.setSelected(Boolean(n.data.approved && rowSelectable(n.data)))); updateSummary(); },
-      onSelectionChanged:event => { event.api.forEachNode(n => { n.data.approved = n.isSelected() && rowSelectable(n.data); }); event.api.redrawRows(); updateSummary(); },
+      onSelectionChanged:event => { event.api.forEachNode(n => { if (['exclude','committed','already_committed','excluded'].includes(n.data.disposition)) return; n.data.approved = n.isSelected() && rowSelectable(n.data); n.data.disposition = n.data.approved ? 'commit_now' : 'hold'; }); event.api.redrawRows(); updateSummary(); },
       onCellValueChanged:event => { applyIssues(event.data, localIssues(event.data)); if (!rowSelectable(event.data)) event.node.setSelected(false); active.validation = []; event.api.refreshCells({rowNodes:[event.node], force:true}); event.api.redrawRows({rowNodes:[event.node]}); updateSummary(); },
     });
   }
@@ -151,9 +184,11 @@
   async function renderEditor() {
     const target = node('portal-farmup-review'); if (!target || !active) return;
     if (gridApi) { gridApi.destroy(); gridApi = null; } prepareRows(); target.hidden = false;
-    const review = active.mapping?.state === 'needs_mapping' ? '' : `<div class="farmup-toolbar"><input id="farmup-search" type="search" value="${escapeHtml(search)}" placeholder="Search all rows..."><button class="btn btn-secondary ${needsReviewOnly ? 'active' : ''}" id="farmup-review-filter" aria-pressed="${needsReviewOnly}">Needs review</button><button class="btn btn-secondary" id="farmup-select-all">Select all valid</button><button class="btn btn-secondary" id="farmup-clear-all">Clear selection</button></div><div id="farmup-selection-summary" class="farmup-selection-summary" aria-live="polite"></div><div class="farmup-grid-wrap" role="region" aria-label="FarmUp editable review table. Scroll horizontally to reach all fields." tabindex="0"><div id="farmup-grid" class="ag-theme-quartz farmup-grid"></div></div>${can('portal.farmup.commit') && active.status !== 'committed' ? '<div class="farmup-commit-bar"><span>Only selected rows will commit. Ready unselected rows will be skipped; unresolved rows remain for correction.</span><button class="btn btn-primary" id="farmup-commit">Review commit</button></div>' : ''}`;
-    target.innerHTML = `<div class="portal-import-review-heading"><div><span class="settings-eyebrow">FARMUP REVIEW</span><h2>${escapeHtml(active.source_filename || 'FarmUp')}</h2><p>Correct highlighted cells and explicitly select rows to commit.</p></div><button class="btn btn-secondary" id="farmup-close">Close</button></div><section id="farmup-mapping-panel" class="farmup-mapping-panel"></section>${review}`;
+    const review = active.mapping?.state === 'needs_mapping' ? '' : `<div class="farmup-toolbar"><input id="farmup-search" type="search" value="${escapeHtml(search)}" placeholder="Search all rows..."><button class="btn btn-secondary ${needsReviewOnly ? 'active' : ''}" id="farmup-review-filter" aria-pressed="${needsReviewOnly}">Needs review</button><button class="btn btn-secondary" id="farmup-select-all">Select all eligible</button><button class="btn btn-secondary" id="farmup-clear-all">Hold all</button><button class="btn btn-secondary" id="farmup-exclude-selected">Exclude selected</button><button class="btn btn-secondary" id="farmup-restore-excluded">Restore exclusions</button></div><div id="farmup-selection-summary" class="farmup-selection-summary" aria-live="polite"></div><div class="farmup-grid-wrap" role="region" aria-label="FarmUp editable review table. Scroll horizontally to reach all fields." tabindex="0"><div id="farmup-grid" class="ag-theme-quartz farmup-grid"></div></div>${can('portal.farmup.commit') && active.status !== 'committed' ? '<div class="farmup-commit-bar"><span>Selected rows commit now. Unselected rows are held safely for later; only Exclude removes a row from active work.</span><button class="btn btn-primary" id="farmup-commit">Review commit</button></div>' : ''}`;
+    target.innerHTML = `<div class="portal-import-review-heading"><div><span class="settings-eyebrow">${escapeHtml(active.period_label || 'FARMUP')} · VERSION ${Number(active.version_number || 1)}</span><h2>${escapeHtml(active.source_filename || 'FarmUp')}</h2><p>Correct highlighted cells and explicitly choose what commits now. ${(active.versions || []).length} immutable upload version${(active.versions || []).length === 1 ? '' : 's'} retained.</p></div><button class="btn btn-secondary" id="farmup-close">Close</button></div>${can('portal.farmup.stage') && active.is_current_version ? '<form id="farmup-version-upload" class="farmup-version-upload"><label><span>Updated monthly CSV</span><input type="file" name="file" accept=".csv,text/csv" required></label><button class="btn btn-secondary" type="submit">Upload updated version</button></form>' : ''}<div id="farmup-commit-receipt" class="farmup-commit-receipt" hidden></div><section id="farmup-mapping-panel" class="farmup-mapping-panel"></section>${review}`;
     renderMapping();
+    const priorReceipt = node('farmup-commit-receipt');
+    if (priorReceipt && active.publication?.status && active.publication.status !== 'not_required') { priorReceipt.hidden = false; priorReceipt.textContent = active.publication.status === 'synced' ? `Master Data Sheet synchronized for ${active.publication.synced || 0} committed change(s).` : active.publication.status === 'needs_attention' ? 'Portal data is saved. Master Data Sheet synchronization needs retry.' : 'Portal data is saved. Master Data Sheet synchronization is queued.'; }
     if (active.mapping?.state !== 'needs_mapping') { try { await loadGridAssets(); if (active && activeScreen()) initializeGrid(); } catch (error) { feedback(error.message, 'error'); } }
   }
   async function openBatch(batchId) {
@@ -163,9 +198,13 @@
   }
   async function upload(form) {
     const button = form.querySelector('button[type="submit"]'); setLoading(button, true, 'Uploading');
-    try { const body = new FormData(form); body.set('client_request_id', requestId('portal-farmup-stage')); const result = await api.postForm('/farmup/stage/', body, tg); if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'FarmUp upload failed.'); form.reset(); await load({silent:true}); await openBatch(result.data.batch.id); feedback(result.data.message || 'FarmUp staged.', 'success'); if (result.data.archive_operation_id) await attemptDrive(result.data.archive_operation_id, true); } finally { setLoading(button, false); }
+    try { const body = new FormData(form); body.set('client_request_id', requestId('portal-farmup-stage')); const result = await api.postForm('/farmup/stage/', body, tg); if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'FarmUp upload failed.'); form.reset(); await load({silent:true}); await openBatch(result.data.batch.id); const message = result.data.replayed ? 'This CSV was already uploaded. Its current monthly worklist was reopened.' : (result.data.message || 'FarmUp staged.'); window.PortalAppShell?.showToast?.(message, 'success'); feedback(message, 'success'); if (result.data.archive_operation_id) await attemptDrive(result.data.archive_operation_id, true); } finally { setLoading(button, false); }
   }
-  function submittedRows() { gridApi?.stopEditing(); return (active.rows || []).map(row => ({row_id:row.row_id, approved:Boolean(row.approved), warning_acknowledged:Boolean(row.warning_acknowledged), ...Object.fromEntries((active.editable_fields || editableFields).map(field => [field, row[field] || '']))})); }
+  async function uploadVersion(form) {
+    const button = form.querySelector('button[type="submit"]'); setLoading(button, true, 'Reconciling');
+    try { const body = new FormData(form); body.set('client_request_id', requestId('portal-farmup-version')); const result = await api.postForm(`/farmup/${encodeURIComponent(active.id)}/versions/`, body, tg); if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Updated FarmUp CSV could not be reconciled.'); const message = result.data.replayed ? 'This version already exists. The current worklist was reopened.' : result.data.message; window.PortalAppShell?.showToast?.(message, 'success'); await load({silent:true}); await openBatch(result.data.batch.id); if (result.data.archive_operation_id) await attemptDrive(result.data.archive_operation_id, true); } finally { setLoading(button, false); }
+  }
+  function submittedRows() { gridApi?.stopEditing(); return (active.rows || []).map(row => ({row_id:row.row_id, approved:Boolean(row.approved), disposition:row.disposition || (row.approved ? 'commit_now' : 'hold'), warning_acknowledged:Boolean(row.warning_acknowledged), update_acknowledged:Boolean(row.update_acknowledged), ...Object.fromEntries((active.editable_fields || editableFields).map(field => [field, row[field] || '']))})); }
   async function validateReview() {
     const result = await api.postJson(`/farmup/${encodeURIComponent(active.id)}/validate/`, {revision_token:active.revision_token, rows:submittedRows()}, tg);
     if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'FarmUp rows could not be validated.');
@@ -173,7 +212,7 @@
   }
   function confirmCommit(counts) {
     const dialog = document.createElement('dialog'); dialog.className = 'farmup-confirm-dialog';
-    dialog.innerHTML = `<form method="dialog"><h2>Commit selected FarmUp rows?</h2><div class="farmup-counters"><span><strong>${counts.selected}</strong>Selected</span><span class="warning"><strong>${counts.warning_overrides}</strong>Warning overrides</span><span><strong>${counts.skipped}</strong>Skipped</span><span class="danger"><strong>${counts.unresolved}</strong>Unresolved</span></div><p>Selected rows will update Django workflow state and may synchronize to the configured Master Data Sheet. Ready rows not selected will be skipped.</p><div class="portal-import-actions"><button value="cancel" class="btn btn-secondary">Go back</button><button value="confirm" class="btn btn-primary"${counts.selected ? '' : ' disabled'}>Commit ${counts.selected} selected</button></div></form>`;
+    dialog.innerHTML = `<form method="dialog"><h2>Commit selected FarmUp rows?</h2><div class="farmup-counters"><span><strong>${counts.selected}</strong>Commit now</span><span><strong>${counts.new}</strong>New</span><span class="warning"><strong>${counts.updates}</strong>Updates</span><span><strong>${counts.unchanged}</strong>Unchanged</span><span><strong>${counts.held}</strong>Held for later</span><span><strong>${counts.excluded}</strong>Excluded</span><span class="warning"><strong>${counts.removed}</strong>Removed from latest</span><span class="danger"><strong>${counts.unresolved}</strong>Unresolved</span></div><p>Django is committed first. Configured Master Data Sheet publication is queued and tracked separately. Held rows remain available in this monthly worklist.</p><div class="portal-import-actions"><button value="cancel" class="btn btn-secondary">Go back</button><button value="confirm" class="btn btn-primary"${counts.selected ? '' : ' disabled'}>Commit ${counts.selected} selected</button></div></form>`;
     document.body.append(dialog); dialog.showModal(); return new Promise(resolve => dialog.addEventListener('close', () => { const confirmed = dialog.returnValue === 'confirm'; dialog.remove(); resolve(confirmed); }, {once:true}));
   }
   async function commit() {
@@ -186,8 +225,8 @@
       setLoading(button, true, 'Committing'); const key = commitRequestKey || requestId('portal-farmup-commit'); commitRequestKey = key;
       const result = await api.postJson(`/farmup/${encodeURIComponent(active.id)}/commit/`, {revision_token:active.revision_token, rows:submittedRows(), client_request_id:key}, tg);
       if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'FarmUp commit failed.');
-      commitRequestKey = ''; feedback(result.data.result?.message || 'FarmUp rows committed.', result.data.result?.success ? 'success' : 'error'); await load({silent:true}); await openBatch(active.id);
-    } catch (error) { feedback(error.message, 'error'); } finally { setLoading(button, false); }
+      commitRequestKey = ''; const receipt = result.data.result || {}; const message = `${receipt.committed || 0} committed to Portal — ${receipt.created || 0} created, ${receipt.updated || 0} updated${receipt.unchanged ? `, ${receipt.unchanged} already unchanged` : ''}. ${receipt.held || 0} held for later.${receipt.publications?.length ? ' Master Data Sheet sync queued.' : ''}`; window.PortalAppShell?.showToast?.(message, receipt.success ? 'success' : 'error'); feedback(message, receipt.success ? 'success' : 'error'); await load({silent:true}); await openBatch(active.id); const receiptNode = node('farmup-commit-receipt'); if (receiptNode) { receiptNode.hidden = false; receiptNode.textContent = message; }
+    } catch (error) { feedback(error.message, 'error'); window.PortalAppShell?.showToast?.(error.message, 'error'); } finally { setLoading(button, false); }
   }
   async function saveMapping() {
     const button = node('farmup-save-mapping');
@@ -200,15 +239,17 @@
   }
   async function attemptDrive(operationId, silent = false) { if (!operationId) throw new Error('The Drive archive operation is unavailable.'); const result = await api.postJson('/farmup/archive-attempt/', {operation_id:operationId}, tg); if (!result.ok || !result.data?.ok) { if (silent) return; throw new Error(result.data?.error || 'Drive archive retry failed.'); } if (!silent) feedback('FarmUp source archived to Drive.', 'success'); await load({silent:true}); }
 
-  document.addEventListener('submit', event => { if (!event.target.matches('#portal-farmup-upload')) return; event.preventDefault(); upload(event.target).catch(error => feedback(error.message, 'error')); });
+  document.addEventListener('submit', event => { if (event.target.matches('#portal-farmup-upload')) { event.preventDefault(); return upload(event.target).catch(error => { feedback(error.message, 'error'); window.PortalAppShell?.showToast?.(error.message, 'error'); }); } if (event.target.matches('#farmup-version-upload')) { event.preventDefault(); return uploadVersion(event.target).catch(error => { feedback(error.message, 'error'); window.PortalAppShell?.showToast?.(error.message, 'error'); }); } });
   document.addEventListener('input', event => { if (event.target.id !== 'farmup-search') return; search = event.target.value; gridApi?.setGridOption('quickFilterText', search); updateSummary(); });
   document.addEventListener('click', event => {
     const open = event.target.closest('.farmup-open'); if (open) return openBatch(open.dataset.batchId).catch(error => feedback(error.message, 'error'));
     if (event.target.closest('#portal-farmup-refresh')) return load().catch(error => feedback(error.message, 'error'));
     if (event.target.closest('#farmup-close')) { gridApi?.destroy(); gridApi = null; node('portal-farmup-review').hidden = true; active = null; return; }
     if (event.target.closest('#farmup-review-filter')) { needsReviewOnly = !needsReviewOnly; gridApi?.onFilterChanged(); event.target.classList.toggle('active', needsReviewOnly); event.target.setAttribute('aria-pressed', String(needsReviewOnly)); updateSummary(); return; }
-    if (event.target.closest('#farmup-select-all')) { gridApi?.forEachNode(n => { if (n.data._state === 'ready') n.setSelected(true); }); updateSummary(); return; }
-    if (event.target.closest('#farmup-clear-all')) { gridApi?.deselectAll(); updateSummary(); return; }
+    if (event.target.closest('#farmup-select-all')) { gridApi?.forEachNodeAfterFilter(n => { if (rowSelectable(n.data)) { n.data.disposition = 'commit_now'; n.data.approved = true; n.setSelected(true); } }); updateSummary(); return; }
+    if (event.target.closest('#farmup-clear-all')) { gridApi?.forEachNode(n => { if (!['committed','already_committed','excluded'].includes(n.data.disposition)) { n.data.disposition = 'hold'; n.data.approved = false; n.setSelected(false); } }); updateSummary(); return; }
+    if (event.target.closest('#farmup-exclude-selected')) { gridApi?.getSelectedNodes().forEach(n => { n.data.disposition = 'exclude'; n.data.approved = false; n.setSelected(false); }); gridApi?.redrawRows(); updateSummary(); return; }
+    if (event.target.closest('#farmup-restore-excluded')) { gridApi?.forEachNode(n => { if (n.data.disposition === 'exclude') n.data.disposition = 'hold'; }); gridApi?.redrawRows(); updateSummary(); return; }
     if (event.target.closest('#farmup-review-mapping')) { mappingOpen = true; renderMapping(); return; }
     if (event.target.closest('#farmup-cancel-mapping')) { mappingOpen = false; renderMapping(); return; }
     if (event.target.closest('#farmup-save-mapping')) return saveMapping();

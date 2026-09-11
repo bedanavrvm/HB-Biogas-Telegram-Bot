@@ -455,9 +455,10 @@
   {% if active_screen == 'farmup' %}
   <section id="page-farmup" class="page{% if active_screen == 'farmup' %} active{% endif %}" data-required-capability="portal.farmup.view">
     <header><h1>FarmUp</h1><p class="meta">Upload, correct, select, and commit Jawabu farmer intake rows</p></header>
-    <section class="portal-import-notice" role="note"><strong>Governed data intake</strong><span>Rows change Django workflow state only after confirmation. Configured Master Data Sheet synchronization uses the existing guarded commit service.</span></section>
+    <section class="portal-import-notice" role="note"><strong>Monthly governed intake</strong><span>Choose the worklist month, review changes, and commit to Django. Master Data Sheet publication is tracked separately and can be retried safely.</span></section>
     <form id="portal-farmup-upload" class="portal-import-upload portal-farmup-upload">
-      <div><span class="settings-eyebrow">FARMUP CSV</span><h2>Farmer intake</h2><p>The parsed preview opens automatically after upload.</p></div>
+      <div><span class="settings-eyebrow">FARMUP CSV</span><h2>Start monthly worklist</h2><p>Choose the sheet month. Later exports are uploaded as new versions inside this worklist.</p></div>
+      <label><span>Month</span><input type="month" name="period" required></label>
       <label class="invoice-upload-dropzone"><input type="file" name="file" accept=".csv,text/csv" required><span>Tap to choose Farmers CSV</span><small>UTF-8 CSV only</small></label>
       <button type="submit" class="btn btn-primary">Upload and review</button>
     </form>

@@ -2495,7 +2495,7 @@ def portal_farmup_batches(request):
     # FarmUp owns both the active working list and its retained batch history.
     batches = list(_portal_imports_queryset(
         request, include_archived=True, import_kind='farmers',
-    )[:50])
+    ).filter(is_current_version=True)[:50])
     operations = archive_operation_ids(batches)
     return JsonResponse({
         'ok': True,
@@ -2516,14 +2516,19 @@ def portal_farmup_stage(request):
     source_file = request.FILES.get('file')
     if source_file is None:
         return JsonResponse({'ok': False, 'error': 'Choose a Farmers CSV before uploading.'}, status=400)
+    if not str(request.POST.get('period') or '').strip():
+        return JsonResponse({'ok': False, 'error': 'Choose the month represented by this FarmUp worklist.'}, status=400)
     try:
-        from core.services.portal_imports import PortalImportError, serialize_import_batch, stage_portal_import
+        from core.services.portal_imports import PortalImportConflict, PortalImportError, serialize_import_batch, stage_portal_import
         request_id = _portal_request_id(request, request.POST.dict())
         batch, operation, replayed = stage_portal_import(
             kind='farmup', filename=source_file.name, content=source_file.read(),
             request_id=request_id, actor=getattr(request, 'portal_user', None),
             allowed_group_ids=_portal_import_group_ids(request),
+            period=request.POST.get('period'),
         )
+    except PortalImportConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'code': 'farmup_upload_conflict'}, status=409)
     except PortalImportError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     return JsonResponse({
@@ -2534,6 +2539,38 @@ def portal_farmup_stage(request):
             if serialize_import_batch(batch).get('mapping_state') == 'needs_mapping'
             else 'FarmUp CSV parsed. Review the rows before committing.'
         ),
+    }, status=200 if replayed else 201)
+
+
+@portal_auth_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_farmup_version(request, batch_id: str):
+    access_error = _portal_read_access_error(request, capability='portal.farmup.stage')
+    if access_error:
+        return access_error
+    source_file = request.FILES.get('file')
+    if source_file is None:
+        return JsonResponse({'ok': False, 'error': 'Choose the updated Farmers CSV.'}, status=400)
+    try:
+        from core.services.portal_imports import (
+            PortalImportConflict, PortalImportError, serialize_import_batch,
+            stage_portal_farmup_version,
+        )
+        batch, operation, replayed = stage_portal_farmup_version(
+            batch_id=batch_id, filename=source_file.name, content=source_file.read(),
+            request_id=_portal_request_id(request, request.POST.dict()),
+            actor=getattr(request, 'portal_user', None),
+            allowed_group_ids=_portal_import_group_ids(request),
+        )
+    except PortalImportConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'code': 'farmup_revision_conflict'}, status=409)
+    except PortalImportError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
+    return JsonResponse({
+        'ok': True, 'replayed': replayed, 'batch': serialize_import_batch(batch),
+        'archive_operation_id': str(operation.pk),
+        'message': 'Updated monthly CSV reconciled. Review additions and changes before committing.',
     }, status=200 if replayed else 201)
 
 
@@ -2653,7 +2690,10 @@ def portal_farmup_commit(request, batch_id: str):
         return JsonResponse({'ok': False, 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
     response_batch = serialize_import_batch(batch)
     response_batch['revision_token'] = farmup_revision_token(batch)
-    return JsonResponse({'ok': True, 'replayed': replayed, 'result': result, 'batch': response_batch})
+    return JsonResponse({
+        'ok': True, 'replayed': replayed, 'result': result, 'batch': response_batch,
+        'publications': list(result.get('publications') or []),
+    })
 
 
 @portal_auth_required
