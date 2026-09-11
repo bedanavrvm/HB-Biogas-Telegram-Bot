@@ -11,7 +11,8 @@
     <div class="dashboard-intro">
       <div>
         <p class="eyebrow">Pipeline overview</p>
-        <h2>Work waiting for your team</h2>
+        <h2>Operational pipeline</h2>
+        <p class="meta"><span id="dashboard-scope">Your authorized scope</span> · <span id="dashboard-as-of">Refreshing</span></p>
       </div>
       <button type="button" class="dashboard-refresh-button" id="dashboard-refresh" aria-label="Refresh dashboard" title="Refresh dashboard"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </div>
@@ -22,7 +23,7 @@
         <span></span><span></span><span></span><span></span>
       </div>
     </div>
-    <div id="dash-counts" class="count-grid portal-initially-hidden">
+    <div id="dash-counts" class="count-grid portal-initially-hidden" hidden>
       <a class="count-card priority-queue" data-page="jbl" id="card-jbl" data-required-capability="portal.jbl_queue.view" href="{% url 'portal_screen' screen='jbl' %}">
         <span class="queue-card-icon"><i data-lucide="home"></i></span>
         <span class="queue-card-body">
@@ -65,15 +66,21 @@
       </a>
     </div>
 
+    <div id="dashboard-overview" class="dashboard-overview" hidden></div>
+    <section class="dashboard-pipeline-section" aria-labelledby="dashboard-pipeline-title">
+      <div class="stage-summary-heading"><h2 id="dashboard-pipeline-title">Current pipeline</h2><span>Open a stage to continue work</span></div>
+      <div id="dashboard-pipeline" class="dashboard-pipeline"></div>
+    </section>
+
     <section id="dashboard-attention" class="dashboard-action-section" hidden>
-      <div class="stage-summary-heading"><h2>Needs your attention</h2><span>Urgent and blocked work</span></div>
+      <div class="stage-summary-heading"><h2>Needs attention</h2><span>Urgent and blocked work</span></div>
       <div id="dashboard-attention-list" class="dashboard-action-grid"></div>
     </section>
 
     <section id="dashboard-activity" class="dashboard-action-section" hidden>
-      <div class="stage-summary-heading"><h2>Activity</h2><span>Today and the last 7 days</span></div>
+      <div class="stage-summary-heading"><h2>Movement</h2><span>Last 7 days</span></div>
       <div class="dashboard-activity-layout">
-        <article class="dashboard-today"><strong id="dashboard-today-count">0</strong><span>actions recorded today</span></article>
+        <article class="dashboard-today"><strong id="dashboard-today-count">0</strong><span>today</span></article>
         <div id="dashboard-activity-list" class="dashboard-metric-list"></div>
       </div>
     </section>
@@ -83,7 +90,7 @@
       <div id="dashboard-recent-list" class="farmer-list dashboard-recent-list"></div>
     </section>
 
-    <a class="dashboard-total" data-page="all" data-required-capability="portal.case.read" href="{% url 'portal_screen' screen='all' %}">
+    <a class="dashboard-total" hidden data-page="all" data-required-capability="portal.case.read" href="{% url 'portal_screen' screen='all' %}">
       <span class="queue-card-icon"><i data-lucide="database"></i></span>
       <span class="queue-card-body">
         <span class="count-num" id="cnt-total">-</span>
@@ -92,7 +99,7 @@
       <span class="queue-card-action">Browse all <i data-lucide="arrow-up-right"></i></span>
     </a>
 
-    <section class="portal-stage-summary" aria-labelledby="workflow-stages-title">
+    <section class="portal-stage-summary" hidden aria-labelledby="workflow-stages-title">
       <div class="stage-summary-heading">
         <h2 id="workflow-stages-title">Current pipeline</h2>
         <span>Actionable records by stage</span>
@@ -507,12 +514,12 @@
   {% if active_screen == 'reports' %}
   <section id="page-reports" class="page{% if active_screen == 'reports' %} active{% endif %}" data-required-capability="portal.reports.view">
     <header>
-      <h1>{% if report_view == 'edit' and report_step == 'fields' %}Report setup{% elif report_view == 'edit' and report_step == 'filters' %}Report rules{% elif report_view == 'edit' and report_step == 'review' %}Review report{% elif report_view == 'detail' %}Report details{% elif report_view == 'run' %}Report results{% else %}Reports{% endif %}</h1>
-      <p class="meta">{% if report_view == 'edit' and report_step == 'fields' %}Choose the approved Portal fields this report will show.{% elif report_view == 'edit' and report_step == 'filters' %}Set the filters and order for the live report.{% elif report_view == 'edit' and report_step == 'review' %}Review the definition and optional charts before saving it.{% elif report_view == 'detail' %}Review a saved report before running it.{% elif report_view == 'run' %}Review the current live result for this report.{% else %}Choose a saved report or create a new controlled report.{% endif %}</p>
+      <h1>Reports</h1>
+      <p class="meta">Curated live operational views for workload, outcomes, and finance</p>
     </header>
     {% if not report_view or report_view == 'catalogue' %}<section class="portal-report-notice" role="note">
       <strong>Controlled reporting</strong>
-      <span>Use approved fields, filters, and chart types only. TAT, SPIN, Complaint Case, media, GPS, comments, and Drive data are not joined or exposed here.</span>
+      <span>Figures come from scoped Django records. No customer data is joined from TAT, SPIN, Complaints, media, comments, or Drive.</span>
     </section>{% endif %}
     <div id="portal-reports-root" class="portal-reports-root" aria-live="polite">
       <div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading report definitions...</div></div>
@@ -617,14 +624,13 @@
     <div class="sheet-body">
       <div id="requisition-preview-summary" class="batch-summary-grid"></div>
       <div id="requisition-preview-warnings"></div>
+      <p id="requisition-finalize-note" class="requisition-finalize-note" hidden></p>
       <div id="requisition-preview-progress" class="generation-progress" hidden role="status" aria-live="polite"><span class="spinner-inline" aria-hidden="true"></span><span>Generating Excel…</span></div>
       <div id="requisition-preview-list" class="batch-client-list"></div>
     </div>
     <div class="sheet-footer">
       <button class="btn" id="requisition-preview-cancel" type="button">Back</button>
-      <!-- Telegram's MainButton is the single visible generation action. The
-           hidden proxy keeps the shared MainButton click wiring. -->
-      <button class="primary" id="requisition-preview-confirm" type="button" hidden data-main-action-proxy="true" aria-hidden="true">Finalize Order</button>
+      <button class="primary" id="requisition-preview-confirm" type="button">Finalize Order</button>
     </div>
   </div>
 </div>

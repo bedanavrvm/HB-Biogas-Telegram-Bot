@@ -1073,6 +1073,10 @@ def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> d
         'generated_by': batch.generated_by,
         'generated_at': batch.created_at.isoformat() if batch.created_at else None,
         'finalized_at': batch.finalized_at.isoformat() if getattr(batch, 'finalized_at', None) else None,
+        'finalized_by': (
+            batch.finalized_by.get_full_name() or batch.finalized_by.get_username()
+            if getattr(batch, 'finalized_by_id', None) else ''
+        ),
         'finalized': bool(getattr(batch, 'finalized_at', None)),
         'content_checksum': getattr(batch, 'content_checksum', '') or '',
         'membership_digest': getattr(batch, 'membership_digest', '') or '',
@@ -1399,8 +1403,9 @@ def portal_reports_screen(
         return HttpResponse('A report identifier is required.', status=404)
     if report_step and (report_view != 'edit' or report_step not in {'fields', 'filters', 'review'}):
         return HttpResponse('Unknown report editor step.', status=404)
-    if report_view == 'edit':
-        report_step = report_step or 'fields'
+    # The custom definition engine is retained, but its editor and saved-report
+    # drill-downs are deliberately not exposed in the current Portal UI.
+    report_view, report_id, report_step = 'catalogue', '', ''
     context = _portal_screen_context(
         'reports',
         report_view=report_view,
@@ -2854,6 +2859,66 @@ def portal_report_preview(request):
     # Preview is an authenticated, read-only convenience. It intentionally
     # creates no report definition or audit event; saved runs remain audited.
     return JsonResponse({'ok': True, 'preview': preview})
+
+
+@portal_auth_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_curated_report(request):
+    """Run one server-owned, scoped Portal report preset."""
+    access_error = _portal_read_access_error(request, capability='portal.reports.view')
+    if access_error:
+        return access_error
+    from core.services.portal_reporting import PortalReportingError, record_curated_run, run_curated_report
+
+    payload = _portal_request_data(request)
+    try:
+        result = run_curated_report(
+            preset=str(payload.get('preset') or 'pipeline'), filters=payload.get('filters') or {},
+            user=getattr(request, 'portal_user', None), access=getattr(request, 'portal_access', None),
+            page=payload.get('page', 1),
+        )
+        record_curated_run(
+            preset=result['preset'], actor=getattr(request, 'portal_user', None),
+            request_id=_portal_request_id(request, payload), result_count=result['total_rows'],
+        )
+    except PortalReportingError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('Could not run curated Portal report request_id=%s', getattr(request, 'portal_request_id', ''))
+        return JsonResponse({'ok': False, 'error': 'The report could not be prepared. Please retry.'}, status=500)
+    return JsonResponse({'ok': True, 'result': result})
+
+
+@portal_auth_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_curated_report_export(request):
+    """Export the exact fixed preset and filters used in the workspace."""
+    access_error = _portal_read_access_error(request, capability='portal.reports.view')
+    if access_error:
+        return access_error
+    from core.services.portal_reporting import PortalReportingError, export_curated_report, record_curated_run
+
+    payload = _portal_request_data(request)
+    preset = str(payload.get('preset') or 'pipeline')
+    try:
+        workbook = export_curated_report(
+            preset=preset, filters=payload.get('filters') or {},
+            user=getattr(request, 'portal_user', None), access=getattr(request, 'portal_access', None),
+        )
+        record_curated_run(
+            preset=preset, actor=getattr(request, 'portal_user', None),
+            request_id=_portal_request_id(request, payload), exported=True,
+        )
+    except PortalReportingError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('Could not export curated Portal report request_id=%s', getattr(request, 'portal_request_id', ''))
+        return JsonResponse({'ok': False, 'error': 'The report export could not be prepared. Please retry.'}, status=500)
+    response = HttpResponse(workbook, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f'attachment; filename="portal-{preset}-report.xlsx"'
+    return response
 
 
 @portal_auth_required

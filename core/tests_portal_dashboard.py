@@ -60,4 +60,7 @@ class PortalActionDashboardTests(TestCase):
         self.assertIn('attention', payload)
         self.assertIn('activity_7d', payload)
         self.assertIn('pipeline_distribution', payload)
+        self.assertIn('pipeline', payload)
+        self.assertIn('overview', payload)
+        self.assertNotIn('deferred', {item['key'] for item in payload['pipeline']})
         self.assertIn('recent_cases', payload)

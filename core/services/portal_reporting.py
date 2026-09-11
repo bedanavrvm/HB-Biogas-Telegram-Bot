@@ -133,7 +133,9 @@ PORTAL_REPORT_FIELDS: tuple[ReportField, ...] = (
     ReportField('jbl_visit_date', 'JBL visit date', 'jbl_visit_date', 'date', 'Workflow', _DATE, chart_dimension=True),
     ReportField('jbl_visit_status', 'JBL visit status', 'jbl_visit_status', 'choice', 'Workflow', _CHOICE, chart_dimension=True),
     ReportField('credit_decision', 'Credit decision', 'credit_decision', 'choice', 'Workflow', _CHOICE, chart_dimension=True),
+    ReportField('credit_decided_at', 'Credit decision date', 'credit_decided_at', 'date', 'Workflow', _DATE, chart_dimension=True),
     ReportField('final_decision', 'Final decision', 'final_decision', 'choice', 'Workflow', _CHOICE, chart_dimension=True),
+    ReportField('final_decided_at', 'Final decision date', 'final_decided_at', 'date', 'Workflow', _DATE, chart_dimension=True),
     ReportField('workflow_state', 'Current pipeline state', 'workflow_state', 'choice', 'Workflow', _CHOICE, chart_dimension=True),
     ReportField('requisition_date', 'Requisition date', 'requisition_date', 'date', 'Operations', _DATE, chart_dimension=True),
     ReportField('order_number', 'Order number', 'order_number', 'text', 'Operations', _TEXT),
@@ -731,6 +733,146 @@ def preview_chart(*, configuration: Any, chart: Any, user, access: dict | None) 
         normalized_chart,
         queryset,
         max_buckets=MAX_CHART_PREVIEW_BUCKETS,
+    )
+
+
+CURATED_REPORT_FIELDS = {
+    'pipeline': ('case_id', 'customer_name', 'branch', 'county', 'workflow_state', 'jbl_visit_status', 'credit_decision', 'final_decision', 'updated_at'),
+    'outcomes': ('case_id', 'customer_name', 'branch', 'jbl_visit_date', 'jbl_visit_status', 'credit_decision', 'credit_decided_at', 'final_decision', 'final_decided_at'),
+    'finance': ('case_id', 'customer_name', 'branch', 'requisition_date', 'order_number', 'invoice_date', 'invoice_number', 'invoice_amount', 'payment', 'deposit_paid_hbg', 'system_deposit_paid_jbl', 'balance_due'),
+}
+
+
+def _curated_period(filters: dict[str, Any]) -> tuple[date, date]:
+    today = timezone.localdate()
+    start = parse_date(str(filters.get('from') or '')) or today.replace(day=1)
+    end = parse_date(str(filters.get('to') or '')) or today
+    if start > end:
+        raise PortalReportingError('The report start date must not be after the end date.')
+    return start, end
+
+
+def _curated_queryset(*, preset: str, filters: Any, user, access: dict | None):
+    if preset not in CURATED_REPORT_FIELDS:
+        raise PortalReportingError('Choose Pipeline, Outcomes, or Orders & Finance.')
+    filters = filters if isinstance(filters, dict) else {}
+    queryset = scoped_case_queryset(user=user, access=access)
+    for key in ('branch', 'county'):
+        value = str(filters.get(key) or '').strip()
+        if value:
+            queryset = queryset.filter(**{f'{key}__iexact': value})
+    if preset == 'pipeline':
+        stage = str(filters.get('stage') or '').strip()
+        if stage:
+            queryset = queryset.filter(workflow_state__iexact=stage)
+        period = None
+    else:
+        start, end = _curated_period(filters)
+        period = {'from': start.isoformat(), 'to': end.isoformat()}
+        if preset == 'outcomes':
+            queryset = queryset.filter(
+                Q(jbl_visit_date__range=(start, end))
+                | Q(credit_decided_at__date__range=(start, end))
+                | Q(final_decided_at__date__range=(start, end))
+            )
+        else:
+            queryset = queryset.filter(
+                Q(requisition_date__range=(start, end)) | Q(invoice_date__range=(start, end))
+            )
+    return queryset, filters, period
+
+
+def run_curated_report(*, preset: str, filters: Any, user, access: dict | None, page: int = 1) -> dict[str, Any]:
+    """Run one server-owned Portal report without exposing the report builder."""
+    queryset, filters, period = _curated_queryset(preset=preset, filters=filters, user=user, access=access)
+    queryset = queryset.order_by('-updated_at', 'id')
+    total = queryset.count()
+    page = max(1, int(page or 1))
+    pages = max(1, min((min(total, MAX_TABLE_ROWS) + PAGE_SIZE - 1) // PAGE_SIZE, (MAX_TABLE_ROWS + PAGE_SIZE - 1) // PAGE_SIZE))
+    page = min(page, pages)
+    selected = [_field(key) for key in CURATED_REPORT_FIELDS[preset]]
+    rows = [
+        {field.key: _json_value(raw.get(field.expression)) for field in selected}
+        for raw in queryset[(page - 1) * PAGE_SIZE:page * PAGE_SIZE].values(*[field.expression for field in selected])
+    ]
+    if preset == 'pipeline':
+        summary = {
+            'Active cases': total,
+            'Awaiting visit': queryset.filter(Q(workflow_state='jbl_visit') | Q(workflow_state='', jbl_visit_date=None)).count(),
+            'Credit analysis': queryset.filter(Q(workflow_state='credit') | Q(workflow_state='', jbl_visit_date__isnull=False, credit_decision='')).count(),
+            'Ready for order': queryset.filter(final_decision__iexact='approved', order_number='').count(),
+        }
+        charts = [chart_payload_from_config({'title': 'Cases by pipeline stage', 'chart_type': 'bar', 'dimension_field': 'workflow_state', 'metric_field': '', 'aggregation': 'count', 'date_bucket': ''}, queryset)]
+    elif preset == 'outcomes':
+        summary = {
+            'Cases with activity': total,
+            'Visits recorded': queryset.exclude(jbl_visit_date=None).count(),
+            'Credit decisions': queryset.exclude(credit_decided_at=None).count(),
+            'Final decisions': queryset.exclude(final_decided_at=None).count(),
+        }
+        charts = [
+            chart_payload_from_config({'title': 'Visit outcomes', 'chart_type': 'bar', 'dimension_field': 'jbl_visit_status', 'metric_field': '', 'aggregation': 'count', 'date_bucket': ''}, queryset),
+            chart_payload_from_config({'title': 'Final decisions', 'chart_type': 'doughnut', 'dimension_field': 'final_decision', 'metric_field': '', 'aggregation': 'count', 'date_bucket': ''}, queryset),
+        ]
+    else:
+        totals = queryset.aggregate(invoice=Sum('invoice_amount'), payment=Sum('payment'), hb=Sum('deposit_paid_hbg'), jbl=Sum('system_deposit_paid_jbl'), balance=Sum('balance_due'))
+        summary = {
+            'Official orders': queryset.exclude(order_number='').values('order_number').distinct().count(),
+            'Invoices': queryset.exclude(invoice_number='').count(),
+            'Invoice amount': _json_value(totals['invoice'] or Decimal('0')),
+            'Outstanding balance': _json_value(totals['balance'] or Decimal('0')),
+        }
+        charts = [chart_payload_from_config({'title': 'Invoice amount by branch', 'chart_type': 'bar', 'dimension_field': 'branch', 'metric_field': 'invoice_amount', 'aggregation': 'sum', 'date_bucket': ''}, queryset)]
+    choices = {
+        'branches': list(queryset.exclude(branch='').order_by('branch').values_list('branch', flat=True).distinct()[:100]),
+        'counties': list(queryset.exclude(county='').order_by('county').values_list('county', flat=True).distinct()[:100]),
+    }
+    return {
+        'preset': preset,
+        'period': period,
+        'applied_filters': {key: str(value) for key, value in filters.items() if value not in (None, '')},
+        'summary': summary,
+        'columns': [{'key': field.key, 'label': field.label, 'type': field.value_type} for field in selected],
+        'rows': rows,
+        'total_rows': total,
+        'shown_rows_limit': min(total, MAX_TABLE_ROWS),
+        'pagination': {'page': page, 'page_size': PAGE_SIZE, 'pages': pages},
+        'charts': charts,
+        'filter_options': choices,
+        'run_at': timezone.now().isoformat(),
+    }
+
+
+def export_curated_report(*, preset: str, filters: Any, user, access: dict | None) -> bytes:
+    queryset, filters, period = _curated_queryset(preset=preset, filters=filters, user=user, access=access)
+    selected = [_field(key) for key in CURATED_REPORT_FIELDS[preset]]
+    rows = list(queryset.order_by('-updated_at', 'id')[:MAX_TABLE_ROWS].values(*[field.expression for field in selected]))
+    workbook = Workbook()
+    details = workbook.active
+    details.title = 'Report details'
+    details.append(['Report', preset.title()])
+    details.append(['Generated at', timezone.localtime().strftime('%d-%B-%Y %H:%M')])
+    details.append(['Period', f'{period["from"]} to {period["to"]}' if period else 'Live snapshot'])
+    details.append(['Rows exported', len(rows)])
+    data_sheet = workbook.create_sheet('Data')
+    data_sheet.append([field.label for field in selected])
+    for row in rows:
+        values = [_json_value(row.get(field.expression)) for field in selected]
+        data_sheet.append([value if value is None or isinstance(value, (str, int, float, bool)) else str(value) for value in values])
+    for cell in data_sheet[1]:
+        cell.font = Font(bold=True)
+    output = BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
+def record_curated_run(*, preset: str, actor, request_id: str, exported: bool = False, result_count: int = 0) -> None:
+    record_event(
+        workflow='portal', action=f'portal.report.curated_{"exported" if exported else "run"}', category='reporting',
+        subject_type='PortalCuratedReport', subject_id=preset,
+        deduplication_key=f'portal-curated-report:{"export" if exported else "run"}:{getattr(actor, "pk", "")}:{request_id}',
+        actor=actor, request_id=request_id, source_model='JawabuFarmerMaster', source_event_id=request_id,
+        before_values={}, after_values={}, metadata={'preset': preset, 'result_count': int(result_count or 0)}, sensitive=True,
     )
 
 

@@ -12,6 +12,7 @@
   try { reviewMode = sessionStorage.getItem('portal-farmup-review-mode') === 'carousel' ? 'carousel' : 'table'; } catch (_) {}
   let carouselIndex = 0, pickerActive = false, pickerHadSelection = false;
   let repairProgress = null;
+  let gridLayoutFrame = 0;
 
   function node(id) { return document.getElementById(id); }
   function activeScreen() { return node('portal-screen')?.dataset.screen === 'farmup'; }
@@ -150,6 +151,27 @@
     if (params.data._state === 'warning') { const button = document.createElement('button'); button.type = 'button'; button.className = 'farmup-acknowledge'; button.textContent = params.data.warning_acknowledged ? 'Acknowledged' : (match === 'update' ? 'Acknowledge update' : 'Acknowledge'); button.setAttribute('aria-pressed', String(Boolean(params.data.warning_acknowledged))); button.addEventListener('click', event => { event.stopPropagation(); params.data.warning_acknowledged = !params.data.warning_acknowledged; if (match === 'update') params.data.update_acknowledged = params.data.warning_acknowledged; if (!params.data.warning_acknowledged) { params.data.approved = false; params.data.disposition = 'hold'; params.node.setSelected(false); } params.api.refreshCells({rowNodes:[params.node], force:true}); updateSummary(); }); wrap.append(button); }
     return wrap;
   }
+  function applicationActionLabel(value) {
+    return value === 'create_additional_unit' ? 'Additional unit (same farmer)' : 'New lead (first unit)';
+  }
+  function layoutGrid() {
+    window.cancelAnimationFrame(gridLayoutFrame);
+    gridLayoutFrame = window.requestAnimationFrame(() => {
+      const grid = node('farmup-grid');
+      if (!grid || reviewMode !== 'table' || grid.closest('[hidden]')) return;
+      const viewport = window.visualViewport;
+      const viewportBottom = (Number(viewport?.offsetTop) || 0) + (Number(viewport?.height) || window.innerHeight || 640);
+      const top = grid.getBoundingClientRect().top;
+      const commitHeight = node('farmup-commit')?.closest('.farmup-commit-bar')?.getBoundingClientRect().height || 0;
+      const tabs = node('bottom-tabs');
+      const tabsHeight = tabs && getComputedStyle(tabs).display !== 'none' ? tabs.getBoundingClientRect().height : 0;
+      grid.style.height = `${Math.max(260, Math.min(680, Math.floor(viewportBottom - top - commitHeight - tabsHeight - 18)))}px`;
+      try {
+        gridApi?.setColumnsPinned?.(['state'], window.innerWidth > 700 ? 'left' : null);
+        gridApi?.doLayout?.();
+      } catch (_) { /* Element sizing still works on older AG Grid builds. */ }
+    });
+  }
   function setRowField(row, field, value, input) {
     row[field] = value; active.validation = []; applyIssues(row, localIssues(row));
     if (!rowSelectable(row)) { row.disposition = 'hold'; row.approved = false; gridApi?.getRowNode(String(row.row_id))?.setSelected(false); }
@@ -167,14 +189,14 @@
       defaultColDef:{sortable:true, resizable:true, suppressHeaderMenuButton:true},
       columnDefs:[
         {headerName:'', colId:'selected', width:40, minWidth:40, maxWidth:40, pinned:'left', sortable:false, resizable:false, checkboxSelection:p => rowSelectable(p.data), cellClass:'farmup-selection-cell'},
-        {headerName:'State', colId:'state', width:142, pinned:'left', sortable:false, cellRenderer:statusRenderer, tooltipValueGetter:statusTooltip},
+        {headerName:'State', colId:'state', width:142, pinned:window.innerWidth > 700 ? 'left' : null, sortable:false, cellRenderer:statusRenderer, tooltipValueGetter:statusTooltip},
         {field:'Source Row', headerName:'Row', width:62, editable:false}, textColumn('Customer Name',180), textColumn('National ID',120), textColumn('Primary Phone',135), textColumn('Secondary Phone',135),
-        {field:'Application Action', headerName:'Application Action', width:180, editable:can('portal.farmup.commit'), cellEditor:'agSelectCellEditor', cellEditorParams:{values:['update_existing','create_additional_unit']}, cellClassRules:{'farmup-cell-edited':p => fieldEdited(p.data, 'Application Action'),'farmup-cell-invalid':p => fieldInvalid(p.data, 'Application Action')}},
+        {field:'Application Action', headerName:'Unit type', width:210, editable:can('portal.farmup.commit'), cellEditor:'agSelectCellEditor', cellEditorParams:{values:['update_existing','create_additional_unit']}, valueFormatter:p => applicationActionLabel(p.value), cellClassRules:{'farmup-cell-edited':p => fieldEdited(p.data, 'Application Action'),'farmup-cell-invalid':p => fieldInvalid(p.data, 'Application Action')}},
         textColumn('Additional Unit Reason',190), textColumn('County',120), textColumn('HBG Visit Date',135), textColumn('Deposit Paid to HB',140), textColumn('HB Sales Person',150),
         {colId:'validation_notes', headerName:'Validation notes', width:280, editable:false, valueGetter:p => (p.data._issues || []).map(i => i.message).join('; '), tooltipValueGetter:statusTooltip},
       ],
       rowClassRules:{'farmup-grid-row-blocked':p => p.data._state === 'needs_correction','farmup-grid-row-warning':p => p.data._state === 'warning','farmup-grid-row-unselected':p => p.data._state === 'ready' && !p.data.approved},
-      onGridReady:event => { event.api.forEachNode(n => n.setSelected(Boolean(n.data.approved && rowSelectable(n.data)))); updateSummary(); },
+      onGridReady:event => { event.api.forEachNode(n => n.setSelected(Boolean(n.data.approved && rowSelectable(n.data)))); updateSummary(); layoutGrid(); },
       onSelectionChanged:event => { event.api.forEachNode(n => { if (['exclude','committed','already_committed','excluded'].includes(n.data.disposition)) return; n.data.approved = n.isSelected() && rowSelectable(n.data); n.data.disposition = n.data.approved ? 'commit_now' : 'hold'; }); event.api.redrawRows(); if (reviewMode === 'carousel') renderCarousel(); updateSummary(); },
       onCellValueChanged:event => setRowField(event.data, event.colDef.field, event.newValue),
       onCellEditingStarted:event => setTimeout(() => event.event?.target?.scrollIntoView?.({block:'center', inline:'nearest'}), 80),
@@ -184,7 +206,7 @@
     const target = node('farmup-carousel'); if (!target || !active) return;
     const rows = visibleReviewRows(); carouselIndex = Math.max(0, Math.min(carouselIndex, Math.max(0, rows.length - 1)));
     if (!rows.length) { target.innerHTML = '<div class="empty-state"><div class="es-title">No matching cases</div></div>'; return; }
-    target.innerHTML = `<div class="farmup-carousel-track">${rows.map((row, index) => `<article class="farmup-carousel-card ${escapeHtml(row._state)}" data-row-id="${escapeHtml(row.row_id)}"><header><label><input type="checkbox" class="farmup-carousel-select" ${row.approved ? 'checked' : ''} ${rowSelectable(row) ? '' : 'disabled'}><span>Commit</span></label><div><strong>${escapeHtml(row['Customer Name'] || 'Unnamed farmer')}</strong><small>Row ${escapeHtml(row['Source Row'] || row.row_id)} · ${escapeHtml(row['National ID'] || 'No ID')}</small></div><b>${index + 1}/${rows.length}</b></header><p>${escapeHtml(statusTooltip({data:row}))}</p><div class="farmup-carousel-fields">${(active.editable_fields || editableFields).map(field => { const select = field === 'Application Action'; return `<label class="farmup-carousel-field${fieldEdited(row, field) ? ' edited' : ''}${fieldInvalid(row, field) ? ' invalid' : ''}"><span>${escapeHtml(field)}${fieldEdited(row, field) ? '<b title="Edited">●</b>' : ''}</span>${select ? `<select data-field="${escapeHtml(field)}" ${can('portal.farmup.commit') ? '' : 'disabled'}><option value="update_existing"${row[field] === 'update_existing' ? ' selected' : ''}>Update existing</option><option value="create_additional_unit"${row[field] === 'create_additional_unit' ? ' selected' : ''}>Additional unit</option></select>` : `<input data-field="${escapeHtml(field)}" value="${escapeHtml(row[field] || '')}" ${can('portal.farmup.commit') ? '' : 'disabled'}>`}</label>`; }).join('')}</div></article>`).join('')}</div><div class="farmup-carousel-nav"><button type="button" class="icon-button" id="farmup-carousel-prev" aria-label="Previous case" title="Previous case">${icon('chevron-left')}</button><span>${carouselIndex + 1} of ${rows.length}</span><button type="button" class="icon-button" id="farmup-carousel-next" aria-label="Next case" title="Next case">${icon('chevron-right')}</button></div>`;
+    target.innerHTML = `<div class="farmup-carousel-track">${rows.map((row, index) => `<article class="farmup-carousel-card ${escapeHtml(row._state)}" data-row-id="${escapeHtml(row.row_id)}"><header><label><input type="checkbox" class="farmup-carousel-select" ${row.approved ? 'checked' : ''} ${rowSelectable(row) ? '' : 'disabled'}><span>Commit</span></label><div><strong>${escapeHtml(row['Customer Name'] || 'Unnamed farmer')}</strong><small>Row ${escapeHtml(row['Source Row'] || row.row_id)} · ${escapeHtml(row['National ID'] || 'No ID')}</small></div><b>${index + 1}/${rows.length}</b></header><p>${escapeHtml(statusTooltip({data:row}))}</p><div class="farmup-carousel-fields">${(active.editable_fields || editableFields).filter(field => field !== 'Additional Unit Reason' || row['Application Action'] === 'create_additional_unit').map(field => { const select = field === 'Application Action'; const label = select ? 'Unit type' : field; return `<label class="farmup-carousel-field${fieldEdited(row, field) ? ' edited' : ''}${fieldInvalid(row, field) ? ' invalid' : ''}"><span>${escapeHtml(label)}${fieldEdited(row, field) ? '<b title="Edited">●</b>' : ''}</span>${select ? `<select data-field="${escapeHtml(field)}" ${can('portal.farmup.commit') ? '' : 'disabled'}><option value="update_existing"${row[field] === 'update_existing' ? ' selected' : ''}>New lead (first unit)</option><option value="create_additional_unit"${row[field] === 'create_additional_unit' ? ' selected' : ''}>Additional unit (same farmer)</option></select>` : `<input data-field="${escapeHtml(field)}" value="${escapeHtml(row[field] || '')}" ${can('portal.farmup.commit') ? '' : 'disabled'}>`}</label>`; }).join('')}</div></article>`).join('')}</div><div class="farmup-carousel-nav"><button type="button" class="icon-button" id="farmup-carousel-prev" aria-label="Previous case" title="Previous case">${icon('chevron-left')}</button><span>${carouselIndex + 1} of ${rows.length}</span><button type="button" class="icon-button" id="farmup-carousel-next" aria-label="Next case" title="Next case">${icon('chevron-right')}</button></div>`;
     const track = target.querySelector('.farmup-carousel-track');
     requestAnimationFrame(() => track?.children[carouselIndex]?.scrollIntoView({behavior:'instant', inline:'start', block:'nearest'}));
     track?.addEventListener('scroll', () => { const width = track.clientWidth || 1; carouselIndex = Math.max(0, Math.min(rows.length - 1, Math.round(track.scrollLeft / width))); const counter = target.querySelector('.farmup-carousel-nav span'); if (counter) counter.textContent = `${carouselIndex + 1} of ${rows.length}`; }, {passive:true});
@@ -197,6 +219,7 @@
     node('farmup-grid-wrap')?.toggleAttribute('hidden', reviewMode !== 'table'); node('farmup-carousel')?.toggleAttribute('hidden', reviewMode !== 'carousel');
     document.querySelectorAll('[data-farmup-mode]').forEach(button => { const selected = button.dataset.farmupMode === reviewMode; button.classList.toggle('active', selected); button.setAttribute('aria-pressed', String(selected)); });
     if (reviewMode === 'carousel') renderCarousel();
+    else layoutGrid();
   }
   function mappingSummary(mapping) { return `${(mapping?.columns || []).filter(i => i.target_field).length} mapped · ${(mapping?.columns || []).filter(i => !i.target_field && i.resolution !== 'unresolved').length} ignored`; }
   function renderMapping() {
@@ -319,7 +342,11 @@
   document.addEventListener('change', event => { if (!event.target.matches('[data-farmup-file]')) return; pickerHadSelection = Boolean(event.target.files?.length); finishPicker(); if (!pickerHadSelection) return; try { validateFarmupFile(event.target); utils.setCloseProtection?.('portal-farmup-file-selected', true); } catch (error) { utils.setCloseProtection?.('portal-farmup-file-selected', false); feedback(error.message, 'error'); } }, true);
   function pickerReturned() { if (pickerActive) setTimeout(() => { if (pickerActive && !pickerHadSelection) finishPicker(); }, 80); if (document.visibilityState === 'visible') tg?.disableVerticalSwipes?.(); }
   window.addEventListener('focus', pickerReturned); document.addEventListener('visibilitychange', pickerReturned);
-  window.visualViewport?.addEventListener('resize', () => { const editor = document.querySelector('.farmup-grid .ag-cell-inline-editing input, .farmup-grid .ag-cell-inline-editing select, .farmup-carousel :focus'); editor?.scrollIntoView?.({block:'center', inline:'nearest'}); });
+  function onViewportChange() { layoutGrid(); const editor = document.querySelector('.farmup-grid .ag-cell-inline-editing input, .farmup-grid .ag-cell-inline-editing select, .farmup-carousel :focus'); editor?.scrollIntoView?.({block:'center', inline:'nearest'}); }
+  window.visualViewport?.addEventListener('resize', onViewportChange);
+  window.addEventListener('resize', layoutGrid);
+  window.addEventListener('orientationchange', layoutGrid);
+  tg?.onEvent?.('viewportChanged', layoutGrid);
   window.addEventListener('portal:publication-updated', event => {
     if (!repairProgress || !repairProgress.pending.has(String(event.detail?.operationId || ''))) return;
     if (event.detail?.needsAttention) { repairProgress.pending.delete(String(event.detail.operationId)); repairProgress.failed += 1; }

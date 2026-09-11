@@ -126,7 +126,8 @@ test('Portal FarmUp renders a compact mobile grid with explicit selection counts
   await expect(page.locator('#farmup-grid .ag-header')).toBeVisible();
   await expect(page.locator('.farmup-mobile-card')).toHaveCount(0);
   await expect(page.locator('#farmup-selection-summary')).toContainText('1 commit');
-  expect(await page.locator('.farmup-grid-wrap').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(await page.locator('.farmup-grid-wrap').evaluate(element => element.scrollWidth === element.clientWidth)).toBe(true);
+  expect(await page.locator('.farmup-grid .ag-center-cols-viewport').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
   const nameCell = page.locator('.ag-cell').filter({ hasText: 'Test Farmer' }).first();
   await nameCell.dblclick();
   await page.keyboard.press('Control+A');

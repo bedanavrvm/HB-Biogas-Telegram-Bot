@@ -199,6 +199,14 @@ def dashboard_payload(user, *, access=None) -> dict:
         'total': scoped_all.count() if 'portal.case.read' in capabilities else 0,
     })
     scope_label = ', '.join(branch_values) if branch_values and not case_scope.get('global_branch') else 'All authorized branches'
+    active_total = sum(item['count'] for item in queues if item['key'] != 'deferred')
+    pipeline = [
+        {
+            **item,
+            'percent': round((item['count'] / active_total) * 100, 1) if active_total else 0,
+        }
+        for item in queues if item['key'] != 'deferred'
+    ]
     return {
         'as_of': timezone.now().isoformat(),
         'scope': {'label': scope_label, 'branches': branch_values},
@@ -208,5 +216,12 @@ def dashboard_payload(user, *, access=None) -> dict:
         'activity_today': {'completed_actions': today_events},
         'activity_7d': activity_7d,
         'pipeline_distribution': pipeline_distribution,
-        'recent_cases': recent_cases,
+        'pipeline': pipeline,
+        'overview': {
+            'total_active': legacy_counts['total'],
+            'in_progress': sum(item['count'] for item in queues if item['key'] in {'jbl', 'credit', 'final'}),
+            'attention': sum(int(item.get('count') or 0) for item in attention),
+            'ready_for_order': legacy_counts['requisition_queue'],
+        },
+        'recent_cases': recent_cases[:5],
     }

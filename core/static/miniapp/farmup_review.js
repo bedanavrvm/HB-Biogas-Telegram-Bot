@@ -135,7 +135,7 @@
         let input;
         if (name === 'Application Action') {
           input = document.createElement('select');
-          [['update_existing', 'Update existing / first unit'], ['create_additional_unit', 'Create next linked unit']].forEach(([value, label]) => {
+          [['update_existing', 'New lead (first unit)'], ['create_additional_unit', 'Additional unit (same farmer)']].forEach(([value, label]) => {
             const option = document.createElement('option'); option.value = value; option.textContent = label; input.appendChild(option);
           });
         } else {

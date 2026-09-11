@@ -16,8 +16,10 @@ from core.services.portal_reporting import (
     catalogue_payload,
     create_definition,
     export_xlsx,
+    export_curated_report,
     preview_chart,
     run_definition,
+    run_curated_report,
     validate_charts,
     validate_configuration,
 )
@@ -122,6 +124,38 @@ class PortalReportingTests(TestCase):
         self.assertEqual(preview['values'], [1.0])
         self.assertEqual(preview['type'], 'bar')
         self.assertEqual(ComplianceAuditEvent.objects.count(), audit_count)
+
+    def test_fixed_pipeline_report_is_branch_scoped_and_uses_allowlisted_columns(self):
+        self.emb_u_case.workflow_state = 'jbl_visit'
+        self.emb_u_case.save(update_fields=['workflow_state', 'updated_at'])
+
+        result = run_curated_report(
+            preset='pipeline', filters={}, user=self.it_user,
+            access={'roles': ['IT'], 'branches': ['EMBU']},
+        )
+
+        self.assertEqual(result['total_rows'], 1)
+        self.assertEqual(result['summary']['Awaiting visit'], 1)
+        self.assertEqual(result['rows'][0]['customer_name'], self.emb_u_case.customer_name)
+        self.assertNotIn('comments', {column['key'] for column in result['columns']})
+
+    def test_fixed_finance_export_uses_decimal_values_and_current_period(self):
+        self.emb_u_case.requisition_date = timezone.localdate()
+        self.emb_u_case.invoice_amount = Decimal('12000.50')
+        self.emb_u_case.balance_due = Decimal('7000.50')
+        self.emb_u_case.save(update_fields=['requisition_date', 'invoice_amount', 'balance_due', 'updated_at'])
+
+        result = run_curated_report(
+            preset='finance', filters={}, user=self.it_user,
+            access={'roles': ['IT'], 'branches': ['EMBU']},
+        )
+        self.assertEqual(Decimal(result['summary']['Invoice amount']), Decimal('12000.50'))
+        self.assertEqual(result['period']['from'], timezone.localdate().replace(day=1).isoformat())
+        workbook = load_workbook(BytesIO(export_curated_report(
+            preset='finance', filters={}, user=self.it_user,
+            access={'roles': ['IT'], 'branches': ['EMBU']},
+        )))
+        self.assertEqual(workbook['Data']['A2'].value, str(self.emb_u_case.id))
 
     def test_chart_rules_reject_unapproved_dimensions_and_incomplete_date_grouping(self):
         with self.assertRaises(PortalReportingError):

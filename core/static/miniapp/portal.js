@@ -555,7 +555,8 @@
       + '<div class="dashboard-skeletons" aria-hidden="true"><span></span><span></span><span></span><span></span></div>';
     loading.style.display = 'block';
     loading.setAttribute('aria-busy', 'true');
-    el('dash-counts').style.display = 'none';
+    if (el('dash-counts')) el('dash-counts').style.display = 'none';
+    if (el('dashboard-overview')) el('dashboard-overview').hidden = true;
     const loadVersion = ++dashboardLoadVersion;
     const { ok, status, data, requestId } = await apiFetch('/dashboard/');
     dashboardLoading = false;
@@ -591,19 +592,35 @@
 
   function renderDashboard() {
     const c = state.counts;
-    el('cnt-jbl').textContent = c.jbl_queue ?? '-';
-    el('cnt-credit').textContent = c.credit_queue ?? '-';
-    el('cnt-final').textContent = c.final_review_queue ?? '-';
-    el('cnt-requisition').textContent = c.requisition_queue ?? '-';
-    el('cnt-deferred').textContent = c.deferred ?? '-';
-    el('cnt-total').textContent = c.total ?? '-';
+    if (el('cnt-jbl')) el('cnt-jbl').textContent = c.jbl_queue ?? '-';
+    if (el('cnt-credit')) el('cnt-credit').textContent = c.credit_queue ?? '-';
+    if (el('cnt-final')) el('cnt-final').textContent = c.final_review_queue ?? '-';
+    if (el('cnt-requisition')) el('cnt-requisition').textContent = c.requisition_queue ?? '-';
+    if (el('cnt-deferred')) el('cnt-deferred').textContent = c.deferred ?? '-';
+    if (el('cnt-total')) el('cnt-total').textContent = c.total ?? '-';
     // Update tab badges
     setBadge('tab-badge-jbl', c.jbl_queue);
     setBadge('tab-badge-credit', c.credit_queue);
     setBadge('tab-badge-final', c.final_review_queue);
     setBadge('tab-badge-req', c.requisition_queue);
-    el('dash-counts').style.display = 'grid';
+    if (el('dash-counts')) el('dash-counts').style.display = 'none';
     const dashboard = state.dashboard || {};
+    const overview = dashboard.overview || {
+      total_active: c.total || 0,
+      in_progress: (c.jbl_queue || 0) + (c.credit_queue || 0) + (c.final_review_queue || 0),
+      attention: (dashboard.attention || []).reduce((sum, item) => sum + Number(item.count || 0), 0),
+      ready_for_order: c.requisition_queue || 0,
+    };
+    if (el('dashboard-scope')) el('dashboard-scope').textContent = dashboard.scope?.label || 'Your authorized scope';
+    if (el('dashboard-as-of')) el('dashboard-as-of').textContent = dashboard.as_of ? `Updated ${fmtDateTime(dashboard.as_of)}` : 'Current data';
+    const overviewTarget = el('dashboard-overview');
+    if (overviewTarget) {
+      overviewTarget.hidden = false;
+      overviewTarget.innerHTML = [
+        ['Active', overview.total_active], ['In progress', overview.in_progress],
+        ['Attention', overview.attention], ['Ready for order', overview.ready_for_order],
+      ].map(([label, value]) => `<div><strong>${escapeHtml(value ?? 0)}</strong><span>${escapeHtml(label)}</span></div>`).join('');
+    }
     const attention = dashboard.attention || [];
     const attentionSection = el('dashboard-attention');
     const attentionList = el('dashboard-attention-list');
@@ -621,6 +638,12 @@
         : '<div class="empty-state"><div class="es-sub">No recorded workflow activity in the last 7 days.</div></div>';
     }
     const distribution = dashboard.pipeline_distribution || [];
+    if (el('dashboard-pipeline')) {
+      const pipeline = dashboard.pipeline || distribution;
+      el('dashboard-pipeline').innerHTML = pipeline.length
+        ? pipeline.map((item, index) => `<a class="dashboard-pipeline-stage dashboard-route-link" href="${escapeHtml(item.url || '#')}" style="--pipeline-fill:${Math.max(0, Math.min(100, Number(item.percent || 0)))}%"><span class="dashboard-stage-index">${index + 1}</span><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.count)} case${Number(item.count) === 1 ? '' : 's'}</small></span>${item.urgent_count ? `<b title="Urgent">${escapeHtml(item.urgent_count)}</b>` : ''}<i data-lucide="chevron-right" aria-hidden="true"></i></a>`).join('')
+        : '<div class="empty-state"><div class="es-sub">No actionable queues for this role.</div></div>';
+    }
     if (el('dashboard-pipeline-distribution')) {
       el('dashboard-pipeline-distribution').innerHTML = distribution.length
         ? distribution.map(item => `<div class="dashboard-metric-row"><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.count)}</strong></div>`).join('')
@@ -631,7 +654,7 @@
     const recentList = el('dashboard-recent-list');
     if (recentSection && recentList) {
       recentSection.hidden = !recent.length;
-      recentList.innerHTML = recent.map(item => `<a class="farmer-card dashboard-case-link dashboard-route-link" href="${escapeHtml(item.url)}"><div class="fc-top"><div><div class="fc-name">${escapeHtml(item.customer_name || 'Unnamed customer')}</div><div class="fc-sub">${escapeHtml([item.branch, item.stage].filter(Boolean).join(' · '))}</div></div><i data-lucide="arrow-up-right"></i></div><div class="dashboard-case-reason">${escapeHtml(item.reason || 'Recently updated')}</div></a>`).join('');
+      recentList.innerHTML = recent.slice(0, 5).map(item => `<a class="farmer-card dashboard-case-link dashboard-route-link" href="${escapeHtml(item.url)}"><div class="fc-top"><div><div class="fc-name">${escapeHtml(item.customer_name || 'Unnamed customer')}</div><div class="fc-sub">${escapeHtml([item.branch, item.stage].filter(Boolean).join(' · '))}</div></div><i data-lucide="arrow-up-right"></i></div><div class="dashboard-case-reason">${escapeHtml(item.reason || 'Recently updated')}</div></a>`).join('');
     }
     if (window.lucide) {
       window.lucide.createIcons();

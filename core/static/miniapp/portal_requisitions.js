@@ -758,6 +758,7 @@
     const confirm = el('requisition-preview-confirm');
     const cancel = el('requisition-preview-cancel');
     const progress = el('requisition-preview-progress');
+    const note = el('requisition-finalize-note');
     const blockedById = {};
     (data.blocked || []).forEach(item => {
       if (item.farmer?.id) blockedById[item.farmer.id] = item.missing || [];
@@ -774,16 +775,23 @@
     // previews are read-only and must never imply that a workbook is being
     // generated or make another generation request.
     if (progress) progress.hidden = true;
-    // Keep generation as one visible action: Telegram's native MainButton.
-    // The inline element is a hidden proxy so the shell can invoke the same
-    // click handler and the browser/keyboard fallback remains available.
-    const usesTelegramMainButton = Boolean(deps.tg?.MainButton);
-    confirm.hidden = readOnly || usesTelegramMainButton;
-    confirm.toggleAttribute('aria-hidden', readOnly || usesTelegramMainButton);
+    // The in-document action is authoritative. Some Telegram clients expose
+    // MainButton without reliably painting it, so the native control may
+    // mirror this action but must never replace it.
+    confirm.hidden = readOnly;
+    confirm.toggleAttribute('aria-hidden', readOnly);
     if (readOnly) confirm.removeAttribute('data-main-action');
-    else confirm.dataset.mainAction = 'Finalize Order';
+    else confirm.dataset.mainAction = `Finalize Order ${data.order_number}`;
     confirm.disabled = readOnly || (data.blocked_count || 0) > 0 || !(data.ready_count || 0);
-    confirm.textContent = confirm.disabled && !readOnly ? 'Resolve Blocked Items' : 'Finalize Order';
+    confirm.textContent = confirm.disabled && !readOnly
+      ? `Resolve ${data.blocked_count || 0} blocked case${Number(data.blocked_count || 0) === 1 ? '' : 's'}`
+      : `Finalize Order ${data.order_number}`;
+    if (note) {
+      note.hidden = readOnly;
+      note.textContent = confirm.disabled
+        ? 'Every selected case must be ready before an official number can be consumed.'
+        : `Finalizing assigns official order ${data.order_number}, freezes these ${data.ready_count || 0} cases and stores the workbook in Django. Drive publication happens separately.`;
+    }
     if (cancel) cancel.textContent = readOnly ? 'Close Preview' : 'Back';
     overlay.classList.add('open');
   }
@@ -801,14 +809,11 @@
       progress.hidden = false;
       progress.querySelector('span:last-child').textContent = 'Generating and saving Excel…';
     }
-    // Telegram's MainButton is the visible action in the Mini App. Keep its
-    // label and progress state explicit; disabling the hidden proxy would
-    // otherwise make the native button disappear before the request starts.
+    confirm.disabled = true;
+    deps.setButtonLoading(confirm, true, 'Finalizing…');
     if (usingTelegramMainButton) {
       mainButton.setText?.('Generating…');
       mainButton.showProgress?.(false);
-    } else {
-      deps.setButtonLoading(confirm, true, 'Generating...');
     }
     try {
       const response = await deps.portalApi.postJson('/requisition-queue/finalize/', {
@@ -823,17 +828,32 @@
       deps.showToast(result.drive_sync_pending
         ? 'Requisition saved. Saving the current workbook to Drive.'
         : 'Official order finalized and saved to Batches.', 'success');
-      await scheduleRequisitionDriveSync(result.batch, { openWhenReady: true });
+      const batch = result.batch || {};
+      const summary = el('requisition-preview-summary');
+      const warnings = el('requisition-preview-warnings');
+      const list = el('requisition-preview-list');
+      const note = el('requisition-finalize-note');
+      if (summary) summary.innerHTML = deps.summaryGrid([
+        { label: 'Order', value: String(batch.order_number || '') },
+        { label: 'Cases', value: String(batch.farmer_count || 0) },
+        { label: 'Date', value: deps.fmtDate(batch.requisition_date) },
+      ]);
+      if (warnings) warnings.innerHTML = '';
+      if (list) list.innerHTML = `<div class="requisition-finalized-state" role="status"><i data-lucide="badge-check" aria-hidden="true"></i><div><strong>Order ${deps.escapeHtml(batch.order_number || '')} finalized</strong><p>The official workbook is stored. ${batch.drive_sync_status === 'succeeded' ? 'It is also available in Drive.' : 'Drive publication is pending and can be retried from Batches.'}</p>${batch.download_url ? `<a class="btn btn-secondary" href="${deps.escapeHtml(batch.download_url)}">Download workbook</a>` : ''}</div></div>`;
+      if (note) note.hidden = true;
+      if (el('requisition-preview-sub')) el('requisition-preview-sub').textContent = 'Official order saved';
+      confirm.removeAttribute('data-main-action');
+      confirm.hidden = true;
+      confirm.setAttribute('aria-hidden', 'true');
+      if (el('requisition-preview-cancel')) el('requisition-preview-cancel').textContent = 'Done';
+      window.lucide?.createIcons();
+      scheduleRequisitionDriveSync(batch, { openWhenReady: false });
       state().selectedRequisitions.clear();
       state().selectedRequisitionRevisions.clear();
       state().pendingRequisitionPayload = null;
       el('batch-order-num').value = 'Assigned on preview';
       el('batch-req-date').value = '';
       updateBatchPanel();
-      el('requisition-preview-overlay').classList.remove('open');
-      confirm.removeAttribute('data-main-action');
-      confirm.hidden = true;
-      confirm.setAttribute('aria-hidden', 'true');
       deps.loadQueue('requisition', 1);
       deps.loadQueue('batches', 1);
     } catch (err) {
@@ -845,8 +865,10 @@
       if (usingTelegramMainButton) {
         mainButton.hideProgress?.();
         mainButton.setText?.('Finalize Order');
-      } else {
+      }
+      if (!confirm.hidden) {
         deps.setButtonLoading(confirm, false);
+        confirm.disabled = false;
       }
     }
   }
