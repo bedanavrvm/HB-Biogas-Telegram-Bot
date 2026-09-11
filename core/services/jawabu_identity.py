@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from django.db import transaction
-from django.db.models import Q, Max
+from django.db.models import Exists, Max, OuterRef, Q
 
-from core.models import JawabuCustomer, JawabuFarmerMaster
+from core.models import JawabuCustomer, JawabuCustomerPhoneHistory, JawabuFarmerMaster
 from core.services.identifiers import normalize_kenyan_phone, normalize_national_id
 from core.services.jawabu_customer_quality import record_customer_phone
 
@@ -41,10 +41,30 @@ def _identity_query(national_id: str, primary_phone: str, customer_no: str = '')
     if national_id:
         query |= Q(national_id=national_id)
     if primary_phone:
-        query |= Q(primary_phone=primary_phone) | Q(phone_history__phone=primary_phone)
+        query |= Q(primary_phone=primary_phone)
     if customer_no:
         query |= Q(customer_no=customer_no)
     return query
+
+
+def _locked_identity_matches(national_id: str, primary_phone: str, customer_no: str = '') -> list[JawabuCustomer]:
+    """Lock identity matches without a PostgreSQL-incompatible DISTINCT.
+
+    Phone history previously introduced a reverse join and duplicate customer
+    rows, which required ``distinct()``. PostgreSQL rejects that shape when it
+    is combined with ``select_for_update()``. An EXISTS predicate performs the
+    same historical-phone match without multiplying rows, so the canonical
+    customers can be locked directly.
+    """
+    query = _identity_query(national_id, primary_phone, customer_no)
+    queryset = JawabuCustomer.objects.select_for_update()
+    if primary_phone:
+        history = JawabuCustomerPhoneHistory.objects.filter(
+            customer_id=OuterRef('pk'), phone=primary_phone,
+        )
+        queryset = queryset.annotate(_matches_phone_history=Exists(history))
+        query |= Q(_matches_phone_history=True)
+    return list(queryset.filter(query).order_by('pk')) if query.children else []
 
 
 @transaction.atomic
@@ -54,8 +74,7 @@ def resolve_application_identity(cleaned: dict, *, action: str = 'update_existin
     national_id = normalize_identifier(cleaned.get('national_id'))
     primary_phone = normalize_primary_phone(cleaned.get('primary_phone'))
     customer_no = normalize_identifier(cleaned.get('customer_no'))
-    query = _identity_query(national_id, primary_phone, customer_no)
-    matches = list(JawabuCustomer.objects.select_for_update().filter(query).distinct()) if query.children else []
+    matches = _locked_identity_matches(national_id, primary_phone, customer_no)
     customer_ids = {item.id for item in matches}
     if len(customer_ids) > 1:
         raise JawabuIdentityConflict(

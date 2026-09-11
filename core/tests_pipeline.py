@@ -15,11 +15,13 @@ from urllib.parse import urlsplit
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import RequestFactory, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import AccessGrant, ComplianceAuditEvent, GroupSheetConfiguration, InvoiceUploadBatch, JawabuCaseComment, JawabuFarmerMaster, JawabuMediaAccessEvent, JawabuPipelineEvent, LiveSheetRecordChange, MediaAttachment, ParsedInvoice, PaymentDocument, PortalCaseWorkspace, RequisitionBatch, UserProfile, WorkflowRoleCapability
+from core.models import AccessGrant, ComplianceAuditEvent, GroupSheetConfiguration, InvoiceUploadBatch, JawabuCaseComment, JawabuCustomer, JawabuCustomerPhoneHistory, JawabuFarmerMaster, JawabuMediaAccessEvent, JawabuPipelineEvent, LiveSheetRecordChange, MediaAttachment, ParsedInvoice, PaymentDocument, PortalCaseWorkspace, RequisitionBatch, UserProfile, WorkflowRoleCapability
 from core.services.jawabu_comments import master_comment_history
 from core.services.jawabu_pipeline import (
     append_jbl_media_links,
@@ -3695,6 +3697,28 @@ class JblPipelineApiTestCase(TestCase):
 
 
 class JawabuIntegrityRulesTests(TestCase):
+    def test_identity_lock_uses_exists_for_historical_phone_without_distinct(self):
+        from core.services.jawabu_identity import _locked_identity_matches
+
+        customer = JawabuCustomer.objects.create(
+            national_id='12345678', primary_phone='254712345678', identity_enforced=True,
+        )
+        JawabuCustomerPhoneHistory.objects.create(
+            customer=customer, phone='254700000999', source='test', is_current=False,
+        )
+        with CaptureQueriesContext(connection) as queries:
+            matches = _locked_identity_matches('', '254700000999')
+
+        self.assertEqual(matches, [customer])
+        matching_queries = [
+            item['sql'].upper() for item in queries.captured_queries
+            if 'SELECT' in item['sql'].upper()
+            and 'CORE_JAWABUCUSTOMER' in item['sql'].upper()
+            and 'EXISTS' in item['sql'].upper()
+        ]
+        self.assertTrue(matching_queries)
+        self.assertTrue(all('DISTINCT' not in sql for sql in matching_queries))
+
     def test_additional_unit_reuses_customer_and_allocates_next_number(self):
         from core.services.jawabu_identity import resolve_application_identity
 
