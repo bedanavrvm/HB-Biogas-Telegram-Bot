@@ -267,6 +267,48 @@ class PortalImportStagingTests(TestCase):
         self.assertEqual(counts['selected'], 1)
         self.assertEqual(counts['warning_overrides'], 1)
 
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    @patch('core.api.portal_views._portal_import_group_ids', return_value=None)
+    def test_mapping_endpoint_returns_editable_fields_and_replays_after_mapping_was_applied(self, _group_scope):
+        csv_text = FARMUP_CSV.replace(b'Full Name', b'Applicant Legal Name')
+        batch, _operation, _replayed = stage_portal_import(
+            kind='farmup', filename='renamed.csv', content=csv_text,
+            request_id='portal-farmup-mapping-endpoint-stage-0001', actor=self.user,
+            allowed_group_ids={self.group.group_id},
+        )
+        decisions = [
+            {
+                'source_id': item['source_id'],
+                'target_field': 'customer_name' if item['source_id'] == 'Applicant Legal Name' else item['target_field'],
+            }
+            for item in batch.mapping['columns']
+        ]
+        request_key = 'portal-farmup-mapping-endpoint-0001'
+        payload = {
+            'mapping': decisions,
+            'revision_token': farmup_revision_token(batch),
+            'client_request_id': request_key,
+        }
+        response = self.client.post(
+            f'/api/portal/farmup/{batch.pk}/mapping/', data=payload,
+            content_type='application/json',
+            headers={'X-Request-ID': request_key, 'Idempotency-Key': request_key},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Customer Name', response.json()['batch']['editable_fields'])
+        self.assertFalse(response.json()['replayed'])
+
+        # This is the production failure mode: the mutation succeeded but the
+        # response crashed. Retrying the original body/key must now succeed.
+        replay = self.client.post(
+            f'/api/portal/farmup/{batch.pk}/mapping/', data=payload,
+            content_type='application/json',
+            headers={'X-Request-ID': request_key, 'Idempotency-Key': request_key},
+        )
+        self.assertEqual(replay.status_code, 200)
+        self.assertTrue(replay.json()['replayed'])
+        self.assertIn('Customer Name', replay.json()['batch']['editable_fields'])
+
     def test_portal_farmup_commit_is_revision_bound_and_exactly_replayable(self):
         batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})
         rows = list(batch.parsed_rows)

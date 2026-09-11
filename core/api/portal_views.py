@@ -2579,7 +2579,8 @@ def portal_farmup_mapping(request, batch_id: str):
     payload = _portal_request_data(request)
     try:
         from core.services.portal_imports import (
-            PortalImportConflict, PortalImportError, apply_portal_farmup_mapping,
+            FARMUP_EDITABLE_FIELDS, PortalImportConflict, PortalImportError,
+            apply_portal_farmup_mapping,
             archive_operation_ids, farmup_revision_token, serialize_import_batch,
         )
         batch, replayed = apply_portal_farmup_mapping(
