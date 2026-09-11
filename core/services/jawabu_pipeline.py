@@ -1892,6 +1892,20 @@ def _sheet_number(value):
     return float(value)
 
 
+def _canonical_hbg_deposit_for_sheet(farmer):
+    """Resolve canonical Decimal money and reject unsafe legacy text."""
+    from core.services.jawabu_validation import parse_money
+
+    if farmer.deposit_paid_hbg is not None:
+        return _sheet_number(farmer.deposit_paid_hbg)
+    if farmer.actual_receipts in (None, ''):
+        return ''
+    parsed = parse_money(farmer.actual_receipts)
+    if parsed is None:
+        raise ValueError('Canonical HB deposit is invalid and was not published.')
+    return _sheet_number(parsed)
+
+
 def _sheet_cell_value(value: Any):
     """Return a JSON-safe Google Sheets cell value without changing local data.
 
@@ -1936,6 +1950,7 @@ def sync_farmer_to_master_sheet(
         first_existing_header,
         header_lookup_from_headers,
         master_date_column_indexes,
+        master_hbg_deposit_column_indexes,
         next_master_append_row,
         set_header_value,
         update_master_sheet_row,
@@ -2090,7 +2105,7 @@ def sync_farmer_to_master_sheet(
             'system_branch': (candidates('system_branch'), farmer.system_branch),
             'system_loan_officer': (candidates('system_loan_officer'), farmer.system_loan_officer),
             'system_deposit_paid_jbl': (candidates('system_deposit_paid_jbl'), _sheet_number(farmer.system_deposit_paid_jbl)),
-            'deposit_paid_hbg': (candidates('deposit_paid_hbg'), _sheet_number(farmer.deposit_paid_hbg if farmer.deposit_paid_hbg is not None else farmer.actual_receipts)),
+            'deposit_paid_hbg': (candidates('deposit_paid_hbg'), _canonical_hbg_deposit_for_sheet(farmer)),
             'repayment_date': (candidates('repayment_date'), farmer.repayment_date),
             'repayment_day': (candidates('repayment_day'), farmer.repayment_day),
             'repayment_tenor': (candidates('repayment_tenor'), farmer.repayment_tenor),
@@ -2139,6 +2154,7 @@ def sync_farmer_to_master_sheet(
                 row_number,
                 row_values,
                 date_indexes=master_date_column_indexes(headers),
+                deposit_indexes=master_hbg_deposit_column_indexes(headers),
             )
 
             # Create LiveSheetRecordChange audit entry
@@ -2155,6 +2171,13 @@ def sync_farmer_to_master_sheet(
                 status='success',
             )
             logger.info("Synced farmer %s changes to master sheet row %s: %s", farmer.id, row_number, changes)
+        else:
+            # Formatting can drift independently of the displayed value.
+            from core.services.jawabu_master import write_master_hbg_deposit_cells
+            write_master_hbg_deposit_cells(
+                sheet, [(row_number, row_values)],
+                master_hbg_deposit_column_indexes(headers),
+            )
         return True
     except Exception as exc:
         logger.error("Failed to sync farmer %s to master sheet: %s", farmer.id, exc, exc_info=True)
@@ -2210,9 +2233,11 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
         first_existing_header,
         header_lookup_from_headers,
         master_date_column_indexes,
+        master_hbg_deposit_column_indexes,
         normalize_header,
         set_header_value,
         write_master_date_cells,
+        write_master_hbg_deposit_cells,
     )
     from core.services.sheet_publication import aliases_for
 
@@ -2333,7 +2358,7 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
         put(candidates('hb_sales_person'), farmer.hb_sales_person)
         put(
             candidates('deposit_paid_hbg'),
-            farmer.deposit_paid_hbg if farmer.deposit_paid_hbg is not None else farmer.actual_receipts,
+            _canonical_hbg_deposit_for_sheet(farmer),
         )
         put(candidates('system_deposit_paid_jbl'), farmer.system_deposit_paid_jbl if farmer.system_deposit_paid_jbl is not None else 0)
         put(candidates('hbg_visit_comment'), farmer.comments)
@@ -2355,15 +2380,19 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
         put(['Duplicate Key'], farmer.duplicate_key)
         put(['Last Updated At'], now_text)
 
+        if changes:
+            end_col = col_letter(max(len(headers), len(row_values)))
+            sheet.update(f'A{row_number}:{end_col}{row_number}', [row_values], value_input_option='RAW')
+            write_master_date_cells(
+                sheet,
+                [(row_number, row_values)],
+                master_date_column_indexes(headers),
+            )
+        write_master_hbg_deposit_cells(
+            sheet, [(row_number, row_values)], master_hbg_deposit_column_indexes(headers),
+        )
         if not changes:
             return True
-        end_col = col_letter(max(len(headers), len(row_values)))
-        sheet.update(f'A{row_number}:{end_col}{row_number}', [row_values], value_input_option='RAW')
-        write_master_date_cells(
-            sheet,
-            [(row_number, row_values)],
-            master_date_column_indexes(headers),
-        )
         LiveSheetRecordChange.objects.create(
             group_configuration=GroupSheetConfiguration.objects.filter(group_id=group_config.group_id).first(),
             group_id=group_config.group_id,

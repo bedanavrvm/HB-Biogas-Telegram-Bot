@@ -29,6 +29,7 @@
   let voiceReleaseTimer = null;
   let discardVoiceOnStop = false;
   let activeVoiceAttempt = null;
+  let pendingJblVisitSubmission = null;
   const acceptedVoiceAttempts = {};
   const VOICE_LANGUAGE_KEY = 'portal:voice-language';
   const VOICE_LANGUAGE_ORDER = ['auto', 'en', 'sw'];
@@ -2282,7 +2283,28 @@
     }
     const btn = el('btn-submit-jbl');
     const formData = new FormData();
-    const key = requestId();
+    const submissionSignature = JSON.stringify({
+      farmerId: String(farmer.id || ''),
+      revision: Number(farmer.workflow_revision || 1),
+      visitDate: el('jbl-date')?.value || '',
+      visitStatus,
+      officer: el('jbl-officer')?.value || '',
+      county: el('jbl-county')?.value || '',
+      subCounty: el('jbl-sub-county')?.value || '',
+      village: el('jbl-village')?.value || '',
+      comment: el('jbl-comment')?.value || '',
+      voiceTranscriptionId: acceptedVoiceAttempts.jbl_visit_comment || '',
+      latitude: el('jbl-lat')?.value || '',
+      longitude: el('jbl-lng')?.value || '',
+      locationUnavailableReason: el('jbl-location-unavailable')?.value || '',
+      files: [...jblMediaSelections.LAF, ...jblMediaSelections.JBL_VISIT_PHOTO].map(item => ({
+        category: item.category || '', name: item.file?.name || '', size: item.file?.size || 0,
+        type: item.file?.type || '', modified: item.file?.lastModified || 0,
+      })),
+    });
+    const key = pendingJblVisitSubmission?.signature === submissionSignature
+      ? pendingJblVisitSubmission.key : requestId();
+    pendingJblVisitSubmission = { signature: submissionSignature, key };
     formData.set('client_request_id', key);
     formData.set('workflow_revision', String(Number(farmer.workflow_revision || 1)));
     formData.set('visit_date', el('jbl-date')?.value || '');
@@ -2317,6 +2339,7 @@
         formData,
         deps.tg,
         { 'X-CSRFToken': deps.getCookie('csrftoken') || '', 'X-Request-ID': key, 'Idempotency-Key': key },
+        { timeoutMs: 0 },
       );
     } catch (error) {
       deps.showToast(error.message || 'The upload could not be completed. Keep the form open and retry when connected.', 'error');
@@ -2346,6 +2369,7 @@
       deps.showToast((data.error || 'Visit could not be saved.') + recovered, 'error');
       return;
     }
+    pendingJblVisitSubmission = null;
     const uploaded = Number(data.stored_count || 0);
     const successMessage = data.already_completed ? 'This visit was already saved.' : `JBL visit logged${uploaded ? ` with ${uploaded} new evidence file${uploaded === 1 ? '' : 's'}` : ''}.`;
     await clearJblVisitDraft(farmer);

@@ -750,6 +750,204 @@ def validate_portal_farmup(
     return batch, results, counts
 
 
+def _farmup_repair_operation_ids(batch: JawabuFarmerUploadBatch) -> set[str]:
+    ledgers = JawabuFarmerUploadBatch.objects.filter(
+        worklist_id=batch.worklist_id, import_kind='farmers',
+    ).values_list('portal_commit_replays', flat=True)
+    operation_ids = {
+        str(operation.get('id'))
+        for ledger in ledgers
+        for replay in list(ledger or [])
+        if replay.get('operation') in (None, 'commit', 'repair')
+        for publication in list((replay.get('result') or {}).get('publications') or [])
+        for operation in list(publication.get('operations') or [])
+        if operation.get('id')
+    }
+    operation_ids.update(str(value) for value in IntegrationOperation.objects.filter(
+        source_model='JawabuFarmerMaster',
+        metadata__farmup_worklist_id=str(batch.worklist_id),
+    ).values_list('pk', flat=True))
+    return operation_ids
+
+
+def _farmup_repair_farmer_ids(batch: JawabuFarmerUploadBatch) -> set[str]:
+    """Collect opaque canonical farmer IDs associated with this worklist."""
+    farmer_ids = set(IntegrationOperation.objects.filter(
+        pk__in=_farmup_repair_operation_ids(batch), source_model='JawabuFarmerMaster',
+    ).values_list('source_id', flat=True))
+
+    current = JawabuFarmerUploadBatch.objects.filter(
+        worklist_id=batch.worklist_id, import_kind='farmers', is_current_version=True,
+    ).first() or batch
+    for index, row in enumerate(list(current.parsed_rows or []), start=1):
+        if str(row.get('disposition') or '') in {'exclude', 'excluded'}:
+            continue
+        match = _farmup_database_match(current, row, index)
+        if match.get('kind') == 'unchanged' and match.get('farmer_id'):
+            farmer_ids.add(str(match['farmer_id']))
+    return farmer_ids
+
+
+def _farmup_invalid_deposit(farmer) -> bool:
+    from core.services.jawabu_validation import parse_money
+
+    if farmer.deposit_paid_hbg is not None or farmer.actual_receipts in (None, ''):
+        return False
+    return parse_money(farmer.actual_receipts) is None
+
+
+def farmup_repair_preview(
+    *, batch_id: str, revision_token: str,
+    allowed_group_ids: set[str] | None = None,
+) -> tuple[JawabuFarmerUploadBatch, dict[str, Any], list]:
+    """Build a customer-safe monthly Sheet projection repair preview."""
+    from core.models import JawabuFarmerMaster
+
+    batch = JawabuFarmerUploadBatch.objects.filter(pk=batch_id).first()
+    if batch is None:
+        raise PortalImportError('This FarmUp batch is unavailable.')
+    _assert_replay_is_in_scope(batch, allowed_group_ids=allowed_group_ids)
+    _assert_farmup_batch(batch)
+    if _revision_from_token(batch, revision_token) != int(batch.portal_revision or 1):
+        raise PortalImportConflict('Another reviewer changed this FarmUp batch. Reload it before repairing Sheets.')
+    group_configuration = resolve_import_group(allowed_group_ids=allowed_group_ids)
+    if str(group_configuration.group_id) != str(batch.group_id):
+        raise PortalImportError('This FarmUp batch no longer matches the configured Jawabu workflow.')
+
+    sheet_enabled = bool((group_configuration.workflow or {}).get('master_sync_enabled'))
+    farmer_ids = _farmup_repair_farmer_ids(batch)
+    farmers = list(JawabuFarmerMaster.objects.filter(pk__in=farmer_ids).order_by('pk'))
+    invalid_ids = {str(farmer.pk) for farmer in farmers if _farmup_invalid_deposit(farmer)}
+    eligible = [farmer for farmer in farmers if str(farmer.pk) not in invalid_ids] if sheet_enabled else []
+    operation_ids = _farmup_repair_operation_ids(batch)
+    operations = list(IntegrationOperation.objects.filter(
+        pk__in=operation_ids, source_model='JawabuFarmerMaster', source_id__in=farmer_ids,
+        operation_type__in=['jawabu_master_publish', 'jawabu_internal_order_publish'],
+    ).order_by('created_at'))
+    failures: dict[str, int] = {}
+    last_failure_at = None
+    failure_categories: dict[str, int] = {}
+    farmer_statuses: dict[str, set[str]] = {}
+    for operation in operations:
+        farmer_statuses.setdefault(operation.source_id, set()).add(operation.status)
+        if operation.status == IntegrationOperation.STATUS_DEAD_LETTER:
+            failures[operation.source_id] = failures.get(operation.source_id, 0) + 1
+            category = str(operation.last_error_code or 'external_error')
+            failure_categories[category] = failure_categories.get(category, 0) + 1
+            if operation.last_attempt_at and (last_failure_at is None or operation.last_attempt_at > last_failure_at):
+                last_failure_at = operation.last_attempt_at
+    pending_statuses = {
+        IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RUNNING,
+        IntegrationOperation.STATUS_RETRYABLE,
+    }
+    current = JawabuFarmerUploadBatch.objects.filter(
+        worklist_id=batch.worklist_id, import_kind='farmers', is_current_version=True,
+    ).first() or batch
+    current_rows = list(current.parsed_rows or [])
+    unchanged_count = 0
+    for index, row in enumerate(current_rows, start=1):
+        if str(row.get('disposition') or '') not in {'exclude', 'excluded'} and _farmup_database_match(current, row, index).get('kind') == 'unchanged':
+            unchanged_count += 1
+    counts = {
+        'repairable': len(eligible),
+        'committed': int(current.committed_count or 0),
+        'unchanged': unchanged_count,
+        'held': sum(1 for row in current_rows if str(row.get('disposition') or '') == 'hold'),
+        'excluded': int(current.skipped_count or 0),
+        'unresolved': int(current.review_needed or 0),
+        'pending': sum(1 for farmer_id in farmer_ids if farmer_statuses.get(farmer_id, set()) & pending_statuses),
+        'failed_once': sum(1 for count in failures.values() if count == 1),
+        'repeatedly_failing': sum(1 for count in failures.values() if count >= 2),
+        'invalid_deposits': len(invalid_ids),
+    }
+    preview = {
+        'worklist_id': str(batch.worklist_id),
+        'period': batch.period_month.strftime('%Y-%m') if batch.period_month else '',
+        'period_label': batch.period_month.strftime('%B %Y') if batch.period_month else 'Legacy import',
+        'counts': counts,
+        'failure_categories': failure_categories,
+        'last_failure_at': last_failure_at.isoformat() if last_failure_at else None,
+        'sheet_enabled': sheet_enabled,
+    }
+    return batch, preview, eligible
+
+
+@transaction.atomic
+def repair_portal_farmup(
+    *, batch_id: str, revision_token: str, request_id: str, actor,
+    allowed_group_ids: set[str] | None = None,
+) -> tuple[JawabuFarmerUploadBatch, dict[str, Any], bool]:
+    """Reserve an idempotent, resumable Sheet-only repair for one worklist."""
+    request_id = str(request_id or '').strip()
+    if not request_id:
+        raise PortalImportError('This Sheet repair needs a retry key.')
+    batch = JawabuFarmerUploadBatch.objects.select_for_update().filter(pk=batch_id).first()
+    if batch is None:
+        raise PortalImportError('This FarmUp batch is unavailable.')
+    _assert_replay_is_in_scope(batch, allowed_group_ids=allowed_group_ids)
+    _assert_farmup_batch(batch)
+    payload_hash = hashlib.sha256(
+        f'{batch.worklist_id}:{revision_token}'.encode('utf-8')
+    ).hexdigest()
+    for replay in list(batch.portal_commit_replays or []):
+        if replay.get('operation') != 'repair' or replay.get('request_id') != request_id:
+            continue
+        if replay.get('payload_hash') != payload_hash:
+            raise PortalImportConflict('This retry key was already used for a different FarmUp repair.')
+        return batch, dict(replay.get('result') or {}), True
+
+    _preview_batch, preview, farmers = farmup_repair_preview(
+        batch_id=str(batch.pk), revision_token=revision_token,
+        allowed_group_ids=allowed_group_ids,
+    )
+    from core.services.portal_publication import MASTER_OPERATION, publication_payload, reserve_farmer_publication
+
+    publications = []
+    namespace = f'farmup-repair:{batch.worklist_id}:{request_id}'
+    for farmer in farmers:
+        reserve_farmer_publication(
+            farmer, request_id=request_id, requested_by=actor,
+            requested_by_label=batch.sender,
+            required_capability='portal.publication.retry',
+            deduplication_namespace=namespace,
+            extra_metadata={
+                'farmup_worklist_id': str(batch.worklist_id),
+                'farmup_period': preview['period'], 'farmup_repair': True,
+            },
+            operation_types=[MASTER_OPERATION],
+        )
+        publications.append(publication_payload(farmer))
+    result = {
+        'success': True, 'repairable': len(farmers),
+        'skipped_invalid_deposits': int(preview['counts']['invalid_deposits']),
+        'publications': publications,
+        'pending_operation_ids': [
+            operation_id for publication in publications
+            for operation_id in list(publication.get('pending_operation_ids') or [])
+        ],
+    }
+    replays = list(batch.portal_commit_replays or [])
+    replays.append({
+        'operation': 'repair', 'request_id': request_id[:128],
+        'payload_hash': payload_hash, 'result': result,
+    })
+    commit_replays = [item for item in replays if item.get('operation') in (None, 'commit')]
+    other_replays = [item for item in replays if item.get('operation') not in (None, 'commit')][-50:]
+    batch.portal_commit_replays = commit_replays + other_replays
+    batch.save(update_fields=['portal_commit_replays', 'updated_at'])
+    record_event(
+        workflow='portal', action='portal.farmup.sheet_repair_reserved', category='integration',
+        subject_type='JawabuFarmerUploadBatch', subject_id=str(batch.pk),
+        deduplication_key=f'portal-farmup-repair:{batch.pk}:{request_id}', actor=actor,
+        request_id=request_id, source_model='JawabuFarmerUploadBatch',
+        source_event_id=f'{batch.pk}:repair:{request_id}', before_values={},
+        after_values={'repairable': len(farmers), 'invalid_deposits': result['skipped_invalid_deposits']},
+        metadata={'group_id': batch.group_id, 'worklist_id': str(batch.worklist_id), 'period': preview['period']},
+        sensitive=False,
+    )
+    return batch, result, False
+
+
 @transaction.atomic
 def apply_portal_farmup_mapping(
     *, batch_id: str, decisions: list[dict], revision_token: str,

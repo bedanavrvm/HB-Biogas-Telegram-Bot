@@ -55,6 +55,9 @@ def reserve_farmer_publication(
     requested_by=None,
     requested_by_label: str = '',
     required_capability: str = 'portal.case.read',
+    deduplication_namespace: str = '',
+    extra_metadata: dict | None = None,
+    operation_types: list[str] | tuple[str, ...] | None = None,
 ) -> list[IntegrationOperation]:
     """Reserve idempotent register publications for the farmer's revision.
 
@@ -64,11 +67,20 @@ def reserve_farmer_publication(
     """
     revision = int(getattr(farmer, 'workflow_revision', 0) or 0)
     operations = []
-    for operation_type in _targets_for_farmer():
+    namespace = str(deduplication_namespace or '').strip()
+    enabled_targets = _targets_for_farmer()
+    requested_targets = list(operation_types) if operation_types is not None else enabled_targets
+    for operation_type in requested_targets:
+        if operation_type not in enabled_targets:
+            continue
+        deduplication_key = (
+            f'portal-publication:{namespace}:{farmer.pk}:{revision}:{operation_type}'
+            if namespace else f'portal-publication:{farmer.pk}:{revision}:{operation_type}'
+        )
         operation, _ = reserve_operation(
             integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
             operation_type=operation_type,
-            deduplication_key=f'portal-publication:{farmer.pk}:{revision}:{operation_type}',
+            deduplication_key=deduplication_key,
             source_model=SOURCE_MODEL,
             source_id=str(farmer.pk),
             request_id=str(request_id or '')[:128],
@@ -78,6 +90,7 @@ def reserve_farmer_publication(
             metadata={
                 'workflow_revision': revision, 'target': operation_type,
                 'required_capability': str(required_capability or 'portal.case.read'),
+                **dict(extra_metadata or {}),
             },
         )
         operations.append(operation)

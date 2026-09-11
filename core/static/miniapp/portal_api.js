@@ -48,18 +48,24 @@
 
   async function fetchWithTimeout(url, options) {
     const requestOptions = options || {};
-    if (!window.AbortController) return fetch(url, requestOptions);
+    const configuredTimeout = Number(requestOptions.timeoutMs);
+    const timeoutMs = Number.isFinite(configuredTimeout) ? configuredTimeout : REQUEST_TIMEOUT_MS;
+    const { timeoutMs: _timeoutMs, ...fetchOptions } = requestOptions;
+    // Long multipart writes can finish on the server after a WebView-side
+    // timeout. Callers may explicitly wait for the authoritative response so
+    // the UI never reports failure for an already-committed operation.
+    if (timeoutMs <= 0 || !window.AbortController) return fetch(url, fetchOptions);
 
     const controller = new AbortController();
-    const callerSignal = requestOptions.signal;
+    const callerSignal = fetchOptions.signal;
     const abortForCaller = function () { controller.abort(); };
-    const timeout = window.setTimeout(function () { controller.abort(); }, REQUEST_TIMEOUT_MS);
+    const timeout = window.setTimeout(function () { controller.abort(); }, timeoutMs);
     if (callerSignal) {
       if (callerSignal.aborted) controller.abort();
       else callerSignal.addEventListener('abort', abortForCaller, { once: true });
     }
     try {
-      return await fetch(url, { ...requestOptions, signal: controller.signal });
+      return await fetch(url, { ...fetchOptions, signal: controller.signal });
     } finally {
       window.clearTimeout(timeout);
       if (callerSignal) callerSignal.removeEventListener('abort', abortForCaller);
@@ -109,7 +115,12 @@
             body: JSON.stringify({ operation_id: operationId, automatic: true, client_request_id: key }),
           });
           const data = await response.json().catch(() => ({}));
-          publishEvent({ operationId, ok: response.ok && data.ok, publication: data.publication || null });
+          publishEvent({
+            operationId, ok: response.ok && data.ok,
+            publication: data.publication || null,
+            retryable: Boolean(data.retryable),
+            needsAttention: Boolean(data.needs_attention),
+          });
         } catch (_) {
           // The operation is durable and will be resumed after its persisted
           // retry time on a later relevant Mini App visit.
@@ -195,13 +206,14 @@
       ? window.MiniAppUtils.singleFlight(key, operation) : operation();
   }
 
-  async function postForm(path, formData, tg, extraHeaders) {
+  async function postForm(path, formData, tg, extraHeaders, requestOptions) {
     const key = formData.get('client_request_id') || requestId({headers: extraHeaders || {}});
     if (!formData.get('client_request_id')) formData.set('client_request_id', key);
     const operation = () => fetchWithTimeout(apiBase() + path, {
       method: 'POST',
       headers: { ...initDataHeader(tg), ...(extraHeaders || {}), 'X-Request-ID': key, 'Idempotency-Key': key, 'X-MiniApp-Message-Contract': '2' },
       body: formData,
+      ...(requestOptions || {}),
     });
     const response = await (window.MiniAppUtils?.singleFlight
       ? window.MiniAppUtils.singleFlight(key, operation) : operation());

@@ -2672,23 +2672,30 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .farmup-counters strong { display: block; color: var(--text-primary); font-size: 16px; }
 .farmup-counters .warning, .farmup-counters .warning strong { color: var(--portal-status-warning); }
 .farmup-counters .danger, .farmup-counters .danger strong { color: var(--portal-status-danger); }
-.farmup-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) repeat(5, auto); gap: 6px; margin-bottom: 9px; }
-.farmup-toolbar input { min-width: 0; min-height: 38px; border: 1px solid var(--border-color); border-radius: 8px; padding: 7px 9px; background: var(--bg-surface); color: var(--text-primary); }
-.farmup-toolbar .btn { min-height: 38px; padding: 6px 9px; }
+.farmup-toolbar { display: grid; grid-template-columns: minmax(160px, 1fr) auto auto repeat(4, 32px); align-items: center; gap: 4px; margin-bottom: 6px; }
+.farmup-toolbar input { min-width: 0; min-height: 32px; border: 1px solid var(--border-color); border-radius: 7px; padding: 5px 7px; background: var(--bg-surface); color: var(--text-primary); }
+.farmup-toolbar .btn { min-height: 32px; padding: 4px 7px; }
 .farmup-toolbar .active { border-color: var(--brand-primary); color: var(--brand-primary); }
-.farmup-selection-summary { position: sticky; top: 0; z-index: var(--portal-z-sticky); display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; padding: 7px; border: 1px solid var(--border-color); border-radius: 9px; background: color-mix(in srgb, var(--bg-surface) 94%, transparent); backdrop-filter: blur(10px); }
-.farmup-selection-summary span { padding: 5px 7px; border-radius: 7px; background: var(--bg-muted); color: var(--text-muted); font-size: 9px; }
+.farmup-mode-toggle { display: inline-flex; padding: 2px; border: 1px solid var(--border-color); border-radius: 7px; background: var(--bg-muted); }
+.farmup-mode-toggle button, .farmup-toolbar .icon-button, .portal-import-review-heading .icon-button, .farmup-carousel-nav .icon-button { display: inline-grid; width: 30px; height: 30px; min-height: 30px; place-items: center; border: 0; border-radius: 5px; background: transparent; color: var(--text-muted); cursor: pointer; }
+.farmup-mode-toggle button.active { background: var(--bg-surface); color: var(--brand-primary); box-shadow: 0 1px 3px rgba(15,23,42,.12); }
+.farmup-mode-toggle svg, .farmup-toolbar .icon-button svg, .portal-import-review-heading .icon-button svg, .farmup-carousel-nav svg { width: 15px; height: 15px; }
+.farmup-selection-summary { position: sticky; top: 0; z-index: var(--portal-z-sticky); display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 5px; padding: 4px; border: 1px solid var(--border-color); border-radius: 7px; background: color-mix(in srgb, var(--bg-surface) 94%, transparent); backdrop-filter: blur(10px); }
+.farmup-selection-summary span { padding: 3px 5px; border-radius: 5px; background: var(--bg-muted); color: var(--text-muted); font-size: 8px; }
 .farmup-selection-summary strong { color: var(--text-primary); font-size: 11px; }
 .farmup-selection-summary .selected, .farmup-selection-summary .selected strong { color: var(--portal-status-success); }
+.farmup-selection-summary .edited, .farmup-selection-summary .edited strong { color: var(--brand-primary); }
 .farmup-selection-summary .warning, .farmup-selection-summary .warning strong { color: var(--portal-status-warning); }
 .farmup-selection-summary .danger, .farmup-selection-summary .danger strong { color: var(--portal-status-danger); }
 .farmup-grid-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--border-color); border-radius: 9px; background: var(--bg-surface); }
-.farmup-grid { width: 100%; min-width: 980px; height: min(62vh, 680px); --ag-background-color: var(--bg-surface); --ag-foreground-color: var(--text-primary); --ag-header-background-color: var(--bg-muted); --ag-header-text-color: var(--text-muted); --ag-border-color: var(--border-color); --ag-row-border-color: var(--border-color); --ag-odd-row-background-color: color-mix(in srgb, var(--text-primary) 2%, var(--bg-surface)); --ag-selected-row-background-color: color-mix(in srgb, var(--color-primary) 10%, var(--bg-surface)); --ag-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --ag-font-size: 10px; --ag-grid-size: 4px; --ag-cell-horizontal-padding: 7px; --ag-row-hover-color: color-mix(in srgb, var(--color-primary) 7%, transparent); }
+.farmup-grid { width: 100%; min-width: 1500px; height: min(62vh, 680px); --ag-background-color: var(--bg-surface); --ag-foreground-color: var(--text-primary); --ag-header-background-color: var(--bg-muted); --ag-header-text-color: var(--text-muted); --ag-border-color: var(--border-color); --ag-row-border-color: var(--border-color); --ag-odd-row-background-color: color-mix(in srgb, var(--text-primary) 2%, var(--bg-surface)); --ag-selected-row-background-color: color-mix(in srgb, var(--color-primary) 10%, var(--bg-surface)); --ag-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --ag-font-size: 10px; --ag-grid-size: 3px; --ag-cell-horizontal-padding: 5px; --ag-row-hover-color: color-mix(in srgb, var(--color-primary) 7%, transparent); }
 .farmup-grid .ag-root-wrapper { border: 0; }
 .farmup-grid .ag-header-cell-label { font-size: 9px; font-weight: 800; text-transform: uppercase; }
-.farmup-grid .ag-cell { line-height: 37px; }
+.farmup-grid .ag-cell { line-height: 31px; }
 .farmup-grid .ag-cell-inline-editing { line-height: normal; }
-.farmup-grid .ag-checkbox-input-wrapper { width: 20px; height: 20px; font-size: 20px; }
+.farmup-grid .ag-checkbox-input-wrapper { width: 17px; height: 17px; font-size: 17px; }
+.farmup-grid .ag-cell.farmup-cell-edited { background: color-mix(in srgb, var(--brand-primary) 14%, var(--bg-surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-primary) 58%, transparent); }
+.farmup-grid .ag-cell.farmup-cell-invalid { background: color-mix(in srgb, var(--portal-status-danger) 13%, var(--bg-surface)); box-shadow: inset 0 0 0 1px var(--portal-status-danger); }
 .farmup-grid-row-blocked { box-shadow: inset 3px 0 var(--portal-status-danger); }
 .farmup-grid-row-warning { box-shadow: inset 3px 0 var(--portal-status-warning); }
 .farmup-grid-row-unselected { opacity: .74; }
@@ -2716,24 +2723,31 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .farmup-confirm-dialog::backdrop { background: rgba(0,0,0,.42); }
 .farmup-confirm-dialog h2, .farmup-confirm-dialog p { margin: 0 0 10px; }
 .farmup-confirm-dialog p { color: var(--text-muted); font-size: 12px; }
+.farmup-carousel { width: 100%; overflow: hidden; }
+.farmup-carousel-track { display: flex; width: 100%; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: thin; touch-action: pan-x pan-y; }
+.farmup-carousel-card { flex: 0 0 100%; min-width: 0; scroll-snap-align: start; padding: 7px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-surface); }
+.farmup-carousel-card.warning { box-shadow: inset 3px 0 var(--portal-status-warning); }
+.farmup-carousel-card.needs_correction { box-shadow: inset 3px 0 var(--portal-status-danger); }
+.farmup-carousel-card > header { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 7px; }
+.farmup-carousel-card > header label { display: grid; justify-items: center; gap: 1px; color: var(--text-muted); font-size: 8px; }
+.farmup-carousel-card > header div { display: grid; min-width: 0; }
+.farmup-carousel-card > header strong, .farmup-carousel-card > header small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.farmup-carousel-card > header small, .farmup-carousel-card > p { margin: 0; color: var(--text-muted); font-size: 8px; }
+.farmup-carousel-card > header b { color: var(--brand-primary); font-size: 9px; }
+.farmup-carousel-card > p { margin-top: 4px; }
+.farmup-carousel-fields { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 4px; margin-top: 6px; }
+.farmup-carousel-field { display: grid; gap: 2px; min-width: 0; padding: 3px; border: 1px solid transparent; border-radius: 6px; color: var(--text-muted); font-size: 8px; }
+.farmup-carousel-field > span { display: flex; justify-content: space-between; gap: 4px; }
+.farmup-carousel-field > span b { color: var(--brand-primary); }
+.farmup-carousel-field input, .farmup-carousel-field select { width: 100%; min-width: 0; min-height: 30px; padding: 4px 5px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--bg-surface); color: var(--text-primary); font-size: 10px; }
+.farmup-carousel-field.edited { border-color: color-mix(in srgb, var(--brand-primary) 58%, transparent); background: color-mix(in srgb, var(--brand-primary) 12%, var(--bg-surface)); }
+.farmup-carousel-field.invalid { border-color: var(--portal-status-danger); background: color-mix(in srgb, var(--portal-status-danger) 11%, var(--bg-surface)); }
+.farmup-carousel-nav { display: flex; align-items: center; justify-content: center; gap: 8px; padding-top: 4px; color: var(--text-muted); font-size: 9px; }
 
 @media (max-width: 700px) {
-  .farmup-toolbar { grid-template-columns: 1fr 1fr; }
+  .farmup-toolbar { grid-template-columns: minmax(120px,1fr) auto auto repeat(4, 30px); }
   .farmup-toolbar input { grid-column: 1 / -1; }
-  .farmup-grid { min-width: 760px; height: min(60vh, 600px); --ag-font-size: 11px; --ag-cell-horizontal-padding: 5px; }
-  .farmup-grid { min-width: 100%; }
-  .farmup-mobile-card { display: grid; gap: 7px; height: 100%; padding: 10px; border-bottom: 1px solid var(--border-color); background: var(--bg-surface); color: var(--text-primary); }
-  .farmup-mobile-card.warning { box-shadow: inset 3px 0 var(--portal-status-warning); }
-  .farmup-mobile-card.needs_correction { box-shadow: inset 3px 0 var(--portal-status-danger); }
-  .farmup-mobile-card-head { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 8px; }
-  .farmup-mobile-card-head > div { display: grid; min-width: 0; }
-  .farmup-mobile-card-head strong, .farmup-mobile-card-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .farmup-mobile-card-head span, .farmup-mobile-card p { margin: 0; color: var(--text-muted); font-size: 9px; }
-  .farmup-mobile-card-head b { color: var(--brand-primary); font-size: 9px; text-transform: uppercase; }
-  .farmup-mobile-card summary { cursor: pointer; color: var(--brand-primary); font-size: 10px; font-weight: 800; }
-  .farmup-mobile-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 8px; }
-  .farmup-mobile-fields label { display: grid; gap: 3px; min-width: 0; color: var(--text-muted); font-size: 8px; }
-  .farmup-mobile-fields input { min-width: 0; min-height: 34px; padding: 6px; border: 1px solid var(--border-color); border-radius: 7px; background: var(--bg-surface); color: var(--text-primary); }
+  .farmup-grid { min-width: 1500px; height: min(60vh, 600px); --ag-font-size: 10px; --ag-cell-horizontal-padding: 4px; }
   .farmup-version-upload { align-items: stretch; flex-direction: column; }
   .farmup-mapping-row { grid-template-columns: 1fr; }
   .farmup-mapping-summary { align-items: flex-start; flex-direction: column; }

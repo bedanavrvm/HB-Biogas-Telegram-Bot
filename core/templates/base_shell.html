@@ -9,6 +9,7 @@
   <script>
     window.PORTAL_CONFIG = {
       invoiceUploadMaxFileSizeMb: {{ invoice_upload_max_file_size_mb|default:8 }},
+      farmupMaxFileSizeMb: {{ farmup_max_file_size_mb|default:5 }},
       farmupAgGridScript: "{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}",
       farmupAgGridStyles: [
         "{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}",
@@ -23,7 +24,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-leaflet-1.9.4.css' %}?v=1.9.4">
   <script src="{% static 'miniapp/vendor-leaflet-1.9.4.js' %}?v=1.9.4"></script>
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=8">
-  <link rel="stylesheet" href="{% static 'miniapp/portal.css' %}?v=94">
+  <link rel="stylesheet" href="{% static 'miniapp/portal.css' %}?v=95">
   <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=17">
   <link rel="stylesheet" href="{% static 'miniapp/theme.css' %}?v=9">
   <script defer src="{% static 'miniapp/miniapp-nav.js' %}?v=21"></script>
@@ -71,16 +72,16 @@
   <script src="{% static 'miniapp/portal_dialogs.js' %}?v=1"></script>
   <script src="{% static 'miniapp/secure_media_viewer.js' %}?v=1"></script>
   <script src="{% static 'miniapp/portal_helpers.js' %}?v=6"></script>
-  <script src="{% static 'miniapp/portal_api.js' %}?v=8"></script>
+  <script src="{% static 'miniapp/portal_api.js' %}?v=9"></script>
   <script src="{% static 'miniapp/portal_queues.js' %}?v=9"></script>
-  <script src="{% static 'miniapp/portal_farmer_sheet.js' %}?v=59"></script>
+  <script src="{% static 'miniapp/portal_farmer_sheet.js' %}?v=60"></script>
   <script src="{% static 'miniapp/portal_case_history.js' %}?v=1"></script>
   <script src="{% static 'miniapp/portal_filters.js' %}?v=11"></script>
   <script src="{% static 'miniapp/portal_requisitions.js' %}?v=33"></script>
   <script src="{% static 'miniapp/portal_invoices.js' %}?v=16"></script>
   <script src="{% static 'miniapp/portal_payments.js' %}?v=7"></script>
   <script src="{% static 'miniapp/portal_imports.js' %}?v=7"></script>
-  <script src="{% static 'miniapp/portal_farmup.js' %}?v=2"></script>
+  <script src="{% static 'miniapp/portal_farmup.js' %}?v=3"></script>
   <!-- Pinned local asset: Chart.js 4.5.1; no runtime CDN dependency. -->
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}?v=4.5.1"></script>
   <script src="{% static 'miniapp/portal_reports.js' %}?v=14"></script>

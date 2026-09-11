@@ -1341,6 +1341,7 @@ def _portal_screen_context(screen: str, **extra) -> dict:
     return {
         'active_screen': screen,
         'invoice_upload_max_file_size_mb': int(getattr(settings, 'INVOICE_UPLOAD_MAX_FILE_SIZE_MB', 8) or 8),
+        'farmup_max_file_size_mb': int(getattr(settings, 'FARMUP_MAX_FILE_SIZE_MB', 5) or 5),
         **extra,
     }
 
@@ -2666,6 +2667,61 @@ def portal_farmup_validate(request, batch_id: str):
 
 @portal_auth_required
 @csrf_exempt
+@require_http_methods(["GET"])
+def portal_farmup_repair_preview(request, batch_id: str):
+    access_error = _portal_read_access_error(request, capability='portal.publication.retry')
+    if access_error:
+        return access_error
+    try:
+        from core.services.portal_imports import (
+            PortalImportConflict, PortalImportError, farmup_repair_preview,
+        )
+        _batch, preview, _farmers = farmup_repair_preview(
+            batch_id=batch_id,
+            revision_token=str(request.GET.get('revision_token') or ''),
+            allowed_group_ids=_portal_import_group_ids(request),
+        )
+    except PortalImportConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'code': 'farmup_revision_conflict'}, status=409)
+    except PortalImportError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
+    return JsonResponse({'ok': True, 'preview': preview})
+
+
+@portal_auth_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_farmup_repair(request, batch_id: str):
+    access_error = _portal_read_access_error(request, capability='portal.publication.retry')
+    if access_error:
+        return access_error
+    payload = _portal_request_data(request)
+    try:
+        from core.services.portal_imports import (
+            PortalImportConflict, PortalImportError, farmup_revision_token,
+            repair_portal_farmup, serialize_import_batch,
+        )
+        batch, result, replayed = repair_portal_farmup(
+            batch_id=batch_id,
+            revision_token=str(payload.get('revision_token') or ''),
+            request_id=_portal_request_id(request, payload),
+            actor=getattr(request, 'portal_user', None),
+            allowed_group_ids=_portal_import_group_ids(request),
+        )
+    except PortalImportConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'code': 'farmup_revision_conflict'}, status=409)
+    except PortalImportError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
+    response_batch = serialize_import_batch(batch)
+    response_batch['revision_token'] = farmup_revision_token(batch)
+    return JsonResponse({
+        'ok': True, 'replayed': replayed, 'result': result, 'batch': response_batch,
+        'publications': list(result.get('publications') or []),
+    })
+
+
+@portal_auth_required
+@csrf_exempt
 @require_http_methods(["POST"])
 def portal_farmup_commit(request, batch_id: str):
     access_error = _portal_read_access_error(request, capability='portal.farmup.commit')
@@ -3479,6 +3535,25 @@ def portal_complete_jbl_visit(request, farmer_id: str):
     if role_error:
         return role_error
     body = request.POST.dict()
+    request_id = _portal_request_id(request, body)
+    # A mobile client can lose the response after the transaction commits. A
+    # retry with the same bound request key must reconcile to that success
+    # before inspecting files or a voice token that the first request already
+    # consumed.
+    if request_id:
+        from core.services.jawabu_case360 import event_request_already_processed
+        if event_request_already_processed(farmer, request_id):
+            farmer.refresh_from_db()
+            return JsonResponse({
+                'ok': True,
+                'farmer': farmer_to_card(farmer),
+                'publication': _portal_publication_payload(farmer),
+                'voice_cleanup_pending': False,
+                'already_completed': True,
+                'evidence_saved': True,
+                'visit_logged': True,
+                'stored_count': 0,
+            })
     voice_attempt_id = str(body.get('voice_transcription_id') or '').strip()
     if voice_attempt_id:
         try:
@@ -3552,7 +3627,7 @@ def portal_complete_jbl_visit(request, farmer_id: str):
             county=str(body.get('county') or '').strip() if 'county' in body else None,
             sub_county=str(body.get('sub_county') or '').strip() if 'sub_county' in body else None,
             village=str(body.get('village') or '').strip() if 'village' in body else None,
-            request_id=_portal_request_id(request, body),
+            request_id=request_id,
             expected_revision=expected_revision,
             actor_user=getattr(request, 'portal_user', None),
             # Service-area override remains available to controlled backend

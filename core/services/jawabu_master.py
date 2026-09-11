@@ -546,6 +546,10 @@ def commit_farmup_review_batch(
                 farmer, request_id=request_id, requested_by=actor,
                 requested_by_label=batch.sender,
                 required_capability='portal.farmup.commit',
+                extra_metadata={
+                    'farmup_worklist_id': str(batch.worklist_id),
+                    'farmup_period': batch.period_month.strftime('%Y-%m') if batch.period_month else '',
+                },
             )
             publications.append(publication_payload(farmer))
         sheet_sync = {
@@ -782,6 +786,7 @@ def write_rows_to_master_sheet(
     conflict_details = []
     overwrite_details = []
     pending_updates = []
+    deposit_repairs = []
     now_text = timezone.now().strftime('%d-%B-%Y %H:%M')
     for cleaned in cleaned_rows:
         try:
@@ -812,6 +817,8 @@ def write_rows_to_master_sheet(
                     values = pad_values_to_row(values, row_number, len(headers))
                     values[row_number - 1] = row_values
                     updated += 1
+                else:
+                    deposit_repairs.append((row_number, row_values))
                 continue
 
             row_number = next_master_append_row(values, header_lookup, data_start_row)
@@ -840,9 +847,17 @@ def write_rows_to_master_sheet(
                 pending_updates,
                 len(headers),
                 date_indexes=master_date_column_indexes(headers),
+                deposit_indexes=master_hbg_deposit_column_indexes(headers),
             )
         except Exception as exc:  # pragma: no cover - defensive external API handling
             errors.append(f'Master Data batch write failed: {exc}')
+    if deposit_repairs:
+        try:
+            write_master_hbg_deposit_cells(
+                sheet, deposit_repairs, master_hbg_deposit_column_indexes(headers),
+            )
+        except Exception as exc:  # pragma: no cover - defensive external API handling
+            errors.append(f'Master Data deposit format repair failed: {exc}')
     return {
         'created': created,
         'updated': updated,
@@ -862,6 +877,12 @@ MASTER_DATE_HEADERS = {
     'date visited',
 }
 
+MASTER_HBG_DEPOSIT_HEADERS = {
+    'deposit paid to hb',
+    'deposit paid to hbg',
+    'deposit / hb',
+}
+
 
 def master_date_column_indexes(headers: list[str]) -> list[int]:
     """Return zero-based Master Data columns that must be true spreadsheet dates."""
@@ -869,6 +890,29 @@ def master_date_column_indexes(headers: list[str]) -> list[int]:
         index for index, header in enumerate(headers)
         if normalize_header(header) in MASTER_DATE_HEADERS
     ]
+
+
+def master_hbg_deposit_column_indexes(headers: list[str]) -> list[int]:
+    """Return zero-based columns that must remain numeric HB deposits."""
+    return [
+        index for index, header in enumerate(headers)
+        if normalize_header(header) in MASTER_HBG_DEPOSIT_HEADERS
+    ]
+
+
+def _numeric_sheet_money(value):
+    """Return a JSON-safe number without allowing Sheets to infer a date."""
+    from decimal import Decimal, InvalidOperation
+
+    if value in (None, ''):
+        return ''
+    try:
+        amount = value if isinstance(value, Decimal) else Decimal(str(value).replace(',', '').strip())
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError('HB deposit is not a valid monetary amount.') from exc
+    if not amount.is_finite() or amount < 0:
+        raise ValueError('HB deposit is not a valid monetary amount.')
+    return int(amount) if amount == amount.to_integral_value() else float(amount)
 
 
 def write_master_date_cells(sheet, updates: list[tuple[int, list]], date_indexes: list[int]) -> None:
@@ -913,12 +957,44 @@ def write_master_date_cells(sheet, updates: list[tuple[int, list]], date_indexes
                 logger.debug('Could not format Master Data date column %s', column, exc_info=True)
 
 
+def write_master_hbg_deposit_cells(
+    sheet, updates: list[tuple[int, list]], deposit_indexes: list[int],
+) -> None:
+    """Force HB deposits to numeric cells and repair inherited date formats."""
+    if not updates or not deposit_indexes:
+        return
+    payload = []
+    for row_number, row_values in updates:
+        for index in deposit_indexes:
+            value = row_values[index] if index < len(row_values) else ''
+            payload.append({
+                'range': f'{col_letter(index + 1)}{row_number}:{col_letter(index + 1)}{row_number}',
+                'values': [[_numeric_sheet_money(value)]],
+            })
+    try:
+        sheet.batch_update(payload, value_input_option='USER_ENTERED')
+    except (AttributeError, TypeError):
+        for item in payload:
+            sheet.update(item['range'], item['values'], value_input_option='USER_ENTERED')
+
+    if hasattr(sheet, 'format'):
+        rows = [row_number for row_number, _ in updates]
+        start_row, end_row = min(rows), max(rows)
+        for index in deposit_indexes:
+            column = col_letter(index + 1)
+            sheet.format(
+                f'{column}{start_row}:{column}{end_row}',
+                {'numberFormat': {'type': 'NUMBER', 'pattern': '#,##0.00'}},
+            )
+
+
 def batch_update_master_sheet_rows(
     sheet,
     updates: list[tuple[int, list]],
     width: int,
     *,
     date_indexes: list[int] | None = None,
+    deposit_indexes: list[int] | None = None,
 ) -> None:
     if not updates:
         return
@@ -931,6 +1007,7 @@ def batch_update_master_sheet_rows(
         })
     sheet.batch_update(payload, value_input_option='RAW')
     write_master_date_cells(sheet, updates, date_indexes or [])
+    write_master_hbg_deposit_cells(sheet, updates, deposit_indexes or [])
 
 
 def compact_master_sheet_updates(updates: list[tuple[int, list]]) -> list[tuple[int, list[list]]]:
@@ -1115,6 +1192,7 @@ def update_master_sheet_row(
     row_values: list,
     *,
     date_indexes: list[int] | None = None,
+    deposit_indexes: list[int] | None = None,
 ) -> None:
     end_cell = f"{col_letter(len(row_values))}{row_number}"
     # Preserve reviewed text exactly as staff see it in the form. Date columns
@@ -1122,6 +1200,7 @@ def update_master_sheet_row(
     # dates instead of text values with a hidden leading apostrophe.
     sheet.update(f"A{row_number}:{end_cell}", [row_values], value_input_option='RAW')
     write_master_date_cells(sheet, [(row_number, row_values)], date_indexes or [])
+    write_master_hbg_deposit_cells(sheet, [(row_number, row_values)], deposit_indexes or [])
 
 
 def values_equivalent(left, right) -> bool:

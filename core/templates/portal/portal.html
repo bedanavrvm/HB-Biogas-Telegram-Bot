@@ -459,7 +459,7 @@
     <form id="portal-farmup-upload" class="portal-import-upload portal-farmup-upload">
       <div><span class="settings-eyebrow">FARMUP CSV</span><h2>Start monthly worklist</h2><p>Choose the sheet month. Later exports are uploaded as new versions inside this worklist.</p></div>
       <label><span>Month</span><input type="month" name="period" required></label>
-      <label class="invoice-upload-dropzone"><input type="file" name="file" accept=".csv,text/csv" required><span>Tap to choose Farmers CSV</span><small>UTF-8 CSV only</small></label>
+      <label class="invoice-upload-dropzone"><input type="file" name="file" data-farmup-file required><span>Tap to choose Farmers CSV</span><small>UTF-8 CSV, up to {{ farmup_max_file_size_mb|default:5 }} MB</small></label>
       <button type="submit" class="btn btn-primary">Upload and review</button>
     </form>
     <div id="portal-farmup-feedback" aria-live="polite"></div>

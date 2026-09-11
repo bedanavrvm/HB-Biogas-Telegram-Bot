@@ -861,6 +861,15 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertNotIn('alpinejs', source)
         self.assertNotIn('unpkg.com', source)
 
+    def test_jbl_visit_multipart_save_waits_for_an_authoritative_response(self):
+        root = Path(__file__).resolve().parent / 'static' / 'miniapp'
+        api_source = (root / 'portal_api.js').read_text(encoding='utf-8')
+        sheet_source = (root / 'portal_farmer_sheet.js').read_text(encoding='utf-8')
+
+        self.assertIn('if (timeoutMs <= 0', api_source)
+        self.assertIn('{ timeoutMs: 0 }', sheet_source)
+        self.assertIn('pendingJblVisitSubmission?.signature === submissionSignature', sheet_source)
+
     def test_portal_workspace_controls_are_not_rendered_while_feature_is_on_hold(self):
         template = Path(__file__).resolve().parent / 'templates' / 'portal' / 'portal.html'
         source = template.read_text(encoding='utf-8')
@@ -2099,6 +2108,28 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(len(categorized['LAF']), 1)
         self.assertEqual(len(categorized['JBL_VISIT_PHOTO']), 1)
         self.assertEqual(mock_complete.call_args.kwargs['location_override_reason'], '')
+
+    @patch('core.services.portal_voice.validate_transcription_reference')
+    @patch('core.services.jawabu_pipeline.complete_jbl_visit')
+    @patch('core.services.jawabu_case360.event_request_already_processed', return_value=True)
+    def test_atomic_jbl_visit_retry_reconciles_before_revalidating_consumed_voice(
+        self, _mock_processed, mock_complete, mock_voice_validation,
+    ):
+        response = self.client.post(
+            reverse('portal_complete_jbl_visit', args=[self.farmer.id]),
+            {
+                'client_request_id': 'atomic-visit-lost-response',
+                'workflow_revision': self.farmer.workflow_revision,
+                'voice_transcription_id': 'already-resolved-transcription',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['ok'])
+        self.assertTrue(response.json()['already_completed'])
+        self.assertTrue(response.json()['visit_logged'])
+        mock_voice_validation.assert_not_called()
+        mock_complete.assert_not_called()
 
     @patch('core.services.jawabu_pipeline.complete_jbl_visit')
     def test_atomic_jbl_visit_completion_returns_field_specific_coordinate_error(self, mock_complete):

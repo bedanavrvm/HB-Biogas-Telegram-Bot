@@ -102,8 +102,10 @@ test('Portal FarmUp renders a compact mobile grid with explicit selection counts
     const validation = [{ row_id: '1', state: 'ready', selected: true, disposition: 'commit_now', warning_acknowledged: false, update_acknowledged: false, match: {kind:'new', changed_fields:[]}, issues: [] }];
     const batch = { id: 'batch-1', source_filename: 'farmers.csv', status: 'pending_review', total_rows: 1, review_needed: 0, committed_count: 0, archive_state: 'archived', mapping_state: 'auto_ready', is_current_version: true, version_number: 1, period_label: 'August 2026', versions: [{id:'batch-1'}] };
     window.PortalAppShell = { hasCapability: () => true, showToast: () => {} };
-    window.Telegram = { WebApp: {} };
-    window.MiniAppUtils = { createRequestId: () => 'farmup-browser-request-1' };
+    window.__farmupSwipeGuards = 0;
+    window.Telegram = { WebApp: { disableVerticalSwipes: () => { window.__farmupSwipeGuards += 1; } } };
+    window.__farmupProtection = [];
+    window.MiniAppUtils = { createRequestId: () => 'farmup-browser-request-1', setCloseProtection: (reason, active) => window.__farmupProtection.push([reason, active]) };
     window.__farmupCommits = [];
     window.PortalMiniAppApi = {
       async apiFetch(path) {
@@ -121,23 +123,58 @@ test('Portal FarmUp renders a compact mobile grid with explicit selection counts
   await page.evaluate(() => window.PortalMiniAppFarmUp.load());
   await page.locator('.farmup-open').click();
   await expect(page.locator('#farmup-grid .ag-root-wrapper')).toBeVisible();
-  await expect(page.locator('.farmup-mobile-card')).toContainText('Test Farmer');
-  await expect(page.locator('#farmup-selection-summary')).toContainText('1 commit now');
-  expect(await page.locator('.farmup-grid-wrap').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(false);
+  await expect(page.locator('#farmup-grid .ag-header')).toBeVisible();
+  await expect(page.locator('.farmup-mobile-card')).toHaveCount(0);
+  await expect(page.locator('#farmup-selection-summary')).toContainText('1 commit');
+  expect(await page.locator('.farmup-grid-wrap').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+  const nameCell = page.locator('.ag-cell').filter({ hasText: 'Test Farmer' }).first();
+  await nameCell.dblclick();
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('Edited Farmer');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.ag-cell').filter({ hasText: 'Edited Farmer' }).first()).toHaveClass(/farmup-cell-edited/);
+  await expect(page.locator('#farmup-selection-summary')).toContainText('1 edits / 1 rows');
+  await page.locator('[data-farmup-mode="carousel"]').click();
+  await expect(page.locator('.farmup-carousel-card')).toContainText('Edited Farmer');
+  await expect(page.locator('.farmup-carousel-field.edited')).toHaveCount(1);
+  await expect(page.locator('.farmup-carousel-track')).toHaveCSS('scroll-snap-type', 'x mandatory');
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  expect(await page.evaluate(() => window.__farmupSwipeGuards)).toBeGreaterThan(0);
+  await page.locator('[data-farmup-mode="table"]').click();
   await page.locator('#farmup-clear-all').click();
-  await expect(page.locator('#farmup-selection-summary')).toContainText('0 commit now');
+  await expect(page.locator('#farmup-selection-summary')).toContainText('0 commit');
   await expect(page.locator('#farmup-selection-summary')).toContainText('1 held');
   await page.locator('#farmup-select-all').click();
-  await expect(page.locator('#farmup-selection-summary')).toContainText('1 commit now');
+  await expect(page.locator('#farmup-selection-summary')).toContainText('1 commit');
   await page.locator('#farmup-commit').click();
-  await expect(page.locator('.farmup-confirm-dialog')).toContainText('1Commit now');
-  await expect(page.locator('.farmup-confirm-dialog')).toContainText('0Held for later');
-  await expect(page.locator('.farmup-confirm-dialog')).toContainText('0Unresolved');
+  await expect(page.locator('.farmup-confirm-dialog')).toContainText('1selected');
+  await expect(page.locator('.farmup-confirm-dialog')).toContainText('1edited cells');
+  await expect(page.locator('.farmup-confirm-dialog')).toContainText('0unresolved');
   await page.locator('.farmup-confirm-dialog button[value="confirm"]').click();
   await expect.poll(() => page.evaluate(() => window.__farmupCommits.length)).toBe(1);
   expect(await page.evaluate(() => window.__farmupCommits[0])).toMatchObject({
     revision_token: 'opaque-token', client_request_id: 'farmup-browser-request-1',
   });
+});
+
+test('FarmUp accepts generic-MIME CSVs and picker cancellation preserves dirty protection', async ({ page }) => {
+  await page.setContent('<div id="portal-screen" data-screen="farmup"><div id="portal-farmup-feedback"></div><input id="farmup-file" type="file" data-farmup-file></div>');
+  await page.evaluate(() => {
+    window.__closeReasons = new Set(['portal-farmup-review-dirty']);
+    window.MiniAppUtils = { setCloseProtection(reason, active) { if (active) window.__closeReasons.add(reason); else window.__closeReasons.delete(reason); } };
+    window.Telegram = { WebApp: { disableVerticalSwipes() {} } };
+    window.PortalMiniAppApi = {};
+  });
+  await page.addScriptTag({ path: asset('portal_farmup.js') });
+  await expect(page.locator('#farmup-file')).not.toHaveAttribute('accept', /.+/);
+  await page.locator('#farmup-file').setInputFiles({ name: 'farmers.CSV', mimeType: 'application/octet-stream', buffer: Buffer.from('Full Name\nJane') });
+  expect(await page.evaluate(() => window.__closeReasons.has('portal-farmup-file-selected'))).toBe(true);
+  await page.evaluate(() => {
+    const input = document.getElementById('farmup-file');
+    input.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    input.dispatchEvent(new Event('cancel', { bubbles: true }));
+  });
+  expect(await page.evaluate(() => ({ dirty: window.__closeReasons.has('portal-farmup-review-dirty'), picker: window.__closeReasons.has('portal-farmup-file-picker') }))).toEqual({ dirty: true, picker: false });
 });
 
 test('AG Grid zoom changes real row and header sizing', async ({ page }) => {

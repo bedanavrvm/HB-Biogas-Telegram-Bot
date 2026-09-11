@@ -6750,3 +6750,36 @@ class ParsedMessageModelTest(TestCase):
         self.assertEqual(row[18], '', "Resolution Details (human)")
         self.assertEqual(row[19], '', "Date Resolved (human)")
         self.assertEqual(row[20], '', "Days Open (formula - should be empty)")
+
+
+class MasterSheetMoneyFormattingTests(TestCase):
+    class FakeSheet:
+        def __init__(self):
+            self.updates = []
+            self.formats = []
+
+        def batch_update(self, payload, value_input_option=None):
+            self.updates.append((payload, value_input_option))
+
+        def format(self, cell_range, spec):
+            self.formats.append((cell_range, spec))
+
+    def test_hbg_deposit_is_rewritten_as_number_and_date_format_is_repaired(self):
+        from core.services.jawabu_master import write_master_hbg_deposit_cells
+
+        sheet = self.FakeSheet()
+        write_master_hbg_deposit_cells(sheet, [(8, ['', '5000'])], [1])
+
+        self.assertEqual(sheet.updates[0][1], 'USER_ENTERED')
+        self.assertEqual(sheet.updates[0][0][0]['values'], [[5000]])
+        self.assertEqual(sheet.formats, [(
+            'B8:B8', {'numberFormat': {'type': 'NUMBER', 'pattern': '#,##0.00'}},
+        )])
+
+    def test_invalid_hbg_deposit_is_never_written_or_blank_over_existing_value(self):
+        from core.services.jawabu_master import write_master_hbg_deposit_cells
+
+        sheet = self.FakeSheet()
+        with self.assertRaisesMessage(ValueError, 'not a valid monetary amount'):
+            write_master_hbg_deposit_cells(sheet, [(8, ['', '08-September-1913'])], [1])
+        self.assertEqual(sheet.updates, [])

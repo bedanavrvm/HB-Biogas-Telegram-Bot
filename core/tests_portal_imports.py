@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import resolve
 
-from core.models import ComplianceAuditEvent, GroupSheetConfiguration, JawabuFarmerMaster, JawabuFarmerUploadBatch
+from core.models import ComplianceAuditEvent, GroupSheetConfiguration, IntegrationOperation, JawabuFarmerMaster, JawabuFarmerUploadBatch
 from core.services.portal_imports import (
     PortalImportConflict,
     PortalImportError,
@@ -19,6 +19,8 @@ from core.services.portal_imports import (
     commit_portal_farmup,
     farmup_revision_token,
     farmup_mapping_analysis,
+    farmup_repair_preview,
+    repair_portal_farmup,
     serialize_import_batch,
     source_table_page,
     stage_portal_import,
@@ -185,6 +187,8 @@ class PortalImportStagingTests(TestCase):
         self.assertEqual(resolve('/api/portal/farmup/example-batch/versions/').func.__name__, 'portal_farmup_version')
         self.assertEqual(resolve('/api/portal/farmup/example-batch/mapping/').func.__name__, 'portal_farmup_mapping')
         self.assertEqual(resolve('/api/portal/farmup/example-batch/validate/').func.__name__, 'portal_farmup_validate')
+        self.assertEqual(resolve('/api/portal/farmup/example-batch/repair-preview/').func.__name__, 'portal_farmup_repair_preview')
+        self.assertEqual(resolve('/api/portal/farmup/example-batch/repair/').func.__name__, 'portal_farmup_repair')
         self.assertEqual(resolve('/api/portal/farmup/example-batch/commit/').func.__name__, 'portal_farmup_commit')
 
     def test_reordered_known_columns_are_mapped_without_position_assumptions(self):
@@ -390,6 +394,11 @@ class PortalImportStagingTests(TestCase):
                 request_id='portal-farmup-commit-sysup-0001', actor=self.user,
                 allowed_group_ids={self.group.group_id},
             )
+        with self.assertRaisesMessage(PortalImportError, 'SysUp batches'):
+            farmup_repair_preview(
+                batch_id=str(sysup.pk), revision_token=farmup_revision_token(sysup),
+                allowed_group_ids={self.group.group_id},
+            )
 
     def test_portal_farmup_supports_partial_then_complete_commit(self):
         batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})
@@ -546,6 +555,141 @@ class PortalImportStagingTests(TestCase):
         direct_sync.assert_not_called()
         self.assertEqual(result['sheet_sync']['status'], 'pending')
         self.assertTrue(result['publications'][0]['pending_operation_ids'])
+
+    def test_month_repair_is_sheet_only_revision_bound_and_replayable(self):
+        self.group.workflow = {'type': 'jawabu_homebiogas', 'master_sync_enabled': True}
+        self.group.save(update_fields=['workflow'])
+        batch, _operation, _ = self.stage(
+            request_id='repair-stage', allowed_group_ids={self.group.group_id},
+        )
+        with patch('core.services.portal_publication._targets_for_farmer', return_value=['jawabu_master_publish']):
+            batch, _result, _ = commit_portal_farmup(
+                batch_id=str(batch.pk), rows=list(batch.parsed_rows),
+                revision_token=farmup_revision_token(batch), request_id='repair-commit',
+                actor=self.user, allowed_group_ids={self.group.group_id},
+            )
+            token = farmup_revision_token(batch)
+            _batch, preview, farmers = farmup_repair_preview(
+                batch_id=str(batch.pk), revision_token=token,
+                allowed_group_ids={self.group.group_id},
+            )
+            self.assertEqual(preview['counts']['repairable'], 1)
+            self.assertEqual(len(farmers), 1)
+            repaired, result, replayed = repair_portal_farmup(
+                batch_id=str(batch.pk), revision_token=token,
+                request_id='repair-request-1', actor=self.user,
+                allowed_group_ids={self.group.group_id},
+            )
+            self.assertFalse(replayed)
+            self.assertEqual(result['repairable'], 1)
+            self.assertTrue(result['pending_operation_ids'])
+            repeated, repeated_result, replayed = repair_portal_farmup(
+                batch_id=str(batch.pk), revision_token=token,
+                request_id='repair-request-1', actor=self.user,
+                allowed_group_ids={self.group.group_id},
+            )
+        self.assertTrue(replayed)
+        self.assertEqual(repeated.pk, repaired.pk)
+        self.assertEqual(repeated_result, result)
+        self.assertEqual(JawabuFarmerMaster.objects.count(), 1)
+        self.assertTrue(ComplianceAuditEvent.objects.filter(action='portal.farmup.sheet_repair_reserved').exists())
+
+        batch.portal_revision += 1
+        batch.save(update_fields=['portal_revision'])
+        with self.assertRaisesMessage(PortalImportConflict, 'Another reviewer changed'):
+            farmup_repair_preview(
+                batch_id=str(batch.pk), revision_token=token,
+                allowed_group_ids={self.group.group_id},
+            )
+
+    def test_month_repair_skips_only_farmer_with_invalid_canonical_deposit(self):
+        self.group.workflow = {'type': 'jawabu_homebiogas', 'master_sync_enabled': True}
+        self.group.save(update_fields=['workflow'])
+        batch, _operation, _ = self.stage(
+            request_id='repair-invalid-stage', allowed_group_ids={self.group.group_id},
+        )
+        with patch('core.services.portal_publication._targets_for_farmer', return_value=['jawabu_master_publish']):
+            batch, _result, _ = commit_portal_farmup(
+                batch_id=str(batch.pk), rows=list(batch.parsed_rows),
+                revision_token=farmup_revision_token(batch), request_id='repair-invalid-commit',
+                actor=self.user, allowed_group_ids={self.group.group_id},
+            )
+        farmer = JawabuFarmerMaster.objects.get()
+        farmer.deposit_paid_hbg = None
+        farmer.actual_receipts = 'not-money'
+        farmer.save(update_fields=['deposit_paid_hbg', 'actual_receipts'])
+        _batch, preview, farmers = farmup_repair_preview(
+            batch_id=str(batch.pk), revision_token=farmup_revision_token(batch),
+            allowed_group_ids={self.group.group_id},
+        )
+        self.assertEqual(preview['counts']['invalid_deposits'], 1)
+        self.assertEqual(preview['counts']['repairable'], 0)
+        self.assertEqual(farmers, [])
+
+    def test_month_repair_reports_repeated_terminal_failures(self):
+        self.group.workflow = {'type': 'jawabu_homebiogas', 'master_sync_enabled': True}
+        self.group.save(update_fields=['workflow'])
+        batch, _operation, _ = self.stage(
+            request_id='repair-fail-stage', allowed_group_ids={self.group.group_id},
+        )
+        with patch('core.services.portal_publication._targets_for_farmer', return_value=['jawabu_master_publish']):
+            batch, _result, _ = commit_portal_farmup(
+                batch_id=str(batch.pk), rows=list(batch.parsed_rows),
+                revision_token=farmup_revision_token(batch), request_id='repair-fail-commit',
+                actor=self.user, allowed_group_ids={self.group.group_id},
+            )
+        farmer = JawabuFarmerMaster.objects.get()
+        first = IntegrationOperation.objects.get(source_id=str(farmer.pk), operation_type='jawabu_master_publish')
+        first.status = IntegrationOperation.STATUS_DEAD_LETTER
+        first.last_error_code = 'network'
+        first.save(update_fields=['status', 'last_error_code'])
+        IntegrationOperation.objects.create(
+            integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+            operation_type='jawabu_master_publish', deduplication_key='second-terminal-failure',
+            source_model='JawabuFarmerMaster', source_id=str(farmer.pk),
+            status=IntegrationOperation.STATUS_DEAD_LETTER, last_error_code='rate_limited',
+            metadata={'farmup_worklist_id': str(batch.worklist_id)},
+        )
+        _batch, preview, _farmers = farmup_repair_preview(
+            batch_id=str(batch.pk), revision_token=farmup_revision_token(batch),
+            allowed_group_ids={self.group.group_id},
+        )
+        self.assertEqual(preview['counts']['repeatedly_failing'], 1)
+        self.assertEqual(preview['counts']['failed_once'], 0)
+        self.assertEqual(preview['failure_categories'], {'network': 1, 'rate_limited': 1})
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    @patch('core.api.portal_views._portal_import_group_ids', return_value=None)
+    @patch('core.services.portal_publication._targets_for_farmer', return_value=['jawabu_master_publish'])
+    def test_month_repair_api_returns_preview_and_durable_publications(self, _targets, _group_scope):
+        self.group.workflow = {'type': 'jawabu_homebiogas', 'master_sync_enabled': True}
+        self.group.save(update_fields=['workflow'])
+        batch, _operation, _ = self.stage(
+            request_id='repair-api-stage', allowed_group_ids={self.group.group_id},
+        )
+        batch, _result, _ = commit_portal_farmup(
+            batch_id=str(batch.pk), rows=list(batch.parsed_rows),
+            revision_token=farmup_revision_token(batch), request_id='repair-api-commit',
+            actor=self.user, allowed_group_ids={self.group.group_id},
+        )
+        token = farmup_revision_token(batch)
+        preview = self.client.get(
+            f'/api/portal/farmup/{batch.pk}/repair-preview/',
+            {'revision_token': token},
+        )
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.json()['preview']['counts']['repairable'], 1)
+
+        request_key = 'repair-api-request-1'
+        response = self.client.post(
+            f'/api/portal/farmup/{batch.pk}/repair/',
+            data={'revision_token': token, 'client_request_id': request_key},
+            content_type='application/json',
+            headers={'X-Request-ID': request_key, 'Idempotency-Key': request_key},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['result']['pending_operation_ids'])
+        self.assertTrue(response.json()['publications'])
 
     def test_working_list_archive_is_idempotent_and_preserves_import_evidence(self):
         batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})
