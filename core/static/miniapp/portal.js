@@ -13,6 +13,7 @@
   const portalInvoices = window.PortalMiniAppInvoices || {};
   const portalPayments = window.PortalMiniAppPayments || {};
   const portalImports = window.PortalMiniAppImports || {};
+  const portalFarmUp = window.PortalMiniAppFarmUp || {};
   const portalReports = window.PortalMiniAppReports || {};
   const tg = utils.initTelegram ? utils.initTelegram({ closingConfirmation: false }) : window.Telegram?.WebApp;
   if (tg && !utils.initTelegram) {
@@ -191,6 +192,7 @@
     payments: 'portal.payment.view',
     history: 'portal.documents.view',
     imports: 'portal.imports.view',
+    farmup: 'portal.farmup.view',
     reports: 'portal.reports.view',
     settings: null,
   };
@@ -1654,6 +1656,7 @@
     if (page === 'case_history') return loadCaseHistory();
     if (page === 'payments' && portalPayments.load) return portalPayments.load();
     if (page === 'imports' && portalImports.load) return portalImports.load();
+    if (page === 'farmup' && portalFarmUp.load) return portalFarmUp.load();
     else if (page === 'reports' && portalReports.load) {
       return portalReports.load({
         tg,
@@ -2485,6 +2488,7 @@
   });
 
   window.PortalAppShell = {
+    hasCapability,
     activate(page) {
       if (!page) return;
       const root = currentScreenRoot();

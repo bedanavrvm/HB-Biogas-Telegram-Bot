@@ -243,6 +243,7 @@ class WorkflowCapabilityPolicyTests(TestCase):
             'jawabu_portal': {
                 'portal.dashboard.view', 'portal.case.read', 'portal.workspace.manage',
                 'portal.health.read', 'portal.health.maintenance.manage', 'portal.imports.view',
+                'portal.farmup.view', 'portal.farmup.stage', 'portal.farmup.commit',
             },
             'complaint_cases': {'complaint.queue.view'},
             'tat_tracker': {'tat.home.view'},

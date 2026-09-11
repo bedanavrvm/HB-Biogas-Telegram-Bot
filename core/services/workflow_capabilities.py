@@ -62,9 +62,12 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     CapabilityDefinition('portal.origination.review', 'jawabu_portal', 'Review loan origination applications', 'Origination', _roles(OPERATIONS_ADMIN_ROLE, BUSINESS_ADMIN_ROLE), ('portal.origination.view',)),
     CapabilityDefinition('portal.origination.signing.start', 'jawabu_portal', 'Start approved origination signing packages', 'Origination', _roles(OPERATIONS_ADMIN_ROLE), ('portal.origination.review',)),
     CapabilityDefinition('portal.origination.signing.staff', 'jawabu_portal', 'Complete assigned staff signature slots', 'Origination', _roles('JBL_OFFICER', 'BM', 'MANAGEMENT'), ('portal.origination.view',)),
-    # Imports stage raw operational files but deliberately cannot commit them
-    # to customer records from the Portal in this release.
-    CapabilityDefinition('portal.imports.view', 'jawabu_portal', 'Stage and review FarmUp and SysUp imports', 'Imports', _roles('IT')),
+    # SysUp remains an IT-only source-review workflow. FarmUp has a dedicated
+    # intake screen and independently governed read/stage/commit actions.
+    CapabilityDefinition('portal.imports.view', 'jawabu_portal', 'Stage and review SysUp imports', 'Imports', _roles('IT')),
+    CapabilityDefinition('portal.farmup.view', 'jawabu_portal', 'View FarmUp intake batches', 'Data intake', _roles('IT', OPERATIONS_ADMIN_ROLE)),
+    CapabilityDefinition('portal.farmup.stage', 'jawabu_portal', 'Stage FarmUp intake files', 'Data intake', _roles('IT', OPERATIONS_ADMIN_ROLE), ('portal.farmup.view',)),
+    CapabilityDefinition('portal.farmup.commit', 'jawabu_portal', 'Correct and commit FarmUp intake rows', 'Data intake', _roles('IT', OPERATIONS_ADMIN_ROLE), ('portal.farmup.view',)),
     # Reports are intentionally an IT-only, catalogue-constrained view of the
     # Portal case model. They never grant case, document, or media access.
     CapabilityDefinition('portal.reports.view', 'jawabu_portal', 'View controlled Portal reports', 'Reporting', _roles('IT')),

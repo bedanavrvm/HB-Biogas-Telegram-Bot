@@ -2667,6 +2667,46 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .portal-import-pager .btn { min-height: 34px; padding: 6px 9px; font-size: 10px; }
 @media (max-width: 520px) { .portal-import-upload-grid { grid-template-columns: 1fr; } .portal-import-stats { grid-template-columns: 1fr 1fr; } .portal-import-history-heading { align-items: flex-end; } }
 
+/* Dedicated FarmUp intake keeps editing compact on desktop and turns each
+   table row into a labelled card inside narrow Telegram viewports. */
+#page-imports .portal-import-upload-grid { grid-template-columns: minmax(0, 620px); }
+.portal-farmup-upload { max-width: 620px; }
+.farmup-counters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 9px 0; }
+.farmup-counters span { padding: 7px; border-radius: 8px; background: var(--bg-muted); color: var(--text-muted); font-size: 9px; text-transform: uppercase; }
+.farmup-counters strong { display: block; color: var(--text-primary); font-size: 16px; }
+.farmup-counters .warning, .farmup-counters .warning strong { color: var(--portal-status-warning); }
+.farmup-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto auto; gap: 6px; margin-bottom: 9px; }
+.farmup-toolbar input { min-height: 38px; border: 1px solid var(--border-color); border-radius: 8px; padding: 7px 9px; }
+.farmup-toolbar .btn { min-height: 38px; padding: 6px 9px; }
+.farmup-toolbar .active { border-color: var(--brand-primary); color: var(--brand-primary); }
+.farmup-row-table-wrap { max-height: min(62vh, 680px); overflow: auto; border: 1px solid var(--border-color); border-radius: 9px; }
+.farmup-row-table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 10px; }
+.farmup-row-table th { position: sticky; top: 0; z-index: 2; padding: 7px; background: var(--bg-muted); text-align: left; white-space: nowrap; }
+.farmup-row-table td { min-width: 145px; padding: 5px; border-top: 1px solid var(--border-color); vertical-align: top; }
+.farmup-row-table td:first-child { min-width: 46px; text-align: center; }
+.farmup-row-table input:not([type="checkbox"]), .farmup-row-table select, .farmup-row-table textarea { width: 100%; min-height: 36px; border: 1px solid var(--border-color); border-radius: 6px; padding: 6px; background: var(--bg-surface); color: var(--text-primary); font: inherit; }
+.farmup-row-table textarea { min-height: 52px; resize: vertical; }
+.farmup-row-table .field-error input, .farmup-row-table .field-error select { border-color: var(--portal-status-danger); background: var(--portal-status-danger-bg); }
+.farmup-row-table tr.row-review { box-shadow: inset 3px 0 var(--portal-status-warning); }
+.farmup-row-table tr.row-skipped { opacity: .6; }
+.farmup-commit-bar { position: sticky; bottom: 0; z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 9px; padding: 9px; border: 1px solid var(--border-color); border-radius: 9px; background: var(--bg-surface); box-shadow: 0 -5px 18px rgba(15,23,42,.08); color: var(--text-muted); font-size: 10px; }
+.farmup-confirm-dialog { width: min(92vw, 440px); border: 1px solid var(--border-color); border-radius: 14px; padding: 16px; background: var(--bg-surface); color: var(--text-primary); }
+.farmup-confirm-dialog::backdrop { background: rgba(0,0,0,.42); }
+.farmup-confirm-dialog h2, .farmup-confirm-dialog p { margin: 0 0 10px; }
+.farmup-confirm-dialog p { color: var(--text-muted); font-size: 12px; }
+
+@media (max-width: 700px) {
+  .farmup-toolbar { grid-template-columns: 1fr 1fr; }
+  .farmup-toolbar input { grid-column: 1 / -1; }
+  .farmup-row-table-wrap { max-height: none; overflow: visible; border: 0; }
+  .farmup-row-table, .farmup-row-table tbody { display: block; width: 100%; min-width: 0; }
+  .farmup-row-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .farmup-row-table tr { display: grid; grid-template-columns: 1fr; gap: 5px; margin-bottom: 9px; padding: 9px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-surface); }
+  .farmup-row-table td, .farmup-row-table td:first-child { display: grid; grid-template-columns: minmax(96px, .38fr) minmax(0, 1fr); align-items: center; gap: 7px; min-width: 0; padding: 0; border: 0; text-align: left; }
+  .farmup-row-table td::before { content: attr(data-label); color: var(--text-muted); font-size: 9px; font-weight: 800; text-transform: uppercase; }
+  .farmup-commit-bar { bottom: 0; }
+}
+
 /* IT-only Portal reports. The builder deliberately reads like a compact
    configuration form rather than a generic database/query console. */
 .portal-report-notice { display: grid; gap: 3px; margin: 10px 0; padding: 10px 11px; border: 1px solid color-mix(in srgb, var(--color-primary) 32%, var(--border-color)); border-radius: var(--radius-md); background: color-mix(in srgb, var(--color-primary) 7%, var(--bg-surface)); color: var(--text-primary); font-size: 11px; line-height: 1.35; }

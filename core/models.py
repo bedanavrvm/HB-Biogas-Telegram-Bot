@@ -6940,6 +6940,12 @@ class JawabuFarmerUploadBatch(models.Model):
     skipped_count = models.PositiveIntegerField(default=0)
     parsed_rows = models.JSONField(blank=True, default=list)
     mapping = models.JSONField(blank=True, default=list)
+    # Portal reviewers receive a signed token for this monotonically
+    # increasing revision. Commit replay metadata stores only request keys,
+    # payload digests, and aggregate results; it never duplicates row/customer
+    # data from parsed_rows.
+    portal_revision = models.PositiveIntegerField(default=1)
+    portal_commit_replays = models.JSONField(blank=True, default=list)
     error = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

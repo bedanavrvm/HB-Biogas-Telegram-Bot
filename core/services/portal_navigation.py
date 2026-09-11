@@ -26,6 +26,7 @@ PORTAL_NAV_ITEMS = (
     ('invoices', 'Invoices', 'receipt-text', 'portal.invoice.view'),
     ('payments', 'Payments', 'banknote', 'portal.payment.view'),
     ('history', 'Documents', 'history', 'portal.documents.view'),
+    ('farmup', 'FarmUp', 'file-up', 'portal.farmup.view'),
     ('imports', 'Imports', 'upload', 'portal.imports.view'),
     ('reports', 'Reports', 'chart-no-axes-combined', 'portal.reports.view'),
 )
@@ -50,7 +51,8 @@ PORTAL_NAV_CATEGORIES = {
     'all': 'Cases',
     'case_history': 'Cases',
     'deferred': 'Cases',
-    'imports': 'IT tools',
+    'farmup': 'Data intake',
+    'imports': 'Data intake',
     'reports': 'IT tools',
     'settings': 'Account',
 }
@@ -60,6 +62,7 @@ PORTAL_NAV_CATEGORY_ORDER = (
     'My work',
     'Finance & documents',
     'Cases',
+    'Data intake',
     'IT tools',
     'Account',
 )

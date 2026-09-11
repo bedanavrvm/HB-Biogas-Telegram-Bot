@@ -348,6 +348,14 @@ _add(
     domain_replay='Mandatory request key, upload hash/batch status, and durable archive operation',
 )
 _add(
+    'portal_farmup_stage portal_farmup_commit portal_farmup_archive portal_farmup_archive_attempt',
+    authentication=_PORTAL_AUTH,
+    capability='portal.farmup.stage or portal.farmup.commit',
+    scope='FarmUp kind plus explicit Jawabu AccessGrant group scope',
+    request_key_binding=_PORTAL_KEY,
+    domain_replay='Upload hash or signed batch revision plus request-key/payload-digest replay ledger',
+)
+_add(
     'portal_report_preview portal_reports portal_report_detail portal_report_archive',
     authentication=_PORTAL_AUTH, capability='portal.reports.manage',
     scope='IT-only report owner and catalogue-constrained definition', request_key_binding=_PORTAL_KEY,

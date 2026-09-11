@@ -1,4 +1,4 @@
-"""Focused tests for IT-only, review-only Portal FarmUp/SysUp staging."""
+"""Focused tests for Portal FarmUp intake and IT-only SysUp source review."""
 
 from __future__ import annotations
 
@@ -11,9 +11,12 @@ from django.urls import resolve
 
 from core.models import ComplianceAuditEvent, GroupSheetConfiguration, JawabuFarmerMaster, JawabuFarmerUploadBatch
 from core.services.portal_imports import (
+    PortalImportConflict,
     PortalImportError,
     archive_portal_import_working_list,
     attempt_import_archive,
+    commit_portal_farmup,
+    farmup_revision_token,
     serialize_import_batch,
     source_table_page,
     stage_portal_import,
@@ -159,6 +162,117 @@ class PortalImportStagingTests(TestCase):
             resolve('/api/portal/imports/example-batch/archive/').func.__name__,
             'portal_import_archive',
         )
+        self.assertEqual(resolve('/api/portal/farmup/stage/').func.__name__, 'portal_farmup_stage')
+        self.assertEqual(resolve('/api/portal/farmup/example-batch/commit/').func.__name__, 'portal_farmup_commit')
+
+    def test_portal_farmup_commit_is_revision_bound_and_exactly_replayable(self):
+        batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})
+        rows = list(batch.parsed_rows)
+        token = farmup_revision_token(batch)
+
+        committed_batch, result, replayed = commit_portal_farmup(
+            batch_id=str(batch.pk), rows=rows, revision_token=token,
+            request_id='portal-farmup-commit-0001', actor=self.user,
+            allowed_group_ids={self.group.group_id},
+        )
+
+        self.assertFalse(replayed)
+        self.assertTrue(result['success'])
+        self.assertEqual(result['committed'], 1)
+        self.assertEqual(committed_batch.portal_revision, 2)
+        self.assertEqual(JawabuFarmerMaster.objects.count(), 1)
+        event = ComplianceAuditEvent.objects.get(action='portal.farmup.committed')
+        self.assertEqual(event.actor, self.user)
+        self.assertNotIn('David Mugambi', str(event.after_values) + str(event.metadata))
+        self.assertNotIn('23215888', str(event.after_values) + str(event.metadata))
+
+        repeated_batch, repeated_result, replayed = commit_portal_farmup(
+            batch_id=str(batch.pk), rows=rows, revision_token=token,
+            request_id='portal-farmup-commit-0001', actor=self.user,
+            allowed_group_ids={self.group.group_id},
+        )
+        self.assertTrue(replayed)
+        self.assertEqual(repeated_batch.pk, batch.pk)
+        self.assertEqual(repeated_result, result)
+        self.assertEqual(JawabuFarmerMaster.objects.count(), 1)
+        self.assertEqual(ComplianceAuditEvent.objects.filter(action='portal.farmup.committed').count(), 1)
+
+        changed_rows = [dict(rows[0], **{'Customer Name': 'Changed payload'})]
+        with self.assertRaisesMessage(PortalImportConflict, 'different FarmUp rows'):
+            commit_portal_farmup(
+                batch_id=str(batch.pk), rows=changed_rows, revision_token=token,
+                request_id='portal-farmup-commit-0001', actor=self.user,
+                allowed_group_ids={self.group.group_id},
+            )
+
+    def test_portal_farmup_rejects_stale_revision_and_sysup_batch(self):
+        batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})
+        token = farmup_revision_token(batch)
+        batch.portal_revision += 1
+        batch.save(update_fields=['portal_revision'])
+        with self.assertRaisesMessage(PortalImportConflict, 'Another reviewer changed'):
+            commit_portal_farmup(
+                batch_id=str(batch.pk), rows=list(batch.parsed_rows), revision_token=token,
+                request_id='portal-farmup-commit-stale-0001', actor=self.user,
+                allowed_group_ids={self.group.group_id},
+            )
+
+        sysup, _operation, _replayed = stage_portal_import(
+            kind='sysup', filename='customers.csv', content=SYSUP_CSV,
+            request_id='portal-farmup-sysup-reject-0001', actor=self.user,
+            allowed_group_ids={self.group.group_id},
+        )
+        with self.assertRaisesMessage(PortalImportError, 'SysUp batches'):
+            commit_portal_farmup(
+                batch_id=str(sysup.pk), rows=list(sysup.parsed_rows),
+                revision_token=farmup_revision_token(sysup),
+                request_id='portal-farmup-commit-sysup-0001', actor=self.user,
+                allowed_group_ids={self.group.group_id},
+            )
+
+    def test_portal_farmup_supports_partial_then_complete_commit(self):
+        batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})
+        valid = dict(batch.parsed_rows[0])
+        flagged = dict(valid)
+        flagged.update({
+            'row_id': 2,
+            'Customer Name': 'Second Farmer',
+            'National ID': '',
+            'Primary Phone': '254722000222',
+            'Secondary Phone': '254733000333',
+            'Import Status': 'review_needed',
+            'Cleaning Notes': 'National ID is required',
+            'approved': False,
+        })
+        batch.parsed_rows = [valid, flagged]
+        batch.total_rows = 2
+        batch.review_needed = 1
+        batch.save(update_fields=['parsed_rows', 'total_rows', 'review_needed'])
+
+        batch, first, replayed = commit_portal_farmup(
+            batch_id=str(batch.pk), rows=[valid, flagged],
+            revision_token=farmup_revision_token(batch),
+            request_id='portal-farmup-partial-0001', actor=self.user,
+            allowed_group_ids={self.group.group_id},
+        )
+        self.assertFalse(replayed)
+        self.assertEqual(first['committed'], 1)
+        self.assertEqual(first['review_needed'], 1)
+        self.assertEqual(batch.status, 'pending_review')
+        self.assertEqual(len(batch.parsed_rows), 1)
+
+        corrected = dict(batch.parsed_rows[0])
+        corrected.update({'National ID': '23215889', 'Cleaning Notes': '', 'approved': True})
+        batch, final, _replayed = commit_portal_farmup(
+            batch_id=str(batch.pk), rows=[corrected],
+            revision_token=farmup_revision_token(batch),
+            request_id='portal-farmup-complete-0001', actor=self.user,
+            allowed_group_ids={self.group.group_id},
+        )
+        self.assertTrue(final['success'])
+        self.assertEqual(final['review_needed'], 0)
+        self.assertEqual(batch.status, 'committed')
+        self.assertEqual(batch.committed_count, 2)
 
     def test_working_list_archive_is_idempotent_and_preserves_import_evidence(self):
         batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})
@@ -211,12 +325,12 @@ class PortalImportStagingTests(TestCase):
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
     @patch('core.api.portal_views._portal_import_group_ids', return_value=None)
-    def test_import_archive_endpoint_removes_only_the_active_list_entry(self, _group_scope):
+    def test_farmup_archive_endpoint_keeps_batch_in_history(self, _group_scope):
         batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})
         request_id = 'portal-import-working-list-api-0001'
 
         response = self.client.post(
-            f'/api/portal/imports/{batch.pk}/archive/',
+            f'/api/portal/farmup/{batch.pk}/archive/',
             data={'client_request_id': request_id},
             content_type='application/json',
             headers={'X-Request-ID': request_id, 'Idempotency-Key': request_id},
@@ -225,12 +339,13 @@ class PortalImportStagingTests(TestCase):
         self.assertTrue(response.json()['ok'])
         self.assertTrue(response.json()['batch']['is_portal_archived'])
 
-        active_list = self.client.get('/api/portal/imports/')
+        active_list = self.client.get('/api/portal/farmup/')
         self.assertEqual(active_list.status_code, 200)
-        self.assertEqual(active_list.json()['batches'], [])
-        retained_detail = self.client.get(f'/api/portal/imports/{batch.pk}/')
+        self.assertEqual(len(active_list.json()['batches']), 1)
+        self.assertTrue(active_list.json()['batches'][0]['is_portal_archived'])
+        retained_detail = self.client.get(f'/api/portal/farmup/{batch.pk}/')
         self.assertEqual(retained_detail.status_code, 200)
-        self.assertEqual(len(retained_detail.json()['batch']['source_table']['rows']), 1)
+        self.assertEqual(len(retained_detail.json()['batch']['rows']), 1)
 
     @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='test-shared-drive-root')
     @patch('core.services.order_approval.GoogleDriveMediaStorage.upload', return_value=('drive-file-1', 'https://drive.example/file-1'))

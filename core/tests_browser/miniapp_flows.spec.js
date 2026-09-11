@@ -11,6 +11,122 @@ async function loadUtilities(page) {
   await page.addScriptTag({ path: asset('utils.js') });
 }
 
+test('Portal shell follows live viewport while sheets wait for stable Telegram height', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 620 });
+  await page.setContent(`
+    <header class="app-shell-header">Portal</header>
+    <aside id="sidebar"></aside><button id="sidebar-backdrop"></button>
+    <main id="content"><div id="portal-shell"><div id="portal-screen" data-screen="dashboard" data-top-level="true"></div></div></main>
+    <nav id="bottom-tabs"><a class="shell-nav-link" data-screen="dashboard" data-bottom-primary="true">Home</a></nav>
+    <div id="test-sheet" class="sheet-overlay open"><div class="sheet-panel"></div></div>
+  `);
+  await page.evaluate(() => { document.body.className = 'workflow-standard portal-app'; });
+  await page.addStyleTag({ path: asset('base.css') });
+  await page.addStyleTag({ path: asset('theme.css') });
+  await page.addStyleTag({ path: asset('portal.css') });
+  await page.evaluate(() => {
+    window.__viewportEvents = {};
+    const webApp = {
+      viewportHeight: 620,
+      viewportStableHeight: 700,
+      themeParams: { bg_color: '#e8f0ec', secondary_bg_color: '#ffffff' },
+      onEvent(name, callback) { window.__viewportEvents[name] = callback; },
+      BackButton: { onClick() {}, offClick() {}, show() {}, hide() {} },
+      MainButton: { onClick() {}, offClick() {}, show() {}, hide() {}, setText() {} },
+    };
+    window.Telegram = { WebApp: webApp };
+    window.MiniAppUtils = { initTelegram: () => webApp };
+    window.PortalAppShell = { activate() {} };
+  });
+  await page.addScriptTag({ path: asset('miniapp-nav.js') });
+
+  async function dimensions() {
+    return page.evaluate(() => ({
+      body: document.body.getBoundingClientRect().height,
+      bottom: document.getElementById('bottom-tabs').getBoundingClientRect().bottom,
+      sheet: document.getElementById('test-sheet').getBoundingClientRect().height,
+      live: getComputedStyle(document.documentElement).getPropertyValue('--miniapp-live-height').trim(),
+      stable: getComputedStyle(document.documentElement).getPropertyValue('--miniapp-stable-height').trim(),
+      background: getComputedStyle(document.documentElement).backgroundColor,
+    }));
+  }
+  expect(await dimensions()).toMatchObject({ body: 620, bottom: 620, sheet: 700, live: '620px', stable: '700px' });
+
+  await page.evaluate(() => {
+    window.Telegram.WebApp.viewportHeight = 580;
+    window.__viewportEvents.viewportChanged({ isStateStable: false });
+  });
+  expect(await dimensions()).toMatchObject({ body: 580, bottom: 580, sheet: 700, live: '580px', stable: '700px' });
+
+  await page.setViewportSize({ width: 390, height: 700 });
+  await page.evaluate(() => {
+    window.Telegram.WebApp.viewportHeight = 700;
+    window.Telegram.WebApp.viewportStableHeight = 700;
+    window.__viewportEvents.viewportChanged({ isStateStable: true });
+  });
+  expect(await dimensions()).toMatchObject({ body: 700, bottom: 700, sheet: 700, live: '700px', stable: '700px' });
+
+  await page.setViewportSize({ width: 700, height: 390 });
+  await page.evaluate(() => {
+    window.Telegram.WebApp.viewportHeight = 390;
+    window.Telegram.WebApp.viewportStableHeight = 390;
+    window.dispatchEvent(new Event('orientationchange'));
+    window.__viewportEvents.viewportChanged({ isStateStable: true });
+  });
+  expect(await dimensions()).toMatchObject({ body: 390, bottom: 390, sheet: 390, live: '390px', stable: '390px' });
+});
+
+test('Portal FarmUp renders mobile row cards and confirms aggregate commit counts', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 700 });
+  await page.setContent(`
+    <div id="portal-screen" data-screen="farmup">
+      <form id="portal-farmup-upload"></form><div id="portal-farmup-feedback"></div>
+      <section id="portal-farmup-review" hidden></section><button id="portal-farmup-refresh">Refresh</button>
+      <div id="portal-farmup-list"></div>
+    </div>
+  `);
+  await page.addStyleTag({ path: asset('base.css') });
+  await page.addStyleTag({ path: asset('portal.css') });
+  await page.evaluate(() => {
+    const row = {
+      row_id: 1, approved: true, 'Import Status': 'active', 'Customer Name': 'Test Farmer',
+      'National ID': '12345678', 'Primary Phone': '254700000001', 'Secondary Phone': '254700000002',
+      'Application Action': 'update_existing', 'Additional Unit Reason': '', County: 'Embu',
+      'HBG Visit Date': '01-05-2026', 'Deposit Paid to HB': '5000', 'HB Sales Person': 'Test Officer',
+      'Cleaning Notes': '',
+    };
+    const batch = { id: 'batch-1', source_filename: 'farmers.csv', status: 'pending_review', total_rows: 1, review_needed: 0, committed_count: 0, archive_state: 'archived' };
+    window.PortalAppShell = { hasCapability: () => true };
+    window.Telegram = { WebApp: {} };
+    window.MiniAppUtils = { createRequestId: () => 'farmup-browser-request-1' };
+    window.__farmupCommits = [];
+    window.PortalMiniAppApi = {
+      async apiFetch(path) {
+        if (path === '/farmup/') return { ok: true, data: { ok: true, batches: [batch] } };
+        return { ok: true, data: { ok: true, batch: { ...batch, rows: [{ ...row }], revision_token: 'opaque-token' } } };
+      },
+      async postJson(path, payload) {
+        if (path.includes('/commit/')) window.__farmupCommits.push(payload);
+        return { ok: true, data: { ok: true, result: { success: true, committed: 1, skipped: 0, review_needed: 0 }, batch } };
+      },
+    };
+  });
+  await page.addScriptTag({ path: asset('portal_farmup.js') });
+  await page.evaluate(() => window.PortalMiniAppFarmUp.load());
+  await page.locator('.farmup-open').click();
+  await expect(page.locator('.farmup-row-table tr[data-row-id="1"]')).toBeVisible();
+  await expect(page.locator('.farmup-row-table tr[data-row-id="1"]')).toHaveCSS('display', 'grid');
+  await page.locator('#farmup-commit').click();
+  await expect(page.locator('.farmup-confirm-dialog')).toContainText('1Approved');
+  await expect(page.locator('.farmup-confirm-dialog')).toContainText('0Skipped');
+  await expect(page.locator('.farmup-confirm-dialog')).toContainText('0Unresolved');
+  await page.locator('.farmup-confirm-dialog button[value="confirm"]').click();
+  await expect.poll(() => page.evaluate(() => window.__farmupCommits.length)).toBe(1);
+  expect(await page.evaluate(() => window.__farmupCommits[0])).toMatchObject({
+    revision_token: 'opaque-token', client_request_id: 'farmup-browser-request-1',
+  });
+});
+
 test('AG Grid zoom changes real row and header sizing', async ({ page }) => {
   await page.setContent(`
     <div id="controls" hidden>

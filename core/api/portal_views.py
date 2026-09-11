@@ -2241,7 +2241,7 @@ def _portal_import_group_ids(request):
     }
 
 
-def _portal_imports_queryset(request, *, include_archived: bool = False):
+def _portal_imports_queryset(request, *, include_archived: bool = False, import_kind: str | None = None):
     """Return import batches inside the caller's explicit group scope.
 
     Import files contain source-system customer data and have no branch until
@@ -2255,6 +2255,8 @@ def _portal_imports_queryset(request, *, include_archived: bool = False):
     ).order_by('-created_at')
     if not include_archived:
         queryset = queryset.filter(is_portal_archived=False)
+    if import_kind:
+        queryset = queryset.filter(import_kind=import_kind)
     allowed_groups = _portal_import_group_ids(request)
     if allowed_groups is None:
         return queryset
@@ -2270,13 +2272,13 @@ def _portal_import_in_scope(request, batch_id: str, *, include_archived: bool = 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
 @require_http_methods(["GET"])
 def portal_imports(request):
-    """List staged Portal imports for the configured Jawabu workflow."""
+    """List IT-only SysUp source-review batches."""
     access_error = _portal_read_access_error(request, capability='portal.imports.view')
     if access_error:
         return access_error
     from core.services.portal_imports import archive_operation_ids, serialize_import_batch
 
-    batches = list(_portal_imports_queryset(request)[:50])
+    batches = list(_portal_imports_queryset(request, import_kind='system_export')[:50])
     archive_operations = archive_operation_ids(batches)
     return JsonResponse({
         'ok': True,
@@ -2292,10 +2294,12 @@ def portal_imports(request):
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
 @require_http_methods(["POST"])
 def portal_import_stage(request, kind: str):
-    """Stage one validated source file; never commit it to customer records."""
+    """Stage one SysUp source file; FarmUp has its own governed screen."""
     access_error = _portal_read_access_error(request, capability='portal.imports.view')
     if access_error:
         return access_error
+    if str(kind or '').strip().lower() != 'sysup':
+        return JsonResponse({'ok': False, 'error': 'FarmUp uploads belong on the FarmUp screen.'}, status=400)
     source_file = request.FILES.get('file')
     if source_file is None:
         return JsonResponse({'ok': False, 'error': 'Choose an import file before staging it.'}, status=400)
@@ -2338,6 +2342,8 @@ def portal_import_detail(request, batch_id: str):
     batch = _portal_import_in_scope(request, batch_id)
     if batch is None:
         return JsonResponse({'ok': False, 'error': 'This staged import is unavailable in your scope.'}, status=404)
+    if batch.import_kind != 'system_export':
+        return JsonResponse({'ok': False, 'error': 'FarmUp batches belong on the FarmUp screen.'}, status=400)
     from core.services.portal_imports import (
         PortalImportError,
         archive_operation_ids,
@@ -2390,6 +2396,11 @@ def portal_import_archive(request, batch_id: str):
     access_error = _portal_read_access_error(request, capability='portal.imports.view')
     if access_error:
         return access_error
+    scoped_batch = _portal_import_in_scope(request, batch_id)
+    if scoped_batch is None:
+        return JsonResponse({'ok': False, 'error': 'This staged import is unavailable in your scope.'}, status=404)
+    if scoped_batch.import_kind != 'system_export':
+        return JsonResponse({'ok': False, 'error': 'FarmUp batches belong on the FarmUp screen.'}, status=400)
     payload = _portal_request_data(request)
     try:
         from core.services.portal_imports import (
@@ -2435,11 +2446,13 @@ def portal_import_archive_attempt(request):
         from core.services.portal_imports import ARCHIVE_OPERATION, PortalImportError, SOURCE_MODEL, attempt_import_archive, serialize_import_batch
 
         operation = IntegrationOperation.objects.filter(pk=operation_id).first()
+        scoped_batch = _portal_import_in_scope(request, operation.source_id) if operation else None
         if (
             operation is None
             or operation.source_model != SOURCE_MODEL
             or operation.operation_type != ARCHIVE_OPERATION
-            or _portal_import_in_scope(request, operation.source_id) is None
+            or scoped_batch is None
+            or scoped_batch.import_kind != 'system_export'
         ):
             return JsonResponse({'ok': False, 'error': 'This staged import is unavailable in your scope.'}, status=404)
 
@@ -2461,6 +2474,163 @@ def portal_import_archive_attempt(request):
 # ── Stage 2: JBL Visit queue ──────────────────────────────────────────────────
 
 # ── Controlled Portal reporting ────────────────────────────────────────────
+
+# Dedicated FarmUp intake ---------------------------------------------------
+
+def _portal_farmup_in_scope(request, batch_id: str, *, include_archived: bool = True):
+    return _portal_imports_queryset(
+        request, include_archived=include_archived, import_kind='farmers',
+    ).filter(pk=batch_id).first()
+
+
+@portal_auth_required
+@csrf_exempt
+@require_http_methods(["GET"])
+def portal_farmup_batches(request):
+    access_error = _portal_read_access_error(request, capability='portal.farmup.view')
+    if access_error:
+        return access_error
+    from core.services.portal_imports import archive_operation_ids, serialize_import_batch
+
+    # FarmUp owns both the active working list and its retained batch history.
+    batches = list(_portal_imports_queryset(
+        request, include_archived=True, import_kind='farmers',
+    )[:50])
+    operations = archive_operation_ids(batches)
+    return JsonResponse({
+        'ok': True,
+        'batches': [
+            serialize_import_batch(batch, archive_operation_id=operations.get(str(batch.pk), ''))
+            for batch in batches
+        ],
+    })
+
+
+@portal_auth_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_farmup_stage(request):
+    access_error = _portal_read_access_error(request, capability='portal.farmup.stage')
+    if access_error:
+        return access_error
+    source_file = request.FILES.get('file')
+    if source_file is None:
+        return JsonResponse({'ok': False, 'error': 'Choose a Farmers CSV before uploading.'}, status=400)
+    try:
+        from core.services.portal_imports import PortalImportError, serialize_import_batch, stage_portal_import
+        request_id = _portal_request_id(request, request.POST.dict())
+        batch, operation, replayed = stage_portal_import(
+            kind='farmup', filename=source_file.name, content=source_file.read(),
+            request_id=request_id, actor=getattr(request, 'portal_user', None),
+            allowed_group_ids=_portal_import_group_ids(request),
+        )
+    except PortalImportError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({
+        'ok': True, 'replayed': replayed, 'batch': serialize_import_batch(batch),
+        'archive_operation_id': str(operation.pk),
+        'message': 'FarmUp CSV parsed. Review the rows before committing.',
+    }, status=200 if replayed else 201)
+
+
+@portal_auth_required
+@csrf_exempt
+@require_http_methods(["GET"])
+def portal_farmup_detail(request, batch_id: str):
+    access_error = _portal_read_access_error(request, capability='portal.farmup.view')
+    if access_error:
+        return access_error
+    batch = _portal_farmup_in_scope(request, batch_id)
+    if batch is None:
+        return JsonResponse({'ok': False, 'error': 'This FarmUp batch is unavailable in your scope.'}, status=404)
+    from core.services.portal_imports import (
+        FARMUP_EDITABLE_FIELDS, archive_operation_ids, farmup_revision_token,
+        serialize_import_batch,
+    )
+    payload = serialize_import_batch(
+        batch, include_rows=True,
+        archive_operation_id=archive_operation_ids([batch]).get(str(batch.pk), ''),
+    )
+    payload['revision_token'] = farmup_revision_token(batch)
+    payload['editable_fields'] = list(FARMUP_EDITABLE_FIELDS)
+    return JsonResponse({'ok': True, 'batch': payload})
+
+
+@portal_auth_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_farmup_commit(request, batch_id: str):
+    access_error = _portal_read_access_error(request, capability='portal.farmup.commit')
+    if access_error:
+        return access_error
+    payload = _portal_request_data(request)
+    try:
+        from core.services.portal_imports import (
+            PortalImportConflict, PortalImportError, commit_portal_farmup,
+            farmup_revision_token, serialize_import_batch,
+        )
+        batch, result, replayed = commit_portal_farmup(
+            batch_id=batch_id, rows=payload.get('rows'),
+            revision_token=str(payload.get('revision_token') or ''),
+            request_id=_portal_request_id(request, payload),
+            actor=getattr(request, 'portal_user', None),
+            allowed_group_ids=_portal_import_group_ids(request),
+        )
+    except PortalImportConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'code': 'farmup_revision_conflict'}, status=409)
+    except PortalImportError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
+    response_batch = serialize_import_batch(batch)
+    response_batch['revision_token'] = farmup_revision_token(batch)
+    return JsonResponse({'ok': True, 'replayed': replayed, 'result': result, 'batch': response_batch})
+
+
+@portal_auth_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_farmup_archive(request, batch_id: str):
+    access_error = _portal_read_access_error(request, capability='portal.farmup.stage')
+    if access_error:
+        return access_error
+    if _portal_farmup_in_scope(request, batch_id) is None:
+        return JsonResponse({'ok': False, 'error': 'This FarmUp batch is unavailable in your scope.'}, status=404)
+    payload = _portal_request_data(request)
+    try:
+        from core.services.portal_imports import PortalImportError, archive_portal_import_working_list, serialize_import_batch
+        batch, replayed = archive_portal_import_working_list(
+            batch_id=batch_id, actor=getattr(request, 'portal_user', None),
+            request_id=_portal_request_id(request, payload),
+            allowed_group_ids=_portal_import_group_ids(request),
+        )
+    except PortalImportError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'replayed': replayed, 'batch': serialize_import_batch(batch)})
+
+
+@portal_auth_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_farmup_archive_attempt(request):
+    access_error = _portal_read_access_error(request, capability='portal.farmup.stage')
+    if access_error:
+        return access_error
+    payload = _portal_request_data(request)
+    operation_id = str(payload.get('operation_id') or '').strip()
+    from core.models import IntegrationOperation
+    from core.services.portal_imports import ARCHIVE_OPERATION, SOURCE_MODEL, attempt_import_archive, serialize_import_batch
+    operation = IntegrationOperation.objects.filter(pk=operation_id).first()
+    if (
+        operation is None or operation.source_model != SOURCE_MODEL
+        or operation.operation_type != ARCHIVE_OPERATION
+        or _portal_farmup_in_scope(request, operation.source_id) is None
+    ):
+        return JsonResponse({'ok': False, 'error': 'This FarmUp archive is unavailable in your scope.'}, status=404)
+    result = attempt_import_archive(operation_id)
+    return JsonResponse({
+        'ok': bool(result.get('ok')), 'batch': serialize_import_batch(result['batch']),
+        'replayed': bool(result.get('replayed')), 'error': result.get('error', ''),
+    }, status=200 if result.get('ok') else 502)
+
 
 def _portal_report_or_404(report_id: str):
     """Fetch a Portal report with its bounded chart configuration."""

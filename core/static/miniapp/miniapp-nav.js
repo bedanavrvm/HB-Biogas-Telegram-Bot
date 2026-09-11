@@ -111,27 +111,34 @@
     });
   }
 
-  function syncTelegramViewportHeight() {
-    // Fixed Portal sheets should only follow Telegram's last stable viewport.
-    // The live height changes throughout native activity/viewport animations
-    // and applying it here would visibly resize the entire Portal.
+  function syncStableViewportHeight() {
+    // Fixed sheets/media follow Telegram's last stable viewport so native
+    // expansion animations never resize an open operational overlay.
     const height = Number(tg?.viewportStableHeight)
       || Number(tg?.viewportHeight)
       || Number(window.visualViewport?.height)
       || Number(window.innerHeight);
     if (height > 0) {
+      document.documentElement.style.setProperty('--miniapp-stable-height', `${Math.round(height)}px`);
       document.documentElement.style.setProperty('--miniapp-viewport-height', `${Math.round(height)}px`);
     }
   }
 
+  function syncLiveViewportHeight(preferBrowserViewport = false) {
+    const height = (preferBrowserViewport ? Number(window.visualViewport?.height) : Number(tg?.viewportHeight))
+      || (preferBrowserViewport ? Number(tg?.viewportHeight) : Number(window.visualViewport?.height))
+      || Number(window.innerHeight);
+    if (height > 0) document.documentElement.style.setProperty('--miniapp-live-height', `${Math.round(height)}px`);
+  }
+
   function syncBrowserViewportHeight() {
-    if (tg) return;
-    syncTelegramViewportHeight();
+    syncLiveViewportHeight(true);
+    if (!tg) syncStableViewportHeight();
   }
 
   function handleTelegramViewportChanged(event = {}) {
-    if (event.isStateStable === false) return;
-    syncTelegramViewportHeight();
+    syncLiveViewportHeight();
+    if (event.isStateStable !== false) syncStableViewportHeight();
   }
 
   function currentScreen() {
@@ -228,7 +235,8 @@
   }
 
   if (tg) {
-    syncTelegramViewportHeight();
+    syncLiveViewportHeight();
+    syncStableViewportHeight();
     tg.onEvent?.('themeChanged', syncTheme);
     tg.onEvent?.('viewportChanged', handleTelegramViewportChanged);
   }
@@ -237,6 +245,7 @@
 
   window.addEventListener('portal:reports-route-change', syncBackButton);
   window.addEventListener('resize', syncBrowserViewportHeight);
+  window.addEventListener('orientationchange', syncBrowserViewportHeight);
   window.visualViewport?.addEventListener('resize', syncBrowserViewportHeight);
 
   document.body.addEventListener('htmx:configRequest', event => {

@@ -1,5 +1,9 @@
 :root {
-  --miniapp-viewport-height: 100dvh;
+  --miniapp-live-height: 100dvh;
+  --miniapp-stable-height: 100dvh;
+  /* Compatibility alias: overlays intentionally follow stable height. */
+  --miniapp-viewport-height: var(--miniapp-stable-height);
+  --bottom-tabs-height: calc(61px + env(safe-area-inset-bottom));
   --tg-bg: var(--tg-theme-bg-color, #f4f7f6);
   --tg-secondary-bg: var(--tg-theme-secondary-bg-color, #ffffff);
   --tg-text: var(--tg-theme-text-color, #14201d);
@@ -9,16 +13,18 @@
   --tg-button-text: var(--tg-theme-button-text-color, #ffffff);
 }
 
-html, body { min-height: var(--miniapp-viewport-height); background: var(--tg-bg); color: var(--tg-text); }
+html { width: 100%; height: var(--miniapp-live-height); min-height: var(--miniapp-live-height); background: var(--tg-bg); }
+html, body { background: var(--tg-bg); color: var(--tg-text); }
 body.sidebar-is-open { overflow: hidden; }
-body { margin: 0; padding-bottom: calc(64px + env(safe-area-inset-bottom)); overflow-x: hidden; }
+body { margin: 0; min-height: var(--miniapp-live-height); overflow-x: hidden; }
+body.portal-app { display: grid; grid-template-rows: 48px minmax(0, 1fr) var(--bottom-tabs-height); width: 100%; height: var(--miniapp-live-height); min-height: var(--miniapp-live-height); padding: 0; overflow: hidden; }
 .workflow-standard .app-shell-header { position: sticky; top: 0; z-index: 70; box-sizing: border-box; min-height: 48px; height: 48px; display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; margin: 0; padding: 4px 10px; background: var(--tg-secondary-bg); color: var(--tg-text); border-bottom: 1px solid color-mix(in srgb, var(--tg-hint) 25%, transparent); }
 .app-shell-header h1, .app-shell-header p { margin: 0; }
 .app-shell-header h1 { font-size: 14px; line-height: 1.15; }
 .app-shell-header p { color: var(--tg-hint); font-size: 10px; line-height: 1.15; }
 .workflow-standard .shell-menu-button { display: inline-grid; place-items: center; flex: 0 0 40px; min-width: 40px; min-height: 40px; padding: 0; border: 0; border-radius: 10px; background: transparent; color: var(--tg-text); }
 .shell-menu-button svg { width: 21px; height: 21px; }
-.app-sidebar { box-sizing: border-box; position: fixed; inset: 0 auto 0 0; z-index: 100; width: min(78vw, 280px); max-width: calc(100vw - 24px); height: 100dvh; min-height: 0; padding: max(18px, env(safe-area-inset-top)) 10px calc(20px + env(safe-area-inset-bottom)); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; background: var(--tg-secondary-bg); transform: translateX(-105%); visibility: hidden; transition: transform .2s ease, visibility .2s; box-shadow: 8px 0 30px rgba(0,0,0,.18); }
+.app-sidebar { box-sizing: border-box; position: fixed; inset: 0 auto 0 0; z-index: 100; width: min(78vw, 280px); max-width: calc(100vw - 24px); height: var(--miniapp-live-height); min-height: 0; padding: max(18px, env(safe-area-inset-top)) 10px calc(20px + env(safe-area-inset-bottom)); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; background: var(--tg-secondary-bg); transform: translateX(-105%); visibility: hidden; transition: transform .2s ease, visibility .2s; box-shadow: 8px 0 30px rgba(0,0,0,.18); }
 .app-sidebar.open { transform: translateX(0); }
 .app-sidebar.open { visibility: visible; }
 .workflow-standard .sidebar-backdrop { position: fixed; inset: 0; z-index: 95; display: none; width: 100%; height: 100%; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
@@ -32,12 +38,13 @@ body { margin: 0; padding-bottom: calc(64px + env(safe-area-inset-bottom)); over
 .shell-nav-link.active { color: var(--tg-button-text); background: var(--tg-button); }
 .shell-nav-link:focus-visible, .shell-menu-button:focus-visible { outline: 3px solid color-mix(in srgb, var(--tg-button) 60%, transparent); outline-offset: 2px; }
 .shell-nav-link svg { width: 19px; height: 19px; }
-.app-bottom-tabs { box-sizing: border-box; position: fixed; z-index: 80; inset: auto 0 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 1px; width: 100%; overflow: hidden; padding: 4px max(3px, env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) max(3px, env(safe-area-inset-left)); background: var(--tg-secondary-bg); border-top: 1px solid color-mix(in srgb, var(--tg-hint) 25%, transparent); }
+.app-bottom-tabs { box-sizing: border-box; position: relative; z-index: 80; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 1px; width: 100%; height: var(--bottom-tabs-height); overflow: hidden; padding: 4px max(3px, env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) max(3px, env(safe-area-inset-left)); background: var(--tg-secondary-bg); border-top: 1px solid color-mix(in srgb, var(--tg-hint) 25%, transparent); }
 .app-bottom-tabs .shell-nav-link { box-sizing: border-box; min-width: 0; min-height: 52px; flex-direction: column; gap: 2px; padding: 4px 1px; font-size: 10px; overflow: hidden; }
 .app-bottom-tabs .shell-nav-link:not([data-bottom-primary="true"]) { display: none; }
 .app-bottom-tabs .shell-nav-link span { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app-bottom-tabs .shell-nav-link svg { width: 17px; height: 17px; }
-#content { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; overflow-x: hidden; color: var(--tg-text); min-height: calc(var(--miniapp-viewport-height) - 130px); }
+#content { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 16px; color: var(--tg-text); background: var(--tg-bg); }
+#portal-shell, #portal-screen { min-height: 100%; }
 #content .card, #content .count-card, #content .dashboard-total, #content .sheet-panel,
 #content .filter-bar, #content .batch-panel, #content input, #content select, #content textarea {
   background-color: var(--tg-secondary-bg);
@@ -55,7 +62,7 @@ body { margin: 0; padding-bottom: calc(64px + env(safe-area-inset-bottom)); over
 @keyframes shell-out { to { opacity: .5; transform: translateX(-8px); } }
 @keyframes shell-in { from { opacity: .5; transform: translateX(8px); } }
 @media (min-width: 900px) {
-  body { padding: 0 0 0 250px; }
+  body.portal-app { grid-template-rows: 48px minmax(0, 1fr); padding: 0 0 0 250px; }
   .shell-menu-button, .app-bottom-tabs { display: none; }
   .app-sidebar { transform: none; visibility: visible; width: 225px; max-width: 225px; padding-top: 60px; box-shadow: none; border-right: 1px solid color-mix(in srgb, var(--tg-hint) 25%, transparent); }
   .sidebar-backdrop { display: none !important; }

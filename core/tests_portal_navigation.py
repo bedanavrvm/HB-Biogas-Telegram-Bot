@@ -37,6 +37,7 @@ class PortalNavigationTests(SimpleTestCase):
         capabilities = {
             'portal.dashboard.view',
             'portal.case.read',
+            'portal.farmup.view',
             'portal.imports.view',
             'portal.reports.view',
         }
@@ -56,6 +57,17 @@ class PortalNavigationTests(SimpleTestCase):
 
         self.assertEqual(grouped_keys['Overview'], ['dashboard'])
         self.assertEqual(grouped_keys['Cases'], ['all', 'case_history'])
-        self.assertEqual(grouped_keys['IT tools'], ['imports', 'reports'])
+        self.assertEqual(grouped_keys['Data intake'], ['farmup', 'imports'])
+        self.assertEqual(grouped_keys['IT tools'], ['reports'])
         self.assertEqual(grouped_keys['Account'], ['settings'])
         self.assertNotIn('Credit', str(grouped_keys))
+
+    def test_farmup_is_sidebar_only_for_it_and_operations_admin(self):
+        for role in ('IT', 'OPERATIONS_ADMIN'):
+            items = self._items_for([role], {'portal.dashboard.view', 'portal.farmup.view'})
+            farmup = next(item for item in items if item['key'] == 'farmup')
+            self.assertFalse(farmup['bottom_primary'])
+            self.assertEqual(farmup['category'], 'Data intake')
+
+        denied = self._items_for(['JBL_OFFICER'], {'portal.dashboard.view'})
+        self.assertNotIn('farmup', [item['key'] for item in denied])

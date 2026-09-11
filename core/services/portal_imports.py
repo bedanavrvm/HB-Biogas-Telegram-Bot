@@ -1,9 +1,7 @@
-"""Portal-owned staging and archival for FarmUp and SysUp source files.
+"""Portal-owned FarmUp intake plus review-only SysUp staging and archival.
 
-The Portal is intentionally a review surface only in this release.  It uses
-the established FarmUp/SysUp parsers and staged-batch records, but never calls
-their commit functions.  A later, separately approved release may expose a
-maker-checker commit action without changing how files are staged or archived.
+FarmUp reuses the established parser and commit service behind a scoped,
+revision-bound Portal contract. SysUp remains source review only.
 """
 
 from __future__ import annotations
@@ -11,12 +9,14 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import json
 import mimetypes
 import re
 from pathlib import PurePath
 from typing import Any
 
 from django.conf import settings
+from django.core import signing
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -37,6 +37,19 @@ _SAFE_FILENAME = re.compile(r'[^A-Za-z0-9._ -]+')
 
 class PortalImportError(ValueError):
     """A stable validation failure suitable for a staff-facing API response."""
+
+
+class PortalImportConflict(PortalImportError):
+    """The batch revision or idempotency payload no longer matches."""
+
+
+FARMUP_EDITABLE_FIELDS = (
+    'Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone',
+    'Application Action', 'Additional Unit Reason', 'County',
+    'HBG Visit Date', 'Deposit Paid to HB', 'HB Sales Person',
+    'Cleaning Notes',
+)
+_FARMUP_REVISION_SALT = 'portal-farmup-batch-revision-v1'
 
 
 def resolve_import_group(*, allowed_group_ids: set[str] | None = None) -> GroupSheetConfiguration:
@@ -254,6 +267,164 @@ def _assert_replay_is_in_scope(
         raise PortalImportError('This staged import is unavailable in your scope.')
 
 
+def _assert_farmup_batch(batch: JawabuFarmerUploadBatch) -> None:
+    if batch.import_kind != 'farmers':
+        raise PortalImportError('SysUp batches are available under Imports and cannot be changed through FarmUp.')
+
+
+def farmup_revision_token(batch: JawabuFarmerUploadBatch) -> str:
+    """Return an opaque, batch-bound token for optimistic concurrency."""
+    return signing.dumps(
+        {'batch': str(batch.pk), 'revision': int(batch.portal_revision or 1)},
+        salt=_FARMUP_REVISION_SALT,
+        compress=True,
+    )
+
+
+def _revision_from_token(batch: JawabuFarmerUploadBatch, token: str) -> int:
+    try:
+        payload = signing.loads(str(token or ''), salt=_FARMUP_REVISION_SALT)
+        if str(payload.get('batch') or '') != str(batch.pk):
+            raise signing.BadSignature
+        return int(payload.get('revision'))
+    except (signing.BadSignature, TypeError, ValueError, AttributeError):
+        raise PortalImportConflict('This FarmUp preview is stale. Reload the batch before committing.')
+
+
+def _farmup_commit_rows(batch: JawabuFarmerUploadBatch, submitted_rows: Any) -> list[dict]:
+    """Merge the editable surface onto server rows without trusting metadata."""
+    if not isinstance(submitted_rows, list):
+        raise PortalImportError('FarmUp rows must be submitted as a list.')
+    current_rows = list(batch.parsed_rows or [])
+    by_id = {str(row.get('row_id')): dict(row) for row in current_rows}
+    submitted_ids: set[str] = set()
+    merged_rows: list[dict] = []
+    for submitted in submitted_rows:
+        if not isinstance(submitted, dict):
+            raise PortalImportError('Each FarmUp row must be an object.')
+        row_id = str(submitted.get('row_id') or '')
+        if not row_id or row_id not in by_id or row_id in submitted_ids:
+            raise PortalImportConflict('The FarmUp row selection changed. Reload the batch before committing.')
+        submitted_ids.add(row_id)
+        merged = by_id[row_id]
+        for field in FARMUP_EDITABLE_FIELDS:
+            if field in submitted:
+                merged[field] = str(submitted.get(field) or '')
+        merged['approved'] = bool(submitted.get('approved'))
+        merged_rows.append(merged)
+    if submitted_ids != set(by_id):
+        raise PortalImportConflict('The FarmUp row selection changed. Reload the batch before committing.')
+    return merged_rows
+
+
+def _farmup_payload_digest(rows: list[dict]) -> str:
+    editable = [
+        {
+            'row_id': str(row.get('row_id') or ''),
+            'approved': bool(row.get('approved')),
+            **{field: str(row.get(field) or '') for field in FARMUP_EDITABLE_FIELDS},
+        }
+        for row in rows
+    ]
+    encoded = json.dumps(editable, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+    return hashlib.sha256(encoded.encode('utf-8')).hexdigest()
+
+
+@transaction.atomic
+def commit_portal_farmup(
+    *,
+    batch_id: str,
+    rows: list[dict],
+    revision_token: str,
+    request_id: str,
+    actor,
+    allowed_group_ids: set[str] | None = None,
+) -> tuple[JawabuFarmerUploadBatch, dict, bool]:
+    """Commit a revision-bound FarmUp review with customer-free replay state."""
+    request_id = str(request_id or '').strip()
+    if not request_id:
+        raise PortalImportError('This commit needs a retry key. Reload FarmUp and try again.')
+    batch = JawabuFarmerUploadBatch.objects.select_for_update().filter(pk=batch_id).first()
+    if batch is None:
+        raise PortalImportError('This FarmUp batch is unavailable.')
+    _assert_replay_is_in_scope(batch, allowed_group_ids=allowed_group_ids)
+    _assert_farmup_batch(batch)
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise PortalImportError('FarmUp rows must be submitted as a list.')
+    # Check the retry ledger before comparing against the now-mutated working
+    # rows. A successful full/partial commit removes processed rows, but an
+    # exact network retry must still replay its original aggregate result.
+    payload_hash = _farmup_payload_digest(rows)
+
+    for replay in list(batch.portal_commit_replays or []):
+        if str(replay.get('request_id') or '') != request_id:
+            continue
+        if replay.get('payload_hash') != payload_hash:
+            raise PortalImportConflict('This retry key was already used with different FarmUp rows.')
+        return batch, dict(replay.get('result') or {}), True
+
+    merged_rows = _farmup_commit_rows(batch, rows)
+    expected_revision = _revision_from_token(batch, revision_token)
+    if expected_revision != int(batch.portal_revision or 1):
+        raise PortalImportConflict('Another reviewer changed this FarmUp batch. Reload it before committing.')
+
+    from core.services.jawabu_master import commit_farmup_review_batch
+
+    group_configuration = resolve_import_group(allowed_group_ids=allowed_group_ids)
+    if str(group_configuration.group_id) != str(batch.group_id):
+        raise PortalImportError('This FarmUp batch no longer matches the configured Jawabu workflow.')
+    result = commit_farmup_review_batch(batch, merged_rows, group_config=group_configuration)
+    safe_result = {
+        'success': bool(result.get('success')),
+        'message': str(result.get('message') or ''),
+        'committed': int(result.get('committed') or 0),
+        'skipped': int(result.get('skipped') or 0),
+        'review_needed': int(result.get('review_needed') or 0),
+        'errors': [str(value) for value in list(result.get('errors') or [])[:20]],
+        'sheet_sync': {
+            key: result.get('sheet_sync', {}).get(key)
+            for key in ('success', 'enabled', 'created', 'updated', 'conflicts')
+        },
+    }
+    batch.portal_revision = int(batch.portal_revision or 1) + 1
+    replays = list(batch.portal_commit_replays or [])
+    replays.append({
+        'request_id': request_id[:128],
+        'payload_hash': payload_hash,
+        'result': safe_result,
+    })
+    batch.portal_commit_replays = replays[-100:]
+    batch.save(update_fields=['portal_revision', 'portal_commit_replays', 'updated_at'])
+    record_event(
+        workflow='portal',
+        action='portal.farmup.committed',
+        category='workflow',
+        subject_type='JawabuFarmerUploadBatch',
+        subject_id=str(batch.pk),
+        deduplication_key=f'portal-farmup-commit:{batch.pk}:{request_id}',
+        actor=actor,
+        request_id=request_id,
+        source_model='JawabuFarmerUploadBatch',
+        source_event_id=f'{batch.pk}:portal-commit:{request_id}',
+        before_values={'revision': expected_revision},
+        after_values={
+            'revision': batch.portal_revision,
+            'status': batch.status,
+            'committed_count': batch.committed_count,
+            'skipped_count': batch.skipped_count,
+            'review_needed': batch.review_needed,
+        },
+        metadata={
+            'group_id': batch.group_id,
+            'approved_rows': sum(1 for row in merged_rows if row.get('approved')),
+            'skipped_rows': sum(1 for row in merged_rows if not row.get('approved')),
+            'unresolved_rows': safe_result['review_needed'],
+        },
+        sensitive=False,
+    )
+    return batch, safe_result, False
+
+
 def archive_portal_import_working_list(
     *,
     batch_id: str,
@@ -341,7 +512,7 @@ def stage_portal_import(
     actor,
     allowed_group_ids: set[str] | None = None,
 ) -> tuple[JawabuFarmerUploadBatch, IntegrationOperation, bool]:
-    """Create one review-only batch and reserve archival work.
+    """Create one parsed review batch and reserve archival work.
 
     The request key is mandatory because an Android WebView retry must return
     the original parsed batch rather than create a second import to review.
