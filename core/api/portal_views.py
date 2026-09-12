@@ -404,6 +404,25 @@ def _apply_county_branch_filters(qs, request, *, params=None, capability: str = 
     return qs
 
 
+def _apply_portal_search(qs, *, params):
+    """Apply the allowlisted case search to the complete scoped queryset."""
+    from django.db.models import Q
+
+    search = str(params.get('search') or '').strip()
+    if not search:
+        return qs
+    return qs.filter(
+        Q(customer_name__icontains=search)
+        | Q(national_id__icontains=search)
+        | Q(primary_phone__icontains=search)
+        | Q(customer_no__icontains=search)
+        | Q(county__icontains=search)
+        | Q(branch__icontains=search)
+        | Q(order_number__icontains=search)
+        | Q(invoice_number__icontains=search)
+    )
+
+
 def _apply_portal_ordering(qs, *, params):
     """Allow only the private workspace's safe alternate ordering."""
     return qs.order_by('-created_at') if str(params.get('ordering') or '').strip() == 'newest' else qs
@@ -717,6 +736,7 @@ def _portal_queue_queryset(queue_key: str, request, *, params=None):
             service = getattr(jawabu_pipeline, config['service'])
             qs = service(params.get('search', '').strip()) if queue_key == 'jbl' else service()
         qs = _apply_county_branch_filters(qs, request, params=params, capability=queue_capability)
+    qs = _apply_portal_search(qs, params=params)
     if queue_key == 'my_visits':
         return qs, config
     return _apply_portal_ordering(qs, params=params), config
@@ -1347,8 +1367,13 @@ def portal_home(request):
 
 
 def _portal_screen_context(screen: str, **extra) -> dict:
+    from core.services.portal_navigation import portal_screen_presentation
+
+    presentation = portal_screen_presentation(screen)
     return {
         'active_screen': screen,
+        'active_portal_hub': presentation['hub'],
+        'active_pipeline_stage': presentation.get('stage', ''),
         'invoice_upload_max_file_size_mb': int(getattr(settings, 'INVOICE_UPLOAD_MAX_FILE_SIZE_MB', 8) or 8),
         'farmup_max_file_size_mb': int(getattr(settings, 'FARMUP_MAX_FILE_SIZE_MB', 5) or 5),
         **extra,
@@ -1453,14 +1478,24 @@ def portal_case_history_detail(request, farmer_id: str):
 @require_http_methods(["GET"])
 def portal_navigation(request):
     """Render only links authorized for the authenticated Telegram staff member."""
-    from core.services.portal_navigation import get_portal_nav_groups, get_portal_nav_items
+    from core.services.portal_navigation import (
+        get_portal_nav_groups,
+        get_portal_nav_hubs,
+        get_portal_nav_items,
+        get_portal_pipeline_stages,
+    )
     surface = request.GET.get('surface', 'sidebar')
-    if surface not in {'sidebar', 'bottom'}:
+    if surface not in {'sidebar', 'bottom', 'stages'}:
         surface = 'sidebar'
+    active_screen = request.GET.get('active', 'dashboard')
+    user = getattr(request, 'portal_user', None)
+    access = getattr(request, 'portal_access', None)
     return render(request, 'portal/partials/navigation.html', {
-        'nav_items': get_portal_nav_items(getattr(request, 'portal_user', None), access=getattr(request, 'portal_access', None)),
-        'nav_groups': get_portal_nav_groups(getattr(request, 'portal_user', None), access=getattr(request, 'portal_access', None)),
-        'active_screen': request.GET.get('active', 'dashboard'),
+        'nav_items': get_portal_nav_items(user, access=access),
+        'nav_groups': get_portal_nav_groups(user, access=access),
+        'nav_hubs': get_portal_nav_hubs(user, access=access, active_screen=active_screen),
+        'pipeline_stages': get_portal_pipeline_stages(user, access=access, active_screen=active_screen),
+        'active_screen': active_screen,
         'surface': surface,
     })
 
@@ -3150,7 +3185,7 @@ def portal_my_visits(request):
     from core.services.jawabu_pipeline import farmer_to_card
 
     qs, _config = _portal_queue_queryset('my_visits', request)
-    items, pagination = _paginate_qs(qs, request)
+    items, pagination = _paginate_qs(qs, request, page_size=10)
     return JsonResponse({
         'ok': True,
         'calculated_at': timezone.now().isoformat(),
@@ -3175,7 +3210,7 @@ def portal_queue_fragment(request, queue_key: str):
     if qs is None:
         return HttpResponse('Unknown portal queue.', status=404)
 
-    items, pagination = _paginate_qs(qs, request, page_size=10 if queue_key == 'jbl' else 30)
+    items, pagination = _paginate_qs(qs, request, page_size=10)
     review_stage = _portal_review_stage(request) if queue_key == 'final' else ''
     review_map = _pending_payment_review_map(request) if review_stage == 'payment' else {}
     fragment_mode = config['mode']
@@ -4373,7 +4408,8 @@ def portal_credit_queue(request):
     qs = _apply_portal_ordering(_apply_county_branch_filters(
         credit_queue(), request, capability='portal.credit_queue.view',
     ), params=request.GET)
-    items, pagination = _paginate_qs(qs, request)
+    qs = _apply_portal_search(qs, params=request.GET)
+    items, pagination = _paginate_qs(qs, request, page_size=10)
     return JsonResponse({
         'ok': True,
         'calculated_at': timezone.now().isoformat(),
@@ -4506,7 +4542,8 @@ def portal_final_review_queue(request):
             final_review_queue(), request, capability='portal.final_review.view',
         ), params=request.GET)
     qs = _apply_portal_ordering(qs, params=request.GET)
-    items, pagination = _paginate_qs(qs, request)
+    qs = _apply_portal_search(qs, params=request.GET)
+    items, pagination = _paginate_qs(qs, request, page_size=10)
     return JsonResponse({
         'ok': True,
         'calculated_at': timezone.now().isoformat(),
@@ -4674,7 +4711,8 @@ def portal_requisition_queue(request):
     qs = _apply_portal_ordering(_apply_county_branch_filters(
         requisition_queue(), request, capability='portal.requisition.view',
     ), params=request.GET)
-    items, pagination = _paginate_qs(qs, request)
+    qs = _apply_portal_search(qs, params=request.GET)
+    items, pagination = _paginate_qs(qs, request, page_size=10)
     return JsonResponse({
         'ok': True,
         'calculated_at': timezone.now().isoformat(),
@@ -4733,7 +4771,7 @@ def portal_all_cases(request):
     qs = _apply_portal_ordering(_apply_county_branch_filters(
         qs, request, capability='portal.case.read',
     ), params=request.GET)
-    items, pagination = _paginate_qs(qs, request)
+    items, pagination = _paginate_qs(qs, request, page_size=10)
     return JsonResponse({
         'ok': True,
         'calculated_at': timezone.now().isoformat(),
@@ -4757,7 +4795,8 @@ def portal_deferred(request):
         ),
         params=request.GET,
     )
-    items, pagination = _paginate_qs(qs, request)
+    qs = _apply_portal_search(qs, params=request.GET)
+    items, pagination = _paginate_qs(qs, request, page_size=10)
     return JsonResponse({
         'ok': True,
         'calculated_at': timezone.now().isoformat(),

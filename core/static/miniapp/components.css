@@ -1,0 +1,227 @@
+/* Shared Mini App interaction primitives. Workflow-specific presentation may
+   extend these classes, but must not redefine their state semantics. */
+:root {
+  --miniapp-touch-primary: 44px;
+  --miniapp-touch-icon: 40px;
+  --miniapp-text-body: 12px;
+  --miniapp-text-meta: 10px;
+  --miniapp-radius-control: 10px;
+  --miniapp-radius-panel: 13px;
+  --miniapp-shadow-panel: 0 5px 18px rgba(15, 23, 42, .07);
+}
+
+.miniapp-workspace-tabs,
+.miniapp-status-tabs {
+  display: grid;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border-color, var(--line));
+  border-radius: var(--miniapp-radius-panel);
+  background: var(--bg-surface, var(--surface));
+}
+
+.miniapp-workspace-tabs button,
+.miniapp-status-tabs button {
+  min-width: 0;
+  min-height: var(--miniapp-touch-primary);
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-muted, var(--muted));
+}
+
+.miniapp-workspace-tabs button[aria-selected="true"],
+.miniapp-workspace-tabs button[aria-pressed="true"],
+.miniapp-status-tabs button[aria-selected="true"],
+.miniapp-status-tabs button[aria-pressed="true"] {
+  background: var(--color-soft, var(--soft));
+  color: var(--brand-primary, var(--accent));
+}
+
+.miniapp-filter-trigger {
+  display: flex;
+  width: 100%;
+  min-height: var(--miniapp-touch-primary);
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 11px;
+  border: 1px solid var(--border-color, var(--line));
+  border-radius: var(--miniapp-radius-control);
+  background: var(--bg-surface, var(--surface));
+  color: var(--text-primary, var(--text));
+  text-align: left;
+}
+
+.miniapp-filter-count {
+  display: inline-grid;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--brand-primary, var(--accent));
+  color: var(--button-text, #fff);
+  font-size: var(--miniapp-text-meta);
+}
+
+.miniapp-filter-chips {
+  display: flex;
+  overflow-x: auto;
+  gap: 6px;
+  padding: 6px 0;
+  scrollbar-width: none;
+}
+.miniapp-filter-chips:empty { display: none; }
+.miniapp-filter-chips::-webkit-scrollbar { display: none; }
+.miniapp-filter-chip {
+  display: inline-flex;
+  min-height: 32px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--brand-primary, var(--accent)) 34%, var(--border-color, var(--line)));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand-primary, var(--accent)) 9%, var(--bg-surface, var(--surface)));
+  color: var(--brand-primary, var(--accent));
+  font-size: var(--miniapp-text-meta);
+  font-weight: 750;
+}
+
+.miniapp-sheet-overlay {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  display: none;
+  align-items: flex-end;
+  padding-top: max(12px, env(safe-area-inset-top));
+  background: rgba(7, 15, 11, .62);
+}
+.miniapp-sheet-overlay.open { display: flex; }
+.miniapp-sheet {
+  display: flex;
+  width: min(100%, 680px);
+  max-height: min(92dvh, var(--miniapp-stable-height, 92dvh));
+  margin: auto auto 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 18px 18px 0 0;
+  background: var(--bg-surface, var(--surface));
+  box-shadow: 0 -18px 50px rgba(0, 0, 0, .25);
+}
+.miniapp-sheet-header,
+.miniapp-sheet-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-color: var(--border-color, var(--line));
+  background: var(--bg-surface, var(--surface));
+}
+.miniapp-sheet-header { justify-content: space-between; border-bottom: 1px solid var(--border-color, var(--line)); }
+.miniapp-sheet-body { overflow: auto; padding: 12px; }
+.miniapp-sheet-actions {
+  justify-content: flex-end;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border-color, var(--line));
+}
+
+.miniapp-feedback {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--border-color, var(--line));
+  border-radius: var(--miniapp-radius-panel);
+  background: var(--bg-surface, var(--surface));
+  box-shadow: var(--miniapp-shadow-panel);
+  color: var(--text-primary, var(--text));
+  font-size: var(--miniapp-text-body);
+}
+.miniapp-feedback[hidden] { display: none; }
+.miniapp-feedback[data-tone="error"] { border-color: color-mix(in srgb, var(--color-danger, var(--danger)) 40%, var(--border-color, var(--line))); }
+.miniapp-feedback[data-tone="warning"] { border-color: color-mix(in srgb, var(--color-warning, var(--warning)) 45%, var(--border-color, var(--line))); }
+.miniapp-feedback[data-tone="success"] { border-color: color-mix(in srgb, var(--color-success, var(--success)) 40%, var(--border-color, var(--line))); }
+.miniapp-feedback strong { display: block; margin-bottom: 2px; }
+.miniapp-feedback p { margin: 0; color: var(--text-muted, var(--muted)); }
+.miniapp-feedback small { display: block; margin-top: 4px; color: var(--text-muted, var(--muted)); overflow-wrap: anywhere; }
+.miniapp-feedback-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+
+.miniapp-pagination {
+  display: grid;
+  grid-template-columns: minmax(40px, 1fr) auto minmax(40px, 1fr);
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  margin-top: 10px;
+}
+.miniapp-pagination > :first-child { justify-self: end; }
+.miniapp-pagination > :last-child { justify-self: start; }
+.miniapp-pagination-status { color: var(--text-muted, var(--muted)); font-size: var(--miniapp-text-meta); text-align: center; white-space: nowrap; }
+
+.miniapp-sticky-actions {
+  position: sticky;
+  z-index: 5;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 9px 12px calc(9px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border-color, var(--line));
+  background: color-mix(in srgb, var(--bg-surface, var(--surface)) 95%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.miniapp-table-zoom {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: .35rem;
+  margin: .65rem 0;
+}
+
+.miniapp-table-zoom > span {
+  margin-right: .25rem;
+  color: var(--text-muted, #667085);
+  font-size: .78rem;
+  font-weight: 700;
+}
+
+.miniapp-table-zoom button {
+  min-width: 42px;
+  min-height: 40px;
+  border: 1px solid var(--line, #d9e1e7);
+  border-radius: 9px;
+  background: var(--surface, #fff);
+  color: var(--text, #17211d);
+  font: inherit;
+  font-weight: 750;
+}
+
+.miniapp-empty-state,
+.miniapp-loading-state {
+  display: grid;
+  min-height: 132px;
+  place-items: center;
+  padding: 18px;
+  border: 1px dashed var(--border-color, var(--line));
+  border-radius: var(--miniapp-radius-panel);
+  color: var(--text-muted, var(--muted));
+  text-align: center;
+}
+
+@media (max-width: 560px) {
+  .miniapp-feedback { grid-template-columns: 1fr; }
+  .miniapp-feedback-actions { justify-content: flex-start; }
+}
+
+@media (min-width: 760px) {
+  .miniapp-sheet-overlay { align-items: center; padding: 24px; }
+  .miniapp-sheet { max-height: calc(var(--miniapp-stable-height, 100dvh) - 48px); margin: auto; border-radius: 18px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .miniapp-sheet-overlay, .miniapp-sheet { scroll-behavior: auto; }
+}

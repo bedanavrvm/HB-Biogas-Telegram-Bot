@@ -30,8 +30,9 @@
     queues: { jbl: [], my_visits: [], credit: [], final: [], requisition: [], deferred: [], all: [], batches: [] },
     pagination: {},
     pages: { jbl: 1, my_visits: 1, credit: 1, final: 1, requisition: 1, deferred: 1, all: 1, batches: 1 },
-    search: String(restoredPortalUi.search || ''),
-    jblSearch: String(restoredPortalUi.jblSearch || ''),
+    search: '',
+    searches: {},
+    filtersByQueue: {},
     metaStatuses: [],
     metaDecisions: [],
     metaImabOptions: [],
@@ -128,7 +129,7 @@
       ? el('case-history-content')
       : root.querySelector('.page.active') || root;
     if (!target) return;
-    target.innerHTML = '<section class="shell-error" role="alert"><h2>Screen could not finish loading</h2><p>'
+    target.innerHTML = '<section class="shell-error miniapp-feedback" data-tone="error" role="alert"><h2>Screen could not finish loading</h2><p>'
       + escapeHtml(error?.message || 'The Portal could not prepare this screen.')
       + '</p><button type="button" class="btn btn-secondary portal-screen-retry" data-page="'
       + escapeHtml(page) + '">Retry</button></section>';
@@ -171,8 +172,6 @@
   function rememberPortalUi() {
     portalUiContext?.write?.({
       activePage: state.activePage,
-      search: state.search,
-      jblSearch: state.jblSearch,
       reviewStage: state.filters.reviewStage,
     });
   }
@@ -537,6 +536,7 @@
       pageElement.style.display = 'block';
       pageElement.classList.add('active');
     }
+    portalFilters.setupQueueTools?.(page);
     return Boolean(pageElement);
   }
   // Dashboard
@@ -772,7 +772,7 @@
   }
 
   function queueFailureMarkup(qKey, message, requestId) {
-    return `<div class="empty-state queue-error" role="alert"><div class="es-icon">!</div><div class="es-title">Queue unavailable</div><div class="es-sub">${escapeHtml(message || 'The queue could not be loaded.')}</div><button type="button" class="btn btn-secondary queue-retry" data-queue="${escapeHtml(qKey)}">Retry</button>${requestId ? `<div class="es-sub error-reference">Reference: ${escapeHtml(requestId)}</div>` : ''}</div>`;
+    return `<div class="empty-state queue-empty-state queue-error miniapp-feedback" data-tone="error" role="alert"><div class="es-icon">!</div><div class="es-title">Queue unavailable</div><div class="es-sub">${escapeHtml(message || 'The queue could not be loaded.')}</div><button type="button" class="btn btn-secondary queue-retry" data-queue="${escapeHtml(qKey)}">Try Again</button>${requestId ? `<div class="es-sub error-reference">Reference: ${escapeHtml(requestId)}</div>` : ''}</div>`;
   }
 
   function renderQueueFailure(listEl, qKey, page, message, requestId) {
@@ -884,6 +884,7 @@
       renderQueueFailure(listEl, qKey, page, 'The queue could not be loaded. Please try again.');
     } finally {
       queueLoadsActive.set(qKey, Math.max(0, Number(queueLoadsActive.get(qKey) || 1) - 1));
+      portalFilters.rememberPage?.(qKey);
       if (preserveView) {
         listEl.style.minHeight = '';
         window.requestAnimationFrame(() => window.scrollTo({ top: savedScrollY, behavior: 'auto' }));
@@ -913,7 +914,12 @@
     const list = cfg ? el(cfg.listId) : null;
     if (!cfg?.fragmentEndpoint || !window.htmx || !list) return false;
     const params = new URLSearchParams({ page: String(page) });
-    if (qKey === 'all' && state.search) params.set('search', state.search);
+    const queueSearch = String(state.searches?.[qKey] || '').trim();
+    if (queueSearch) params.set('search', queueSearch);
+    const queueFilters = state.filtersByQueue?.[qKey] || {};
+    ['county', 'branch', 'ordering'].forEach(key => {
+      if (queueFilters[key]) params.set(key, queueFilters[key]);
+    });
     // Keep the payment/decision lens in the legacy fragment fallback too.
     // A stale or blocked queue helper must not silently revert HOR to the
     // final-decision queue after the user has changed the selector.
@@ -1386,6 +1392,7 @@
   // the selected card against the canonical detail endpoint before rendering.
   async function openCurrentFarmerSheet(farmer, mode) {
     if (!farmer || !farmer.id) return;
+    if (queueConfig[state.activePage]) portalFilters.rememberSelection?.(state.activePage, farmer.id);
     try {
       const requestOptions = canManagePortalWorkspace()
         ? { headers: { 'X-Portal-Workspace-Open-Key': newWorkspaceOpenKey() } }
@@ -1417,15 +1424,6 @@
       afterSwap: () => openBatchDetail(orderNumber),
     });
   }
-  // Search (All Cases tab). The input is re-rendered on every route change.
-  let searchTimer;
-  document.addEventListener('input', e => {
-    if (!e.target.matches('#all-search')) return;
-    clearTimeout(searchTimer);
-    state.search = e.target.value.trim();
-    rememberPortalUi();
-    searchTimer = setTimeout(() => loadQueue('all', 1), 400);
-  });
   // Meta (dropdown values)
   async function loadMeta() {
     const { ok, data } = await apiFetch('/meta/');
@@ -1458,6 +1456,7 @@
     state.accessPolicyVersion = nextPolicyVersion;
     state.capabilities = new Set(data.capabilities || []);
     applyCapabilityVisibility();
+    portalFilters.setupQueueTools?.(state.activePage);
     applyWorkspaceVisibility();
   }
 
@@ -1688,7 +1687,7 @@
       });
     }
     if (page === 'settings') return loadPortalSettings(true);
-    if (queueConfig[page]) return loadQueue(page, 1);
+    if (queueConfig[page]) return loadQueue(page, state.pages[page] || 1);
     throw new Error(`No loader is registered for ${page}.`);
   }
 
@@ -2342,14 +2341,6 @@
     event.preventDefault();
     runScreenLoader(retry.dataset.page || state.activePage);
   });
-  let jblSearchTimer;
-  document.addEventListener('input', e => {
-    if (!e.target.matches('#jbl-search')) return;
-    clearTimeout(jblSearchTimer);
-    state.jblSearch = e.target.value.trim();
-    rememberPortalUi();
-    jblSearchTimer = setTimeout(() => loadQueue('jbl', 1), 350);
-  });
   document.addEventListener('click', event => {
     const pageButton = event.target.closest('[data-queue-page][data-queue-key]');
     if (pageButton) {
@@ -2360,12 +2351,6 @@
       if (queueConfig[queueKey] && Number.isInteger(page) && page > 0) loadQueue(queueKey, page);
       return;
     }
-    if (!event.target.closest('#jbl-search-clear')) return;
-    event.preventDefault();
-    state.jblSearch = '';
-    rememberPortalUi();
-    if (el('jbl-search')) el('jbl-search').value = '';
-    loadQueue('jbl', 1);
   });
 
   document.addEventListener('click', event => {
@@ -2561,6 +2546,7 @@
       getCookie,
       loadDashboard,
       locationText,
+      onClose: () => portalFilters.restorePosition?.(state.activePage),
       openAssignedOrder,
       openPortalLink,
       portalApi,

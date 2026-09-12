@@ -5,6 +5,15 @@
 
 <div id="portal-screen" data-screen="{{ active_screen }}" data-case-farmer-id="{{ case_history_farmer_id|default:'' }}" data-report-view="{{ report_view|default:'' }}" data-report-id="{{ report_id|default:'' }}" data-report-step="{{ report_step|default:'' }}" data-invoice-view="{{ invoice_view|default:'' }}" data-invoice-id="{{ invoice_id|default:'' }}" data-top-level="{% if case_history_farmer_id %}false{% elif report_view and report_view != 'catalogue' %}false{% elif invoice_view and invoice_view != 'inbox' %}false{% else %}true{% endif %}">
 
+  {% if active_pipeline_stage %}
+  <div class="portal-pipeline-navigation"
+       hx-get="{% url 'portal_navigation' %}?active={{ active_screen }}&amp;surface=stages"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <span class="shell-nav-status">Loading pipeline…</span>
+  </div>
+  {% endif %}
+
   <!-- Dashboard -->
   {% if active_screen == 'dashboard' %}
   <section id="page-dashboard" class="page{% if active_screen == 'dashboard' %} active{% endif %}">
@@ -124,12 +133,7 @@
         <button type="button" class="btn btn-secondary" id="requisition-sequence-save">Save sequence</button>
       </div><p class="meta" id="requisition-sequence-status">Loading official sequence…</p></div>
     </div>
-    <div class="queue-search-row jbl-queue-search-row">
-      <label class="sr-only" for="jbl-search">Search JBL visit queue</label>
-      <i class="queue-search-icon" data-lucide="search" aria-hidden="true"></i>
-      <input id="jbl-search" type="search" placeholder="Search name, ID, phone, county, or branch..." autocomplete="off" enterkeyhint="search">
-      <button type="button" class="queue-search-clear" id="jbl-search-clear" aria-label="Clear JBL queue search" title="Clear search"><i data-lucide="x" aria-hidden="true"></i></button>
-    </div>
+    {% include "portal/partials/queue_tools.html" with queue_key="jbl" queue_label="visit queue" %}
     <div id="jbl-list" class="farmer-list">
       <div class="empty-state"><div class="spinner-inline"></div></div>
     </div>
@@ -143,6 +147,7 @@
       <div><h1>My Submitted Visits</h1><p class="meta">Your latest JBL visit submissions and their current progress</p></div>
       <button type="button" class="queue-refresh-button" data-queue-refresh="my_visits" aria-label="Refresh my visits" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
+    {% include "portal/partials/queue_tools.html" with queue_key="my_visits" queue_label="submitted visits" %}
     <div id="my-visits-list" class="farmer-list">
       <div class="empty-state"><div class="spinner-inline"></div></div>
     </div>
@@ -157,6 +162,7 @@
       <div><h1>Credit Analysis Queue</h1><p class="meta">JBL visited - awaiting credit decision</p></div>
       <button type="button" class="queue-refresh-button" data-queue-refresh="credit" aria-label="Refresh credit analysis queue" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
+    {% include "portal/partials/queue_tools.html" with queue_key="credit" queue_label="credit analysis queue" %}
     <div id="credit-list" class="farmer-list">
       <div class="empty-state"><div class="spinner-inline"></div></div>
     </div>
@@ -184,6 +190,7 @@
       </div>
       <p id="final-review-stage-help" class="meta">Record the final decision before an approved case moves to Orders.</p>
     </div>
+    {% include "portal/partials/queue_tools.html" with queue_key="final" queue_label="Head of Rural review queue" %}
     <div id="final-list" class="farmer-list">
       <div class="empty-state"><div class="spinner-inline"></div></div>
     </div>
@@ -197,6 +204,7 @@
       <div><h1>Requisition Queue</h1><p class="meta">Final decision approved - assign order number</p></div>
       <button type="button" class="queue-refresh-button" data-queue-refresh="requisition" aria-label="Refresh requisition queue" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
+    {% include "portal/partials/queue_tools.html" with queue_key="requisition" queue_label="order preparation queue" %}
     <div id="requisition-batch-panel" class="batch-panel portal-initially-hidden" data-required-capability="portal.requisition.finalize">
       <div class="batch-title">
         <span class="badge" id="batch-selected-count">0 selected</span>
@@ -383,6 +391,7 @@
       <div><h1>Deferred / Reappraisal Required</h1><p class="meta">Rejected by JBL, credit declined, or on hold</p></div>
       <button type="button" class="queue-refresh-button" data-queue-refresh="deferred" aria-label="Refresh deferred cases" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
+    {% include "portal/partials/queue_tools.html" with queue_key="deferred" queue_label="deferred cases" %}
     <div id="deferred-list" class="farmer-list">
       <div class="empty-state"><div class="spinner-inline"></div></div>
     </div>
@@ -397,10 +406,7 @@
       <div><h1>All Cases</h1><p class="meta">Full farmer list across all groups</p></div>
       <button type="button" class="queue-refresh-button" data-queue-refresh="all" aria-label="Refresh all cases" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
-    <div class="search-bar portal-search-control">
-      <i data-lucide="search" aria-hidden="true"></i>
-      <input id="all-search" type="search" placeholder="Search name, phone, or ID..." autocomplete="off" enterkeyhint="search">
-    </div>
+    {% include "portal/partials/queue_tools.html" with queue_key="all" queue_label="all cases" %}
     <div id="all-list" class="farmer-list">
       <div class="empty-state"><div class="es-icon">Files</div><div class="es-title">Search to find farmers</div></div>
     </div>

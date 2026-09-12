@@ -1,22 +1,62 @@
 {% if surface == 'bottom' %}
-  {% for item in nav_items %}
-    {% if item.bottom_primary %}
-      <a class="shell-nav-link{% if item.key == active_screen %} active{% endif %}"
-         href="{{ item.url }}"
-         hx-get="{{ item.url }}"
-         hx-target="#portal-screen"
-         hx-select="#portal-screen"
-         hx-swap="outerHTML transition:true"
-         hx-push-url="true"
-         data-screen="{{ item.key }}"
-         data-bottom-primary="true">
-        <i data-lucide="{{ item.icon }}" aria-hidden="true"></i>
-        <span>{{ item.label }}</span>
-      </a>
-    {% endif %}
+  {% for hub in nav_hubs %}
+    <a class="shell-nav-link{% if hub.active %} active{% endif %}"
+       href="{{ hub.url }}"
+       hx-get="{{ hub.url }}"
+       hx-target="#portal-screen"
+       hx-select="#portal-screen"
+       hx-swap="outerHTML transition:true"
+       hx-push-url="true"
+       data-hub="{{ hub.key }}"
+       data-screen="{{ hub.screen }}"
+       data-screens="{{ hub.screens }}"
+       data-bottom-primary="true">
+      <i data-lucide="{{ hub.icon }}" aria-hidden="true"></i>
+      <span>{{ hub.label }}</span>
+    </a>
   {% empty %}
     <span class="shell-nav-status">No screens available</span>
   {% endfor %}
+{% elif surface == 'stages' %}
+  <nav class="portal-pipeline-stage-nav" aria-label="Loan pipeline stages">
+    <div class="portal-pipeline-stage-rail" role="tablist">
+      {% for stage in pipeline_stages %}
+        <a class="portal-pipeline-stage-link{% if stage.active %} active{% endif %}"
+           role="tab"
+           aria-selected="{% if stage.active %}true{% else %}false{% endif %}"
+           href="{{ stage.url }}"
+           hx-get="{{ stage.url }}"
+           hx-target="#portal-screen"
+           hx-select="#portal-screen"
+           hx-swap="outerHTML transition:true"
+           hx-push-url="true"
+           data-stage="{{ stage.key }}"
+           data-screen="{{ stage.screen }}"
+           data-screens="{{ stage.screens }}">
+          <i data-lucide="{{ stage.icon }}" aria-hidden="true"></i>
+          <span>{{ stage.label }}</span>
+        </a>
+      {% endfor %}
+    </div>
+    {% for stage in pipeline_stages %}
+      {% if stage.active and stage.items|length > 1 %}
+        <div class="portal-stage-workspaces miniapp-status-tabs" role="tablist" aria-label="{{ stage.label }} workspaces">
+          {% for item in stage.items %}
+            <a class="portal-stage-workspace{% if item.key == active_screen %} active{% endif %}"
+               role="tab"
+               aria-selected="{% if item.key == active_screen %}true{% else %}false{% endif %}"
+               href="{{ item.url }}"
+               hx-get="{{ item.url }}"
+               hx-target="#portal-screen"
+               hx-select="#portal-screen"
+               hx-swap="outerHTML transition:true"
+               hx-push-url="true"
+               data-screen="{{ item.key }}">{{ item.label }}</a>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endfor %}
+  </nav>
 {% else %}
   {% for group in nav_groups %}
     <section class="shell-nav-group" aria-label="{{ group.label }}">
@@ -29,6 +69,8 @@
            hx-select="#portal-screen"
            hx-swap="outerHTML transition:true"
            hx-push-url="true"
+           data-hub="{{ item.hub }}"
+           data-stage="{{ item.stage }}"
            data-screen="{{ item.key }}">
           <i data-lucide="{{ item.icon }}" aria-hidden="true"></i>
           <span>{{ item.label }}</span>

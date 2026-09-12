@@ -4,7 +4,7 @@
 
 The IT-only Portal reporting workspace is deliberately limited to live
 `JawabuFarmerMaster` case data, a server-owned field catalogue, named safe
-aggregate counts, in-app Chart.js charts, and local XLSX export. It is not an
+aggregate counts, in-app aggregate visualisations, and local XLSX export. It is not an
 arbitrary query builder and currently has no cross-workflow customer joins,
 PDF/print output, Drive/Sheets publishing, scheduled delivery, saved data
 snapshots, or historical version-diff renderer. TAT, SPIN, Complaint Case and

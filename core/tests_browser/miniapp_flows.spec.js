@@ -76,6 +76,63 @@ test('Portal shell follows live viewport while sheets wait for stable Telegram h
   expect(await dimensions()).toMatchObject({ body: 390, bottom: 390, sheet: 390, live: '390px', stable: '390px' });
 });
 
+test('Portal queue controls filter the full list and keep search data ephemeral', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 700 });
+  await page.route('http://miniapp.test/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Portal controls</title>' }));
+  await page.goto('http://miniapp.test/portal-controls');
+  await page.setContent(`
+    <section data-portal-queue-tools="credit">
+      <label><input data-portal-queue-search="credit"><button type="button" data-portal-search-clear hidden>Clear</button></label>
+      <button type="button" data-portal-filter-trigger>Filters <span data-portal-filter-count hidden>0</span></button>
+      <div data-portal-filter-chips></div>
+      <div data-portal-filter-overlay hidden aria-hidden="true"><aside data-portal-filter-sheet>
+        <button type="button" data-miniapp-sheet-close>Close</button>
+        <form data-portal-filter-form>
+          <select name="county"><option value="">All counties</option></select>
+          <select name="branch"><option value="">All branches</option></select>
+          <select name="ordering"><option value="">Queue priority</option><option value="newest">Newest created</option></select>
+          <button type="button" data-portal-filter-reset>Clear all</button><button type="submit">Apply</button>
+        </form>
+      </aside></div>
+    </section>
+  `);
+  await loadUtilities(page);
+  await page.addScriptTag({ path: asset('components.js') });
+  await page.addScriptTag({ path: asset('portal_filters.js') });
+  await page.evaluate(() => {
+    window.__queueLoads = [];
+    const state = { activePage: 'credit', pages: { credit: 1 }, searches: {}, filtersByQueue: {}, metaCounties: ['Kiambu', 'Nakuru'], metaBranches: ['Ruiru', 'Naivasha'] };
+    window.PortalMiniAppFilters.init({ state, queueConfig: { credit: {} }, loadQueue: (key, pageNumber) => window.__queueLoads.push({ key, pageNumber, search: state.searches.credit, filters: { ...state.filtersByQueue.credit } }) });
+    window.PortalMiniAppFilters.setupQueueTools('credit');
+  });
+
+  await page.locator('[data-portal-queue-search]').fill('Customer 12345678');
+  await page.waitForTimeout(300);
+  await page.locator('[data-portal-filter-trigger]').click();
+  await page.locator('select[name="county"]').selectOption('Kiambu');
+  await page.locator('[data-portal-filter-form]').evaluate(form => form.requestSubmit());
+
+  const result = await page.evaluate(() => ({
+    loads: window.__queueLoads,
+    stored: Object.keys(sessionStorage).map(key => sessionStorage.getItem(key)).join(' '),
+    count: document.querySelector('[data-portal-filter-count]').textContent,
+  }));
+  expect(result.loads.at(-1)).toMatchObject({ key: 'credit', pageNumber: 1, filters: { county: 'Kiambu' } });
+  expect(result.stored).not.toContain('Customer 12345678');
+  expect(result.count).toBe('1');
+});
+
+test('Portal report table zoom reaches the 20 percent accessibility floor', async ({ page }) => {
+  await page.setContent(`<div data-miniapp-table-zoom="portal"><button data-miniapp-table-zoom-out>−</button><button data-miniapp-table-zoom-reset>100%</button><button data-miniapp-table-zoom-in>+</button><div data-miniapp-table-zoom-target></div></div>`);
+  await loadUtilities(page);
+  await page.addScriptTag({ path: asset('components.js') });
+  await page.evaluate(() => window.MiniAppComponents.bindTableZoom(document.querySelector('[data-miniapp-table-zoom]'), 'browser-table-zoom'));
+  for (let index = 0; index < 5; index += 1) await page.locator('[data-miniapp-table-zoom-out]').click();
+  await expect(page.locator('[data-miniapp-table-zoom-reset]')).toHaveText('20%');
+  await expect(page.locator('[data-miniapp-table-zoom-out]')).toBeDisabled();
+  expect(await page.locator('[data-miniapp-table-zoom-target]').evaluate(node => node.style.getPropertyValue('--miniapp-table-scale'))).toBe('0.2');
+});
+
 test('Portal FarmUp renders a compact mobile grid with explicit selection counts', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 700 });
   await page.setContent(`
@@ -127,7 +184,7 @@ test('Portal FarmUp renders a compact mobile grid with explicit selection counts
   await expect(page.locator('.farmup-mobile-card')).toHaveCount(0);
   await expect(page.locator('#farmup-selection-summary')).toContainText('1 commit');
   expect(await page.locator('.farmup-grid-wrap').evaluate(element => element.scrollWidth === element.clientWidth)).toBe(true);
-  expect(await page.locator('.farmup-grid .ag-center-cols-viewport').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(await page.locator('.farmup-grid .ag-body-horizontal-scroll-viewport').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
   const nameCell = page.locator('.ag-cell').filter({ hasText: 'Test Farmer' }).first();
   await nameCell.dblclick();
   await page.keyboard.press('Control+A');

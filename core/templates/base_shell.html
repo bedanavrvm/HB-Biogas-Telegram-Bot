@@ -15,16 +15,17 @@
         "{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}",
         "{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}",
         "{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}"
-      ]
+      ],
+      leafletScript: "{% static 'miniapp/vendor-leaflet-1.9.4.js' %}?v=1.9.4",
+      leafletStyles: "{% static 'miniapp/vendor-leaflet-1.9.4.css' %}?v=1.9.4"
     };
   </script>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="{% static 'miniapp/vendor-htmx-2.0.4.min.js' %}?v=2.0.4"></script>
   <script src="{% static 'miniapp/vendor-lucide-1.44.0.min.js' %}?v=1.44.0"></script>
-  <link rel="stylesheet" href="{% static 'miniapp/vendor-leaflet-1.9.4.css' %}?v=1.9.4">
-  <script src="{% static 'miniapp/vendor-leaflet-1.9.4.js' %}?v=1.9.4"></script>
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=8">
-  <link rel="stylesheet" href="{% static 'miniapp/portal.css' %}?v=97">
+  <link rel="stylesheet" href="{% static 'miniapp/components.css' %}?v=2">
+  <link rel="stylesheet" href="{% static 'miniapp/portal.css' %}?v=98">
   <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=17">
   <link rel="stylesheet" href="{% static 'miniapp/theme.css' %}?v=9">
   <script defer src="{% static 'miniapp/miniapp-nav.js' %}?v=21"></script>
@@ -68,23 +69,23 @@
 
   {% include "miniapp_diagnostics.html" %}
   <script src="{% static 'miniapp/utils.js' %}?v=12"></script>
+  <script src="{% static 'miniapp/components.js' %}?v=2"></script>
+  <script src="{% static 'miniapp/asset_loader.js' %}?v=1"></script>
   <script src="{% static 'miniapp/runtime.js' %}?v=4"></script>
   <script src="{% static 'miniapp/portal_dialogs.js' %}?v=1"></script>
   <script src="{% static 'miniapp/secure_media_viewer.js' %}?v=1"></script>
   <script src="{% static 'miniapp/portal_helpers.js' %}?v=7"></script>
   <script src="{% static 'miniapp/portal_api.js' %}?v=9"></script>
-  <script src="{% static 'miniapp/portal_queues.js' %}?v=9"></script>
-  <script src="{% static 'miniapp/portal_farmer_sheet.js' %}?v=61"></script>
+  <script src="{% static 'miniapp/portal_queues.js' %}?v=10"></script>
+  <script src="{% static 'miniapp/portal_farmer_sheet.js' %}?v=62"></script>
   <script src="{% static 'miniapp/portal_case_history.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/portal_filters.js' %}?v=11"></script>
+  <script src="{% static 'miniapp/portal_filters.js' %}?v=12"></script>
   <script src="{% static 'miniapp/portal_requisitions.js' %}?v=35"></script>
   <script src="{% static 'miniapp/portal_invoices.js' %}?v=16"></script>
   <script src="{% static 'miniapp/portal_payments.js' %}?v=7"></script>
   <script src="{% static 'miniapp/portal_imports.js' %}?v=7"></script>
   <script src="{% static 'miniapp/portal_farmup.js' %}?v=4"></script>
-  <!-- Pinned local asset: Chart.js 4.5.1; no runtime CDN dependency. -->
-  <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}?v=4.5.1"></script>
-  <script src="{% static 'miniapp/portal_curated_reports.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/portal.js' %}?v=80"></script>
+  <script src="{% static 'miniapp/portal_curated_reports.js' %}?v=2"></script>
+  <script src="{% static 'miniapp/portal.js' %}?v=81"></script>
 </body>
 </html>

@@ -46,20 +46,25 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_requisitions.js'), html.index('miniapp/portal_payments.js'))
         self.assertLess(html.index('miniapp/portal_payments.js'), html.index('miniapp/portal.js'))
         self.assertLess(html.index('miniapp/portal_imports.js'), html.index('miniapp/portal.js'))
-        self.assertIn('miniapp/portal_queues.js?v=9', html)
-        self.assertIn('miniapp/portal_farmer_sheet.js?v=61', html)
+        self.assertIn('miniapp/components.js?v=2', html)
+        self.assertIn('miniapp/asset_loader.js?v=1', html)
+        self.assertIn('miniapp/portal_queues.js?v=10', html)
+        self.assertIn('miniapp/portal_farmer_sheet.js?v=62', html)
         self.assertIn('miniapp/utils.js?v=12', html)
         self.assertIn('miniapp/portal_helpers.js?v=7', html)
-        self.assertIn('miniapp/portal.css?v=97', html)
-        self.assertIn('miniapp/portal_filters.js?v=11', html)
+        self.assertIn('miniapp/components.css?v=2', html)
+        self.assertIn('miniapp/portal.css?v=98', html)
+        self.assertIn('miniapp/portal_filters.js?v=12', html)
         self.assertIn('miniapp/portal_imports.js?v=7', html)
         self.assertNotIn('portal-import-group', html)
         self.assertIn('miniapp/portal_requisitions.js?v=35', html)
         self.assertIn('miniapp/portal_api.js?v=9', html)
         self.assertIn('miniapp/portal_invoices.js?v=16', html)
         self.assertIn('miniapp/portal_payments.js?v=7', html)
-        self.assertIn('miniapp/portal_curated_reports.js?v=1', html)
-        self.assertIn('miniapp/portal.js?v=79', html)
+        self.assertIn('miniapp/portal_curated_reports.js?v=2', html)
+        self.assertIn('miniapp/portal.js?v=81', html)
+        self.assertNotIn('vendor-chartjs-4.5.1.umd.min.js', html)
+        self.assertNotIn('<script src="/static/miniapp/vendor-leaflet-1.9.4.js', html)
         self.assertIn('miniapp/portal_case_history.js?v=1', html)
         self.assertLess(html.index('miniapp/portal_case_history.js'), html.index('miniapp/portal.js'))
 
@@ -431,13 +436,13 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(card.index('Unit {{ farmer.unit_number'), card.index('HB visit: {{ farmer.hbg_visit_date_label'))
         self.assertIn('JBL visit: {{ farmer.jbl_visit_date_label', card)
         self.assertIn('function renderVisitQueueCard(f, qKey)', portal)
-        self.assertIn("qKey === 'jbl' || qKey === 'my_visits' ? deps.renderVisitQueueCard", filters)
+        self.assertIn('setupQueueTools', filters)
+        self.assertIn('bindFilterSheet', filters)
         self.assertIn('class="operational-queue-card-content"', card)
         self.assertIn('farmer.current_pipeline_state|default:"In Progress"', card)
         self.assertIn('function renderOperationalQueueCard(f, qKey)', portal)
-        self.assertIn('deps.renderOperationalQueueCard(farmer, qKey)', filters)
-        self.assertNotIn("params.set('county'", queues)
-        self.assertNotIn("params.set('branch'", queues)
+        self.assertIn("['county', 'branch', 'ordering']", queues)
+        self.assertIn("params.set(key, value)", queues)
         self.assertIn("farmer.imab_created || 'Pending'", sheet)
         self.assertIn('WORKFLOW_DRAFT_CONFIG', sheet)
         self.assertIn('clearWorkflowDraft', sheet)
@@ -578,19 +583,41 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('Could not load invoices', invoice_source)
         self.assertIn('Could not load invoiced cases', payment_source)
 
-    def test_portal_queue_renderer_has_no_hidden_location_filter_bindings(self):
+    def test_portal_queue_filters_use_shared_server_backed_controls(self):
         source = Path('core/static/miniapp/portal_filters.js').read_text(encoding='utf-8')
+        template = Path('core/templates/portal/partials/queue_tools.html').read_text(encoding='utf-8')
+        portal = Path('core/static/miniapp/portal.js').read_text(encoding='utf-8')
 
         for expected in (
             'window.PortalMiniAppFilters',
             'init',
-            'applyFilters',
-            'renderFilteredFarmerList',
+            'setupQueueTools',
+            'bindSearch',
+            'bindFilterSheet',
+            'filtersByQueue',
         ):
             self.assertIn(expected, source)
-        self.assertNotIn('filter-county', source)
-        self.assertNotIn('filter-branch', source)
-        self.assertNotIn('btn-clear-filters', source)
+        self.assertIn('data-portal-queue-search', template)
+        self.assertIn('data-portal-filter-trigger', template)
+        self.assertIn('data-portal-filter-chips', template)
+        self.assertNotIn('restoredPortalUi.search', portal)
+        self.assertNotIn('restoredPortalUi.jblSearch', portal)
+
+    def test_portal_queue_tools_and_report_zoom_are_shared_and_mobile_safe(self):
+        template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')
+        tools = Path('core/templates/portal/partials/queue_tools.html').read_text(encoding='utf-8')
+        components = Path('core/static/miniapp/components.js').read_text(encoding='utf-8')
+        curated = Path('core/static/miniapp/portal_curated_reports.js').read_text(encoding='utf-8')
+        asset_loader = Path('core/static/miniapp/asset_loader.js').read_text(encoding='utf-8')
+
+        for queue_key in ('jbl', 'my_visits', 'credit', 'final', 'requisition', 'deferred', 'all'):
+            self.assertIn(f'queue_key="{queue_key}"', template)
+        self.assertIn('Filters apply to the full authorized queue.', tools)
+        self.assertIn('delay: 250', Path('core/static/miniapp/portal_filters.js').read_text(encoding='utf-8'))
+        self.assertIn('[20, 40, 60, 80, 90, 100, 110, 125, 140, 160, 180, 200]', components)
+        self.assertNotIn("focusId: String(source.focusId", components)
+        self.assertIn('bindTableZoom', curated)
+        self.assertIn('loadLeaflet', asset_loader)
 
     def test_portal_queue_empty_states_use_the_compact_completion_treatment(self):
         queue_source = Path('core/static/miniapp/portal_queues.js').read_text(encoding='utf-8')
@@ -601,7 +628,7 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertIn('Credit queue is clear', queue_source)
         self.assertNotIn('No BRO analysis cases', queue_source)
-        for source in (portal_source, filter_source, list_template):
+        for source in (portal_source, list_template):
             self.assertIn('queue-empty-state', source)
             self.assertIn('<svg viewBox', source)
             self.assertNotIn('es-icon">OK', source)

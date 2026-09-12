@@ -1,5 +1,24 @@
 # Changelog
 
+## Portal pipeline UI standardization - 12-September-2026
+
+- Reorganized Portal navigation around the actual loan cycle: Intake, Field
+  Visit, Credit, Approval, Fulfilment, and Finance. Mobile navigation now uses
+  four stable Home, Pipeline, Cases, and More hubs while every route remains
+  guarded by its existing capability.
+- Added reusable Mini App workspace tabs, filter sheets/chips, feedback,
+  pagination, single-flight action, list-state, and table-zoom primitives. This
+  release adopts them in Portal only so TAT and Complaints remain visually
+  unchanged until a separately reviewed rollout.
+- Standardized Portal card queues on server-backed search, county, branch, and
+  ordering filters before ten-record pagination. Search values remain
+  memory-only; non-sensitive filters and queue position survive navigation.
+- Added 20-200% report-table zoom and lazy loading for the vendored Leaflet map
+  runtime. Removed the unused eager Chart.js download from the active Portal
+  shell without introducing a CDN dependency.
+- Recorded the navigation/component decision in ADR 0032. No workflow state,
+  authorization rule, model, or database schema changed.
+
 ## Direct Superuser staff lifecycle and visible approvals - 29-August-2026
 
 - Made active-Superuser staff onboarding, access changes, transfers, leave,

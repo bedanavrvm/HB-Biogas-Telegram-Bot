@@ -217,7 +217,8 @@
     try {
       const screen = currentScreen();
       document.querySelectorAll('.shell-nav-link').forEach(link => {
-        link.classList.toggle('active', link.dataset.screen === screen);
+        const screens = String(link.dataset.screens || link.dataset.screen || '').split(/\s+/).filter(Boolean);
+        link.classList.toggle('active', screens.includes(screen));
       });
       if (!window.PortalAppShell?.activate) throw new Error('Portal screen loader is unavailable.');
       window.PortalAppShell.activate(screen);

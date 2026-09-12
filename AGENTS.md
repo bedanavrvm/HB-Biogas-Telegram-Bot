@@ -249,6 +249,13 @@ assets keep navigation, icons, and maps available on unreliable field
 connections. Do not replace them with runtime CDN imports; update the pinned
 asset and its license together.
 
+`core/static/miniapp/components.js` and `components.css` contain shared,
+framework-free Mini App interaction primitives. Portal is the first consumer;
+rollout to another Mini App must be separately reviewed so an approved TAT or
+Complaints interaction is not changed implicitly. `asset_loader.js` loads
+vendored optional UI assets (currently Portal maps) on demand and must not be
+used to introduce runtime CDN dependencies.
+
 `core/static/miniapp/vendor-ag-grid-community-36.1.0.min.js`, its styles, and
 the matching Quartz icon-font stylesheet are intentionally vendored for the
 management-only Complaints Data Overview. Only

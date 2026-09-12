@@ -1,0 +1,32 @@
+<section class="portal-queue-tools" data-portal-queue-tools="{{ queue_key }}" aria-label="{{ queue_label|default:'Queue' }} search and filters">
+  <div class="portal-queue-tools-primary">
+    <label class="portal-queue-search" aria-label="Search {{ queue_label|default:'queue' }}">
+      <i data-lucide="search" aria-hidden="true"></i>
+      <input type="search" data-portal-queue-search="{{ queue_key }}" placeholder="{{ search_placeholder|default:'Search name, ID, phone, county, or branch' }}" autocomplete="off" enterkeyhint="search">
+      <button type="button" data-portal-search-clear aria-label="Clear search" title="Clear search" hidden><i data-lucide="x" aria-hidden="true"></i></button>
+    </label>
+    <button type="button" class="miniapp-filter-trigger" data-portal-filter-trigger>
+      <i data-lucide="sliders-horizontal" aria-hidden="true"></i>
+      <span>Filters</span>
+      <span class="miniapp-filter-count" data-portal-filter-count hidden>0</span>
+    </button>
+  </div>
+  <div class="miniapp-filter-chips" data-portal-filter-chips aria-live="polite"></div>
+  <div class="miniapp-sheet-overlay" data-portal-filter-overlay aria-hidden="true" hidden>
+    <aside class="miniapp-sheet" data-portal-filter-sheet role="dialog" aria-modal="true" aria-label="Filter {{ queue_label|default:'queue' }}">
+      <header class="miniapp-sheet-header">
+        <div><strong>Filter queue</strong><p>Filters apply to the full authorized queue.</p></div>
+        <button type="button" data-miniapp-sheet-close aria-label="Close filters"><i data-lucide="x" aria-hidden="true"></i></button>
+      </header>
+      <form class="miniapp-sheet-body" data-portal-filter-form>
+        <label>County<select name="county"><option value="">All counties</option></select></label>
+        <label>Branch<select name="branch"><option value="">All branches</option></select></label>
+        <label>Order<select name="ordering"><option value="">Queue priority</option><option value="newest">Newest created</option></select></label>
+        <footer class="miniapp-sheet-actions">
+          <button type="button" class="btn btn-secondary" data-portal-filter-reset>Clear all</button>
+          <button type="submit" class="btn btn-primary">Apply filters</button>
+        </footer>
+      </form>
+    </aside>
+  </div>
+</section>

@@ -751,7 +751,13 @@
     // frame to avoid intermittent blank maps in Telegram WebView.
     if (!isNaN(lat) && !isNaN(lng)) {
       window.requestAnimationFrame(() => {
-        if (el('sheet-overlay')?.classList.contains('open')) initMap(lat, lng);
+        if (!el('sheet-overlay')?.classList.contains('open')) return;
+        const leafletReady = window.MiniAppAssetLoader?.loadLeaflet?.() || Promise.resolve();
+        leafletReady
+          .then(() => {
+            if (el('sheet-overlay')?.classList.contains('open')) initMap(lat, lng);
+          })
+          .catch(() => initMap(lat, lng));
       });
     } else {
       destroyMap();
@@ -2296,6 +2302,7 @@
     state().selectedFarmer = null;
     state().activeMode = null;
     destroyMap();
+    deps.onClose?.();
   }
 
   async function submitJblVisit() {

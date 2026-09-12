@@ -35,15 +35,24 @@
     if (queueKey === 'final' && (state.filters || {}).reviewStage) {
       params.set('stage', state.filters.reviewStage);
     }
-    if (state.workspaceOrdering === 'newest') params.set('ordering', 'newest');
+    const filters = (state.filtersByQueue || {})[queueKey] || {};
+    ['county', 'branch', 'ordering'].forEach(function (key) {
+      const value = String(filters[key] || '').trim();
+      if (value) params.set(key, value);
+    });
+    if (!params.has('ordering') && state.workspaceOrdering === 'newest') params.set('ordering', 'newest');
+  }
+
+  function appendSearch(params, state, queueKey) {
+    const search = String((state.searches || {})[queueKey] || '').trim();
+    if (search) params.set('search', search);
   }
 
   function queueUrl(queueKey, page, state) {
     const cfg = getConfig(queueKey);
     if (!cfg) return '';
     const params = new URLSearchParams({ page: String(page || 1) });
-    if (queueKey === 'all' && state.search) params.set('search', state.search);
-    if (queueKey === 'jbl' && state.jblSearch) params.set('search', state.jblSearch);
+    appendSearch(params, state, queueKey);
     if (queueKey === 'all' || cfg.fragmentEndpoint) appendCommonFilters(params, state, queueKey);
     return cfg.endpoint + '?' + params.toString();
   }
@@ -52,8 +61,7 @@
     const cfg = getConfig(queueKey);
     if (!cfg || !cfg.fragmentEndpoint) return '';
     const params = new URLSearchParams({ page: String(page || 1) });
-    if (queueKey === 'all' && state.search) params.set('search', state.search);
-    if (queueKey === 'jbl' && state.jblSearch) params.set('search', state.jblSearch);
+    appendSearch(params, state, queueKey);
     appendCommonFilters(params, state, queueKey);
     return cfg.fragmentEndpoint + '?' + params.toString();
   }

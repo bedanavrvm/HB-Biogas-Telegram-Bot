@@ -1286,7 +1286,7 @@ class PortalMiniAppAuthTestCase(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'JBL Queue')
+        self.assertContains(response, 'Visit Queue')
         self.assertNotContains(response, 'Credit')
         self.assertNotContains(response, 'Invoices')
 
@@ -1546,7 +1546,7 @@ class PortalMiniAppAuthTestCase(TestCase):
         )
 
         self.assertEqual(navigation.status_code, 200)
-        self.assertNotContains(navigation, 'JBL Queue')
+        self.assertNotContains(navigation, 'Visit Queue')
         self.assertEqual(queue.status_code, 403)
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
@@ -1981,6 +1981,38 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Pipeline test farmer')
         self.assertNotContains(response, 'Other branch farmer')
+
+    def test_portal_card_queues_search_before_ten_item_pagination(self):
+        for index in range(12):
+            JawabuFarmerMaster.objects.create(
+                customer_name=f'Credit Search Match {index}',
+                national_id=f'97777{index:03d}',
+                primary_phone=f'2547111{index:05d}',
+                county='Kiambu',
+                branch='Ruiru',
+                status='active',
+                jbl_visit_date=date(2026, 7, 1),
+                jbl_visit_status='Visited, Awaiting Credit Analysis',
+            )
+        JawabuFarmerMaster.objects.create(
+            customer_name='Unrelated Credit Farmer',
+            national_id='96666000',
+            primary_phone='254722200000',
+            county='Nakuru',
+            branch='Naivasha',
+            status='active',
+            jbl_visit_date=date(2026, 7, 1),
+            jbl_visit_status='Visited, Awaiting Credit Analysis',
+        )
+
+        first = self.client.get(reverse('portal_credit_queue'), {'search': 'Credit Search Match', 'page': 1}).json()
+        second = self.client.get(reverse('portal_credit_queue'), {'search': 'Credit Search Match', 'page': 2}).json()
+
+        self.assertEqual(first['pagination']['page_size'], 10)
+        self.assertEqual(first['pagination']['total'], 12)
+        self.assertEqual(len(first['farmers']), 10)
+        self.assertEqual(len(second['farmers']), 2)
+        self.assertTrue(all('Credit Search Match' in item['customer_name'] for item in first['farmers'] + second['farmers']))
 
     def test_portal_queue_fragment_renders_credit_final_requisition_and_all(self):
         """Verify the shared htmx fragment supports the main farmer queues."""

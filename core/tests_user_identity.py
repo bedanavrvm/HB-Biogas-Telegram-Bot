@@ -345,7 +345,7 @@ class TelegramUserAuthenticationTests(TestCase):
         navigation = self.client.get(reverse('portal_navigation'), HTTP_X_TELEGRAM_INIT_DATA=auth)
 
         self.assertEqual(dashboard.status_code, 200)
-        self.assertContains(navigation, 'JBL Queue')
+        self.assertContains(navigation, 'Visit Queue')
         self.assertNotContains(navigation, 'Credit')
         self.assertNotContains(navigation, 'Invoices')
 
