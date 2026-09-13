@@ -62,7 +62,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/portal_invoices.js?v=16', html)
         self.assertIn('miniapp/portal_payments.js?v=7', html)
         self.assertIn('miniapp/portal_curated_reports.js?v=2', html)
-        self.assertIn('miniapp/portal.js?v=81', html)
+        self.assertIn('miniapp/portal.js?v=82', html)
         self.assertNotIn('vendor-chartjs-4.5.1.umd.min.js', html)
         self.assertNotIn('<script src="/static/miniapp/vendor-leaflet-1.9.4.js', html)
         self.assertIn('miniapp/portal_case_history.js?v=1', html)
@@ -221,7 +221,9 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertIn('/\\/portal\\/cases\\/[^/]+\\//', source)
         self.assertIn("return 'case_history'", source)
-        self.assertContains(response, 'miniapp/miniapp-nav.js?v=21')
+        self.assertIn("document.getElementById('portal-screen')?.dataset.screen", source)
+        self.assertIn("swapTarget.id !== 'portal-screen'", source)
+        self.assertContains(response, 'miniapp/miniapp-nav.js?v=22')
 
     def test_telegram_back_never_uses_host_history_for_a_cold_portal_screen(self):
         source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')

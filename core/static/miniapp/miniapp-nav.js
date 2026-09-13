@@ -142,6 +142,11 @@
   }
 
   function currentScreen() {
+    // The swapped fragment is authoritative during htmx's lifecycle. History
+    // may not have updated the URL yet, so location alone can activate the
+    // controller for the screen that was just replaced.
+    const renderedScreen = document.getElementById('portal-screen')?.dataset.screen;
+    if (renderedScreen) return renderedScreen;
     if (/\/portal\/cases\/[^/]+\//.test(window.location.pathname)) return 'case_history';
     const match = window.location.pathname.match(/\/portal\/s\/([^/]+)\//);
     return match ? match[1] : 'dashboard';
@@ -213,7 +218,17 @@
     tg.MainButton.show();
   }
 
-  function activateScreen() {
+  function activateScreen(event) {
+    const swapTarget = event?.detail?.target;
+    const isNavigationOnlySwap = ['htmx:afterSwap', 'htmx:afterSettle'].includes(event?.type)
+      && swapTarget
+      && swapTarget.id !== 'portal-screen';
+    if (isNavigationOnlySwap) {
+      // Sidebar, bottom-hub, and pipeline-stage fragments contain icons and
+      // links only. They must not restart the active workflow controller.
+      window.lucide?.createIcons();
+      return;
+    }
     try {
       const screen = currentScreen();
       document.querySelectorAll('.shell-nav-link').forEach(link => {

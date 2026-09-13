@@ -883,6 +883,79 @@ test('mobile navigation closes its drawer and Telegram Back stays inside Portal'
   expect(calls[0].options.pushURL).toBe(true);
 });
 
+test('Portal activates the newly rendered screen before htmx history settles', async ({ page }) => {
+  await page.route('http://miniapp.test/**', route => route.fulfill({
+    contentType: 'text/html',
+    body: '<body><main id="content"><section id="portal-screen" data-screen="dashboard"></section></main></body>',
+  }));
+  await page.addInitScript(() => {
+    window.__portalActivations = [];
+    window.Telegram = { WebApp: {
+      ready() {}, expand() {}, disableVerticalSwipes() {}, disableClosingConfirmation() {},
+      themeParams: {}, onEvent() {},
+      BackButton: { onClick() {}, offClick() {}, show() {}, hide() {} },
+      MainButton: { onClick() {}, offClick() {}, show() {}, hide() {}, setText() {} },
+    } };
+    window.PortalAppShell = { activate(screen) { window.__portalActivations.push(screen); } };
+  });
+  await page.goto('http://miniapp.test/portal/s/dashboard/');
+  await loadUtilities(page);
+  await page.addScriptTag({ path: asset('miniapp-nav.js') });
+  await page.evaluate(() => {
+    const previous = document.getElementById('portal-screen');
+    const replacement = document.createElement('section');
+    replacement.id = 'portal-screen';
+    replacement.dataset.screen = 'credit';
+    previous.replaceWith(replacement);
+    document.body.dispatchEvent(new CustomEvent('htmx:afterSwap', {
+      bubbles: true,
+      detail: { target: replacement },
+    }));
+  });
+  await expect.poll(() => page.evaluate(() => window.__portalActivations.at(-1))).toBe('credit');
+  await expect(page).toHaveURL('http://miniapp.test/portal/s/dashboard/');
+});
+
+test('Portal hub links swap screens and activate the matching controller', async ({ page }) => {
+  await page.route('http://miniapp.test/**', route => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname === '/portal/s/credit/') {
+      return route.fulfill({
+        contentType: 'text/html',
+        body: '<section id="portal-screen" data-screen="credit"><h1>Credit Analysis</h1></section>',
+      });
+    }
+    return route.fulfill({
+      contentType: 'text/html',
+      body: `<!doctype html><body>
+        <main id="content"><section id="portal-screen" data-screen="dashboard"><h1>Home</h1></section></main>
+        <nav id="bottom-tabs"><a class="shell-nav-link" data-screen="credit" data-screens="credit"
+          href="/portal/s/credit/" hx-get="/portal/s/credit/" hx-target="#portal-screen"
+          hx-select="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Pipeline</a></nav>
+      </body>`,
+    });
+  });
+  await page.addInitScript(() => {
+    window.__portalActivations = [];
+    window.Telegram = { WebApp: {
+      ready() {}, expand() {}, disableVerticalSwipes() {}, disableClosingConfirmation() {},
+      themeParams: {}, onEvent() {},
+      BackButton: { onClick() {}, offClick() {}, show() {}, hide() {} },
+      MainButton: { onClick() {}, offClick() {}, show() {}, hide() {}, setText() {} },
+    } };
+    window.PortalAppShell = { activate(screen) { window.__portalActivations.push(screen); } };
+  });
+  await page.goto('http://miniapp.test/portal/s/dashboard/');
+  await loadUtilities(page);
+  await page.addScriptTag({ path: asset('vendor-htmx-2.0.4.min.js') });
+  await page.addScriptTag({ path: asset('miniapp-nav.js') });
+  await page.locator('#bottom-tabs a').click();
+  await expect(page.locator('#portal-screen')).toHaveAttribute('data-screen', 'credit');
+  await expect(page.locator('#portal-screen h1')).toHaveText('Credit Analysis');
+  await expect(page).toHaveURL('http://miniapp.test/portal/s/credit/');
+  await expect.poll(() => page.evaluate(() => window.__portalActivations.at(-1))).toBe('credit');
+});
+
 test('multipart upload failure can retry with the same request key', async ({ page }) => {
   await page.setContent('<main>Upload</main>');
   await page.evaluate(() => {

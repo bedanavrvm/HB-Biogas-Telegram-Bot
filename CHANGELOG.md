@@ -1,5 +1,14 @@
 # Changelog
 
+## Portal screen navigation regression fix - 13-September-2026
+
+- Activate Portal controllers from the newly rendered screen during HTMX swaps,
+  even before browser history updates; navigation-only fragment refreshes no
+  longer restart the current workflow. Restored correct active-state handling
+  for four mobile hubs and bumped script cache keys for Telegram WebViews.
+- Added browser coverage for an actual hub click and for the HTMX swap/history
+  race. No routes, capabilities, workflow writes, or schema changed.
+
 ## Portal pipeline UI standardization - 12-September-2026
 
 - Reorganized Portal navigation around the actual loan cycle: Intake, Field

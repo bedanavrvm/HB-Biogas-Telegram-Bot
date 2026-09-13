@@ -523,7 +523,10 @@
     state.activePage = page;
     rememberPortalUi();
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.page === page));
-    document.querySelectorAll('.shell-nav-link').forEach(link => link.classList.toggle('active', link.dataset.screen === page));
+    document.querySelectorAll('.shell-nav-link').forEach(link => {
+      const screens = String(link.dataset.screens || link.dataset.screen || '').split(/\s+/).filter(Boolean);
+      link.classList.toggle('active', screens.includes(page));
+    });
 
     if (page !== 'requisition') {
       state.selectedRequisitions.clear();
