@@ -1,5 +1,16 @@
 # Changelog
 
+## Portal full-page navigation reliability fix - 13-September-2026
+
+- Switched Portal screen, stage, invoice, dashboard, and detail navigation to
+  complete GET page loads after live reports showed that HTMX screen swaps
+  could still leave Telegram WebViews on a blank or loading screen. Retained
+  HTMX for navigation and in-screen data fragments only.
+- Kept Telegram Back within an authorized Portal route, guarded unsaved edits
+  and in-flight actions, and opened newly assigned orders in the current
+  durable detail sheet. Added mobile browser and template regression coverage.
+- No capability, workflow write, or schema changed.
+
 ## Portal screen navigation regression fix - 13-September-2026
 
 - Activate Portal controllers from the newly rendered screen during HTMX swaps,

@@ -838,122 +838,79 @@ test('double-submit protection shares one browser request', async ({ page }) => 
   expect(result).toEqual({ calls: 1, samePromise: true });
 });
 
-test('mobile navigation closes its drawer and Telegram Back stays inside Portal', async ({ page }) => {
+async function installPortalRouteFixture(page) {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.route('http://miniapp.test/**', route => route.fulfill({
-    contentType: 'text/html',
-    body: `<!doctype html><style>
-      #sidebar { position: fixed; z-index: 2; width: 240px; height: 100%; transform: translateX(-100%); }
-      #sidebar.open { transform: translateX(0); }
-      #sidebar-backdrop { display: none; position: fixed; inset: 0; z-index: 1; }
-      #sidebar-backdrop.open { display: block; }
-    </style><body>
-      <button id="shell-menu-button" aria-expanded="false">Menu</button>
-      <aside id="sidebar"><a class="shell-nav-link" data-screen="all" href="http://miniapp.test/portal/s/all/">All cases</a></aside>
-      <div id="sidebar-backdrop"></div><main id="content"><section id="portal-screen"></section></main>
-    </body>`,
-  }));
   await page.addInitScript(() => {
-    window.__htmxCalls = [];
     window.Telegram = { WebApp: {
       ready() {}, expand() {}, disableVerticalSwipes() {}, disableClosingConfirmation() {},
-      themeParams: {}, onEvent() {},
+      enableClosingConfirmation() {}, themeParams: {}, onEvent() {},
       BackButton: {
         onClick(callback) { window.__backHandler = callback; }, offClick() {}, show() {}, hide() {},
       },
       MainButton: { onClick() {}, offClick() {}, show() {}, hide() {}, setText() {} },
     } };
-    window.PortalAppShell = { activate() {} };
-    window.htmx = { ajax(method, url, options) { window.__htmxCalls.push({ method, url, options }); } };
+    window.PortalAppShell = { activate(screen) { document.body.dataset.activated = screen; } };
   });
+  await page.route('http://miniapp.test/**', route => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname.startsWith('/miniapp-assets/')) {
+      return route.fulfill({ contentType: 'application/javascript', body: fs.readFileSync(asset(pathname.split('/').at(-1))) });
+    }
+    const screen = pathname.includes('/cases/') ? 'case_history' : pathname.match(/\/s\/([^/]+)\//)?.[1] || 'dashboard';
+    return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><head><style>
+      #sidebar { position: fixed; z-index: 2; width: 240px; height: 100%; transform: translateX(-100%); }
+      #sidebar.open { transform: translateX(0); }
+      #sidebar-backdrop { display: none; position: fixed; inset: 0; z-index: 1; }
+      #sidebar-backdrop.open { display: block; }
+    </style></head><body>
+      <button id="shell-menu-button" aria-expanded="false">Menu</button>
+      <aside id="sidebar"><a class="shell-nav-link" data-screen="all" href="/portal/s/all/">All cases</a></aside>
+      <div id="sidebar-backdrop"></div>
+      <main id="content"><section id="portal-screen" data-screen="${screen}" ${screen === 'dashboard' || screen === 'credit' || screen === 'all' ? 'data-top-level="true"' : ''}>
+        <h1>${screen}</h1><input id="draft"><a id="invoice-link" href="/portal/s/invoices/">Invoices</a>
+      </section></main>
+      <nav id="bottom-tabs"><a class="shell-nav-link" data-screen="credit" href="/portal/s/credit/">Pipeline</a></nav>
+      <script src="/miniapp-assets/utils.js"></script><script src="/miniapp-assets/miniapp-nav.js"></script>
+    </body></html>` });
+  });
+}
+
+test('Portal links load a complete screen, survive reload, and Telegram Back stays inside Portal', async ({ page }) => {
+  await installPortalRouteFixture(page);
+  await page.goto('http://miniapp.test/portal/s/dashboard/');
+  await page.locator('#bottom-tabs a').click();
+  await expect(page).toHaveURL('http://miniapp.test/portal/s/credit/');
+  await expect(page.locator('#portal-screen')).toHaveAttribute('data-screen', 'credit');
+  await expect(page.locator('body')).toHaveAttribute('data-activated', 'credit');
+  await page.reload();
+  await expect(page.locator('body')).toHaveAttribute('data-activated', 'credit');
   await page.goto('http://miniapp.test/portal/cases/synthetic-case/');
-  await loadUtilities(page);
-  await page.addScriptTag({ path: asset('miniapp-nav.js') });
   await page.locator('#shell-menu-button').click();
   await expect(page.locator('#sidebar')).toHaveClass(/open/);
   await page.mouse.click(370, 420);
   await expect(page.locator('#sidebar')).not.toHaveClass(/open/);
-  await page.waitForFunction(() => typeof window.__backHandler === 'function');
-  const calls = await page.evaluate(() => {
-    window.__backHandler();
-    return window.__htmxCalls;
-  });
-  expect(calls).toHaveLength(1);
-  expect(calls[0].url).toBe('http://miniapp.test/portal/s/all/');
-  expect(calls[0].options.pushURL).toBe(true);
+  await page.evaluate(() => window.__backHandler());
+  await expect(page).toHaveURL('http://miniapp.test/portal/s/all/');
+  await expect(page.locator('body')).toHaveAttribute('data-activated', 'all');
 });
 
-test('Portal activates the newly rendered screen before htmx history settles', async ({ page }) => {
-  await page.route('http://miniapp.test/**', route => route.fulfill({
-    contentType: 'text/html',
-    body: '<body><main id="content"><section id="portal-screen" data-screen="dashboard"></section></main></body>',
-  }));
-  await page.addInitScript(() => {
-    window.__portalActivations = [];
-    window.Telegram = { WebApp: {
-      ready() {}, expand() {}, disableVerticalSwipes() {}, disableClosingConfirmation() {},
-      themeParams: {}, onEvent() {},
-      BackButton: { onClick() {}, offClick() {}, show() {}, hide() {} },
-      MainButton: { onClick() {}, offClick() {}, show() {}, hide() {}, setText() {} },
-    } };
-    window.PortalAppShell = { activate(screen) { window.__portalActivations.push(screen); } };
-  });
+test('Portal route guard retains dirty edits and an in-flight action', async ({ page }) => {
+  await installPortalRouteFixture(page);
   await page.goto('http://miniapp.test/portal/s/dashboard/');
-  await loadUtilities(page);
-  await page.addScriptTag({ path: asset('miniapp-nav.js') });
-  await page.evaluate(() => {
-    const previous = document.getElementById('portal-screen');
-    const replacement = document.createElement('section');
-    replacement.id = 'portal-screen';
-    replacement.dataset.screen = 'credit';
-    previous.replaceWith(replacement);
-    document.body.dispatchEvent(new CustomEvent('htmx:afterSwap', {
-      bubbles: true,
-      detail: { target: replacement },
-    }));
-  });
-  await expect.poll(() => page.evaluate(() => window.__portalActivations.at(-1))).toBe('credit');
-  await expect(page).toHaveURL('http://miniapp.test/portal/s/dashboard/');
-});
-
-test('Portal hub links swap screens and activate the matching controller', async ({ page }) => {
-  await page.route('http://miniapp.test/**', route => {
-    const pathname = new URL(route.request().url()).pathname;
-    if (pathname === '/portal/s/credit/') {
-      return route.fulfill({
-        contentType: 'text/html',
-        body: '<section id="portal-screen" data-screen="credit"><h1>Credit Analysis</h1></section>',
-      });
-    }
-    return route.fulfill({
-      contentType: 'text/html',
-      body: `<!doctype html><body>
-        <main id="content"><section id="portal-screen" data-screen="dashboard"><h1>Home</h1></section></main>
-        <nav id="bottom-tabs"><a class="shell-nav-link" data-screen="credit" data-screens="credit"
-          href="/portal/s/credit/" hx-get="/portal/s/credit/" hx-target="#portal-screen"
-          hx-select="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Pipeline</a></nav>
-      </body>`,
-    });
-  });
-  await page.addInitScript(() => {
-    window.__portalActivations = [];
-    window.Telegram = { WebApp: {
-      ready() {}, expand() {}, disableVerticalSwipes() {}, disableClosingConfirmation() {},
-      themeParams: {}, onEvent() {},
-      BackButton: { onClick() {}, offClick() {}, show() {}, hide() {} },
-      MainButton: { onClick() {}, offClick() {}, show() {}, hide() {}, setText() {} },
-    } };
-    window.PortalAppShell = { activate(screen) { window.__portalActivations.push(screen); } };
-  });
-  await page.goto('http://miniapp.test/portal/s/dashboard/');
-  await loadUtilities(page);
-  await page.addScriptTag({ path: asset('vendor-htmx-2.0.4.min.js') });
-  await page.addScriptTag({ path: asset('miniapp-nav.js') });
+  await page.evaluate(() => window.MiniAppUtils.setCloseProtection('test-draft', true));
+  page.once('dialog', dialog => dialog.dismiss());
   await page.locator('#bottom-tabs a').click();
-  await expect(page.locator('#portal-screen')).toHaveAttribute('data-screen', 'credit');
-  await expect(page.locator('#portal-screen h1')).toHaveText('Credit Analysis');
+  await page.waitForTimeout(200);
+  await expect(page).toHaveURL('http://miniapp.test/portal/s/dashboard/');
+  await page.evaluate(() => window.MiniAppUtils.setCloseProtection('test-draft', false));
+  await page.evaluate(() => window.MiniAppUtils.setCloseProtection('network-write:test', true));
+  expect(await page.evaluate(() => window.MiniAppUtils.canNavigatePage())).toBe(false);
+  await page.locator('#bottom-tabs a').click();
+  await page.waitForTimeout(200);
+  await expect(page).toHaveURL('http://miniapp.test/portal/s/dashboard/');
+  await page.evaluate(() => window.MiniAppUtils.setCloseProtection('network-write:test', false));
+  await page.locator('#bottom-tabs a').click();
   await expect(page).toHaveURL('http://miniapp.test/portal/s/credit/');
-  await expect.poll(() => page.evaluate(() => window.__portalActivations.at(-1))).toBe('credit');
 });
 
 test('multipart upload failure can retry with the same request key', async ({ page }) => {

@@ -8,6 +8,9 @@
   let telegramInitialized = false;
   let closingConfirmationEnabled = null;
   let writeProtectionInstalled = false;
+  let approvedPageNavigation = false;
+  let approvedDestination = '';
+  let approvedAt = 0;
 
   function miniAppColorScheme(tg) {
     const telegramScheme = String(tg && tg.colorScheme || '').toLowerCase();
@@ -81,6 +84,36 @@
   function clearCloseProtection() {
     closeProtectionReasons.clear();
     return syncClosingConfirmation();
+  }
+
+  // Portal routes use document navigation. Keep the existing dirty-form and
+  // in-flight-write protections effective when leaving the current document.
+  function canNavigatePage(url = window.location.href) {
+    const destination = new URL(url, window.location.href).href;
+    if ([...closeProtectionReasons].some(reason => reason.startsWith('network-write:'))) {
+      window.MiniAppRuntime?.showToast?.('Please wait for the current action to finish.', { tone: 'error' });
+      return false;
+    }
+    // A route anchor may also have a programmatic click handler. Reuse the
+    // approval only for that same destination during the same click dispatch.
+    const alreadyApproved = approvedDestination === destination && Date.now() - approvedAt < 500;
+    if (closeProtectionReasons.size && !alreadyApproved
+        && !window.confirm('Discard unsaved changes and leave this screen?')) {
+      return false;
+    }
+    approvedPageNavigation = true;
+    approvedDestination = destination;
+    approvedAt = Date.now();
+    window.setTimeout(() => { approvedPageNavigation = false; }, 3000);
+    return true;
+  }
+
+  if (/^\/portal\//.test(window.location?.pathname || '') && typeof window.addEventListener === 'function') {
+    window.addEventListener('beforeunload', function (event) {
+      if (approvedPageNavigation || !closeProtectionReasons.size) return;
+      event.preventDefault();
+      event.returnValue = '';
+    });
   }
 
   function protectWhile(reason, operation) {
@@ -721,6 +754,7 @@
     initTelegram: initTelegram,
     setCloseProtection: setCloseProtection,
     clearCloseProtection: clearCloseProtection,
+    canNavigatePage: canNavigatePage,
     protectWhile: protectWhile,
     bindFormCloseProtection: bindFormCloseProtection,
     bindMiniAppTheme: bindMiniAppTheme,

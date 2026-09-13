@@ -2,11 +2,6 @@
   {% for hub in nav_hubs %}
     <a class="shell-nav-link{% if hub.active %} active{% endif %}"
        href="{{ hub.url }}"
-       hx-get="{{ hub.url }}"
-       hx-target="#portal-screen"
-       hx-select="#portal-screen"
-       hx-swap="outerHTML transition:true"
-       hx-push-url="true"
        data-hub="{{ hub.key }}"
        data-screen="{{ hub.screen }}"
        data-screens="{{ hub.screens }}"
@@ -25,11 +20,6 @@
            role="tab"
            aria-selected="{% if stage.active %}true{% else %}false{% endif %}"
            href="{{ stage.url }}"
-           hx-get="{{ stage.url }}"
-           hx-target="#portal-screen"
-           hx-select="#portal-screen"
-           hx-swap="outerHTML transition:true"
-           hx-push-url="true"
            data-stage="{{ stage.key }}"
            data-screen="{{ stage.screen }}"
            data-screens="{{ stage.screens }}">
@@ -46,11 +36,6 @@
                role="tab"
                aria-selected="{% if item.key == active_screen %}true{% else %}false{% endif %}"
                href="{{ item.url }}"
-               hx-get="{{ item.url }}"
-               hx-target="#portal-screen"
-               hx-select="#portal-screen"
-               hx-swap="outerHTML transition:true"
-               hx-push-url="true"
                data-screen="{{ item.key }}">{{ item.label }}</a>
           {% endfor %}
         </div>
@@ -64,11 +49,6 @@
       {% for item in group.items %}
         <a class="shell-nav-link{% if item.key == active_screen %} active{% endif %}"
            href="{{ item.url }}"
-           hx-get="{{ item.url }}"
-           hx-target="#portal-screen"
-           hx-select="#portal-screen"
-           hx-swap="outerHTML transition:true"
-           hx-push-url="true"
            data-hub="{{ item.hub }}"
            data-stage="{{ item.stage }}"
            data-screen="{{ item.key }}">

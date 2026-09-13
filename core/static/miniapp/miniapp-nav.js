@@ -4,25 +4,6 @@
   let backHandler = null;
   let mainHandler = null;
   let lastFocusedElement = null;
-  let portalHistoryDepth = 0;
-
-  function isPortalRoute(pathname = window.location.pathname) {
-    return /^\/portal\/(?:s\/[^/]+\/|cases\/[^/]+\/)/.test(pathname);
-  }
-
-  function markPortalHistoryEntry(depth = 0) {
-    if (!isPortalRoute() || !window.history?.replaceState) return;
-    const current = window.history.state || {};
-    const existingDepth = Number.isInteger(current.portalMiniAppDepth)
-      ? current.portalMiniAppDepth
-      : depth;
-    portalHistoryDepth = Math.max(0, existingDepth);
-    window.history.replaceState({
-      ...current,
-      portalMiniAppHistory: true,
-      portalMiniAppDepth: portalHistoryDepth,
-    }, document.title, window.location.href);
-  }
 
   function clearBackHandler() {
     if (backHandler && tg?.BackButton) tg.BackButton.offClick(backHandler);
@@ -49,22 +30,8 @@
   }
 
   function navigateBackWithinPortal() {
-    const state = window.history.state || {};
-    if (state.portalMiniAppHistory && portalHistoryDepth > 0) {
-      window.history.back();
-      return;
-    }
-
     const fallbackUrl = portalBackFallbackUrl();
-    const target = document.getElementById('portal-screen');
-    if (window.htmx && target) {
-      window.htmx.ajax('GET', fallbackUrl, {
-        target: '#portal-screen',
-        swap: 'outerHTML transition:true',
-        pushURL: true,
-      });
-      return;
-    }
+    if (window.MiniAppUtils?.canNavigatePage?.(fallbackUrl) === false) return;
     window.location.assign(fallbackUrl);
   }
 
@@ -142,9 +109,8 @@
   }
 
   function currentScreen() {
-    // The swapped fragment is authoritative during htmx's lifecycle. History
-    // may not have updated the URL yet, so location alone can activate the
-    // controller for the screen that was just replaced.
+    // A full-page Portal route owns one screen. The rendered data attribute
+    // also covers invoice and report subroutes with shared URL prefixes.
     const renderedScreen = document.getElementById('portal-screen')?.dataset.screen;
     if (renderedScreen) return renderedScreen;
     if (/\/portal\/cases\/[^/]+\//.test(window.location.pathname)) return 'case_history';
@@ -218,17 +184,7 @@
     tg.MainButton.show();
   }
 
-  function activateScreen(event) {
-    const swapTarget = event?.detail?.target;
-    const isNavigationOnlySwap = ['htmx:afterSwap', 'htmx:afterSettle'].includes(event?.type)
-      && swapTarget
-      && swapTarget.id !== 'portal-screen';
-    if (isNavigationOnlySwap) {
-      // Sidebar, bottom-hub, and pipeline-stage fragments contain icons and
-      // links only. They must not restart the active workflow controller.
-      window.lucide?.createIcons();
-      return;
-    }
+  function activateScreen() {
     try {
       const screen = currentScreen();
       document.querySelectorAll('.shell-nav-link').forEach(link => {
@@ -257,7 +213,6 @@
     tg.onEvent?.('viewportChanged', handleTelegramViewportChanged);
   }
   syncTheme();
-  markPortalHistoryEntry();
 
   window.addEventListener('portal:reports-route-change', syncBackButton);
   window.addEventListener('resize', syncBrowserViewportHeight);
@@ -272,36 +227,19 @@
     event.detail.headers['X-Request-ID'] = requestId;
     event.detail.headers['Idempotency-Key'] = requestId;
   });
-  document.body.addEventListener('htmx:afterSwap', activateScreen);
-  document.body.addEventListener('htmx:afterSettle', activateScreen);
-  document.body.addEventListener('htmx:historyRestore', activateScreen);
-  document.body.addEventListener('htmx:pushedIntoHistory', () => {
-    // htmx owns browser history for in-shell links. Stamp its new entry with
-    // a Portal-only depth so Telegram Back never crosses into the host app.
-    markPortalHistoryEntry(portalHistoryDepth + 1);
-  });
-  window.addEventListener('popstate', () => {
-    // htmx restores cached history entries when available. For Telegram's
-    // hardware/browser back on a cold or uncached entry, request the screen
-    // fragment explicitly so the shell does not remain on the old page.
-    const state = window.history.state || {};
-    if (state.portalMiniAppHistory && Number.isInteger(state.portalMiniAppDepth)) {
-      portalHistoryDepth = Math.max(0, state.portalMiniAppDepth);
-    } else if (isPortalRoute()) {
-      // A cold/direct Portal page has no trustworthy in-app predecessor.
-      markPortalHistoryEntry(0);
+  document.body.addEventListener('htmx:afterSwap', () => window.lucide?.createIcons());
+  document.addEventListener('click', event => {
+    const link = event.target.closest?.('a[href]');
+    if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey
+        || event.shiftKey || event.altKey || link.target || link.hasAttribute('download')) return;
+    const destination = new URL(link.href, window.location.href);
+    if (destination.origin !== window.location.origin || !destination.pathname.startsWith('/portal/')) return;
+    if (destination.href === window.location.href) return;
+    if (window.MiniAppUtils?.canNavigatePage?.(destination.href) === false) {
+      event.preventDefault();
+      event.stopPropagation();
     }
-    if (!window.htmx) return;
-    const match = window.location.pathname.match(/\/portal\/s\/([^/]+)\//);
-    if (!match) return;
-    const target = document.getElementById('portal-screen');
-    if (!target) return;
-    window.htmx.ajax('GET', window.location.pathname, {
-      target: '#portal-screen',
-      swap: 'outerHTML transition:true',
-      pushURL: false,
-    });
-  });
+  }, true);
   document.addEventListener('click', event => {
     if (event.target.closest('#shell-menu-button')) {
       setSidebar(!document.getElementById('sidebar')?.classList.contains('open'));

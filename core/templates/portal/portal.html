@@ -9,6 +9,7 @@
   <div class="portal-pipeline-navigation"
        hx-get="{% url 'portal_navigation' %}?active={{ active_screen }}&amp;surface=stages"
        hx-trigger="load"
+       hx-target="this"
        hx-swap="innerHTML">
     <span class="shell-nav-status">Loading pipeline…</span>
   </div>
@@ -243,7 +244,7 @@
         <h1>Invoice record</h1>
         <p class="meta">Review the source, reconciliation signals, and invoice activity without keeping the case list open underneath.</p>
       </div>
-      <a class="btn btn-secondary" id="invoice-detail-route-back" href="{% url 'portal_invoices_screen' %}" hx-get="{% url 'portal_invoices_screen' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Back to invoices</a>
+      <a class="btn btn-secondary" id="invoice-detail-route-back" href="{% url 'portal_invoices_screen' %}">Back to invoices</a>
     </header>
     <div id="invoice-detail-page" class="invoice-detail-page">
       <div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading invoice detail...</div></div>
@@ -255,7 +256,7 @@
         <h1>Invoice name changes</h1>
         <p class="meta">Verify identity, assemble approved requests into letters, and track replacements without internal IDs.</p>
       </div>
-      <a class="btn btn-secondary" href="{% url 'portal_invoices_screen' %}" hx-get="{% url 'portal_invoices_screen' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Invoice review</a>
+      <a class="btn btn-secondary" href="{% url 'portal_invoices_screen' %}">Invoice review</a>
     </header>
     <nav class="invoice-name-change-tabs" id="invoice-name-change-tabs" aria-label="Name change status">
       <button type="button" class="active" data-segment="ready">Ready <span data-count="ready">0</span></button>
@@ -281,7 +282,7 @@
         <h1>Upload invoices</h1>
         <p class="meta">Add HB invoice PDFs to the controlled pool. Uploading does not assign an order or change a customer case.</p>
       </div>
-      <a class="btn btn-secondary" href="{% url 'portal_invoices_screen' %}" hx-get="{% url 'portal_invoices_screen' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Back to inbox</a>
+      <a class="btn btn-secondary" href="{% url 'portal_invoices_screen' %}">Back to inbox</a>
     </header>
     <div class="batch-panel portal-block" data-required-capability="portal.invoice.write">
       <div class="batch-title">
@@ -314,13 +315,13 @@
         <h1>{% if invoice_view == 'matched' %}Matched invoices{% elif invoice_view == 'ignored' %}Ignored invoices{% elif invoice_view == 'all' %}All invoices{% else %}Needs action{% endif %}</h1>
         <p class="meta">Review one invoice at a time with identity, duplicate, and match signals visible together.</p>
       </div>
-      <div class="invoice-header-actions"><a class="btn btn-secondary" data-required-capability="portal.invoice_identity.manage" href="{% url 'portal_invoice_name_changes_screen' %}" hx-get="{% url 'portal_invoice_name_changes_screen' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Name changes</a><a class="btn btn-primary" data-required-capability="portal.invoice.write" href="{% url 'portal_invoices_upload' %}" hx-get="{% url 'portal_invoices_upload' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Upload invoices</a></div>
+      <div class="invoice-header-actions"><a class="btn btn-secondary" data-required-capability="portal.invoice_identity.manage" href="{% url 'portal_invoice_name_changes_screen' %}">Name changes</a><a class="btn btn-primary" data-required-capability="portal.invoice.write" href="{% url 'portal_invoices_upload' %}">Upload invoices</a></div>
     </header>
     <nav class="portal-invoice-tabs" aria-label="Invoice status">
-      <a class="{% if invoice_view != 'matched' and invoice_view != 'ignored' %}active{% endif %}" href="{% url 'portal_invoices_screen' %}" hx-get="{% url 'portal_invoices_screen' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Needs review</a>
-      <a class="{% if invoice_view == 'matched' %}active{% endif %}" href="{% url 'portal_invoices_matched' %}" hx-get="{% url 'portal_invoices_matched' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Matched</a>
-      <a class="{% if invoice_view == 'ignored' %}active{% endif %}" href="{% url 'portal_invoices_ignored' %}" hx-get="{% url 'portal_invoices_ignored' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">Ignored</a>
-      <a class="{% if invoice_view == 'all' %}active{% endif %}" href="{% url 'portal_invoices_all' %}" hx-get="{% url 'portal_invoices_all' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">All</a>
+      <a class="{% if invoice_view != 'matched' and invoice_view != 'ignored' %}active{% endif %}" href="{% url 'portal_invoices_screen' %}">Needs review</a>
+      <a class="{% if invoice_view == 'matched' %}active{% endif %}" href="{% url 'portal_invoices_matched' %}">Matched</a>
+      <a class="{% if invoice_view == 'ignored' %}active{% endif %}" href="{% url 'portal_invoices_ignored' %}">Ignored</a>
+      <a class="{% if invoice_view == 'all' %}active{% endif %}" href="{% url 'portal_invoices_all' %}">All</a>
     </nav>
     <div class="batch-summary-grid" id="invoice-pool-summary"></div>
     <div class="invoice-list-toolbar">

@@ -28,7 +28,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/portal.css' %}?v=98">
   <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=17">
   <link rel="stylesheet" href="{% static 'miniapp/theme.css' %}?v=9">
-  <script defer src="{% static 'miniapp/miniapp-nav.js' %}?v=22"></script>
+  <script defer src="{% static 'miniapp/miniapp-nav.js' %}?v=23"></script>
 </head>
 <body class="workflow-standard portal-app">
   <header class="app-shell-header">
@@ -54,9 +54,7 @@
     </nav>
   </aside>
 
-  <main id="content"
-        hx-target="this"
-        hx-swap="innerHTML transition:true">
+  <main id="content">
     {% block content %}{% endblock %}
   </main>
 
@@ -68,7 +66,7 @@
   </nav>
 
   {% include "miniapp_diagnostics.html" %}
-  <script src="{% static 'miniapp/utils.js' %}?v=12"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=13"></script>
   <script src="{% static 'miniapp/components.js' %}?v=2"></script>
   <script src="{% static 'miniapp/asset_loader.js' %}?v=1"></script>
   <script src="{% static 'miniapp/runtime.js' %}?v=4"></script>
@@ -86,6 +84,6 @@
   <script src="{% static 'miniapp/portal_imports.js' %}?v=7"></script>
   <script src="{% static 'miniapp/portal_farmup.js' %}?v=4"></script>
   <script src="{% static 'miniapp/portal_curated_reports.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/portal.js' %}?v=82"></script>
+  <script src="{% static 'miniapp/portal.js' %}?v=83"></script>
 </body>
 </html>

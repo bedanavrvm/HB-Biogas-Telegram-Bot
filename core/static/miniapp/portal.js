@@ -213,40 +213,23 @@
     return document.querySelector(`.shell-nav-link[data-screen="${page}"]`)?.href || `/portal/s/${encodeURIComponent(page)}/`;
   }
 
-  function navigateToUrl(url, { afterSwap } = {}) {
+  function navigateToUrl(url) {
     if (!url) return;
     const destination = new URL(url, window.location.origin);
     const current = new URL(window.location.href);
     if (destination.pathname === current.pathname && destination.search === current.search) {
-      afterSwap?.();
       return;
     }
-    const target = currentScreenRoot();
-    if (!window.htmx || !target) {
-      window.location.assign(destination.href);
-      return;
-    }
-    if (afterSwap) {
-      const runAfterSwap = event => {
-        if (event.detail?.target?.id !== 'portal-screen') return;
-        document.body.removeEventListener('htmx:afterSwap', runAfterSwap);
-        afterSwap();
-      };
-      document.body.addEventListener('htmx:afterSwap', runAfterSwap);
-    }
-    window.htmx.ajax('GET', destination.pathname + destination.search, {
-      target: '#portal-screen',
-      swap: 'outerHTML transition:true',
-      pushURL: true,
-    });
+    if (window.MiniAppUtils?.canNavigatePage?.(destination.href) === false) return;
+    window.location.assign(destination.href);
   }
 
-  function navigateTo(page, options = {}) {
+  function navigateTo(page) {
     if (!hasCapability(PAGE_CAPABILITIES[page])) {
       showToast('This Portal screen is not available to your role.', 'error');
       return;
     }
-    navigateToUrl(portalScreenUrl(page), options);
+    navigateToUrl(portalScreenUrl(page));
   }
 
   // The workspace feature can only return through an approved rollout.  Keep
@@ -675,8 +658,7 @@
     }
   }
 
-  // Dashboard markup is replaced when htmx returns to Home, so keep this
-  // top-level screen action delegated rather than binding only on first load.
+  // Keep dashboard routes delegated so cards added during a refresh work.
   document.addEventListener('click', event => {
     const card = event.target.closest('.count-card[data-page], .dashboard-total[data-page]');
     if (!card) return;
@@ -1423,9 +1405,9 @@
   // vanish after the form is submitted.
   function openAssignedOrder(orderNumber) {
     if (!orderNumber) return;
-    navigateTo('batches', {
-      afterSwap: () => openBatchDetail(orderNumber),
-    });
+    // The durable detail sheet is mounted in the current Portal document.
+    // Open it here instead of losing the new order across a page navigation.
+    openBatchDetail(orderNumber);
   }
   // Meta (dropdown values)
   async function loadMeta() {
@@ -1592,16 +1574,16 @@
       showCaseHistorySearch();
       return;
     }
+    if (pushUrl) {
+      navigateToUrl(caseHistoryUrl(farmerId));
+      return;
+    }
     const results = el('case-history-results');
     const selected = el('case-history-selected');
     const content = el('case-history-content');
     if (!selected || !content) return;
     if (results) results.hidden = true;
     selected.hidden = false;
-    if (pushUrl) {
-      navigateToUrl(caseHistoryUrl(farmerId));
-      return;
-    }
     if (window.PortalCaseHistoryLoader?.load) {
       return window.PortalCaseHistoryLoader.load(farmerId);
     }
@@ -2517,7 +2499,6 @@
       if (window.lucide) window.lucide.createIcons();
     },
     openCaseHistory(farmerId) {
-      portalFarmerSheet.closeSheet?.();
       navigateToUrl(caseHistoryUrl(farmerId));
     },
     navigateUrl(url, options) {

@@ -1390,16 +1390,15 @@ def _portal_screen_fragment(request, screen: str, context: dict | None = None):
             status=403,
         )
     fragment_context = dict(context or _portal_screen_context(screen))
-    # The full Portal shell owns filters and all workflow overlays.  A route
-    # navigation replaces only this screen root so persistent module bindings
-    # cannot be lost or registered twice.
+    # Retain fragment responses for older HTMX clients. First-party Portal
+    # screen navigation now uses normal GETs and receives the full shell.
     fragment_context['portal_fragment_only'] = True
     return render(request, 'portal/portal.html', fragment_context)
 
 
 @require_http_methods(["GET", "HEAD"])
 def portal_screen(request, screen: str):
-    """Return the Portal shell on cold loads and one authorized screen to htmx."""
+    """Return the full Portal shell for browser routes; retain HTMX compatibility."""
     from core.services.portal_navigation import PORTAL_NAV_ITEMS, PORTAL_PERSONAL_NAV_ITEM
     known_screens = {item[0] for item in PORTAL_NAV_ITEMS} | {PORTAL_PERSONAL_NAV_ITEM[0]}
     if screen not in known_screens:
