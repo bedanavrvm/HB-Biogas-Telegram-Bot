@@ -17,7 +17,6 @@ test('Portal shell follows live viewport while sheets wait for stable Telegram h
     <header class="app-shell-header">Portal</header>
     <aside id="sidebar"></aside><button id="sidebar-backdrop"></button>
     <main id="content"><div id="portal-shell"><div id="portal-screen" data-screen="dashboard" data-top-level="true"></div></div></main>
-    <nav id="bottom-tabs"><a class="shell-nav-link" data-screen="dashboard" data-bottom-primary="true">Home</a></nav>
     <div id="test-sheet" class="sheet-overlay open"><div class="sheet-panel"></div></div>
   `);
   await page.evaluate(() => { document.body.className = 'workflow-standard portal-app'; });
@@ -43,20 +42,20 @@ test('Portal shell follows live viewport while sheets wait for stable Telegram h
   async function dimensions() {
     return page.evaluate(() => ({
       body: document.body.getBoundingClientRect().height,
-      bottom: document.getElementById('bottom-tabs').getBoundingClientRect().bottom,
+      content: document.getElementById('content').getBoundingClientRect().bottom,
       sheet: document.getElementById('test-sheet').getBoundingClientRect().height,
       live: getComputedStyle(document.documentElement).getPropertyValue('--miniapp-live-height').trim(),
       stable: getComputedStyle(document.documentElement).getPropertyValue('--miniapp-stable-height').trim(),
       background: getComputedStyle(document.documentElement).backgroundColor,
     }));
   }
-  expect(await dimensions()).toMatchObject({ body: 620, bottom: 620, sheet: 700, live: '620px', stable: '700px' });
+  expect(await dimensions()).toMatchObject({ body: 620, content: 620, sheet: 700, live: '620px', stable: '700px' });
 
   await page.evaluate(() => {
     window.Telegram.WebApp.viewportHeight = 580;
     window.__viewportEvents.viewportChanged({ isStateStable: false });
   });
-  expect(await dimensions()).toMatchObject({ body: 580, bottom: 580, sheet: 700, live: '580px', stable: '700px' });
+  expect(await dimensions()).toMatchObject({ body: 580, content: 580, sheet: 700, live: '580px', stable: '700px' });
 
   await page.setViewportSize({ width: 390, height: 700 });
   await page.evaluate(() => {
@@ -64,7 +63,7 @@ test('Portal shell follows live viewport while sheets wait for stable Telegram h
     window.Telegram.WebApp.viewportStableHeight = 700;
     window.__viewportEvents.viewportChanged({ isStateStable: true });
   });
-  expect(await dimensions()).toMatchObject({ body: 700, bottom: 700, sheet: 700, live: '700px', stable: '700px' });
+  expect(await dimensions()).toMatchObject({ body: 700, content: 700, sheet: 700, live: '700px', stable: '700px' });
 
   await page.setViewportSize({ width: 700, height: 390 });
   await page.evaluate(() => {
@@ -73,7 +72,7 @@ test('Portal shell follows live viewport while sheets wait for stable Telegram h
     window.dispatchEvent(new Event('orientationchange'));
     window.__viewportEvents.viewportChanged({ isStateStable: true });
   });
-  expect(await dimensions()).toMatchObject({ body: 390, bottom: 390, sheet: 390, live: '390px', stable: '390px' });
+  expect(await dimensions()).toMatchObject({ body: 390, content: 390, sheet: 390, live: '390px', stable: '390px' });
 });
 
 test('Portal queue controls filter the full list and keep search data ephemeral', async ({ page }) => {
@@ -120,6 +119,82 @@ test('Portal queue controls filter the full list and keep search data ephemeral'
   expect(result.loads.at(-1)).toMatchObject({ key: 'credit', pageNumber: 1, filters: { county: 'Kiambu' } });
   expect(result.stored).not.toContain('Customer 12345678');
   expect(result.count).toBe('1');
+});
+
+test('Portal search renders one accessible field at mobile widths and in dark mode', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.setContent(`<main id="content"><label class="portal-queue-search" aria-label="Search cases"><i aria-hidden="true">⌕</i><input type="search" aria-label="Search cases" placeholder="Search cases"><button type="button" data-portal-search-clear>Clear</button></label></main>`);
+  await page.evaluate(() => { document.body.className = 'workflow-standard portal-app'; });
+  await page.addStyleTag({ path: asset('base.css') });
+  await page.addStyleTag({ path: asset('portal.css') });
+  await page.addStyleTag({ path: asset('workflow_standard.css') });
+  await page.addStyleTag({ path: asset('theme.css') });
+  const search = page.getByRole('searchbox', { name: 'Search cases' });
+  const geometry = await page.evaluate(() => {
+    const wrapper = document.querySelector('.portal-queue-search');
+    const input = wrapper.querySelector('input');
+    return { wrapperBorder: getComputedStyle(wrapper).borderTopWidth, inputBorder: getComputedStyle(input).borderTopWidth, inputWidth: input.getBoundingClientRect().width, wrapperWidth: wrapper.getBoundingClientRect().width };
+  });
+  expect(geometry.wrapperBorder).toBe('0px');
+  expect(geometry.inputBorder).toBe('1px');
+  expect(geometry.inputWidth).toBeLessThanOrEqual(geometry.wrapperWidth);
+  await search.fill('Sample');
+  await expect(search).toHaveValue('Sample');
+  await page.evaluate(() => document.documentElement.style.setProperty('--tg-theme-secondary-bg-color', '#17221f'));
+  await expect(search).toHaveCSS('background-color', 'rgb(23, 34, 31)');
+});
+
+test('Portal visit camera keeps captures local, supports multi-shot retake, and stops its stream', async ({ page }) => {
+  await page.route('http://miniapp.test/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Portal camera</title>' }));
+  await page.goto('http://miniapp.test/portal-camera');
+  await page.setContent(`<div id="sheet-overlay"><div id="sheet-navigation"><button id="sheet-back"><span></span></button></div><div id="sheet-avatar"></div><div id="sheet-header-state"></div><div id="sheet-header-status"></div><button id="sheet-close"></button><h2 id="sheet-name"></h2><p id="sheet-sub"></p><ul id="sheet-info"></ul><div class="sheet-quick-actions"><section id="sheet-client-media"></section></div><button id="case360-toggle"></button><div id="sheet-gate-warning"></div><div id="sheet-form"></div><div id="sheet-footer"></div></div>
+    <div id="jbl-camera-overlay"><h2 id="jbl-live-camera-title"></h2><button id="jbl-camera-close"></button><video id="jbl-camera-video"></video><span id="jbl-camera-status"></span><span id="jbl-camera-capture-state"></span><button id="jbl-camera-done"></button><button id="jbl-camera-shutter" disabled>Take Photo</button></div>
+    <div id="media-viewer-overlay"><button id="media-viewer-close"></button><h2 id="media-viewer-title"></h2><p id="media-viewer-sub"></p><div id="media-viewer-content"></div></div>`);
+  await page.addScriptTag({ path: asset('portal_farmer_sheet.js') });
+  await page.evaluate(() => {
+    window.__stops = 0;
+    window.__writes = 0;
+    window.__toasts = [];
+    window.__protection = {};
+    window.MiniAppUtils = { setCloseProtection(key, value) { window.__protection[key] = value; } };
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { async getUserMedia() {
+      const stream = new MediaStream();
+      stream.getTracks = () => [{ stop() { window.__stops += 1; } }];
+      return stream;
+    } } });
+    HTMLMediaElement.prototype.play = async function () {};
+    HTMLMediaElement.prototype.pause = function () {};
+    Object.defineProperty(HTMLVideoElement.prototype, 'videoWidth', { configurable: true, get: () => 640 });
+    Object.defineProperty(HTMLVideoElement.prototype, 'videoHeight', { configurable: true, get: () => 480 });
+    HTMLCanvasElement.prototype.getContext = () => ({ drawImage() {} });
+    HTMLCanvasElement.prototype.toBlob = callback => callback(new Blob(['photo'], { type: 'image/jpeg' }));
+    window.createImageBitmap = undefined;
+    const state = { capabilities: new Set(['portal.jbl_visit.write', 'portal.jbl_media.write']), metaStatuses: ['Visited'], metaCounties: [], jblVisitMediaMaxFiles: 6, businessDate: '2026-09-13' };
+    window.PortalMiniAppFarmerSheet.init({ el: id => document.getElementById(id), state, tg: {}, escapeHtml: value => String(value ?? ''), fmt: value => String(value ?? '-'), fmtDate: value => String(value ?? '-'), locationText: () => '-', showToast: message => window.__toasts.push(message), apiFetch: async () => ({ ok: true, data: { ok: true, counties: [], sub_counties: [] } }) });
+    window.PortalMiniAppFarmerSheet.openFarmerSheet({ id: 'case-1', customer_name: 'Sample', workflow_revision: 1 }, 'jbl_visit');
+  });
+  await page.locator('#jbl-visit-photo-camera').click();
+  await expect(page.locator('#jbl-camera-overlay')).toHaveClass(/open/);
+  await expect(page.locator('#jbl-camera-shutter')).toBeEnabled();
+  await page.locator('#jbl-camera-shutter').click();
+  await page.locator('#jbl-camera-shutter').click();
+  await expect(page.locator('#jbl-visit-photo-media-name')).toContainText('2 selected');
+  await expect(page.locator('#jbl-camera-capture-state')).toContainText('2 photos added');
+  await page.locator('#jbl-camera-done').click();
+  expect(await page.evaluate(() => window.__stops)).toBe(1);
+  await page.locator('.jbl-media-preview-open').first().click();
+  await page.locator('[data-selection-preview-action="retake"]').click();
+  await expect(page.locator('#jbl-visit-photo-media-name')).toContainText('2 selected');
+  await page.locator('#jbl-camera-shutter').click();
+  await expect(page.locator('#jbl-visit-photo-media-name')).toContainText('2 selected');
+  await expect(page.locator('#media-viewer-overlay')).toHaveClass(/open/);
+  expect(await page.evaluate(() => ({ stops: window.__stops, writes: window.__writes, protected: window.__protection['portal-jbl-media-selected'] }))).toEqual({ stops: 2, writes: 0, protected: true });
+  await page.locator('#media-viewer-close').click();
+  await page.evaluate(() => { navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Denied', 'NotAllowedError'); }; });
+  await page.locator('#jbl-visit-photo-camera').click();
+  await expect(page.locator('#jbl-camera-overlay')).not.toHaveClass(/open/);
+  expect(await page.evaluate(() => window.__toasts.at(-1))).toContain('Camera permission was denied');
+  await expect(page.locator('#jbl-visit-photo-media')).toHaveCount(1);
 });
 
 test('Portal report table zoom reaches the 20 percent accessibility floor', async ({ page }) => {
@@ -864,12 +939,11 @@ async function installPortalRouteFixture(page) {
       #sidebar-backdrop.open { display: block; }
     </style></head><body>
       <button id="shell-menu-button" aria-expanded="false">Menu</button>
-      <aside id="sidebar"><a class="shell-nav-link" data-screen="all" href="/portal/s/all/">All cases</a></aside>
+      <aside id="sidebar"><a class="shell-nav-link" data-screen="all" href="/portal/s/all/">All cases</a><a class="shell-nav-link" data-screen="credit" href="/portal/s/credit/">Credit</a></aside>
       <div id="sidebar-backdrop"></div>
       <main id="content"><section id="portal-screen" data-screen="${screen}" ${screen === 'dashboard' || screen === 'credit' || screen === 'all' ? 'data-top-level="true"' : ''}>
         <h1>${screen}</h1><input id="draft"><a id="invoice-link" href="/portal/s/invoices/">Invoices</a>
       </section></main>
-      <nav id="bottom-tabs"><a class="shell-nav-link" data-screen="credit" href="/portal/s/credit/">Pipeline</a></nav>
       <script src="/miniapp-assets/utils.js"></script><script src="/miniapp-assets/miniapp-nav.js"></script>
     </body></html>` });
   });
@@ -878,7 +952,8 @@ async function installPortalRouteFixture(page) {
 test('Portal links load a complete screen, survive reload, and Telegram Back stays inside Portal', async ({ page }) => {
   await installPortalRouteFixture(page);
   await page.goto('http://miniapp.test/portal/s/dashboard/');
-  await page.locator('#bottom-tabs a').click();
+  await page.locator('#shell-menu-button').click();
+  await page.locator('#sidebar a[data-screen="credit"]').click();
   await expect(page).toHaveURL('http://miniapp.test/portal/s/credit/');
   await expect(page.locator('#portal-screen')).toHaveAttribute('data-screen', 'credit');
   await expect(page.locator('body')).toHaveAttribute('data-activated', 'credit');
@@ -899,17 +974,18 @@ test('Portal route guard retains dirty edits and an in-flight action', async ({ 
   await page.goto('http://miniapp.test/portal/s/dashboard/');
   await page.evaluate(() => window.MiniAppUtils.setCloseProtection('test-draft', true));
   page.once('dialog', dialog => dialog.dismiss());
-  await page.locator('#bottom-tabs a').click();
+  await page.locator('#shell-menu-button').click();
+  await page.locator('#sidebar a[data-screen="credit"]').click();
   await page.waitForTimeout(200);
   await expect(page).toHaveURL('http://miniapp.test/portal/s/dashboard/');
   await page.evaluate(() => window.MiniAppUtils.setCloseProtection('test-draft', false));
   await page.evaluate(() => window.MiniAppUtils.setCloseProtection('network-write:test', true));
   expect(await page.evaluate(() => window.MiniAppUtils.canNavigatePage())).toBe(false);
-  await page.locator('#bottom-tabs a').click();
+  await page.locator('#sidebar a[data-screen="credit"]').click();
   await page.waitForTimeout(200);
   await expect(page).toHaveURL('http://miniapp.test/portal/s/dashboard/');
   await page.evaluate(() => window.MiniAppUtils.setCloseProtection('network-write:test', false));
-  await page.locator('#bottom-tabs a').click();
+  await page.locator('#sidebar a[data-screen="credit"]').click();
   await expect(page).toHaveURL('http://miniapp.test/portal/s/credit/');
 });
 

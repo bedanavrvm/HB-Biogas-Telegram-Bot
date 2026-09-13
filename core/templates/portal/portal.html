@@ -5,16 +5,6 @@
 
 <div id="portal-screen" data-screen="{{ active_screen }}" data-case-farmer-id="{{ case_history_farmer_id|default:'' }}" data-report-view="{{ report_view|default:'' }}" data-report-id="{{ report_id|default:'' }}" data-report-step="{{ report_step|default:'' }}" data-invoice-view="{{ invoice_view|default:'' }}" data-invoice-id="{{ invoice_id|default:'' }}" data-top-level="{% if case_history_farmer_id %}false{% elif report_view and report_view != 'catalogue' %}false{% elif invoice_view and invoice_view != 'inbox' %}false{% else %}true{% endif %}">
 
-  {% if active_pipeline_stage %}
-  <div class="portal-pipeline-navigation"
-       hx-get="{% url 'portal_navigation' %}?active={{ active_screen }}&amp;surface=stages"
-       hx-trigger="load"
-       hx-target="this"
-       hx-swap="innerHTML">
-    <span class="shell-nav-status">Loading pipeline…</span>
-  </div>
-  {% endif %}
-
   <!-- Dashboard -->
   {% if active_screen == 'dashboard' %}
   <section id="page-dashboard" class="page{% if active_screen == 'dashboard' %} active{% endif %}">
@@ -595,6 +585,18 @@
     </div>
     <div class="sheet-footer" id="sheet-footer"></div>
   </div>
+</div>
+
+<!-- Portal visit camera: captured files remain local until the visit is submitted. -->
+<div class="sheet-overlay jbl-camera-overlay" id="jbl-camera-overlay" role="dialog" aria-modal="true" aria-labelledby="jbl-live-camera-title">
+  <section class="sheet-panel jbl-camera-sheet">
+    <div class="sheet-header jbl-live-camera-heading">
+      <div><h2 id="jbl-live-camera-title">Take visit photo</h2><p class="sheet-sub">Review and retake before submitting the visit.</p></div>
+      <button type="button" class="sheet-close-button" id="jbl-camera-close" aria-label="Close camera"><i data-lucide="x" aria-hidden="true"></i></button>
+    </div>
+    <div class="jbl-camera-viewport"><video id="jbl-camera-video" autoplay muted playsinline></video><div class="jbl-camera-status" id="jbl-camera-status" role="status">Starting camera…</div></div>
+    <div class="jbl-camera-footer"><span id="jbl-camera-capture-state" role="status">No photos added yet</span><div class="jbl-camera-actions"><button type="button" class="btn btn-secondary" id="jbl-camera-done">Done</button><button type="button" class="btn btn-primary jbl-camera-shutter" id="jbl-camera-shutter" disabled>Take Photo</button></div></div>
+  </section>
 </div>
 
 <!-- Authorized visit evidence stays inside the Mini App: no Android app chooser. -->

@@ -17,7 +17,7 @@ html { width: 100%; height: var(--miniapp-live-height); min-height: var(--miniap
 html, body { background: var(--tg-bg); color: var(--tg-text); }
 body.sidebar-is-open { overflow: hidden; }
 body { margin: 0; min-height: var(--miniapp-live-height); overflow-x: hidden; }
-body.portal-app { display: grid; grid-template-rows: 48px minmax(0, 1fr) var(--bottom-tabs-height); width: 100%; height: var(--miniapp-live-height); min-height: var(--miniapp-live-height); padding: 0; overflow: hidden; }
+body.portal-app { display: grid; grid-template-rows: 48px minmax(0, 1fr); width: 100%; height: var(--miniapp-live-height); min-height: var(--miniapp-live-height); padding: 0; overflow: hidden; }
 .workflow-standard .app-shell-header { position: sticky; top: 0; z-index: 70; box-sizing: border-box; min-height: 48px; height: 48px; display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; margin: 0; padding: 4px 10px; background: var(--tg-secondary-bg); color: var(--tg-text); border-bottom: 1px solid color-mix(in srgb, var(--tg-hint) 25%, transparent); }
 .app-shell-header h1, .app-shell-header p { margin: 0; }
 .app-shell-header h1 { font-size: 14px; line-height: 1.15; }

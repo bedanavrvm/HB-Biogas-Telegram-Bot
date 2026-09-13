@@ -18,6 +18,8 @@
   let jblCameraStream = null;
   let jblCameraCategory = '';
   let jblCameraRequestId = 0;
+  let jblCameraReplaceId = '';
+  let jblCameraSessionCount = 0;
   let workflowServerDraft = null;
   let workflowServerDraftKey = '';
   let workflowDraftInputVersion = 0;
@@ -991,7 +993,6 @@
           accept: 'image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp',
         })}
       </div>
-      ${jblLiveCameraMarkup()}
       <small class="jbl-media-limit-help">Up to ${maximumMediaFiles} files and ${Math.round(Number(state().jblVisitMediaMaxTotalBytes || 40 * 1024 * 1024) / (1024 * 1024))} MB combined. Tap a selected file to preview it.</small>
       ${farmer.jbl_media_count ? `<small class="jbl-existing-media-help">${farmer.jbl_media_count} existing media file${farmer.jbl_media_count === 1 ? '' : 's'} on this visit record.</small>` : ''}` : '';
     return `
@@ -1100,32 +1101,33 @@
     </section>`;
   }
 
-  function jblLiveCameraMarkup() {
-    return `<section class="jbl-live-camera" id="jbl-live-camera" hidden aria-label="Live camera">
-      <div class="jbl-live-camera-heading"><strong id="jbl-live-camera-title">Take visit photo</strong><button type="button" class="jbl-camera-close" id="jbl-camera-close" aria-label="Close camera" title="Close">${removeIcon()}<span class="sr-only">Close camera</span></button></div>
-      <div class="jbl-camera-viewport"><video id="jbl-camera-video" autoplay muted playsinline></video><div class="jbl-camera-status" id="jbl-camera-status" role="status">Starting camera…</div></div>
-      <button type="button" class="jbl-camera-shutter" id="jbl-camera-shutter" aria-label="Take photo" title="Take photo" disabled><span aria-hidden="true"></span><span class="sr-only">Take photo</span></button>
-    </section>`;
-  }
-
   function stopJblLiveCamera() {
     jblCameraRequestId += 1;
     jblCameraStream?.getTracks?.().forEach(track => track.stop());
     jblCameraStream = null;
     jblCameraCategory = '';
+    jblCameraReplaceId = '';
     const video = el('jbl-camera-video');
     if (video) {
       video.pause?.();
       video.srcObject = null;
     }
-    const panel = el('jbl-live-camera');
-    if (panel) panel.hidden = true;
+    el('jbl-camera-overlay')?.classList.remove('open');
     const shutter = el('jbl-camera-shutter');
     if (shutter) shutter.disabled = true;
   }
 
-  async function startJblLiveCamera(category) {
-    const panel = el('jbl-live-camera');
+  function updateJblCameraCaptureState() {
+    const status = el('jbl-camera-capture-state');
+    if (!status) return;
+    status.textContent = jblCameraReplaceId
+      ? 'The original photo stays selected until a valid retake is captured.'
+      : jblCameraSessionCount === 0 ? 'No photos added yet'
+        : `${jblCameraSessionCount} photo${jblCameraSessionCount === 1 ? '' : 's'} added. Take another or tap Done.`;
+  }
+
+  async function startJblLiveCamera(category, { replaceId = '' } = {}) {
+    const panel = el('jbl-camera-overlay');
     const video = el('jbl-camera-video');
     const status = el('jbl-camera-status');
     const shutter = el('jbl-camera-shutter');
@@ -1133,18 +1135,21 @@
       deps.showToast('Live camera is not available in this Telegram WebView. Use the folder icon to choose a photo.', 'error');
       return;
     }
-    if (jblMediaItems().length >= Number(state().jblVisitMediaMaxFiles || 6)) {
+    if (!replaceId && jblMediaItems().length >= Number(state().jblVisitMediaMaxFiles || 6)) {
       deps.showToast(`A JBL visit can include at most ${Number(state().jblVisitMediaMaxFiles || 6)} evidence files.`, 'error');
       return;
     }
     if (jblCameraStream) stopJblLiveCamera();
     const cameraRequestId = ++jblCameraRequestId;
     jblCameraCategory = category;
-    panel.hidden = false;
+    jblCameraReplaceId = replaceId;
+    jblCameraSessionCount = 0;
+    panel.classList.add('open');
+    updateJblCameraCaptureState();
     if (status) { status.hidden = false; status.textContent = 'Starting camera…'; }
     if (shutter) shutter.disabled = true;
     const title = el('jbl-live-camera-title');
-    if (title) title.textContent = category === 'LAF' ? 'Photograph LAF document' : 'Take JBL visit photo';
+    if (title) title.textContent = replaceId ? 'Retake photo' : category === 'LAF' ? 'Photograph LAF document' : 'Take JBL visit photo';
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
@@ -1154,7 +1159,7 @@
           height: { ideal: 1080 },
         },
       });
-      if (cameraRequestId !== jblCameraRequestId || !jblCameraCategory || !el('jbl-live-camera')) {
+      if (cameraRequestId !== jblCameraRequestId || !jblCameraCategory || !panel.classList.contains('open')) {
         stream.getTracks().forEach(track => track.stop());
         return;
       }
@@ -1163,7 +1168,6 @@
       await video.play();
       if (status) status.hidden = true;
       if (shutter) shutter.disabled = false;
-      panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } catch (error) {
       if (cameraRequestId !== jblCameraRequestId) return;
       stopJblLiveCamera();
@@ -1217,7 +1221,17 @@
         type: 'image/jpeg',
         lastModified: Date.now(),
       });
-      addJblMediaFiles(jblCameraCategory, [file]);
+      if (jblCameraReplaceId) {
+        const replacementId = replaceJblMediaFile(jblCameraCategory, jblCameraReplaceId, file);
+        if (replacementId) {
+          stopJblLiveCamera();
+          openSelectedJblMediaPreview(replacementId);
+        }
+      } else if (addJblMediaFiles(jblCameraCategory, [file])) {
+        jblCameraSessionCount += 1;
+        updateJblCameraCaptureState();
+        if (jblMediaItems().length >= Number(state().jblVisitMediaMaxFiles || 6)) stopJblLiveCamera();
+      }
     } catch (_error) {
       deps.showToast('The photo could not be captured. Keep the camera open and retry.', 'error');
     } finally {
@@ -1241,6 +1255,7 @@
   function resetJblMediaSelections() {
     jblMediaItems().forEach(revokeJblThumbnail);
     jblMediaSelections = { LAF: [], JBL_VISIT_PHOTO: [] };
+    window.MiniAppUtils?.setCloseProtection?.('portal-jbl-media-selected', false);
   }
 
   function formatMediaBytes(bytes) {
@@ -1326,7 +1341,7 @@
 
   function addJblMediaFiles(category, files) {
     const additions = Array.from(files || []);
-    if (!additions.length) return;
+    if (!additions.length || !jblMediaSelections[category]) return false;
     const existingFingerprints = new Set(jblMediaItems().map(item => jblMediaFingerprint(item.file)));
     const unique = additions.filter(file => {
       const fingerprint = jblMediaFingerprint(file);
@@ -1336,30 +1351,30 @@
     });
     if (!unique.length) {
       deps.showToast('Those files are already selected.', 'info');
-      return;
+      return false;
     }
     const invalid = unique.find(file => !allowedJblMediaFile(file, category));
     if (invalid) {
       deps.showToast(`${invalid.name} is not an accepted evidence type.`, 'error');
-      return;
+      return false;
     }
     const maxBytes = Number(state().jblVisitMediaMaxBytes || 20 * 1024 * 1024);
     const oversize = unique.find(file => file.size > maxBytes);
     if (oversize) {
       deps.showToast(`${oversize.name} is larger than the ${Math.round(maxBytes / (1024 * 1024))} MB evidence limit.`, 'error');
-      return;
+      return false;
     }
     const maximumFiles = Number(state().jblVisitMediaMaxFiles || 6);
     if (jblMediaItems().length + unique.length > maximumFiles) {
       deps.showToast(`A JBL visit can include at most ${maximumFiles} evidence files.`, 'error');
-      return;
+      return false;
     }
     const totalBytes = [...jblMediaItems().map(item => item.file), ...unique]
       .reduce((total, file) => total + file.size, 0);
     const maximumTotalBytes = Number(state().jblVisitMediaMaxTotalBytes || 40 * 1024 * 1024);
     if (totalBytes > maximumTotalBytes) {
       deps.showToast(`JBL visit evidence cannot exceed ${Math.round(maximumTotalBytes / (1024 * 1024))} MB in one submission.`, 'error');
-      return;
+      return false;
     }
     unique.forEach(file => {
       const item = { id: requestId(), file, thumbnailUrl: '' };
@@ -1367,6 +1382,27 @@
       queueJblThumbnail(category, item);
     });
     renderJblMediaSelections();
+    window.MiniAppUtils?.setCloseProtection?.('portal-jbl-media-selected', true);
+    return true;
+  }
+
+  function replaceJblMediaFile(category, itemId, file) {
+    const items = jblMediaSelections[category] || [];
+    const index = items.findIndex(item => item.id === itemId);
+    if (index < 0 || !String(items[index].file.type || '').startsWith('image/')) return '';
+    const maxBytes = Number(state().jblVisitMediaMaxBytes || 20 * 1024 * 1024);
+    const maximumTotalBytes = Number(state().jblVisitMediaMaxTotalBytes || 40 * 1024 * 1024);
+    const total = jblMediaItems().reduce((sum, item) => sum + item.file.size, 0) - items[index].file.size + file.size;
+    if (!allowedJblMediaFile(file, category) || file.size > maxBytes || total > maximumTotalBytes) {
+      deps.showToast('The retake exceeds the accepted type or evidence size limit. The original photo is unchanged.', 'error');
+      return '';
+    }
+    revokeJblThumbnail(items[index]);
+    const replacement = { id: requestId(), file, thumbnailUrl: '' };
+    items[index] = replacement;
+    queueJblThumbnail(category, replacement);
+    renderJblMediaSelections();
+    return replacement.id;
   }
 
   function removeJblMediaItem(category, itemId) {
@@ -1376,6 +1412,7 @@
     revokeJblThumbnail(items[index]);
     items.splice(index, 1);
     renderJblMediaSelections();
+    window.MiniAppUtils?.setCloseProtection?.('portal-jbl-media-selected', jblMediaItems().length > 0);
   }
 
   function selectedJblPreviewEntries() {
@@ -1408,6 +1445,7 @@
       <div class="jbl-selection-viewer-stage">${visual}</div>
       <div class="jbl-selection-viewer-actions">
         <button type="button" class="jbl-selection-nav" data-selection-preview-action="previous" aria-label="Previous selected file" title="Previous" ${index === 0 ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span class="sr-only">Previous</span></button>
+        ${String(item.file.type || '').startsWith('image/') ? `<button type="button" class="jbl-selection-retake" data-selection-preview-action="retake" data-media-category="${category}" data-media-item-id="${item.id}" aria-label="Retake this photo" title="Retake photo">Retake</button>` : ''}
         <button type="button" class="jbl-selection-delete" data-selection-preview-action="remove" data-media-category="${category}" data-media-item-id="${item.id}" aria-label="Remove this selected file" title="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 10v6M14 10v6"/></svg><span class="sr-only">Remove</span></button>
         <button type="button" class="jbl-selection-nav" data-selection-preview-action="next" aria-label="Next selected file" title="Next" ${index === entries.length - 1 ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><span class="sr-only">Next</span></button>
       </div>
@@ -1777,8 +1815,6 @@
       event.preventDefault();
       if (sourceButton.getAttribute('aria-disabled') !== 'true') el(sourceButton.dataset.inputId)?.click();
     });
-    el('jbl-camera-close')?.addEventListener('click', stopJblLiveCamera);
-    el('jbl-camera-shutter')?.addEventListener('click', captureJblLivePhoto);
     const form = el('sheet-form');
     if (form) form.oninput = () => {
       jblDraftInputVersion += 1;
@@ -2279,6 +2315,8 @@
 
   function closeSheet({ saveDraft = true } = {}) {
     const farmer = state().selectedFarmer;
+    if (saveDraft && state().activeMode === 'jbl_visit' && jblMediaItems().length
+        && !window.confirm('Selected photos and files cannot be saved in the draft. Close and discard them?')) return;
     // Closing a sheet, opening case history, or Telegram temporarily replacing
     // this WebView must never discard unfinished visit fields. Successful
     // submission is the sole path that clears this private recovery draft.
@@ -2510,6 +2548,9 @@
   function bindEvents() {
     if (document.documentElement.dataset.portalSheetCloseBound) return;
     document.documentElement.dataset.portalSheetCloseBound = 'true';
+    el('jbl-camera-close')?.addEventListener('click', stopJblLiveCamera);
+    el('jbl-camera-done')?.addEventListener('click', stopJblLiveCamera);
+    el('jbl-camera-shutter')?.addEventListener('click', captureJblLivePhoto);
     document.addEventListener('click', event => {
       if (event.target.closest('#sheet-close')) {
         closeSheet();
@@ -2528,6 +2569,12 @@
         const action = selectionAction.dataset.selectionPreviewAction;
         if (action === 'previous') navigateSelectedJblPreview(-1);
         if (action === 'next') navigateSelectedJblPreview(1);
+        if (action === 'retake') {
+          const category = selectionAction.dataset.mediaCategory;
+          const itemId = selectionAction.dataset.mediaItemId;
+          closeMediaViewer();
+          startJblLiveCamera(category, { replaceId: itemId });
+        }
         if (action === 'remove') {
           removeActiveJblPreview(selectionAction.dataset.mediaCategory, selectionAction.dataset.mediaItemId);
         }
@@ -2541,6 +2588,8 @@
       if (overlay && event.target === overlay) closeSheet();
       const mediaOverlay = event.target.closest('#media-viewer-overlay');
       if (mediaOverlay && event.target === mediaOverlay) closeMediaViewer();
+      const cameraOverlay = event.target.closest('#jbl-camera-overlay');
+      if (cameraOverlay && event.target === cameraOverlay) stopJblLiveCamera();
     });
   }
 

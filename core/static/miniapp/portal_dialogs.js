@@ -9,6 +9,7 @@
   ].join(',');
   const closeSelectors = {
     'sheet-overlay': '#sheet-close',
+    'jbl-camera-overlay': '#jbl-camera-close, #jbl-camera-done',
     'media-viewer-overlay': '#media-viewer-close',
     'requisition-preview-overlay': '#requisition-preview-close, #requisition-preview-cancel',
     'batch-detail-overlay': '#batch-detail-close',

@@ -2234,42 +2234,26 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .jbl-media-preview-open svg,
 .jbl-media-remove svg { width:18px; height:18px; }
 .jbl-media-limit-help { grid-column:1 / -1; }
-.jbl-live-camera {
-  grid-column:1 / -1;
-  min-width:0;
-  display:grid;
-  gap:8px;
-  padding:8px;
-  border:1px solid var(--border-color);
-  border-radius:12px;
-  background:#0b1220;
-}
-.jbl-live-camera[hidden] { display:none; }
-.jbl-live-camera-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; color:#fff; font-size:12px; }
-.jbl-camera-close { width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; padding:0; border:0; border-radius:8px; background:rgba(255,255,255,.12); color:#fff; }
-.jbl-camera-close svg { width:16px; height:16px; }
-.jbl-camera-viewport { position:relative; width:100%; aspect-ratio:4 / 3; overflow:hidden; border-radius:9px; background:#000; }
+.jbl-camera-overlay { z-index:var(--portal-z-media, 260); }
+.jbl-camera-sheet { width:min(100%, 560px); max-height:100dvh; display:grid; grid-template-rows:auto minmax(0, 1fr) auto; overflow:hidden; background:var(--bg-surface); }
+.jbl-live-camera-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.jbl-live-camera-heading h2 { margin:0; color:var(--text-primary); }
+.jbl-camera-viewport { position:relative; width:100%; min-height:240px; max-height:66dvh; aspect-ratio:3 / 4; overflow:hidden; background:#000; }
 .jbl-camera-viewport video { width:100%; height:100%; display:block; object-fit:cover; }
-.jbl-camera-status { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:16px; background:rgba(0,0,0,.55); color:#fff; font-size:11px; text-align:center; }
+.jbl-camera-status { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:16px; background:rgba(0,0,0,.55); color:#fff; font-size:14px; text-align:center; }
 .jbl-camera-status[hidden] { display:none; }
-.jbl-camera-shutter { width:48px; height:48px; justify-self:center; display:flex; align-items:center; justify-content:center; padding:0; border:2px solid #fff; border-radius:50%; background:transparent; }
-.jbl-camera-shutter > span[aria-hidden="true"] { display:block; width:34px; height:34px; flex:0 0 34px; border-radius:50%; background:#fff; }
-.workflow-standard.portal-app .jbl-visit-sheet .jbl-camera-shutter {
-  width:48px;
-  min-width:48px;
-  height:48px;
-  min-height:48px;
-  padding:0;
-  border-radius:50% !important;
-}
+.jbl-camera-footer { display:grid; gap:10px; padding:14px 16px calc(14px + env(safe-area-inset-bottom)); color:var(--text-muted); font-size:13px; }
+.jbl-camera-actions { display:flex; gap:10px; }
+.jbl-camera-actions button { min-height:48px; flex:1; }
 .jbl-camera-shutter:disabled { opacity:.45; }
 .media-viewer-body.jbl-selection-preview-active { display:flex; flex-direction:column; align-items:stretch; justify-content:stretch; overflow:hidden; }
 .jbl-selection-viewer { width:100%; flex:1 1 auto; min-height:0; display:grid; grid-template-rows:minmax(0,1fr) auto; }
 .jbl-selection-viewer-stage { width:100%; height:calc(var(--miniapp-viewport-height, 100dvh) - 150px); min-height:240px; display:flex; align-items:center; justify-content:center; overflow:hidden; background:#0b1220; }
 .jbl-selection-viewer-stage .media-viewer-image { width:100%; height:100%; max-width:100%; max-height:none; object-fit:contain; }
 .jbl-selection-viewer-stage .media-viewer-document { width:100%; height:calc(100vh - 190px); min-height:320px; border:0; }
-.jbl-selection-viewer-actions { display:grid; grid-template-columns:repeat(3, 44px); justify-content:center; gap:14px; padding:10px; border-top:1px solid var(--border-color); background:var(--bg-surface); }
+.jbl-selection-viewer-actions { display:flex; justify-content:center; gap:14px; padding:10px; border-top:1px solid var(--border-color); background:var(--bg-surface); }
 .jbl-selection-viewer-actions button { width:44px; height:40px; display:flex; align-items:center; justify-content:center; padding:0; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-muted); color:var(--text-primary); }
+.jbl-selection-viewer-actions .jbl-selection-retake { width:auto; min-width:64px; padding:0 10px; font-weight:700; }
 .jbl-selection-viewer-actions button:disabled { opacity:.35; }
 .jbl-selection-viewer-actions svg { width:20px; height:20px; }
 .jbl-selection-viewer-actions .jbl-selection-delete { color:var(--color-danger, #b42318); }
@@ -2478,7 +2462,7 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .invoice-name-change-tabs button { display: inline-flex; flex: 0 0 auto; min-height: 34px; align-items: center; gap: 5px; border: 1px solid var(--border-color); border-radius: 999px; background: var(--bg-surface); color: var(--text-muted); padding: 5px 10px; font-size: 10px; font-weight: 750; }
 .invoice-name-change-tabs button span { display: grid; min-width: 18px; height: 18px; place-items: center; border-radius: 999px; background: var(--bg-muted); font-size: 9px; }
 .invoice-name-change-tabs button.active { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 10%, var(--bg-surface)); color: var(--color-primary); }
-.invoice-name-change-selection { position: sticky; z-index: var(--z-sticky, 20); bottom: calc(var(--bottom-tabs-height, 58px) + env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 6px; margin: 0 0 8px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-surface); box-shadow: 0 5px 18px rgba(15,23,42,.15); padding: 7px; }
+.invoice-name-change-selection { position: sticky; z-index: var(--z-sticky, 20); bottom: env(safe-area-inset-bottom); display: flex; align-items: center; gap: 6px; margin: 0 0 8px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-surface); box-shadow: 0 5px 18px rgba(15,23,42,.15); padding: 7px; }
 .invoice-name-change-selection strong { margin-right: auto; font-size: 11px; }
 .invoice-name-change-card { cursor: default; gap: 6px; }
 .invoice-name-change-card-main { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 7px; }
@@ -3394,6 +3378,54 @@ body.portal-report-editor-active #bottom-tabs { display: none; }
   pointer-events:none;
 }
 .portal-search-control input { padding-left:36px; }
+
+/* One visible search surface across all Portal workspaces. The queue control
+   previously painted both its label and input, which looked like two bars. */
+body.portal-app #content input[type="search"],
+body.portal-app .invoice-workflow-overlay input[type="search"] {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 9px 12px;
+  background: var(--tg-secondary-bg);
+  color: var(--tg-text);
+  box-shadow: none;
+  font: inherit;
+}
+body.portal-app #content input[type="search"]:focus-visible,
+body.portal-app .invoice-workflow-overlay input[type="search"]:focus-visible {
+  outline: 2px solid var(--tg-button);
+  outline-offset: 2px;
+}
+body.portal-app #content .portal-queue-search {
+  position: relative;
+  display: block;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+body.portal-app #content .portal-queue-search:focus-within { border: 0; box-shadow: none; }
+body.portal-app #content .portal-queue-search input[type="search"] { padding-left: 38px; padding-right: 44px; }
+body.portal-app #content .portal-queue-search > i,
+body.portal-app #content .portal-queue-search > svg {
+  position: absolute;
+  top: 14px;
+  left: 12px;
+  z-index: 1;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+body.portal-app #content .portal-queue-search [data-portal-search-clear] {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
 
 /* Credit and final review use the same compact operational-detail frame as
    the JBL visit without inheriting visit-only fields or camera layout. */

@@ -163,9 +163,7 @@
       const viewportBottom = (Number(viewport?.offsetTop) || 0) + (Number(viewport?.height) || window.innerHeight || 640);
       const top = grid.getBoundingClientRect().top;
       const commitHeight = node('farmup-commit')?.closest('.farmup-commit-bar')?.getBoundingClientRect().height || 0;
-      const tabs = node('bottom-tabs');
-      const tabsHeight = tabs && getComputedStyle(tabs).display !== 'none' ? tabs.getBoundingClientRect().height : 0;
-      grid.style.height = `${Math.max(260, Math.min(680, Math.floor(viewportBottom - top - commitHeight - tabsHeight - 18)))}px`;
+      grid.style.height = `${Math.max(260, Math.min(680, Math.floor(viewportBottom - top - commitHeight - 18)))}px`;
       try {
         gridApi?.setColumnsPinned?.(['state'], window.innerWidth > 700 ? 'left' : null);
         gridApi?.doLayout?.();

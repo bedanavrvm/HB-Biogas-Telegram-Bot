@@ -1,5 +1,16 @@
 # Changelog
 
+## Portal navigation, search, and visit camera refinement - 13-September-2026
+
+- Removed the redundant top stage rail and mobile bottom hubs; the existing
+  capability-filtered sidebar is the Portal's screen navigation.
+- Standardized Portal search surfaces so the queue field renders one border
+  across mobile and Telegram dark mode.
+- Moved JBL visit capture into a dedicated camera sheet with multi-shot capture,
+  review/retake, permission fallback, and stream cleanup. Selected evidence
+  remains local until submission; closing with files now asks for confirmation.
+- No workflow rules, authorization, schema, or external integrations changed.
+
 ## Portal full-page navigation reliability fix - 13-September-2026
 
 - Switched Portal screen, stage, invoice, dashboard, and detail navigation to
