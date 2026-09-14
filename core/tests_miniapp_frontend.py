@@ -465,7 +465,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('class="operational-queue-card-content"', card)
         self.assertIn('farmer.current_pipeline_state|default:"In Progress"', card)
         self.assertIn('function renderOperationalQueueCard(f, qKey)', portal)
-        self.assertIn("['county', 'branch', 'ordering']", queues)
+        self.assertIn("['county', 'branch', 'status', 'ordering']", queues)
         self.assertIn("params.set(key, value)", queues)
         self.assertIn("farmer.imab_created || 'Pending'", sheet)
         self.assertIn('WORKFLOW_DRAFT_CONFIG', sheet)

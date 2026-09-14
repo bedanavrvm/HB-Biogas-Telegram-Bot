@@ -224,6 +224,39 @@ class JblPipelineServiceTestCase(TestCase):
         branch_only = list(all_cases(branch='Thika'))
         self.assertEqual(branch_only, [self.farmer_stage2])
 
+    @patch('core.services.portal_publication.reserve_farmer_publication')
+    def test_deferred_jbl_visit_enters_deferred_queue_without_pending_credit(self, _reserve):
+        ok, error = log_jbl_visit(
+            self.farmer_stage1,
+            visit_date=date(2026, 6, 28),
+            officer='Officer Joe',
+            visit_status='Deferred / On Hold',
+            comment='Customer asked to pause the visit.',
+            sender='Officer Joe',
+            request_id='deferred-jbl-visit-test',
+        )
+        self.assertTrue(ok, error)
+        self.farmer_stage1.refresh_from_db()
+        self.assertIn(self.farmer_stage1, deferred_queue())
+        self.assertNotIn(self.farmer_stage1, credit_queue())
+        self.assertEqual(farmer_to_card(self.farmer_stage1)['credit_decision_label'], 'Not done')
+        from core.services.jawabu_case360 import serialize_case360
+        self.assertEqual(serialize_case360(self.farmer_stage1)['sections']['credit']['decision_label'], 'Not done')
+        self.assertEqual(list(all_cases(status='deferred')), [self.farmer_stage1])
+        self.assertNotIn(self.farmer_stage1, all_cases(status='credit'))
+
+        # An actual earlier credit decision is history, not an empty stage.
+        self.farmer_stage1.credit_decision = 'Approved'
+        self.assertEqual(farmer_to_card(self.farmer_stage1)['credit_decision_label'], 'Approved')
+
+    def test_all_cases_status_filter_respects_stage_and_rejects_unknown_value(self):
+        self.assertIn(self.farmer_stage1, all_cases(status='jbl_visit'))
+        self.assertIn(self.farmer_stage2, all_cases(status='credit'))
+        self.assertIn(self.farmer_stage_review, all_cases(status='final_review'))
+        self.assertIn(self.farmer_stage3, all_cases(status='order'))
+        self.assertIn(self.farmer_stage4, all_cases(status='ordered'))
+        self.assertFalse(all_cases(status='unexpected').exists())
+
     def test_farmer_card_exposes_hb_visit_date_source(self):
         card = farmer_to_card(self.farmer_stage1)
         self.assertEqual(card['sign_date'], '24-June-2026')
@@ -398,9 +431,35 @@ class JblPipelineServiceTestCase(TestCase):
 
         self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
         row = fake_sheet.values[4]
-        self.assertEqual(row[4], 'Muranga')
-        self.assertEqual(row[5], 'Kandara')
-        self.assertEqual(row[6], 'Gakira')
+        self.assertEqual(row[4], 'MURANGA')
+        self.assertEqual(row[5], 'KANDARA')
+        self.assertEqual(row[6], 'GAKIRA')
+
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_master_sheet_projection_uppercases_short_text_but_preserves_visit_note(self, mock_get_sheets):
+        from core.tests import FakeMasterDataSheet, FakeJawabuService
+
+        self.farmer_stage1.workflow_state = 'deferred'
+        self.farmer_stage1.deferred_stage = 'jbl_visit'
+        self.farmer_stage1.jbl_visit_status = 'Deferred / On Hold'
+        self.farmer_stage1.jbl_visit_comment = 'Customer asked to wait until Friday.'
+        self.farmer_stage1.save(update_fields=[
+            'workflow_state', 'deferred_stage', 'jbl_visit_status', 'jbl_visit_comment', 'updated_at',
+        ])
+        headers = [
+            'No.', 'Customer Name', 'National ID', 'Primary Phone',
+            'JBL Visit Status', 'Current Pipeline State', 'Credit Decision', 'JBL Visit Comment',
+        ]
+        fake_sheet = FakeMasterDataSheet(headers)
+        mock_get_sheets.return_value = FakeJawabuService(fake_sheet)
+
+        self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
+        published_headers = fake_sheet.values[2]
+        row = fake_sheet.values[4]
+        self.assertEqual(row[published_headers.index('Customer Name')], 'FARMER ONE')
+        self.assertEqual(row[published_headers.index('JBL Visit Status')], 'DEFERRED / ON HOLD')
+        self.assertEqual(row[published_headers.index('Credit Decision')], 'NOT DONE')
+        self.assertIn('Customer asked to wait until Friday.', row[published_headers.index('JBL Visit Comment')])
 
     @patch('core.services.jawabu_pipeline._jawabu_group_config')
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
@@ -421,7 +480,7 @@ class JblPipelineServiceTestCase(TestCase):
         published_headers = fake_sheet.values[2]
         record_id_index = published_headers.index('Master Record ID')
         self.assertEqual(first_row[record_id_index], str(self.farmer_stage1.pk))
-        self.assertEqual(first_row[published_headers.index('Customer Name')], self.farmer_stage1.customer_name)
+        self.assertEqual(first_row[published_headers.index('Customer Name')], 'FARMER ONE')
         self.assertEqual(len(fake_sheet.values), 5)
 
         # Mutable matching fields may change, but the same UUID must still
@@ -437,7 +496,7 @@ class JblPipelineServiceTestCase(TestCase):
         updated_row = fake_sheet.values[4]
         self.assertEqual(updated_row[record_id_index], str(self.farmer_stage1.pk))
         self.assertEqual(updated_row[published_headers.index('National ID')], '22222222')
-        self.assertEqual(updated_row[published_headers.index('County')], 'Muranga')
+        self.assertEqual(updated_row[published_headers.index('County')], 'MURANGA')
 
     @patch('core.services.jawabu_pipeline._jawabu_group_config')
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
@@ -929,7 +988,9 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertNotIn('VOICE_LANGUAGE_ORDER.map(mode =>', script)
         self.assertIn("VOICE_LANGUAGE_ORDER[(VOICE_LANGUAGE_ORDER.indexOf(current) + 1) % VOICE_LANGUAGE_ORDER.length]", script)
         self.assertIn('No preview', script)
-        self.assertIn("window.MiniAppUtils.impactWithFallback('medium', 35)", script)
+        self.assertIn("feltShutter = window.MiniAppUtils.impactWithFallback('medium', 35)", script)
+        self.assertIn('if (!feltShutter) playJblShutterClick()', script)
+        self.assertIn('object-fit:contain; object-position:center;', stylesheet)
         self.assertNotIn("window.MiniAppUtils?.haptic?.('success')", script)
         self.assertIn('id="media-viewer-close" class="sheet-close-button" aria-label="Close client media"><i data-lucide="x"', template)
         self.assertIn("headerStatus.textContent = message || 'Autosave on'", script)
@@ -2610,6 +2671,25 @@ class JblPipelineApiTestCase(TestCase):
         ids = {item['id'] for item in data['farmers']}
         self.assertIn(str(self.farmer.id), ids)
         self.assertNotIn(str(other.id), ids)
+
+    def test_all_cases_api_and_fragment_filter_by_status_before_pagination(self):
+        self.farmer.workflow_state = 'deferred'
+        self.farmer.deferred_stage = 'jbl_visit'
+        self.farmer.jbl_visit_status = 'Deferred / On Hold'
+        self.farmer.save(update_fields=['workflow_state', 'deferred_stage', 'jbl_visit_status', 'updated_at'])
+        other = JawabuFarmerMaster.objects.create(
+            customer_name='Awaiting Credit Test', national_id='88888887',
+            primary_phone='254788888887', workflow_state='credit',
+            county='Kiambu', branch='Ruiru', status='active',
+        )
+        response = self.client.get(reverse('portal_all_cases'), {'status': 'deferred'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([item['id'] for item in response.json()['farmers']], [str(self.farmer.pk)])
+        self.assertEqual(response.json()['farmers'][0]['credit_decision_label'], 'Not done')
+        fragment = self.client.get('/api/portal/queues/all/fragment/', {'status': 'deferred'})
+        self.assertEqual(fragment.status_code, 200)
+        self.assertContains(fragment, str(self.farmer.pk))
+        self.assertNotContains(fragment, str(other.pk))
 
     def test_set_final_decision_api(self):
         """Verify Head of Rural final review stores decision and after-call comments."""

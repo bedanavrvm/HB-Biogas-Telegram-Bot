@@ -15,7 +15,7 @@
 
   function filtersFor(queueKey) {
     state().filtersByQueue ||= {};
-    state().filtersByQueue[queueKey] ||= { county: '', branch: '', ordering: '' };
+    state().filtersByQueue[queueKey] ||= { county: '', branch: '', status: '', ordering: '' };
     return state().filtersByQueue[queueKey];
   }
 
@@ -71,7 +71,7 @@
     components.renderFilterChips?.(
       root.querySelector('[data-portal-filter-chips]'),
       Object.fromEntries(active.map(function (entry) {
-        const labels = { county: 'County', branch: 'Branch', ordering: 'Order' };
+        const labels = { county: 'County', branch: 'Branch', status: 'Status', ordering: 'Order' };
         return [entry[0], { label: labels[entry[0]], value: entry[1], text: readableValue(root, entry[0], entry[1]) }];
       })),
       function (key) {
@@ -94,6 +94,7 @@
       state().filtersByQueue[queueKey] = {
         county: String(saved.filters?.county || ''),
         branch: String(saved.filters?.branch || ''),
+        status: queueKey === 'all' ? String(saved.filters?.status || '') : '',
         ordering: String(saved.filters?.ordering || ''),
       };
     }
@@ -109,6 +110,7 @@
     const form = root.querySelector('[data-portal-filter-form]');
     populateSelect(form?.elements.county, state().metaCounties, filters.county);
     populateSelect(form?.elements.branch, state().metaBranches, filters.branch);
+    if (form?.elements.status) form.elements.status.value = filters.status || '';
     if (form?.elements.ordering) form.elements.ordering.value = filters.ordering || '';
     updatePresentation(root, queueKey);
     if (boundRoots.has(root)) return;
@@ -135,6 +137,7 @@
       onApply: function (formData) {
         filters.county = String(formData.get('county') || '');
         filters.branch = String(formData.get('branch') || '');
+        filters.status = queueKey === 'all' ? String(formData.get('status') || '') : '';
         filters.ordering = String(formData.get('ordering') || '');
         state().pages[queueKey] = 1;
         updatePresentation(root, queueKey);
@@ -145,6 +148,7 @@
     root.querySelector('[data-portal-filter-reset]')?.addEventListener('click', function () {
       filters.county = '';
       filters.branch = '';
+      filters.status = '';
       filters.ordering = '';
       form?.reset();
       state().pages[queueKey] = 1;

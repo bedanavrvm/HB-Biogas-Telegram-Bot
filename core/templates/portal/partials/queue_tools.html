@@ -21,6 +21,7 @@
       <form class="miniapp-sheet-body" data-portal-filter-form>
         <label>County<select name="county"><option value="">All counties</option></select></label>
         <label>Branch<select name="branch"><option value="">All branches</option></select></label>
+        {% if queue_key == 'all' %}<label>Status<select name="status"><option value="">All statuses</option><option value="jbl_visit">Awaiting visit</option><option value="credit">Awaiting credit analysis</option><option value="final_review">Awaiting final review</option><option value="order">Ready for order</option><option value="ordered">Ordered</option><option value="deferred">Deferred</option><option value="rejected">Rejected</option><option value="withdrawn">Withdrawn</option></select></label>{% endif %}
         <label>Show<select name="ordering"><option value="">Needs attention first</option><option value="newest">Newest first</option></select></label>
         <footer class="miniapp-sheet-actions">
           <button type="button" class="btn btn-secondary" data-portal-filter-reset>Reset</button>

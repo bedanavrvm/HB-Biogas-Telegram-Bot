@@ -370,7 +370,10 @@
   }
 
   function renderBusinessSection(section, sectionName = '') {
-    return `<div class="case360-grid">${Object.entries(section || {}).map(([key, value]) =>
+    const displayed = { ...(section || {}) };
+    if (sectionName === 'credit' && displayed.decision_label) displayed.decision = displayed.decision_label;
+    delete displayed.decision_label;
+    return `<div class="case360-grid">${Object.entries(displayed).map(([key, value]) =>
       `<div class="case360-field ${['comment', 'payment_comment', 'gps_link'].includes(key) ? 'wide' : ''} ${value === null || value === '' ? 'empty' : ''}"><span>${deps.escapeHtml(sectionName === 'final_review' && key === 'comment' ? 'Order / requisition comment' : sectionName === 'final_review' && key === 'payment_comment' ? 'Payment comment (COL)' : humanLabel(key))}</span><strong>${renderCaseFieldValue(key, value)}</strong></div>`
     ).join('')}</div>`;
   }
@@ -379,7 +382,7 @@
     const steps = [
       ['Application', Boolean(sections.identity?.customer_name || sections.intake?.hbg_visit_date)],
       ['JBL Visit', Boolean(sections.jbl_visit?.visit_date || sections.jbl_visit?.status)],
-      ['Credit', Boolean(sections.credit?.decision)],
+      ['Credit', Boolean(sections.credit?.decision && sections.credit.decision !== 'Pending')],
       ['Final Review', Boolean(sections.final_review?.decision)],
       ['Order', Boolean(sections.order?.order_number)],
       ['Invoice', Boolean(sections.invoice?.number)],
@@ -409,15 +412,15 @@
     }).join('')}</ol>`;
   }
 
-  function caseHeader(sections, workflowState = '') {
+  function caseHeader(sections, workflowState = '', currentPipelineState = '') {
     const identity = sections.identity || {};
     const intake = sections.intake || {};
     const systemName = identity.system_name && identity.system_name !== identity.customer_name
       ? `IMAB: ${identity.system_name}`
       : '';
-    const status = sections.invoice?.number ? 'Invoiced'
+    const status = currentPipelineState || (sections.invoice?.number ? 'Invoiced'
       : sections.order?.order_number ? 'Ordered'
-      : sections.final_review?.decision || sections.credit?.decision || sections.jbl_visit?.status || 'Application received';
+      : sections.final_review?.decision || sections.credit?.decision || sections.jbl_visit?.status || 'Application received');
     return `<header class="case360-hero">
       <div class="case360-identity"><span class="case360-eyebrow">Customer case</span><h2>${deps.escapeHtml(identity.customer_name || 'Unnamed customer')}</h2><p>${deps.escapeHtml([systemName, identity.national_id && `ID ${identity.national_id}`, identity.primary_phone, intake.branch].filter(Boolean).join('  |  ') || 'Identifiers not recorded')}</p></div>
       <span class="case360-status">${deps.escapeHtml(status)}</span>
@@ -551,7 +554,7 @@
     const invoiceChangeCards = invoiceNameChanges.length ? `<details class="case360-section"><summary><div><h3>Invoice Name Changes</h3><p>Original and corrected invoice history</p></div><span class="case360-chevron" aria-hidden="true"></span></summary><div class="case360-related-cases">${invoiceNameChanges.map(item => `<div class="case360-related-case"><strong>${deps.escapeHtml(item.original_invoice || '-')} → ${deps.escapeHtml(item.replacement_invoice || 'Awaiting replacement')}</strong><span>${deps.escapeHtml(humanLabel(item.status || ''))} · ${deps.escapeHtml(item.batch_reference || '')}</span></div>`).join('')}</div></details>` : '';
     const escalationAlert = escalation ? `<div class="case360-escalation level-${deps.escapeHtml(escalation.escalation_level)}"><strong>SLA escalation: ${deps.escapeHtml(escalation.routing_role)}</strong><span>${deps.escapeHtml(formatTatMinutes(escalation.overdue_minutes))} overdue at ${deps.escapeHtml(escalation.threshold_percent)}% threshold</span></div>` : '';
     root.innerHTML = `
-      ${caseHeader(sections, data.workflow_state || '')}
+      ${caseHeader(sections, data.workflow_state || '', data.current_pipeline_state || '')}
       <div class="case360-tabs" role="tablist">
         ${tabs.map(([key, label, count], index) => `<button type="button" role="tab" aria-selected="${index ? 'false' : 'true'}" data-case360-tab="${key}" class="${index ? '' : 'active'}"><span>${label}</span>${count !== '' ? `<b>${count}</b>` : ''}</button>`).join('')}
       </div>
@@ -620,7 +623,7 @@
         ['JBL Status', jblStatusLabel(farmer)],
       ],
       final_review: [
-        ['Credit Decision', deps.fmt(farmer.credit_decision)],
+        ['Credit Decision', deps.fmt(farmer.credit_decision_label || farmer.credit_decision)],
         ['IMAB Created', deps.fmt(farmer.imab_created)],
         ['Customer No.', deps.fmt(farmer.customer_no)],
       ],
@@ -1296,6 +1299,27 @@
     }, 'image/jpeg', 0.86));
   }
 
+  function playJblShutterClick() {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    try {
+      const audioContext = new AudioContextClass();
+      const oscillator = audioContext.createOscillator();
+      const volume = audioContext.createGain();
+      oscillator.type = 'square';
+      oscillator.frequency.setValueAtTime(1100, audioContext.currentTime);
+      volume.gain.setValueAtTime(0.025, audioContext.currentTime);
+      volume.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.045);
+      oscillator.connect(volume);
+      volume.connect(audioContext.destination);
+      oscillator.onended = () => audioContext.close().catch(() => {});
+      oscillator.start();
+      oscillator.stop(audioContext.currentTime + 0.045);
+    } catch (_error) {
+      // Feedback is optional; a missing audio device must never block capture.
+    }
+  }
+
   async function captureJblLivePhoto() {
     const video = el('jbl-camera-video');
     const shutter = el('jbl-camera-shutter');
@@ -1303,11 +1327,16 @@
     // Request the shutter pulse while this handler still owns the user's
     // activation. Waiting for canvas compression first is unreliable in real
     // Telegram Android WebViews and was the reason capture appeared silent.
+    let feltShutter = false;
     if (window.MiniAppUtils?.impactWithFallback) {
-      window.MiniAppUtils.impactWithFallback('medium', 35);
-    } else if (!window.MiniAppUtils?.haptic?.('medium')) {
-      try { navigator.vibrate?.(35); } catch (_error) {}
+      feltShutter = window.MiniAppUtils.impactWithFallback('medium', 35);
+    } else {
+      feltShutter = Boolean(window.MiniAppUtils?.haptic?.('medium'));
+      if (!feltShutter) {
+        try { feltShutter = Boolean(navigator.vibrate?.(35)); } catch (_error) {}
+      }
     }
+    if (!feltShutter) playJblShutterClick();
     if (shutter) shutter.disabled = true;
     const captureRequestId = jblCameraRequestId;
     try {

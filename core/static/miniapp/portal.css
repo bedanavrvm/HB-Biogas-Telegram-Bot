@@ -2244,7 +2244,7 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .jbl-live-camera-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .jbl-live-camera-heading h2 { margin:0; color:var(--text-primary); }
 .jbl-camera-viewport { position:relative; width:100%; min-height:0; height:min(66dvh,calc((100vw - 28px) * 4 / 3)); flex:0 1 auto; max-height:66dvh; margin:12px 0; border-radius:14px; overflow:hidden; background:#050806; }
-.jbl-camera-viewport video { width:100%; height:100%; display:block; object-fit:cover; }
+.jbl-camera-viewport video { width:100%; height:100%; display:block; object-fit:contain; object-position:center; }
 .jbl-camera-status { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:16px; background:rgba(0,0,0,.55); color:#fff; font-size:14px; text-align:center; }
 .jbl-camera-status[hidden] { display:none; }
 .jbl-camera-footer { display:grid; gap:8px; padding:0; color:var(--text-muted); font-size:11px; }
@@ -3401,7 +3401,9 @@ body.portal-report-editor-active #bottom-tabs { display: none; }
 .workflow-standard.portal-app .jbl-visit-sheet .jbl-media-preview-open svg,
 .workflow-standard.portal-app .jbl-visit-sheet .jbl-media-remove svg { width:16px !important; height:16px !important; max-width:16px; max-height:16px; flex:0 0 16px; transform:none; }
 .jbl-visit-sheet .jbl-live-camera { margin:8px; }
-.jbl-camera-overlay .jbl-camera-viewport { height:clamp(220px, 46dvh, 400px); aspect-ratio:auto; }
+.jbl-camera-overlay { padding-top:0; }
+.jbl-camera-overlay .jbl-camera-sheet { height:100dvh; max-height:100dvh; border-radius:0; }
+.jbl-camera-overlay .jbl-camera-viewport { flex:1 1 auto; height:auto; max-height:none; min-height:0; aspect-ratio:auto; }
 .jbl-visit-sheet .jbl-media-limit-help, .jbl-visit-sheet .jbl-existing-media-help { display:block; padding:5px 10px 0; color:var(--text-muted); font-size:9px; }
 .jbl-visit-sheet .jbl-existing-media-help { padding-top:2px; }
 .jbl-visit-sheet .gps-capture-row { display:grid !important; grid-template-columns:minmax(0, 1fr) auto; gap:8px !important; align-items:center; margin-top:7px; padding:9px 10px !important; border:0 !important; border-top:1px solid var(--border-color) !important; border-radius:0; background:transparent !important; }

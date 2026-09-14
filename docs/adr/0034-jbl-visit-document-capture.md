@@ -33,6 +33,20 @@ inspection, but are not recoverable after closing or reloading the app.
 
 ## Consequences
 
+The live camera uses the full available screen height. Its uncropped, contained
+video preview matches the full sensor frame saved by the capture canvas; black
+letterboxing is not saved. Shutter feedback uses Telegram haptics or browser
+vibration, with a short local audio click when neither is available. Device
+feedback remains best-effort and never blocks capturing a photo.
+
+A JBL visit deferred before credit analysis appears in the deferred queue and
+displays credit as Not done in case cards, history and Master Data. This is a
+derived label, not a new credit decision. All Cases supports a server-filtered
+status selector without changing case-card actions or access scopes. Master
+Data short display text is uppercase; comments/history, identifiers and URLs
+retain their original content. Existing Sheet rows receive corrected casing
+when next published; no bulk production rewrite is performed by this change.
+
 Each submitted document is a complete logical artifact; a failed category leaves
 the visit unlogged with explicit evidence-saved/retry information. Stable PDF
 content hashes reuse uploads on retries. No schema migration or new dependency

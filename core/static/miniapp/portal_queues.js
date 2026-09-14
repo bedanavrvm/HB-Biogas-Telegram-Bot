@@ -36,7 +36,7 @@
       params.set('stage', state.filters.reviewStage);
     }
     const filters = (state.filtersByQueue || {})[queueKey] || {};
-    ['county', 'branch', 'ordering'].forEach(function (key) {
+    ['county', 'branch', 'status', 'ordering'].forEach(function (key) {
       const value = String(filters[key] || '').trim();
       if (value) params.set(key, value);
     });

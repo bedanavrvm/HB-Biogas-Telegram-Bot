@@ -90,6 +90,8 @@ def infer_workflow_state(farmer: JawabuFarmerMaster) -> str:
         return JawabuWorkflowState.DEFERRED
     if farmer.credit_decision == 'Approved':
         return JawabuWorkflowState.FINAL_REVIEW
+    if farmer.jbl_visit_status == 'Deferred / On Hold':
+        return JawabuWorkflowState.DEFERRED
     if farmer.jbl_visit_status in {'Rejected by JBL'}:
         return JawabuWorkflowState.REJECTED
     if farmer.jbl_visit_status in {'Opted for Cash', 'Opted for Other Partner'}:
@@ -101,6 +103,17 @@ def infer_workflow_state(farmer: JawabuFarmerMaster) -> str:
 
 def current_workflow_state(farmer: JawabuFarmerMaster) -> str:
     return str(farmer.workflow_state or infer_workflow_state(farmer))
+
+
+def credit_decision_label(farmer: JawabuFarmerMaster) -> str:
+    """A paused visit has no queued credit work; preserve actual decisions."""
+    visit_deferred = (
+        current_workflow_state(farmer) == JawabuWorkflowState.DEFERRED
+        and (farmer.deferred_stage == 'jbl_visit' or farmer.jbl_visit_status == 'Deferred / On Hold')
+    )
+    if visit_deferred and farmer.credit_decision in {'', 'Pending'}:
+        return 'Not done'
+    return farmer.credit_decision or 'Pending'
 
 
 def current_pipeline_state_label(farmer: JawabuFarmerMaster) -> str:
@@ -340,12 +353,13 @@ def deferred_queue():
     return JawabuFarmerMaster.objects.filter(
         status='active',
     ).filter(
+        Q(workflow_state=JawabuWorkflowState.DEFERRED) |
         Q(final_decision__in=['Rejected', 'Deferred / On Hold']) |
         Q(credit_decision__in=['Rejected', 'Deferred / On Hold']) |
-        Q(jbl_visit_status__in=['Rejected by JBL', 'Cancelled', 'Client Withdrew', 'Opted for Cash'])
+        Q(jbl_visit_status__in=['Deferred / On Hold', 'Rejected by JBL', 'Cancelled', 'Client Withdrew', 'Opted for Cash'])
     ).exclude(deferred_until__lte=timezone.localdate()).order_by('-updated_at')
 
-def all_cases(search: str = '', county: str = '', branch: str = ''):
+def all_cases(search: str = '', county: str = '', branch: str = '', status: str = ''):
     """
     Full farmer list with optional search, county, and branch filters.
     Aggregates across all groups.
@@ -355,8 +369,19 @@ def all_cases(search: str = '', county: str = '', branch: str = ''):
         qs = qs.filter(county__iexact=county)
     if branch:
         qs = qs.filter(branch__iexact=branch)
+    if status:
+        status_filters = {
+            JawabuWorkflowState.JBL_VISIT: Q(workflow_state=JawabuWorkflowState.JBL_VISIT) | Q(workflow_state='', jbl_visit_date__isnull=True, deferred_until__isnull=True, final_decision='', credit_decision__in=['', 'Pending']),
+            JawabuWorkflowState.CREDIT: Q(workflow_state=JawabuWorkflowState.CREDIT) | Q(workflow_state='', jbl_visit_status=JBL_FORWARD_STATUS, credit_decision__in=['', 'Pending']),
+            JawabuWorkflowState.FINAL_REVIEW: Q(workflow_state=JawabuWorkflowState.FINAL_REVIEW) | Q(workflow_state='', credit_decision='Approved', final_decision=''),
+            JawabuWorkflowState.ORDER: Q(workflow_state=JawabuWorkflowState.ORDER) | Q(workflow_state='', final_decision='Approved', order_number=''),
+            JawabuWorkflowState.ORDERED: Q(workflow_state=JawabuWorkflowState.ORDERED) | Q(workflow_state='', order_number__gt=''),
+            JawabuWorkflowState.DEFERRED: Q(workflow_state=JawabuWorkflowState.DEFERRED) | Q(workflow_state='', jbl_visit_status='Deferred / On Hold') | Q(workflow_state='', credit_decision='Deferred / On Hold') | Q(workflow_state='', final_decision='Deferred / On Hold'),
+            JawabuWorkflowState.REJECTED: Q(workflow_state=JawabuWorkflowState.REJECTED) | Q(workflow_state='', jbl_visit_status='Rejected by JBL') | Q(workflow_state='', credit_decision='Rejected') | Q(workflow_state='', final_decision='Rejected'),
+            JawabuWorkflowState.WITHDRAWN: Q(workflow_state=JawabuWorkflowState.WITHDRAWN) | Q(workflow_state='', jbl_visit_status__in=['Opted for Cash', 'Opted for Other Partner', 'Client Withdrew']),
+        }
+        qs = qs.filter(status_filters.get(status, Q(pk__in=[])))
     if search:
-        from django.db.models import Q
         qs = qs.filter(
             Q(customer_name__icontains=search) |
             Q(primary_phone__icontains=search) |
@@ -1829,6 +1854,7 @@ def farmer_to_card(
         'jbl_visit_comment': farmer.jbl_visit_comment,
         # Stage 3
         'credit_decision': farmer.credit_decision or 'Pending',
+        'credit_decision_label': credit_decision_label(farmer),
         'imab_created': farmer.imab_created,
         'customer_no': farmer.customer_no,
         'imab_customer_name': farmer.imab_customer_name,
@@ -1962,12 +1988,16 @@ def _sheet_cell_value(value: Any):
 
 
 def _smart_sheet_label(value: Any) -> str:
-    """Normalize accidental casing for presentation without rewriting Django."""
-    text = str(value or '').strip()
-    letters = ''.join(char for char in text if char.isalpha())
-    if letters and (letters.isupper() or letters.islower()):
-        return text.title()
-    return text
+    """Apply the agreed uppercase convention to short Sheet display text."""
+    return str(value or '').strip().upper()
+
+
+MASTER_UPPERCASE_TEXT_FIELDS = frozenset({
+    'jbl_visit_status', 'current_pipeline_state', 'lead_source',
+    'hbg_contract_name', 'contract_type', 'installation_status',
+    'actual_receipts_currency', 'credit_decision', 'imab_created',
+    'payment_product', 'repayment_tenor', 'deferred_stage', 'final_decision',
+})
 
 
 def _attributed_sheet_comment(comment: Any, occurred_at, actor: Any, role: str) -> str:
@@ -2156,7 +2186,10 @@ def sync_farmer_to_master_sheet(
             'installation_status': (candidates('installation_status'), farmer.installation_status),
             'hb_sales_person': (candidates('hb_sales_person'), _smart_sheet_label(farmer.hb_sales_person)),
             'actual_receipts_currency': (candidates('actual_receipts_currency'), farmer.actual_receipts_currency),
-            'credit_decision': (candidates('credit_decision'), farmer.credit_decision),
+            'credit_decision': (
+                candidates('credit_decision'),
+                credit_decision_label(farmer),
+            ),
             'credit_decided_by': (['Credit Decided By', 'Credit Analyst'], _smart_sheet_label(farmer.credit_decided_by)),
             'credit_decided_at': (['Credit Decided At', 'Credit Decision Date'], _datetime_text(farmer.credit_decided_at)),
             'imab_created': (candidates('imab_created'), farmer.imab_created),
@@ -2192,6 +2225,8 @@ def sync_farmer_to_master_sheet(
         }
 
         for field_name, (candidates, new_val) in pipeline_fields.items():
+            if field_name in MASTER_UPPERCASE_TEXT_FIELDS:
+                new_val = _smart_sheet_label(new_val)
             header = first_existing_header(header_lookup, candidates)
             if header:
                 idx = header_lookup[normalize_header(header)] - 1
@@ -2423,17 +2458,17 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
         put(candidates('system_deposit_paid_jbl'), farmer.system_deposit_paid_jbl if farmer.system_deposit_paid_jbl is not None else 0)
         put(candidates('hbg_visit_comment'), farmer.comments)
         put(candidates('jbl_visit_comment'), _attributed_sheet_comment(farmer.jbl_visit_comment, farmer.jbl_visit_date, farmer.jbl_officer, 'JBL Officer'))
-        put(candidates('current_pipeline_state'), current_pipeline_state_label(farmer))
-        put(candidates('credit_decision'), farmer.credit_decision)
-        put(candidates('imab_created'), farmer.imab_created)
+        put(candidates('current_pipeline_state'), _smart_sheet_label(current_pipeline_state_label(farmer)))
+        put(candidates('credit_decision'), _smart_sheet_label(credit_decision_label(farmer)))
+        put(candidates('imab_created'), _smart_sheet_label(farmer.imab_created))
         put(candidates('customer_no'), farmer.customer_no)
         put(candidates('repayment_date'), farmer.repayment_date)
-        put(candidates('repayment_tenor'), farmer.repayment_tenor)
-        put(candidates('payment_product'), farmer.payment_product)
+        put(candidates('repayment_tenor'), _smart_sheet_label(farmer.repayment_tenor))
+        put(candidates('payment_product'), _smart_sheet_label(farmer.payment_product))
         put(candidates('payment_call_up_comment'), _attributed_sheet_comment(farmer.final_decision_comment, farmer.final_decided_at, farmer.final_decided_by, 'Head of Rural'))
-        put(candidates('final_decision'), farmer.final_decision)
+        put(candidates('final_decision'), _smart_sheet_label(farmer.final_decision))
         put(candidates('jbl_media_urls'), farmer.jbl_media_urls)
-        put(candidates('deferred_stage'), farmer.deferred_stage)
+        put(candidates('deferred_stage'), _smart_sheet_label(farmer.deferred_stage))
         put(candidates('deferred_until'), _date_text(farmer.deferred_until))
         put(candidates('final_decided_by'), _smart_sheet_label(farmer.final_decided_by))
         put(candidates('final_decided_at'), _datetime_text(farmer.final_decided_at))

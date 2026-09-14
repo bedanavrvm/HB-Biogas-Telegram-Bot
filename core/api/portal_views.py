@@ -721,6 +721,7 @@ def _portal_queue_queryset(queue_key: str, request, *, params=None):
             search=params.get('search', '').strip(),
             county=params.get('county', '').strip(),
             branch=params.get('branch', '').strip(),
+            status=params.get('status', '').strip(),
         )
         qs = _apply_county_branch_filters(qs, request, params=params, capability=queue_capability)
     else:
@@ -4776,7 +4777,7 @@ def portal_assign_order(request, farmer_id: str):
 def portal_all_cases(request):
     """
     GET /api/portal/farmers/
-    Query params: search, county, branch, page
+    Query params: search, county, branch, status, page
     """
     from core.services.jawabu_pipeline import all_cases, farmer_to_card
     access_error = _portal_read_access_error(request)
@@ -4785,7 +4786,8 @@ def portal_all_cases(request):
     search = request.GET.get('search', '').strip()
     county = request.GET.get('county', '').strip()
     branch = request.GET.get('branch', '').strip()
-    qs = all_cases(search=search, county=county, branch=branch)
+    status = request.GET.get('status', '').strip()
+    qs = all_cases(search=search, county=county, branch=branch, status=status)
     qs = _apply_portal_ordering(_apply_county_branch_filters(
         qs, request, capability='portal.case.read',
     ), params=request.GET)

@@ -130,7 +130,7 @@ test('Portal refresh actions sit at the right content edge across screens', asyn
   }
 });
 
-test('Portal camera uses the approved bounded bottom card on mobile and desktop', async ({page},testInfo)=>{
+test('Portal camera uses full height with an uncropped preview on mobile and desktop', async ({page},testInfo)=>{
   const template=fs.readFileSync(path.join(root,'core/templates/portal/portal.html'),'utf8');
   const start=template.indexOf('<div class="sheet-overlay jbl-camera-overlay"');
   const end=template.indexOf('</section>',start)+10;
@@ -141,12 +141,36 @@ test('Portal camera uses the approved bounded bottom card on mobile and desktop'
   for(const [label,width,height] of [['mobile',390,800],['desktop',1280,900],['landscape',700,390]]){
     await page.setViewportSize({width,height});
     const bounds=await page.locator('.jbl-camera-sheet').boundingBox();
-    expect(bounds.height).toBeLessThan(height);
+    expect(Math.abs(bounds.height-height)).toBeLessThan(2);
     expect(bounds.width).toBeLessThanOrEqual(620);
     expect(Math.abs(bounds.y+bounds.height-height)).toBeLessThan(2);
     await expect(page.locator('#jbl-camera-done')).toBeVisible();
+    expect(await page.locator('#jbl-camera-video').evaluate(video=>getComputedStyle(video).objectFit)).toBe('contain');
     await page.screenshot({path:testInfo.outputPath(`camera-${label}.png`),fullPage:true});
   }
+});
+
+test('All Cases status filter applies, sends its value and clears cleanly', async ({page})=>{
+  const template=fs.readFileSync(path.join(root,'core/templates/portal/partials/queue_tools.html'),'utf8')
+    .replace(/\{%[^]*?%\}/g,'').replace(/\{\{ queue_key \}\}/g,'all').replace(/\{\{[^]*?\}\}/g,'Cases');
+  await page.setContent(`<body class="portal-app">${template}</body>`);
+  await page.addStyleTag({path:asset('components.css')});
+  await page.addScriptTag({path:asset('components.js')});
+  await page.addScriptTag({path:asset('portal_queues.js')});
+  await page.addScriptTag({path:asset('portal_filters.js')});
+  await page.evaluate(()=>{
+    window.filterState={activePage:'all',pages:{all:1},searches:{},filtersByQueue:{},metaCounties:[],metaBranches:[]};
+    window.PortalMiniAppFilters.init({state:window.filterState,queueConfig:{all:{}},loadQueue:()=>{}});
+    window.PortalMiniAppFilters.setupQueueTools('all');
+  });
+  await page.locator('[data-portal-filter-trigger]').click();
+  await page.locator('select[name="status"]').selectOption('deferred');
+  await page.locator('button[type="submit"]').click();
+  expect(await page.evaluate(()=>window.filterState.filtersByQueue.all.status)).toBe('deferred');
+  expect(await page.evaluate(()=>window.PortalMiniAppQueues.queueUrl('all',1,window.filterState))).toContain('status=deferred');
+  await page.locator('[data-portal-filter-trigger]').click();
+  await page.locator('[data-portal-filter-reset]').click();
+  expect(await page.evaluate(()=>window.filterState.filtersByQueue.all.status)).toBe('');
 });
 
 test('Portal filter sheet matches compact mobile controls with one search clear', async ({page}, testInfo)=>{
@@ -398,7 +422,12 @@ test('Portal visit camera keeps one stream across ID, LAF, and supporting captur
     window.__writes = 0;
     window.__toasts = [];
     window.__protection = {};
-    window.MiniAppUtils = { setCloseProtection(key, value) { window.__protection[key] = value; } };
+    window.__shutterHaptics = [];
+    window.__savedFrame = null;
+    window.MiniAppUtils = {
+      setCloseProtection(key, value) { window.__protection[key] = value; },
+      impactWithFallback(kind, duration) { window.__shutterHaptics.push({kind, duration}); return true; },
+    };
     Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { async getUserMedia() {
       window.__permissions += 1;
       const stream = new MediaStream();
@@ -409,7 +438,7 @@ test('Portal visit camera keeps one stream across ID, LAF, and supporting captur
     HTMLMediaElement.prototype.pause = function () {};
     Object.defineProperty(HTMLVideoElement.prototype, 'videoWidth', { configurable: true, get: () => 640 });
     Object.defineProperty(HTMLVideoElement.prototype, 'videoHeight', { configurable: true, get: () => 480 });
-    HTMLCanvasElement.prototype.getContext = () => ({ drawImage() {} });
+    HTMLCanvasElement.prototype.getContext = () => ({ drawImage(video, x, y, width, height) { window.__savedFrame = {x, y, width, height}; } });
     HTMLCanvasElement.prototype.toBlob = callback => callback(new Blob(['photo'.repeat(1000)], { type: 'image/jpeg' }));
     window.createImageBitmap = undefined;
     document.getElementById('case360-toggle').outerHTML = '<a id="case360-toggle"></a>';
@@ -437,6 +466,8 @@ test('Portal visit camera keeps one stream across ID, LAF, and supporting captur
   await expect(page.locator('#jbl-live-camera-title')).toContainText('Front');
   await page.locator('#jbl-camera-shutter').click();
   await expect(page.locator('#jbl-live-camera-title')).toContainText('Back');
+  expect(await page.evaluate(()=>window.__shutterHaptics)).toEqual([{kind:'medium',duration:35}]);
+  expect(await page.evaluate(()=>window.__savedFrame)).toEqual({x:0,y:0,width:640,height:480});
   await page.locator('#jbl-camera-shutter').click();
   await expect(page.locator('#jbl-id-media-name')).toContainText('Ready');
   await expect(page.locator('#jbl-live-camera-title')).toContainText('Page 1');

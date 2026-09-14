@@ -906,7 +906,7 @@
     const queueSearch = String(state.searches?.[qKey] || '').trim();
     if (queueSearch) params.set('search', queueSearch);
     const queueFilters = state.filtersByQueue?.[qKey] || {};
-    ['county', 'branch', 'ordering'].forEach(key => {
+    ['county', 'branch', 'status', 'ordering'].forEach(key => {
       if (queueFilters[key]) params.set(key, queueFilters[key]);
     });
     // Keep the payment/decision lens in the legacy fragment fallback too.
