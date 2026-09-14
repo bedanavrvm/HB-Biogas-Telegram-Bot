@@ -13,7 +13,12 @@
   let pendingJblDraftConflict = null;
   let pendingJblWorkflowConflict = null;
   let case360CounterCleanup = null;
-  let jblMediaSelections = { LAF: [], JBL_VISIT_PHOTO: [] };
+  let jblMediaSelections = { CLIENT_ID: [], LAF: [], JBL_VISIT_PHOTO: [] };
+  const jblDocumentSlots = {
+    CLIENT_ID: ['client_id_front', 'client_id_back'], LAF: ['laf_page_1', 'laf_page_2'],
+  };
+  const jblDocumentLabels = { CLIENT_ID: ['Front', 'Back'], LAF: ['Page 1', 'Page 2'] };
+  let jblCameraSide = null;
   let jblThumbnailQueue = Promise.resolve();
   let jblCameraStream = null;
   let jblCameraCategory = '';
@@ -1028,18 +1033,15 @@
     const canWriteMedia = hasCapability('portal.jbl_media.write');
     const mediaFields = canWriteMedia ? `
       <div class="jbl-media-grid">
+        ${jblDocumentMarkup('CLIENT_ID', 'Client ID', 'Both sides together in one PDF')}
+        ${jblDocumentMarkup('LAF', 'LAF', 'Two pages combined in one PDF')}
         ${jblMediaCategoryMarkup({
-          category: 'LAF', title: 'LAF', help: 'PDF, JPG or PNG',
-          pickerId: 'jbl-laf-media', cameraId: 'jbl-laf-camera',
-          accept: 'application/pdf,.pdf,image/jpeg,image/png,.jpg,.jpeg,.png',
-        })}
-        ${jblMediaCategoryMarkup({
-          category: 'JBL_VISIT_PHOTO', title: 'Visit Photos', help: 'JPG, PNG or WebP',
+          category: 'JBL_VISIT_PHOTO', title: 'Supporting Photos', help: 'JPG, PNG or WebP',
           pickerId: 'jbl-visit-photo-media', cameraId: 'jbl-visit-photo-camera',
           accept: 'image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp',
         })}
       </div>
-      <small class="jbl-media-limit-help">Up to ${maximumMediaFiles} files and ${Math.round(Number(state().jblVisitMediaMaxTotalBytes || 40 * 1024 * 1024) / (1024 * 1024))} MB combined. Tap a selected file to preview it.</small>
+      <small class="jbl-media-limit-help" id="jbl-media-budget">Up to ${maximumMediaFiles} supporting photos, plus both documents. ${Math.round(Number(state().jblVisitMediaMaxTotalBytes || 40 * 1024 * 1024) / (1024 * 1024))} MB combined.</small>
       ${farmer.jbl_media_count ? `<small class="jbl-existing-media-help">${farmer.jbl_media_count} existing media file${farmer.jbl_media_count === 1 ? '' : 's'} on this visit record.</small>` : ''}` : '';
     return `
       <section id="jbl-form-errors" class="jbl-form-errors" role="alert" tabindex="-1" hidden><strong>Correct the following before logging the visit:</strong><ul></ul></section>
@@ -1147,12 +1149,28 @@
     </section>`;
   }
 
+  function jblDocumentMarkup(category, title, help) {
+    const inputId = jblMediaInputId(category);
+    return `<section class="media-category-upload jbl-document-upload" data-media-category="${category}">
+      <div class="jbl-media-category-heading"><span>${title}</span></div><small>${help}</small>
+      <strong class="jbl-media-selection-summary" id="${inputId}-name" aria-live="polite">Nothing captured</strong>
+      <div class="jbl-media-preview-list" id="${inputId}-previews"></div>
+      ${jblDocumentSlots[category].map((field, side) => `<div class="jbl-document-slot" data-jbl-field="${field}">
+        <span>${jblDocumentLabels[category][side]}</span><span class="jbl-media-source-actions">
+          <button type="button" class="jbl-media-icon-button" data-camera-category="${category}" data-camera-side="${side}" aria-label="Capture ${title} ${jblDocumentLabels[category][side]}">${cameraIcon()}</button>
+          <label class="jbl-media-icon-button" data-input-id="${inputId}${side ? '-2' : ''}" for="${inputId}${side ? '-2' : ''}" role="button" tabindex="0" aria-label="Choose ${title} ${jblDocumentLabels[category][side]}">${pickerIcon()}</label></span>
+        <input class="sr-only" type="file" id="${inputId}${side ? '-2' : ''}" data-media-category="${category}" data-media-side="${side}" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp">
+        <small class="jbl-field-error" data-error-message-for="${field}"></small></div>`).join('')}
+    </section>`;
+  }
+
   function stopJblLiveCamera() {
     jblCameraRequestId += 1;
     jblCameraStream?.getTracks?.().forEach(track => track.stop());
     jblCameraStream = null;
     jblCameraCategory = '';
     jblCameraReplaceId = '';
+    jblCameraSide = null;
     const video = el('jbl-camera-video');
     if (video) {
       video.pause?.();
@@ -1170,9 +1188,10 @@
       ? 'The original photo stays selected until a valid retake is captured.'
       : jblCameraSessionCount === 0 ? 'No photos added yet'
         : `${jblCameraSessionCount} photo${jblCameraSessionCount === 1 ? '' : 's'} added. Take another or tap Done.`;
+    if (jblDocumentSlots[jblCameraCategory]) status.textContent = `Capture ${jblDocumentLabels[jblCameraCategory][jblCameraSide]}. Keep all edges visible and text readable.`;
   }
 
-  async function startJblLiveCamera(category, { replaceId = '' } = {}) {
+  async function startJblLiveCamera(category, { replaceId = '', side = null } = {}) {
     const panel = el('jbl-camera-overlay');
     const video = el('jbl-camera-video');
     const status = el('jbl-camera-status');
@@ -1181,21 +1200,28 @@
       deps.showToast('Live camera is not available in this Telegram WebView. Use the folder icon to choose a photo.', 'error');
       return;
     }
-    if (!replaceId && jblMediaItems().length >= Number(state().jblVisitMediaMaxFiles || 6)) {
-      deps.showToast(`A JBL visit can include at most ${Number(state().jblVisitMediaMaxFiles || 6)} evidence files.`, 'error');
+    if (category === 'JBL_VISIT_PHOTO' && !replaceId && jblMediaSelections.JBL_VISIT_PHOTO.length >= Number(state().jblVisitMediaMaxFiles || 6)) {
+      deps.showToast(`A JBL visit can include at most ${Number(state().jblVisitMediaMaxFiles || 6)} supporting photos.`, 'error');
       return;
     }
     if (jblCameraStream) stopJblLiveCamera();
     const cameraRequestId = ++jblCameraRequestId;
     jblCameraCategory = category;
     jblCameraReplaceId = replaceId;
+    if (jblDocumentSlots[category]) {
+      jblCameraSide = side ?? jblMediaSelections[category].find(item => item.id === replaceId)?.side
+        ?? [0, 1].find(value => !jblMediaSelections[category].some(item => item.side === value)) ?? 0;
+      jblCameraReplaceId = replaceId || jblMediaSelections[category].find(item => item.side === jblCameraSide)?.id || '';
+    }
     jblCameraSessionCount = 0;
     panel.classList.add('open');
     updateJblCameraCaptureState();
     if (status) { status.hidden = false; status.textContent = 'Starting camera…'; }
     if (shutter) shutter.disabled = true;
     const title = el('jbl-live-camera-title');
-    if (title) title.textContent = replaceId ? 'Retake photo' : category === 'LAF' ? 'Photograph LAF document' : 'Take JBL visit photo';
+    if (title) title.textContent = jblDocumentSlots[category]
+      ? `${category === 'CLIENT_ID' ? 'Client ID' : 'LAF'} — ${jblDocumentLabels[category][jblCameraSide]}`
+      : replaceId ? 'Retake photo' : 'Take supporting photo';
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
@@ -1231,7 +1257,7 @@
     const sourceWidth = Number(video.videoWidth || 0);
     const sourceHeight = Number(video.videoHeight || 0);
     if (!sourceWidth || !sourceHeight) return Promise.resolve(null);
-    const scale = Math.min(1, 1920 / Math.max(sourceWidth, sourceHeight));
+    const scale = Math.min(1, (jblDocumentSlots[jblCameraCategory] ? 3000 : 1920) / Math.max(sourceWidth, sourceHeight));
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(sourceWidth * scale));
     canvas.height = Math.max(1, Math.round(sourceHeight * scale));
@@ -1258,8 +1284,10 @@
       try { navigator.vibrate?.(35); } catch (_error) {}
     }
     if (shutter) shutter.disabled = true;
+    const captureRequestId = jblCameraRequestId;
     try {
       const blob = await capturedJblPhotoBlob(video);
+      if (captureRequestId !== jblCameraRequestId || !jblCameraCategory) return;
       if (!blob) throw new Error('empty camera frame');
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const prefix = jblCameraCategory === 'LAF' ? 'laf-photo' : 'visit-photo';
@@ -1273,10 +1301,16 @@
           stopJblLiveCamera();
           openSelectedJblMediaPreview(replacementId);
         }
-      } else if (addJblMediaFiles(jblCameraCategory, [file])) {
+      } else if (addJblMediaFiles(jblCameraCategory, [file], { side: jblCameraSide })) {
+        if (jblDocumentSlots[jblCameraCategory]) {
+          const captured = jblMediaSelections[jblCameraCategory].find(item => item.side === jblCameraSide);
+          stopJblLiveCamera();
+          openSelectedJblMediaPreview(captured.id);
+          return;
+        }
         jblCameraSessionCount += 1;
         updateJblCameraCaptureState();
-        if (jblMediaItems().length >= Number(state().jblVisitMediaMaxFiles || 6)) stopJblLiveCamera();
+        if (jblMediaSelections.JBL_VISIT_PHOTO.length >= Number(state().jblVisitMediaMaxFiles || 6)) stopJblLiveCamera();
       }
     } catch (_error) {
       deps.showToast('The photo could not be captured. Keep the camera open and retry.', 'error');
@@ -1290,7 +1324,7 @@
   }
 
   function jblMediaItems() {
-    return [...jblMediaSelections.LAF, ...jblMediaSelections.JBL_VISIT_PHOTO];
+    return Object.values(jblMediaSelections).flat();
   }
 
   function revokeJblThumbnail(item) {
@@ -1300,17 +1334,18 @@
 
   function resetJblMediaSelections() {
     jblMediaItems().forEach(revokeJblThumbnail);
-    jblMediaSelections = { LAF: [], JBL_VISIT_PHOTO: [] };
+    jblMediaSelections = { CLIENT_ID: [], LAF: [], JBL_VISIT_PHOTO: [] };
     window.MiniAppUtils?.setCloseProtection?.('portal-jbl-media-selected', false);
   }
 
   function formatMediaBytes(bytes) {
+    if (bytes <= 0) return '0 KB';
     if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
   function jblMediaInputId(category) {
-    return category === 'LAF' ? 'jbl-laf-media' : 'jbl-visit-photo-media';
+    return category === 'CLIENT_ID' ? 'jbl-id-media' : category === 'LAF' ? 'jbl-laf-media' : 'jbl-visit-photo-media';
   }
 
   function renderJblMediaCategory(category) {
@@ -1320,11 +1355,14 @@
     if (summary) {
       const totalBytes = items.reduce((total, item) => total + item.file.size, 0);
       summary.textContent = items.length ? `${items.length} selected · ${formatMediaBytes(totalBytes)}` : 'No files selected';
+      if (jblDocumentSlots[category]) summary.textContent = [0, 1].map(side =>
+        `${jblDocumentLabels[category][side]} ${items.some(item => item.side === side) ? 'captured' : 'missing'}`
+      ).join(' · ') + (items.length === 2 ? ' · Ready' : '');
     }
     const previews = el(`${inputId}-previews`);
     if (!previews) return;
     previews.innerHTML = items.map(item => {
-      const safeName = deps.escapeHtml(item.file.name || 'Evidence file');
+      const safeName = deps.escapeHtml(jblDocumentSlots[category] ? jblDocumentLabels[category][item.side] : item.file.name || 'Evidence file');
       const isImage = String(item.file.type || '').startsWith('image/');
       const visual = item.thumbnailUrl
         ? `<img src="${item.thumbnailUrl}" alt="">`
@@ -1338,15 +1376,21 @@
   }
 
   function renderJblMediaSelections() {
+    renderJblMediaCategory('CLIENT_ID');
     renderJblMediaCategory('LAF');
     renderJblMediaCategory('JBL_VISIT_PHOTO');
+    const budget = el('jbl-media-budget');
+    if (budget) {
+      const maximum = Number(state().jblVisitMediaMaxFiles || 6);
+      const remaining = Number(state().jblVisitMediaMaxTotalBytes || 40 * 1024 * 1024)
+        - jblMediaItems().reduce((sum, item) => sum + item.file.size, 0);
+      budget.textContent = `${jblMediaSelections.JBL_VISIT_PHOTO.length} of ${maximum} supporting photos · ${formatMediaBytes(Math.max(0, remaining))} remaining for this submission.`;
+    }
   }
 
   function allowedJblMediaFile(file, category) {
     const extension = String(file.name || '').toLowerCase().match(/\.[^.]+$/)?.[0] || '';
-    const allowed = category === 'LAF'
-      ? new Set(['.pdf', '.jpg', '.jpeg', '.png'])
-      : new Set(['.jpg', '.jpeg', '.png', '.webp']);
+    const allowed = new Set(['.jpg', '.jpeg', '.png', '.webp']);
     return allowed.has(extension);
   }
 
@@ -1385,9 +1429,19 @@
       .catch(() => {});
   }
 
-  function addJblMediaFiles(category, files) {
+  function addJblMediaFiles(category, files, { side = null } = {}) {
     const additions = Array.from(files || []);
     if (!additions.length || !jblMediaSelections[category]) return false;
+    if (jblDocumentSlots[category]) {
+      if (side !== null && additions.length !== 1) {
+        deps.showToast('Choose one photo for this side or page.', 'error'); return false;
+      }
+      const existing = side !== null && jblMediaSelections[category].find(item => item.side === side);
+      if (existing) return Boolean(replaceJblMediaFile(category, existing.id, additions[0]));
+      if (jblMediaSelections[category].length + additions.length > 2) {
+        deps.showToast('This document has two captures. Replace a side or page to change it.', 'error'); return false;
+      }
+    }
     const existingFingerprints = new Set(jblMediaItems().map(item => jblMediaFingerprint(item.file)));
     const unique = additions.filter(file => {
       const fingerprint = jblMediaFingerprint(file);
@@ -1405,14 +1459,17 @@
       return false;
     }
     const maxBytes = Number(state().jblVisitMediaMaxBytes || 20 * 1024 * 1024);
+    if (unique.some(file => file.size < 4096)) {
+      deps.showToast('A selected photo is too small to be reliable evidence. Choose a clear photo of at least 4 KB.', 'error'); return false;
+    }
     const oversize = unique.find(file => file.size > maxBytes);
     if (oversize) {
       deps.showToast(`${oversize.name} is larger than the ${Math.round(maxBytes / (1024 * 1024))} MB evidence limit.`, 'error');
       return false;
     }
     const maximumFiles = Number(state().jblVisitMediaMaxFiles || 6);
-    if (jblMediaItems().length + unique.length > maximumFiles) {
-      deps.showToast(`A JBL visit can include at most ${maximumFiles} evidence files.`, 'error');
+    if (category === 'JBL_VISIT_PHOTO' && jblMediaSelections.JBL_VISIT_PHOTO.length + unique.length > maximumFiles) {
+      deps.showToast(`A JBL visit can include at most ${maximumFiles} supporting photos.`, 'error');
       return false;
     }
     const totalBytes = [...jblMediaItems().map(item => item.file), ...unique]
@@ -1423,8 +1480,10 @@
       return false;
     }
     unique.forEach(file => {
-      const item = { id: requestId(), file, thumbnailUrl: '' };
+      const chosenSide = jblDocumentSlots[category] ? side ?? [0, 1].find(value => !jblMediaSelections[category].some(item => item.side === value)) : null;
+      const item = { id: requestId(), category, side: chosenSide, file, thumbnailUrl: '' };
       jblMediaSelections[category].push(item);
+      jblMediaSelections[category].sort((a, b) => (a.side ?? 0) - (b.side ?? 0));
       queueJblThumbnail(category, item);
     });
     renderJblMediaSelections();
@@ -1439,12 +1498,12 @@
     const maxBytes = Number(state().jblVisitMediaMaxBytes || 20 * 1024 * 1024);
     const maximumTotalBytes = Number(state().jblVisitMediaMaxTotalBytes || 40 * 1024 * 1024);
     const total = jblMediaItems().reduce((sum, item) => sum + item.file.size, 0) - items[index].file.size + file.size;
-    if (!allowedJblMediaFile(file, category) || file.size > maxBytes || total > maximumTotalBytes) {
+    if (!allowedJblMediaFile(file, category) || file.size < 4096 || file.size > maxBytes || total > maximumTotalBytes) {
       deps.showToast('The retake exceeds the accepted type or evidence size limit. The original photo is unchanged.', 'error');
       return '';
     }
     revokeJblThumbnail(items[index]);
-    const replacement = { id: requestId(), file, thumbnailUrl: '' };
+    const replacement = { id: requestId(), category, side: items[index].side, file, thumbnailUrl: '' };
     items[index] = replacement;
     queueJblThumbnail(category, replacement);
     renderJblMediaSelections();
@@ -1462,7 +1521,7 @@
   }
 
   function selectedJblPreviewEntries() {
-    return ['LAF', 'JBL_VISIT_PHOTO'].flatMap(category =>
+    return ['CLIENT_ID', 'LAF', 'JBL_VISIT_PHOTO'].flatMap(category =>
       (jblMediaSelections[category] || []).map(item => ({ category, item }))
     );
   }
@@ -1480,7 +1539,8 @@
     closeMediaViewer();
     activeJblSelectionPreviewId = item.id;
     activeMediaObjectUrl = URL.createObjectURL(item.file);
-    if (title) title.textContent = category === 'LAF' ? 'Review LAF evidence' : 'Review visit photo';
+    if (title) title.textContent = jblDocumentSlots[category]
+      ? `Review ${category === 'CLIENT_ID' ? 'Client ID' : 'LAF'} — ${jblDocumentLabels[category][item.side]}` : 'Review supporting photo';
     if (sub) sub.textContent = `${index + 1} of ${entries.length} · ${item.file.name}`;
     const safeName = deps.escapeHtml(item.file.name || 'Selected evidence');
     const visual = String(item.file.type || '').startsWith('image/')
@@ -1490,6 +1550,8 @@
     content.innerHTML = `<div class="jbl-selection-viewer">
       <div class="jbl-selection-viewer-stage">${visual}</div>
       <div class="jbl-selection-viewer-actions">
+        ${jblDocumentSlots[category] && jblMediaSelections[category].length < 2
+          ? `<button type="button" class="jbl-document-next btn btn-primary" data-next-document-category="${category}">Next: ${jblDocumentLabels[category][[0, 1].find(side => !jblMediaSelections[category].some(candidate => candidate.side === side))]}</button>` : ''}
         <button type="button" class="jbl-selection-nav" data-selection-preview-action="previous" aria-label="Previous selected file" title="Previous" ${index === 0 ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span class="sr-only">Previous</span></button>
         ${String(item.file.type || '').startsWith('image/') ? `<button type="button" class="jbl-selection-retake" data-selection-preview-action="retake" data-media-category="${category}" data-media-item-id="${item.id}" aria-label="Retake this photo" title="Retake photo">Retake</button>` : ''}
         <button type="button" class="jbl-selection-delete" data-selection-preview-action="remove" data-media-category="${category}" data-media-item-id="${item.id}" aria-label="Remove this selected file" title="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 10v6M14 10v6"/></svg><span class="sr-only">Remove</span></button>
@@ -1722,8 +1784,8 @@
       return false;
     }
     const maximumFiles = Number(state().jblVisitMediaMaxFiles || 6);
-    if (files.length > maximumFiles) {
-      deps.showToast(`A JBL visit can include at most ${maximumFiles} evidence files.`, 'error');
+    if (jblMediaSelections.JBL_VISIT_PHOTO.length > maximumFiles) {
+      deps.showToast(`A JBL visit can include at most ${maximumFiles} supporting photos.`, 'error');
       return false;
     }
     const maximumTotalBytes = Number(state().jblVisitMediaMaxTotalBytes || 40 * 1024 * 1024);
@@ -1773,9 +1835,14 @@
     const status = el('jbl-status')?.value || '';
     if (!status) errors.visit_status = 'Select the JBL visit outcome.';
     if (!el('jbl-date')?.value) errors.visit_date = 'Enter the JBL visit date.';
+    Object.entries(jblDocumentSlots).forEach(([category, slots]) => {
+      const existing = Number(state().selectedFarmer?.visit_evidence?.[category] || 0);
+      if ((JBL_FORWARD_VISIT_STATUSES.has(status) && !existing) || jblMediaSelections[category].length) slots.forEach((field, side) => {
+        if (!jblMediaSelections[category].some(item => item.side === side)) errors[field] = `Capture ${category === 'CLIENT_ID' ? 'Client ID' : 'LAF'} ${jblDocumentLabels[category][side]}.`;
+      });
+    });
     if (JBL_FORWARD_VISIT_STATUSES.has(status)) {
-      if (!jblMediaSelections.LAF.length) errors.laf_files = 'Add at least one LAF document for this outcome.';
-      if (!jblMediaSelections.JBL_VISIT_PHOTO.length) errors.jbl_visit_photo_files = 'Add at least one JBL visit photo for this outcome.';
+      if (!jblMediaSelections.JBL_VISIT_PHOTO.length && !Number(state().selectedFarmer?.visit_evidence?.JBL_VISIT_PHOTO || 0)) errors.jbl_visit_photo_files = 'Add at least one supporting photo for this outcome.';
       const hasCoordinates = Boolean(el('jbl-lat')?.value && el('jbl-lng')?.value);
       if (!hasCoordinates && !el('jbl-location-unavailable')?.value.trim()) {
         errors.capture_location = 'Capture GPS or explain why the visit location was unavailable.';
@@ -1818,10 +1885,10 @@
     el('jbl-review-latest')?.addEventListener('click', reviewLatestJblCase);
     el('jbl-use-local-draft')?.addEventListener('click', () => resolveJblDraftConflict('local'));
     el('jbl-use-server-draft')?.addEventListener('click', () => resolveJblDraftConflict('server'));
-    ['jbl-laf-media', 'jbl-visit-photo-media'].forEach(id => {
+    ['jbl-id-media', 'jbl-id-media-2', 'jbl-laf-media', 'jbl-laf-media-2', 'jbl-visit-photo-media'].forEach(id => {
       el(id)?.addEventListener('change', () => {
         const input = el(id);
-        addJblMediaFiles(input?.dataset.mediaCategory, input?.files);
+        addJblMediaFiles(input?.dataset.mediaCategory, input?.files, { side: input?.dataset.mediaSide !== undefined ? Number(input.dataset.mediaSide) : null });
         if (input) input.value = '';
         jblDraftInputVersion += 1;
         saveJblVisitDraft(farmer);
@@ -1830,7 +1897,7 @@
     el('sheet-form')?.querySelector('.media-upload-control')?.addEventListener('click', event => {
       const cameraButton = event.target.closest('[data-camera-category]');
       if (cameraButton) {
-        startJblLiveCamera(cameraButton.dataset.cameraCategory);
+        startJblLiveCamera(cameraButton.dataset.cameraCategory, { side: cameraButton.dataset.cameraSide !== undefined ? Number(cameraButton.dataset.cameraSide) : null });
         return;
       }
       const removeButton = event.target.closest('.jbl-media-remove');
@@ -2243,7 +2310,7 @@
       ? media.map((item, index) => {
         const isPhoto = item.category === 'JBL_VISIT_PHOTO';
         const isLaf = item.category === 'LAF';
-        const categoryLabel = isPhoto ? 'JBL Visit Photo' : isLaf ? 'Signed LAF Document' : 'Client Media';
+        const categoryLabel = item.category === 'CLIENT_ID' ? 'Client ID' : isPhoto ? 'Supporting Photo' : isLaf ? 'Signed LAF Document' : 'Client Media';
         const icon = isPhoto ? 'image' : isLaf ? 'file-text' : 'paperclip';
         const categoryClass = isPhoto ? ' client-media-photo' : isLaf ? ' client-media-laf' : ' client-media-legacy';
         return `
@@ -2427,8 +2494,9 @@
       latitude: el('jbl-lat')?.value || '',
       longitude: el('jbl-lng')?.value || '',
       locationUnavailableReason: el('jbl-location-unavailable')?.value || '',
-      files: [...jblMediaSelections.LAF, ...jblMediaSelections.JBL_VISIT_PHOTO].map(item => ({
+      files: jblMediaItems().map(item => ({
         category: item.category || '', name: item.file?.name || '', size: item.file?.size || 0,
+        side: item.side,
         type: item.file?.type || '', modified: item.file?.lastModified || 0,
       })),
     });
@@ -2452,7 +2520,9 @@
     formData.set('capture_latitude', el('jbl-lat')?.value || '');
     formData.set('capture_longitude', el('jbl-lng')?.value || '');
     formData.set('location_unavailable_reason', el('jbl-location-unavailable')?.value || '');
-    jblMediaSelections.LAF.forEach(item => formData.append('laf_files', item.file));
+    Object.entries(jblDocumentSlots).forEach(([category, slots]) => {
+      jblMediaSelections[category].forEach(item => formData.append(slots[item.side], item.file));
+    });
     jblMediaSelections.JBL_VISIT_PHOTO.forEach(item => formData.append('jbl_visit_photo_files', item.file));
     el('sheet-form')?.querySelectorAll('.jbl-media-icon-button, .jbl-media-preview-open, .jbl-media-remove').forEach(control => {
       control.classList.add('is-disabled');
@@ -2608,6 +2678,14 @@
       }
       if (event.target.closest('#media-viewer-close')) {
         closeMediaViewer();
+        return;
+      }
+      const documentNext = event.target.closest('[data-next-document-category]');
+      if (documentNext) {
+        const category = documentNext.dataset.nextDocumentCategory;
+        const side = [0, 1].find(value => !jblMediaSelections[category].some(item => item.side === value));
+        closeMediaViewer();
+        startJblLiveCamera(category, { side });
         return;
       }
       const selectionAction = event.target.closest('[data-selection-preview-action]');

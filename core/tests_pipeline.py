@@ -2129,7 +2129,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.json()['code'], 'jbl_visit_completion_upgrade_required')
 
     @patch('core.services.jawabu_pipeline.complete_jbl_visit')
-    def test_atomic_jbl_visit_completion_accepts_both_evidence_categories(self, mock_complete):
+    def test_atomic_jbl_visit_completion_accepts_guided_document_slots(self, mock_complete):
         mock_complete.return_value = (True, '', {'stored_count': 2, 'evidence_saved': True})
         laf = SimpleUploadedFile('laf.pdf', b'x' * 5000, content_type='application/pdf')
         photo = SimpleUploadedFile('visit.jpg', b'x' * 5000, content_type='image/jpeg')
@@ -2144,15 +2144,18 @@ class JblPipelineApiTestCase(TestCase):
                 'capture_latitude': '-1.2921',
                 'capture_longitude': '36.8219',
                 'location_override_reason': 'must not be accepted from Portal',
-                'laf_files': laf,
+                'client_id_front': SimpleUploadedFile('front.jpg', b'x' * 5000, content_type='image/jpeg'),
+                'client_id_back': SimpleUploadedFile('back.jpg', b'x' * 5000, content_type='image/jpeg'),
+                'laf_page_1': SimpleUploadedFile('page-1.jpg', b'x' * 5000, content_type='image/jpeg'),
+                'laf_page_2': SimpleUploadedFile('page-2.jpg', b'x' * 5000, content_type='image/jpeg'),
                 'jbl_visit_photo_files': photo,
             },
         )
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['ok'])
         categorized = mock_complete.call_args.kwargs['categorized_files']
-        self.assertEqual(set(categorized), {'LAF', 'JBL_VISIT_PHOTO'})
-        self.assertEqual(len(categorized['LAF']), 1)
+        self.assertEqual(set(categorized), {'CLIENT_ID_FRONT', 'CLIENT_ID_BACK', 'LAF_PAGE_1', 'LAF_PAGE_2', 'JBL_VISIT_PHOTO'})
+        self.assertEqual(len(categorized['LAF_PAGE_1']), 1)
         self.assertEqual(len(categorized['JBL_VISIT_PHOTO']), 1)
         self.assertEqual(mock_complete.call_args.kwargs['location_override_reason'], '')
 
@@ -2290,7 +2293,7 @@ class JblPipelineApiTestCase(TestCase):
                 'client_request_id': 'atomic-visit-total-limit',
                 'workflow_revision': self.farmer.workflow_revision,
                 'visit_status': 'Visited, Awaiting Credit Analysis',
-                'laf_files': laf,
+                'laf_page_1': laf,
                 'jbl_visit_photo_files': photo,
             },
         )

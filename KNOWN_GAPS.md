@@ -1,5 +1,19 @@
 # Known Gaps and Verified Workarounds
 
+## JBL Visit document capture - 14-September-2026
+
+Client ID currently uses existing protected Portal media-view scope, not a new
+ID-only permission. No role matrix was changed. Local captures survive Case
+History inspection but not closing/reloading the app; recapture after a reload.
+Camera framing does not certify legibility or that the two images are distinct
+document sides; staff must review both before submitting.
+
+Local Windows rendering was verified with WeasyPrint 68.0 and MSYS2 UCRT Pango,
+using `WEASYPRINT_DLL_DIRECTORIES=C:\msys64\ucrt64\bin`. The focused test checks
+actual one-page Client ID and two-page LAF PDFs, embedded image draw commands,
+and deterministic retry output. Live Telegram camera behavior still requires
+device validation before release.
+
 ## Portal validation scope - 14-September-2026
 
 Case-inspection navigation is locally covered with intercepted browser tests,

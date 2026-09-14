@@ -28,10 +28,11 @@ from core.services.jawabu_comments import master_comment_history, record_case_co
 from core.services.workflow_transitions import next_workflow_revision, validate_workflow_revision
 
 JBL_MEDIA_CATEGORIES = {
+    'CLIENT_ID': 'Client ID',
     'LAF': 'LAF document',
     'JBL_VISIT_PHOTO': 'JBL visit photo',
 }
-JBL_FORWARD_EVIDENCE_CATEGORIES = ('LAF', 'JBL_VISIT_PHOTO')
+JBL_FORWARD_EVIDENCE_CATEGORIES = ('CLIENT_ID', 'LAF', 'JBL_VISIT_PHOTO')
 JBL_SCHEDULING_STATUS = 'JBL to Schedule Visit'
 
 logger = logging.getLogger(__name__)
@@ -697,6 +698,31 @@ def complete_jbl_visit(
     valid_batch, batch_error, batch_code = validate_jbl_visit_upload_batch(categories)
     if not valid_batch:
         return False, batch_error, {'evidence_saved': False, 'code': batch_code}
+    from core.services.jbl_visit_documents import prepare_visit_documents, VisitDocumentError, DOCUMENT_SLOTS
+    capture_categories = {slot.upper() for slots in DOCUMENT_SLOTS.values() for slot in slots}
+    if set(categories) - set(JBL_MEDIA_CATEGORIES) - capture_categories:
+        return False, 'Choose a valid visit media category.', {'evidence_saved': False}
+    try:
+        categories = prepare_visit_documents(categories)
+    except VisitDocumentError as exc:
+        return False, str(exc), {'evidence_saved': False, 'code': 'invalid_visit_document',
+                                 'field_errors': {exc.field: str(exc)}}
+    valid_batch, batch_error, batch_code = validate_jbl_visit_upload_batch(categories)
+    if not valid_batch:
+        return False, batch_error, {'evidence_saved': False, 'code': batch_code}
+    ok, error, already_completed = preflight_jbl_visit_completion(
+        farmer, visit_date=visit_date, visit_status=visit_status,
+        latitude=latitude, longitude=longitude,
+        location_unavailable_reason=location_unavailable_reason,
+        expected_revision=expected_revision, request_id=request_id,
+        county=county, sub_county=sub_county, actor_user=actor_user,
+        location_override_reason=location_override_reason,
+    )
+    if not ok:
+        return False, error, {'evidence_saved': False}
+    if already_completed:
+        farmer.refresh_from_db()
+        return True, '', {'already_completed': True, 'evidence_saved': True, 'stored_count': 0}
     for category, files in categories.items():
         if category not in JBL_MEDIA_CATEGORIES:
             return False, 'Choose a valid visit media category.', {'evidence_saved': False}
@@ -726,26 +752,6 @@ def complete_jbl_visit(
                 'visit_logged': False,
                 'missing_evidence': missing_categories,
             }
-
-    ok, error, already_completed = preflight_jbl_visit_completion(
-        farmer,
-        visit_date=visit_date,
-        visit_status=visit_status,
-        latitude=latitude,
-        longitude=longitude,
-        location_unavailable_reason=location_unavailable_reason,
-        expected_revision=expected_revision,
-        request_id=request_id,
-        county=county,
-        sub_county=sub_county,
-        actor_user=actor_user,
-        location_override_reason=location_override_reason,
-    )
-    if not ok:
-        return False, error, {'evidence_saved': False}
-    if already_completed:
-        farmer.refresh_from_db()
-        return True, '', {'already_completed': True, 'evidence_saved': True, 'stored_count': 0}
 
     if categories:
         uploaded_ok, upload_error, upload_result = append_jbl_media_uploads(
@@ -1273,9 +1279,10 @@ def return_for_rework(
 
 def _validate_jbl_media_files(uploaded_files: list, media_category: str) -> str:
     """Apply the narrow Portal evidence taxonomy before Drive is called."""
-    allowed_laf = {'.pdf', '.jpg', '.jpeg', '.png'}
     allowed_photo = {'.jpg', '.jpeg', '.png', '.webp'}
-    allowed = allowed_laf if media_category == 'LAF' else allowed_photo
+    if media_category in {'CLIENT_ID', 'LAF'} and len(uploaded_files) != 1:
+        return f'{JBL_MEDIA_CATEGORIES[media_category]} must be one complete PDF.'
+    allowed = {'.pdf'} if media_category in {'CLIENT_ID', 'LAF'} else allowed_photo
     minimum_bytes = 4 * 1024
     maximum_bytes = max(1, int(getattr(settings, 'MEDIA_MAX_FILE_SIZE_MB', 20) or 20)) * 1024 * 1024
     for file_obj in uploaded_files or []:
@@ -1283,7 +1290,7 @@ def _validate_jbl_media_files(uploaded_files: list, media_category: str) -> str:
         chunks = filename.lower().rsplit('.', 1)
         extension = f'.{chunks[-1]}' if len(chunks) == 2 else ''
         if extension not in allowed:
-            label = 'a PDF or image' if media_category == 'LAF' else 'an image'
+            label = 'a PDF' if media_category in {'CLIENT_ID', 'LAF'} else 'an image'
             return f'{JBL_MEDIA_CATEGORIES[media_category]} must be {label}.'
         size = getattr(file_obj, 'size', None)
         if size is not None and int(size) < minimum_bytes:
@@ -1291,6 +1298,24 @@ def _validate_jbl_media_files(uploaded_files: list, media_category: str) -> str:
         if size is not None and int(size) > maximum_bytes:
             maximum_mb = maximum_bytes // (1024 * 1024)
             return f'{filename or JBL_MEDIA_CATEGORIES[media_category]} is larger than the {maximum_mb} MB evidence limit.'
+        if media_category in {'CLIENT_ID', 'LAF'}:
+            from pypdf import PdfReader
+            try:
+                file_obj.seek(0)
+                reader = PdfReader(file_obj)
+                expected = 1 if media_category == 'CLIENT_ID' else 2
+                if reader.is_encrypted or len(reader.pages) != expected:
+                    return f'{JBL_MEDIA_CATEGORIES[media_category]} must be an unencrypted {expected}-page PDF.'
+            except Exception:
+                return f'{JBL_MEDIA_CATEGORIES[media_category]} could not be read. Choose a valid PDF.'
+            finally:
+                file_obj.seek(0)
+        else:
+            from core.services.jbl_visit_documents import validated_image, VisitDocumentError
+            try:
+                validated_image(file_obj, field='jbl_visit_photo_files')
+            except VisitDocumentError as exc:
+                return str(exc)
     return ''
 
 
@@ -1302,10 +1327,10 @@ def validate_jbl_visit_upload_batch(categorized_files: dict[str, list]) -> tuple
         for file_obj in (category_files or [])
     ]
     maximum_files = max(1, int(getattr(settings, 'PORTAL_JBL_VISIT_MAX_FILES', 6) or 6))
-    if len(uploaded_files) > maximum_files:
+    if len((categorized_files or {}).get('JBL_VISIT_PHOTO', [])) > maximum_files:
         return (
             False,
-            f'A JBL visit can include at most {maximum_files} evidence files.',
+            f'A JBL visit can include at most {maximum_files} supporting photos.',
             'jbl_visit_file_count_exceeded',
         )
     maximum_total_bytes = max(
@@ -1595,6 +1620,8 @@ def append_jbl_media_uploads(
             media_categories.update(result.get('media_categories') or {})
             if result.get('workflow_revision') is not None:
                 current_revision = int(result['workflow_revision'])
+            if result.get('warnings'):
+                errors.append({'category': category, 'error': 'Some evidence files could not be stored. Retry this submission.'})
         else:
             errors.append({'category': category, 'error': error or 'Media upload failed.'})
 

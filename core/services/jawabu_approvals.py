@@ -60,6 +60,7 @@ GATE_CAPABILITIES = {
     JawabuApprovalRecord.GATE_PAYMENT_REVIEW: 'portal.payment.review',
 }
 JBL_MEDIA_LABELS = {
+    'CLIENT_ID': 'Client ID document',
     'LAF': 'signed LAF document',
     'JBL_VISIT_PHOTO': 'JBL visit photo',
 }
@@ -456,10 +457,10 @@ def visit_evidence_status(farmer) -> dict[str, int]:
 
     rows = MediaAttachment.objects.filter(
         jawabu_farmer=farmer,
-        file_type__in=['LAF', 'JBL_VISIT_PHOTO'],
+        file_type__in=['CLIENT_ID', 'LAF', 'JBL_VISIT_PHOTO'],
         upload_status='success',
     ).values_list('file_type', flat=True)
-    counts = {'LAF': 0, 'JBL_VISIT_PHOTO': 0}
+    counts = {'CLIENT_ID': 0, 'LAF': 0, 'JBL_VISIT_PHOTO': 0}
     for row in rows:
         counts[str(row)] = counts.get(str(row), 0) + 1
     return counts
@@ -467,7 +468,7 @@ def visit_evidence_status(farmer) -> dict[str, int]:
 
 def require_visit_evidence(farmer) -> None:
     counts = visit_evidence_status(farmer)
-    missing = [JBL_MEDIA_LABELS[key] for key in ('LAF', 'JBL_VISIT_PHOTO') if not counts.get(key)]
+    missing = [JBL_MEDIA_LABELS[key] for key in ('CLIENT_ID', 'LAF', 'JBL_VISIT_PHOTO') if not counts.get(key)]
     if missing:
         raise JawabuApprovalError(
             'Upload the required visit evidence before forwarding this case: ' + ', '.join(missing) + '.'
@@ -486,7 +487,7 @@ def visit_media_orphan_report(*, limit: int = 100) -> dict:
     from core.models import JawabuFarmerMaster, MediaAttachment
 
     controlled = MediaAttachment.objects.filter(
-        upload_status='success', file_type__in=['LAF', 'JBL_VISIT_PHOTO'],
+        upload_status='success', file_type__in=['CLIENT_ID', 'LAF', 'JBL_VISIT_PHOTO'],
     )
     linked_count = controlled.filter(jawabu_farmer__isnull=False).count()
     unlinked = controlled.filter(jawabu_farmer__isnull=True)

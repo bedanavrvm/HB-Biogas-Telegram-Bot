@@ -1,5 +1,17 @@
 # Changelog
 
+## JBL Visit guided document capture - 14-September-2026
+
+- Separate Client ID, LAF and Supporting Photos sections. ID has named front/back
+  slots; LAF has exactly two page slots, each with camera/gallery and review/retake.
+- Server validates image content, corrects orientation and collates ID onto one
+  PDF page and LAF into a two-page PDF using existing WeasyPrint. Supporting
+  photos remain separate, with their own count and a combined upload budget.
+- Forwarding requires all three evidence categories. Half-selected documents
+  cannot submit; failed storage leaves the visit unlogged and captures retained.
+- No schema or permission-matrix changes. Redeploy frontend and backend together;
+  old unstructured LAF upload clients receive an explicit refresh instruction.
+
 ## Portal queue actions and case-inspection return - 14-September-2026
 
 - Visit, credit and final-decision cards retain direct work forms. All Cases,

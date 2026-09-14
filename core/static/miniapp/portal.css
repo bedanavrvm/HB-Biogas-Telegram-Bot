@@ -3357,7 +3357,11 @@ body.portal-report-editor-active #bottom-tabs { display: none; }
 .jbl-visit-sheet .voice-record-visible-label { display:none; }
 .jbl-visit-sheet .voice-language-button { min-width:46px; min-height:30px; padding:0 8px; border:1px solid var(--border-color); border-radius:8px; background:var(--bg-base); color:var(--brand-primary); font-size:9px; }
 .jbl-visit-sheet .media-upload-control { display:block; }
-.jbl-visit-sheet .jbl-media-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); }
+.jbl-visit-sheet .jbl-media-grid { display:grid; grid-template-columns:minmax(0, 1fr); }
+.jbl-document-slot { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:6px; padding-block:5px; border-top:1px solid var(--border-color); }
+.jbl-document-slot > span:first-child { color:var(--text-primary); font-size:12px; font-weight:600; }
+.jbl-document-slot .jbl-field-error { flex-basis:100%; }
+.jbl-document-next { grid-column:1 / -1; }
 .jbl-visit-sheet .media-category-upload { align-content:start; gap:5px; padding:9px 10px; border:0; border-right:1px solid var(--border-color); border-bottom:1px solid var(--border-color); border-radius:0; background:transparent; }
 .jbl-visit-sheet .media-category-upload:last-child { border-right:0; }
 .jbl-visit-sheet .jbl-media-category-heading { align-items:center; flex-direction:row; }
@@ -3424,7 +3428,7 @@ body.portal-report-editor-active #bottom-tabs { display: none; }
 }
 
 @media (max-width:360px) {
-  .jbl-visit-sheet .info-list, .jbl-visit-sheet .form-section.form-grid.jbl-details-grid, .jbl-visit-sheet .jbl-media-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .jbl-visit-sheet .info-list, .jbl-visit-sheet .form-section.form-grid.jbl-details-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
   .jbl-visit-sheet .form-section.form-grid.jbl-details-grid .form-row:nth-child(odd) { border-right:1px solid var(--border-color); }
   .jbl-visit-sheet .form-section.form-grid.jbl-details-grid .form-row:nth-child(even) { border-right:0; }
   .jbl-visit-sheet .sheet-header-status { font-size:10px; }

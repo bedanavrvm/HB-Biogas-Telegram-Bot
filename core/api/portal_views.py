@@ -3452,8 +3452,12 @@ def _portal_jbl_visit_field_errors(error: str, result: dict | None = None) -> di
     payload = result or {}
     errors = {}
     missing = set(payload.get('missing_evidence') or [])
+    if 'CLIENT_ID' in missing:
+        errors['client_id_front'] = 'Capture Client ID front.'
+        errors['client_id_back'] = 'Capture Client ID back.'
     if 'LAF' in missing:
-        errors['laf_files'] = 'Add at least one LAF document for this outcome.'
+        errors['laf_page_1'] = 'Capture LAF page 1.'
+        errors['laf_page_2'] = 'Capture LAF page 2.'
     if 'JBL_VISIT_PHOTO' in missing:
         errors['jbl_visit_photo_files'] = 'Add at least one JBL visit photo for this outcome.'
     if 'status' in lowered or 'outcome' in lowered:
@@ -3710,9 +3714,15 @@ def portal_complete_jbl_visit(request, farmer_id: str):
         }, status=400)
     getlist = getattr(request.FILES, 'getlist', None)
     categorized_files = {
-        'LAF': getlist('laf_files') if getlist else [],
+        'CLIENT_ID_FRONT': getlist('client_id_front') if getlist else [],
+        'CLIENT_ID_BACK': getlist('client_id_back') if getlist else [],
+        'LAF_PAGE_1': getlist('laf_page_1') if getlist else [],
+        'LAF_PAGE_2': getlist('laf_page_2') if getlist else [],
         'JBL_VISIT_PHOTO': getlist('jbl_visit_photo_files') if getlist else [],
     }
+    if getlist and getlist('laf_files'):
+        return JsonResponse({'ok': False, 'error': 'Refresh the app and capture both LAF pages.',
+                             'code': 'visit_document_capture_upgrade_required'}, status=426)
     visit_status = str(body.get('visit_status') or '').strip()
     # A rejected or deferred visit can be recorded without evidence.  Require
     # the separate media capability only when this request writes evidence, or
@@ -3725,10 +3735,7 @@ def portal_complete_jbl_visit(request, farmer_id: str):
     if not valid_batch:
         return JsonResponse({
             'ok': False, 'error': batch_error, 'code': batch_code,
-            'field_errors': {
-                'laf_files': batch_error,
-                'jbl_visit_photo_files': batch_error,
-            },
+            'field_errors': {'jbl_visit_photo_files': batch_error},
         }, status=400)
     sender = _portal_sender_from_request(request)
     try:
@@ -3899,7 +3906,7 @@ def portal_jbl_media(request, farmer_id: str):
             # ``view_url`` remains the protected redirect route for existing
             # API callers. ``open_url`` is retained for old clients only.
             'open_url': _jbl_media_open_url(request, str(farmer.id), attachment_id=str(item.id)),
-            'name': item.original_filename or dict({'LAF': 'LAF document', 'JBL_VISIT_PHOTO': 'JBL visit photo'}).get(item.file_type, 'Visit media'),
+            'name': item.original_filename or {'CLIENT_ID': 'Client ID', 'LAF': 'LAF document', 'JBL_VISIT_PHOTO': 'Supporting photo'}.get(item.file_type, 'Visit media'),
             'category': item.file_type,
             'mime_type': item.mime_type,
             'created_at': item.created_at.isoformat() if item.created_at else '',
@@ -3934,6 +3941,7 @@ def portal_jbl_media(request, farmer_id: str):
         'ok': True,
         'media': media,
         'laf_media': laf_media,
+        'client_id_media': [item for item in media if item['category'] == 'CLIENT_ID'],
         'jbl_visit_photo_media': jbl_visit_photo_media,
     })
     # The response contains short-lived browser links to sensitive evidence.

@@ -144,6 +144,7 @@ Key modules:
 - `invoice_identity.py` — national-ID-led invoice identity verification, confirmed household links, and pre-payment invoice-name changes
 - `jawabu.py` — Jawabu message processing
 - `jawabu_media_access.py` — fail-closed, transactional native and compliance auditing for Portal evidence retrieval
+- `jbl_visit_documents.py` — local validated front/back Client ID and two-page LAF collation using existing WeasyPrint; complete PDFs remain case-linked protected evidence
 - `jawabu_customer_quality.py` — canonical customer matching, phone history, product checks, and field provenance
 - `jawabu_data_quality.py` — read-only active-case and staged `/sysup` reconciliation reports
 - `jawabu_master.py` — master farmer-record operations
@@ -381,7 +382,7 @@ This is a template of variables this class of system typically needs. Treat it a
 | `COMPLAINT_CASES_WEBAPP_REQUIRE_TELEGRAM_AUTH` | Requires verified Telegram Mini App identity for complaint case APIs | No |
 | `TELEGRAM_AUTH_MAX_AGE_SECONDS` | Maximum age accepted by the shared Telegram-to-Django authentication backend | No |
 | `COMPLAINT_CASE_MAX_FILES_PER_UPDATE` / `COMPLAINT_CASE_MAX_FILE_SIZE_MB` / `COMPLAINT_CASE_MAX_TOTAL_UPLOAD_MB` | Per-update count, per-file size, and total-size limits for complaint evidence uploads | No |
-| `PORTAL_JBL_VISIT_MAX_FILES` / `PORTAL_JBL_VISIT_MAX_TOTAL_UPLOAD_MB` | Combined file-count and upload-size limits for one Portal JBL Visit submission | No |
+| `PORTAL_JBL_VISIT_MAX_FILES` / `PORTAL_JBL_VISIT_MAX_TOTAL_UPLOAD_MB` | Supporting-photo count (separate from four fixed document captures) and combined source/generated upload-size limits for one Portal JBL Visit submission | No |
 | `CARTO_BASEMAP_API_KEY` | Browser-visible CARTO key for authenticated Portal map tiles; register and restrict it to the deployed Portal domain | Treat as deployment configuration |
 | `ORDER_APPROVAL_MAX_FILES_PER_SLOT` / `ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB` | Per-slot count and reviewed 30 MB total limit for one Order Approval submission | No |
 | `PORTAL_VOICE_INPUT_ENABLED` / `PORTAL_VOICE_PROVIDER` / `PORTAL_VOICE_MODEL` | Disabled-by-default Portal dictation pilot and approved transcription provider/model | No |

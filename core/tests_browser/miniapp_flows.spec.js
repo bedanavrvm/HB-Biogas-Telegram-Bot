@@ -408,7 +408,7 @@ test('Portal visit camera keeps captures local, supports multi-shot retake, and 
     Object.defineProperty(HTMLVideoElement.prototype, 'videoWidth', { configurable: true, get: () => 640 });
     Object.defineProperty(HTMLVideoElement.prototype, 'videoHeight', { configurable: true, get: () => 480 });
     HTMLCanvasElement.prototype.getContext = () => ({ drawImage() {} });
-    HTMLCanvasElement.prototype.toBlob = callback => callback(new Blob(['photo'], { type: 'image/jpeg' }));
+    HTMLCanvasElement.prototype.toBlob = callback => callback(new Blob(['photo'.repeat(1000)], { type: 'image/jpeg' }));
     window.createImageBitmap = undefined;
     document.getElementById('case360-toggle').outerHTML = '<a id="case360-toggle"></a>';
     const state = { capabilities: new Set(['portal.case.read', 'portal.jbl_visit.write', 'portal.jbl_media.write']), metaStatuses: ['Visited'], metaCounties: [], jblVisitMediaMaxFiles: 6, businessDate: '2026-09-13' };
