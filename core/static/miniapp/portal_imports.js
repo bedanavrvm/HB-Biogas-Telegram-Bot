@@ -77,12 +77,14 @@
       const archived = archiveText(batch);
       const retry = batch.archive_state === 'needs_attention'
         ? `<button type="button" class="btn btn-secondary portal-import-archive" data-batch-id="${escapeHtml(batch.id)}">Retry Drive archive</button>` : '';
-      return `<article class="portal-import-card">
-        <div class="portal-import-card-title"><div><span class="settings-eyebrow">${kindText(batch.kind)}</span><h3>${escapeHtml(batch.source_filename || 'Untitled import')}</h3><p>Jawabu HomeBiogas · ${escapeHtml(formatDateTime(batch.created_at))}</p></div>${archived}</div>
-        <div class="portal-import-stats"><span><strong>${escapeHtml(batch.total_rows)}</strong> rows</span><span class="${issues ? 'warning' : ''}"><strong>${escapeHtml(issues)}</strong> review needed</span><span><strong>${escapeHtml(batch.committed_count)}</strong> committed outside Portal</span></div>
+      const attention = issues > 0 || batch.error || batch.archive_state === 'needs_attention';
+      return `<article class="portal-import-card import-history-card ${attention ? 'needs-attention' : 'settled'}">
+        <div class="portal-import-card-title"><div><div class="import-history-name"><h3>${escapeHtml(batch.source_filename || 'Untitled import')}</h3><span class="import-history-kind">${kindText(batch.kind)}</span></div><p>${escapeHtml(formatDateTime(batch.created_at))}</p></div><span class="import-history-state ${attention ? 'warning' : ''}">${attention ? 'Needs attention' : 'Staged'}</span></div>
+        <div class="import-history-counts"><span><strong>${escapeHtml(batch.total_rows)}</strong> rows</span><span class="${issues ? 'warning' : ''}"><strong>${escapeHtml(issues)}</strong> review needed</span><span><strong>${escapeHtml(batch.committed_count)}</strong> committed outside Portal</span></div>
+        <div class="import-history-publication">${archived}</div>
         ${batch.error ? `<p class="portal-import-error">${escapeHtml(batch.error)}</p>` : ''}
         ${batch.archive_error ? `<p class="portal-import-error">${escapeHtml(batch.archive_error)}</p>` : ''}
-        <div class="portal-import-actions"><button type="button" class="btn btn-primary portal-import-review-button" data-batch-id="${escapeHtml(batch.id)}">Review data</button>${retry}<button type="button" class="btn btn-secondary portal-import-working-list-archive" data-batch-id="${escapeHtml(batch.id)}">Archive from Imports</button></div>
+        <div class="portal-import-actions"><button type="button" class="btn btn-primary portal-import-review-button" data-batch-id="${escapeHtml(batch.id)}">Review rows</button>${retry}<button type="button" class="btn btn-secondary portal-import-working-list-archive" data-batch-id="${escapeHtml(batch.id)}">Archive from Imports</button></div>
       </article>`;
     }).join('');
   }

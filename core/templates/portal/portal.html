@@ -487,22 +487,22 @@
   {% if active_screen == 'imports' %}
   <section id="page-imports" class="page{% if active_screen == 'imports' %} active{% endif %}" data-required-capability="portal.imports.view">
     <header>
-      <h1>Imports</h1>
-      <p class="meta">Stage SysUp source files for IT review. Customer records do not change here.</p>
+      <h1>Import History</h1>
+      <p class="meta">Upload system exports and review staged records.</p>
     </header>
     <section class="portal-import-notice" role="note">
       <strong>Review only</strong>
-      <span>Each accepted SysUp source is retained and archived to the controlled Imports Drive folder. This screen does not commit or overwrite cases.</span>
+      <span>Customer records stay unchanged. Source files are retained in the controlled Imports Drive folder.</span>
     </section>
     <div class="portal-import-upload-grid">
       <form class="portal-import-upload" data-import-kind="sysup">
-        <div><span class="settings-eyebrow">SYSUP</span><h2>System export</h2><p>Stage a Customers Without Loans export for matching and data-quality review.</p></div>
-        <label class="invoice-upload-dropzone"><input type="file" name="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required><span>Tap to choose system export</span><small>CSV or XLSX</small></label>
-        <button type="submit" class="btn btn-primary">Stage SysUp</button>
+        <div><h2>Upload system export</h2><p>SysUp · Customers Without Loans</p></div>
+        <label class="invoice-upload-dropzone"><input type="file" name="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required><i data-lucide="cloud-upload" aria-hidden="true"></i><span>Tap to select system export</span><small>CSV or XLSX</small></label>
+        <button type="submit" class="btn btn-primary"><i data-lucide="upload" aria-hidden="true"></i>Upload for review</button>
       </form>
     </div>
     <section class="portal-import-history">
-      <div class="portal-import-history-heading"><div><span class="settings-eyebrow">STAGED UPLOADS</span><h2>Review history</h2></div><button type="button" id="portal-import-refresh" class="btn btn-secondary">Refresh</button></div>
+      <div class="portal-import-history-heading"><h2>Recent imports</h2><button type="button" id="portal-import-refresh" class="btn btn-secondary"><i data-lucide="refresh-cw" aria-hidden="true"></i>Refresh</button></div>
       <div id="portal-import-list" class="farmer-list"><div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading staged imports...</div></div></div>
     </section>
     <section id="portal-import-review" class="portal-import-review" hidden aria-live="polite"></section>

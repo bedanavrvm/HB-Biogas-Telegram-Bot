@@ -2824,6 +2824,38 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 #page-imports .portal-import-upload-grid { grid-template-columns: minmax(0, 620px); }
 .portal-farmup-upload { max-width: 620px; }
 /* FarmUp landing only: retain the full-width row-review workspace. */
+/* Import History uses the same compact landing rhythm, not the review table. */
+#page-imports > header,
+#page-imports > .portal-import-notice,
+#page-imports .portal-import-upload-grid,
+#page-imports > .portal-import-history { max-width:620px; }
+#page-imports > header h1 { font-size:20px; margin-bottom:3px; }
+#page-imports .portal-import-notice { padding:10px 12px; font-size:12px; border-radius:10px; }
+#page-imports .portal-import-upload-grid { grid-template-columns:minmax(0,1fr); }
+#page-imports .portal-import-upload { padding:14px; border-radius:12px; gap:10px; box-shadow:0 1px 3px rgba(15,23,42,.04); }
+#page-imports .portal-import-upload h2 { margin:0; font-size:13px; }
+#page-imports .portal-import-upload p { font-size:11px; }
+#page-imports .invoice-upload-dropzone { min-height:84px; border-radius:9px; gap:4px; background:var(--bg-base); }
+#page-imports .invoice-upload-dropzone span { font-size:12px; text-transform:none; letter-spacing:0; }
+#page-imports .invoice-upload-dropzone svg { width:22px; height:22px; color:var(--brand-primary); }
+#page-imports .btn-primary { background:var(--brand-primary); border-color:var(--brand-primary); color:var(--brand-primary-text); }
+#page-imports .btn-primary:hover { background:var(--brand-primary-hover); }
+#page-imports .portal-import-history-heading h2 { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-muted); }
+#page-imports .portal-import-history-heading .btn { flex:0 0 auto; width:auto; min-height:36px; font-size:11px; }
+#page-imports .import-history-card { padding:14px; gap:9px; border-radius:12px; }
+#page-imports .import-history-card.settled { padding:11px 14px; }
+.import-history-name { display:flex; align-items:baseline; gap:7px; min-width:0; }
+.import-history-name h3 { min-width:0; overflow-wrap:anywhere; }
+.import-history-kind { flex-shrink:0; padding:2px 5px; border-radius:4px; font-size:10px; background:var(--bg-base); color:var(--text-muted); }
+.import-history-state { flex-shrink:0; padding:4px 7px; border-radius:6px; font-size:11px; background:var(--status-info-bg); color:var(--status-info); }
+.import-history-state.warning { background:var(--status-warning-bg); color:var(--status-warning); }
+.import-history-counts { display:flex; flex-wrap:wrap; gap:6px 12px; font-size:12px; color:var(--text-muted); }
+.import-history-counts strong { color:var(--text-primary); }
+.import-history-counts .warning strong { color:var(--status-warning); }
+.import-history-publication .badge { font-size:10px; }
+#page-imports .import-history-card .portal-import-actions { flex-wrap:wrap; }
+#page-imports .import-history-card .portal-import-actions .btn { min-height:40px; font-size:12px; }
+#page-imports .import-history-card .portal-import-review-button { flex:1; }
 #page-farmup .farmup-intake-heading,
 #page-farmup .portal-import-history { max-width:620px; }
 #page-farmup .farmup-intake-heading { margin-bottom:14px; }
@@ -3463,6 +3495,30 @@ body.portal-app #content .portal-queue-search [data-portal-search-clear] {
   top: 4px;
   right: 4px;
 }
+/* Own the search clear control: WebKit otherwise adds a second X. */
+body.portal-app input[type="search"]::-webkit-search-cancel-button,
+body.portal-app input[type="search"]::-webkit-search-decoration { -webkit-appearance:none; appearance:none; display:none; }
+.portal-queue-tools [data-portal-search-clear][hidden] { display:none; }
+.portal-queue-tools .miniapp-filter-trigger { display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:0 10px; border-color:var(--border-color); background:var(--bg-surface); color:var(--text-primary); font-size:12px; font-weight:650; }
+.portal-queue-tools .miniapp-filter-trigger > svg { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linejoin:round; stroke-linecap:round; }
+.portal-queue-tools .miniapp-filter-trigger { position:relative; }
+.portal-queue-tools .miniapp-filter-trigger > svg { flex:0 0 17px; }
+.portal-queue-tools .miniapp-filter-count[hidden] { display:none; }
+@media (max-width:430px) { .portal-queue-tools .miniapp-filter-count:not([hidden]) { position:absolute; top:-5px; right:-5px; } }
+.portal-queue-tools [data-portal-filter-overlay] { z-index:var(--portal-z-overlay,200); background:rgba(15,23,42,.48); }
+.portal-queue-tools [data-portal-filter-sheet] { width:min(100%,620px); max-height:min(78dvh,560px); border:1px solid var(--border-color); border-radius:14px 14px 0 0; color:var(--text-primary); box-shadow:0 -12px 32px rgba(15,23,42,.2); }
+.portal-queue-tools .miniapp-sheet-header { display:grid; grid-template-columns:minmax(0,1fr) 44px; align-items:start; padding:12px; gap:12px; text-align:left; margin:0; }
+.portal-queue-tools .miniapp-sheet-header strong { font-size:15px; }
+.portal-queue-tools .miniapp-sheet-header p { font-size:11px; line-height:1.5; }
+.portal-queue-tools .miniapp-sheet-header button { width:44px; height:44px; flex-shrink:0; }
+.portal-queue-tools .miniapp-sheet-header button svg { width:18px; height:18px; }
+.portal-queue-tools .miniapp-sheet-body { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; padding:12px; }
+.portal-queue-tools .miniapp-sheet-body label { gap:5px; color:var(--text-muted); font-size:11px; font-weight:650; }
+.portal-queue-tools .miniapp-sheet-body label:last-of-type { grid-column:1/-1; }
+.portal-queue-tools .miniapp-sheet-body select { min-height:42px; padding:8px 10px; border-color:var(--border-color); border-radius:8px; background:var(--bg-base); color:var(--text-primary); font-size:12px; }
+.portal-queue-tools .miniapp-sheet-actions { grid-column:1/-1; position:sticky; bottom:0; display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:2px -12px -12px; padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px)); }
+.portal-queue-tools .miniapp-sheet-actions .btn { width:100%; min-height:42px; font-size:12px; }
+.portal-queue-tools .miniapp-sheet-actions .btn-primary { background:var(--brand-primary); border-color:var(--brand-primary); color:var(--brand-primary-text); }
 
 /* Credit and final review use the same compact operational-detail frame as
    the JBL visit without inheriting visit-only fields or camera layout. */

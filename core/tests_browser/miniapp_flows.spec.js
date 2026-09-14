@@ -11,6 +11,66 @@ async function loadUtilities(page) {
   await page.addScriptTag({ path: asset('utils.js') });
 }
 
+test('Portal filter sheet matches compact mobile controls with one search clear', async ({page}, testInfo)=>{
+  const template=fs.readFileSync(path.join(root,'core/templates/portal/partials/queue_tools.html'),'utf8').replace(/\{\{ queue_key \}\}/g,'credit').replace(/\{\{[^]*?\}\}/g,'Cases');
+  await page.setViewportSize({width:390,height:700});
+  await page.setContent(`<body class="portal-app"><main id="content"><div style="padding:12px">${template}</div></main></body>`);
+  for(const file of ['base.css','components.css','portal.css']) await page.addStyleTag({path:asset(file)});
+  await loadUtilities(page);
+  await page.addScriptTag({path:asset('components.js')});
+  await page.addScriptTag({path:asset('portal_filters.js')});
+  await page.evaluate(()=>{
+    window.PortalMiniAppFilters.init({state:{activePage:'credit',pages:{credit:1},searches:{},filtersByQueue:{},metaCounties:['Kiambu'],metaBranches:['Corporate']},queueConfig:{credit:{}},loadQueue:()=>{}});
+    window.PortalMiniAppFilters.setupQueueTools('credit');
+  });
+  await page.locator('[data-portal-queue-search]').fill('Sample');
+  await expect(page.locator('[data-portal-search-clear]')).toBeVisible();
+  // Chromium does not expose native search pseudo-element styles via getComputedStyle.
+  expect(await page.evaluate(()=>Array.from(document.styleSheets).flatMap(sheet=>Array.from(sheet.cssRules)).some(rule=>rule.selectorText?.includes('body.portal-app input[type="search"]::-webkit-search-cancel-button') && rule.style.appearance==='none'))).toBe(true);
+  await page.locator('[data-portal-search-clear]').click();
+  await expect(page.locator('[data-portal-queue-search]')).toHaveValue('');
+  await expect(page.locator('[data-portal-search-clear]')).toBeHidden();
+  await page.locator('[data-portal-filter-trigger]').click();
+  await expect(page.locator('[data-portal-filter-sheet]')).toBeVisible();
+  expect(await page.locator('[data-portal-filter-sheet]').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+  await page.screenshot({path:testInfo.outputPath('portal-filters-mobile.png'),fullPage:true});
+  await page.locator('[data-miniapp-sheet-close]').click();
+  await expect(page.locator('[data-portal-filter-overlay]')).toBeHidden();
+});
+
+test('Import History keeps compact mobile cards and working review navigation', async ({page}, testInfo) => {
+  const template = fs.readFileSync(path.join(root,'core/templates/portal/portal.html'),'utf8');
+  const start = template.indexOf('<section id="page-imports"');
+  const section = template.slice(start,template.indexOf('{% endif %}',start+100)).replace(/\{%[^]*?%\}/g,'');
+  await page.setViewportSize({width:390,height:700});
+  await page.setContent(`<body class="portal-app"><div id="portal-screen" data-screen="imports" style="padding:12px">${section}</div></body>`);
+  await page.addStyleTag({path:asset('base.css')});
+  await page.addStyleTag({path:asset('portal.css')});
+  await page.evaluate(()=>{
+    window.__importPaths=[];
+    const batches=[{id:'needs-review',kind:'sysup',source_filename:'Customers Without Loans.xlsx',created_at:'2026-09-14T09:30:00',total_rows:115,review_needed:4,committed_count:0,archive_state:'needs_attention'},
+      {id:'staged',kind:'sysup',source_filename:'Previous export.csv',total_rows:40,review_needed:0,committed_count:0,archive_state:'archived'}];
+    window.PortalMiniAppApi={apiFetch:async path=>{
+      window.__importPaths.push(path);
+      return {ok:true,data:{ok:true,...(path==='/imports/'?{batches}:{batch:{...batches[0],source_table:{headers:['Source row'],rows:[['Sample row']]}}})}};
+    }};
+  });
+  await page.addScriptTag({path:asset('portal_imports.js')});
+  await page.evaluate(()=>window.PortalMiniAppImports.load());
+  await expect(page.locator('.needs-attention .import-history-state')).toHaveText('Needs attention');
+  await expect(page.locator('.settled .import-history-state')).toHaveText('Staged');
+  await expect(page.locator('.portal-import-archive')).toHaveCount(1);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await page.screenshot({path:testInfo.outputPath('imports-mobile.png'),fullPage:true});
+  await page.setViewportSize({width:1280,height:800});
+  expect(await page.locator('.portal-import-upload-grid').evaluate(el=>el.getBoundingClientRect().width)).toBeLessThanOrEqual(620);
+  await page.screenshot({path:testInfo.outputPath('imports-desktop.png'),fullPage:true});
+  await page.locator('.needs-attention .portal-import-review-button').click();
+  await expect(page.locator('#portal-import-review')).toContainText('Sample row');
+  await page.locator('#portal-import-review-close').click();
+  await expect(page.locator('#portal-import-review')).toBeHidden();
+});
+
 test('FarmUp landing highlights pending work without mobile overflow', async ({ page }, testInfo) => {
   const template = fs.readFileSync(path.join(root, 'core/templates/portal/portal.html'), 'utf8');
   const section = template.slice(template.indexOf('<section id="page-farmup"'), template.indexOf('{% endif %}', template.indexOf('<section id="page-farmup"') + 100))
