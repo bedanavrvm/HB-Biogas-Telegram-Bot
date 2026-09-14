@@ -101,21 +101,30 @@ test('FarmUp landing highlights pending work without mobile overflow', async ({ 
   await page.evaluate(() => {
     window.PortalAppShell = {hasCapability:()=>true};
     window.PortalMiniAppApi = {apiFetch:async()=>({ok:true,data:{ok:true,batches:[
-      {id:'pending',source_filename:'May Farmers.csv',period_label:'May 2026',remaining_count:104,committed_count:6,total_rows:115,version_number:2,archive_state:'archived',publication:{status:'pending'}},
+      {id:'pending',source_filename:'May Farmers.csv',period_label:'May 2026',remaining_count:104,committed_count:6,total_rows:115,version_number:2,archive_state:'archived',publication:{status:'pending'},is_portal_archived:Boolean(window.__farmupArchived)},
       {id:'complete',source_filename:'April Farmers.csv',period_label:'April 2026',remaining_count:0,committed_count:120,total_rows:120,is_portal_archived:true,archive_state:'archived'}
     ]}})};
+    window.PortalMiniAppApi.postJson=async()=>{window.__farmupArchived=true;return {ok:true,data:{ok:true}};};
+    window.confirm=()=>true;
   });
   await page.addScriptTag({path:asset('portal_farmup.js')});
   await page.evaluate(()=>window.PortalMiniAppFarmUp.load());
   await expect(page.locator('#farmup-pending-badge')).toContainText('May 2026: 104 rows pending review');
   await expect(page.locator('#farmup-pending-action button')).toHaveAttribute('data-batch-id','pending');
   await expect(page.locator('.needs-review .farmup-open')).toHaveText('Review rows');
-  await expect(page.locator('.settled .farmup-batch-state')).toHaveText('Archived');
+  await expect(page.locator('.farmup-batch-card')).toHaveCount(1);
+  await expect(page.locator('#portal-farmup-list')).not.toContainText('April Farmers.csv');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({path:testInfo.outputPath('farmup-mobile.png'),fullPage:true});
   await page.setViewportSize({width:1280,height:800});
   expect(await page.locator('.portal-farmup-upload').evaluate(el=>el.getBoundingClientRect().width)).toBeLessThanOrEqual(620);
   await page.screenshot({path:testInfo.outputPath('farmup-desktop.png'),fullPage:true});
+  await page.locator('.farmup-archive').click();
+  await expect(page.locator('.farmup-batch-card')).toHaveCount(0);
+  await expect(page.locator('#farmup-pending-badge')).toBeHidden();
+  await expect(page.locator('#farmup-pending-action')).toBeHidden();
+  await page.evaluate(()=>window.PortalMiniAppFarmUp.load());
+  await expect(page.locator('.farmup-batch-card')).toHaveCount(0);
 });
 
 test('Portal shell follows live viewport while sheets wait for stable Telegram height', async ({ page }) => {
@@ -322,7 +331,7 @@ test('Portal report table zoom reaches the 20 percent accessibility floor', asyn
   expect(await page.locator('[data-miniapp-table-zoom-target]').evaluate(node => node.style.getPropertyValue('--miniapp-table-scale'))).toBe('0.2');
 });
 
-test('Portal FarmUp renders a compact mobile grid with explicit selection counts', async ({ page }) => {
+test('Portal FarmUp renders a compact mobile grid with explicit selection counts', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 700 });
   await page.setContent(`
     <div id="portal-screen" data-screen="farmup">
@@ -333,6 +342,12 @@ test('Portal FarmUp renders a compact mobile grid with explicit selection counts
   `);
   await page.addStyleTag({ path: asset('base.css') });
   await page.addStyleTag({ path: asset('portal.css') });
+  await page.evaluate(()=>{
+    const root=document.getElementById('portal-screen');
+    const screen=document.createElement('section');screen.id='page-farmup';
+    while(root.firstChild) screen.append(root.firstChild);
+    root.append(screen);document.body.classList.add('portal-app');
+  });
   await page.addStyleTag({ path: asset('vendor-ag-grid-community-36.1.0.min.css') });
   await page.addStyleTag({ path: asset('vendor-ag-grid-theme-quartz-36.1.0.min.css') });
   await page.addScriptTag({ path: asset('vendor-ag-grid-community-36.1.0.min.js') });
@@ -372,6 +387,7 @@ test('Portal FarmUp renders a compact mobile grid with explicit selection counts
   await expect(page.locator('#farmup-grid .ag-header')).toBeVisible();
   await expect(page.locator('.farmup-mobile-card')).toHaveCount(0);
   await expect(page.locator('#farmup-selection-summary')).toContainText('1 commit');
+  await page.screenshot({path:testInfo.outputPath('farmup-review-mobile.png'),fullPage:true});
   expect(await page.locator('.farmup-grid-wrap').evaluate(element => element.scrollWidth === element.clientWidth)).toBe(true);
   expect(await page.locator('.farmup-grid .ag-body-horizontal-scroll-viewport').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
   const nameCell = page.locator('.ag-cell').filter({ hasText: 'Test Farmer' }).first();

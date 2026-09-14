@@ -2956,6 +2956,23 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .farmup-mapping-row select { min-width: 0; min-height: 36px; border: 1px solid var(--border-color); border-radius: 7px; padding: 6px; background: var(--bg-surface); color: var(--text-primary); }
 .farmup-mapping-missing { margin-top: 7px; padding: 8px; border-radius: 8px; background: var(--portal-status-warning-bg); color: var(--portal-status-warning); font-size: 9px; line-height: 1.4; }
 .farmup-commit-bar { position: sticky; bottom: 0; z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 9px; padding: 9px; border: 1px solid var(--border-color); border-radius: 9px; background: var(--bg-surface); box-shadow: 0 -5px 18px rgba(15,23,42,.08); color: var(--text-muted); font-size: 10px; }
+#page-farmup .portal-import-review { padding:0; border:1px solid var(--border-color); border-radius:12px; background:var(--bg-surface); overflow:clip; }
+#page-farmup .portal-import-review-heading { padding:12px; margin:0; gap:10px; border-bottom:1px solid var(--border-color); background:var(--bg-base); }
+#page-farmup .portal-import-review-heading h2 { font-size:13px; overflow-wrap:anywhere; }
+#page-farmup .portal-import-review-heading p { font-size:10px; line-height:1.5; }
+#page-farmup .farmup-version-upload, #page-farmup .farmup-mapping-panel { margin:10px; }
+#page-farmup .farmup-commit-receipt:not([hidden]) { margin:0; padding:10px 12px; border-radius:0; border:0; border-bottom:1px solid var(--border-color); background:var(--status-info-bg); color:var(--status-info); font-size:11px; }
+#page-farmup .farmup-toolbar { padding:10px; margin:0; border-bottom:1px solid var(--border-color); }
+#page-farmup .farmup-toolbar input { min-height:36px; border-radius:8px; font-size:12px; }
+#page-farmup #farmup-review-filter { border-radius:999px; font-size:11px; }
+#page-farmup #farmup-review-filter.active { background:var(--brand-primary); color:var(--brand-primary-text); }
+#page-farmup .farmup-selection-summary { margin:0; padding:8px 10px; border:0; border-radius:0; gap:5px; background:var(--bg-base); }
+#page-farmup .farmup-selection-summary span { padding:5px 7px; font-size:10px; background:var(--bg-surface); border:1px solid var(--border-color); }
+#page-farmup .farmup-selection-summary strong { font-size:12px; }
+#page-farmup .farmup-selection-summary .danger { background:var(--status-danger-bg); }
+#page-farmup .farmup-grid-wrap { margin:0; border-radius:0; border-left:0; border-right:0; }
+#page-farmup .farmup-commit-bar { margin:0; padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px)); border:0; border-top:1px solid var(--border-color); border-radius:0; }
+#page-farmup .farmup-commit-bar .btn { min-height:42px; font-size:12px; }
 .farmup-confirm-dialog { width: min(92vw, 440px); border: 1px solid var(--border-color); border-radius: 14px; padding: 16px; background: var(--bg-surface); color: var(--text-primary); }
 .farmup-confirm-dialog::backdrop { background: rgba(0,0,0,.42); }
 .farmup-confirm-dialog h2, .farmup-confirm-dialog p { margin: 0 0 10px; }

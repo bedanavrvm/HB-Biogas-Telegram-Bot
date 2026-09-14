@@ -128,7 +128,8 @@
   }
   function renderBatches() {
     const target = node('portal-farmup-list'); if (!target) return;
-    const pending = batches.find(batch => !batch.is_portal_archived && Number(batch.remaining_count || 0) > 0);
+    const visibleBatches = batches.filter(batch => !batch.is_portal_archived);
+    const pending = visibleBatches.find(batch => Number(batch.remaining_count || 0) > 0);
     const badge = node('farmup-pending-badge');
     if (badge) {
       badge.hidden = !pending;
@@ -139,8 +140,8 @@
       action.hidden = !pending || Boolean(active);
       action.innerHTML = pending ? `<button type="button" class="btn farmup-open" data-batch-id="${escapeHtml(pending.id)}">${pending.mapping_state === 'needs_mapping' ? 'Map columns to review' : `Review ${Number(pending.remaining_count)} pending rows`}${icon('arrow-right')}</button>` : '';
     }
-    if (!batches.length) { target.innerHTML = '<div class="empty-state"><div class="es-title">No FarmUp batches</div><div class="es-sub">Upload a Farmers CSV to begin a reviewed intake.</div></div>'; return; }
-    target.innerHTML = batches.map(batch => {
+    if (!visibleBatches.length) { target.innerHTML = '<div class="empty-state"><div class="es-title">No active FarmUp batches</div><div class="es-sub">Upload a Farmers CSV to begin. Archived records remain retained.</div></div>'; return; }
+    target.innerHTML = visibleBatches.map(batch => {
       const remaining = Number(batch.remaining_count || 0);
       const attention = !batch.is_portal_archived && (remaining > 0 || batch.mapping_state === 'needs_mapping');
       const state = batch.is_portal_archived ? 'Archived' : attention ? `${remaining} remaining` : 'Completed';
