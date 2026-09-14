@@ -447,8 +447,8 @@
     }
     if (isNaN(d.getTime())) return String(v);
     const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = String(d.getFullYear()).slice(-2);
+    const month = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+    const year = String(d.getFullYear());
     return `${day}-${month}-${year}`;
   }
 
@@ -966,7 +966,10 @@
         updateBatchPanel();
       });
       card.addEventListener('click', async () => {
-        await openCurrentFarmerSheet({ id: card.dataset.farmerId }, card.dataset.mode || null);
+        const queue = card.dataset.qkey || state.activePage;
+        if (queue === 'requisition') return openCurrentFarmerSheet({ id: card.dataset.farmerId }, card.dataset.mode || null);
+        portalFilters.rememberSelection?.(queue, card.dataset.farmerId);
+        navigateToUrl(caseHistoryUrl(card.dataset.farmerId, queue));
       });
     });
     root.querySelectorAll('.btn-open-payment-review').forEach(button => {
@@ -1311,7 +1314,9 @@
         const qKey = card.dataset.qkey;
         const farmerId = card.dataset.farmerId;
         const farmer = (state.queues[qKey] || []).find(item => String(item.id) === String(farmerId)) || { id: farmerId };
-        openCurrentFarmerSheet(farmer, reviewCardMode(cfg, qKey));
+        if (qKey === 'requisition') return openCurrentFarmerSheet(farmer, reviewCardMode(cfg, qKey));
+        portalFilters.rememberSelection?.(qKey, farmerId);
+        navigateToUrl(caseHistoryUrl(farmerId, qKey));
       });
     });
 
@@ -1556,9 +1561,9 @@
     renderDocumentHistory(documents, kind);
   }
 
-  function caseHistoryUrl(farmerId) {
+  function caseHistoryUrl(farmerId, source = state.activePage) {
     return farmerId
-      ? `/portal/cases/${encodeURIComponent(farmerId)}/`
+      ? `/portal/cases/${encodeURIComponent(farmerId)}/?from=${encodeURIComponent(queueConfig[source] ? source : 'all')}`
       : '/portal/s/case_history/';
   }
 
@@ -1672,7 +1677,10 @@
       });
     }
     if (page === 'settings') return loadPortalSettings(true);
-    if (queueConfig[page]) return loadQueue(page, state.pages[page] || 1);
+    if (queueConfig[page]) return loadQueue(page, state.pages[page] || 1).then(() => {
+      const actionCase = new URLSearchParams(window.location.search).get('action_case');
+      if (actionCase && queueConfig[page].mode && isCurrentScreen(page)) return openCurrentFarmerSheet({id:actionCase}, queueConfig[page].mode);
+    });
     throw new Error(`No loader is registered for ${page}.`);
   }
 
@@ -2228,7 +2236,7 @@
     }
     if (event.target.closest('#case-history-back, .case-history-back')) {
       event.preventDefault();
-      navigateTo('all');
+      navigateTo(event.target.closest('.case-history-back')?.dataset.returnScreen || 'all');
       return;
     }
     const kindButton = event.target.closest('.history-kind');

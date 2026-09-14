@@ -11,6 +11,12 @@ async function loadUtilities(page) {
   await page.addScriptTag({ path: asset('utils.js') });
 }
 
+test('Portal date labels use readable full-year dates',async({page})=>{
+  await page.setContent('<p>Portal dates</p>');
+  await page.addScriptTag({path:asset('portal_helpers.js')});
+  expect(await page.evaluate(()=>window.PortalMiniAppHelpers.fmtDate('2026-05-05'))).toBe('05-May-2026');
+});
+
 test('FarmUp confirms upload before review loading and keeps the uploaded filename',async({page})=>{
   await page.setContent(`<div id="portal-screen" data-screen="farmup"><form id="portal-farmup-upload"><input name="period" type="month" value="2026-09"><label class="invoice-upload-dropzone"><input name="file" type="file" data-farmup-file><span data-farmup-file-label>Tap to select CSV file</span></label><button type="submit">Upload CSV</button><p data-farmup-upload-status></p></form><div id="portal-farmup-feedback"></div><div id="portal-farmup-list"></div></div>`);
   await page.evaluate(()=>{
@@ -350,7 +356,7 @@ test('Portal visit camera keeps captures local, supports multi-shot retake, and 
     window.PortalMiniAppFarmerSheet.init({ el: id => document.getElementById(id), state, tg: {}, escapeHtml: value => String(value ?? ''), fmt: value => String(value ?? '-'), fmtDate: value => String(value ?? '-'), locationText: () => '-', showToast: message => window.__toasts.push(message), apiFetch: async () => ({ ok: true, data: { ok: true, counties: [], sub_counties: [] } }) });
     window.PortalMiniAppFarmerSheet.openFarmerSheet({ id: 'case-1', customer_name: 'Sample', workflow_revision: 1 }, 'jbl_visit');
   });
-  await expect(page.locator('#case360-toggle')).toHaveAttribute('href','/portal/cases/case-1/');
+  await expect(page.locator('#case360-toggle')).toHaveAttribute('href','/portal/cases/case-1/?from=jbl');
   await expect(page.locator('#case360-toggle')).toBeVisible();
   expect(await page.locator('#case360-toggle').evaluate(link=>{
     window.MiniAppUtils.canNavigatePage=()=>false;

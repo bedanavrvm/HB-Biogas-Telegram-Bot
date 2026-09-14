@@ -227,7 +227,7 @@ class JblPipelineServiceTestCase(TestCase):
     def test_farmer_card_exposes_hb_visit_date_source(self):
         card = farmer_to_card(self.farmer_stage1)
         self.assertEqual(card['sign_date'], '24-June-2026')
-        self.assertEqual(card['hbg_visit_date_label'], '24-06-26')
+        self.assertEqual(card['hbg_visit_date_label'], '24-Jun-2026')
 
     def test_farmer_card_strips_legacy_hb_date_marker(self):
         self.farmer_stage1.sign_date = "'15-May-2026"
@@ -1827,6 +1827,17 @@ class JblPipelineApiTestCase(TestCase):
         self.assertContains(response, 'data-top-level="false"')
         self.assertContains(response, 'Complete Case History')
         self.assertNotContains(response, 'id="case-history-search-form"')
+
+    def test_case_history_returns_to_source_queue_and_keeps_explicit_action(self):
+        url = reverse('portal_case_history_detail', kwargs={'farmer_id': self.farmer.id})
+        response = self.client.get(url, {'from': 'jbl'})
+        self.assertContains(response, 'data-return-screen="jbl"')
+        self.assertContains(response, f'?action_case={self.farmer.id}')
+        self.assertContains(response, 'portal.jbl_visit.write')
+        self.assertContains(response, 'id="portal-actor-role" hidden')
+        self.assertContains(response, 'id="portal-freshness" hidden')
+        response = self.client.get(url, {'from': 'https://example.com'})
+        self.assertContains(response, 'data-return-screen="all"')
 
     def test_case_history_customer_fragment_omits_shell(self):
         response = self.client.get(

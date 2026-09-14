@@ -1793,10 +1793,10 @@ def farmer_to_card(
         # spreadsheet text marker such as ``'15-May-2026`` to the Mini App.
         'sign_date': normalize_date_text(farmer.sign_date),
         'hbg_visit_date': hbg_visit_date.isoformat() if hbg_visit_date else None,
-        'hbg_visit_date_label': hbg_visit_date.strftime('%d-%m-%y') if hbg_visit_date else None,
+        'hbg_visit_date_label': hbg_visit_date.strftime('%d-%b-%Y') if hbg_visit_date else None,
         # Stage 2
         'jbl_visit_date': farmer.jbl_visit_date.isoformat() if farmer.jbl_visit_date else None,
-        'jbl_visit_date_label': farmer.jbl_visit_date.strftime('%d-%m-%y') if farmer.jbl_visit_date else None,
+        'jbl_visit_date_label': farmer.jbl_visit_date.strftime('%d-%b-%Y') if farmer.jbl_visit_date else None,
         'jbl_officer': farmer.jbl_officer,
         'jbl_visit_status': farmer.jbl_visit_status,
         'jbl_visit_comment': farmer.jbl_visit_comment,

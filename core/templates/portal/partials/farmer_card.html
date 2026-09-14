@@ -1,6 +1,7 @@
 <div
   class="farmer-card htmx-farmer-card{% if queue_key == 'requisition' %} requisition-card{% endif %}{% if queue_key != 'jbl' and queue_key != 'my_visits' %} operational-farmer-card{% endif %}"
   data-farmer-id="{{ farmer.id }}"
+  data-qkey="{{ queue_key }}"
   data-mode="{{ mode|default:'' }}"
 >
   {% if queue_key == "requisition" and can_requisition_write %}

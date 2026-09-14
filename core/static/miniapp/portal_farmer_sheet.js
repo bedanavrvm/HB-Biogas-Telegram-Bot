@@ -703,7 +703,8 @@
     sheetOverlay?.classList.remove('client-media-open');
     const caseToggle = el('case360-toggle');
     caseToggle.innerHTML = `<i data-lucide="history" aria-hidden="true"></i><span>${['jbl_visit', 'credit'].includes(mode) ? 'Case History' : 'Open Case History'}</span>`;
-    caseToggle.href = `/portal/cases/${encodeURIComponent(farmer.id)}/`;
+    const historySource = {jbl_visit:'jbl',credit:'credit',final_review:'final'}[mode] || 'all';
+    caseToggle.href = `/portal/cases/${encodeURIComponent(farmer.id)}/?from=${historySource}`;
     caseToggle.hidden = !hasCapability('portal.case.read');
     caseToggle.onclick = event => {
       if (window.MiniAppUtils?.canNavigatePage?.(caseToggle.href) === false) { event.preventDefault(); return; }

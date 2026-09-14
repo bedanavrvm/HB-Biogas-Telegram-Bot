@@ -42,8 +42,8 @@
     }
     if (Number.isNaN(date.getTime())) return String(value);
     const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = String(date.getFullYear()).slice(-2);
+    const month = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][date.getMonth()];
+    const year = String(date.getFullYear());
     const time = String(value).match(/(?:T|\s)(\d{1,2}):(\d{2})/);
     return `${day}-${month}-${year}${time ? ` ${String(time[1]).padStart(2, '0')}:${time[2]}` : ''}`;
   }

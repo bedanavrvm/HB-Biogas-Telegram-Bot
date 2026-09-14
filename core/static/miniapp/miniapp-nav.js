@@ -11,6 +11,8 @@
   }
 
   function portalBackFallbackUrl() {
+    const caseBack = document.querySelector('.case-history-back[data-return-screen]');
+    if (caseBack && /\/portal\/cases\/[^/]+\//.test(window.location.pathname)) return caseBack.href;
     // A directly opened case (or a WebView restored from a cold page) has no
     // reliable Portal entry behind it. Going back in that situation sends the
     // Android WebView out of the Mini App, so use an allowed top-level screen
