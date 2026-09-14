@@ -943,7 +943,7 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertIn('.jbl-visit-sheet .sheet-footer', stylesheet)
         self.assertIn('.sheet-overlay.jbl-visit-sheet { align-items:center; justify-content:center;', stylesheet)
         self.assertIn('.jbl-visit-sheet .form-section.form-grid.jbl-details-grid', stylesheet)
-        self.assertIn('.jbl-visit-sheet .jbl-media-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); }', stylesheet)
+        self.assertIn('.jbl-visit-sheet .jbl-document-slots { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr));', stylesheet)
         self.assertIn('.jbl-visit-sheet .gps-capture-summary .gps-captured', stylesheet)
         self.assertIn('.jbl-visit-sheet [data-jbl-field].invalid { outline:0;', stylesheet)
 
@@ -2320,7 +2320,14 @@ class JblPipelineApiTestCase(TestCase):
         response = self.client.post(url, {'files': SimpleUploadedFile('visit.pdf', b'x' * 5000, content_type='application/pdf')})
         self.assertEqual(response.status_code, 426)
 
-    def test_laf_media_list_api_returns_only_successful_client_laf_documents(self):
+    def test_jbl_media_list_api_returns_all_three_successful_evidence_types(self):
+        MediaAttachment.objects.create(
+            group_id='portal-test', business_key_type='id_number',
+            business_key_value=self.farmer.national_id, file_type='CLIENT_ID',
+            original_filename='client-id.pdf', mime_type='application/pdf',
+            drive_file_id='drive-id-1', drive_url='https://drive.example/id',
+            upload_status='success',
+        )
         MediaAttachment.objects.create(
             group_id='portal-test',
             business_key_type='id_number',
@@ -2352,7 +2359,10 @@ class JblPipelineApiTestCase(TestCase):
             upload_status='failed',
         )
 
-        response = self.client.get(reverse('portal_jbl_media', args=[self.farmer.id]))
+        response = self.client.get(
+            reverse('portal_jbl_media', args=[self.farmer.id]),
+            HTTP_X_REQUEST_ID='portal-jbl-three-media-test-001',
+        )
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
@@ -2367,7 +2377,8 @@ class JblPipelineApiTestCase(TestCase):
         self.assertNotIn('drive.example', media[0]['open_url'])
         self.assertEqual(media[0]['name'], 'laf.pdf')
         self.assertEqual([item['name'] for item in payload['jbl_visit_photo_media']], ['visit.jpg'])
-        self.assertEqual({item['category'] for item in payload['media']}, {'LAF', 'JBL_VISIT_PHOTO'})
+        self.assertEqual([item['name'] for item in payload['client_id_media']], ['client-id.pdf'])
+        self.assertEqual({item['category'] for item in payload['media']}, {'CLIENT_ID', 'LAF', 'JBL_VISIT_PHOTO'})
 
     @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='test-media-folder')
     @patch('core.services.order_approval.GoogleDriveMediaStorage.download', return_value=b'\xff\xd8\xff\xe0test-photo')

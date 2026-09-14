@@ -3887,7 +3887,7 @@ def portal_jbl_media(request, farmer_id: str):
 
     business_key = str(farmer.national_id or '').strip()
     attachments = MediaAttachment.objects.filter(
-        upload_status='success', file_type__in=['LAF', 'JBL_VISIT_PHOTO'],
+        upload_status='success', file_type__in=['CLIENT_ID', 'LAF', 'JBL_VISIT_PHOTO'],
     ).filter(
         Q(jawabu_farmer=farmer) |
         Q(jawabu_farmer__isnull=True, business_key_type='id_number', business_key_value=business_key)
@@ -3953,7 +3953,7 @@ def portal_jbl_media(request, farmer_id: str):
 @csrf_exempt
 @require_http_methods(["GET"])
 def portal_preview_jbl_media(request, farmer_id: str, attachment_id: str):
-    """Stream one authorized LAF/photo into the Portal's in-app viewer.
+    """Stream one authorized visit document/photo into the Portal's in-app viewer.
 
     A normal ``Telegram.WebApp.openLink`` call is documented to use an
     external browser. Streaming the controlled Drive file through this

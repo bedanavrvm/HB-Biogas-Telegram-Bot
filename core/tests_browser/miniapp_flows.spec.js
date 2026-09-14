@@ -385,20 +385,22 @@ test('Portal search renders one accessible field at mobile widths and in dark mo
   await expect(search).toHaveCSS('background-color', 'rgb(23, 34, 31)');
 });
 
-test('Portal visit camera keeps captures local, supports multi-shot retake, and stops its stream', async ({ page }) => {
+test('Portal visit camera keeps one stream across ID, LAF, and supporting captures', async ({ page }) => {
   await page.route('http://miniapp.test/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Portal camera</title>' }));
   await page.goto('http://miniapp.test/portal-camera');
   await page.setContent(`<div id="sheet-overlay"><div id="sheet-navigation"><button id="sheet-back"><span></span></button></div><div id="sheet-avatar"></div><div id="sheet-header-state"></div><div id="sheet-header-status"></div><button id="sheet-close"></button><h2 id="sheet-name"></h2><p id="sheet-sub"></p><ul id="sheet-info"></ul><div class="sheet-quick-actions"><section id="sheet-client-media"></section></div><button id="case360-toggle"></button><div id="sheet-gate-warning"></div><div id="sheet-form"></div><div id="sheet-footer"></div></div>
-    <div id="jbl-camera-overlay"><h2 id="jbl-live-camera-title"></h2><button id="jbl-camera-close"></button><video id="jbl-camera-video"></video><span id="jbl-camera-status"></span><span id="jbl-camera-capture-state"></span><button id="jbl-camera-done"></button><button id="jbl-camera-shutter" disabled>Take Photo</button></div>
+    <div id="jbl-camera-overlay"><h2 id="jbl-live-camera-title"></h2><button id="jbl-camera-close"></button><video id="jbl-camera-video"></video><span id="jbl-camera-status"></span><div id="jbl-camera-steps"></div><span id="jbl-camera-capture-state"></span><button id="jbl-camera-done"></button><button id="jbl-camera-shutter" disabled>Take Photo</button></div>
     <div id="media-viewer-overlay"><button id="media-viewer-close"></button><h2 id="media-viewer-title"></h2><p id="media-viewer-sub"></p><div id="media-viewer-content"></div></div>`);
   await page.addScriptTag({ path: asset('portal_farmer_sheet.js') });
   await page.evaluate(() => {
     window.__stops = 0;
+    window.__permissions = 0;
     window.__writes = 0;
     window.__toasts = [];
     window.__protection = {};
     window.MiniAppUtils = { setCloseProtection(key, value) { window.__protection[key] = value; } };
     Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { async getUserMedia() {
+      window.__permissions += 1;
       const stream = new MediaStream();
       stream.getTracks = () => [{ stop() { window.__stops += 1; } }];
       return stream;
@@ -415,29 +417,65 @@ test('Portal visit camera keeps captures local, supports multi-shot retake, and 
     window.PortalMiniAppFarmerSheet.init({ el: id => document.getElementById(id), state, tg: {}, escapeHtml: value => String(value ?? ''), fmt: value => String(value ?? '-'), fmtDate: value => String(value ?? '-'), locationText: () => '-', showToast: message => window.__toasts.push(message), apiFetch: async () => ({ ok: true, data: { ok: true, counties: [], sub_counties: [] } }) });
     window.PortalMiniAppFarmerSheet.openFarmerSheet({ id: 'case-1', customer_name: 'Sample', workflow_revision: 1 }, 'jbl_visit');
   });
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.evaluate(() => document.body.className = 'workflow-standard portal-app');
+  await page.addStyleTag({ path: asset('base.css') });
+  await page.addStyleTag({ path: asset('portal.css') });
+  const documentHeights = await page.locator('.jbl-document-upload').evaluateAll(cards =>
+    cards.map(card => Math.round(card.getBoundingClientRect().height)));
+  expect(documentHeights).toHaveLength(2);
+  expect(Math.max(...documentHeights)).toBeLessThan(110);
   await expect(page.locator('#case360-toggle')).toHaveAttribute('href','/portal/cases/case-1/?from=jbl');
   await expect(page.locator('#case360-toggle')).toBeVisible();
   expect(await page.locator('#case360-toggle').evaluate(link=>{
     window.MiniAppUtils.canNavigatePage=()=>false;
     return !link.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));
   })).toBe(true);
-  await page.locator('#jbl-visit-photo-camera').click();
+  await page.locator('[data-camera-category="CLIENT_ID"]').click();
   await expect(page.locator('#jbl-camera-overlay')).toHaveClass(/open/);
   await expect(page.locator('#jbl-camera-shutter')).toBeEnabled();
+  await expect(page.locator('#jbl-live-camera-title')).toContainText('Front');
+  await page.locator('#jbl-camera-shutter').click();
+  await expect(page.locator('#jbl-live-camera-title')).toContainText('Back');
+  await page.locator('#jbl-camera-shutter').click();
+  await expect(page.locator('#jbl-id-media-name')).toContainText('Ready');
+  await expect(page.locator('#jbl-live-camera-title')).toContainText('Page 1');
+  await page.locator('#jbl-camera-shutter').click();
+  await expect(page.locator('#jbl-live-camera-title')).toContainText('Page 2');
+  await page.locator('#jbl-camera-shutter').click();
+  await expect(page.locator('#jbl-laf-media-name')).toContainText('Ready');
+  await expect(page.locator('#jbl-live-camera-title')).toContainText('Supporting photos');
   await page.locator('#jbl-camera-shutter').click();
   await page.locator('#jbl-camera-shutter').click();
   await expect(page.locator('#jbl-visit-photo-media-name')).toContainText('2 selected');
-  await expect(page.locator('#jbl-camera-capture-state')).toContainText('2 photos added');
+  await expect(page.locator('#jbl-camera-capture-state')).toContainText('2 of 6');
+  expect(await page.evaluate(() => ({ permissions: window.__permissions, stops: window.__stops }))).toEqual({ permissions: 1, stops: 0 });
+  await page.locator('[data-camera-step-category="CLIENT_ID"][data-camera-step-side="0"]').click();
+  await expect(page.locator('#jbl-camera-shutter')).toContainText('Retake Front');
+  await page.locator('#jbl-camera-shutter').click();
+  expect(await page.evaluate(() => ({ permissions: window.__permissions, stops: window.__stops }))).toEqual({ permissions: 1, stops: 0 });
   await page.locator('#jbl-camera-done').click();
   expect(await page.evaluate(() => window.__stops)).toBe(1);
+  await page.evaluate(() => {
+    window.__viewerCloses = 0;
+    new MutationObserver(() => {
+      if (!document.getElementById('media-viewer-overlay').classList.contains('open')) window.__viewerCloses += 1;
+    }).observe(document.getElementById('media-viewer-overlay'), { attributes: true, attributeFilter: ['class'] });
+  });
+  await page.locator('.jbl-document-slot-preview').first().click();
+  await expect(page.locator('#media-viewer-title')).toContainText('Front');
+  await page.locator('[data-selection-preview-action="next"]').click();
+  await expect(page.locator('#media-viewer-title')).toContainText('Back');
+  expect(await page.evaluate(() => window.__viewerCloses)).toBe(0);
+  await page.locator('#media-viewer-close').click();
   await page.locator('.jbl-media-preview-open').first().click();
   await page.locator('[data-selection-preview-action="retake"]').click();
   await expect(page.locator('#jbl-visit-photo-media-name')).toContainText('2 selected');
   await page.locator('#jbl-camera-shutter').click();
   await expect(page.locator('#jbl-visit-photo-media-name')).toContainText('2 selected');
-  await expect(page.locator('#media-viewer-overlay')).toHaveClass(/open/);
+  await expect(page.locator('#jbl-camera-overlay')).toHaveClass(/open/);
+  await page.locator('#jbl-camera-done').click();
   expect(await page.evaluate(() => ({ stops: window.__stops, writes: window.__writes, protected: window.__protection['portal-jbl-media-selected'] }))).toEqual({ stops: 2, writes: 0, protected: true });
-  await page.locator('#media-viewer-close').click();
   await page.evaluate(() => { navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Denied', 'NotAllowedError'); }; });
   await page.locator('#jbl-visit-photo-camera').click();
   await expect(page.locator('#jbl-camera-overlay')).not.toHaveClass(/open/);

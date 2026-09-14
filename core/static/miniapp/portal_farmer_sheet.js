@@ -7,6 +7,7 @@
   let currentMapLocation = null;
   let activeMediaObjectUrl = '';
   let activeJblSelectionPreviewId = '';
+  let jblPreviewSequence = 0;
   let jblServerDraft = null;
   let jblServerDraftFarmerId = '';
   let jblDraftInputVersion = 0;
@@ -24,7 +25,6 @@
   let jblCameraCategory = '';
   let jblCameraRequestId = 0;
   let jblCameraReplaceId = '';
-  let jblCameraSessionCount = 0;
   let workflowServerDraft = null;
   let workflowServerDraftKey = '';
   let workflowDraftInputVersion = 0;
@@ -1033,8 +1033,8 @@
     const canWriteMedia = hasCapability('portal.jbl_media.write');
     const mediaFields = canWriteMedia ? `
       <div class="jbl-media-grid">
-        ${jblDocumentMarkup('CLIENT_ID', 'Client ID', 'Both sides together in one PDF')}
-        ${jblDocumentMarkup('LAF', 'LAF', 'Two pages combined in one PDF')}
+        ${jblDocumentMarkup('CLIENT_ID', 'Client ID')}
+        ${jblDocumentMarkup('LAF', 'LAF')}
         ${jblMediaCategoryMarkup({
           category: 'JBL_VISIT_PHOTO', title: 'Supporting Photos', help: 'JPG, PNG or WebP',
           pickerId: 'jbl-visit-photo-media', cameraId: 'jbl-visit-photo-camera',
@@ -1149,18 +1149,16 @@
     </section>`;
   }
 
-  function jblDocumentMarkup(category, title, help) {
+  function jblDocumentMarkup(category, title) {
     const inputId = jblMediaInputId(category);
     return `<section class="media-category-upload jbl-document-upload" data-media-category="${category}">
-      <div class="jbl-media-category-heading"><span>${title}</span></div><small>${help}</small>
-      <strong class="jbl-media-selection-summary" id="${inputId}-name" aria-live="polite">Nothing captured</strong>
-      <div class="jbl-media-preview-list" id="${inputId}-previews"></div>
-      ${jblDocumentSlots[category].map((field, side) => `<div class="jbl-document-slot" data-jbl-field="${field}">
-        <span>${jblDocumentLabels[category][side]}</span><span class="jbl-media-source-actions">
-          <button type="button" class="jbl-media-icon-button" data-camera-category="${category}" data-camera-side="${side}" aria-label="Capture ${title} ${jblDocumentLabels[category][side]}">${cameraIcon()}</button>
-          <label class="jbl-media-icon-button" data-input-id="${inputId}${side ? '-2' : ''}" for="${inputId}${side ? '-2' : ''}" role="button" tabindex="0" aria-label="Choose ${title} ${jblDocumentLabels[category][side]}">${pickerIcon()}</label></span>
+      <div class="jbl-media-category-heading"><span>${title}</span><strong class="jbl-media-selection-summary" id="${inputId}-name" aria-live="polite">0 of 2 captured</strong><button type="button" class="jbl-media-icon-button" data-camera-category="${category}" aria-label="Capture ${title} pair" title="Capture ${title}">${cameraIcon()}</button></div>
+      <div class="jbl-document-slots">${jblDocumentSlots[category].map((field, side) => `<div class="jbl-document-slot" data-jbl-field="${field}">
+        <span>${jblDocumentLabels[category][side]}</span>
+        <button type="button" class="jbl-document-slot-preview" data-media-item-id="" aria-label="Review ${title} ${jblDocumentLabels[category][side]}" hidden></button>
+        <label class="jbl-slot-picker jbl-media-icon-button" data-input-id="${inputId}${side ? '-2' : ''}" for="${inputId}${side ? '-2' : ''}" role="button" tabindex="0" aria-label="Choose ${title} ${jblDocumentLabels[category][side]}">${pickerIcon()}</label>
         <input class="sr-only" type="file" id="${inputId}${side ? '-2' : ''}" data-media-category="${category}" data-media-side="${side}" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp">
-        <small class="jbl-field-error" data-error-message-for="${field}"></small></div>`).join('')}
+        <small class="jbl-field-error" data-error-message-for="${field}"></small></div>`).join('')}</div>
     </section>`;
   }
 
@@ -1183,12 +1181,46 @@
 
   function updateJblCameraCaptureState() {
     const status = el('jbl-camera-capture-state');
-    if (!status) return;
-    status.textContent = jblCameraReplaceId
-      ? 'The original photo stays selected until a valid retake is captured.'
-      : jblCameraSessionCount === 0 ? 'No photos added yet'
-        : `${jblCameraSessionCount} photo${jblCameraSessionCount === 1 ? '' : 's'} added. Take another or tap Done.`;
-    if (jblDocumentSlots[jblCameraCategory]) status.textContent = `Capture ${jblDocumentLabels[jblCameraCategory][jblCameraSide]}. Keep all edges visible and text readable.`;
+    const title = el('jbl-live-camera-title');
+    const shutter = el('jbl-camera-shutter');
+    const documentTitle = jblCameraCategory === 'CLIENT_ID' ? 'Client ID' : 'LAF';
+    if (jblDocumentSlots[jblCameraCategory]) {
+      const step = jblDocumentLabels[jblCameraCategory][jblCameraSide];
+      if (title) title.textContent = `${documentTitle} — ${step}`;
+      if (status) status.textContent = jblCameraReplaceId ? `Retake ${step}. The existing photo stays until a clear replacement is captured.` : `Capture ${step}. Keep all edges and text visible.`;
+      if (shutter) shutter.textContent = `${jblCameraReplaceId ? 'Retake' : 'Capture'} ${step}`;
+    } else {
+      if (title) title.textContent = jblCameraReplaceId ? 'Retake supporting photo' : 'Supporting photos';
+      if (status) status.textContent = `${jblMediaSelections.JBL_VISIT_PHOTO.length} of ${Number(state().jblVisitMediaMaxFiles || 6)} supporting photos selected. Tap Done when finished.`;
+      if (shutter) shutter.textContent = jblCameraReplaceId ? 'Retake photo' : 'Take photo';
+      if (shutter && jblCameraStream) shutter.disabled = !jblCameraReplaceId && jblMediaSelections.JBL_VISIT_PHOTO.length >= Number(state().jblVisitMediaMaxFiles || 6);
+    }
+    const steps = el('jbl-camera-steps');
+    if (steps) steps.innerHTML = ['CLIENT_ID', 'LAF'].flatMap(category =>
+      jblDocumentLabels[category].map((label, side) => {
+        const selected = jblMediaSelections[category].some(item => item.side === side);
+        const active = jblCameraCategory === category && jblCameraSide === side;
+        return `<button type="button" class="jbl-camera-step${selected ? ' captured' : ''}${active ? ' active' : ''}" data-camera-step-category="${category}" data-camera-step-side="${side}" aria-label="${category === 'CLIENT_ID' ? 'Client ID' : 'LAF'} ${label}${selected ? ', retake available' : ', not captured'}" aria-current="${active ? 'step' : 'false'}">${category === 'CLIENT_ID' ? 'ID' : 'LAF'} ${label}${selected ? ' ✓' : ''}</button>`;
+      })
+    ).join('') + `<button type="button" class="jbl-camera-step${jblCameraCategory === 'JBL_VISIT_PHOTO' ? ' active' : ''}" data-camera-step-category="JBL_VISIT_PHOTO">Photos</button>`;
+  }
+
+  function setJblCameraTarget(category, side = null, replaceId = '') {
+    jblCameraCategory = category;
+    jblCameraSide = jblDocumentSlots[category]
+      ? side ?? [0, 1].find(value => !jblMediaSelections[category].some(item => item.side === value)) ?? 0
+      : null;
+    jblCameraReplaceId = replaceId || (jblDocumentSlots[category]
+      ? jblMediaSelections[category].find(item => item.side === jblCameraSide)?.id : '') || '';
+    updateJblCameraCaptureState();
+  }
+
+  function advanceJblCameraTarget() {
+    for (const category of ['CLIENT_ID', 'LAF']) {
+      const side = [0, 1].find(value => !jblMediaSelections[category].some(item => item.side === value));
+      if (side !== undefined) { setJblCameraTarget(category, side); return; }
+    }
+    setJblCameraTarget('JBL_VISIT_PHOTO');
   }
 
   async function startJblLiveCamera(category, { replaceId = '', side = null } = {}) {
@@ -1204,24 +1236,16 @@
       deps.showToast(`A JBL visit can include at most ${Number(state().jblVisitMediaMaxFiles || 6)} supporting photos.`, 'error');
       return;
     }
+    if (jblCameraStream && panel.classList.contains('open')) {
+      setJblCameraTarget(category, side, replaceId);
+      return;
+    }
     if (jblCameraStream) stopJblLiveCamera();
     const cameraRequestId = ++jblCameraRequestId;
-    jblCameraCategory = category;
-    jblCameraReplaceId = replaceId;
-    if (jblDocumentSlots[category]) {
-      jblCameraSide = side ?? jblMediaSelections[category].find(item => item.id === replaceId)?.side
-        ?? [0, 1].find(value => !jblMediaSelections[category].some(item => item.side === value)) ?? 0;
-      jblCameraReplaceId = replaceId || jblMediaSelections[category].find(item => item.side === jblCameraSide)?.id || '';
-    }
-    jblCameraSessionCount = 0;
+    setJblCameraTarget(category, side ?? jblMediaSelections[category]?.find(item => item.id === replaceId)?.side ?? null, replaceId);
     panel.classList.add('open');
-    updateJblCameraCaptureState();
     if (status) { status.hidden = false; status.textContent = 'Starting camera…'; }
     if (shutter) shutter.disabled = true;
-    const title = el('jbl-live-camera-title');
-    if (title) title.textContent = jblDocumentSlots[category]
-      ? `${category === 'CLIENT_ID' ? 'Client ID' : 'LAF'} — ${jblDocumentLabels[category][jblCameraSide]}`
-      : replaceId ? 'Retake photo' : 'Take supporting photo';
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
@@ -1240,6 +1264,7 @@
       await video.play();
       if (status) status.hidden = true;
       if (shutter) shutter.disabled = false;
+      updateJblCameraCaptureState();
     } catch (error) {
       if (cameraRequestId !== jblCameraRequestId) return;
       stopJblLiveCamera();
@@ -1290,32 +1315,28 @@
       if (captureRequestId !== jblCameraRequestId || !jblCameraCategory) return;
       if (!blob) throw new Error('empty camera frame');
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const prefix = jblCameraCategory === 'LAF' ? 'laf-photo' : 'visit-photo';
-      const file = new File([blob], `${prefix}-${timestamp}.jpg`, {
+      const prefix = jblCameraCategory === 'CLIENT_ID' ? 'client-id-photo'
+        : jblCameraCategory === 'LAF' ? 'laf-photo' : 'visit-photo';
+      const file = new File([blob], `${prefix}-${timestamp}-${requestId()}.jpg`, {
         type: 'image/jpeg',
         lastModified: Date.now(),
       });
       if (jblCameraReplaceId) {
         const replacementId = replaceJblMediaFile(jblCameraCategory, jblCameraReplaceId, file);
         if (replacementId) {
-          stopJblLiveCamera();
-          openSelectedJblMediaPreview(replacementId);
+          advanceJblCameraTarget();
         }
       } else if (addJblMediaFiles(jblCameraCategory, [file], { side: jblCameraSide })) {
         if (jblDocumentSlots[jblCameraCategory]) {
-          const captured = jblMediaSelections[jblCameraCategory].find(item => item.side === jblCameraSide);
-          stopJblLiveCamera();
-          openSelectedJblMediaPreview(captured.id);
+          advanceJblCameraTarget();
           return;
         }
-        jblCameraSessionCount += 1;
         updateJblCameraCaptureState();
-        if (jblMediaSelections.JBL_VISIT_PHOTO.length >= Number(state().jblVisitMediaMaxFiles || 6)) stopJblLiveCamera();
       }
     } catch (_error) {
       deps.showToast('The photo could not be captured. Keep the camera open and retry.', 'error');
     } finally {
-      if (shutter && jblCameraStream) shutter.disabled = false;
+      if (shutter && jblCameraStream && (jblCameraCategory !== 'JBL_VISIT_PHOTO' || jblCameraReplaceId || jblMediaSelections.JBL_VISIT_PHOTO.length < Number(state().jblVisitMediaMaxFiles || 6))) shutter.disabled = false;
     }
   }
 
@@ -1355,9 +1376,23 @@
     if (summary) {
       const totalBytes = items.reduce((total, item) => total + item.file.size, 0);
       summary.textContent = items.length ? `${items.length} selected · ${formatMediaBytes(totalBytes)}` : 'No files selected';
-      if (jblDocumentSlots[category]) summary.textContent = [0, 1].map(side =>
-        `${jblDocumentLabels[category][side]} ${items.some(item => item.side === side) ? 'captured' : 'missing'}`
-      ).join(' · ') + (items.length === 2 ? ' · Ready' : '');
+      if (jblDocumentSlots[category]) summary.textContent = items.length === 2
+        ? 'Ready · one complete document'
+        : `${items.length} of 2 captured`;
+    }
+    if (jblDocumentSlots[category]) {
+      jblDocumentSlots[category].forEach((field, side) => {
+        const slot = document.querySelector(`.jbl-document-slot[data-jbl-field="${field}"]`);
+        const preview = slot?.querySelector('.jbl-document-slot-preview');
+        const item = items.find(candidate => candidate.side === side);
+        if (!slot || !preview) return;
+        slot.classList.toggle('captured', Boolean(item));
+        preview.hidden = !item;
+        preview.dataset.mediaItemId = item?.id || '';
+        preview.innerHTML = item?.thumbnailUrl ? `<img src="${item.thumbnailUrl}" alt="">` : '✓';
+        slot.querySelector('.jbl-slot-picker')?.setAttribute('title', item ? `Replace ${jblDocumentLabels[category][side]}` : `Choose ${jblDocumentLabels[category][side]}`);
+      });
+      return;
     }
     const previews = el(`${inputId}-previews`);
     if (!previews) return;
@@ -1526,7 +1561,7 @@
     );
   }
 
-  function openSelectedJblMediaPreview(itemId) {
+  async function openSelectedJblMediaPreview(itemId) {
     const entries = selectedJblPreviewEntries();
     const index = entries.findIndex(entry => entry.item.id === itemId);
     if (index < 0) return;
@@ -1536,9 +1571,24 @@
     const sub = el('media-viewer-sub');
     const content = el('media-viewer-content');
     if (!overlay || !content) return;
-    closeMediaViewer();
+    const sequence = ++jblPreviewSequence;
+    const nextUrl = URL.createObjectURL(item.file);
+    if (!overlay.classList.contains('open')) {
+      content.innerHTML = '<div class="media-viewer-loading" role="status">Loading photo…</div>';
+      overlay.classList.add('open');
+    }
+    if (String(item.file.type || '').startsWith('image/')) {
+      const preloader = new Image();
+      preloader.src = nextUrl;
+      try { await preloader.decode(); } catch (_error) { /* WebView fallback: render the original file. */ }
+    }
+    if (sequence !== jblPreviewSequence || !overlay.classList.contains('open')) {
+      URL.revokeObjectURL(nextUrl);
+      return;
+    }
+    const previousUrl = activeMediaObjectUrl;
+    activeMediaObjectUrl = nextUrl;
     activeJblSelectionPreviewId = item.id;
-    activeMediaObjectUrl = URL.createObjectURL(item.file);
     if (title) title.textContent = jblDocumentSlots[category]
       ? `Review ${category === 'CLIENT_ID' ? 'Client ID' : 'LAF'} — ${jblDocumentLabels[category][item.side]}` : 'Review supporting photo';
     if (sub) sub.textContent = `${index + 1} of ${entries.length} · ${item.file.name}`;
@@ -1550,8 +1600,6 @@
     content.innerHTML = `<div class="jbl-selection-viewer">
       <div class="jbl-selection-viewer-stage">${visual}</div>
       <div class="jbl-selection-viewer-actions">
-        ${jblDocumentSlots[category] && jblMediaSelections[category].length < 2
-          ? `<button type="button" class="jbl-document-next btn btn-primary" data-next-document-category="${category}">Next: ${jblDocumentLabels[category][[0, 1].find(side => !jblMediaSelections[category].some(candidate => candidate.side === side))]}</button>` : ''}
         <button type="button" class="jbl-selection-nav" data-selection-preview-action="previous" aria-label="Previous selected file" title="Previous" ${index === 0 ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span class="sr-only">Previous</span></button>
         ${String(item.file.type || '').startsWith('image/') ? `<button type="button" class="jbl-selection-retake" data-selection-preview-action="retake" data-media-category="${category}" data-media-item-id="${item.id}" aria-label="Retake this photo" title="Retake photo">Retake</button>` : ''}
         <button type="button" class="jbl-selection-delete" data-selection-preview-action="remove" data-media-category="${category}" data-media-item-id="${item.id}" aria-label="Remove this selected file" title="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 10v6M14 10v6"/></svg><span class="sr-only">Remove</span></button>
@@ -1559,6 +1607,7 @@
       </div>
     </div>`;
     overlay.classList.add('open');
+    if (previousUrl) URL.revokeObjectURL(previousUrl);
   }
 
   function navigateSelectedJblPreview(offset) {
@@ -1907,6 +1956,11 @@
     });
     el('sheet-form')?.querySelector('.media-upload-control')?.addEventListener('click', event => {
       if (event.target.closest('.jbl-media-remove, [data-camera-category], .jbl-media-icon-button')) return;
+      const documentPreview = event.target.closest('.jbl-document-slot-preview');
+      if (documentPreview) {
+        openSelectedJblMediaPreview(documentPreview.dataset.mediaItemId);
+        return;
+      }
       const previewButton = event.target.closest('.jbl-media-preview-open');
       if (previewButton) {
         openSelectedJblMediaPreview(previewButton.dataset.mediaItemId);
@@ -2311,8 +2365,8 @@
         const isPhoto = item.category === 'JBL_VISIT_PHOTO';
         const isLaf = item.category === 'LAF';
         const categoryLabel = item.category === 'CLIENT_ID' ? 'Client ID' : isPhoto ? 'Supporting Photo' : isLaf ? 'Signed LAF Document' : 'Client Media';
-        const icon = isPhoto ? 'image' : isLaf ? 'file-text' : 'paperclip';
-        const categoryClass = isPhoto ? ' client-media-photo' : isLaf ? ' client-media-laf' : ' client-media-legacy';
+        const icon = item.category === 'CLIENT_ID' ? 'contact' : isPhoto ? 'image' : isLaf ? 'file-text' : 'paperclip';
+        const categoryClass = item.category === 'CLIENT_ID' ? ' client-media-id' : isPhoto ? ' client-media-photo' : isLaf ? ' client-media-laf' : ' client-media-legacy';
         return `
         <article class="client-media-item${categoryClass}">
           <div class="client-media-summary">
@@ -2330,7 +2384,7 @@
         </article>
       `;
       }).join('')
-      : '<span class="field-help">No signed LAF document or JBL visit photo has been uploaded for this client.</span>';
+      : '<span class="field-help">No Client ID, LAF, or supporting photo has been uploaded for this client.</span>';
     target.querySelectorAll('.media-preview-link').forEach(link => {
       link.addEventListener('click', () => {
         const item = media[Number(link.dataset.mediaIndex)];
@@ -2372,6 +2426,7 @@
   }
 
   function closeMediaViewer() {
+    jblPreviewSequence += 1;
     el('media-viewer-overlay')?.classList.remove('open');
     const content = el('media-viewer-content');
     if (content) {
@@ -2401,7 +2456,7 @@
     if (!overlay || !content || !item?.preview_url) return;
 
     closeMediaViewer();
-    if (title) title.textContent = item.category === 'JBL_VISIT_PHOTO' ? 'JBL Visit Photo' : 'Signed LAF Document';
+    if (title) title.textContent = item.category === 'CLIENT_ID' ? 'Client ID' : item.category === 'JBL_VISIT_PHOTO' ? 'Supporting photo' : 'Signed LAF Document';
     if (sub) sub.textContent = item.name || 'Client media';
     content.innerHTML = '<div class="media-viewer-loading" role="status"><span class="spinner-inline" aria-hidden="true"></span> Loading secure media…</div>';
     overlay.classList.add('open');
@@ -2668,6 +2723,15 @@
     el('jbl-camera-done')?.addEventListener('click', stopJblLiveCamera);
     el('jbl-camera-shutter')?.addEventListener('click', captureJblLivePhoto);
     document.addEventListener('click', event => {
+      const cameraStep = event.target.closest('[data-camera-step-category]');
+      if (cameraStep && el('jbl-camera-overlay')?.classList.contains('open')) {
+        setJblCameraTarget(cameraStep.dataset.cameraStepCategory,
+          cameraStep.dataset.cameraStepSide !== undefined ? Number(cameraStep.dataset.cameraStepSide) : null);
+        if (jblCameraStream) el('jbl-camera-shutter').disabled =
+          jblCameraCategory === 'JBL_VISIT_PHOTO' && !jblCameraReplaceId
+          && jblMediaSelections.JBL_VISIT_PHOTO.length >= Number(state().jblVisitMediaMaxFiles || 6);
+        return;
+      }
       if (event.target.closest('#sheet-close')) {
         closeSheet();
         return;
@@ -2678,14 +2742,6 @@
       }
       if (event.target.closest('#media-viewer-close')) {
         closeMediaViewer();
-        return;
-      }
-      const documentNext = event.target.closest('[data-next-document-category]');
-      if (documentNext) {
-        const category = documentNext.dataset.nextDocumentCategory;
-        const side = [0, 1].find(value => !jblMediaSelections[category].some(item => item.side === value));
-        closeMediaViewer();
-        startJblLiveCamera(category, { side });
         return;
       }
       const selectionAction = event.target.closest('[data-selection-preview-action]');
