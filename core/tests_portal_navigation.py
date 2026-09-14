@@ -7,6 +7,7 @@ from core.services.portal_navigation import (
     get_portal_nav_hubs,
     get_portal_nav_items,
     get_portal_pipeline_stages,
+    portal_screen_allowed,
 )
 
 
@@ -74,7 +75,7 @@ class PortalNavigationTests(SimpleTestCase):
             },
         )
 
-        self.assertEqual([item['key'] for item in items], ['dashboard', 'jbl', 'my_visits', 'requisition', 'all', 'case_history', 'settings'])
+        self.assertEqual([item['key'] for item in items], ['dashboard', 'jbl', 'my_visits', 'requisition', 'all', 'settings'])
         self.assertEqual(next(item for item in items if item['key'] == 'jbl')['stage'], 'visit')
 
     def test_sidebar_groups_only_already_authorized_destinations(self):
@@ -100,7 +101,7 @@ class PortalNavigationTests(SimpleTestCase):
         }
 
         self.assertEqual(grouped_keys['Home'], ['dashboard'])
-        self.assertEqual(grouped_keys['Cases'], ['all', 'case_history'])
+        self.assertEqual(grouped_keys['Cases'], ['all'])
         self.assertEqual(grouped_keys['Pipeline · Intake'], ['farmup', 'imports'])
         self.assertEqual(grouped_keys['More'], ['reports', 'settings'])
         self.assertNotIn('Credit', str(grouped_keys))
@@ -114,3 +115,16 @@ class PortalNavigationTests(SimpleTestCase):
 
         denied = self._items_for(['JBL_OFFICER'], {'portal.dashboard.view'})
         self.assertNotIn('farmup', [item['key'] for item in denied])
+
+    def test_history_is_nested_under_cases_without_changing_access(self):
+        for capabilities, allowed in [({'portal.case.read'}, True), (set(), False)]:
+            with patch('core.services.workflow_capabilities.effective_capability_keys', return_value=capabilities):
+                user = {'user_id': 'test-user'}
+                self.assertEqual(portal_screen_allowed(user, 'case_history'), allowed)
+                items = get_portal_nav_items(user)
+                self.assertNotIn('case_history', [item['key'] for item in items])
+                hubs = get_portal_nav_hubs(user, active_screen='case_history')
+                if allowed:
+                    cases = next(hub for hub in hubs if hub['key'] == 'cases')
+                    self.assertTrue(cases['active'])
+                    self.assertEqual(cases['screen'], 'all')

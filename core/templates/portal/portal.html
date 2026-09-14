@@ -427,7 +427,7 @@
   <section id="page-case_history" class="page{% if active_screen == 'case_history' %} active{% endif %}">
     {% if case_history_farmer_id %}
     <header class="case-history-page-header">
-      <a href="{% url 'portal_screen' screen='case_history' %}" class="case-history-back" aria-label="Back to case search" title="Back to case search"><i data-lucide="arrow-left" aria-hidden="true"></i><span class="sr-only">Back to Case Search</span></a>
+      <a href="{% url 'portal_screen' screen='all' %}" class="case-history-back" aria-label="Back to all cases" title="Back to all cases"><i data-lucide="arrow-left" aria-hidden="true"></i><span class="sr-only">Back to All Cases</span></a>
       <div><h1>Complete Case History</h1><p class="meta">Full customer record, workflow timeline, TAT, documents, and data quality</p></div>
     </header>
     <div id="case-history-selected">
@@ -575,7 +575,7 @@
       <ul class="info-list" id="sheet-info"></ul>
       <div class="sheet-quick-actions">
         <section id="sheet-client-media" class="sheet-client-media" hidden></section>
-        <button type="button" id="case360-toggle" class="btn btn-secondary case360-toggle"><i data-lucide="history" aria-hidden="true"></i><span>Open Case History</span></button>
+        <a id="case360-toggle" class="btn btn-secondary case360-toggle"><i data-lucide="history" aria-hidden="true"></i><span>Open Case History</span></a>
       </div>
       <div id="sheet-map-container" class="sheet-map-container portal-initially-hidden">
         <div class="sheet-map-heading"><span class="sheet-map-location-icon"><i data-lucide="map-pin" aria-hidden="true"></i></span><span class="sheet-map-copy"><strong>Recorded location</strong><span id="sheet-map-meta">GPS unavailable</span></span><span class="sheet-map-actions"><button type="button" id="sheet-map-refresh" class="map-refresh-button" title="Refresh map" aria-label="Refresh map"><i data-lucide="refresh-cw" aria-hidden="true"></i></button><a id="sheet-map-link" href="#" target="_blank" rel="noopener" hidden><span>Open Maps</span><i data-lucide="external-link" aria-hidden="true"></i></a></span></div>

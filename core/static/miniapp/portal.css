@@ -3361,7 +3361,7 @@ body.portal-report-editor-active #bottom-tabs { display: none; }
 .jbl-visit-sheet .jbl-media-preview-open { border:1px solid color-mix(in srgb, var(--brand-primary) 24%, var(--border-color)); background:color-mix(in srgb, var(--brand-primary) 9%, var(--bg-surface)); }
 .jbl-visit-sheet .jbl-media-remove { border:1px solid color-mix(in srgb, var(--color-danger) 22%, var(--border-color)); background:color-mix(in srgb, var(--color-danger) 8%, var(--bg-surface)); }
 .workflow-standard.portal-app .jbl-visit-sheet .jbl-media-preview-open svg,
-.workflow-standard.portal-app .jbl-visit-sheet .jbl-media-remove svg { width:20px !important; height:20px !important; transform:scale(1.25); }
+.workflow-standard.portal-app .jbl-visit-sheet .jbl-media-remove svg { width:16px !important; height:16px !important; max-width:16px; max-height:16px; flex:0 0 16px; transform:none; }
 .jbl-visit-sheet .jbl-live-camera { margin:8px; }
 .jbl-visit-sheet .jbl-camera-viewport { height:clamp(320px, 55dvh, 460px); aspect-ratio:auto; }
 .jbl-visit-sheet .jbl-media-limit-help, .jbl-visit-sheet .jbl-existing-media-help { display:block; padding:5px 10px 0; color:var(--text-muted); font-size:9px; }

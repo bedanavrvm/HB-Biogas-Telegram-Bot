@@ -2228,7 +2228,7 @@
     }
     if (event.target.closest('#case-history-back, .case-history-back')) {
       event.preventDefault();
-      navigateTo('case_history');
+      navigateTo('all');
       return;
     }
     const kindButton = event.target.closest('.history-kind');

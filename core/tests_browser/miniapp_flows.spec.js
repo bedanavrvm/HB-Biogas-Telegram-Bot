@@ -276,10 +276,17 @@ test('Portal visit camera keeps captures local, supports multi-shot retake, and 
     HTMLCanvasElement.prototype.getContext = () => ({ drawImage() {} });
     HTMLCanvasElement.prototype.toBlob = callback => callback(new Blob(['photo'], { type: 'image/jpeg' }));
     window.createImageBitmap = undefined;
-    const state = { capabilities: new Set(['portal.jbl_visit.write', 'portal.jbl_media.write']), metaStatuses: ['Visited'], metaCounties: [], jblVisitMediaMaxFiles: 6, businessDate: '2026-09-13' };
+    document.getElementById('case360-toggle').outerHTML = '<a id="case360-toggle"></a>';
+    const state = { capabilities: new Set(['portal.case.read', 'portal.jbl_visit.write', 'portal.jbl_media.write']), metaStatuses: ['Visited'], metaCounties: [], jblVisitMediaMaxFiles: 6, businessDate: '2026-09-13' };
     window.PortalMiniAppFarmerSheet.init({ el: id => document.getElementById(id), state, tg: {}, escapeHtml: value => String(value ?? ''), fmt: value => String(value ?? '-'), fmtDate: value => String(value ?? '-'), locationText: () => '-', showToast: message => window.__toasts.push(message), apiFetch: async () => ({ ok: true, data: { ok: true, counties: [], sub_counties: [] } }) });
     window.PortalMiniAppFarmerSheet.openFarmerSheet({ id: 'case-1', customer_name: 'Sample', workflow_revision: 1 }, 'jbl_visit');
   });
+  await expect(page.locator('#case360-toggle')).toHaveAttribute('href','/portal/cases/case-1/');
+  await expect(page.locator('#case360-toggle')).toBeVisible();
+  expect(await page.locator('#case360-toggle').evaluate(link=>{
+    window.MiniAppUtils.canNavigatePage=()=>false;
+    return !link.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));
+  })).toBe(true);
   await page.locator('#jbl-visit-photo-camera').click();
   await expect(page.locator('#jbl-camera-overlay')).toHaveClass(/open/);
   await expect(page.locator('#jbl-camera-shutter')).toBeEnabled();

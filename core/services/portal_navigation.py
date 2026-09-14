@@ -14,7 +14,6 @@ PORTAL_NAV_ITEMS = (
     ('requisition', 'Order Preparation', 'shopping-bag', 'portal.requisition.view'),
     ('deferred', 'Deferred & Reappraisal', 'clock', 'portal.deferred.view'),
     ('all', 'All Cases', 'database', 'portal.case.read'),
-    ('case_history', 'Case History', 'route', 'portal.case.read'),
     ('batches', 'Finalized Orders', 'layers', 'portal.batches.view'),
     ('invoices', 'Invoice Review', 'receipt-text', 'portal.invoice.view'),
     ('payments', 'Payment Preparation', 'banknote', 'portal.payment.view'),
@@ -170,4 +169,8 @@ def get_portal_pipeline_stages(user, *, access=None, active_screen: str = '') ->
 
 
 def portal_screen_allowed(user, screen: str, *, access=None) -> bool:
+    # Case History is a case-detail destination, not a second list/menu.
+    # Its authorization remains identical to All Cases.
+    if screen == 'case_history':
+        screen = 'all'
     return any(item['key'] == screen for item in get_portal_nav_items(user, access=access))

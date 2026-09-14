@@ -703,8 +703,14 @@
     sheetOverlay?.classList.remove('client-media-open');
     const caseToggle = el('case360-toggle');
     caseToggle.innerHTML = `<i data-lucide="history" aria-hidden="true"></i><span>${['jbl_visit', 'credit'].includes(mode) ? 'Case History' : 'Open Case History'}</span>`;
-    caseToggle.onclick = () => {
-      window.PortalAppShell?.openCaseHistory(farmer.id);
+    caseToggle.href = `/portal/cases/${encodeURIComponent(farmer.id)}/`;
+    caseToggle.hidden = !hasCapability('portal.case.read');
+    caseToggle.onclick = event => {
+      if (window.MiniAppUtils?.canNavigatePage?.(caseToggle.href) === false) { event.preventDefault(); return; }
+      // Save recoverable fields before ordinary document navigation. Attachments
+      // remain local and the shared navigation guard handles discard approval.
+      if (mode === 'jbl_visit') saveJblVisitDraft(farmer, { immediate: true });
+      if (WORKFLOW_DRAFT_CONFIG[mode]) saveWorkflowDraft(farmer, mode, { immediate: true });
     };
 
     const formEl = el('sheet-form');
