@@ -30,6 +30,15 @@
     const target = node('portal-farmup-feedback'); if (!target) return;
     target.className = `portal-import-feedback ${tone}`; target.textContent = message;
   }
+  function showUploadFile(form, filename, uploaded = false) {
+    const label = form?.querySelector('[data-farmup-file-label]');
+    if (!label) return;
+    label.textContent = uploaded ? `Uploaded: ${filename}` : `Selected: ${filename}`;
+    const dropzone = label.closest('.invoice-upload-dropzone');
+    if (dropzone) dropzone.dataset.uploadState = uploaded ? 'uploaded' : 'selected';
+    const status = form.querySelector('[data-farmup-upload-status]');
+    if (status) status.textContent = uploaded ? 'CSV uploaded successfully. Review the rows below, or tap to choose another file.' : 'File selected. Tap Upload CSV to continue.';
+  }
   function isBlank(value) { return !String(value ?? '').trim(); }
   function normalized(value) { return String(value ?? '').trim().replace(/\s+/g, ' ').toLocaleLowerCase(); }
   function fieldEdited(row, field) { return normalized(row[field]) !== String(row._baseline?.[field] ?? ''); }
@@ -273,8 +282,20 @@
   }
   async function upload(form) {
     const input = form.querySelector('[data-farmup-file]'); validateFarmupFile(input);
+    const filename = input.files[0].name;
     const button = form.querySelector('button[type="submit"]'); setLoading(button, true, 'Uploading');
-    try { const body = new FormData(form); body.set('client_request_id', requestId('portal-farmup-stage')); const result = await api.postForm('/farmup/stage/', body, tg); if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'FarmUp upload failed.'); form.reset(); utils.setCloseProtection?.('portal-farmup-file-selected', false); await load({silent:true}); await openBatch(result.data.batch.id); const message = result.data.replayed ? 'This CSV was already uploaded. Its current monthly worklist was reopened.' : (result.data.message || 'FarmUp staged.'); window.PortalAppShell?.showToast?.(message, 'success'); feedback(message, 'success'); if (result.data.archive_operation_id) await attemptDrive(result.data.archive_operation_id, true); } finally { setLoading(button, false); }
+    try {
+      const body = new FormData(form); body.set('client_request_id', requestId('portal-farmup-stage'));
+      const result = await api.postForm('/farmup/stage/', body, tg);
+      if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'FarmUp upload failed.');
+      input.value = ''; showUploadFile(form, filename, true);
+      utils.setCloseProtection?.('portal-farmup-file-selected', false);
+      const message = result.data.replayed ? `${filename} was already uploaded. Opening its worklist.` : `${filename} uploaded successfully. Review the rows before committing.`;
+      window.PortalAppShell?.showToast?.(message, 'success'); feedback(message, 'success');
+      try { await load({silent:true}); await openBatch(result.data.batch.id); }
+      catch (error) { feedback(`CSV uploaded successfully, but its review could not open. Refresh to retry. ${error.message || ''}`, 'error'); }
+      if (result.data.archive_operation_id) await attemptDrive(result.data.archive_operation_id, true);
+    } finally { setLoading(button, false); }
   }
   async function uploadVersion(form) {
     const input = form.querySelector('[data-farmup-file]'); validateFarmupFile(input);
@@ -356,7 +377,7 @@
   });
   document.addEventListener('click', event => { if (!event.target.matches('[data-farmup-file]')) return; pickerActive = true; pickerHadSelection = false; utils.setCloseProtection?.('portal-farmup-file-picker', true); }, true);
   document.addEventListener('cancel', event => { if (event.target.matches('[data-farmup-file]')) finishPicker(); }, true);
-  document.addEventListener('change', event => { if (!event.target.matches('[data-farmup-file]')) return; pickerHadSelection = Boolean(event.target.files?.length); finishPicker(); if (!pickerHadSelection) return; try { validateFarmupFile(event.target); utils.setCloseProtection?.('portal-farmup-file-selected', true); } catch (error) { utils.setCloseProtection?.('portal-farmup-file-selected', false); feedback(error.message, 'error'); } }, true);
+  document.addEventListener('change', event => { if (!event.target.matches('[data-farmup-file]')) return; pickerHadSelection = Boolean(event.target.files?.length); finishPicker(); if (!pickerHadSelection) return; try { validateFarmupFile(event.target); showUploadFile(event.target.form, event.target.files[0].name); utils.setCloseProtection?.('portal-farmup-file-selected', true); } catch (error) { utils.setCloseProtection?.('portal-farmup-file-selected', false); feedback(error.message, 'error'); } }, true);
   function pickerReturned() { if (pickerActive) setTimeout(() => { if (pickerActive && !pickerHadSelection) finishPicker(); }, 80); if (document.visibilityState === 'visible') tg?.disableVerticalSwipes?.(); }
   window.addEventListener('focus', pickerReturned); document.addEventListener('visibilitychange', pickerReturned);
   function onViewportChange() { layoutGrid(); const editor = document.querySelector('.farmup-grid .ag-cell-inline-editing input, .farmup-grid .ag-cell-inline-editing select, .farmup-carousel :focus'); editor?.scrollIntoView?.({block:'center', inline:'nearest'}); }

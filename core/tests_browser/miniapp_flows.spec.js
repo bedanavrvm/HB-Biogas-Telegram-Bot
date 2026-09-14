@@ -11,6 +11,24 @@ async function loadUtilities(page) {
   await page.addScriptTag({ path: asset('utils.js') });
 }
 
+test('FarmUp confirms upload before review loading and keeps the uploaded filename',async({page})=>{
+  await page.setContent(`<div id="portal-screen" data-screen="farmup"><form id="portal-farmup-upload"><input name="period" type="month" value="2026-09"><label class="invoice-upload-dropzone"><input name="file" type="file" data-farmup-file><span data-farmup-file-label>Tap to select CSV file</span></label><button type="submit">Upload CSV</button><p data-farmup-upload-status></p></form><div id="portal-farmup-feedback"></div><div id="portal-farmup-list"></div></div>`);
+  await page.evaluate(()=>{
+    window.PortalMiniAppApi={postForm:async()=>({ok:true,data:{ok:true,batch:{id:'uploaded'}}}),apiFetch:async()=>{throw new Error('Review unavailable');}};
+    window.PortalAppShell={showToast:()=>{}};
+  });
+  await page.addScriptTag({path:asset('portal_farmup.js')});
+  await page.locator('input[type="file"]').setInputFiles({name:'Farmers.csv',mimeType:'text/csv',buffer:Buffer.from('Name\nTest')});
+  await expect(page.locator('[data-farmup-file-label]')).toHaveText('Selected: Farmers.csv');
+  await page.locator('button[type="submit"]').click();
+  await expect(page.locator('[data-farmup-file-label]')).toHaveText('Uploaded: Farmers.csv');
+  await expect(page.locator('[data-farmup-upload-status]')).toContainText('uploaded successfully');
+  await expect(page.locator('#portal-farmup-feedback')).toContainText('CSV uploaded successfully, but its review could not open');
+  await expect(page.locator('input[type="month"]')).toHaveValue('2026-09');
+  await page.locator('input[type="file"]').setInputFiles({name:'Updated.csv',mimeType:'text/csv',buffer:Buffer.from('Name\nTest')});
+  await expect(page.locator('[data-farmup-file-label]')).toHaveText('Selected: Updated.csv');
+});
+
 test('Portal secondary actions use blue without changing primary or destructive colours', async ({page})=>{
   await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><section id="page-farmup"><button class="btn btn-secondary">Refresh</button><button class="btn btn-primary">Upload</button></section><button class="miniapp-filter-trigger">Filters</button><button class="queue-refresh-button">Refresh queue</button><button class="btn-secondary danger">Delete</button></main><div class="sheet-overlay open jbl-visit-sheet"><button class="btn-secondary case360-toggle"><svg viewBox="0 0 24 24"><path stroke="currentColor" d="M1 1h10"/></svg>Case history</button><button class="jbl-media-remove">Remove</button><button class="primary">Save</button></div></body>`);
   for(const name of ['base.css','workflow_standard.css','portal.css']) await page.addStyleTag({path:asset(name)});
@@ -147,12 +165,18 @@ test('FarmUp landing highlights pending work without mobile overflow', async ({ 
   await page.evaluate(()=>window.PortalMiniAppFarmUp.load());
   await expect(page.locator('#farmup-pending-badge')).toContainText('May 2026: 104 rows pending review');
   await expect(page.locator('#farmup-pending-action button')).toHaveAttribute('data-batch-id','pending');
+  const footerAtBottom=async()=>{
+    const bounds=await page.locator('#farmup-pending-action button').boundingBox();
+    expect(Math.abs(bounds.y+bounds.height-page.viewportSize().height)).toBeLessThan(2);
+  };
+  await footerAtBottom();
   await expect(page.locator('.needs-review .farmup-open')).toHaveText('Review rows');
   await expect(page.locator('.farmup-batch-card')).toHaveCount(1);
   await expect(page.locator('#portal-farmup-list')).not.toContainText('April Farmers.csv');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({path:testInfo.outputPath('farmup-mobile.png'),fullPage:true});
   await page.setViewportSize({width:1280,height:800});
+  await footerAtBottom();
   expect(await page.locator('.portal-farmup-upload').evaluate(el=>el.getBoundingClientRect().width)).toBeLessThanOrEqual(620);
   await page.screenshot({path:testInfo.outputPath('farmup-desktop.png'),fullPage:true});
   await page.locator('.farmup-archive').click();
