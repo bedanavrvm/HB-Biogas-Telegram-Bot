@@ -2234,17 +2234,23 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .jbl-media-preview-open svg,
 .jbl-media-remove svg { width:18px; height:18px; }
 .jbl-media-limit-help { grid-column:1 / -1; }
-.jbl-camera-overlay { z-index:var(--portal-z-media, 260); }
-.jbl-camera-sheet { width:min(100%, 560px); max-height:100dvh; display:grid; grid-template-rows:auto minmax(0, 1fr) auto; overflow:hidden; background:var(--bg-surface); }
+.jbl-camera-overlay { z-index:var(--portal-z-media, 260); align-items:flex-end; justify-content:center; padding-top:max(16px,env(safe-area-inset-top)); background:rgba(15,23,42,.48); }
+.jbl-camera-overlay .jbl-camera-sheet { width:min(100%,620px); height:auto; max-height:94dvh; margin:0 auto; padding:8px 14px calc(14px + env(safe-area-inset-bottom,0px)); display:flex; flex-direction:column; overflow:auto; border-radius:20px 20px 0 0; background:var(--bg-surface); box-shadow:0 -18px 50px rgba(0,0,0,.3); }
+.jbl-camera-handle { width:38px; height:4px; flex-shrink:0; margin:2px auto 10px; border-radius:99px; background:var(--border-color); }
+.jbl-camera-sheet .jbl-live-camera-heading { padding:0; border:0; }
+.jbl-camera-sheet .jbl-live-camera-heading h2 { font-size:15px; }
+.jbl-camera-sheet .jbl-live-camera-heading .sheet-sub { font-size:11px; margin-top:3px; }
+.jbl-camera-sheet .sheet-close-button { width:44px; height:44px; min-width:44px; flex-shrink:0; }
 .jbl-live-camera-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .jbl-live-camera-heading h2 { margin:0; color:var(--text-primary); }
-.jbl-camera-viewport { position:relative; width:100%; min-height:240px; max-height:66dvh; aspect-ratio:3 / 4; overflow:hidden; background:#000; }
+.jbl-camera-viewport { position:relative; width:100%; min-height:0; height:min(66dvh,calc((100vw - 28px) * 4 / 3)); flex:0 1 auto; max-height:66dvh; margin:12px 0; border-radius:14px; overflow:hidden; background:#050806; }
 .jbl-camera-viewport video { width:100%; height:100%; display:block; object-fit:cover; }
 .jbl-camera-status { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:16px; background:rgba(0,0,0,.55); color:#fff; font-size:14px; text-align:center; }
 .jbl-camera-status[hidden] { display:none; }
-.jbl-camera-footer { display:grid; gap:10px; padding:14px 16px calc(14px + env(safe-area-inset-bottom)); color:var(--text-muted); font-size:13px; }
+.jbl-camera-footer { display:grid; gap:8px; padding:0; color:var(--text-muted); font-size:11px; }
 .jbl-camera-actions { display:flex; gap:10px; }
-.jbl-camera-actions button { min-height:48px; flex:1; }
+.jbl-camera-actions button { min-height:44px; flex:1; font-size:12px; }
+.jbl-camera-actions .btn-primary { background:var(--brand-primary); border-color:var(--brand-primary); color:var(--brand-primary-text); }
 .jbl-camera-shutter:disabled { opacity:.45; }
 .media-viewer-body.jbl-selection-preview-active { display:flex; flex-direction:column; align-items:stretch; justify-content:stretch; overflow:hidden; }
 .jbl-selection-viewer { width:100%; flex:1 1 auto; min-height:0; display:grid; grid-template-rows:minmax(0,1fr) auto; }

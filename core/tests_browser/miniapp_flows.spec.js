@@ -11,6 +11,25 @@ async function loadUtilities(page) {
   await page.addScriptTag({ path: asset('utils.js') });
 }
 
+test('Portal camera uses the approved bounded bottom card on mobile and desktop', async ({page},testInfo)=>{
+  const template=fs.readFileSync(path.join(root,'core/templates/portal/portal.html'),'utf8');
+  const start=template.indexOf('<div class="sheet-overlay jbl-camera-overlay"');
+  const end=template.indexOf('</section>',start)+10;
+  await page.setContent(`<body class="portal-app">${template.slice(start,end)}</div></body>`);
+  await page.addStyleTag({path:asset('base.css')});
+  await page.addStyleTag({path:asset('portal.css')});
+  await page.locator('#jbl-camera-overlay').evaluate(el=>el.classList.add('open'));
+  for(const [label,width,height] of [['mobile',390,800],['desktop',1280,900],['landscape',700,390]]){
+    await page.setViewportSize({width,height});
+    const bounds=await page.locator('.jbl-camera-sheet').boundingBox();
+    expect(bounds.height).toBeLessThan(height);
+    expect(bounds.width).toBeLessThanOrEqual(620);
+    expect(Math.abs(bounds.y+bounds.height-height)).toBeLessThan(2);
+    await expect(page.locator('#jbl-camera-done')).toBeVisible();
+    await page.screenshot({path:testInfo.outputPath(`camera-${label}.png`),fullPage:true});
+  }
+});
+
 test('Portal filter sheet matches compact mobile controls with one search clear', async ({page}, testInfo)=>{
   const template=fs.readFileSync(path.join(root,'core/templates/portal/partials/queue_tools.html'),'utf8').replace(/\{\{ queue_key \}\}/g,'credit').replace(/\{\{[^]*?\}\}/g,'Cases');
   await page.setViewportSize({width:390,height:700});
