@@ -76,6 +76,21 @@ test('Portal date labels use readable full-year dates',async({page})=>{
   expect(await page.evaluate(()=>window.PortalMiniAppHelpers.fmtDate('2026-05-05'))).toBe('05-May-2026');
 });
 
+test('Order preview exposes and highlights every blocked case reason',async({page})=>{
+  const source=fs.readFileSync(asset('portal_requisitions.js'),'utf8');
+  const render=source.match(/  function openRequisitionPreview\([^]*?\n  \}/)[0];
+  const ids=['requisition-preview-overlay','requisition-preview-sub','requisition-preview-summary','requisition-preview-warnings','requisition-preview-list','requisition-preview-confirm','requisition-preview-cancel','requisition-preview-progress','requisition-finalize-note'];
+  await page.setContent(`<body class="portal-app">${ids.map(id=>id.includes('confirm')||id.includes('cancel')?`<button id="${id}"></button>`:`<div id="${id}"></div>`).join('')}</body>`);
+  for(const file of ['base.css','portal.css']) await page.addStyleTag({path:asset(file)});
+  await page.addScriptTag({content:`const el=id=>document.getElementById(id);const deps={fmtDate:x=>x,escapeHtml:x=>String(x).replaceAll('<','&lt;'),summaryGrid:()=>'',renderWarnings:()=>{}};const renderPrintableRequisition=()=>'<p>Document preview</p>';${render};window.openPreview=openRequisitionPreview;`});
+  await page.evaluate(()=>window.openPreview({order_number:'1',blocked_count:1,ready_count:0,blocked:[{farmer:{id:'case-1',customer_name:'Test farmer'},missing:['Enter the customer account number.','Enter the village.']}]}));
+  await expect(page.locator('.requisition-blocked-case')).toContainText('Test farmer');
+  await expect(page.locator('.requisition-blocked-case')).toContainText('Enter the customer account number.');
+  await expect(page.locator('.requisition-blocked-case')).toContainText('Enter the village.');
+  await expect(page.locator('#requisition-preview-confirm')).toBeDisabled();
+  expect(await page.locator('.requisition-blocker-list').evaluate(el=>getComputedStyle(el).borderTopColor)).toBe('rgb(239, 68, 68)');
+});
+
 test('FarmUp confirms upload before review loading and keeps the uploaded filename',async({page})=>{
   await page.setContent(`<div id="portal-screen" data-screen="farmup"><form id="portal-farmup-upload"><input name="period" type="month" value="2026-09"><label class="invoice-upload-dropzone"><input name="file" type="file" data-farmup-file><span data-farmup-file-label>Tap to select CSV file</span></label><button type="submit">Upload CSV</button><p data-farmup-upload-status></p></form><div id="portal-farmup-feedback"></div><div id="portal-farmup-list"></div></div>`);
   await page.evaluate(()=>{
@@ -150,31 +165,37 @@ test('Portal camera uses full height with an uncropped preview on mobile and des
   }
 });
 
-test('All Cases status filter applies, sends its value and clears cleanly', async ({page})=>{
+test('All Cases checkbox filters apply automatically, combine and clear cleanly', async ({page})=>{
   const template=fs.readFileSync(path.join(root,'core/templates/portal/partials/queue_tools.html'),'utf8')
-    .replace(/\{%[^]*?%\}/g,'').replace(/\{\{ queue_key \}\}/g,'all').replace(/\{\{[^]*?\}\}/g,'Cases');
+    .replace(/\{% else %\}[^]*?\{% endif %\}/g,'').replace(/\{%[^]*?%\}/g,'').replace(/\{\{ queue_key \}\}/g,'all').replace(/\{\{[^]*?\}\}/g,'Cases');
   await page.setContent(`<body class="portal-app">${template}</body>`);
   await page.addStyleTag({path:asset('components.css')});
   await page.addScriptTag({path:asset('components.js')});
   await page.addScriptTag({path:asset('portal_queues.js')});
   await page.addScriptTag({path:asset('portal_filters.js')});
   await page.evaluate(()=>{
-    window.filterState={activePage:'all',pages:{all:1},searches:{},filtersByQueue:{},metaCounties:[],metaBranches:[]};
-    window.PortalMiniAppFilters.init({state:window.filterState,queueConfig:{all:{}},loadQueue:()=>{}});
+    window.filterState={activePage:'all',pages:{all:1},searches:{},filtersByQueue:{},metaCounties:['Kiambu','Nakuru'],metaBranches:['Corporate']};
+    window.filterLoads=0;
+    window.PortalMiniAppFilters.init({state:window.filterState,queueConfig:{all:{}},loadQueue:()=>{window.filterLoads++;}});
     window.PortalMiniAppFilters.setupQueueTools('all');
   });
   await page.locator('[data-portal-filter-trigger]').click();
-  await page.locator('select[name="status"]').selectOption('deferred');
-  await page.locator('button[type="submit"]').click();
-  expect(await page.evaluate(()=>window.filterState.filtersByQueue.all.status)).toBe('deferred');
+  await page.locator('input[name="status"][value="deferred"]').check();
+  await page.locator('input[name="status"][value="credit"]').check();
+  await page.locator('input[name="county"][value="Kiambu"]').check();
+  await expect.poll(()=>page.evaluate(()=>window.filterLoads)).toBeGreaterThan(0);
+  expect(await page.evaluate(()=>window.filterState.filtersByQueue.all.status)).toEqual(['credit','deferred']);
   expect(await page.evaluate(()=>window.PortalMiniAppQueues.queueUrl('all',1,window.filterState))).toContain('status=deferred');
-  await page.locator('[data-portal-filter-trigger]').click();
+  expect(await page.evaluate(()=>window.PortalMiniAppQueues.queueUrl('all',1,window.filterState))).toContain('status=credit');
+  await expect(page.locator('[data-portal-filter-overlay]')).toBeVisible();
+  await page.evaluate(()=>window.PortalMiniAppFilters.updateResultCount('all',17));
+  await expect(page.locator('[data-portal-matching-count]')).toHaveText('17 matching cases');
   await page.locator('[data-portal-filter-reset]').click();
   expect(await page.evaluate(()=>window.filterState.filtersByQueue.all.status)).toBe('');
 });
 
 test('Portal filter sheet matches compact mobile controls with one search clear', async ({page}, testInfo)=>{
-  const template=fs.readFileSync(path.join(root,'core/templates/portal/partials/queue_tools.html'),'utf8').replace(/\{\{ queue_key \}\}/g,'credit').replace(/\{\{[^]*?\}\}/g,'Cases');
+  const template=fs.readFileSync(path.join(root,'core/templates/portal/partials/queue_tools.html'),'utf8').replace(/\{% if queue_key == 'all' %\}[^]*?\{% else %\}/g,'').replace(/\{%[^]*?%\}/g,'').replace(/\{\{ queue_key \}\}/g,'credit').replace(/\{\{[^]*?\}\}/g,'Cases');
   await page.setViewportSize({width:390,height:700});
   await page.setContent(`<body class="portal-app"><main id="content"><div style="padding:12px">${template}</div></main></body>`);
   for(const file of ['base.css','components.css','portal.css']) await page.addStyleTag({path:asset(file)});
@@ -196,7 +217,7 @@ test('Portal filter sheet matches compact mobile controls with one search clear'
   await expect(page.locator('[data-portal-filter-sheet]')).toBeVisible();
   expect(await page.locator('[data-portal-filter-sheet]').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
   await page.screenshot({path:testInfo.outputPath('portal-filters-mobile.png'),fullPage:true});
-  await page.locator('[data-miniapp-sheet-close]').click();
+  await page.locator('[data-miniapp-sheet-close]').first().click();
   await expect(page.locator('[data-portal-filter-overlay]')).toBeHidden();
 });
 

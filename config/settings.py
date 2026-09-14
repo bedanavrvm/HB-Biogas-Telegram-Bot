@@ -290,6 +290,8 @@ PUBLIC_RATE_LIMIT_WINDOW_SECONDS = config('PUBLIC_RATE_LIMIT_WINDOW_SECONDS', de
 STAFF_ACTIVATION_RATE_LIMIT = config('STAFF_ACTIVATION_RATE_LIMIT', default=10, cast=int)
 TELEGRAM_SESSION_LOGIN_RATE_LIMIT = config('TELEGRAM_SESSION_LOGIN_RATE_LIMIT', default=20, cast=int)
 SIGNING_TOKEN_RATE_LIMIT = config('SIGNING_TOKEN_RATE_LIMIT', default=60, cast=int)
+# Diagnostics: requests per minute per actor, with tenfold shared-network
+# headroom. Authentication/signing retain their separate ten-minute limits.
 MINIAPP_DIAGNOSTICS_RATE_LIMIT = config('MINIAPP_DIAGNOSTICS_RATE_LIMIT', default=120, cast=int)
 MANUAL_API_AUTH_FAILURE_RATE_LIMIT = config('MANUAL_API_AUTH_FAILURE_RATE_LIMIT', default=20, cast=int)
 

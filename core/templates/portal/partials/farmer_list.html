@@ -1,4 +1,5 @@
 <span class="portal-fragment-freshness" data-calculated-at="{{ calculated_at }}" hidden></span>
+<div class="portal-result-count" role="status" aria-live="polite" data-portal-result-count data-total="{{ pagination.total }}">{{ pagination.total }} matching case{{ pagination.total|pluralize }}</div>
 {% if farmers %}
   {% for farmer in farmers %}
     {% include "portal/partials/farmer_card.html" with farmer=farmer queue_key=queue_key mode=mode %}

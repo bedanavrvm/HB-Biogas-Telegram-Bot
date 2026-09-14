@@ -257,6 +257,13 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertIn(self.farmer_stage4, all_cases(status='ordered'))
         self.assertFalse(all_cases(status='unexpected').exists())
 
+    def test_all_cases_combines_selections_within_fields_and_narrows_across_fields(self):
+        self.assertEqual(set(all_cases(status=['credit', 'final_review'])),
+                         {self.farmer_stage2, self.farmer_stage_review})
+        self.assertEqual(list(all_cases(status=['credit', 'final_review'],
+                                       county=['Nakuru'], branch=['Naivasha', 'Thika'])),
+                         [self.farmer_stage_review])
+
     def test_farmer_card_exposes_hb_visit_date_source(self):
         card = farmer_to_card(self.farmer_stage1)
         self.assertEqual(card['sign_date'], '24-June-2026')
@@ -2690,6 +2697,12 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(fragment.status_code, 200)
         self.assertContains(fragment, str(self.farmer.pk))
         self.assertNotContains(fragment, str(other.pk))
+        params = {'status': ['deferred', 'credit'], 'county': ['Kiambu', 'Nakuru'], 'branch': ['Ruiru', 'Thika']}
+        response = self.client.get(reverse('portal_all_cases'), params)
+        self.assertEqual(response.json()['pagination']['total'], 2)
+        self.assertEqual({item['id'] for item in response.json()['farmers']}, {str(self.farmer.pk), str(other.pk)})
+        fragment = self.client.get('/api/portal/queues/all/fragment/', params)
+        self.assertContains(fragment, '2 matching cases')
 
     def test_set_final_decision_api(self):
         """Verify Head of Rural final review stores decision and after-call comments."""
@@ -2805,6 +2818,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(preview['jbl_deposit'], '0')
 
     def test_portal_requisition_preview_blocks_missing_customer_no(self):
+        self.client.defaults.update(HTTP_X_MINIAPP_MESSAGE_CONTRACT='2', HTTP_X_REQUEST_ID='order-missing-account', HTTP_IDEMPOTENCY_KEY='order-missing-account')
         self.farmer.final_decision = 'Approved'
         self.farmer.imab_created = 'Yes'
         self.farmer.customer_no = ''
@@ -2824,9 +2838,10 @@ class JblPipelineApiTestCase(TestCase):
         self.assertTrue(data['ok'])
         self.assertEqual(data['ready_count'], 0)
         self.assertEqual(data['blocked_count'], 1)
-        self.assertIn('Customer No', data['blocked'][0]['missing'])
+        self.assertIn('Enter the customer account number.', data['blocked'][0]['missing'])
 
     def test_portal_requisition_preview_blocks_missing_constituency_and_village(self):
+        self.client.defaults.update(HTTP_X_MINIAPP_MESSAGE_CONTRACT='2', HTTP_X_REQUEST_ID='order-missing-location', HTTP_IDEMPOTENCY_KEY='order-missing-location')
         self.farmer.final_decision = 'Approved'
         self.farmer.imab_created = 'Yes'
         self.farmer.customer_no = '15124'
@@ -2848,8 +2863,8 @@ class JblPipelineApiTestCase(TestCase):
         self.assertTrue(data['ok'])
         self.assertEqual(data['ready_count'], 0)
         self.assertEqual(data['blocked_count'], 1)
-        self.assertIn('Constituency', data['blocked'][0]['missing'])
-        self.assertIn('Village', data['blocked'][0]['missing'])
+        self.assertIn('Enter the constituency.', data['blocked'][0]['missing'])
+        self.assertIn('Enter the village.', data['blocked'][0]['missing'])
 
     def test_requisition_preview_merges_original_and_new_clients_for_existing_order(self):
         original = self.farmer

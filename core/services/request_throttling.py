@@ -76,13 +76,14 @@ def consume(
     return ThrottleDecision(allowed=True)
 
 
-def consume_ip(request, *, scope: str, limit: int) -> ThrottleDecision:
-    return consume(scope=scope, key_hash=privacy_safe_ip_key(request), limit=limit)
+def consume_ip(request, *, scope: str, limit: int, window_seconds: int | None = None) -> ThrottleDecision:
+    return consume(scope=scope, key_hash=privacy_safe_ip_key(request), limit=limit, window_seconds=window_seconds)
 
 
-def consume_identity(*, scope: str, kind: str, value: object, limit: int) -> ThrottleDecision:
+def consume_identity(*, scope: str, kind: str, value: object, limit: int, window_seconds: int | None = None) -> ThrottleDecision:
     return consume(
         scope=scope,
         key_hash=privacy_safe_identity_key(kind, value),
         limit=limit,
+        window_seconds=window_seconds,
     )

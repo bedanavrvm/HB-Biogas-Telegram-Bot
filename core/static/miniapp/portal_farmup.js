@@ -334,14 +334,21 @@
       if (!previewResult.ok || !previewResult.data?.ok) throw new Error(previewResult.data?.error || 'Sheet repair preview could not be loaded.');
       const preview = previewResult.data.preview, counts = preview.counts || {};
       if (!preview.sheet_enabled) throw new Error('Master Data Sheet synchronization is not enabled for this Jawabu group.');
-      if (!await confirmDialog(`Repair ${preview.period_label || 'this month'}?`, counts, 'Current Django farmer data will be republished. Review rows and selections will not change; invalid deposits are skipped per farmer.', `Repair ${counts.repairable || 0} farmers`)) return;
+      if (!counts.repairable && !counts.pending) {
+        const message = counts.invalid_deposits ? `${counts.synced || 0} synced. Fix ${counts.invalid_deposits} invalid deposit${counts.invalid_deposits === 1 ? '' : 's'} before syncing the remaining records.` : 'All eligible farmer records are already synced.';
+        feedback(message, counts.invalid_deposits ? 'warning' : 'success');
+        window.PortalAppShell?.showToast?.(message, counts.invalid_deposits ? 'warning' : 'success');
+        return;
+      }
+      if (!await confirmDialog(`${counts.repairable ? 'Repair' : 'Continue syncing'} ${preview.period_label || 'this month'}?`, counts, `${counts.synced || 0} already synced; ${counts.pending || 0} already queued. Only missing or failed publications need new repairs. Review rows and selections will not change.`, counts.repairable ? `Repair ${counts.repairable} farmers` : 'Continue sync')) return;
       setLoading(button, true, 'Queuing'); const key = requestId('portal-farmup-repair');
       const result = await api.postJson(`/farmup/${encodeURIComponent(active.id)}/repair/`, {revision_token:active.revision_token, client_request_id:key}, tg);
       if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Sheet repair could not be queued.');
       (result.data.publications || []).forEach(publication => api.schedulePublication?.(publication, tg));
       const repaired = result.data.result?.repairable || 0, skipped = result.data.result?.skipped_invalid_deposits || 0;
       repairProgress = { pending: new Set(result.data.result?.pending_operation_ids || []), total: (result.data.result?.pending_operation_ids || []).length, failed: 0 };
-      const message = `${repaired} farmer Sheet repair${repaired === 1 ? '' : 's'} queued${skipped ? `; ${skipped} invalid deposit${skipped === 1 ? '' : 's'} skipped` : ''}.`;
+      const continuing = result.data.result?.continuing || 0;
+      const message = `${repaired} new repair${repaired === 1 ? '' : 's'} queued${continuing ? `; continuing ${continuing} queued sync${continuing === 1 ? '' : 's'}` : ''}${skipped ? `; ${skipped} invalid deposit${skipped === 1 ? '' : 's'} skipped` : ''}.`;
       window.PortalAppShell?.showToast?.(message, 'success'); feedback(message, 'success'); await load({silent:true});
     } catch (error) { feedback(error.message, 'error'); window.PortalAppShell?.showToast?.(error.message, 'error'); } finally { setLoading(button, false); }
   }

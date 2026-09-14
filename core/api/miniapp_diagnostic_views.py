@@ -69,8 +69,9 @@ def _error(message: str, *, status: int, code: str) -> JsonResponse:
 def _network_limit(request):
     decision = consume_ip(
         request,
-        scope='miniapp_diagnostics:network',
-        limit=int(getattr(settings, 'MINIAPP_DIAGNOSTICS_RATE_LIMIT', 120)),
+        scope='miniapp_diagnostics:network:minute',
+        limit=int(getattr(settings, 'MINIAPP_DIAGNOSTICS_RATE_LIMIT', 120)) * 10,
+        window_seconds=60,
     )
     if decision.allowed:
         return None
@@ -84,8 +85,9 @@ def _network_limit(request):
 
 def _actor_limit(actor):
     decision = consume_identity(
-        scope='miniapp_diagnostics:actor', kind='django_user', value=actor.pk,
+        scope='miniapp_diagnostics:actor:minute', kind='django_user', value=actor.pk,
         limit=int(getattr(settings, 'MINIAPP_DIAGNOSTICS_RATE_LIMIT', 120)),
+        window_seconds=60,
     )
     if decision.allowed:
         return None

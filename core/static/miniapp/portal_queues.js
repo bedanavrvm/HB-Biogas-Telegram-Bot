@@ -37,8 +37,8 @@
     }
     const filters = (state.filtersByQueue || {})[queueKey] || {};
     ['county', 'branch', 'status', 'ordering'].forEach(function (key) {
-      const value = String(filters[key] || '').trim();
-      if (value) params.set(key, value);
+      const values = Array.isArray(filters[key]) ? filters[key] : [filters[key]];
+      values.forEach(value => { if (String(value || '').trim()) params.append(key, value); });
     });
     if (!params.has('ordering') && state.workspaceOrdering === 'newest') params.set('ordering', 'newest');
   }
@@ -80,6 +80,8 @@
       // replace the current queue (or leave its current loader behind).
       if (deps.isCurrent && !deps.isCurrent()) return false;
       list.innerHTML = html;
+      const count = list.querySelector('[data-portal-result-count]');
+      if (count) window.PortalMiniAppFilters?.updateResultCount(queueKey, count.dataset.total);
       if (queueKey === 'batches') deps.hydrateBatchCards(list);
       else deps.hydrateFarmerCards(list);
       if (deps.state && deps.state.pages) deps.state.pages[queueKey] = page || 1;

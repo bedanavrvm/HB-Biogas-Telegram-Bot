@@ -15,17 +15,32 @@
   <div class="miniapp-sheet-overlay" data-portal-filter-overlay aria-hidden="true" hidden>
     <aside class="miniapp-sheet" data-portal-filter-sheet role="dialog" aria-modal="true" aria-label="Filter {{ queue_label|default:'queue' }}">
       <header class="miniapp-sheet-header">
-        <div><strong>Filter cases</strong><p>Narrow this queue without changing your access.</p></div>
+        <div><strong>Filter cases</strong><p data-portal-matching-count role="status" aria-live="polite">Choose filters to narrow this queue.</p></div>
         <button type="button" data-miniapp-sheet-close aria-label="Close filters"><i data-lucide="x" aria-hidden="true"></i></button>
       </header>
       <form class="miniapp-sheet-body" data-portal-filter-form>
+        {% if queue_key == 'all' %}
+        <p class="portal-filter-help">Select any number. Choices within a section are combined; sections narrow each other.</p>
+        <fieldset class="portal-filter-options"><legend>County</legend><div data-portal-filter-options="county"></div></fieldset>
+        <fieldset class="portal-filter-options"><legend>Branch</legend><div data-portal-filter-options="branch"></div></fieldset>
+        <fieldset class="portal-filter-options"><legend>Status</legend><div>
+          <label><input type="checkbox" name="status" value="jbl_visit">Awaiting visit</label>
+          <label><input type="checkbox" name="status" value="credit">Awaiting credit analysis</label>
+          <label><input type="checkbox" name="status" value="final_review">Awaiting final review</label>
+          <label><input type="checkbox" name="status" value="order">Ready for order</label>
+          <label><input type="checkbox" name="status" value="ordered">Ordered</label>
+          <label><input type="checkbox" name="status" value="deferred">Deferred</label>
+          <label><input type="checkbox" name="status" value="rejected">Rejected</label>
+          <label><input type="checkbox" name="status" value="withdrawn">Withdrawn</label>
+        </div></fieldset>
+        {% else %}
         <label>County<select name="county"><option value="">All counties</option></select></label>
         <label>Branch<select name="branch"><option value="">All branches</option></select></label>
-        {% if queue_key == 'all' %}<label>Status<select name="status"><option value="">All statuses</option><option value="jbl_visit">Awaiting visit</option><option value="credit">Awaiting credit analysis</option><option value="final_review">Awaiting final review</option><option value="order">Ready for order</option><option value="ordered">Ordered</option><option value="deferred">Deferred</option><option value="rejected">Rejected</option><option value="withdrawn">Withdrawn</option></select></label>{% endif %}
+        {% endif %}
         <label>Show<select name="ordering"><option value="">Needs attention first</option><option value="newest">Newest first</option></select></label>
         <footer class="miniapp-sheet-actions">
           <button type="button" class="btn btn-secondary" data-portal-filter-reset>Reset</button>
-          <button type="submit" class="btn btn-primary">Apply filters</button>
+          <button type="button" class="btn btn-primary" data-miniapp-sheet-close>Done</button>
         </footer>
       </form>
     </aside>

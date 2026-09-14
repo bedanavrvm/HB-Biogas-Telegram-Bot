@@ -128,6 +128,11 @@ test('Portal deferred review gates the existing stage action and blocks expired 
   await boot(page, 'deferred', false, ['portal.deferred.view', 'portal.case.read']);
   await page.locator('.farmer-card').click();
   await expect(page.locator('#sheet-form')).toContainText('Deferred / On Hold');
+  await expect(page.locator('#sheet-overlay')).toHaveClass(/operational-detail-sheet/);
+  await expect(page.locator('#sheet-navigation')).toBeVisible();
+  await expect(page.locator('#sheet-back')).toContainText('Deferred');
+  await expect(page.locator('#sheet-header-state')).toHaveText('Paused');
+  await expect(page.locator('.deferred-summary')).toBeVisible();
   await expect(page.locator('#sheet-footer button')).toHaveCount(0);
   await page.evaluate(() => {
     window.__state.capabilities.add('portal.credit.write');
@@ -145,7 +150,16 @@ test('Portal unfinished visit and local media survive inspection; nested Back cl
   await page.evaluate(() => window.__state.capabilities.add('portal.jbl_media.write'));
   await page.locator('.farmer-card').click();
   await page.locator('#jbl-comment').fill('Synthetic unfinished visit notes');
-  await page.locator('#jbl-visit-photo-media').setInputFiles({ name: 'synthetic.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('synthetic media') });
+  const image = await page.evaluate(() => {
+    const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 256;
+    const context = canvas.getContext('2d');
+    for (let x = 0; x < 256; x += 8) for (let y = 0; y < 256; y += 8) {
+      context.fillStyle = `hsl(${(x * 13 + y * 17) % 360} 80% 50%)`;
+      context.fillRect(x, y, 8, 8);
+    }
+    return canvas.toDataURL('image/jpeg').split(',')[1];
+  });
+  await page.locator('#jbl-visit-photo-media').setInputFiles({ name: 'synthetic.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(image, 'base64') });
   await expect(page.locator('#jbl-visit-photo-media-name')).toContainText('1 selected');
   await page.locator('#case360-toggle').click();
   await expect(page).toHaveURL(/\/cases\/case-1/);

@@ -819,6 +819,16 @@ def farmup_repair_preview(
     farmers = list(JawabuFarmerMaster.objects.filter(pk__in=farmer_ids).order_by('pk'))
     invalid_ids = {str(farmer.pk) for farmer in farmers if _farmup_invalid_deposit(farmer)}
     eligible = [farmer for farmer in farmers if str(farmer.pk) not in invalid_ids] if sheet_enabled else []
+    from core.services.portal_publication import MASTER_OPERATION, _current_operations
+
+    current_operations = {
+        str(farmer.pk): next((operation for operation in _current_operations(farmer)
+                             if operation.operation_type == MASTER_OPERATION), None)
+        for farmer in eligible
+    }
+    synced = [farmer for farmer in eligible if current_operations[str(farmer.pk)]
+              and current_operations[str(farmer.pk)].status == IntegrationOperation.STATUS_SUCCEEDED]
+    eligible = [farmer for farmer in eligible if farmer not in synced]
     operation_ids = _farmup_repair_operation_ids(batch)
     operations = list(IntegrationOperation.objects.filter(
         pk__in=operation_ids, source_model='JawabuFarmerMaster', source_id__in=farmer_ids,
@@ -827,10 +837,10 @@ def farmup_repair_preview(
     failures: dict[str, int] = {}
     last_failure_at = None
     failure_categories: dict[str, int] = {}
-    farmer_statuses: dict[str, set[str]] = {}
+    currently_failed = {farmer_id for farmer_id, operation in current_operations.items()
+                        if operation and operation.status == IntegrationOperation.STATUS_DEAD_LETTER}
     for operation in operations:
-        farmer_statuses.setdefault(operation.source_id, set()).add(operation.status)
-        if operation.status == IntegrationOperation.STATUS_DEAD_LETTER:
+        if operation.source_id in currently_failed and operation.status == IntegrationOperation.STATUS_DEAD_LETTER:
             failures[operation.source_id] = failures.get(operation.source_id, 0) + 1
             category = str(operation.last_error_code or 'external_error')
             failure_categories[category] = failure_categories.get(category, 0) + 1
@@ -849,13 +859,16 @@ def farmup_repair_preview(
         if str(row.get('disposition') or '') not in {'exclude', 'excluded'} and _farmup_database_match(current, row, index).get('kind') == 'unchanged':
             unchanged_count += 1
     counts = {
-        'repairable': len(eligible),
+        'repairable': sum(1 for farmer in eligible if current_operations[str(farmer.pk)] is None
+                          or current_operations[str(farmer.pk)].status == IntegrationOperation.STATUS_DEAD_LETTER),
+        'synced': len(synced),
         'committed': int(current.committed_count or 0),
         'unchanged': unchanged_count,
         'held': sum(1 for row in current_rows if str(row.get('disposition') or '') == 'hold'),
         'excluded': int(current.skipped_count or 0),
         'unresolved': int(current.review_needed or 0),
-        'pending': sum(1 for farmer_id in farmer_ids if farmer_statuses.get(farmer_id, set()) & pending_statuses),
+        'pending': sum(1 for farmer in eligible if current_operations[str(farmer.pk)]
+                       and current_operations[str(farmer.pk)].status in pending_statuses),
         'failed_once': sum(1 for count in failures.values() if count == 1),
         'repeatedly_failing': sum(1 for count in failures.values() if count >= 2),
         'invalid_deposits': len(invalid_ids),
@@ -900,25 +913,32 @@ def repair_portal_farmup(
         batch_id=str(batch.pk), revision_token=revision_token,
         allowed_group_ids=allowed_group_ids,
     )
-    from core.services.portal_publication import MASTER_OPERATION, publication_payload, reserve_farmer_publication
+    from core.services.portal_publication import MASTER_OPERATION, _current_operations, publication_payload, reserve_farmer_publication
 
     publications = []
     namespace = f'farmup-repair:{batch.worklist_id}:{request_id}'
     for farmer in farmers:
-        reserve_farmer_publication(
-            farmer, request_id=request_id, requested_by=actor,
-            requested_by_label=batch.sender,
-            required_capability='portal.publication.retry',
-            deduplication_namespace=namespace,
-            extra_metadata={
-                'farmup_worklist_id': str(batch.worklist_id),
-                'farmup_period': preview['period'], 'farmup_repair': True,
-            },
-            operation_types=[MASTER_OPERATION],
-        )
+        current_operation = next((operation for operation in _current_operations(farmer)
+                                  if operation.operation_type == MASTER_OPERATION), None)
+        # Continue an existing queued attempt instead of creating a new one
+        # every time the reviewer clicks Repair.
+        if current_operation is None or current_operation.status == IntegrationOperation.STATUS_DEAD_LETTER:
+            reserve_farmer_publication(
+                farmer, request_id=request_id, requested_by=actor,
+                requested_by_label=batch.sender,
+                required_capability='portal.publication.retry',
+                deduplication_namespace=namespace,
+                extra_metadata={
+                    'farmup_worklist_id': str(batch.worklist_id),
+                    'farmup_period': preview['period'], 'farmup_repair': True,
+                },
+                operation_types=[MASTER_OPERATION],
+            )
         publications.append(publication_payload(farmer))
     result = {
-        'success': True, 'repairable': len(farmers),
+        'success': True, 'repairable': int(preview['counts']['repairable']),
+        'already_synced': int(preview['counts']['synced']),
+        'continuing': int(preview['counts']['pending']),
         'skipped_invalid_deposits': int(preview['counts']['invalid_deposits']),
         'publications': publications,
         'pending_operation_ids': [

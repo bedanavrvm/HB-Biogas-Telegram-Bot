@@ -373,16 +373,24 @@ def _paginate_list(items: list, request, page_size: int = 30):
     return items[start:end], pagination
 
 
+def _portal_filter_values(params, key):
+    values = params.getlist(key) if hasattr(params, 'getlist') else params.get(key, [])
+    if not isinstance(values, (list, tuple)):
+        values = [values]
+    return list(dict.fromkeys(str(value).strip() for value in values if str(value).strip()))
+
+
 def _apply_county_branch_filters(qs, request, *, params=None, capability: str = ''):
     from django.db.models import Q
 
     params = params if params is not None else request.GET
-    county = params.get('county', '').strip()
-    branch = params.get('branch', '').strip()
-    if county:
-        qs = qs.filter(county__iexact=county)
-    if branch:
-        qs = qs.filter(branch__iexact=branch)
+    for field in ['county', 'branch']:
+        values = _portal_filter_values(params, field)
+        if values:
+            condition = Q(pk__in=[])
+            for value in values:
+                condition |= Q(**{f'{field}__iexact': value})
+            qs = qs.filter(condition)
     access = getattr(request, 'portal_access', None)
     if capability:
         from core.services.portal_permissions import scope_portal_case_queryset
@@ -719,9 +727,7 @@ def _portal_queue_queryset(queue_key: str, request, *, params=None):
     elif queue_key == 'all':
         qs = jawabu_pipeline.all_cases(
             search=params.get('search', '').strip(),
-            county=params.get('county', '').strip(),
-            branch=params.get('branch', '').strip(),
-            status=params.get('status', '').strip(),
+            status=_portal_filter_values(params, 'status'),
         )
         qs = _apply_county_branch_filters(qs, request, params=params, capability=queue_capability)
     else:
@@ -909,17 +915,17 @@ def _validate_requisition_farmers(farmers) -> tuple[list[dict], list[dict], list
         }
         missing = []
         if farmer.final_decision != 'Approved':
-            missing.append(f"Final Decision is {farmer.final_decision or 'not set'}")
+            missing.append(f"Final approval is required (currently {farmer.final_decision or 'not recorded'}).")
         if not farmer.customer_name:
-            missing.append('Customer Name')
+            missing.append('Enter the customer name.')
         if not farmer.customer_no:
-            missing.append('Customer No')
+            missing.append('Enter the customer account number.')
         if not farmer.imab_created:
-            missing.append('IMAB status')
+            missing.append('Confirm that the customer account has been created in IMAB.')
         if not str(farmer.sub_county or '').strip():
-            missing.append('Constituency')
+            missing.append('Enter the constituency.')
         if not str(farmer.village or '').strip():
-            missing.append('Village')
+            missing.append('Enter the village.')
         if not farmer.national_id:
             warnings.append({'farmer_id': str(farmer.id), 'message': f'{farmer.customer_name or farmer.id}: National ID is blank.'})
         if not farmer.primary_phone:
@@ -4784,10 +4790,8 @@ def portal_all_cases(request):
     if access_error:
         return access_error
     search = request.GET.get('search', '').strip()
-    county = request.GET.get('county', '').strip()
-    branch = request.GET.get('branch', '').strip()
-    status = request.GET.get('status', '').strip()
-    qs = all_cases(search=search, county=county, branch=branch, status=status)
+    status = _portal_filter_values(request.GET, 'status')
+    qs = all_cases(search=search, status=status)
     qs = _apply_portal_ordering(_apply_county_branch_filters(
         qs, request, capability='portal.case.read',
     ), params=request.GET)

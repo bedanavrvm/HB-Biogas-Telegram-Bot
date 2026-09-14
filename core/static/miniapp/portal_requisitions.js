@@ -822,10 +822,6 @@
     const cancel = el('requisition-preview-cancel');
     const progress = el('requisition-preview-progress');
     const note = el('requisition-finalize-note');
-    const blockedById = {};
-    (data.blocked || []).forEach(item => {
-      if (item.farmer?.id) blockedById[item.farmer.id] = item.missing || [];
-    });
     sub.textContent = `Order ${data.order_number} - ${deps.fmtDate(data.requisition_date)}`;
     summary.innerHTML = deps.summaryGrid([
       { label: 'Ready', value: String(data.ready_count || 0) },
@@ -833,7 +829,11 @@
       { label: 'Warnings', value: String(data.warning_count || 0) },
     ]);
     deps.renderWarnings(warnings, data.warnings || []);
-    list.innerHTML = renderPrintableRequisition(data);
+    const blockers = (data.blocked || []).map(item => {
+      const name = item.farmer?.customer_name || 'Selected case';
+      return `<article class="requisition-blocked-case"><h4>${deps.escapeHtml(name)}</h4><ul>${(item.missing || []).map(reason => `<li>${deps.escapeHtml(reason)}</li>`).join('') || '<li>This case is not ready. Refresh the case to check its current status.</li>'}</ul></article>`;
+    }).join('');
+    list.innerHTML = `${blockers ? `<section class="requisition-blocker-list" role="alert"><h3>Fix these items before finalizing</h3>${blockers}</section>` : ''}${renderPrintableRequisition(data)}`;
     // A previous generation may have left the progress row visible. History
     // previews are read-only and must never imply that a workbook is being
     // generated or make another generation request.
@@ -852,7 +852,7 @@
     if (note) {
       note.hidden = readOnly;
       note.textContent = confirm.disabled
-        ? 'Every selected case must be ready before an official number can be consumed.'
+        ? 'Fix the highlighted items for each blocked case, then return to Order Preparation and preview again.'
         : `Finalizing assigns official order ${data.order_number}, freezes these ${data.ready_count || 0} cases and stores the workbook in Django. Drive publication happens separately.`;
     }
     if (cancel) cancel.textContent = readOnly ? 'Close Preview' : 'Back';

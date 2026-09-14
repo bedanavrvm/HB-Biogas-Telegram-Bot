@@ -106,16 +106,35 @@ class FocusedRateLimitingTests(TestCase):
 
     @override_settings(MINIAPP_DIAGNOSTICS_RATE_LIMIT=1)
     def test_diagnostic_ingestion_attempts_are_limited(self):
-        first = self.client.post(
+        for _ in range(10):
+            response = self.client.post(
+                '/api/miniapp-diagnostics/sessions/start/', data='{}',
+                content_type='application/json', **self.request_headers,
+            )
+            self.assertEqual(response.status_code, 400)
+        blocked = self.client.post(
             '/api/miniapp-diagnostics/sessions/start/', data='{}',
             content_type='application/json', **self.request_headers,
         )
-        second = self.client.post(
-            '/api/miniapp-diagnostics/sessions/start/', data='{}',
-            content_type='application/json', **self.request_headers,
-        )
-        self.assertEqual(first.status_code, 400)
-        self.assertEqual(second.status_code, 429)
+        self.assertEqual(blocked.status_code, 429)
+        self.assertLessEqual(int(blocked['Retry-After']), 61)
+
+    @override_settings(MINIAPP_DIAGNOSTICS_RATE_LIMIT=2)
+    def test_diagnostic_actor_budget_is_separate_and_resets_each_minute(self):
+        from datetime import datetime, timedelta, timezone
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from core.api.miniapp_diagnostic_views import _actor_limit
+
+        actor = SimpleNamespace(pk=101)
+        now = datetime(2026, 9, 14, 18, 15, tzinfo=timezone.utc)
+        with patch('core.services.request_throttling.timezone.now', return_value=now):
+            self.assertIsNone(_actor_limit(actor))
+            self.assertIsNone(_actor_limit(actor))
+            self.assertEqual(_actor_limit(actor).status_code, 429)
+            self.assertIsNone(_actor_limit(SimpleNamespace(pk=102)))
+        with patch('core.services.request_throttling.timezone.now', return_value=now + timedelta(minutes=1)):
+            self.assertIsNone(_actor_limit(actor))
 
     @override_settings(API_AUTH_TOKEN='valid-manual-token', MANUAL_API_AUTH_FAILURE_RATE_LIMIT=1)
     def test_only_failed_manual_credentials_consume_failure_limit(self):

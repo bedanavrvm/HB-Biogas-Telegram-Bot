@@ -573,7 +573,8 @@ class PortalImportStagingTests(TestCase):
                 batch_id=str(batch.pk), revision_token=token,
                 allowed_group_ids={self.group.group_id},
             )
-            self.assertEqual(preview['counts']['repairable'], 1)
+            self.assertEqual(preview['counts']['repairable'], 0)
+            self.assertEqual(preview['counts']['pending'], 1)
             self.assertEqual(len(farmers), 1)
             repaired, result, replayed = repair_portal_farmup(
                 batch_id=str(batch.pk), revision_token=token,
@@ -581,7 +582,8 @@ class PortalImportStagingTests(TestCase):
                 allowed_group_ids={self.group.group_id},
             )
             self.assertFalse(replayed)
-            self.assertEqual(result['repairable'], 1)
+            self.assertEqual(result['repairable'], 0)
+            self.assertEqual(result['continuing'], 1)
             self.assertTrue(result['pending_operation_ids'])
             repeated, repeated_result, replayed = repair_portal_farmup(
                 batch_id=str(batch.pk), revision_token=token,
@@ -593,6 +595,24 @@ class PortalImportStagingTests(TestCase):
         self.assertEqual(repeated_result, result)
         self.assertEqual(JawabuFarmerMaster.objects.count(), 1)
         self.assertTrue(ComplianceAuditEvent.objects.filter(action='portal.farmup.sheet_repair_reserved').exists())
+
+        # A different click/request key continues the same pending operation.
+        operation_count = IntegrationOperation.objects.filter(operation_type='jawabu_master_publish').count()
+        with patch('core.services.portal_publication._targets_for_farmer', return_value=['jawabu_master_publish']):
+            _batch, result, _replayed = repair_portal_farmup(
+                batch_id=str(batch.pk), revision_token=token, request_id='repair-request-2',
+                actor=self.user, allowed_group_ids={self.group.group_id},
+            )
+        self.assertEqual(result['continuing'], 1)
+        self.assertEqual(IntegrationOperation.objects.filter(operation_type='jawabu_master_publish').count(), operation_count)
+        IntegrationOperation.objects.filter(operation_type='jawabu_master_publish').update(status=IntegrationOperation.STATUS_SUCCEEDED)
+        _batch, preview, farmers = farmup_repair_preview(
+            batch_id=str(batch.pk), revision_token=token, allowed_group_ids={self.group.group_id},
+        )
+        self.assertEqual(preview['counts']['synced'], 1)
+        self.assertEqual(preview['counts']['pending'], 0)
+        self.assertEqual(preview['counts']['repairable'], 0)
+        self.assertEqual(farmers, [])
 
         batch.portal_revision += 1
         batch.save(update_fields=['portal_revision'])
@@ -678,7 +698,8 @@ class PortalImportStagingTests(TestCase):
             {'revision_token': token},
         )
         self.assertEqual(preview.status_code, 200)
-        self.assertEqual(preview.json()['preview']['counts']['repairable'], 1)
+        self.assertEqual(preview.json()['preview']['counts']['repairable'], 0)
+        self.assertEqual(preview.json()['preview']['counts']['pending'], 1)
 
         request_key = 'repair-api-request-1'
         response = self.client.post(

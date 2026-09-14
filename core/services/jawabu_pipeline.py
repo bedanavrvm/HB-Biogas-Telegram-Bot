@@ -365,10 +365,14 @@ def all_cases(search: str = '', county: str = '', branch: str = '', status: str 
     Aggregates across all groups.
     """
     qs = JawabuFarmerMaster.objects.all()
-    if county:
-        qs = qs.filter(county__iexact=county)
-    if branch:
-        qs = qs.filter(branch__iexact=branch)
+    for field, values in [('county', county), ('branch', branch)]:
+        values = values if isinstance(values, (list, tuple)) else [values]
+        selected = [str(value).strip() for value in values if str(value).strip()]
+        if selected:
+            condition = Q(pk__in=[])
+            for value in selected:
+                condition |= Q(**{f'{field}__iexact': value})
+            qs = qs.filter(condition)
     if status:
         status_filters = {
             JawabuWorkflowState.JBL_VISIT: Q(workflow_state=JawabuWorkflowState.JBL_VISIT) | Q(workflow_state='', jbl_visit_date__isnull=True, deferred_until__isnull=True, final_decision='', credit_decision__in=['', 'Pending']),
@@ -380,7 +384,11 @@ def all_cases(search: str = '', county: str = '', branch: str = '', status: str 
             JawabuWorkflowState.REJECTED: Q(workflow_state=JawabuWorkflowState.REJECTED) | Q(workflow_state='', jbl_visit_status='Rejected by JBL') | Q(workflow_state='', credit_decision='Rejected') | Q(workflow_state='', final_decision='Rejected'),
             JawabuWorkflowState.WITHDRAWN: Q(workflow_state=JawabuWorkflowState.WITHDRAWN) | Q(workflow_state='', jbl_visit_status__in=['Opted for Cash', 'Opted for Other Partner', 'Client Withdrew']),
         }
-        qs = qs.filter(status_filters.get(status, Q(pk__in=[])))
+        selected_statuses = status if isinstance(status, (list, tuple)) else [status]
+        condition = Q(pk__in=[])
+        for selected_status in selected_statuses:
+            condition |= status_filters.get(selected_status, Q(pk__in=[]))
+        qs = qs.filter(condition)
     if search:
         qs = qs.filter(
             Q(customer_name__icontains=search) |

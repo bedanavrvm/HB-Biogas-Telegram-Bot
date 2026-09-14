@@ -106,7 +106,7 @@ def _current_operations(farmer) -> list[IntegrationOperation]:
     ).order_by('-created_at')
     latest: dict[str, IntegrationOperation] = {}
     for row in rows:
-        if int((row.metadata or {}).get('workflow_revision') or -1) != revision:
+        if int((row.metadata or {}).get('workflow_revision', -1)) != revision:
             continue
         latest.setdefault(row.operation_type, row)
     return list(latest.values())

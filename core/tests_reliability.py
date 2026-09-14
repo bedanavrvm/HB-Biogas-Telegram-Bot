@@ -250,6 +250,17 @@ class ExternalResilienceTests(TestCase):
 
 
 class PortalPublicationReservationTests(TestCase):
+    @patch('core.services.portal_publication._targets_for_farmer', return_value=[MASTER_OPERATION])
+    def test_zero_revision_publication_is_visible_and_new_revision_needs_new_work(self, _targets):
+        farmer = SimpleNamespace(pk='case-zero-revision', workflow_revision=0)
+        operation = reserve_farmer_publication(farmer)[0]
+        self.assertEqual(publication_payload(farmer)['status'], 'pending')
+        operation.status = IntegrationOperation.STATUS_SUCCEEDED
+        operation.save(update_fields=['status'])
+        self.assertEqual(publication_payload(farmer)['status'], 'synced')
+        farmer.workflow_revision = 1
+        self.assertEqual(publication_payload(farmer)['operations'], [])
+
     @patch('core.services.portal_publication._targets_for_farmer', return_value=[MASTER_OPERATION, INTERNAL_ORDER_OPERATION])
     def test_same_case_revision_reserves_one_durable_operation_per_register(self, _targets):
         farmer = SimpleNamespace(pk='case-opaque-1', workflow_revision=7)

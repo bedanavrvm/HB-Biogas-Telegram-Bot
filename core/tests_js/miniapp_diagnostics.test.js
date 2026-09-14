@@ -12,6 +12,7 @@ const source = fs.readFileSync(
 const storageValues = new Map();
 
 function launch(options) {
+  const timers = [];
   const listeners = {};
   const documentListeners = {};
   const localStorage = options && options.brokenStorage ? {
@@ -35,9 +36,9 @@ function launch(options) {
     location: { pathname: '/api/portal/' },
     localStorage,
     crypto: { randomUUID: () => require('node:crypto').randomUUID() },
-    fetch: () => Promise.reject(new Error('offline')),
+    fetch: options?.fetch || (() => Promise.reject(new Error('offline'))),
     addEventListener(name, callback) { listeners[name] = callback; },
-    setTimeout() { return 1; },
+    setTimeout(callback, delay) { timers.push({callback, delay}); return timers.length; },
     clearTimeout() {},
     setInterval() { return 2; },
     clearInterval() {},
@@ -46,7 +47,7 @@ function launch(options) {
   window.window = window;
   const context = {
     window, document,
-    navigator: { onLine: false, deviceMemory: 2 },
+    navigator: { onLine: options?.online || false, deviceMemory: 2 },
     XMLHttpRequest: Xhr,
     Headers: class { get() { return ''; } },
     Blob: class {},
@@ -54,7 +55,7 @@ function launch(options) {
     encodeURIComponent
   };
   vm.runInNewContext(source, context, { filename: 'diagnostics.js' });
-  return { window, document, listeners, documentListeners };
+  return { window, document, listeners, documentListeners, timers };
 }
 
 storageValues.clear();
@@ -94,4 +95,23 @@ assert.equal(typeof third.window.MiniAppDiagnostics.intentionalClose, 'function'
 assert.match(source, /response\.status === 404 && data\.code === 'diagnostic_session_not_found'/);
 assert.match(source, /session\.server_started = false/);
 
-console.log('miniapp diagnostics client tests passed');
+async function testRateLimitBackoff() {
+  storageValues.clear();
+  let requests = 0;
+  const client = launch({online:true, fetch:async()=>{
+    requests++;
+    return {status:429, ok:false, headers:{get:()=> '60'}, json:async()=>({code:'retry_later'})};
+  }});
+  await client.window.MiniAppDiagnostics.flush();
+  client.timers.at(-1).callback();
+  await new Promise(resolve=>setImmediate(resolve));
+  const timer = client.timers.at(-1);
+  assert.ok(timer.delay >= 59000, '429 respects the server Retry-After instead of retrying in two seconds');
+  client.window.MiniAppDiagnostics.recordRequest('new-workflow-request','ok');
+  assert.ok(client.timers.at(-1).delay >= 59000, 'new workflow signals cannot bypass diagnostic cooldown');
+  await client.window.MiniAppDiagnostics.flush();
+  client.timers.at(-1).callback();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(requests,1,'manual flush does not bypass diagnostic cooldown');
+}
+testRateLimitBackoff().then(()=>console.log('miniapp diagnostics client tests passed')).catch(error=>{console.error(error);process.exitCode=1;});

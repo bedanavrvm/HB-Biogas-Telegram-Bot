@@ -3868,3 +3868,26 @@ body.portal-app :is(#content, .sheet-overlay) :is(.btn-primary, button.primary) 
 body.portal-app :is(#content, .sheet-overlay) :is(.danger, .destructive, .btn-danger, .jbl-media-remove, .jbl-selection-delete) {
   color:var(--status-danger);
 }
+
+/* Match the approved compact queues: full-width result counts and real buttons. */
+.portal-result-count { font-size:12px; font-weight:600; color:var(--text-muted); padding:4px 0 10px; }
+.portal-filter-help { font-size:12px; color:var(--text-muted); margin:0 0 8px; }
+.portal-filter-options { border:0; padding:0; margin:0 0 14px; min-width:0; }
+.portal-filter-options legend { font-size:12px; font-weight:600; padding:0 0 6px; }
+.portal-filter-options > div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; max-height:190px; overflow:auto; }
+body.portal-app .portal-filter-options label { display:flex; align-items:center; gap:8px; font-size:12px; padding:8px; border:1px solid var(--border-color); border-radius:8px; cursor:pointer; }
+body.portal-app .portal-filter-options input[type=checkbox] { width:16px; height:16px; flex:0 0 16px; margin:0; accent-color:var(--brand-primary); }
+.portal-filter-options label:has(input:checked) { background:color-mix(in srgb,var(--brand-primary) 9%,var(--bg-surface)); border-color:var(--brand-primary); }
+body.portal-app .sheet-overlay .case360-toggle { display:flex; align-items:center; justify-content:center; gap:8px; min-height:40px; padding:8px 12px; border:1px solid var(--brand-primary); border-radius:9px; background:color-mix(in srgb,var(--brand-primary) 7%,var(--bg-surface)); text-decoration:none; margin-top:10px; }
+body.portal-app .sheet-overlay .case360-toggle svg { width:16px; height:16px; flex:0 0 16px; }
+.deferred-summary { border-radius:12px; padding:14px; border-left:4px solid #d97706; }
+.deferred-summary h3 { font-size:14px; margin:0 0 8px; }
+.deferred-summary p { font-size:12px; line-height:1.5; }
+.requisition-blocker-list { margin:0 0 14px; border:1px solid #ef4444; border-radius:10px; padding:12px; background:color-mix(in srgb,#ef4444 9%,var(--bg-surface)); }
+.requisition-blocker-list h3 { font-size:14px; color:var(--status-danger); margin:0 0 10px; }
+.requisition-blocked-case h4 { font-size:13px; margin:8px 0 4px; }
+.requisition-blocked-case ul { font-size:12px; line-height:1.5; margin:0; padding-left:18px; }
+body.portal-app .farmup-cell-invalid, body.portal-app .farmup-carousel-field.invalid { background:color-mix(in srgb,#ef4444 14%,var(--bg-surface)) !important; border-left:3px solid #ef4444 !important; }
+body.portal-app .farmup-grid-row-blocked { background:color-mix(in srgb,#ef4444 7%,var(--bg-surface)); }
+body.portal-app .farmup-carousel-card.needs_correction { background:color-mix(in srgb,#ef4444 7%,var(--bg-surface)); border-left:3px solid #ef4444; }
+body.portal-app .farmup-grid-row-warning, body.portal-app .farmup-carousel-card.warning { background:color-mix(in srgb,#f59e0b 12%,var(--bg-surface)); border-left:3px solid #f59e0b; }

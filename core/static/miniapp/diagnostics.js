@@ -24,6 +24,7 @@
     let flushTimer = null;
     let flushInFlight = false;
     let retryIndex = 0;
+    let retryNotBefore = 0;
     let heartbeatTimer = null;
 
     function uuid() {
@@ -277,6 +278,7 @@
         session.discard = true;
         return false;
       }
+      respectDiagnosticBackoff(response);
       if (!response.ok || data.ok === false) throw new Error('diagnostic_start_failed');
       session.server_started = true;
       session.signal_token = String(data.signal_token || '');
@@ -305,6 +307,7 @@
           writeStore(store);
           throw new Error('diagnostic_session_reset');
         }
+        respectDiagnosticBackoff(response);
         if (!response.ok || data.ok === false) throw new Error('diagnostic_signal_failed');
         const acknowledged = new Set(Array.isArray(data.acknowledged) ? data.acknowledged : []);
         if (!acknowledged.size) throw new Error('diagnostic_ack_missing');
@@ -313,8 +316,17 @@
       }
     }
 
+    function respectDiagnosticBackoff(response) {
+      if (response.status !== 429) return;
+      const header = response.headers?.get?.('Retry-After');
+      const seconds = Number(header);
+      const delay = header && Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - Date.now();
+      retryNotBefore = Date.now() + Math.max(1000, Number.isFinite(delay) ? delay : 60000);
+    }
+
     async function flushAll() {
       if (flushInFlight || navigator.onLine === false) return;
+      if (Date.now() < retryNotBefore) { scheduleFlush(retryNotBefore - Date.now()); return; }
       flushInFlight = true;
       try {
         const sessions = store.sessions.slice();
@@ -338,12 +350,13 @@
     function scheduleFlush(delay) {
       try {
         window.clearTimeout(flushTimer);
-        flushTimer = window.setTimeout(function () { flushAll().catch(noop); }, Number(delay || 0));
+        flushTimer = window.setTimeout(function () { flushAll().catch(noop); }, Math.max(Number(delay || 0), retryNotBefore - Date.now()));
       } catch (_) {}
     }
 
     function sendCloseBeacon(event) {
       try {
+        if (Date.now() < retryNotBefore) return false;
         if (!current.signal_token) return false;
         const url = '/api/miniapp-diagnostics/sessions/' + encodeURIComponent(current.session_uuid) + '/signals/';
         const payload = JSON.stringify({ signal_token: current.signal_token, events: [event] });

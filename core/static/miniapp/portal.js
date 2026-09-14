@@ -907,7 +907,8 @@
     if (queueSearch) params.set('search', queueSearch);
     const queueFilters = state.filtersByQueue?.[qKey] || {};
     ['county', 'branch', 'status', 'ordering'].forEach(key => {
-      if (queueFilters[key]) params.set(key, queueFilters[key]);
+      const values = Array.isArray(queueFilters[key]) ? queueFilters[key] : [queueFilters[key]];
+      values.forEach(value => { if (String(value || '').trim()) params.append(key, value); });
     });
     // Keep the payment/decision lens in the legacy fragment fallback too.
     // A stale or blocked queue helper must not silently revert HOR to the
@@ -925,6 +926,8 @@
           return text;
         });
       list.innerHTML = html;
+      const count = list.querySelector('[data-portal-result-count]');
+      if (count) portalFilters.updateResultCount?.(qKey, count.dataset.total);
       if (qKey === 'batches') hydrateHtmxBatchCards(list);
       else hydrateHtmxFarmerCards(list);
       state.pages[qKey] = page;
@@ -1373,6 +1376,18 @@
   }
 
   function renderPagination(qKey, pg) {
+    const list = el(queueConfig[qKey]?.listId);
+    if (list && pg) {
+      portalFilters.updateResultCount?.(qKey, pg.total);
+      let count = list.querySelector('[data-portal-result-count]');
+      if (!count) {
+        count = document.createElement('div'); count.className = 'portal-result-count';
+        count.dataset.portalResultCount = ''; count.setAttribute('role', 'status');
+        count.setAttribute('aria-live', 'polite'); list.prepend(count);
+      }
+      count.textContent = `${pg.total} matching case${Number(pg.total) === 1 ? '' : 's'}`;
+      count.dataset.total = String(pg.total);
+    }
     const pgEl = el('pg-' + qKey);
     if (!pgEl || !pg || pg.pages <= 1) { if (pgEl) pgEl.innerHTML = ''; return; }
     const links = Array.isArray(pg.page_links) && pg.page_links.length

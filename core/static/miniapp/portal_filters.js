@@ -46,6 +46,9 @@
   }
 
   function readableValue(root, key, value) {
+    if (Array.isArray(value)) return value.map(item => readableValue(root, key, item)).join(', ');
+    const checkbox = root.querySelector('input[name="' + key + '"][value="' + CSS.escape(value) + '"]');
+    if (checkbox) return checkbox.closest('label')?.textContent.trim() || value;
     const option = root.querySelector('[name="' + key + '"] option[value="' + CSS.escape(value) + '"]');
     return option?.textContent || value;
   }
@@ -76,8 +79,10 @@
       })),
       function (key) {
         filters[key] = '';
-        const control = root.querySelector('[name="' + key + '"]');
-        if (control) control.value = '';
+        root.querySelectorAll('[name="' + key + '"]').forEach(control => {
+          if (control.type === 'checkbox') control.checked = false;
+          else control.value = '';
+        });
         updatePresentation(root, queueKey);
         state().pages[queueKey] = 1;
         persist(queueKey);
@@ -92,9 +97,9 @@
     state().searches ||= {};
     if (!state().filtersByQueue[queueKey]) {
       state().filtersByQueue[queueKey] = {
-        county: String(saved.filters?.county || ''),
-        branch: String(saved.filters?.branch || ''),
-        status: queueKey === 'all' ? String(saved.filters?.status || '') : '',
+        county: saved.filters?.county || '',
+        branch: saved.filters?.branch || '',
+        status: queueKey === 'all' ? saved.filters?.status || '' : '',
         ordering: String(saved.filters?.ordering || ''),
       };
     }
@@ -108,9 +113,24 @@
     restoreQueueState(queueKey);
     const filters = filtersFor(queueKey);
     const form = root.querySelector('[data-portal-filter-form]');
-    populateSelect(form?.elements.county, state().metaCounties, filters.county);
-    populateSelect(form?.elements.branch, state().metaBranches, filters.branch);
-    if (form?.elements.status) form.elements.status.value = filters.status || '';
+    ['county', 'branch'].forEach(key => {
+      const container = form?.querySelector('[data-portal-filter-options="' + key + '"]');
+      if (!container) return populateSelect(form?.elements[key], key === 'county' ? state().metaCounties : state().metaBranches, filters[key]);
+      const options = (key === 'county' ? state().metaCounties : state().metaBranches) || [];
+      const signature = JSON.stringify(options.map(option => [optionValue(option), optionLabel(option)]));
+      if (container.dataset.optionsSignature === signature) return;
+      container.dataset.optionsSignature = signature;
+      container.replaceChildren();
+      options.forEach(option => {
+        const label = document.createElement('label'), input = document.createElement('input');
+        input.type = 'checkbox'; input.name = key; input.value = optionValue(option);
+        label.append(input, document.createTextNode(optionLabel(option))); container.append(label);
+      });
+    });
+    form?.querySelectorAll('input[type="checkbox"]').forEach(input => {
+      const selected = Array.isArray(filters[input.name]) ? filters[input.name] : [filters[input.name]];
+      input.checked = selected.includes(input.value);
+    });
     if (form?.elements.ordering) form.elements.ordering.value = filters.ordering || '';
     updatePresentation(root, queueKey);
     if (boundRoots.has(root)) return;
@@ -134,22 +154,27 @@
       overlay: root.querySelector('[data-portal-filter-overlay]'),
       sheet: root.querySelector('[data-portal-filter-sheet]'),
       form: form,
-      onApply: function (formData) {
-        filters.county = String(formData.get('county') || '');
-        filters.branch = String(formData.get('branch') || '');
-        filters.status = queueKey === 'all' ? String(formData.get('status') || '') : '';
-        filters.ordering = String(formData.get('ordering') || '');
-        state().pages[queueKey] = 1;
-        updatePresentation(root, queueKey);
-        persist(queueKey);
-        deps.loadQueue(queueKey, 1);
-      },
+      onApply: function () {},
+    });
+    let changeTimer;
+    form?.addEventListener('change', function () {
+      const data = new FormData(form);
+      ['county', 'branch', 'status'].forEach(key => {
+        filters[key] = queueKey === 'all' ? data.getAll(key) : String(data.get(key) || '');
+      });
+      filters.ordering = String(data.get('ordering') || '');
+      state().pages[queueKey] = 1;
+      updatePresentation(root, queueKey);
+      persist(queueKey);
+      clearTimeout(changeTimer);
+      changeTimer = setTimeout(() => deps.loadQueue(queueKey, 1), 180);
     });
     root.querySelector('[data-portal-filter-reset]')?.addEventListener('click', function () {
       filters.county = '';
       filters.branch = '';
       filters.status = '';
       filters.ordering = '';
+      clearTimeout(changeTimer);
       form?.reset();
       state().pages[queueKey] = 1;
       updatePresentation(root, queueKey);
@@ -178,8 +203,17 @@
 
   function init(initialDeps) { deps = initialDeps; }
 
+  function updateResultCount(queueKey, total) {
+    if (!Number.isFinite(Number(total))) return;
+    const root = document.querySelector('[data-portal-queue-tools="' + CSS.escape(queueKey) + '"]');
+    root?.querySelectorAll('[data-portal-matching-count]').forEach(node => {
+      node.textContent = `${total} matching case${Number(total) === 1 ? '' : 's'}`;
+    });
+  }
+
   window.PortalMiniAppFilters = {
     init: init,
+    updateResultCount: updateResultCount,
     updateFilterOptions: updateFilterOptions,
     setupQueueTools: setupQueueTools,
     rememberSelection: rememberSelection,

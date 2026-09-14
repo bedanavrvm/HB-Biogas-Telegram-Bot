@@ -650,7 +650,7 @@
 
     const sheetOverlay = el('sheet-overlay');
     const isJblVisit = mode === 'jbl_visit';
-    const isOperationalDetail = ['jbl_visit', 'credit', 'final_review'].includes(mode);
+    const isOperationalDetail = ['jbl_visit', 'credit', 'final_review', 'deferred'].includes(mode);
     sheetOverlay?.classList.toggle('jbl-visit-sheet', isJblVisit);
     sheetOverlay?.classList.toggle('credit-analysis-sheet', mode === 'credit');
     sheetOverlay?.classList.toggle('final-review-sheet', mode === 'final_review');
@@ -662,14 +662,14 @@
     if (navigation) navigation.hidden = !isOperationalDetail;
     const backButton = el('sheet-back');
     if (backButton) {
-      const backLabels = { jbl_visit: 'Visits', credit: 'Credit', final_review: 'Reviews' };
+      const backLabels = { jbl_visit: 'Visits', credit: 'Credit', final_review: 'Reviews', deferred: 'Deferred' };
       const label = backButton.querySelector('span');
       if (label) label.textContent = backLabels[mode] || 'Back';
       backButton.setAttribute('aria-label', `Back to ${backLabels[mode] || 'queue'}`);
     }
     const headerState = el('sheet-header-state');
     if (headerState) {
-      headerState.textContent = isOperationalDetail ? 'Autosave on' : '';
+      headerState.textContent = mode === 'deferred' ? 'Paused' : isOperationalDetail ? 'Autosave on' : '';
       headerState.dataset.state = '';
     }
     const avatar = el('sheet-avatar');
@@ -683,6 +683,7 @@
         jbl_visit: jblStatusLabel(farmer),
         credit: farmer.credit_decision || 'Pending',
         final_review: farmer.final_decision || 'Under Review',
+        deferred: farmer.reappraisal_required ? 'Reappraisal required' : 'Deferred',
       };
       headerStatus.hidden = !isOperationalDetail;
       headerStatus.textContent = isOperationalDetail ? statusByMode[mode] : '';
@@ -783,7 +784,7 @@
         ? Object.fromEntries(new Intl.DateTimeFormat('en', {timeZone: 'Africa/Nairobi', year: 'numeric', month: '2-digit', day: '2-digit'})
           .formatToParts(deferredAt).map(part => [part.type, part.value])) : null;
       const deferredDate = dateParts ? [dateParts.year, dateParts.month, dateParts.day].join('-') : '';
-      formEl.innerHTML = `<section class="batch-warning"><h3>${farmer.reappraisal_required ? 'Reappraisal required' : 'Deferred case'}</h3>
+      formEl.innerHTML = `<section class="batch-warning deferred-summary"><h3>${farmer.reappraisal_required ? 'Reappraisal required' : 'Deferred case'}</h3>
         <p>${deps.escapeHtml(reason)}</p><p>Paused at: ${deps.escapeHtml(stageLabel || farmer.deferred_stage || 'Not recorded')}</p>
         <p>Deferred: ${deps.escapeHtml(deps.fmtDate(deferredDate))} · Review due: ${deps.escapeHtml(deps.fmtDate(farmer.deferred_until))}</p>
         <p>${farmer.reappraisal_required ? 'Fresh preappraisal and visit records are required before credit or final review.'
