@@ -3477,6 +3477,8 @@ def _portal_jbl_visit_field_errors(error: str, result: dict | None = None) -> di
         errors.setdefault('sub_county', message)
     elif 'service area' in lowered or 'county' in lowered or 'location choice' in lowered:
         errors.setdefault('county', message)
+    if 'village' in lowered:
+        errors.setdefault('village', message)
     if 'laf document' in lowered and 'laf_files' not in errors:
         errors['laf_files'] = message
     if 'visit photo' in lowered and 'jbl_visit_photo_files' not in errors:

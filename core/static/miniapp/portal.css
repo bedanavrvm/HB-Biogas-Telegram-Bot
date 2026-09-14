@@ -2937,6 +2937,7 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .farmup-grid { width: 100%; min-width: 0; height: 460px; --ag-background-color: var(--bg-surface); --ag-foreground-color: var(--text-primary); --ag-header-background-color: var(--bg-muted); --ag-header-text-color: var(--text-muted); --ag-border-color: var(--border-color); --ag-row-border-color: var(--border-color); --ag-odd-row-background-color: color-mix(in srgb, var(--text-primary) 2%, var(--bg-surface)); --ag-selected-row-background-color: color-mix(in srgb, var(--color-primary) 10%, var(--bg-surface)); --ag-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --ag-font-size: 10px; --ag-grid-size: 3px; --ag-cell-horizontal-padding: 5px; --ag-row-hover-color: color-mix(in srgb, var(--color-primary) 7%, transparent); }
 .farmup-grid .ag-center-cols-viewport, .farmup-grid .ag-body-horizontal-scroll-viewport { scroll-behavior: auto; scroll-snap-type: none; overscroll-behavior-x: contain; }
 .farmup-grid .ag-root-wrapper { border: 0; }
+.farmup-grid .ag-body-horizontal-scroll.ag-scrollbar-invisible { position:relative; flex:none; }
 .farmup-grid .ag-header-cell-label { font-size: 9px; font-weight: 800; text-transform: uppercase; }
 .farmup-grid .ag-cell { line-height: 31px; }
 .farmup-grid .ag-cell-inline-editing { line-height: normal; }
@@ -3871,11 +3872,10 @@ body.portal-app :is(#content, .sheet-overlay) :is(.danger, .destructive, .btn-da
 
 /* Match the approved compact queues: full-width result counts and real buttons. */
 .portal-result-count { font-size:12px; font-weight:600; color:var(--text-muted); padding:4px 0 10px; }
-.portal-filter-help { font-size:12px; color:var(--text-muted); margin:0 0 8px; }
-.portal-filter-options { border:0; padding:0; margin:0 0 14px; min-width:0; }
+.portal-filter-options { grid-column:1 / -1; border:0; padding:0; margin:0; min-width:0; }
 .portal-filter-options legend { font-size:12px; font-weight:600; padding:0 0 6px; }
-.portal-filter-options > div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; max-height:190px; overflow:auto; }
-body.portal-app .portal-filter-options label { display:flex; align-items:center; gap:8px; font-size:12px; padding:8px; border:1px solid var(--border-color); border-radius:8px; cursor:pointer; }
+.portal-filter-options > div { display:flex; flex-wrap:wrap; gap:5px; max-height:190px; overflow:auto; }
+body.portal-app .portal-filter-options label { display:flex; flex:1 1 auto; align-items:center; gap:6px; min-width:0; min-height:32px; font-size:12px; padding:5px 7px; border:1px solid var(--border-color); border-radius:7px; cursor:pointer; }
 body.portal-app .portal-filter-options input[type=checkbox] { width:16px; height:16px; flex:0 0 16px; margin:0; accent-color:var(--brand-primary); }
 .portal-filter-options label:has(input:checked) { background:color-mix(in srgb,var(--brand-primary) 9%,var(--bg-surface)); border-color:var(--brand-primary); }
 body.portal-app .sheet-overlay .case360-toggle { display:flex; align-items:center; justify-content:center; gap:8px; min-height:40px; padding:8px 12px; border:1px solid var(--brand-primary); border-radius:9px; background:color-mix(in srgb,var(--brand-primary) 7%,var(--bg-surface)); text-decoration:none; margin-top:10px; }
@@ -3891,3 +3891,10 @@ body.portal-app .farmup-cell-invalid, body.portal-app .farmup-carousel-field.inv
 body.portal-app .farmup-grid-row-blocked { background:color-mix(in srgb,#ef4444 7%,var(--bg-surface)); }
 body.portal-app .farmup-carousel-card.needs_correction { background:color-mix(in srgb,#ef4444 7%,var(--bg-surface)); border-left:3px solid #ef4444; }
 body.portal-app .farmup-grid-row-warning, body.portal-app .farmup-carousel-card.warning { background:color-mix(in srgb,#f59e0b 12%,var(--bg-surface)); border-left:3px solid #f59e0b; }
+
+/* Keep review content in its own scroll area, above the fixed action footer. */
+body.portal-app #requisition-preview-overlay .sheet-panel { overflow:hidden; padding-bottom:0; }
+body.portal-app #requisition-preview-overlay .sheet-body { min-height:0; flex:1 1 0; padding-bottom:20px; scroll-padding-bottom:20px; }
+body.portal-app #requisition-preview-overlay .sheet-footer { padding-bottom:calc(10px + env(safe-area-inset-bottom,0px)); }
+body.portal-app #requisition-preview-list > * { flex-shrink:0; min-width:0; }
+body.portal-app .requisition-print-scroll { padding-bottom:3px; }

@@ -91,6 +91,61 @@ test('Order preview exposes and highlights every blocked case reason',async({pag
   expect(await page.locator('.requisition-blocker-list').evaluate(el=>getComputedStyle(el).borderTopColor)).toBe('rgb(239, 68, 68)');
 });
 
+test('Order review scrolls the entire final row above its bottom actions',async({page},testInfo)=>{
+  const source=fs.readFileSync(path.join(root,'core/templates/portal/portal.html'),'utf8');
+  const start=source.indexOf('<div class="sheet-overlay" id="requisition-preview-overlay"');
+  const html=source.slice(start,source.indexOf('<!-- Batch detail overlay -->',start));
+  await page.setContent(`<body class="portal-app">${html}</body>`);
+  for(const file of ['base.css','portal.css']) await page.addStyleTag({path:asset(file)});
+  await page.evaluate(()=>{
+    document.getElementById('requisition-preview-overlay').classList.add('open');
+    document.getElementById('requisition-preview-list').innerHTML=`<article class="requisition-print-preview"><header><h3>Order review</h3></header><div class="requisition-print-scroll"><table><thead><tr><th>Customer</th><th>Village</th></tr></thead><tbody>${Array.from({length:40},(_,index)=>`<tr data-review-row="${index}"><td>Test farmer ${index}</td><td>Test village ${index}</td></tr>`).join('')}</tbody></table></div></article>`;
+  });
+  for(const height of [700,440]){
+    await page.setViewportSize({width:390,height});
+    await page.locator('[data-review-row="39"]').scrollIntoViewIfNeeded();
+    const row=await page.locator('[data-review-row="39"]').boundingBox();
+    const body=await page.locator('#requisition-preview-overlay .sheet-body').boundingBox();
+    const footer=await page.locator('#requisition-preview-overlay .sheet-footer').boundingBox();
+    expect(row.y+row.height).toBeLessThanOrEqual(body.y+body.height);
+    expect(row.y).toBeGreaterThanOrEqual(body.y);
+    expect(footer.y+footer.height).toBeLessThanOrEqual(height);
+    await page.screenshot({path:testInfo.outputPath(`order-last-row-${height}.png`)});
+  }
+});
+
+test('FarmUp final review row stays above the scrollbar and commit bar',async({page})=>{
+  await page.setViewportSize({width:390,height:700});
+  await page.setContent('<body class="portal-app"><main id="content" style="height:100dvh;overflow:auto"><div id="portal-screen" data-screen="farmup"><section id="page-farmup"><form id="portal-farmup-upload"></form><div id="portal-farmup-feedback"></div><section id="portal-farmup-review" class="portal-import-review" hidden></section><div id="portal-farmup-list"></div></section></div></main></body>');
+  for(const name of ['base.css','portal.css','vendor-ag-grid-community-36.1.0.min.css','vendor-ag-grid-theme-quartz-36.1.0.min.css']) await page.addStyleTag({path:asset(name)});
+  await page.addScriptTag({path:asset('vendor-ag-grid-community-36.1.0.min.js')});
+  await page.evaluate(()=>{
+    const batch={id:'test-batch',source_filename:'Test.csv',status:'pending_review',total_rows:35,review_needed:0,committed_count:0,version_number:1,is_current_version:false,mapping:{state:'auto_ready'},revision_token:'test'};
+    const rows=Array.from({length:35},(_,index)=>({row_id:index+1,approved:false,disposition:'hold','Customer Name':`Test farmer ${index+1}`,'National ID':'12345678','Primary Phone':'254700000001','Application Action':'update_existing',County:'Embu','HBG Visit Date':'2026-05-01'}));
+    window.PortalAppShell={hasCapability:()=>true,showToast:()=>{}};
+    window.PortalMiniAppApi={apiFetch:async path=>({ok:true,data:path==='/farmup/'?{ok:true,batches:[batch]}:{ok:true,batch:{...batch,rows}}}),postJson:async()=>({ok:true,data:{ok:true,rows:[],counts:{}}})};
+  });
+  await page.addScriptTag({path:asset('portal_farmup.js')});
+  await page.evaluate(()=>PortalMiniAppFarmUp.load());
+  await page.locator('.farmup-open').click();
+  for(const height of [700,440]){
+    await page.setViewportSize({width:390,height});
+    await page.locator('#farmup-grid').evaluate(grid=>grid.scrollIntoView({block:'start'}));
+    await page.locator('#farmup-grid .ag-grid-viewport').evaluate(viewport=>{viewport.scrollTop=viewport.scrollHeight;});
+    const row=page.locator('#farmup-grid .ag-grid-scrolling-container .ag-row[row-index="34"]');
+    await expect(row).toBeVisible();
+    await expect.poll(async()=>{
+      // Resizing recalculates the grid height asynchronously; keep scrolling
+      // to the bottom until that layout and row virtualization have settled.
+      await page.locator('#farmup-grid .ag-grid-viewport').evaluate(viewport=>{viewport.scrollTop=viewport.scrollHeight;});
+      const last=await row.boundingBox();
+      const scrollbar=await page.locator('#farmup-grid .ag-body-horizontal-scroll').boundingBox();
+      const footer=await page.locator('.farmup-commit-bar').boundingBox();
+      return {rowOverlap:Math.max(0,Math.round(last.y+last.height-scrollbar.y)),footerOverlap:Math.max(0,Math.round(scrollbar.y+scrollbar.height-footer.y))};
+    }).toEqual({rowOverlap:0,footerOverlap:0});
+  }
+});
+
 test('FarmUp confirms upload before review loading and keeps the uploaded filename',async({page})=>{
   await page.setContent(`<div id="portal-screen" data-screen="farmup"><form id="portal-farmup-upload"><input name="period" type="month" value="2026-09"><label class="invoice-upload-dropzone"><input name="file" type="file" data-farmup-file><span data-farmup-file-label>Tap to select CSV file</span></label><button type="submit">Upload CSV</button><p data-farmup-upload-status></p></form><div id="portal-farmup-feedback"></div><div id="portal-farmup-list"></div></div>`);
   await page.evaluate(()=>{
@@ -174,7 +229,7 @@ test('All Cases checkbox filters apply automatically, combine and clear cleanly'
   await page.addScriptTag({path:asset('portal_queues.js')});
   await page.addScriptTag({path:asset('portal_filters.js')});
   await page.evaluate(()=>{
-    window.filterState={activePage:'all',pages:{all:1},searches:{},filtersByQueue:{},metaCounties:['Kiambu','Nakuru'],metaBranches:['Corporate']};
+    window.filterState={activePage:'all',pages:{all:1},searches:{},filtersByQueue:{},metaCounties:['Kiambu','Nakuru','Embu','Nyeri'],metaBranches:['Corporate']};
     window.filterLoads=0;
     window.PortalMiniAppFilters.init({state:window.filterState,queueConfig:{all:{}},loadQueue:()=>{window.filterLoads++;}});
     window.PortalMiniAppFilters.setupQueueTools('all');
@@ -188,6 +243,12 @@ test('All Cases checkbox filters apply automatically, combine and clear cleanly'
   expect(await page.evaluate(()=>window.PortalMiniAppQueues.queueUrl('all',1,window.filterState))).toContain('status=deferred');
   expect(await page.evaluate(()=>window.PortalMiniAppQueues.queueUrl('all',1,window.filterState))).toContain('status=credit');
   await expect(page.locator('[data-portal-filter-overlay]')).toBeVisible();
+  await expect(page.locator('.portal-filter-help')).toHaveCount(0);
+  await page.setViewportSize({width:390,height:700});
+  for(const file of ['base.css','portal.css']) await page.addStyleTag({path:asset(file)});
+  const boxes=await page.locator('[data-portal-filter-options="county"] label').evaluateAll(labels=>labels.map(label=>({top:label.offsetTop,height:label.getBoundingClientRect().height})));
+  expect(boxes.filter(box=>box.top===boxes[0].top).length).toBeGreaterThan(2);
+  expect(Math.max(...boxes.map(box=>box.height))).toBeLessThan(40);
   await page.evaluate(()=>window.PortalMiniAppFilters.updateResultCount('all',17));
   await expect(page.locator('[data-portal-matching-count]')).toHaveText('17 matching cases');
   await page.locator('[data-portal-filter-reset]').click();
@@ -477,6 +538,14 @@ test('Portal visit camera keeps one stream across ID, LAF, and supporting captur
   expect(Math.max(...documentHeights)).toBeLessThan(110);
   await expect(page.locator('#case360-toggle')).toHaveAttribute('href','/portal/cases/case-1/?from=jbl');
   await expect(page.locator('#case360-toggle')).toBeVisible();
+  await expect(page.locator('#jbl-village')).toHaveAttribute('required','');
+  await expect(page.locator('#jbl-village')).toHaveAttribute('maxlength','255');
+  await page.locator('#jbl-village').fill('   ');
+  await page.locator('#btn-submit-jbl').click();
+  await expect(page.locator('[data-jbl-field="village"]')).toHaveClass(/invalid/);
+  await expect(page.locator('#jbl-village-error')).toHaveText('Enter the village.');
+  expect(await page.evaluate(()=>window.__writes)).toBe(0);
+  await page.locator('#jbl-village').fill('Test village');
   expect(await page.locator('#case360-toggle').evaluate(link=>{
     window.MiniAppUtils.canNavigatePage=()=>false;
     return !link.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));

@@ -72,6 +72,7 @@ class JblPipelineServiceTestCase(TestCase):
             sign_date='24-June-2026',
             county='Kiambu',
             branch='Ruiru',
+            village='Test village',
             status='active',
         )
 
@@ -223,6 +224,48 @@ class JblPipelineServiceTestCase(TestCase):
 
         branch_only = list(all_cases(branch='Thika'))
         self.assertEqual(branch_only, [self.farmer_stage2])
+
+    @patch('core.services.jawabu_pipeline.append_jbl_media_uploads')
+    @patch('core.services.portal_publication.reserve_farmer_publication')
+    def test_visit_requires_village_before_state_changes_or_uploads(self, publication, uploads):
+        from core.services.jawabu_pipeline import preflight_jbl_visit_completion
+        for village in ['', '   ', 'x' * 256]:
+            with self.subTest(village=village):
+                ok, error, result = complete_jbl_visit(
+                    self.farmer_stage1, categorized_files={}, visit_date=date(2026, 6, 28),
+                    officer='Test officer', visit_status='Deferred / On Hold', village=village,
+                )
+                self.assertFalse(ok)
+                self.assertIn('village', error.casefold())
+                self.assertFalse(result['evidence_saved'])
+                ok, error = log_jbl_visit(
+                    self.farmer_stage1, visit_date=date(2026, 6, 28), officer='Test officer',
+                    visit_status='Deferred / On Hold', village=village,
+                )
+                self.assertFalse(ok)
+        self.farmer_stage1.village = ''
+        self.farmer_stage1.save(update_fields=['village'])
+        ok, error, _ = preflight_jbl_visit_completion(
+            self.farmer_stage1, visit_date=date(2026, 6, 28), visit_status='Deferred / On Hold',
+        )
+        self.assertFalse(ok)
+        self.assertEqual(error, 'Enter the village.')
+        uploads.assert_not_called()
+        publication.assert_not_called()
+        self.assertFalse(JawabuPipelineEvent.objects.filter(farmer=self.farmer_stage1).exists())
+
+    @patch('core.services.portal_publication.reserve_farmer_publication')
+    def test_visit_saves_trimmed_village_and_replay_does_not_revalidate_it(self, _publication):
+        args = dict(visit_date=date(2026, 6, 28), officer='Test officer',
+                    visit_status='Deferred / On Hold', request_id='required-village-visit')
+        ok, error = log_jbl_visit(self.farmer_stage1, village='  Test area  ', **args)
+        self.assertTrue(ok, error)
+        self.farmer_stage1.refresh_from_db()
+        self.assertEqual(self.farmer_stage1.village, 'Test area')
+        ok, error = log_jbl_visit(self.farmer_stage1, village='', **args)
+        self.assertTrue(ok, error)
+        self.farmer_stage1.refresh_from_db()
+        self.assertEqual(self.farmer_stage1.village, 'Test area')
 
     @patch('core.services.portal_publication.reserve_farmer_publication')
     def test_deferred_jbl_visit_enters_deferred_queue_without_pending_credit(self, _reserve):
@@ -2226,6 +2269,20 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(len(categorized['LAF_PAGE_1']), 1)
         self.assertEqual(len(categorized['JBL_VISIT_PHOTO']), 1)
         self.assertEqual(mock_complete.call_args.kwargs['location_override_reason'], '')
+
+    @patch('core.services.jawabu_pipeline.append_jbl_media_uploads')
+    def test_visit_api_reports_missing_village_as_an_inline_error(self, uploads):
+        response = self.client.post(
+            reverse('portal_complete_jbl_visit', args=[self.farmer.pk]),
+            {'workflow_revision': self.farmer.workflow_revision, 'visit_date': '2026-07-01',
+             'visit_status': 'Deferred / On Hold', 'village': '   '},
+            HTTP_X_MINIAPP_MESSAGE_CONTRACT='2', HTTP_X_REQUEST_ID='missing-village-api',
+            HTTP_IDEMPOTENCY_KEY='missing-village-api',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['field_errors']['village'], 'Enter the village.')
+        uploads.assert_not_called()
+        self.assertFalse(JawabuPipelineEvent.objects.filter(farmer=self.farmer).exists())
 
     @patch('core.services.portal_voice.validate_transcription_reference')
     @patch('core.services.jawabu_pipeline.complete_jbl_visit')

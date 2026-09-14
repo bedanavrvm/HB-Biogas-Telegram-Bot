@@ -1058,7 +1058,7 @@
         <div class="form-row"><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Your staff identity" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
         <div class="form-row" data-jbl-field="county"><label>County</label><select id="jbl-county"><option value="">- Select county -</option>${countyOptions}</select><small class="jbl-field-error" data-error-message-for="county"></small></div>
         <div class="form-row" data-jbl-field="sub_county"><label>Sub-county</label><select id="jbl-sub-county"><option value="">- Select -</option>${legacySubCounty}</select><small class="jbl-field-error" data-error-message-for="sub_county"></small></div>
-        <div class="form-row"><label>Village</label><input type="text" id="jbl-village" placeholder="Village / area" value="${deps.escapeHtml(farmer.village || '')}"></div>
+        <div class="form-row" data-jbl-field="village"><label for="jbl-village">Village <span aria-hidden="true">*</span></label><input type="text" id="jbl-village" placeholder="Village / area" required maxlength="255" aria-describedby="jbl-village-error" value="${deps.escapeHtml(farmer.village || '')}"><small id="jbl-village-error" class="jbl-field-error" data-error-message-for="village"></small></div>
       </div>
       <p class="jbl-section-label">Comment</p>
       <section class="jbl-comment-section"><div class="jbl-comment-control"><textarea id="jbl-comment" rows="2" placeholder="Additional notes">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea>${voiceWidget('jbl_visit_comment', 'jbl-comment')}</div></section>
@@ -1914,6 +1914,9 @@
     const status = el('jbl-status')?.value || '';
     if (!status) errors.visit_status = 'Select the JBL visit outcome.';
     if (!el('jbl-date')?.value) errors.visit_date = 'Enter the JBL visit date.';
+    const village = el('jbl-village')?.value.trim() || '';
+    if (!village) errors.village = 'Enter the village.';
+    else if (village.length > 255) errors.village = 'Village must be 255 characters or fewer.';
     Object.entries(jblDocumentSlots).forEach(([category, slots]) => {
       const existing = Number(state().selectedFarmer?.visit_evidence?.[category] || 0);
       if ((JBL_FORWARD_VISIT_STATUSES.has(status) && !existing) || jblMediaSelections[category].length) slots.forEach((field, side) => {

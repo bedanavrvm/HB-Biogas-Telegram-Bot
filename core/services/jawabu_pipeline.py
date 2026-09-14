@@ -413,6 +413,15 @@ def pipeline_counts() -> dict[str, int]:
         'total': all_cases().count(),
     }
 
+def _jbl_visit_village_error(farmer, village):
+    value = str((farmer.village if village is None else village) or '').strip()
+    if not value:
+        return 'Enter the village.'
+    if len(value) > 255:
+        return 'Village must be 255 characters or fewer.'
+    return ''
+
+
 @transaction.atomic
 def log_jbl_visit(
     farmer: JawabuFarmerMaster,
@@ -457,6 +466,9 @@ def log_jbl_visit(
         return False, 'Choose the outcome of the JBL visit before logging it.'
     if visit_status not in JBL_VISIT_OUTCOMES:
         return False, f"Invalid JBL visit status: '{visit_status}'"
+    village_error = _jbl_visit_village_error(farmer, village)
+    if village_error:
+        return False, village_error
 
     # HBG is always the first field visit in this workflow. Reject a JBL
     # visit dated before that hand-off instead of allowing the timeline to
@@ -638,6 +650,7 @@ def preflight_jbl_visit_completion(
     request_id: str = '',
     county: str | None = None,
     sub_county: str | None = None,
+    village: str | None = None,
     actor_user=None,
     location_override_reason: str = '',
 ) -> tuple[bool, str, bool]:
@@ -660,6 +673,9 @@ def preflight_jbl_visit_completion(
         return False, 'Choose the outcome of the JBL visit before logging it.', False
     if visit_status not in JBL_VISIT_OUTCOMES:
         return False, f"Invalid JBL visit status: '{visit_status}'", False
+    village_error = _jbl_visit_village_error(locked, village)
+    if village_error:
+        return False, village_error, False
     from core.services.location_catalog import LocationCatalogError, validate_location_selection
     try:
         validate_location_selection(
@@ -748,7 +764,7 @@ def complete_jbl_visit(
         latitude=latitude, longitude=longitude,
         location_unavailable_reason=location_unavailable_reason,
         expected_revision=expected_revision, request_id=request_id,
-        county=county, sub_county=sub_county, actor_user=actor_user,
+        county=county, sub_county=sub_county, village=village, actor_user=actor_user,
         location_override_reason=location_override_reason,
     )
     if not ok:

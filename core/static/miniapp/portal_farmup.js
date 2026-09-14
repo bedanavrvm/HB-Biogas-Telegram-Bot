@@ -187,10 +187,17 @@
       const grid = node('farmup-grid');
       if (!grid || reviewMode !== 'table' || grid.closest('[hidden]')) return;
       const viewport = window.visualViewport;
-      const viewportBottom = (Number(viewport?.offsetTop) || 0) + (Number(viewport?.height) || window.innerHeight || 640);
+      let viewportBottom = (Number(viewport?.offsetTop) || 0) + (Number(viewport?.height) || window.innerHeight || 640);
+      const content = document.getElementById('content');
+      if (content) {
+        const contentStyle = window.getComputedStyle(content);
+        const contentBottom = content.getBoundingClientRect().bottom - (parseFloat(contentStyle.paddingBottom) || 0) - (parseFloat(contentStyle.borderBottomWidth) || 0);
+        viewportBottom = Math.min(viewportBottom, contentBottom);
+      }
       const top = grid.getBoundingClientRect().top;
       const commitHeight = node('farmup-commit')?.closest('.farmup-commit-bar')?.getBoundingClientRect().height || 0;
-      grid.style.height = `${Math.max(260, Math.min(680, Math.floor(viewportBottom - top - commitHeight - 18)))}px`;
+      grid.style.height = `${Math.max(96, Math.min(680, Math.floor(viewportBottom - top - commitHeight - 18)))}px`;
+      grid.style.scrollMarginBottom = `${commitHeight + 18}px`;
       try {
         gridApi?.setColumnsPinned?.(['state'], window.innerWidth > 700 ? 'left' : null);
         gridApi?.doLayout?.();
@@ -209,6 +216,7 @@
     const textColumn = (field, width = 150) => ({field, headerName:field, width, editable:can('portal.farmup.commit'), tooltipValueGetter:p => String(p.value || ''), cellClassRules:{'farmup-cell-edited':p => fieldEdited(p.data, field),'farmup-cell-invalid':p => fieldInvalid(p.data, field)}});
     gridApi = window.agGrid.createGrid(node('farmup-grid'), {
       theme:'legacy', rowData:active.rows || [], animateRows:false, ensureDomOrder:true, rowHeight:32, headerHeight:32, suppressMovableColumns:true, enableBrowserTooltips:true,
+      alwaysShowHorizontalScroll:true, scrollbarWidth:16,
       getRowId:p => String(p.data.row_id), rowSelection:'multiple', suppressRowClickSelection:true,
       isExternalFilterPresent:() => needsReviewOnly, doesExternalFilterPass:p => !needsReviewOnly || p.data._state !== 'ready',
       defaultColDef:{sortable:true, resizable:true, suppressHeaderMenuButton:true},
