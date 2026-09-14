@@ -11,6 +11,31 @@ async function loadUtilities(page) {
   await page.addScriptTag({ path: asset('utils.js') });
 }
 
+test('Staff activation remains readable in dark mode and follows Telegram theme changes',async({page},testInfo)=>{
+  const source=fs.readFileSync(path.join(root,'core/templates/staff_telegram_activation.html'),'utf8');
+  const html=source.replace(/\{%[^]*?%\}/g,'').replace(/<script src=[^]*?<\/script>/g,'').replace(/<link[^>]*>/g,'');
+  await page.emulateMedia({colorScheme:'light'});
+  await page.setViewportSize({width:390,height:740});
+  await page.setContent(html.replace(/<script>[^]*?<\/script>/g,''));
+  await page.addStyleTag({path:asset('base.css')});
+  await page.evaluate(()=>{
+    window.__themeEvents={};
+    window.Telegram={WebApp:{ready:()=>{},expand:()=>{},colorScheme:'dark',themeParams:{},onEvent:(key,fn)=>window.__themeEvents[key]=fn}};
+  });
+  await loadUtilities(page);
+  await page.addScriptTag({content:source.match(/<script>\s*\(function[^]*?<\/script>/)[0].replace(/<\/?script>/g,'').replace(/\{%[^]*?%\}/g,'/activation/')});
+  await expect(page.locator('html')).toHaveAttribute('data-miniapp-color-scheme','dark');
+  await page.locator('#activation-code').fill('12345678');
+  const colours=await page.locator('.activation').evaluate(el=>({background:getComputedStyle(el).backgroundColor,text:getComputedStyle(el).color}));
+  expect(colours.background).not.toBe('rgb(255, 255, 255)');
+  expect(colours.text).toBe('rgb(255, 255, 255)');
+  await page.evaluate(()=>{const status=document.getElementById('activation-status');status.hidden=false;status.className='activation-status error';status.textContent='This code has expired. Ask your administrator for a new code.';});
+  await page.screenshot({path:testInfo.outputPath('activation-dark.png'),fullPage:true});
+  await page.evaluate(()=>{window.Telegram.WebApp.colorScheme='light';window.__themeEvents.themeChanged();});
+  await expect(page.locator('html')).toHaveAttribute('data-miniapp-color-scheme','light');
+  await page.screenshot({path:testInfo.outputPath('activation-light.png'),fullPage:true});
+});
+
 test('Portal date labels use readable full-year dates',async({page})=>{
   await page.setContent('<p>Portal dates</p>');
   await page.addScriptTag({path:asset('portal_helpers.js')});
