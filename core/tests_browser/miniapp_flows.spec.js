@@ -11,6 +11,42 @@ async function loadUtilities(page) {
   await page.addScriptTag({ path: asset('utils.js') });
 }
 
+test('Portal secondary actions use blue without changing primary or destructive colours', async ({page})=>{
+  await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><section id="page-farmup"><button class="btn btn-secondary">Refresh</button><button class="btn btn-primary">Upload</button></section><button class="miniapp-filter-trigger">Filters</button><button class="queue-refresh-button">Refresh queue</button><button class="btn-secondary danger">Delete</button></main><div class="sheet-overlay open jbl-visit-sheet"><button class="btn-secondary case360-toggle"><svg viewBox="0 0 24 24"><path stroke="currentColor" d="M1 1h10"/></svg>Case history</button><button class="jbl-media-remove">Remove</button><button class="primary">Save</button></div></body>`);
+  for(const name of ['base.css','workflow_standard.css','portal.css']) await page.addStyleTag({path:asset(name)});
+  for(const background of ['#ffffff','#17212b']){
+    await page.evaluate(bg=>document.documentElement.style.setProperty('--tg-theme-bg-color',bg),background);
+    await page.waitForTimeout(200); // Let existing button colour transitions settle.
+    const colour=selector=>page.locator(selector).first().evaluate(el=>getComputedStyle(el).color);
+    const blue=await colour('.queue-refresh-button');
+    expect(await colour('#page-farmup .btn-secondary')).toBe(blue);
+    expect(await colour('.miniapp-filter-trigger')).toBe(blue);
+    expect(await colour('.case360-toggle')).toBe(blue);
+    expect(await colour('.case360-toggle svg')).toBe(blue);
+    expect(await colour('.btn-primary')).toBe(await colour('button.primary'));
+    expect(await colour('.danger')).toBe(await colour('.jbl-media-remove'));
+    expect(await colour('.danger')).not.toBe(blue);
+    expect(await colour('.btn-primary')).not.toBe(blue);
+  }
+});
+
+test('Portal refresh actions sit at the right content edge across screens', async ({page},testInfo)=>{
+  const template=fs.readFileSync(path.join(root,'core/templates/portal/portal.html'),'utf8');
+  const queueHeaders=template.match(/<header class="portal-queue-header">[^]*?<\/header>/g);
+  await page.setContent(`<body class="workflow-standard portal-app"><main id="content" style="padding:12px"><div class="dashboard-intro"><div><h2>Overview</h2></div><button class="dashboard-refresh-button">Refresh</button></div>${queueHeaders.join('')}<section id="page-farmup"><div class="portal-import-history"><div class="portal-import-history-heading"><h2>Recent batches</h2><button>Refresh</button></div></div></section><section id="page-imports"><div class="portal-import-history"><div class="portal-import-history-heading"><h2>Recent imports</h2><button>Refresh</button></div></div></section></main></body>`);
+  for(const name of ['base.css','workflow_standard.css','portal.css']) await page.addStyleTag({path:asset(name)});
+  for(const width of [390,1280]){
+    await page.setViewportSize({width,height:900});
+    const positions=await page.locator('.portal-queue-header, .dashboard-intro, .portal-import-history-heading').evaluateAll(headers=>headers.map(header=>{
+      const bounds=header.getBoundingClientRect();const button=header.querySelector('button').getBoundingClientRect();
+      return {gap:bounds.right-button.right,top:button.top-bounds.top,width:bounds.width};
+    }));
+    const contentWidth=await page.locator('#content').evaluate(el=>el.clientWidth-24);
+    for(const position of positions){expect(Math.abs(position.gap)).toBeLessThan(2);expect(position.top).toBeLessThan(10);expect(Math.abs(position.width-contentWidth)).toBeLessThan(2);}
+    await page.screenshot({path:testInfo.outputPath(`refresh-${width}.png`),fullPage:true});
+  }
+});
+
 test('Portal camera uses the approved bounded bottom card on mobile and desktop', async ({page},testInfo)=>{
   const template=fs.readFileSync(path.join(root,'core/templates/portal/portal.html'),'utf8');
   const start=template.indexOf('<div class="sheet-overlay jbl-camera-overlay"');

@@ -3431,6 +3431,8 @@ body.portal-report-editor-active #bottom-tabs { display: none; }
    while headings and refresh feedback occupy the same compact visual rhythm. */
 .portal-queue-header {
   display:flex;
+  flex-direction:row;
+  width:100%;
   min-width:0;
   align-items:flex-start;
   justify-content:space-between;
@@ -3438,6 +3440,14 @@ body.portal-report-editor-active #bottom-tabs { display: none; }
   margin:0 0 10px;
 }
 .portal-queue-header > div { min-width:0; }
+.portal-queue-header > .queue-refresh-button { margin-left:auto; align-self:flex-start; }
+.portal-app .dashboard-intro { display:flex; flex-direction:row; width:100%; justify-content:space-between; gap:10px; }
+.portal-app .dashboard-intro > div { min-width:0; }
+.portal-app .dashboard-intro > .dashboard-refresh-button { margin-left:auto; flex-shrink:0; align-self:flex-start; }
+#page-farmup > .portal-import-history,
+#page-imports > .portal-import-history { width:100%; max-width:none; }
+.portal-app .portal-import-history-heading { display:flex; flex-direction:row; width:100%; align-items:center; justify-content:space-between; }
+.portal-app .portal-import-history-heading > button { flex:0 0 auto; margin-left:auto; }
 .portal-queue-header h1 { margin:0; font-size:17px; line-height:1.25; }
 .portal-queue-header .meta { margin-top:2px; font-size:11px; line-height:1.35; }
 .queue-refresh-button {
@@ -3815,3 +3825,23 @@ body.portal-app input[type="search"]::-webkit-search-decoration { -webkit-appear
 .portal-map-marker svg { display: block; width: 30px; height: 36px; }
 .portal-map-marker path { fill: currentColor; stroke: #fff; stroke-width: 1.25; }
 .portal-map-marker circle { fill: #fff; }
+
+/* Portal action-colour contract. Keep navigation/status tabs independent. */
+body.portal-app :is(#content, .sheet-overlay) :is(
+  .btn-secondary, button.secondary, .icon-button, .queue-refresh-button,
+  .dashboard-refresh-button, .queue-search-clear, [data-portal-search-clear],
+  .miniapp-filter-trigger, [data-miniapp-sheet-close], .sheet-close-button,
+  .sheet-client-media-toggle, .case360-toggle, .pagination-icon, .map-refresh-button
+):not(.danger):not(.destructive):not(.btn-danger) { color:var(--brand-primary); }
+body.portal-app :is(#content, .sheet-overlay) :is(
+  .btn-secondary, button.secondary, .icon-button, .queue-refresh-button,
+  .dashboard-refresh-button, .queue-search-clear, [data-portal-search-clear],
+  .miniapp-filter-trigger, [data-miniapp-sheet-close], .sheet-close-button,
+  .sheet-client-media-toggle, .case360-toggle, .pagination-icon, .map-refresh-button
+) svg { color:inherit; }
+body.portal-app :is(#content, .sheet-overlay) :is(.btn-primary, button.primary) {
+  color:var(--brand-primary-text);
+}
+body.portal-app :is(#content, .sheet-overlay) :is(.danger, .destructive, .btn-danger, .jbl-media-remove, .jbl-selection-delete) {
+  color:var(--status-danger);
+}
