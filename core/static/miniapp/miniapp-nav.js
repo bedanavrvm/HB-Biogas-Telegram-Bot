@@ -32,6 +32,7 @@
   }
 
   function navigateBackWithinPortal() {
+    if (window.PortalCaseNavigation?.back?.()) return;
     const fallbackUrl = portalBackFallbackUrl();
     if (window.MiniAppUtils?.canNavigatePage?.(fallbackUrl) === false) return;
     window.location.assign(fallbackUrl);
@@ -217,6 +218,10 @@
   syncTheme();
 
   window.addEventListener('portal:reports-route-change', syncBackButton);
+  window.addEventListener('portal:case-route-change', () => {
+    syncBackButton();
+    syncMainButton();
+  });
   window.addEventListener('resize', syncBrowserViewportHeight);
   window.addEventListener('orientationchange', syncBrowserViewportHeight);
   window.visualViewport?.addEventListener('resize', syncBrowserViewportHeight);
@@ -237,6 +242,9 @@
     const destination = new URL(link.href, window.location.href);
     if (destination.origin !== window.location.origin || !destination.pathname.startsWith('/portal/')) return;
     if (destination.href === window.location.href) return;
+    if (window.PortalCaseNavigation?.canOpen?.(destination.href)
+        || ((link.classList.contains('case-history-back') || link.classList.contains('case-history-action'))
+          && window.PortalCaseNavigation?.canReturn?.())) return;
     if (window.MiniAppUtils?.canNavigatePage?.(destination.href) === false) {
       event.preventDefault();
       event.stopPropagation();

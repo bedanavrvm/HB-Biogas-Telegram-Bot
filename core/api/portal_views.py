@@ -1469,7 +1469,7 @@ def portal_case_history_detail(request, farmer_id: str):
     """Render one customer's Case 360 as a dedicated navigable screen."""
     context = _portal_screen_context('case_history', case_history_farmer_id=farmer_id)
     source = request.GET.get('from', 'all')
-    if source not in {'all', 'jbl', 'my_visits', 'credit', 'final', 'deferred'}:
+    if source not in {'all', 'jbl', 'my_visits', 'credit', 'final', 'deferred', 'requisition'}:
         source = 'all'
     context['case_history_source_screen'] = source
     actions = {

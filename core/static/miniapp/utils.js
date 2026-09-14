@@ -88,12 +88,13 @@
 
   // Portal routes use document navigation. Keep the existing dirty-form and
   // in-flight-write protections effective when leaving the current document.
-  function canNavigatePage(url = window.location.href) {
+  function canNavigatePage(url = window.location.href, options = {}) {
     const destination = new URL(url, window.location.href).href;
     if ([...closeProtectionReasons].some(reason => reason.startsWith('network-write:'))) {
       window.MiniAppRuntime?.showToast?.('Please wait for the current action to finish.', { tone: 'error' });
       return false;
     }
+    if (options.preserveEdits === true) return true;
     // A route anchor may also have a programmatic click handler. Reuse the
     // approval only for that same destination during the same click dispatch.
     const alreadyApproved = approvedDestination === destination && Date.now() - approvedAt < 500;

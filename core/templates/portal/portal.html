@@ -200,6 +200,7 @@
       <div class="batch-title">
         <span class="badge" id="batch-selected-count">0 selected</span>
         <span>Preview and finalize an official order</span>
+        <button type="button" class="btn btn-secondary" id="batch-clear-selection">Clear selection</button>
       </div>
       <p class="meta">The official consecutive number is assigned by the server only when Operations finalizes this exact preview.</p>
       <div class="batch-form">
@@ -429,7 +430,7 @@
     <header class="case-history-page-header">
       <a href="{% url 'portal_screen' screen=case_history_source_screen|default:'all' %}" data-return-screen="{{ case_history_source_screen|default:'all' }}" class="case-history-back" aria-label="Back to cases" title="Back to cases"><i data-lucide="arrow-left" aria-hidden="true"></i><span class="sr-only">Back to Cases</span></a>
       <div><h1>Complete Case History</h1><p class="meta">Full customer record, workflow timeline, TAT, documents, and data quality</p></div>
-      {% if case_history_action_label %}<a class="btn btn-primary" data-required-capability="{{ case_history_action_capability }}" href="{% url 'portal_screen' screen=case_history_source_screen %}?action_case={{ case_history_farmer_id }}">{{ case_history_action_label }}</a>{% endif %}
+      {% if case_history_action_label %}<a class="btn btn-primary case-history-action" data-required-capability="{{ case_history_action_capability }}" href="{% url 'portal_screen' screen=case_history_source_screen %}?action_case={{ case_history_farmer_id }}">{{ case_history_action_label }}</a>{% endif %}
     </header>
     <div id="case-history-selected">
       <div id="case-history-content" class="case360"><div class="empty-state"><div class="spinner-inline"></div></div></div>

@@ -1,5 +1,22 @@
 # Changelog
 
+## Portal queue actions and case-inspection return - 14-September-2026
+
+- Visit, credit and final-decision cards retain direct work forms. All Cases,
+  Submitted Visits and Order Preparation cards inspect complete Case History;
+  Order Preparation checkboxes and the main batch action stay separate.
+- Case inspection retains the source screen, search, filters, scroll and open
+  form in memory. Visible, Telegram and browser Back restore that context.
+  Top-level screens still use full page loads. Cold history links use an
+  allowlisted return screen; an action deep link is consumed once.
+- Selection retains its captured revisions across rendering and inspection,
+  shows selections outside the current page/filter, and optionally recovers
+  IDs/revisions/date for 30 minutes within the same signed Telegram launch.
+- Deferred review shows its reason and due date and offers only existing,
+  authorized stage actions before reappraisal is due.
+- No migrations, capabilities or external integration writes changed. Live
+  Telegram-device validation is required before production release.
+
 ## Portal navigation, search, and visit camera refinement - 13-September-2026
 
 - Removed the redundant top stage rail and mobile bottom hubs; the existing

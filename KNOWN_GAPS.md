@@ -1,5 +1,27 @@
 # Known Gaps and Verified Workarounds
 
+## Portal validation scope - 14-September-2026
+
+Case-inspection navigation is locally covered with intercepted browser tests,
+including the actual Portal card controllers. Live Android/iOS Telegram device
+validation remains an operator release check. A cold/reloaded case link cannot
+recover in-memory search or an unfinished local attachment selection; its
+visible/Telegram Back uses the allowed source route instead.
+
+The older Django test
+`JblPipelineApiTestCase.test_portal_requisition_generate_requires_a_revision_for_each_new_assignment`
+targets the retired `/requisition-queue/generate/` path. With a current request
+key it returns 426 before revision validation, rather than the old expected
+428. It is not evidence for the current preview/finalize path. New inspection
+tests verify captured revisions through preview, and a service test verifies
+that a changed case cannot be assigned an order. Unrelated old generation
+fixtures were not rewritten as part of this navigation change.
+
+The full intercepted browser run passed 49/50 tests. Its unrelated Complaints
+report test (`miniapp_flows.spec.js`, date_reported assertion) still expects
+`01-09-26`, while the approved current UI renders `01-Sep-2026`. Complaint
+formatting was not changed in this Portal-only work.
+
 ## Portal reporting v1 scope
 
 The IT-only Portal reporting workspace is deliberately limited to live

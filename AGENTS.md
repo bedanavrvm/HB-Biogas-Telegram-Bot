@@ -256,6 +256,14 @@ Complaints interaction is not changed implicitly. `asset_loader.js` loads
 vendored optional UI assets (currently Portal maps) on demand and must not be
 used to introduce runtime CDN dependencies.
 
+`portal_case_navigation.js` owns only the bounded read-only Case History
+inspection detour. It retains one originating screen/form in memory and uses
+the canonical case URL for Back/Forward; top-level Portal navigation remains
+full GET page loads. Never persist search, customer records, form values or
+attachments as navigation context. Order selection recovery contains only IDs,
+captured revisions and the preparation date, expires after 30 minutes, and is
+bound to the signed Telegram launch and access-policy version.
+
 `core/static/miniapp/vendor-ag-grid-community-36.1.0.min.js`, its styles, and
 the matching Quartz icon-font stylesheet are intentionally vendored for the
 management-only Complaints Data Overview. Only

@@ -9,6 +9,8 @@
       type="checkbox"
       class="farmer-card-checkbox"
       data-id="{{ farmer.id }}"
+      data-revision="{{ farmer.workflow_revision }}"
+      aria-label="Select for order preparation"
     >
   {% endif %}
   {% if queue_key == "jbl" or queue_key == "my_visits" %}

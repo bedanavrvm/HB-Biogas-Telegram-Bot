@@ -75,6 +75,7 @@
   let dashboardLoadVersion = 0;
   let dashboardLoading = false;
   let caseHistoryLoadVersion = 0;
+  let farmerSheetOpenVersion = 0;
   const CASE_HISTORY_WATCHDOG_MS = 22000;
 
   function currentScreenRoot() {
@@ -220,7 +221,11 @@
     if (destination.pathname === current.pathname && destination.search === current.search) {
       return;
     }
+    if (window.PortalCaseNavigation?.canOpen?.(destination.href)) {
+      return window.PortalCaseNavigation.open(destination.href);
+    }
     if (window.MiniAppUtils?.canNavigatePage?.(destination.href) === false) return;
+    window.PortalCaseNavigation?.release?.();
     window.location.assign(destination.href);
   }
 
@@ -511,11 +516,9 @@
       link.classList.toggle('active', screens.includes(page));
     });
 
-    if (page !== 'requisition') {
-      state.selectedRequisitions.clear();
-      state.selectedRequisitionRevisions.clear();
-      updateBatchPanel();
-    }
+    // Inspection is not abandonment of the batch. Successful finalization or
+    // loss of write access owns selection cleanup.
+    updateBatchPanel();
 
     const pageElement = document.getElementById('page-' + page);
     if (pageElement) {
@@ -774,7 +777,7 @@
     if (options.skipIfBusy && Number(queueLoadsActive.get(qKey) || 0) > 0) return;
     queueLoadsActive.set(qKey, Number(queueLoadsActive.get(qKey) || 0) + 1);
     const preserveView = Boolean(options.preserveView);
-    const savedScrollY = preserveView ? window.scrollY : 0;
+    const savedScrollY = preserveView ? el('content')?.scrollTop || 0 : 0;
     if (preserveView) listEl.style.minHeight = `${listEl.offsetHeight}px`;
     const loadVersion = beginQueueLoad(qKey);
     listEl.innerHTML = '<div class="mini-skeleton-list" role="status" aria-label="Loading queue">'
@@ -846,7 +849,7 @@
           const pgEl = el('pg-' + qKey);
           if (pgEl) pgEl.innerHTML = '';
         } else if (qKey !== 'dashboard' && qKey !== 'all') {
-          applyFilters();
+          renderFarmerList(listEl, farmers, cfg, qKey);
           renderPagination(qKey, data.pagination);
         } else {
           if (qKey === 'all') updateFilterOptions(farmers);
@@ -855,7 +858,7 @@
         }
       } else if (qKey !== 'dashboard' && qKey !== 'all') {
         updateFilterOptions(farmers);
-        applyFilters();
+        renderFarmerList(listEl, farmers, cfg, qKey);
       } else {
         if (qKey === 'all') updateFilterOptions(farmers);
         renderFarmerList(listEl, farmers, cfg, qKey);
@@ -870,9 +873,10 @@
     } finally {
       queueLoadsActive.set(qKey, Math.max(0, Number(queueLoadsActive.get(qKey) || 1) - 1));
       portalFilters.rememberPage?.(qKey);
+      if (qKey === 'requisition') updateBatchPanel();
       if (preserveView) {
         listEl.style.minHeight = '';
-        window.requestAnimationFrame(() => window.scrollTo({ top: savedScrollY, behavior: 'auto' }));
+        window.requestAnimationFrame(() => el('content')?.scrollTo({ top: savedScrollY, behavior: 'auto' }));
       }
     }
   }
@@ -943,10 +947,7 @@
       }
       if (requisitionCheckbox && state.selectedRequisitions.has(requisitionCheckbox.dataset.id)) {
         requisitionCheckbox.checked = true;
-        state.selectedRequisitionRevisions.set(
-          requisitionCheckbox.dataset.id,
-          Number(requisitionCheckbox.dataset.revision || 1),
-        );
+        // Rendering newer data does not accept a changed selected revision.
       }
       requisitionCheckbox?.addEventListener('click', event => event.stopPropagation());
       requisitionCheckbox?.addEventListener('change', event => {
@@ -967,9 +968,7 @@
       });
       card.addEventListener('click', async () => {
         const queue = card.dataset.qkey || state.activePage;
-        if (queue === 'requisition') return openCurrentFarmerSheet({ id: card.dataset.farmerId }, card.dataset.mode || null);
-        portalFilters.rememberSelection?.(queue, card.dataset.farmerId);
-        navigateToUrl(caseHistoryUrl(card.dataset.farmerId, queue));
+        return openQueueCase({ id: card.dataset.farmerId }, queue, card.dataset.mode || null);
       });
     });
     root.querySelectorAll('.btn-open-payment-review').forEach(button => {
@@ -1211,6 +1210,26 @@
     return cfg.mode;
   }
 
+  function openQueueCase(farmer, queue, mode) {
+    const policy = {
+      jbl: 'jbl_visit', credit: 'credit', final: 'final_review', deferred: 'deferred',
+      all: 'history', my_visits: 'history', requisition: 'history',
+    };
+    if (!Object.prototype.hasOwnProperty.call(policy, queue)) {
+      showToast('This queue cannot open a case. Refresh the screen and try again.', 'error');
+      return;
+    }
+    if (policy[queue] === 'history') {
+      portalFilters.rememberSelection?.(queue, farmer.id);
+      return navigateToUrl(caseHistoryUrl(farmer.id, queue));
+    }
+    if (queue === 'final' && state.filters.reviewStage === 'payment') {
+      showToast('Use Review payment to open the payment decision.', 'info');
+      return;
+    }
+    return openCurrentFarmerSheet(farmer, policy[queue]);
+  }
+
   async function openBatchDetail(orderNumber) {
     if (portalRequisitions.openBatchDetail) {
       return portalRequisitions.openBatchDetail(orderNumber);
@@ -1314,9 +1333,7 @@
         const qKey = card.dataset.qkey;
         const farmerId = card.dataset.farmerId;
         const farmer = (state.queues[qKey] || []).find(item => String(item.id) === String(farmerId)) || { id: farmerId };
-        if (qKey === 'requisition') return openCurrentFarmerSheet(farmer, reviewCardMode(cfg, qKey));
-        portalFilters.rememberSelection?.(qKey, farmerId);
-        navigateToUrl(caseHistoryUrl(farmerId, qKey));
+        return openQueueCase(farmer, qKey, reviewCardMode(cfg, qKey));
       });
     });
 
@@ -1330,7 +1347,9 @@
 
     if (qKey === 'requisition') {
       listEl.querySelectorAll('.farmer-card-checkbox').forEach(cb => {
+        cb.disabled = !hasCapability('portal.requisition.write');
         cb.addEventListener('change', () => {
+          if (!hasCapability('portal.requisition.write')) { cb.checked = false; return; }
           const id = cb.dataset.id;
           if (cb.checked) {
             state.selectedRequisitions.add(id);
@@ -1382,12 +1401,15 @@
   // the selected card against the canonical detail endpoint before rendering.
   async function openCurrentFarmerSheet(farmer, mode) {
     if (!farmer || !farmer.id) return;
+    const openVersion = ++farmerSheetOpenVersion;
+    const sourceRoot = currentScreenRoot();
     if (queueConfig[state.activePage]) portalFilters.rememberSelection?.(state.activePage, farmer.id);
     try {
       const requestOptions = canManagePortalWorkspace()
         ? { headers: { 'X-Portal-Workspace-Open-Key': newWorkspaceOpenKey() } }
         : undefined;
       const { ok, data } = await apiFetch('/farmers/' + encodeURIComponent(farmer.id) + '/', requestOptions);
+      if (openVersion !== farmerSheetOpenVersion || currentScreenRoot() !== sourceRoot) return;
       if (!ok || !data || !data.ok || !data.farmer) {
         showToast((data && data.error) || 'Could not load current farmer details.', 'error');
         return;
@@ -1679,7 +1701,12 @@
     if (page === 'settings') return loadPortalSettings(true);
     if (queueConfig[page]) return loadQueue(page, state.pages[page] || 1).then(() => {
       const actionCase = new URLSearchParams(window.location.search).get('action_case');
-      if (actionCase && queueConfig[page].mode && isCurrentScreen(page)) return openCurrentFarmerSheet({id:actionCase}, queueConfig[page].mode);
+      if (actionCase) {
+        const cleaned = new URL(window.location.href);
+        cleaned.searchParams.delete('action_case');
+        window.history.replaceState(window.history.state, '', cleaned.href);
+      }
+      if (actionCase && ['jbl', 'credit', 'final'].includes(page) && isCurrentScreen(page)) return openQueueCase({id:actionCase}, page);
     });
     throw new Error(`No loader is registered for ${page}.`);
   }
@@ -2040,6 +2067,7 @@
   async function init() {
     configureHtmx();
     await loadMeta();
+    await portalRequisitions.restoreSelection?.();
     try { await loadPortalSettings(); } catch (_) { /* Settings are non-critical to opening the workflow. */ }
     if (canManagePortalWorkspace()) {
       try { await loadPortalWorkspace(); } catch (_) { /* Workspace is optional convenience data. */ }
@@ -2236,6 +2264,8 @@
     }
     if (event.target.closest('#case-history-back, .case-history-back')) {
       event.preventDefault();
+      if (window.PortalCaseNavigation?.back?.()) return;
+      if (event.target.closest('#case-history-back')) { showCaseHistorySearch(); return; }
       navigateTo(event.target.closest('.case-history-back')?.dataset.returnScreen || 'all');
       return;
     }
@@ -2503,8 +2533,9 @@
       lastShellScreen = screenSignature;
       switchPage(page);
       applyCapabilityVisibility();
-      if (changed) runScreenLoader(page);
+      const loaded = changed ? runScreenLoader(page) : Promise.resolve();
       if (window.lucide) window.lucide.createIcons();
+      return loaded;
     },
     openCaseHistory(farmerId) {
       navigateToUrl(caseHistoryUrl(farmerId));
@@ -2538,6 +2569,7 @@
       getCookie,
       loadDashboard,
       locationText,
+      openCurrentFarmerSheet,
       onClose: () => portalFilters.restorePosition?.(state.activePage),
       openAssignedOrder,
       openPortalLink,
@@ -2628,6 +2660,11 @@
   }
 
   updateConnectionBanner();
+  window.PortalCaseNavigation?.init?.({
+    headers: initDataHeader, hasCapability, showToast,
+    rememberSelection: (queue, id) => portalFilters.rememberSelection?.(queue, id),
+    activate: page => window.PortalAppShell.activate(page),
+  });
   // A case-history deep link is operationally important and must not wait for
   // optional Portal bootstrap calls (metadata, settings, and workspace). Those
   // calls each have their own network timeout and used to leave this server-

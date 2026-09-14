@@ -11,6 +11,40 @@ async function loadUtilities(page) {
   await page.addScriptTag({ path: asset('utils.js') });
 }
 
+test('Portal case-card policy distinguishes work, inspection and unsupported queues',async({page})=>{
+  const source=fs.readFileSync(asset('portal.js'),'utf8');
+  const routing=source.match(/  function openQueueCase\([^]*?\n  \}/)[0];
+  const mode=source.match(/  function reviewCardMode\([^]*?\n  \}/)[0];
+  await page.setContent('<p>Portal case-card routing</p>');
+  await page.addScriptTag({content:`
+    window.calls=[];
+    const state={filters:{reviewStage:'final'}};
+    const portalFilters={rememberSelection:()=>{}};
+    const openCurrentFarmerSheet=(farmer,mode)=>calls.push({kind:'action',id:farmer.id,mode});
+    const caseHistoryUrl=(id,queue)=>'/portal/cases/'+id+'/?from='+queue;
+    const navigateToUrl=url=>calls.push({kind:'history',url});
+    const showToast=message=>calls.push({kind:'error',message});
+    ${routing}\n${mode}
+    window.openQueueCase=openQueueCase;
+    window.reviewCardMode=reviewCardMode;
+    window.routingState=state;
+  `});
+  for(const [queue,mode] of [['jbl','jbl_visit'],['credit','credit'],['final','final_review'],['deferred','deferred']]){
+    await page.evaluate(({queue,mode})=>window.openQueueCase({id:'case-1'},queue,mode),{queue,mode});
+    expect(await page.evaluate(()=>window.calls.at(-1))).toEqual({kind:'action',id:'case-1',mode});
+  }
+  for (const queue of ['all', 'my_visits', 'requisition']) {
+    await page.evaluate(queue=>window.openQueueCase({id:'case-1'},queue,null),queue);
+    expect(await page.evaluate(()=>window.calls.at(-1))).toEqual({kind:'history',url:'/portal/cases/case-1/?from='+queue});
+  }
+  await page.evaluate(()=>window.openQueueCase({id:'case-1'},'unknown',null));
+  expect(await page.evaluate(()=>window.calls.at(-1).kind)).toBe('error');
+  expect(await page.evaluate(()=>{window.routingState.filters.reviewStage='payment';return window.reviewCardMode({mode:'final_review'},'final');})).toBeNull();
+  // Both server-fragment and client-rendered cards use this same tested policy.
+  expect(source).toContain('openQueueCase({ id: card.dataset.farmerId }, queue, card.dataset.mode || null)');
+  expect(source).toContain('openQueueCase(farmer, qKey, reviewCardMode(cfg, qKey))');
+});
+
 test('Staff activation remains readable in dark mode and follows Telegram theme changes',async({page},testInfo)=>{
   const source=fs.readFileSync(path.join(root,'core/templates/staff_telegram_activation.html'),'utf8');
   const html=source.replace(/\{%[^]*?%\}/g,'').replace(/<script src=[^]*?<\/script>/g,'').replace(/<link[^>]*>/g,'');

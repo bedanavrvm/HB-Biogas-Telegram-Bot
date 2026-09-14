@@ -8,6 +8,51 @@
   let activePaymentReviewId = null;
   let sequenceRevision = 0;
   let sequenceGroupId = '';
+  let selectionStorageKey = null;
+  let selectionRestored = false;
+  let selectedDate = '';
+  const SELECTION_TTL_MS = 30 * 60 * 1000;
+
+  async function restoreSelection() {
+    // Bind minimal recovery to this signed launch (actor + scope). Never store
+    // initData itself, customer labels, search text or attachments.
+    if (deps.tg?.initData && window.crypto?.subtle) {
+      try {
+        const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(deps.tg.initData));
+        selectionStorageKey = 'portal:order-selection:' + [...new Uint8Array(digest)].map(n => n.toString(16).padStart(2, '0')).join('');
+        const saved = JSON.parse(sessionStorage.getItem(selectionStorageKey) || 'null');
+        const validCases = Array.isArray(saved?.cases) && saved.cases.every(row =>
+          Array.isArray(row) && row.length === 2 && typeof row[0] === 'string'
+          && /^[a-zA-Z0-9-]{1,64}$/.test(row[0]) && Number.isInteger(row[1]) && row[1] > 0);
+        if (saved && validCases && Date.now() - saved.savedAt >= 0 && Date.now() - saved.savedAt < SELECTION_TTL_MS
+            && saved.policyVersion === state().accessPolicyVersion
+            && state().capabilities.has('portal.requisition.write')) {
+          saved.cases.forEach(([id, revision]) => {
+            state().selectedRequisitions.add(id);
+            state().selectedRequisitionRevisions.set(id, revision);
+          });
+          if (/^\d{4}-\d{2}-\d{2}$/.test(saved.date || '')) {
+            selectedDate = saved.date;
+            if (el('batch-req-date')) el('batch-req-date').value = selectedDate;
+          }
+        } else sessionStorage.removeItem(selectionStorageKey);
+      } catch (_) { /* Storage unavailable: live inspection still preserves state. */ }
+    }
+    selectionRestored = true;
+  }
+
+  function persistSelection() {
+    if (!selectionRestored || !selectionStorageKey) return;
+    if (el('batch-req-date')) selectedDate = el('batch-req-date').value;
+    try {
+      if (!state().selectedRequisitions.size) { sessionStorage.removeItem(selectionStorageKey); return; }
+      sessionStorage.setItem(selectionStorageKey, JSON.stringify({
+        savedAt: Date.now(), policyVersion: state().accessPolicyVersion,
+        cases: [...state().selectedRequisitions].map(id => [id, state().selectedRequisitionRevisions.get(id)]),
+        date: selectedDate,
+      }));
+    } catch (_) { /* Optional recovery must not block order preparation. */ }
+  }
 
   function el(id) { return deps.el(id); }
   function state() { return deps.state; }
@@ -396,18 +441,24 @@
 
   function updateBatchPanel() {
     const panel = el('requisition-batch-panel');
-    if (!panel) return;
     if (!state().capabilities?.has('portal.requisition.write')) {
       state().selectedRequisitions.clear();
+      state().selectedRequisitionRevisions.clear();
+      persistSelection();
+      if (!panel) return;
       panel.hidden = true;
       panel.style.display = 'none';
       return;
     }
+    persistSelection();
+    if (!panel) return;
     const count = state().selectedRequisitions.size;
     if (count > 0) {
       panel.style.display = 'block';
       const badge = el('batch-selected-count');
-      if (badge) badge.textContent = `${count} selected`;
+      const visibleIds = new Set([...document.querySelectorAll('#req-list .farmer-card-checkbox')].map(node => node.dataset.id));
+      const hiddenCount = [...state().selectedRequisitions].filter(id => !visibleIds.has(id)).length;
+      if (badge) badge.textContent = `${count} selected${hiddenCount ? ` · ${hiddenCount} outside this page/filter` : ''}`;
     } else {
       panel.style.display = 'none';
     }
@@ -481,7 +532,6 @@
       const revision = Number(revisions[String(farmerId)]);
       if (!Number.isInteger(revision) || revision < 1) return;
       currentRevisions[String(farmerId)] = revision;
-      state().selectedRequisitionRevisions.set(String(farmerId), revision);
     });
     return { ...payload, workflow_revisions: currentRevisions };
   }
@@ -733,9 +783,22 @@
         deps.showToast(data.error || 'Could not prepare preview.', 'error');
         return;
       }
-      // Preview is deliberately read-only. Use the revision snapshot returned
-      // with it so the confirmed write detects a change after the preview,
-      // rather than a stale checkbox revision from an earlier queue refresh.
+      const changedIds = payload.farmer_ids.filter(id =>
+        Number(data.workflow_revisions?.[id]) > 0
+        && Number(data.workflow_revisions[id]) !== Number(payload.workflow_revisions[id]));
+      if (changedIds.length) {
+        const names = changedIds.map(id => {
+          const item = [...(data.ready || []), ...(data.blocked || [])].find(row => String(row.farmer?.id || row.id) === id);
+          return item?.farmer?.customer_name || item?.customer_name || 'Selected case';
+        });
+        data.warnings = [...(data.warnings || []), {
+          code: 'case_changed_since_selection',
+          message: `Changed since selection: ${names.join(', ')}. Review the updated values in this preview before finalizing.`,
+        }];
+        data.warning_count = data.warnings.length;
+      }
+      // The reviewed preview has its own revision binding. Preserve the
+      // original selection revision until the operator finalizes or reselects.
       state().pendingRequisitionPayload = {
         ...payloadAtPreviewRevision(payload, data),
         preview_token: data.preview_token,
@@ -1104,12 +1167,26 @@
 
   function init(initialDeps) {
     deps = initialDeps;
+    document.addEventListener('click', event => {
+      if (!event.target.closest('#batch-clear-selection')) return;
+      if (!state().capabilities.has('portal.requisition.write') || state().generatingRequisition) return;
+      if (!window.confirm('Clear the selected cases from this order?')) return;
+      state().selectedRequisitions.clear();
+      state().selectedRequisitionRevisions.clear();
+      state().pendingRequisitionPayload = null;
+      document.querySelectorAll('#req-list .farmer-card-checkbox').forEach(node => { node.checked = false; });
+      updateBatchPanel();
+    });
+    document.addEventListener('change', event => {
+      if (event.target.id === 'batch-req-date') persistSelection();
+    });
     bindEvents();
     window.setTimeout(loadOrderSequence, 0);
   }
 
   window.PortalMiniAppRequisitions = {
     init,
+    restoreSelection,
     openBatchDetail,
     openInvoiceOverlay,
     openPaymentPreview,

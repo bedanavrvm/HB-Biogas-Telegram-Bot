@@ -161,7 +161,7 @@
     }
     function write(value) {
       const source = value || {};
-      ephemeralSearch = String(source.search || ephemeralSearch || '');
+      if (Object.prototype.hasOwnProperty.call(source, 'search')) ephemeralSearch = String(source.search || '');
       ephemeralFocusId = String(source.focusId || ephemeralFocusId || '');
       context?.write?.({
         page: Math.max(1, Number(source.page || 1)),

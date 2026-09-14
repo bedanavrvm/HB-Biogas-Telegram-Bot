@@ -55,7 +55,7 @@
       page: state().pages?.[queueKey] || 1,
       filters: filtersFor(queueKey),
       search: state().searches?.[queueKey] || '',
-      scrollY: window.scrollY,
+      scrollY: document.getElementById('content')?.scrollTop || 0,
       focusId: String(focusId || ''),
     });
   }
@@ -165,9 +165,9 @@
 
   function restorePosition(queueKey) {
     const saved = contextFor(queueKey)?.read?.();
-    if (!saved || !saved.scrollY) return;
+    if (!saved) return;
     window.requestAnimationFrame(function () {
-      window.scrollTo({ top: saved.scrollY, behavior: 'auto' });
+      document.getElementById('content')?.scrollTo({ top: saved.scrollY || 0, behavior: 'auto' });
       if (saved.focusId) document.querySelector('[data-farmer-id="' + CSS.escape(saved.focusId) + '"]')?.focus?.({ preventScroll: true });
     });
   }

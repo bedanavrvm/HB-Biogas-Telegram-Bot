@@ -532,9 +532,14 @@
       ['documents', 'Documents', docLinks.length + Number(documents.visit_media_count || (documents.visit_media || []).length || 0)],
       ['quality', 'Data Quality', validation.length],
     ];
-    const sectionCards = Object.entries(sections).map(([name, values]) => {
+    const source = document.getElementById('portal-screen')?.dataset.historySource
+      || new URLSearchParams(window.location.search).get('from');
+    const preferredSection = { jbl: 'jbl_visit', my_visits: 'jbl_visit', credit: 'credit', final: 'final_review' }[source];
+    const orderedSections = Object.entries(sections).sort(([left], [right]) =>
+      Number(right === preferredSection) - Number(left === preferredSection));
+    const sectionCards = orderedSections.map(([name, values]) => {
       const meta = CASE_SECTION_META[name] || [humanLabel(name), ''];
-      return `<details class="case360-section"><summary><div><h3>${deps.escapeHtml(meta[0])}</h3><p>${deps.escapeHtml(meta[1])}</p></div><span class="case360-chevron" aria-hidden="true"></span></summary>${renderBusinessSection(values, name)}</details>`;
+      return `<details class="case360-section"${name === preferredSection ? ' open' : ''}><summary><div><h3>${deps.escapeHtml(meta[0])}</h3><p>${deps.escapeHtml(meta[1])}</p></div><span class="case360-chevron" aria-hidden="true"></span></summary>${renderBusinessSection(values, name)}</details>`;
     }).join('');
     const relatedCaseCards = relatedCases.length ? `<details class="case360-section"><summary><div><h3>Other Units</h3><p>Prior or repeat-customer applications</p></div><span class="case360-chevron" aria-hidden="true"></span></summary><div class="case360-related-cases">${relatedCases.map(item => `<button type="button" class="case360-related-case" data-related-farmer="${deps.escapeHtml(item.id)}"><strong>Unit ${deps.escapeHtml(item.unit_number)}</strong><span>${deps.escapeHtml(item.customer_name || 'Customer')} · ${deps.escapeHtml(humanLabel(item.status || ''))}</span></button>`).join('')}</div></details>` : '';
     const householdCards = householdRelationships.length ? `<details class="case360-section"><summary><div><h3>Confirmed Household</h3><p>Distinct people linked with Operations evidence</p></div><span class="case360-chevron" aria-hidden="true"></span></summary><div class="case360-related-cases">${householdRelationships.map(item => `<div class="case360-related-case"><strong>${deps.escapeHtml(item.name || 'Household member')}</strong><span>${deps.escapeHtml(humanLabel(item.relationship_type || ''))} · ID ${deps.escapeHtml(item.national_id || '-')} · ${deps.escapeHtml(humanLabel(item.status || ''))}</span></div>`).join('')}</div></details>` : '';
@@ -703,10 +708,17 @@
     sheetOverlay?.classList.remove('client-media-open');
     const caseToggle = el('case360-toggle');
     caseToggle.innerHTML = `<i data-lucide="history" aria-hidden="true"></i><span>${['jbl_visit', 'credit'].includes(mode) ? 'Case History' : 'Open Case History'}</span>`;
-    const historySource = {jbl_visit:'jbl',credit:'credit',final_review:'final'}[mode] || 'all';
+    const historySource = {jbl_visit:'jbl',credit:'credit',final_review:'final',deferred:'deferred',requisition:'requisition'}[mode] || 'all';
     caseToggle.href = `/portal/cases/${encodeURIComponent(farmer.id)}/?from=${historySource}`;
     caseToggle.hidden = !hasCapability('portal.case.read');
     caseToggle.onclick = event => {
+      if (window.PortalCaseNavigation?.canOpen?.(caseToggle.href)) {
+        event.preventDefault();
+        if (mode === 'jbl_visit') saveJblVisitDraft(farmer, { immediate: true });
+        if (WORKFLOW_DRAFT_CONFIG[mode]) saveWorkflowDraft(farmer, mode, { immediate: true });
+        window.PortalCaseNavigation.open(caseToggle.href);
+        return;
+      }
       if (window.MiniAppUtils?.canNavigatePage?.(caseToggle.href) === false) { event.preventDefault(); return; }
       // Save recoverable fields before ordinary document navigation. Attachments
       // remain local and the shared navigation guard handles discard approval.
@@ -749,6 +761,33 @@
       el('btn-submit-final').addEventListener('click', submitFinalDecision);
       wireWorkflowDraft(farmer, mode);
       wireVoiceWidget('final_decision_comment');
+    } else if (mode === 'deferred') {
+      const next = {
+        jbl_visit: ['jbl_visit', 'Log visit', 'portal.jbl_visit.write'],
+        credit: ['credit', 'Review credit', 'portal.credit.write'],
+        final: ['final_review', 'Review decision', 'portal.final_review.write'],
+      }[farmer.deferred_stage];
+      const reason = ({jbl_visit: farmer.jbl_visit_comment, credit: farmer.credit_decision,
+        final: farmer.final_decision_comment})[farmer.deferred_stage] || 'No reason recorded.';
+      const stageLabel = {jbl_visit: 'JBL visit', credit: 'Credit analysis', final: 'Final approval'}[farmer.deferred_stage];
+      const deferredAt = farmer.deferred_at ? new Date(farmer.deferred_at) : null;
+      const dateParts = deferredAt && Number.isFinite(deferredAt.getTime())
+        ? Object.fromEntries(new Intl.DateTimeFormat('en', {timeZone: 'Africa/Nairobi', year: 'numeric', month: '2-digit', day: '2-digit'})
+          .formatToParts(deferredAt).map(part => [part.type, part.value])) : null;
+      const deferredDate = dateParts ? [dateParts.year, dateParts.month, dateParts.day].join('-') : '';
+      formEl.innerHTML = `<section class="batch-warning"><h3>${farmer.reappraisal_required ? 'Reappraisal required' : 'Deferred case'}</h3>
+        <p>${deps.escapeHtml(reason)}</p><p>Paused at: ${deps.escapeHtml(stageLabel || farmer.deferred_stage || 'Not recorded')}</p>
+        <p>Deferred: ${deps.escapeHtml(deps.fmtDate(deferredDate))} · Review due: ${deps.escapeHtml(deps.fmtDate(farmer.deferred_until))}</p>
+        <p>${farmer.reappraisal_required ? 'Fresh preappraisal and visit records are required before credit or final review.'
+          : next && canUpdateMode(next[0], next[2]) ? 'Review the case and complete the existing stage action below.'
+            : 'Your role can inspect this case. The responsible team must complete the next action.'}</p></section>`;
+      if (!farmer.reappraisal_required && next && canUpdateMode(next[0], next[2])) {
+        const button = document.createElement('button');
+        button.className = 'primary';
+        button.textContent = next[1];
+        button.onclick = () => deps.openCurrentFarmerSheet({ id: farmer.id }, next[0]);
+        footerEl.appendChild(button);
+      }
     } else if (mode === 'requisition') {
       formEl.innerHTML = buildRequisitionBatchNotice();
     }

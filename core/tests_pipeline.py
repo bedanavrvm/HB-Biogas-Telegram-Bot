@@ -1836,6 +1836,9 @@ class JblPipelineApiTestCase(TestCase):
         self.assertContains(response, 'portal.jbl_visit.write')
         self.assertContains(response, 'id="portal-actor-role" hidden')
         self.assertContains(response, 'id="portal-freshness" hidden')
+        response = self.client.get(url, {'from': 'requisition'})
+        self.assertContains(response, 'data-return-screen="requisition"')
+        self.assertNotContains(response, '?action_case=')
         response = self.client.get(url, {'from': 'https://example.com'})
         self.assertContains(response, 'data-return-screen="all"')
 
@@ -2077,6 +2080,7 @@ class JblPipelineApiTestCase(TestCase):
         requisition_response = self.client.get(reverse('portal_queue_fragment', args=['requisition']))
         self.assertContains(requisition_response, req_farmer.customer_name)
         self.assertContains(requisition_response, 'farmer-card-checkbox')
+        self.assertContains(requisition_response, f'data-revision="{req_farmer.workflow_revision}"')
 
         all_response = self.client.get(reverse('portal_queue_fragment', args=['all']), {'search': 'Pipeline test'})
         self.assertContains(all_response, 'Pipeline test farmer')
@@ -3263,6 +3267,17 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.json()['code'], 'workflow_revision_required')
         self.farmer.refresh_from_db()
         self.assertEqual(self.farmer.order_number, '')
+
+    def test_order_selection_rejects_revision_changed_during_case_inspection(self):
+        farmer = self.farmer
+        selected_revision = farmer.workflow_revision
+        JawabuFarmerMaster.objects.filter(pk=farmer.pk).update(workflow_revision=selected_revision + 1)
+        with self.assertRaises(WorkflowRevisionConflict):
+            assign_order(farmer, order_number='SYNTHETIC-ORDER', requisition_date=date(2026, 9, 14),
+                         sender='Synthetic Operations', expected_revision=selected_revision)
+        farmer.refresh_from_db()
+        self.assertEqual(farmer.order_number, '')
+        self.assertFalse(farmer.pipeline_events.filter(action='order_assigned').exists())
 
     def test_portal_requisition_batches(self):
         """Verify that the requisition batches view correctly lists unique batches."""
