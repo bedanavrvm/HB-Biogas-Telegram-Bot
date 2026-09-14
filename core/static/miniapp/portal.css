@@ -2823,6 +2823,43 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 /* Dedicated FarmUp intake uses the pinned local AG Grid at every viewport. */
 #page-imports .portal-import-upload-grid { grid-template-columns: minmax(0, 620px); }
 .portal-farmup-upload { max-width: 620px; }
+/* FarmUp landing only: retain the full-width row-review workspace. */
+#page-farmup .farmup-intake-heading,
+#page-farmup .portal-import-history { max-width:620px; }
+#page-farmup .farmup-intake-heading { margin-bottom:14px; }
+#page-farmup .farmup-intake-heading h1 { font-size:20px; margin-bottom:3px; }
+.farmup-pending-badge { display:inline-flex; align-items:center; gap:7px; margin-top:9px; padding:6px 9px; border:1px solid var(--status-warning); border-radius:8px; background:var(--status-warning-bg); color:var(--status-warning); font-size:12px; }
+.farmup-pending-badge[hidden], .farmup-pending-action[hidden] { display:none; }
+#page-farmup .portal-farmup-upload { gap:10px; padding:14px; border-radius:12px; box-shadow:0 1px 3px rgba(15,23,42,.04); }
+#page-farmup .portal-farmup-upload h2 { font-size:13px; margin:0; }
+#page-farmup .farmup-month-field { display:grid; gap:4px; font-size:11px; color:var(--text-muted); }
+#page-farmup .invoice-upload-dropzone { min-height:84px; gap:3px; border-radius:9px; background:var(--bg-base); }
+#page-farmup .invoice-upload-dropzone > span { text-transform:none; letter-spacing:0; font-size:12px; overflow-wrap:anywhere; }
+#page-farmup .invoice-upload-dropzone > svg { width:22px; height:22px; color:var(--brand-primary); }
+#page-farmup .farmup-upload-help { margin:0; font-size:11px; color:var(--text-muted); text-align:center; }
+#page-farmup .portal-import-history-heading h2 { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-muted); }
+#page-farmup .portal-import-history-heading .btn { min-height:36px; font-size:11px; }
+#page-farmup .portal-import-history-heading .btn { flex:0 0 auto; width:auto; }
+#page-farmup .btn-primary { background:var(--brand-primary); border-color:var(--brand-primary); color:var(--brand-primary-text); }
+#page-farmup .btn-primary:hover { background:var(--brand-primary-hover); }
+#page-farmup .farmup-batch-card { gap:9px; border-radius:12px; padding:14px; }
+.farmup-batch-name { display:flex; align-items:baseline; gap:7px; min-width:0; }
+.farmup-batch-name h3 { overflow-wrap:anywhere; min-width:0; }
+.farmup-version { flex-shrink:0; font-size:10px; padding:2px 5px; border-radius:4px; background:var(--bg-base); color:var(--text-muted); }
+.farmup-batch-state { flex-shrink:0; padding:4px 7px; font-size:11px; border-radius:6px; background:var(--bg-base); color:var(--text-muted); }
+.farmup-batch-state.pending { color:var(--status-warning); background:var(--status-warning-bg); }
+.farmup-batch-state.completed { color:var(--status-success); background:var(--status-success-bg); }
+.farmup-batch-counts { display:flex; flex-wrap:wrap; gap:6px 12px; font-size:12px; color:var(--text-muted); }
+.farmup-batch-counts strong { color:var(--text-primary); }
+.farmup-batch-counts .committed strong { color:var(--status-success); }
+.farmup-batch-publication { display:flex; flex-wrap:wrap; gap:5px; }
+.farmup-batch-publication .badge { font-size:10px; }
+.farmup-mapping-alert { margin:0; font-size:12px; color:var(--status-warning); }
+#page-farmup .farmup-batch-card .portal-import-actions .btn { min-height:40px; font-size:12px; }
+#page-farmup .farmup-batch-card.needs-review .farmup-open { flex:1; }
+#page-farmup .farmup-batch-card.settled { padding:10px 14px; gap:6px; box-shadow:none; }
+.farmup-pending-action { position:sticky; bottom:0; z-index:var(--portal-z-sticky,20); max-width:620px; margin-top:14px; padding:10px 0 calc(10px + env(safe-area-inset-bottom,0px)); border-top:1px solid var(--border-color); background:var(--bg-base); }
+.farmup-pending-action .btn { width:100%; min-height:44px; justify-content:center; gap:10px; background:var(--text-primary); color:var(--bg-surface); border-radius:10px; }
 .portal-farmup-upload input[type="month"] { min-height: 40px; padding: 7px 9px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-surface); color: var(--text-primary); }
 .farmup-version-upload { display: flex; align-items: end; justify-content: space-between; gap: 10px; margin: 0 0 10px; padding: 10px; border: 1px dashed var(--border-color); border-radius: 9px; background: var(--bg-muted); }
 .farmup-version-upload label { display: grid; gap: 4px; color: var(--text-muted); font-size: 10px; font-weight: 700; }

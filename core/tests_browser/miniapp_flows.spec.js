@@ -11,6 +11,34 @@ async function loadUtilities(page) {
   await page.addScriptTag({ path: asset('utils.js') });
 }
 
+test('FarmUp landing highlights pending work without mobile overflow', async ({ page }, testInfo) => {
+  const template = fs.readFileSync(path.join(root, 'core/templates/portal/portal.html'), 'utf8');
+  const section = template.slice(template.indexOf('<section id="page-farmup"'), template.indexOf('{% endif %}', template.indexOf('<section id="page-farmup"') + 100))
+    .replace(/\{%[^]*?%\}/g, '').replace(/\{\{[^]*?\}\}/g, '5');
+  await page.setViewportSize({ width:390, height:700 });
+  await page.setContent(`<body class="portal-app"><div id="portal-screen" data-screen="farmup" style="padding:12px">${section}</div></body>`);
+  await page.addStyleTag({ path:asset('base.css') });
+  await page.addStyleTag({ path:asset('portal.css') });
+  await page.evaluate(() => {
+    window.PortalAppShell = {hasCapability:()=>true};
+    window.PortalMiniAppApi = {apiFetch:async()=>({ok:true,data:{ok:true,batches:[
+      {id:'pending',source_filename:'May Farmers.csv',period_label:'May 2026',remaining_count:104,committed_count:6,total_rows:115,version_number:2,archive_state:'archived',publication:{status:'pending'}},
+      {id:'complete',source_filename:'April Farmers.csv',period_label:'April 2026',remaining_count:0,committed_count:120,total_rows:120,is_portal_archived:true,archive_state:'archived'}
+    ]}})};
+  });
+  await page.addScriptTag({path:asset('portal_farmup.js')});
+  await page.evaluate(()=>window.PortalMiniAppFarmUp.load());
+  await expect(page.locator('#farmup-pending-badge')).toContainText('May 2026: 104 rows pending review');
+  await expect(page.locator('#farmup-pending-action button')).toHaveAttribute('data-batch-id','pending');
+  await expect(page.locator('.needs-review .farmup-open')).toHaveText('Review rows');
+  await expect(page.locator('.settled .farmup-batch-state')).toHaveText('Archived');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({path:testInfo.outputPath('farmup-mobile.png'),fullPage:true});
+  await page.setViewportSize({width:1280,height:800});
+  expect(await page.locator('.portal-farmup-upload').evaluate(el=>el.getBoundingClientRect().width)).toBeLessThanOrEqual(620);
+  await page.screenshot({path:testInfo.outputPath('farmup-desktop.png'),fullPage:true});
+});
+
 test('Portal shell follows live viewport while sheets wait for stable Telegram height', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 620 });
   await page.setContent(`
