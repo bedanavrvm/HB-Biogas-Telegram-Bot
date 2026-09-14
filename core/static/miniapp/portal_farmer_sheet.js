@@ -723,8 +723,8 @@
     caseToggle.onclick = event => {
       if (window.PortalCaseNavigation?.canOpen?.(caseToggle.href)) {
         event.preventDefault();
-        if (mode === 'jbl_visit') saveJblVisitDraft(farmer, { immediate: true });
-        if (WORKFLOW_DRAFT_CONFIG[mode]) saveWorkflowDraft(farmer, mode, { immediate: true });
+        // The inspection detour retains this exact form and its attachments.
+        // Starting a draft write here would block our own navigation guard.
         window.PortalCaseNavigation.open(caseToggle.href);
         return;
       }

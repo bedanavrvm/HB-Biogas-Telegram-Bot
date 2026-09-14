@@ -3880,6 +3880,9 @@ body.portal-app .portal-filter-options input[type=checkbox] { width:16px; height
 .portal-filter-options label:has(input:checked) { background:color-mix(in srgb,var(--brand-primary) 9%,var(--bg-surface)); border-color:var(--brand-primary); }
 body.portal-app .sheet-overlay .case360-toggle { display:flex; align-items:center; justify-content:center; gap:8px; min-height:40px; padding:8px 12px; border:1px solid var(--brand-primary); border-radius:9px; background:color-mix(in srgb,var(--brand-primary) 7%,var(--bg-surface)); text-decoration:none; margin-top:10px; }
 body.portal-app .sheet-overlay .case360-toggle svg { width:16px; height:16px; flex:0 0 16px; }
+body.portal-app .sheet-overlay .sheet-quick-actions { gap:8px; border:0; border-radius:0; background:transparent; }
+body.portal-app .sheet-overlay .sheet-quick-actions :is(.sheet-client-media-toggle, .case360-toggle) { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; min-height:42px; margin:0; padding:8px 10px; border:1px solid var(--brand-primary); border-radius:9px; background:color-mix(in srgb,var(--brand-primary) 7%,var(--bg-surface)); font-size:12px; line-height:1.25; text-align:center; text-decoration:none; }
+body.portal-app .sheet-overlay .sheet-quick-actions :is(.sheet-client-media-toggle, .case360-toggle) svg { width:16px; height:16px; flex:0 0 16px; }
 .deferred-summary { border-radius:12px; padding:14px; border-left:4px solid #d97706; }
 .deferred-summary h3 { font-size:14px; margin:0 0 8px; }
 .deferred-summary p { font-size:12px; line-height:1.5; }

@@ -1,5 +1,28 @@
 # Changelog
 
+## Portal order validation, finalization control and workbook download - 14-September-2026
+
+- Order validation guidance survives the safe-message boundary and lists the
+  affected customer and missing details in the preview. Template failures direct
+  staff to IT while retaining internal exception diagnostics.
+- Telegram shows one main Finalize Order action; browser clients retain the
+  ordinary button fallback. Failed attempts retain their retry key.
+- Workbook downloads use Telegram's native download or the system browser,
+  matching the Complaints approach. Expired links direct users to Batches,
+  never to regenerate or finalize an existing order.
+- No migrations or settings changes; deploy backend and frontend together.
+  Actual device downloads remain an operator verification step.
+
+## Portal Case History inspection fix - 14-September-2026
+
+- Opening Case History no longer starts a draft save that blocks its own
+  navigation. Background visit, credit and final-review field recovery saves
+  may finish during the retained-form detour; actual workflow submissions,
+  uploads and ordinary page navigation remain protected.
+- Case History and media buttons share aligned heights, margins and padding.
+- No migrations or configuration changes. Refresh frontend assets after deploy;
+  live Telegram WebView verification remains an operator check.
+
 ## JBL Visit guided document capture - 14-September-2026
 
 - Separate Client ID, LAF and Supporting Photos sections. ID has named front/back

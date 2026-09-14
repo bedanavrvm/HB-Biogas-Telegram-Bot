@@ -1198,23 +1198,23 @@ def _parse_requisition_workbook_payload(request, *, allow_blocked: bool = False,
     requisition_date_raw = str(body.get('requisition_date') or '').strip()
 
     if not farmer_ids:
-        return None, JsonResponse({'ok': False, 'error': 'No farmers selected.'}, status=400)
+        return None, JsonResponse({'ok': False, 'code': 'order_selection_required', 'error': 'Select at least one customer in Order Preparation.', 'field_errors': {'farmer_ids': 'Select at least one customer.'}}, status=400)
     if not order_number:
-        return None, JsonResponse({'ok': False, 'error': 'Order Number / Batch Ref is required.'}, status=400)
+        return None, JsonResponse({'ok': False, 'code': 'order_number_required', 'error': 'Preview this order again to assign its order number.'}, status=400)
     if not requisition_date_raw:
-        return None, JsonResponse({'ok': False, 'error': 'Requisition Date is required.'}, status=400)
+        return None, JsonResponse({'ok': False, 'code': 'order_date_required', 'error': 'Choose the requisition date in Order Preparation.', 'field_errors': {'requisition_date': 'Choose the requisition date.'}}, status=400)
 
     try:
         requisition_date = _date.fromisoformat(requisition_date_raw)
     except ValueError:
         return None, JsonResponse(
-            {'ok': False, 'error': f"Invalid requisition_date '{requisition_date_raw}'. Use YYYY-MM-DD."},
+            {'ok': False, 'code': 'order_date_invalid', 'error': 'Choose a valid requisition date using the date picker.', 'field_errors': {'requisition_date': 'Choose a valid date.'}},
             status=400,
         )
 
     farmers = list(JawabuFarmerMaster.objects.filter(id__in=farmer_ids))
     if len(farmers) != len(farmer_ids):
-        return None, JsonResponse({'ok': False, 'error': 'One or more selected farmers not found.'}, status=404)
+        return None, JsonResponse({'ok': False, 'code': 'order_case_missing', 'error': 'A selected customer is no longer available. Refresh Order Preparation and select the customers again.'}, status=404)
 
     farmers, batch = _merge_requisition_farmers(farmers, order_number, farmer_ids)
     access_error = _portal_farmers_scope_error(request, farmers, capability='portal.requisition.view')
@@ -5019,7 +5019,7 @@ def _active_requisition_sequence(request):
                 return SimpleNamespace(pk=0, revision=0, next_number=legacy_number), None
         return None, JsonResponse({'ok': False, 'error': 'IT must configure the official order number before a requisition can be previewed.', 'code': 'sequence_not_initialized'}, status=409)
     if len(rows) > 1:
-        return None, JsonResponse({'ok': False, 'error': 'More than one order sequence is in scope. Use a group-scoped Portal grant.'}, status=409)
+        return None, JsonResponse({'ok': False, 'code': 'order_group_ambiguous', 'error': 'More than one group is available for this order. Ask IT to set the correct group for your Order Preparation access.'}, status=409)
     return rows[0], None
 
 
@@ -5199,10 +5199,10 @@ def portal_requisition_finalize(request):
         return JsonResponse({'ok': False, 'error': 'This preview expired. Preview the selected cases again.', 'code': 'preview_expired'}, status=409)
     actor_id = str(getattr(getattr(request, 'portal_user', None), 'pk', '') or '')
     if str(signed.get('user_id') or '') != actor_id:
-        return JsonResponse({'ok': False, 'error': 'This preview belongs to another Portal user.'}, status=403)
+        return JsonResponse({'ok': False, 'code': 'order_preview_wrong_user', 'error': 'This preview belongs to another user. Open Order Preparation and create your own preview.'}, status=403)
     request_id = _portal_request_id(request, body)
     if not request_id:
-        return JsonResponse({'ok': False, 'error': 'A request key is required to finalize an order.'}, status=400)
+        return JsonResponse({'ok': False, 'code': 'order_request_required', 'error': 'Refresh the Portal and preview the order again before finalizing.'}, status=400)
 
     from datetime import date as _date
     from django.db import transaction
@@ -5220,13 +5220,13 @@ def portal_requisition_finalize(request):
     existing = RequisitionBatch.objects.filter(generation_request_id=request_id).first()
     if existing:
         if existing.finalization_payload_digest and existing.finalization_payload_digest != payload_digest:
-            return JsonResponse({'ok': False, 'error': 'This request key was already used for a different finalization preview.'}, status=409)
+            return JsonResponse({'ok': False, 'code': 'order_request_conflict', 'error': 'This attempt refers to a different order preview. Check Batches, then return to Order Preparation and preview again.'}, status=409)
         if not existing.finalization_payload_digest and (
             existing.membership_digest != membership_digest
             or str(existing.order_number) != str(signed.get('order_number'))
             or (existing.requisition_date.isoformat() if existing.requisition_date else '') != str(signed.get('requisition_date'))
         ):
-            return JsonResponse({'ok': False, 'error': 'This request key was already used for a different finalization payload.'}, status=409)
+            return JsonResponse({'ok': False, 'code': 'order_request_conflict', 'error': 'This attempt refers to different order details. Check Batches, then return to Order Preparation and preview again.'}, status=409)
         farmers = _farmers_for_batch(existing.order_number, existing.farmer_ids)
         scope_error = _portal_farmers_scope_error(
             request, farmers, capability='portal.requisition.finalize',
@@ -5244,7 +5244,7 @@ def portal_requisition_finalize(request):
                 return JsonResponse({'ok': False, 'error': 'The official order number changed. Preview again.', 'code': 'sequence_changed'}, status=409)
             farmers = list(JawabuFarmerMaster.objects.select_for_update().filter(id__in=farmer_ids).order_by('id'))
             if len(farmers) != len(farmer_ids):
-                return JsonResponse({'ok': False, 'error': 'One or more previewed cases no longer exists.'}, status=409)
+                return JsonResponse({'ok': False, 'code': 'order_case_missing', 'error': 'A previewed customer is no longer available. Refresh Order Preparation and select the customers again.'}, status=409)
             scope_error = _portal_farmers_scope_error(request, farmers, capability='portal.requisition.finalize')
             if scope_error:
                 return scope_error
@@ -5253,7 +5253,10 @@ def portal_requisition_finalize(request):
                 validate_workflow_revision(farmer, revisions.get(str(farmer.id)))
             ready, blocked, _warnings = _validate_requisition_farmers(farmers)
             if blocked or len(ready) != len(farmers):
-                return JsonResponse({'ok': False, 'error': 'One or more cases is no longer ready. Preview again.', 'blocked': blocked}, status=409)
+                first = blocked[0] if blocked else {}
+                name = first.get('farmer', {}).get('customer_name') or 'A selected customer'
+                reasons = ' '.join(first.get('missing') or [])
+                return JsonResponse({'ok': False, 'error': f'{name}: {reasons or "This case is no longer ready for an order."} Correct the case details, then preview again.', 'code': 'order_cases_not_ready', 'blocked': blocked}, status=409)
             order_number = str(sequence.next_number)
             xlsx_bytes = generate_requisition_excel(farmers, order_number, requisition_date)
             sender = _portal_sender_from_request(request)
@@ -5290,9 +5293,15 @@ def portal_requisition_finalize(request):
                 actor=getattr(request, 'portal_user', None),
                 reason=f'Finalized official order {order_number}', request_id=request_id,
             )
-    except (OrderSequenceState.DoesNotExist, KeyError, TypeError, ValueError, RequisitionTemplateError) as exc:
+    except RequisitionTemplateError:
+        logger.exception('Portal order finalization rejected: requisition template requires attention')
+        return JsonResponse({'ok': False, 'code': 'order_template_unavailable', 'error': 'The requisition workbook template needs attention. Ask IT to check Requisition templates in Django Admin, then retry. Your order has not been finalized.'}, status=400)
+    except (OrderSequenceState.DoesNotExist, KeyError, TypeError, ValueError) as exc:
         response = _portal_workflow_error(exc)
-        return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        if response:
+            return response
+        logger.exception('Portal order finalization rejected: invalid finalization data')
+        return JsonResponse({'ok': False, 'code': 'order_finalization_invalid', 'error': 'This order could not be finalized. Preview the selected customers again. If it still fails, ask IT for help using the request reference.'}, status=400)
     return JsonResponse({'ok': True, 'filename': batch.filename,
                          'download_url': _batch_download_url(request, batch.order_number),
                          'batch': _serialize_batch(batch, farmers, request), 'drive_sync_pending': True})
@@ -5476,7 +5485,7 @@ def portal_requisition_download(request, token: str):
         order_number = str(payload['order_number'])
         actor_id = str(payload['user_id'])
     except (BadSignature, KeyError, TypeError, ValueError):
-        return JsonResponse({'ok': False, 'error': 'Download link expired. Generate the requisition form again.'}, status=404)
+        return JsonResponse({'ok': False, 'error': 'Download link expired. Reopen this order in Batches for a new download link.'}, status=404)
     from django.contrib.auth import get_user_model
     from core.services.telegram_identity import user_access
 
@@ -5606,7 +5615,9 @@ def portal_requisition_batch_download(request, order_number: str):
         subject_id=str(batch.pk),
         actor=getattr(request, 'portal_user', None),
         actor_label=_portal_sender_from_request(request),
-        request_id=_portal_request_id(request),
+        # This is a read, not an idempotent workflow write. Strict write-key
+        # enforcement must not prevent authorized downloads or their audit.
+        request_id=getattr(request, 'portal_request_id', '') or uuid.uuid4().hex,
         metadata={'order_number': batch.order_number, 'version': getattr(batch, 'version', 0) or 0},
     )
     filename = batch.filename or f'JBL_Requisition_Form_{batch.order_number}.xlsx'

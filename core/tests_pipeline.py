@@ -2897,6 +2897,66 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(data['blocked_count'], 1)
         self.assertIn('Enter the customer account number.', data['blocked'][0]['missing'])
 
+    def test_order_preview_validation_preserves_actionable_messages(self):
+        for index, (overrides, field, code) in enumerate([
+            ({'farmer_ids': []}, 'farmer_ids', 'order_selection_required'),
+            ({'requisition_date': ''}, 'requisition_date', 'order_date_required'),
+            ({'requisition_date': 'not-a-date'}, 'requisition_date', 'order_date_invalid'),
+        ]):
+            key = f'order-validation-{index}'
+            response = self.client.post(reverse('portal_requisition_preview'), json.dumps({
+                'farmer_ids': [str(self.farmer.id)], 'order_number': '001',
+                'requisition_date': '2026-07-06', **overrides,
+            }), content_type='application/json', HTTP_X_MINIAPP_MESSAGE_CONTRACT='2',
+                HTTP_X_REQUEST_ID=key, HTTP_IDEMPOTENCY_KEY=key)
+            self.assertEqual(response.status_code, 400)
+            data = response.json()
+            self.assertEqual(data['code'], code)
+            self.assertIn(field, data['field_errors'])
+            self.assertIn('Select' if field == 'farmer_ids' else 'Choose', data['message'])
+            self.assertNotIn('not-a-date', data['message'])
+
+    def test_order_finalization_explains_missing_details_and_template_failures(self):
+        from django.core.signing import TimestampSigner
+        from django.test import RequestFactory
+        from core.api.portal_views import portal_requisition_finalize
+        from core.services.requisition import RequisitionTemplateError
+        from requisitions.models import OrderSequenceState
+        from core.models import RequisitionBatch
+        group = GroupSheetConfiguration.objects.create(group_id='test-order-validation', sheet_id='test-sheet', sheet_name='Master Data', workflow={'type': 'jawabu'})
+        sequence = OrderSequenceState.objects.create(group_configuration=group, next_number=1)
+        self.farmer.final_decision = 'Approved'
+        self.farmer.customer_no = '15124'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.sub_county = 'Kieni'
+        self.farmer.village = ''
+        self.farmer.save()
+        signed = {'user_id': '', 'sequence_id': sequence.pk, 'sequence_revision': sequence.revision,
+                  'order_number': 1, 'requisition_date': '2026-07-06', 'farmer_ids': [str(self.farmer.id)],
+                  'workflow_revisions': {str(self.farmer.id): self.farmer.workflow_revision}}
+        token = TimestampSigner(salt='portal-requisition-finalize').sign(json.dumps(signed))
+        request = RequestFactory().post('/api/portal/requisition-queue/finalize/', json.dumps({'preview_token': token}), content_type='application/json')
+        with patch('core.api.portal_views._portal_capability_error', return_value=None), patch('core.api.portal_views._portal_farmers_scope_error', return_value=None), patch('core.api.portal_views._portal_request_id', return_value='validation-finalize'), patch('core.services.requisition.generate_requisition_excel') as generate:
+            response = portal_requisition_finalize(request)
+            data = json.loads(response.content)
+            self.assertEqual(response.status_code, 409)
+            self.assertEqual(data['code'], 'order_cases_not_ready')
+            self.assertIn(self.farmer.customer_name, data['error'])
+            self.assertIn('Enter the village.', data['error'])
+            generate.assert_not_called()
+            self.farmer.village = 'Test village'
+            self.farmer.save(update_fields=['village'])
+            generate.side_effect = RequisitionTemplateError('Internal template parser detail')
+            response = portal_requisition_finalize(request)
+            data = json.loads(response.content)
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(data['code'], 'order_template_unavailable')
+            self.assertIn('Ask IT', data['error'])
+            self.assertNotIn('Internal template parser detail', data['error'])
+        sequence.refresh_from_db()
+        self.assertEqual(sequence.next_number, 1)
+        self.assertFalse(RequisitionBatch.objects.exists())
+
     def test_portal_requisition_preview_blocks_missing_constituency_and_village(self):
         self.client.defaults.update(HTTP_X_MINIAPP_MESSAGE_CONTRACT='2', HTTP_X_REQUEST_ID='order-missing-location', HTTP_IDEMPOTENCY_KEY='order-missing-location')
         self.farmer.final_decision = 'Approved'
@@ -3341,6 +3401,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(batch.drive_sync_attempts, 2)
         self.assertIn('_retry2.xlsx', batch.filename)
 
+    @override_settings(REQUIRE_MINIAPP_IDEMPOTENCY_KEY=True)
     def test_portal_requisition_batch_detail_and_download(self):
         self.farmer.order_number = 'REQ-DETAIL-1'
         self.farmer.requisition_date = date(2026, 7, 6)

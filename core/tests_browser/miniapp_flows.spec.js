@@ -114,6 +114,81 @@ test('Order review scrolls the entire final row above its bottom actions',async(
   }
 });
 
+test('Order preview shows one Telegram main action with a browser fallback',async({page})=>{
+  const render=fs.readFileSync(asset('portal_requisitions.js'),'utf8').match(/  function openRequisitionPreview\([^]*?\n  \}/)[0];
+  const ids=['requisition-preview-sub','requisition-preview-summary','requisition-preview-warnings','requisition-preview-list','requisition-preview-confirm','requisition-preview-cancel','requisition-finalize-note'];
+  await page.setContent(`<main id="content"><section id="portal-screen" data-screen="requisition"></section><div id="requisition-preview-overlay" class="sheet-overlay">${ids.map(id=>id.includes('confirm')||id.includes('cancel')?`<button id="${id}"></button>`:`<div id="${id}"></div>`).join('')}</div></main>`);
+  await page.addScriptTag({content:`window.nativeVisible=false;window.finalClicks=0;window.Telegram={WebApp:{onEvent(){},MainButton:{show(){window.nativeVisible=true;},hide(){window.nativeVisible=false;},setText(){},onClick(handler){window.mainClick=handler;},offClick(){}}}};const el=id=>document.getElementById(id);const deps={tg:Telegram.WebApp,fmtDate:x=>x,escapeHtml:x=>String(x),summaryGrid:()=>'',renderWarnings:()=>{}};const renderPrintableRequisition=()=>'<p>Preview</p>';${render};window.openPreview=openRequisitionPreview;window.previewDeps=deps;document.getElementById('requisition-preview-confirm').onclick=()=>window.finalClicks++;`});
+  await page.addScriptTag({path:asset('miniapp-nav.js')});
+  await page.evaluate(()=>openPreview({order_number:'1',ready_count:1}));
+  await expect(page.locator('#requisition-preview-confirm')).toBeHidden();
+  await expect(page.locator('#requisition-preview-confirm')).toHaveAttribute('data-main-action-proxy','true');
+  await expect.poll(()=>page.evaluate(()=>window.nativeVisible)).toBe(true);
+  await page.evaluate(()=>window.mainClick());
+  expect(await page.evaluate(()=>window.finalClicks)).toBe(1);
+  await page.evaluate(()=>openPreview({order_number:'1',ready_count:1},{readOnly:true}));
+  await expect.poll(()=>page.evaluate(()=>window.nativeVisible)).toBe(false);
+  await page.evaluate(()=>{window.previewDeps.tg=null;openPreview({order_number:'2',ready_count:1});});
+  await expect(page.locator('#requisition-preview-confirm')).toBeVisible();
+});
+
+test('Order failures display every customer issue and the field correction',async({page})=>{
+  const handler=fs.readFileSync(asset('portal_requisitions.js'),'utf8').match(/  function showRequisitionError\([^]*?\n  \}/)[0];
+  await page.setContent('<div id="requisition-preview-warnings"></div><button id="requisition-preview-confirm"></button><p id="requisition-finalize-note"></p>');
+  await page.addScriptTag({content:`window.messages=[];const el=id=>document.getElementById(id);const deps={escapeHtml:x=>String(x).replaceAll('<','&lt;'),showToast:message=>window.messages.push(message)};${handler};window.showOrderFailure=showRequisitionError;`});
+  await page.evaluate(()=>showOrderFailure({error:'Some information needs attention.',field_errors:{requisition_date:'Choose a valid date.'},blocked:[{farmer:{customer_name:'Test customer'},missing:['Enter the village.','Enter the constituency.']}]},'Try again.'));
+  await expect(page.locator('[role="alert"]')).toContainText('Test customer: Enter the village.');
+  await expect(page.locator('[role="alert"]')).toContainText('Test customer: Enter the constituency.');
+  await expect(page.locator('[role="alert"]')).toContainText('Requisition date: Choose a valid date.');
+  await expect(page.locator('#requisition-preview-confirm')).toBeDisabled();
+  expect(await page.evaluate(()=>window.messages[0])).toBe('Requisition date: Choose a valid date.');
+});
+
+test('Workbook download click uses Telegram native download and browser fallback',async({page})=>{
+  await page.setContent('<a id="requisition-workbook-download" href="https://miniapp.test/api/portal/requisition-download/signed-test/" data-filename="Order-1.xlsx">Download workbook</a>');
+  await page.addScriptTag({path:asset('portal_requisitions.js')});
+  await page.evaluate(()=>{
+    window.downloads=[];window.browserLinks=[];window.messages=[];
+    window.downloadTg={downloadFile:(options,callback)=>{window.downloads.push(options);callback(true);}};
+    PortalMiniAppRequisitions.init({el:id=>document.getElementById(id),state:{capabilities:new Set()},tg:window.downloadTg,showToast:message=>window.messages.push(message),openPortalLink:url=>window.browserLinks.push(url)});
+  });
+  await page.locator('#requisition-workbook-download').click();
+  expect(await page.evaluate(()=>window.downloads)).toEqual([{url:'https://miniapp.test/api/portal/requisition-download/signed-test/',file_name:'Order-1.xlsx'}]);
+  expect(await page.evaluate(()=>window.browserLinks)).toHaveLength(0);
+  await page.evaluate(()=>{window.downloadTg.downloadFile=(_options,callback)=>callback(false);});
+  await page.locator('#requisition-workbook-download').click();
+  expect(await page.evaluate(()=>window.messages.at(-1))).toContain('Download cancelled.');
+  await page.evaluate(()=>{delete window.downloadTg.downloadFile;});
+  await page.locator('#requisition-workbook-download').click();
+  expect(await page.evaluate(()=>window.browserLinks)).toEqual(['https://miniapp.test/api/portal/requisition-download/signed-test/']);
+});
+
+test('Hidden main action can retry finalization and produces a working workbook control',async({page})=>{
+  const source=fs.readFileSync(asset('portal_requisitions.js'),'utf8');
+  const generate=source.match(/  async function generateRequisitionFromPreview\([^]*?\n  \}/)[0];
+  const errorHandler=source.match(/  function showRequisitionError\([^]*?\n  \}/)[0];
+  const ids=['requisition-preview-confirm','requisition-preview-summary','requisition-preview-warnings','requisition-preview-list','requisition-finalize-note','requisition-preview-sub','requisition-preview-cancel','batch-order-num','batch-req-date'];
+  await page.setContent(ids.map(id=>id.includes('confirm')||id.includes('cancel')?`<button id="${id}"></button>`:`<input id="${id}">`).join(''));
+  // Results are containers rather than form inputs.
+  await page.evaluate(()=>['requisition-preview-summary','requisition-preview-warnings','requisition-preview-list'].forEach(id=>document.getElementById(id).outerHTML=`<div id="${id}"></div>`));
+  await page.addScriptTag({content:`
+    window.calls=[];window.messages=[];window.testState={pendingRequisitionPayload:{preview_token:'same-preview',finalize_request_id:'same-request'},selectedRequisitions:new Set(['case-1']),selectedRequisitionRevisions:new Map([['case-1',1]])};
+    const state=()=>window.testState,el=id=>document.getElementById(id),csrfHeader=()=>({}),updateBatchPanel=()=>{},scheduleRequisitionDriveSync=async()=>{};
+    const deps={tg:{MainButton:{setText(){},showProgress(){},hideProgress(){}}},escapeHtml:x=>String(x),fmtDate:x=>x,summaryGrid:()=>'',showToast:message=>window.messages.push(message),setButtonLoading(){},loadQueue(){},portalApi:{postJson:async(path,body)=>{window.calls.push({...body});return window.calls.length===1?{ok:false,data:{ok:false,error:'Ask IT to check the workbook template.'}}:{ok:true,data:{ok:true,filename:'Order-1.xlsx',download_url:'https://miniapp.test/signed-download/',batch:{order_number:'1',farmer_count:1,filename:'Order-1.xlsx'}}};}}};
+    ${errorHandler}\n${generate};window.finalizePreview=generateRequisitionFromPreview;
+    const button=el('requisition-preview-confirm');button.hidden=true;button.dataset.mainAction='Finalize Order 1';button.dataset.mainActionProxy='true';
+  `});
+  await page.evaluate(()=>finalizePreview());
+  await expect(page.locator('#requisition-preview-confirm')).toBeEnabled();
+  await expect(page.locator('#requisition-preview-confirm')).toBeHidden();
+  await expect(page.locator('[role="alert"]')).toContainText('Ask IT to check the workbook template.');
+  await page.evaluate(()=>finalizePreview());
+  expect(await page.evaluate(()=>window.calls)).toEqual([{preview_token:'same-preview',client_request_id:'same-request'},{preview_token:'same-preview',client_request_id:'same-request'}]);
+  await expect(page.locator('#requisition-workbook-download')).toHaveAttribute('href','https://miniapp.test/signed-download/');
+  await expect(page.locator('#requisition-workbook-download')).toHaveAttribute('data-filename','Order-1.xlsx');
+  expect(await page.evaluate(()=>window.testState.pendingRequisitionPayload)).toBeNull();
+});
+
 test('FarmUp final review row stays above the scrollbar and commit bar',async({page})=>{
   await page.setViewportSize({width:390,height:700});
   await page.setContent('<body class="portal-app"><main id="content" style="height:100dvh;overflow:auto"><div id="portal-screen" data-screen="farmup"><section id="page-farmup"><form id="portal-farmup-upload"></form><div id="portal-farmup-feedback"></div><section id="portal-farmup-review" class="portal-import-review" hidden></section><div id="portal-farmup-list"></div></section></div></main></body>');
@@ -1401,6 +1476,67 @@ test('Portal route guard retains dirty edits and an in-flight action', async ({ 
   await page.evaluate(() => window.MiniAppUtils.setCloseProtection('network-write:test', false));
   await page.locator('#sidebar a[data-screen="credit"]').click();
   await expect(page).toHaveURL('http://miniapp.test/portal/s/credit/');
+});
+
+test('Case inspection allows only recovery autosaves, not submissions or invoice edits',async({page})=>{
+  await installPortalRouteFixture(page);
+  await page.goto('http://miniapp.test/portal/s/dashboard/');
+  let pendingRoute;
+  await page.route('http://miniapp.test/api/portal/**',route=>{pendingRoute=route;});
+  for(const [endpoint,allowed] of [['jbl-queue/case-1/draft/',true],['credit-queue/case-1/draft/',true],['final-review-queue/case-1/draft/',true],['jbl-queue/case-1/complete-visit/',false],['invoice-pool/invoice-1/draft/',false]]){
+    pendingRoute=null;
+    await page.evaluate(path=>{window.pendingAction=fetch('/api/portal/'+path,{method:'POST',body:'{}'});},endpoint);
+    await expect.poll(()=>Boolean(pendingRoute)).toBe(true);
+    expect(await page.evaluate(()=>MiniAppUtils.canNavigatePage('/portal/cases/case-1/',{preserveEdits:true}))).toBe(allowed);
+    expect(await page.evaluate(()=>MiniAppUtils.canNavigatePage('/portal/s/all/'))).toBe(false);
+    await pendingRoute.fulfill({status:200,body:'{}'});
+    await page.evaluate(()=>window.pendingAction);
+    expect(await page.evaluate(()=>MiniAppUtils.canNavigatePage('/portal/cases/case-1/',{preserveEdits:true}))).toBe(true);
+  }
+});
+
+test('Case History click does not create a blocking save and Back retains edits and photos',async({page})=>{
+  await installPortalRouteFixture(page);
+  await page.goto('http://miniapp.test/portal/s/dashboard/');
+  await page.route('http://miniapp.test/portal/cases/case-1/**',route=>route.fulfill({contentType:'text/html',body:'<section id="portal-screen" data-screen="case_history" data-case-farmer-id="case-1"><a class="case-history-action" href="/portal/s/dashboard/">Back</a></section>'}));
+  await page.evaluate(()=>{
+    document.getElementById('portal-screen').insertAdjacentHTML('beforeend','<input id="retained-village"><input id="retained-photo" type="file"><a id="case360-toggle" href="/portal/cases/case-1/?from=jbl">Case History</a>');
+    window.__saves=0;window.__messages=[];
+  });
+  await page.addScriptTag({path:asset('portal_case_navigation.js')});
+  const handler=fs.readFileSync(asset('portal_farmer_sheet.js'),'utf8').match(/    caseToggle.onclick = event => \{[^]*?\n    \};/)[0];
+  await page.addScriptTag({content:`
+    const caseToggle=document.getElementById('case360-toggle'),mode='jbl_visit',farmer={id:'case-1'},WORKFLOW_DRAFT_CONFIG={};
+    const saveJblVisitDraft=()=>{window.__saves++;MiniAppUtils.setCloseProtection('network-write:unexpected-save',true);};
+    const saveWorkflowDraft=saveJblVisitDraft;
+    PortalCaseNavigation.init({hasCapability:()=>true,headers:()=>({}),showToast:message=>window.__messages.push(message),activate:()=>{}});
+    ${handler}
+  `});
+  await page.locator('#retained-village').fill('Test village');
+  await page.locator('#retained-photo').setInputFiles({name:'Test.jpg',mimeType:'image/jpeg',buffer:Buffer.from('synthetic photo')});
+  await page.locator('#case360-toggle').click();
+  await expect(page.locator('#portal-screen')).toHaveAttribute('data-screen','case_history');
+  expect(await page.evaluate(()=>window.__saves)).toBe(0);
+  expect(await page.evaluate(()=>window.__messages)).not.toContain('Please wait for the current action to finish.');
+  await page.evaluate(()=>PortalCaseNavigation.back());
+  await expect(page.locator('#retained-village')).toHaveValue('Test village');
+  expect(await page.locator('#retained-photo').evaluate(input=>input.files[0].name)).toBe('Test.jpg');
+});
+
+test('Case History and media controls align symmetrically in operational forms',async({page},testInfo)=>{
+  for(const classes of ['jbl-visit-sheet','credit-analysis-sheet','operational-detail-sheet']){
+    await page.setContent(`<body class="workflow-standard portal-app"><div class="sheet-overlay open"><section class="sheet-panel ${classes}"><div class="sheet-quick-actions has-client-media"><section class="sheet-client-media"><button class="btn btn-secondary sheet-client-media-toggle"><svg viewBox="0 0 24 24"></svg><span>3 Media Files</span></button></section><a class="btn btn-secondary case360-toggle" href="#"><svg viewBox="0 0 24 24"></svg><span>Case History</span></a></div></section></div></body>`);
+    for(const name of ['base.css','workflow_standard.css','portal.css'])await page.addStyleTag({path:asset(name)});
+    for(const width of [390,1280]){
+      await page.setViewportSize({width,height:700});
+      const media=await page.locator('.sheet-client-media-toggle').boundingBox();
+      const history=await page.locator('.case360-toggle').boundingBox();
+      expect(Math.abs(media.y-history.y)).toBeLessThan(1);
+      expect(Math.abs(media.height-history.height)).toBeLessThan(1);
+      expect(Math.abs(media.width-history.width)).toBeLessThan(1);
+    }
+    await page.screenshot({path:testInfo.outputPath(`history-alignment-${classes}.png`)});
+  }
 });
 
 test('multipart upload failure can retry with the same request key', async ({ page }) => {

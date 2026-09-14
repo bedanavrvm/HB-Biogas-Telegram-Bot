@@ -780,7 +780,7 @@
       const result = await deps.portalApi.postJson('/requisition-queue/preview/', payload, deps.tg, csrfHeader());
       const data = result.data || {};
       if (!result.ok || !data.ok) {
-        deps.showToast(data.error || 'Could not prepare preview.', 'error');
+        showRequisitionError(data, 'Could not prepare the order preview. Try again.');
         return;
       }
       const changedIds = payload.farmer_ids.filter(id =>
@@ -808,7 +808,51 @@
       openRequisitionPreview(data, { readOnly: false });
     } catch (err) {
       console.error(err);
-      deps.showToast('Could not prepare preview.', 'error');
+      deps.showToast('Could not load the order preview. Check your connection and try again.', 'error');
+    }
+  }
+
+  function showRequisitionError(data, fallback) {
+    const details = [];
+    for (const [field, messages] of Object.entries(data.field_errors || {})) {
+      const label = {requisition_date:'Requisition date',farmer_ids:'Selected cases'}[field] || field.replaceAll('_', ' ');
+      for (const message of (Array.isArray(messages) ? messages : [messages])) {
+        if (typeof message === 'string' && message.trim()) details.push(`${label}: ${message}`);
+      }
+    }
+    for (const item of data.blocked || []) {
+      const name = item.farmer?.customer_name || 'Selected customer';
+      for (const reason of item.missing || []) details.push(`${name}: ${reason}`);
+    }
+    const message = data.error || data.message?.text || fallback;
+    deps.showToast(details[0] || message, 'error');
+    const target = el('requisition-preview-warnings');
+    if (target) target.innerHTML = `<section class="requisition-blocker-list" role="alert"><h3>Order needs attention</h3><p>${deps.escapeHtml(message)}</p>${details.length ? `<ul>${details.map(item => `<li>${deps.escapeHtml(item)}</li>`).join('')}</ul>` : ''}</section>`;
+    if ((data.blocked || []).length) {
+      const confirm = el('requisition-preview-confirm');
+      if (confirm) { confirm.dataset.validationBlocked = 'true'; confirm.disabled = true; }
+      const note = el('requisition-finalize-note');
+      if (note) { note.hidden = false; note.textContent = 'Correct the listed details in the case, then return to Order Preparation and preview again.'; }
+    }
+  }
+
+  function downloadRequisitionWorkbook(action) {
+    const url = action.href;
+    const filename = action.dataset.filename;
+    if (!url || !filename) return deps.showToast('Reopen this order in Batches to get a new download link.', 'error');
+    if (typeof deps.tg?.downloadFile === 'function') {
+      try {
+        deps.tg.downloadFile({url, file_name:filename}, accepted => {
+          deps.showToast(accepted === false ? 'Download cancelled. Select Download workbook to try again.' : 'Download started. Check your device downloads.', accepted === false ? 'info' : 'success');
+        });
+        return;
+      } catch (_) { /* Older Telegram clients use the system-browser fallback. */ }
+    }
+    try {
+      deps.openPortalLink(url);
+      deps.showToast('Workbook opened in your browser. Check Downloads.', 'info');
+    } catch (_) {
+      deps.showToast('Could not open the workbook. Try again or reopen this order in Batches.', 'error');
     }
   }
 
@@ -838,11 +882,14 @@
     // previews are read-only and must never imply that a workbook is being
     // generated or make another generation request.
     if (progress) progress.hidden = true;
-    // The in-document action is authoritative. Some Telegram clients expose
-    // MainButton without reliably painting it, so the native control may
-    // mirror this action but must never replace it.
-    confirm.hidden = readOnly;
-    confirm.toggleAttribute('aria-hidden', readOnly);
+    // One visible finalization action: Telegram's main button when supported,
+    // otherwise the ordinary page button. The hidden proxy retains its handler.
+    const nativeMain = typeof deps.tg?.MainButton?.show === 'function' && typeof deps.tg?.MainButton?.onClick === 'function';
+    confirm.hidden = readOnly || nativeMain;
+    confirm.toggleAttribute('aria-hidden', confirm.hidden);
+    delete confirm.dataset.validationBlocked;
+    if (!readOnly && nativeMain) confirm.dataset.mainActionProxy = 'true';
+    else delete confirm.dataset.mainActionProxy;
     if (readOnly) confirm.removeAttribute('data-main-action');
     else confirm.dataset.mainAction = `Finalize Order ${data.order_number}`;
     confirm.disabled = readOnly || (data.blocked_count || 0) > 0 || !(data.ready_count || 0);
@@ -885,7 +932,7 @@
       }, deps.tg, csrfHeader());
       const result = response.data || {};
       if (!response.ok || !result.ok) {
-        deps.showToast(result.error || 'Order finalization failed.', 'error');
+        showRequisitionError(result, 'Could not finalize this order. Try again; no new order will be created by retrying.');
         return;
       }
       deps.showToast(result.drive_sync_pending
@@ -902,10 +949,12 @@
         { label: 'Date', value: deps.fmtDate(batch.requisition_date) },
       ]);
       if (warnings) warnings.innerHTML = '';
-      if (list) list.innerHTML = `<div class="requisition-finalized-state" role="status"><i data-lucide="badge-check" aria-hidden="true"></i><div><strong>Order ${deps.escapeHtml(batch.order_number || '')} finalized</strong><p>The official workbook is stored. ${batch.drive_sync_status === 'succeeded' ? 'It is also available in Drive.' : 'Drive publication is pending and can be retried from Batches.'}</p>${batch.download_url ? `<a class="btn btn-secondary" href="${deps.escapeHtml(batch.download_url)}">Download workbook</a>` : ''}</div></div>`;
+      const downloadUrl = batch.download_url || result.download_url;
+      if (list) list.innerHTML = `<div class="requisition-finalized-state" role="status"><i data-lucide="badge-check" aria-hidden="true"></i><div><strong>Order ${deps.escapeHtml(batch.order_number || '')} finalized</strong><p>The official workbook is stored. ${batch.drive_sync_status === 'succeeded' ? 'It is also available in Drive.' : 'Drive publication is pending and can be retried from Batches.'}</p>${downloadUrl ? `<a class="btn btn-secondary" id="requisition-workbook-download" href="${deps.escapeHtml(downloadUrl)}" data-filename="${deps.escapeHtml(batch.filename || result.filename || `JBL_Requisition_Form_${batch.order_number}.xlsx`)}">Download workbook</a>` : ''}</div></div>`;
       if (note) note.hidden = true;
       if (el('requisition-preview-sub')) el('requisition-preview-sub').textContent = 'Official order saved';
       confirm.removeAttribute('data-main-action');
+      delete confirm.dataset.mainActionProxy;
       confirm.hidden = true;
       confirm.setAttribute('aria-hidden', 'true');
       if (el('requisition-preview-cancel')) el('requisition-preview-cancel').textContent = 'Done';
@@ -921,7 +970,7 @@
       deps.loadQueue('batches', 1);
     } catch (err) {
       console.error(err);
-      deps.showToast('An error occurred while finalizing the order.', 'error');
+      deps.showToast('Could not confirm the order result. Check Batches before retrying.', 'error');
     } finally {
       state().generatingRequisition = false;
       if (progress) progress.hidden = true;
@@ -929,9 +978,9 @@
         mainButton.hideProgress?.();
         mainButton.setText?.('Finalize Order');
       }
-      if (!confirm.hidden) {
+      if (state().pendingRequisitionPayload) {
         deps.setButtonLoading(confirm, false);
-        confirm.disabled = false;
+        confirm.disabled = confirm.dataset.validationBlocked === 'true';
       }
     }
   }
@@ -1081,11 +1130,12 @@
           '#btn-generate-requisition, #requisition-preview-confirm, '
           + '#requisition-preview-close, #requisition-preview-cancel, #batch-detail-close, '
           + '#batch-detail-download, #batch-detail-generate, #batch-detail-preview, '
-          + '#batch-detail-upload, #batch-detail-retry-sync, #requisition-sequence-save'
+          + '#batch-detail-upload, #batch-detail-retry-sync, #requisition-sequence-save, #requisition-workbook-download'
         );
         if (action) {
           event.preventDefault();
           if (action.id === 'btn-generate-requisition') requestRequisitionPreview();
+          else if (action.id === 'requisition-workbook-download') downloadRequisitionWorkbook(action);
           else if (action.id === 'requisition-sequence-save') saveOrderSequence(action);
           else if (action.id === 'requisition-preview-confirm') generateRequisitionFromPreview();
           else if (action.id === 'requisition-preview-close' || action.id === 'requisition-preview-cancel') {

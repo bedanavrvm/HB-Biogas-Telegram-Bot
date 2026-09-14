@@ -90,7 +90,8 @@
   // in-flight-write protections effective when leaving the current document.
   function canNavigatePage(url = window.location.href, options = {}) {
     const destination = new URL(url, window.location.href).href;
-    if ([...closeProtectionReasons].some(reason => reason.startsWith('network-write:'))) {
+    if ([...closeProtectionReasons].some(reason => reason.startsWith('network-write:')
+        && !(options.preserveEdits === true && reason.startsWith('network-write:portal-draft:')))) {
       window.MiniAppRuntime?.showToast?.('Please wait for the current action to finish.', { tone: 'error' });
       return false;
     }
@@ -143,7 +144,12 @@
       if (method === 'GET' || method === 'HEAD' || url.indexOf('/miniapp-diagnostics/') >= 0) {
         return originalFetch.apply(this, args);
       }
-      const reason = 'network-write:' + createRequestId('write');
+      const requestUrl = new URL(url, window.location.href);
+      // Only field-recovery drafts are safe during the in-memory Portal
+      // inspection detour. Invoice edits and workflow submissions still block.
+      const portalDraft = requestUrl.origin === window.location.origin
+        && /^\/api\/portal\/(jbl-queue|credit-queue|final-review-queue)\/[^/]+\/draft\/$/.test(requestUrl.pathname);
+      const reason = (portalDraft ? 'network-write:portal-draft:' : 'network-write:') + createRequestId('write');
       setCloseProtection(reason, true);
       try {
         return Promise.resolve(originalFetch.apply(this, args)).finally(function () {
