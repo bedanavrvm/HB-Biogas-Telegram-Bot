@@ -46,21 +46,21 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_requisitions.js'), html.index('miniapp/portal_payments.js'))
         self.assertLess(html.index('miniapp/portal_payments.js'), html.index('miniapp/portal.js'))
         self.assertLess(html.index('miniapp/portal_imports.js'), html.index('miniapp/portal.js'))
-        self.assertIn('miniapp/components.js?v=2', html)
+        self.assertIn('miniapp/components.js?v=3', html)
         self.assertIn('miniapp/asset_loader.js?v=1', html)
-        self.assertIn('miniapp/portal_queues.js?v=10', html)
+        self.assertIn('miniapp/portal_queues.js?v=12', html)
         self.assertIn('miniapp/portal_farmer_sheet.js?v=71', html)
-        self.assertIn('miniapp/utils.js?v=13', html)
+        self.assertIn('miniapp/utils.js?v=15', html)
         self.assertIn('miniapp/portal_helpers.js?v=7', html)
         self.assertIn('miniapp/components.css?v=2', html)
-        self.assertIn('miniapp/portal.css?v=108', html)
-        self.assertIn('miniapp/portal_filters.js?v=15', html)
+        self.assertIn('miniapp/portal.css?v=109', html)
+        self.assertIn('miniapp/portal_filters.js?v=16', html)
         self.assertIn('miniapp/portal_imports.js?v=7', html)
         self.assertNotIn('portal-import-group', html)
         self.assertIn('miniapp/portal_requisitions.js?v=38', html)
         self.assertIn('miniapp/portal_api.js?v=9', html)
         self.assertIn('miniapp/portal_invoices.js?v=18', html)
-        self.assertIn('miniapp/portal_payments.js?v=10', html)
+        self.assertIn('miniapp/portal_payments.js?v=11', html)
         self.assertIn('miniapp/portal_curated_reports.js?v=2', html)
         self.assertIn('miniapp/portal.js?v=86', html)
         self.assertNotIn('vendor-chartjs-4.5.1.umd.min.js', html)
@@ -376,26 +376,27 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("event.target.closest('#invoice-pool-upload-form')", source)
         self.assertIn('invoiceBulkActionsBound', source)
 
-    def test_invoice_name_change_uses_governed_mobile_sheet_and_generated_letter(self):
+    def test_invoice_name_change_is_inline_with_local_letter_and_identity_safeguards(self):
         source = Path('core/static/miniapp/portal_invoices.js').read_text(encoding='utf-8')
         template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')
-        css = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
 
         self.assertIn('openInvoiceWorkflowSheet', source)
-        self.assertIn("'/invoice-name-changes/'", source)
-        self.assertIn('createNameChangeBatch', source)
+        self.assertIn('Request corrected invoice', source)
+        self.assertIn('FarmUp lead / contact', source)
+        self.assertIn('SysUp applicant / borrower', source)
+        self.assertIn('Invoice holder', source)
+        self.assertIn('invoice_revision: invoice.revision', source)
+        self.assertIn('application_revision: invoice.application_revision', source)
+        self.assertIn('confirmed: values.confirmed ===', source)
+        self.assertIn('Correct sent request', source)
+        self.assertIn('Letter preview', source)
         self.assertIn('openReplacementSelector', source)
-        self.assertIn("scope', state.candidateScope", source)
-        self.assertIn('Strong suggestion', source)
         self.assertIn("'/generate/'", source)
         self.assertIn('artifact_id: letter.id', source)
-        self.assertNotIn('Existing draft letter batch ID', source)
-        self.assertNotIn('Approved Drive reference for the sent letter', source)
+        self.assertIn('latest_letter.download_url', source)
         self.assertNotIn('window.prompt', source)
         self.assertNotIn('window.confirm', source)
-        self.assertIn('Invoice name changes', template)
-        self.assertIn('invoice-name-change-tabs', css)
-        self.assertIn('@media (min-width: 760px)', css)
+        self.assertNotIn('Invoice name changes', template)
 
     def test_portal_sheets_do_not_reexpand_during_external_media_activity_return(self):
         navigation_source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
@@ -466,7 +467,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('farmer.current_pipeline_state|default:"In Progress"', card)
         self.assertIn('function renderOperationalQueueCard(f, qKey)', portal)
         self.assertIn("['county', 'branch', 'status', 'ordering']", queues)
-        self.assertIn("params.set(key, value)", queues)
+        self.assertIn("params.append(key, value)", queues)
         self.assertIn("farmer.imab_created || 'Pending'", sheet)
         self.assertIn('WORKFLOW_DRAFT_CONFIG', sheet)
         self.assertIn('clearWorkflowDraft', sheet)
@@ -624,6 +625,11 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('data-portal-queue-search', template)
         self.assertIn('data-portal-filter-trigger', template)
         self.assertIn('data-portal-filter-chips', template)
+        self.assertEqual(template.count('data-portal-filter-options="county"'), 1)
+        self.assertEqual(template.count('data-portal-filter-options="branch"'), 1)
+        self.assertNotIn('<select name="county">', template)
+        self.assertNotIn('<select name="branch">', template)
+        self.assertIn("filters[key] = data.getAll(key)", source)
         self.assertNotIn('restoredPortalUi.search', portal)
         self.assertNotIn('restoredPortalUi.jblSearch', portal)
 
@@ -878,8 +884,13 @@ class MiniAppFrontendSmokeTests(TestCase):
             'activeBatch.revision',
             '/cancel/',
             'farmer_ids',
+            'payment_modes',
+            'data-payment-candidate-mode',
+            'data-payment-case-mode',
         ):
             self.assertIn(expected, source)
+        self.assertNotIn('payments-detail-mode', source)
+        self.assertNotIn('id="payments-mode"', Path('core/templates/portal/portal.html').read_text(encoding='utf-8'))
 
     def test_order_and_invoice_surfaces_do_not_expose_payment_actions(self):
         requisitions = Path('core/static/miniapp/portal_requisitions.js').read_text(encoding='utf-8')

@@ -445,7 +445,7 @@ _add(
 )
 _add(
     'portal_invoice_identity_review portal_invoice_name_change_create '
-    'portal_invoice_name_change_batches portal_invoice_name_change_close '
+    'portal_invoice_name_change_correct_sent portal_invoice_name_change_batches portal_invoice_name_change_close '
     'portal_invoice_name_change_follow_up portal_invoice_name_change_generate '
     'portal_invoice_name_change_sent portal_invoice_name_change_replacement',
     authentication=_PORTAL_AUTH, capability='portal.invoice_identity.manage', scope=_PORTAL_SCOPE,
@@ -459,7 +459,7 @@ _add(
     domain_replay='Selection/document request uniqueness, source workbook hash, revision, and finalization state',
 )
 _add(
-    'portal_payment_batches portal_payment_batch_cases portal_payment_batch_case_remove '
+    'portal_payment_batches portal_payment_batch_cases portal_payment_batch_case_mode portal_payment_batch_case_remove '
     'portal_payment_batch_submit portal_payment_batch_case_review portal_payment_batch_generate '
     'portal_payment_batch_cancel',
     authentication=_PORTAL_AUTH,
@@ -469,7 +469,7 @@ _add(
     domain_replay='Request-keyed payment event plus batch revision, case digest, state, and active-membership constraints',
 )
 _add(
-    'portal_payment_batch_detail portal_payment_sequence',
+    'portal_payment_sequence',
     methods=('PATCH',), authentication=_PORTAL_AUTH,
     capability='Payment preparation or IT-only payment sequence management',
     scope='One scoped payment batch or Jawabu group payment sequence',

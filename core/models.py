@@ -2402,6 +2402,14 @@ class JawabuFarmerMaster(models.Model):
     national_id = models.CharField(max_length=64, blank=True, default='', db_index=True)
     primary_phone = models.CharField(max_length=32, blank=True, default='', db_index=True)
     secondary_phone = models.CharField(max_length=32, blank=True, default='')
+    # Immutable intake identity retained when SysUp later establishes the
+    # contractual borrower.  Existing identity fields remain the canonical
+    # current borrower used by downstream operational workflows.
+    lead_name = models.CharField(max_length=255, blank=True, default='')
+    lead_national_id = models.CharField(max_length=64, blank=True, default='')
+    lead_primary_phone = models.CharField(max_length=32, blank=True, default='')
+    lead_secondary_phone = models.CharField(max_length=32, blank=True, default='')
+    lead_source_reference = models.CharField(max_length=255, blank=True, default='')
 
     county = models.CharField(max_length=128, blank=True, default='', db_index=True)
     sub_county = models.CharField(max_length=128, blank=True, default='')
@@ -7960,6 +7968,7 @@ class ParsedInvoice(models.Model):
     matched_order_number = models.CharField(max_length=128, blank=True, default='', db_index=True)
     raw_payload = models.JSONField(blank=True, default=dict)
     review_notes = models.TextField(blank=True, default='')
+    revision = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

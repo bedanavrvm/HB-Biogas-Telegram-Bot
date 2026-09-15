@@ -328,6 +328,7 @@ def retry_letter_artifact_upload(artifact: InvoiceNameChangeLetterArtifact, *, a
 
 def generate_letter_artifact(
     batch: InvoiceNameChangeBatch, *, actor: str, client_request_id: str,
+    publish_to_drive: bool = True,
 ) -> tuple[InvoiceNameChangeLetterArtifact, bool]:
     actor = str(actor or '').strip()
     request_id = str(client_request_id or '').strip()
@@ -340,7 +341,7 @@ def generate_letter_artifact(
         batch=batch, client_request_id=request_id,
     ).first()
     if existing:
-        if not existing.drive_url:
+        if publish_to_drive and not existing.drive_url:
             retry_letter_artifact_upload(existing, actor=actor)
         return existing, False
 
@@ -390,7 +391,7 @@ def generate_letter_artifact(
                     },
                 )
             created = True
-    if not artifact.drive_url:
+    if publish_to_drive and not artifact.drive_url:
         retry_letter_artifact_upload(artifact, actor=actor)
         artifact.refresh_from_db()
     return artifact, created
@@ -404,6 +405,9 @@ def artifact_is_current(artifact: InvoiceNameChangeLetterArtifact) -> bool:
 def serialize_artifact(artifact: InvoiceNameChangeLetterArtifact | None) -> dict | None:
     if not artifact:
         return None
+    snapshot = artifact.payload_snapshot if isinstance(artifact.payload_snapshot, dict) else {}
+    rows = snapshot.get('rows') if isinstance(snapshot.get('rows'), list) else []
+    row = rows[0] if rows and isinstance(rows[0], dict) else {}
     return {
         'id': str(artifact.id), 'version': artifact.version, 'status': artifact.status,
         'filename': artifact.filename, 'checksum': artifact.checksum,
@@ -411,4 +415,14 @@ def serialize_artifact(artifact: InvoiceNameChangeLetterArtifact | None) -> dict
         'is_current': artifact_is_current(artifact),
         'generated_by': artifact.generated_by,
         'generated_at': artifact.generated_at.isoformat(),
+        'preview': {
+            'date': str(snapshot.get('date') or ''),
+            'signatory': str(snapshot.get('signatory') or ''),
+            'applicant_name': str(row.get('applicant_name') or ''),
+            'applicant_id': str(row.get('applicant_id') or ''),
+            'applicant_phone': str(row.get('applicant_phone') or ''),
+            'invoice_name': str(row.get('invoice_name') or ''),
+            'related_phone': str(row.get('related_phone') or ''),
+            'sales_person': str(row.get('sales_person') or ''),
+        },
     }

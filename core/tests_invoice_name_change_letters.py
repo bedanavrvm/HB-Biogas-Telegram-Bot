@@ -13,8 +13,8 @@ from core.models import (
     JawabuFarmerMaster, ParsedInvoice,
 )
 from core.services.invoice_identity import (
-    assemble_name_change_batch, create_name_change, decide_identity_review, ensure_identity_review,
-    mark_name_change_sent,
+    correct_sent_name_change, create_name_change, decide_identity_review,
+    ensure_identity_review, mark_name_change_sent,
 )
 
 from core.services.invoice_name_change_letters import (
@@ -142,9 +142,6 @@ class InvoiceNameChangeArtifactTests(TestCase):
             related_phone='0700000000', attestation_note='Verified household relationship.',
             evidence_reference='approved-evidence-reference', client_request_id='batch-request-1',
         )
-        self.item.batch = assemble_name_change_batch(
-            [self.item], actor='Operations', client_request_id='letter-batch-request-1',
-        )[0]
         self.template = InvoiceNameChangeLetterTemplate.objects.create(
             name='Approved letter', file='invoice_name_change_templates/letter.docx', is_active=True,
         )
@@ -198,3 +195,47 @@ class InvoiceNameChangeArtifactTests(TestCase):
                 self.item.batch, actor='Operations',
                 letter_reference='manual-drive-link', sent_reference='HB-email-1',
             )
+
+    @patch('core.services.invoice_name_change_letters._template_bytes')
+    def test_local_letter_can_be_sent_and_explicit_correction_preserves_old_artifact(self, template_bytes):
+        from core.models import InvoiceNameChangeLetterArtifact
+        from core.services.invoice_name_change_letters import generate_letter_artifact
+
+        template_bytes.return_value = synthetic_letter()
+        artifact, created = generate_letter_artifact(
+            self.item.batch, actor='Operations User', client_request_id='local-letter-1',
+            publish_to_drive=False,
+        )
+        self.assertTrue(created)
+        self.assertFalse(artifact.drive_url)
+        batch = mark_name_change_sent(
+            self.item.batch, actor='Operations User', artifact=artifact,
+            sent_reference='HB-email-local-1',
+        )
+        self.item.refresh_from_db()
+
+        corrected = correct_sent_name_change(
+            self.item, actor='Operations User', reason='Relationship was recorded incorrectly.',
+            relationship_type='household_member', explanation='Applicant sibling.',
+            expected_revision=self.item.revision,
+            client_request_id='correct-sent-1',
+        )
+        replay = correct_sent_name_change(
+            self.item, actor='Operations User', reason='Relationship was recorded incorrectly.',
+            relationship_type='household_member', explanation='Applicant sibling.',
+            expected_revision=self.item.revision,
+            client_request_id='correct-sent-1',
+        )
+
+        batch.refresh_from_db()
+        artifact.refresh_from_db()
+        self.assertEqual(corrected.status, 'draft')
+        self.assertEqual(replay.id, corrected.id)
+        self.assertEqual(batch.status, 'draft')
+        self.assertIsNone(batch.sent_artifact_id)
+        self.assertEqual(batch.sent_reference, '')
+        self.assertTrue(artifact.file_content)
+        self.assertTrue(InvoiceNameChangeLetterArtifact.objects.filter(pk=artifact.pk).exists())
+        self.assertTrue(
+            self.farmer.pipeline_events.filter(action='invoice_name_change_sent_request_corrected').exists()
+        )

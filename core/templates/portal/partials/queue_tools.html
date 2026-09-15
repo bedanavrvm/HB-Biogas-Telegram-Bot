@@ -19,9 +19,9 @@
         <button type="button" data-miniapp-sheet-close aria-label="Close filters"><i data-lucide="x" aria-hidden="true"></i></button>
       </header>
       <form class="miniapp-sheet-body" data-portal-filter-form>
-        {% if queue_key == 'all' %}
         <fieldset class="portal-filter-options"><legend>County</legend><div data-portal-filter-options="county"></div></fieldset>
         <fieldset class="portal-filter-options"><legend>Branch</legend><div data-portal-filter-options="branch"></div></fieldset>
+        {% if queue_key == 'all' %}
         <fieldset class="portal-filter-options"><legend>Status</legend><div>
           <label><input type="checkbox" name="status" value="jbl_visit">Awaiting visit</label>
           <label><input type="checkbox" name="status" value="credit">Awaiting credit analysis</label>
@@ -32,9 +32,6 @@
           <label><input type="checkbox" name="status" value="rejected">Rejected</label>
           <label><input type="checkbox" name="status" value="withdrawn">Withdrawn</label>
         </div></fieldset>
-        {% else %}
-        <label>County<select name="county"><option value="">All counties</option></select></label>
-        <label>Branch<select name="branch"><option value="">All branches</option></select></label>
         {% endif %}
         <label>Show<select name="ordering"><option value="">Needs attention first</option><option value="newest">Newest first</option></select></label>
         <footer class="miniapp-sheet-actions">

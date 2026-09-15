@@ -10,6 +10,8 @@ from core.models import (
     JawabuCustomerFieldProvenance,
     JawabuCustomerPhoneHistory,
     JawabuFarmerMaster,
+    JawabuHouseholdRelationship,
+    JawabuRelatedPerson,
     OperationalProduct,
     PaymentDocument,
 )
@@ -162,6 +164,63 @@ class SystemExportImportTests(TestCase):
         self.assertEqual(self.farmer.system_deposit_paid_jbl, Decimal('5000'))
         self.assertEqual(batch.status, 'committed')
         self.assertTrue(self.farmer.pipeline_events.filter(source='system_export').exists())
+
+    def test_first_sysup_binding_preserves_lead_and_sets_canonical_borrower_identity(self):
+        batch, _stats = create_system_export_review_batch(
+            group_id='-100sysup', telegram_message_id='sysup-borrower-identity', sender='Officer',
+            source_filename='customers.csv', content=export_csv([{
+                'Customer ID': '9007', 'Name': 'BORROWER, JOHN', 'Mobile No': '0799000111',
+                'ID NO': '87654321', 'Branch': 'Embu', 'Loan Officer': 'Officer A',
+                'Product Name': 'Biogas', 'LGF Balance': '0',
+            }]),
+        )
+        row = dict(batch.parsed_rows[0])
+        row['Matched Farmer ID'] = str(self.farmer.id)
+        row['approved'] = True
+
+        result = commit_system_export_review_batch(batch, [row], actor='Officer')
+
+        self.assertTrue(result['success'])
+        self.farmer.refresh_from_db()
+        self.assertEqual(self.farmer.lead_name, 'Jane Wanjiku')
+        self.assertEqual(self.farmer.lead_national_id, '12345678')
+        self.assertEqual(self.farmer.lead_primary_phone, '254712345678')
+        self.assertEqual(self.farmer.customer_name, 'BORROWER, JOHN')
+        self.assertEqual(self.farmer.national_id, '87654321')
+        self.assertEqual(self.farmer.primary_phone, '254799000111')
+        self.assertEqual(self.farmer.customer.national_id, '87654321')
+
+    def test_sysup_links_one_exact_related_person_without_phone_merging(self):
+        household_owner = JawabuFarmerMaster.objects.create(
+            customer_name='Household Applicant', national_id='11112222', status='active',
+        )
+        related = JawabuRelatedPerson.objects.create(
+            full_name='Jane Wanjiku', national_id='87654321',
+            primary_phone='254700000000', created_by='Operations',
+        )
+        JawabuHouseholdRelationship.objects.create(
+            farmer=household_owner, related_person=related, relationship_type='spouse',
+            attestation_note='Confirmed spouse.', evidence_reference='invoice:test',
+            confirmed_by='Operations',
+        )
+        batch, _stats = create_system_export_review_batch(
+            group_id='-100sysup', telegram_message_id='sysup-link-related', sender='Officer',
+            source_filename='customers.csv', content=export_csv([{
+                'Customer ID': '9008', 'Name': 'WANJIKU, JANE', 'Mobile No': '0799111222',
+                'ID NO': '87654321', 'Branch': 'Embu', 'Loan Officer': 'Officer A',
+                'Product Name': 'Biogas', 'LGF Balance': '0',
+            }]),
+        )
+        row = dict(batch.parsed_rows[0])
+        row['Matched Farmer ID'] = str(self.farmer.id)
+        row['approved'] = True
+
+        result = commit_system_export_review_batch(batch, [row], actor='Officer')
+
+        self.assertTrue(result['success'])
+        related.refresh_from_db()
+        self.farmer.refresh_from_db()
+        self.assertEqual(related.linked_customer_id, self.farmer.customer_id)
 
     def test_case_history_uses_committed_system_identity_and_payment_comment(self):
         self.farmer.customer_name = 'Free Form Name'

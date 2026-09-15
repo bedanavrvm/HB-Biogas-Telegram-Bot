@@ -22,7 +22,7 @@ from payments.services import (
     review_case,
     serialize_batch,
     submit_for_review,
-    update_mode,
+    update_case_mode,
 )
 
 
@@ -44,6 +44,16 @@ class PaymentBatchServiceTests(TestCase):
             payment_product='Business', final_decision='Approved', workflow_revision=1,
         )
 
+    def batch(self, **kwargs):
+        return create_batch(group_configuration=self.group, **kwargs)
+
+    def add(self, batch, *farmers, mode='CASH', modes=None):
+        payment_modes = modes or {str(farmer.id): mode for farmer in farmers}
+        return add_cases(
+            batch.id, farmer_ids=[farmer.id for farmer in farmers], payment_modes=payment_modes,
+            expected_revision=batch.revision,
+        )
+
     @staticmethod
     def ready(*args, farmer_ids=None, **kwargs):
         return {
@@ -51,35 +61,74 @@ class PaymentBatchServiceTests(TestCase):
             'blocked': [], 'ready_count': len(farmer_ids or []), 'blocked_count': 0,
         }
 
-    def test_modes_are_governed(self):
-        self.assertEqual(create_batch(group_configuration=self.group, payment_mode='CASH').payment_mode, 'CASH')
+    @patch('payments.services.payment_readiness', side_effect=ready.__func__)
+    def test_modes_are_governed(self, _readiness):
+        farmer = self.farmer('00')
+        batch = self.batch()
+        batch = self.add(batch, farmer, mode='CASH')
+        self.assertEqual(batch.case_memberships.get(farmer=farmer).payment_mode, 'CASH')
         with self.assertRaisesMessage(PaymentBatchError, 'Choose Loan - Jawabu or Cash'):
-            create_batch(group_configuration=self.group, payment_mode='CHEQUE')
+            add_cases(
+                batch.id, farmer_ids=[farmer.id], payment_modes={str(farmer.id): 'CHEQUE'},
+                expected_revision=batch.revision,
+            )
+
+    @patch('payments.services.payment_readiness', side_effect=ready.__func__)
+    def test_one_batch_keeps_an_independent_mode_for_each_case(self, _readiness):
+        cash, loan = self.farmer('14'), self.farmer('15')
+        batch = self.batch()
+        batch = self.add(
+            batch, cash, loan,
+            modes={str(cash.id): 'CASH', str(loan.id): 'LOAN-JAWABU'},
+        )
+
+        payload = serialize_batch(batch)
+        modes = {item['farmer_id']: item['payment_mode'] for item in payload['cases']}
+        self.assertEqual(modes, {str(cash.id): 'CASH', str(loan.id): 'LOAN-JAWABU'})
+        self.assertEqual(payload['payment_mode_counts'], {'LOAN-JAWABU': 1, 'CASH': 1})
+
+    @patch('payments.services.payment_readiness', side_effect=ready.__func__)
+    def test_generation_receives_the_exact_mode_for_every_approved_case(self, _readiness):
+        cash, loan = self.farmer('16'), self.farmer('17')
+        batch = self.add(
+            self.batch(), cash, loan,
+            modes={str(cash.id): 'CASH', str(loan.id): 'LOAN-JAWABU'},
+        )
+        batch = submit_for_review(batch.id, expected_revision=batch.revision)
+        for farmer in (cash, loan):
+            batch = review_case(
+                batch.id, farmer.id, decision='approved', comment='Confirmed.',
+                expected_revision=batch.revision, actor=self.user,
+            )
+        document = PaymentDocument.objects.create(
+            order_number='PAYMENT-1', payment_number='1', status='awaiting_scan', version=1,
+        )
+        with patch('payments.services.create_payment_document', return_value=document) as generator:
+            generate_reviewed_workbook(batch.id, expected_revision=batch.revision, actor=self.user)
+        self.assertEqual(generator.call_args.kwargs['case_payment_modes'], {
+            str(cash.id): 'CASH', str(loan.id): 'LOAN-JAWABU',
+        })
 
     def test_request_key_replays_only_the_same_payment_meaning(self):
-        batch = create_batch(
-            group_configuration=self.group, payment_mode='CASH', request_id='create-payment-1',
-        )
-        replay = create_batch(
-            group_configuration=self.group, payment_mode='CASH', request_id='create-payment-1',
-        )
+        batch = self.batch(request_id='create-payment-1')
+        replay = self.batch(request_id='create-payment-1')
         self.assertEqual(replay.pk, batch.pk)
         with self.assertRaisesMessage(PaymentBatchError, 'different payment change'):
-            create_batch(
-                group_configuration=self.group, payment_mode='LOAN-JAWABU',
-                request_id='create-payment-1',
-            )
+            create_batch(group_configuration=GroupSheetConfiguration.objects.create(
+                group_id='-100-other-payment-test', display_name='Other payment', enabled=True,
+                sheet_id='other-sheet', workflow={'type': 'jawabu_homebiogas'},
+            ), request_id='create-payment-1')
 
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
     def test_payment_numbers_allocate_consecutively_and_retry_idempotently(self, _readiness):
         first_farmer, second_farmer = self.farmer('01'), self.farmer('02')
-        first = create_batch(group_configuration=self.group, payment_mode='LOAN-JAWABU')
-        first = add_cases(first.id, farmer_ids=[first_farmer.id], expected_revision=first.revision)
+        first = self.batch()
+        first = self.add(first, first_farmer, mode='LOAN-JAWABU')
         prior_revision = first.revision
         first = submit_for_review(first.id, expected_revision=prior_revision, actor=self.user, request_id='submit-1')
         replay = submit_for_review(first.id, expected_revision=prior_revision, actor=self.user, request_id='submit-1')
-        second = create_batch(group_configuration=self.group, payment_mode='CASH')
-        second = add_cases(second.id, farmer_ids=[second_farmer.id], expected_revision=second.revision)
+        second = self.batch()
+        second = self.add(second, second_farmer)
         second = submit_for_review(second.id, expected_revision=second.revision, actor=self.user, request_id='submit-2')
         self.assertEqual((first.payment_number, replay.payment_number, second.payment_number), (1, 1, 2))
         self.assertEqual(PaymentSequenceState.objects.get(group_configuration=self.group).next_number, 3)
@@ -87,8 +136,8 @@ class PaymentBatchServiceTests(TestCase):
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
     def test_review_progress_is_durable_and_changed_values_invalidate_only_that_case(self, _readiness):
         first_farmer, second_farmer = self.farmer('03'), self.farmer('04')
-        batch = create_batch(group_configuration=self.group, payment_mode='LOAN-JAWABU')
-        batch = add_cases(batch.id, farmer_ids=[first_farmer.id, second_farmer.id], expected_revision=batch.revision)
+        batch = self.batch()
+        batch = self.add(batch, first_farmer, second_farmer, mode='LOAN-JAWABU')
         batch = submit_for_review(batch.id, expected_revision=batch.revision)
         batch = review_case(
             batch.id, first_farmer.id, decision='approved', comment='Payment details confirmed.',
@@ -106,8 +155,8 @@ class PaymentBatchServiceTests(TestCase):
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
     def test_membership_change_before_scan_supersedes_workbook(self, _readiness):
         farmer = self.farmer('05')
-        batch = create_batch(group_configuration=self.group, payment_mode='CASH')
-        batch = add_cases(batch.id, farmer_ids=[farmer.id], expected_revision=batch.revision)
+        batch = self.batch()
+        batch = self.add(batch, farmer)
         document = PaymentDocument.objects.create(
             order_number='PAYMENT-1', payment_number='1', status='awaiting_scan', version=1,
         )
@@ -127,8 +176,8 @@ class PaymentBatchServiceTests(TestCase):
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
     def test_signed_scan_completion_locks_membership(self, _readiness):
         farmer = self.farmer('06')
-        batch = create_batch(group_configuration=self.group, payment_mode='LOAN-JAWABU')
-        batch = add_cases(batch.id, farmer_ids=[farmer.id], expected_revision=batch.revision)
+        batch = self.batch()
+        batch = self.add(batch, farmer, mode='LOAN-JAWABU')
         document = PaymentDocument.objects.create(
             order_number='PAYMENT-1', payment_number='1', status='awaiting_scan', version=1,
         )
@@ -146,22 +195,22 @@ class PaymentBatchServiceTests(TestCase):
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
     def test_remove_requires_reason(self, _readiness):
         farmer = self.farmer('07')
-        batch = create_batch(group_configuration=self.group, payment_mode='CASH')
-        batch = add_cases(batch.id, farmer_ids=[farmer.id], expected_revision=batch.revision)
+        batch = self.batch()
+        batch = self.add(batch, farmer)
         with self.assertRaisesMessage(PaymentBatchError, 'Give a reason'):
             remove_case(batch.id, farmer.id, reason='', expected_revision=batch.revision)
 
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
     def test_cancelling_releases_case_but_keeps_membership_history(self, _readiness):
         farmer = self.farmer('08')
-        first = create_batch(group_configuration=self.group, payment_mode='CASH')
-        first = add_cases(first.id, farmer_ids=[farmer.id], expected_revision=first.revision)
+        first = self.batch()
+        first = self.add(first, farmer)
         first = cancel_batch(
             first.id, reason='Rebuild with a different set of clients.',
             expected_revision=first.revision, actor=self.user,
         )
-        second = create_batch(group_configuration=self.group, payment_mode='LOAN-JAWABU')
-        second = add_cases(second.id, farmer_ids=[farmer.id], expected_revision=second.revision)
+        second = self.batch()
+        second = self.add(second, farmer, mode='LOAN-JAWABU')
         self.assertEqual(first.status, PaymentBatch.STATUS_CANCELLED)
         self.assertTrue(first.case_memberships.get(farmer=farmer).is_active)
         self.assertTrue(second.case_memberships.get(farmer=farmer).is_active)
@@ -169,8 +218,8 @@ class PaymentBatchServiceTests(TestCase):
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
     def test_sequence_adjustment_cannot_reuse_an_allocated_number(self, _readiness):
         farmer = self.farmer('09')
-        batch = create_batch(group_configuration=self.group, payment_mode='CASH')
-        batch = add_cases(batch.id, farmer_ids=[farmer.id], expected_revision=batch.revision)
+        batch = self.batch()
+        batch = self.add(batch, farmer)
         batch = submit_for_review(batch.id, expected_revision=batch.revision)
         with self.assertRaisesMessage(PaymentBatchError, 'higher than the allocated number 1'):
             adjust_sequence(group_configuration=self.group, next_number=1, reason='Unsafe rollback', actor=self.user)
@@ -197,15 +246,16 @@ class PaymentBatchServiceTests(TestCase):
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
     def test_mode_or_membership_change_invalidates_existing_case_approvals(self, _readiness):
         first_farmer, second_farmer = self.farmer('11'), self.farmer('12')
-        batch = create_batch(group_configuration=self.group, payment_mode='CASH')
-        batch = add_cases(batch.id, farmer_ids=[first_farmer.id], expected_revision=batch.revision)
+        batch = self.batch()
+        batch = self.add(batch, first_farmer)
         batch = submit_for_review(batch.id, expected_revision=batch.revision)
         batch = review_case(
             batch.id, first_farmer.id, decision='approved', comment='Confirmed.',
             expected_revision=batch.revision, actor=self.user,
         )
-        batch = update_mode(
-            batch.id, payment_mode='LOAN-JAWABU', expected_revision=batch.revision, actor=self.user,
+        batch = update_case_mode(
+            batch.id, first_farmer.id, payment_mode='LOAN-JAWABU',
+            expected_revision=batch.revision, actor=self.user,
         )
         self.assertEqual(batch.case_memberships.get(farmer=first_farmer).review.decision, 'pending')
 
@@ -213,14 +263,14 @@ class PaymentBatchServiceTests(TestCase):
             batch.id, first_farmer.id, decision='approved', comment='Confirmed again.',
             expected_revision=batch.revision, actor=self.user,
         )
-        batch = add_cases(batch.id, farmer_ids=[second_farmer.id], expected_revision=batch.revision)
+        batch = self.add(batch, second_farmer)
         self.assertEqual(batch.case_memberships.get(farmer=first_farmer).review.decision, 'pending')
 
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
     def test_changed_payment_values_block_generation_and_reopen_review(self, _readiness):
         farmer = self.farmer('13')
-        batch = create_batch(group_configuration=self.group, payment_mode='CASH')
-        batch = add_cases(batch.id, farmer_ids=[farmer.id], expected_revision=batch.revision)
+        batch = self.batch()
+        batch = self.add(batch, farmer)
         batch = submit_for_review(batch.id, expected_revision=batch.revision)
         batch = review_case(
             batch.id, farmer.id, decision='approved', comment='Ready.',
@@ -239,8 +289,8 @@ class PaymentBatchServiceTests(TestCase):
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
     def test_batch_change_during_generation_supersedes_generated_workbook(self, _readiness):
         farmer = self.farmer('10')
-        batch = create_batch(group_configuration=self.group, payment_mode='CASH')
-        batch = add_cases(batch.id, farmer_ids=[farmer.id], expected_revision=batch.revision)
+        batch = self.batch()
+        batch = self.add(batch, farmer)
         batch = submit_for_review(batch.id, expected_revision=batch.revision)
         batch = review_case(
             batch.id, farmer.id, decision='approved', comment='Ready for payment.',
@@ -288,4 +338,7 @@ class PaymentWorkflowContractTests(TestCase):
         self.assertIn(batch_id, reverse('portal_payment_batch_detail', kwargs={'batch_id': batch_id}))
         self.assertIn(farmer_id, reverse(
             'portal_payment_batch_case_review', kwargs={'batch_id': batch_id, 'farmer_id': farmer_id},
+        ))
+        self.assertIn(farmer_id, reverse(
+            'portal_payment_batch_case_mode', kwargs={'batch_id': batch_id, 'farmer_id': farmer_id},
         ))

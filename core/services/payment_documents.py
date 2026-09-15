@@ -139,6 +139,8 @@ def _column_mapping_from_headers(ws, header_row: int) -> dict[str, int]:
             mapping['deposit_paid_jbl'] = col
         elif 'LOAN' in words and 'AMOUNT' in words:
             mapping['loan_amount'] = col
+        elif 'PAYMENT' in words and 'MODE' in words:
+            mapping['payment_mode'] = col
         elif 'REPAYMENT' in words:
             mapping['repayment_dates'] = col
         elif 'TENOR' in words:
@@ -297,6 +299,7 @@ def _row_payload(
     *,
     call_up_comments: str | None = None,
     case_call_up_comments: dict[str, str] | None = None,
+    case_payment_modes: dict[str, str] | None = None,
 ) -> tuple[dict[str, Any], list[str], ParsedInvoice | None]:
     invoice = _invoice_for_farmer(farmer)
     missing = []
@@ -308,11 +311,13 @@ def _row_payload(
         from core.services.invoice_identity import identity_gate
         identity = identity_gate(invoice, farmer)
         if identity.get('blocker') == 'invoice_name_change_pending':
-            missing.append('Invoice name change pending')
+            missing.append('Waiting for corrected invoice')
         elif identity.get('blocker') == 'invoice_name_change_required':
-            missing.append('Invoice name change required')
+            missing.append('Request a corrected invoice')
+        elif 'national_id_missing' in identity.get('discrepancy_codes', []):
+            missing.append('Invoice holder or applicant national ID')
         elif identity.get('blocker'):
-            missing.append('Invoice identity verification pending')
+            missing.append('Resolve the invoice holder mismatch')
     if farmer.balance_due is None:
         missing.append('Balance Due')
     if not farmer.repayment_date:
@@ -361,6 +366,7 @@ def _row_payload(
         'deposit_paid_hbg': hbg_deposit,
         'deposit_paid_jbl': jbl_deposit,
         'loan_amount': None,
+        'payment_mode': (case_payment_modes or {}).get(str(farmer.id), ''),
         'repayment_dates': farmer.repayment_date,
         'tenor': farmer.repayment_tenor,
         'product': farmer.payment_product,
@@ -384,6 +390,7 @@ def payment_readiness(
     *,
     call_up_comments: str | None = None,
     case_call_up_comments: dict[str, str] | None = None,
+    case_payment_modes: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     queryset = JawabuFarmerMaster.objects.filter(status='active')
     if farmer_ids is not None:
@@ -399,6 +406,7 @@ def payment_readiness(
             farmer,
             call_up_comments=call_up_comments,
             case_call_up_comments=case_call_up_comments,
+            case_payment_modes=case_payment_modes,
         )
         item = {
             'farmer_id': str(farmer.id),
@@ -526,6 +534,7 @@ def generate_payment_workbook(
     call_up_comments: str | None = None,
     case_call_up_comments: dict[str, str] | None = None,
     payment_mode: str = '',
+    case_payment_modes: dict[str, str] | None = None,
 ) -> tuple[bytes, dict[str, Any]]:
     payment_number = normalize_payment_number(payment_number)
     readiness = payment_readiness(
@@ -533,6 +542,7 @@ def generate_payment_workbook(
         farmer_ids=farmer_ids,
         call_up_comments=call_up_comments,
         case_call_up_comments=case_call_up_comments,
+        case_payment_modes=case_payment_modes,
     )
     if farmer_ids is not None and len(readiness['ready']) + len(readiness['blocked']) != len(set(farmer_ids)):
         raise PaymentTemplateError('One or more selected payment cases was not found or is inactive.')
@@ -548,6 +558,10 @@ def generate_payment_workbook(
         raise PaymentTemplateError(str(exc)) from exc
     wb = openpyxl.load_workbook(io.BytesIO(template_bytes))
     layout = payment_template_layout(wb)
+    if case_payment_modes is not None and 'payment_mode' not in layout.columns:
+        raise PaymentTemplateError(
+            'Payment workbook is missing the Payment Mode column required for case-specific payment modes.'
+        )
     ws = wb[layout.sheet_name]
     rows = [item['row'] for item in readiness['ready']]
     totals_row = _write_payment_rows(ws, layout, rows)
@@ -570,6 +584,7 @@ def generate_payment_workbook(
         'payment_number': payment_number,
         'payment_mode': str(payment_mode or '').strip(),
         'payment_mode_written': payment_mode_written,
+        'case_payment_modes': case_payment_modes or {},
         'header_row': layout.header_row,
         'data_start_row': layout.data_start_row,
         'totals_row': totals_row,
@@ -604,6 +619,7 @@ def create_payment_document(
     call_up_comments: str | None = None,
     case_call_up_comments: dict[str, str] | None = None,
     payment_mode: str = '',
+    case_payment_modes: dict[str, str] | None = None,
 ) -> PaymentDocument:
     """Create a preview or Head-of-Rural review artifact.
 
@@ -625,12 +641,14 @@ def create_payment_document(
         call_up_comments=call_up_comments,
         case_call_up_comments=case_call_up_comments,
         payment_mode=payment_mode,
+        case_payment_modes=case_payment_modes,
     )
     readiness_snapshot = payment_readiness(
         order_number,
         farmer_ids=farmer_ids,
         call_up_comments=call_up_comments,
         case_call_up_comments=case_call_up_comments,
+        case_payment_modes=case_payment_modes,
     )
     printable_rows = json.loads(json.dumps(
         [item['row'] for item in readiness_snapshot['ready']], cls=DjangoJSONEncoder,

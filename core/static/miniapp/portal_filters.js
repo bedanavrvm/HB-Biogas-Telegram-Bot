@@ -15,8 +15,17 @@
 
   function filtersFor(queueKey) {
     state().filtersByQueue ||= {};
-    state().filtersByQueue[queueKey] ||= { county: '', branch: '', status: '', ordering: '' };
-    return state().filtersByQueue[queueKey];
+    state().filtersByQueue[queueKey] ||= { county: [], branch: [], status: [], ordering: '' };
+    const filters = state().filtersByQueue[queueKey];
+    filters.county = listValue(filters.county);
+    filters.branch = listValue(filters.branch);
+    filters.status = listValue(filters.status);
+    return filters;
+  }
+
+  function listValue(value) {
+    if (Array.isArray(value)) return value.filter(Boolean).map(String);
+    return value ? [String(value)] : [];
   }
 
   function optionValue(option) {
@@ -65,7 +74,9 @@
 
   function updatePresentation(root, queueKey) {
     const filters = filtersFor(queueKey);
-    const active = Object.entries(filters).filter(function (entry) { return Boolean(String(entry[1] || '').trim()); });
+    const active = Object.entries(filters).filter(function (entry) {
+      return Array.isArray(entry[1]) ? entry[1].length > 0 : Boolean(String(entry[1] || '').trim());
+    });
     const count = root.querySelector('[data-portal-filter-count]');
     if (count) {
       count.textContent = String(active.length);
@@ -78,7 +89,7 @@
         return [entry[0], { label: labels[entry[0]], value: entry[1], text: readableValue(root, entry[0], entry[1]) }];
       })),
       function (key) {
-        filters[key] = '';
+        filters[key] = ['county', 'branch', 'status'].includes(key) ? [] : '';
         root.querySelectorAll('[name="' + key + '"]').forEach(control => {
           if (control.type === 'checkbox') control.checked = false;
           else control.value = '';
@@ -97,9 +108,9 @@
     state().searches ||= {};
     if (!state().filtersByQueue[queueKey]) {
       state().filtersByQueue[queueKey] = {
-        county: saved.filters?.county || '',
-        branch: saved.filters?.branch || '',
-        status: queueKey === 'all' ? saved.filters?.status || '' : '',
+        county: listValue(saved.filters?.county),
+        branch: listValue(saved.filters?.branch),
+        status: queueKey === 'all' ? listValue(saved.filters?.status) : [],
         ordering: String(saved.filters?.ordering || ''),
       };
     }
@@ -160,7 +171,7 @@
     form?.addEventListener('change', function () {
       const data = new FormData(form);
       ['county', 'branch', 'status'].forEach(key => {
-        filters[key] = queueKey === 'all' ? data.getAll(key) : String(data.get(key) || '');
+        filters[key] = data.getAll(key);
       });
       filters.ordering = String(data.get('ordering') || '');
       state().pages[queueKey] = 1;
@@ -170,9 +181,9 @@
       changeTimer = setTimeout(() => deps.loadQueue(queueKey, 1), 180);
     });
     root.querySelector('[data-portal-filter-reset]')?.addEventListener('click', function () {
-      filters.county = '';
-      filters.branch = '';
-      filters.status = '';
+      filters.county = [];
+      filters.branch = [];
+      filters.status = [];
       filters.ordering = '';
       clearTimeout(changeTimer);
       form?.reset();

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import re
 import uuid
+import hashlib
+import json
 
 from django.db import transaction
 from django.utils import timezone
@@ -13,6 +15,7 @@ from core.models import (
     InvoiceNameChangeItem,
     InvoiceNameChangeLetterArtifact,
     JawabuCustomer,
+    JawabuDataQualityIssue,
     JawabuFarmerMaster,
     JawabuHouseholdRelationship,
     JawabuRelatedPerson,
@@ -84,7 +87,10 @@ def ensure_identity_review(
 ) -> InvoiceIdentityReview | None:
     """Create the single pending review required by a material identity variance."""
     codes = discrepancy_codes(invoice, farmer)
-    if not codes:
+    # Name spelling and phone differences are useful context, but a matching
+    # national ID is sufficient to continue. Only missing/different IDs create
+    # a workflow gate.
+    if not any(code in {'national_id_missing', 'national_id_mismatch'} for code in codes):
         return None
     client_request_id = str(client_request_id or '').strip()
     if client_request_id:
@@ -114,16 +120,18 @@ def ensure_identity_review(
 
 def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
     codes = discrepancy_codes(invoice, farmer)
+    material_codes = [code for code in codes if code in {'national_id_missing', 'national_id_mismatch'}]
     reviews = invoice.identity_reviews.filter(farmer=farmer).order_by('-created_at')
     latest = reviews.first()
     open_change = invoice.name_change_requests.filter(
         status__in=['draft', 'awaiting_replacement'],
     ).select_related('batch', 'review').first()
+    latest_change = open_change or invoice.name_change_requests.select_related('batch', 'review').order_by('-created_at').first()
     if open_change and open_change.review.status == InvoiceIdentityReview.STATUS_PENDING:
         blocker = 'invoice_identity_verification_pending'
     elif open_change:
         blocker = 'invoice_name_change_pending'
-    elif not codes:
+    elif not material_codes:
         blocker = ''
     elif latest and latest.status == InvoiceIdentityReview.STATUS_SAME_PERSON:
         blocker = ''
@@ -133,14 +141,37 @@ def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
         blocker = 'invoice_identity_flagged'
     else:
         blocker = 'invoice_identity_verification_pending'
+    if latest_change:
+        if latest_change.status == 'completed':
+            presentation_status = 'Corrected'
+        elif latest_change.status in {'cancelled', 'withdrawn'}:
+            presentation_status = 'Cancelled'
+        elif latest_change.status == 'awaiting_replacement':
+            presentation_status = 'Waiting for corrected invoice'
+        elif latest_change.batch_id and latest_change.batch.letter_artifacts.exists():
+            presentation_status = 'Letter ready'
+        else:
+            presentation_status = 'Correction required'
+    elif 'national_id_mismatch' in material_codes:
+        presentation_status = 'Correction required'
+    elif 'national_id_missing' in material_codes:
+        presentation_status = 'Correction required'
+    else:
+        presentation_status = 'Matched'
     return {
         'discrepancy_codes': codes,
-        'requires_verification': bool(codes),
+        'requires_verification': bool(material_codes),
         'blocker': blocker,
         'review': serialize_review(latest) if latest else None,
-        'name_change': serialize_name_change_item(open_change) if open_change else None,
+        'name_change': serialize_name_change_item(latest_change) if latest_change else None,
+        'status_label': presentation_status,
         'invoice_identity': invoice_identity(invoice),
         'applicant_identity': applicant_identity(farmer),
+        'lead_identity': {
+            'name': farmer.lead_name or farmer.customer_name,
+            'national_id': farmer.lead_national_id or farmer.national_id,
+            'phone': farmer.lead_primary_phone or farmer.primary_phone,
+        },
     }
 
 
@@ -189,6 +220,8 @@ def serialize_name_change_item(item: InvoiceNameChangeItem | None) -> dict | Non
         'farmer_id': str(item.farmer_id),
         'applicant_name': str(item.requested_identity.get('name') or item.farmer.customer_name or ''),
         'invoice_holder_name': str(item.original_identity.get('name') or ''),
+        'relationship_type': item.relationship.relationship_type,
+        'explanation': item.relationship.attestation_note,
         'age_days': age_days,
         'closed_reason': item.closed_reason,
         'hb_communication_reference': item.hb_communication_reference,
@@ -197,6 +230,189 @@ def serialize_name_change_item(item: InvoiceNameChangeItem | None) -> dict | Non
         'created_at': item.created_at.isoformat() if item.created_at else None,
         'updated_at': item.updated_at.isoformat() if item.updated_at else None,
     }
+
+
+class InvoiceCorrectionConflict(ValueError):
+    """The invoice/application changed after the detail screen was loaded."""
+
+
+class RelatedPersonIdentityConflict(ValueError):
+    """More than one related-person row claims the same normalized ID."""
+
+    def __init__(self, message: str, *, farmer_id=None):
+        super().__init__(message)
+        self.farmer_id = farmer_id
+
+
+def _open_quality_issue(farmer: JawabuFarmerMaster, *, message: str) -> None:
+    JawabuDataQualityIssue.objects.update_or_create(
+        farmer=farmer,
+        field_name='household_identity',
+        code='duplicate_related_person_national_id',
+        defaults={'severity': 'error', 'message': message, 'active': True, 'resolved_at': None},
+    )
+
+
+def _exact_related_people(normalized_id: str) -> list[JawabuRelatedPerson]:
+    if not normalized_id:
+        return []
+    return [
+        person for person in JawabuRelatedPerson.objects.select_for_update().exclude(national_id='')
+        if normalize_national_id(person.national_id) == normalized_id
+    ]
+
+
+def _exact_customer(normalized_id: str) -> JawabuCustomer | None:
+    if not normalized_id:
+        return None
+    matches = [
+        customer for customer in JawabuCustomer.objects.select_for_update().exclude(national_id='')
+        if normalize_national_id(customer.national_id) == normalized_id
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _reuse_or_create_related_person(
+    farmer: JawabuFarmerMaster, *, actor: str, full_name: str,
+    national_id: str, phone: str,
+) -> JawabuRelatedPerson:
+    normalized_id = normalize_national_id(national_id)
+    if not normalized_id:
+        raise ValueError('The invoice holder national ID is required before requesting a correction.')
+    matches = _exact_related_people(normalized_id)
+    if len(matches) > 1:
+        _open_quality_issue(
+            farmer,
+            message='Several household-person records use the invoice holder national ID. Resolve them before continuing.',
+        )
+        raise RelatedPersonIdentityConflict(
+            'Several household records match this national ID. An administrator must resolve them before continuing.',
+            farmer_id=farmer.id,
+        )
+    if matches:
+        return matches[0]
+    return JawabuRelatedPerson.objects.create(
+        linked_customer=_exact_customer(normalized_id),
+        full_name=str(full_name or '').strip(),
+        national_id=normalized_id,
+        primary_phone=normalize_kenyan_phone(phone),
+        created_by=actor,
+    )
+
+
+@transaction.atomic
+def reconcile_related_person_for_customer(
+    customer: JawabuCustomer, *, farmer: JawabuFarmerMaster | None = None,
+) -> JawabuRelatedPerson | None:
+    """Link exactly one national-ID match; phone is deliberately never used."""
+    normalized_id = normalize_national_id(customer.national_id)
+    matches = _exact_related_people(normalized_id)
+    if len(matches) > 1:
+        issue_farmer = farmer or customer.applications.order_by('-updated_at').first()
+        if issue_farmer:
+            _open_quality_issue(
+                issue_farmer,
+                message='Several household-person records match the new customer national ID; none was linked automatically.',
+            )
+        return None
+    if len(matches) == 1:
+        person = matches[0]
+        if person.linked_customer_id not in {None, customer.id}:
+            issue_farmer = farmer or customer.applications.order_by('-updated_at').first()
+            if issue_farmer:
+                _open_quality_issue(
+                    issue_farmer,
+                    message='The matching household-person record is already linked to another customer.',
+                )
+            return None
+        if person.linked_customer_id is None:
+            person.linked_customer = customer
+            person.save(update_fields=['linked_customer', 'updated_at'])
+        return person
+    return None
+
+
+@transaction.atomic
+def _start_invoice_correction_locked(
+    invoice: ParsedInvoice,
+    *,
+    actor: str,
+    relationship_type: str,
+    explanation: str,
+    confirmed: bool,
+    expected_invoice_revision: int,
+    expected_application_revision: int,
+    client_request_id: str,
+) -> InvoiceNameChangeItem:
+    """Create the complete single-invoice correction request in one action."""
+    request_id = str(client_request_id or '').strip()
+    if not request_id:
+        raise ValueError('A retry key is required to request a corrected invoice safely.')
+    prior = InvoiceNameChangeItem.objects.select_related('original_invoice').filter(client_request_id=request_id).first()
+    if prior:
+        if prior.original_invoice_id != invoice.id:
+            raise InvoiceCorrectionConflict('That retry key belongs to another invoice correction.')
+        return prior
+    invoice = ParsedInvoice.objects.select_for_update().select_related('matched_farmer').get(pk=invoice.pk)
+    if not invoice.matched_farmer_id:
+        raise ValueError('Match the invoice to an applicant first.')
+    farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=invoice.matched_farmer_id)
+    if int(expected_invoice_revision or 0) != int(invoice.revision):
+        raise InvoiceCorrectionConflict('This invoice changed while you were reviewing it. Refresh and try again.')
+    if int(expected_application_revision or 0) != int(farmer.workflow_revision):
+        raise InvoiceCorrectionConflict('This applicant changed while you were reviewing it. Refresh and try again.')
+    invoice_id = normalize_national_id(invoice.customer_id)
+    applicant_id = normalize_national_id(farmer.national_id)
+    if not invoice_id or not applicant_id:
+        raise ValueError('Both the invoice holder and applicant national IDs are required before requesting a correction.')
+    if invoice_id == applicant_id:
+        raise ValueError('The national IDs match, so a corrected-invoice request is not needed.')
+    if relationship_type not in {'spouse', 'household_member'}:
+        raise ValueError('Choose Spouse or Other relative / household member.')
+    explanation = str(explanation or '').strip()
+    if relationship_type == 'household_member' and not explanation:
+        raise ValueError('Explain the relationship when choosing Other relative / household member.')
+    if not confirmed:
+        raise ValueError('Confirm that the invoice belongs to the named household person.')
+    review = ensure_identity_review(invoice, farmer)
+    if review is None:
+        raise ValueError('A corrected-invoice request is not needed for this invoice.')
+    if review.status == InvoiceIdentityReview.STATUS_PENDING:
+        decide_identity_review(
+            review,
+            outcome=InvoiceIdentityReview.STATUS_DIFFERENT_PERSON,
+            actor=actor,
+            note=explanation or 'Invoice holder confirmed as the applicant spouse.',
+        )
+    item = create_name_change(
+        review,
+        actor=actor,
+        relationship_type=relationship_type,
+        related_name=invoice.customer_name,
+        related_national_id=invoice.customer_id,
+        related_phone=invoice.customer_phone,
+        attestation_note=explanation or 'Invoice holder confirmed as the applicant spouse.',
+        evidence_reference=f'invoice:{invoice.id}',
+        client_request_id=request_id,
+    )
+    invoice.revision += 1
+    invoice.save(update_fields=['revision', 'updated_at'])
+    return item
+
+
+def start_invoice_correction(invoice: ParsedInvoice, **kwargs) -> InvoiceNameChangeItem:
+    """Persist a visible issue even when an ambiguous exact-ID match rolls back."""
+    try:
+        return _start_invoice_correction_locked(invoice, **kwargs)
+    except RelatedPersonIdentityConflict as exc:
+        if exc.farmer_id:
+            farmer = JawabuFarmerMaster.objects.filter(pk=exc.farmer_id).first()
+            if farmer:
+                _open_quality_issue(
+                    farmer,
+                    message='Several household-person records use the invoice holder national ID. Resolve them before continuing.',
+                )
+        raise
 
 
 @transaction.atomic
@@ -262,8 +478,6 @@ def create_name_change(
     review = InvoiceIdentityReview.objects.select_for_update().select_related('invoice', 'farmer').get(pk=review.pk)
     if review.status != InvoiceIdentityReview.STATUS_DIFFERENT_PERSON:
         raise ValueError('Confirm the invoice belongs to a different person before starting this workflow.')
-    if hasattr(review, 'name_change_item'):
-        return review.name_change_item
     request_id = str(client_request_id or '').strip()
     if request_id:
         prior = InvoiceNameChangeItem.objects.filter(client_request_id=request_id).first()
@@ -271,37 +485,43 @@ def create_name_change(
             if prior.review_id != review.id:
                 raise ValueError('That retry key belongs to another invoice-name-change request.')
             return prior
+    if hasattr(review, 'name_change_item'):
+        raise InvoiceCorrectionConflict('A correction request already exists for this invoice. Refresh to see its current status.')
     related_name = str(related_name or '').strip()
     attestation_note = str(attestation_note or '').strip()
     evidence_reference = str(evidence_reference or '').strip()
-    if not related_name or not attestation_note or not evidence_reference:
-        raise ValueError('Related person name, attestation, and supporting evidence reference are required.')
-    normalized_id = normalize_national_id(related_national_id)
-    normalized_phone = normalize_kenyan_phone(related_phone)
-    linked_customer = None
-    if normalized_id:
-        linked_customer = JawabuCustomer.objects.filter(national_id=normalized_id).first()
-    if not linked_customer and normalized_phone:
-        linked_customer = JawabuCustomer.objects.filter(primary_phone=normalized_phone).first()
-    person = JawabuRelatedPerson.objects.create(
-        linked_customer=linked_customer,
+    if not related_name or not attestation_note:
+        raise ValueError('Related person name and relationship confirmation are required.')
+    person = _reuse_or_create_related_person(
+        review.farmer,
+        actor=actor,
         full_name=related_name,
-        national_id=str(related_national_id or '').strip(),
-        primary_phone=str(related_phone or '').strip(),
-        created_by=actor,
+        national_id=related_national_id,
+        phone=related_phone,
     )
-    relationship = JawabuHouseholdRelationship.objects.create(
+    relationship, _ = JawabuHouseholdRelationship.objects.get_or_create(
         farmer=review.farmer,
         related_person=person,
         relationship_type=relationship_type if relationship_type in {'spouse', 'household_member'} else 'spouse',
-        attestation_note=attestation_note,
-        evidence_reference=evidence_reference,
-        confirmed_by=actor,
+        status=JawabuHouseholdRelationship.STATUS_CONFIRMED,
+        defaults={
+            'attestation_note': attestation_note,
+            'evidence_reference': evidence_reference,
+            'confirmed_by': actor,
+        },
     )
     if batch:
         batch = InvoiceNameChangeBatch.objects.select_for_update().get(pk=batch.pk)
         if batch.status != 'draft':
             raise ValueError('Cases can only be added to a draft change letter.')
+    else:
+        batch_id = uuid.uuid4()
+        batch = InvoiceNameChangeBatch.objects.create(
+            id=batch_id,
+            reference=f'COIN-{timezone.localdate():%Y%m%d}-{str(batch_id)[:8].upper()}',
+            created_by=actor,
+            client_request_id=f'{request_id}:batch' if request_id else '',
+        )
     item = InvoiceNameChangeItem.objects.create(
         batch=batch,
         review=review,
@@ -525,13 +745,16 @@ def mark_name_change_sent(
         artifact = InvoiceNameChangeLetterArtifact.objects.select_for_update().select_related('batch').get(pk=artifact_id)
         if artifact.batch_id != batch.id:
             raise ValueError('The generated letter does not belong to this batch.')
-        if not artifact.drive_file_id or not artifact.drive_url or artifact.status != artifact.STATUS_GENERATED:
-            raise ValueError('Upload the generated letter to Drive successfully before recording it as sent.')
+        if not artifact.file_content:
+            raise ValueError('Generate the corrected-invoice letter before recording it as sent.')
         from core.services.invoice_name_change_letters import artifact_is_current
         if not artifact_is_current(artifact):
             raise ValueError('The batch changed after this letter was generated. Generate a new version first.')
         batch.sent_artifact = artifact
-        batch.letter_file_reference = artifact.drive_url
+        # Drive is an optional publication copy. The immutable local artifact
+        # is sufficient to send and remains available through an authorized,
+        # short-lived download link.
+        batch.letter_file_reference = artifact.drive_url or f'local-artifact:{artifact.id}'
         batch.letter_checksum = artifact.checksum
         update_fields.append('sent_artifact')
     else:
@@ -555,6 +778,87 @@ def mark_name_change_sent(
             metadata={'item_id': str(item.id), 'batch_id': str(batch.id), 'sent_reference': batch.sent_reference},
         )
     return batch
+
+
+@transaction.atomic
+def correct_sent_name_change(
+    item: InvoiceNameChangeItem,
+    *,
+    actor: str,
+    reason: str,
+    relationship_type: str,
+    explanation: str,
+    expected_revision: int,
+    client_request_id: str,
+) -> InvoiceNameChangeItem:
+    """Explicitly reopen a sent request while preserving every old artifact."""
+    item = InvoiceNameChangeItem.objects.select_for_update().select_related(
+        'batch', 'relationship', 'farmer',
+    ).get(pk=item.pk)
+    request_id = str(client_request_id or '').strip()
+    if not request_id:
+        raise ValueError('A retry key is required to correct a sent request safely.')
+    payload_digest = hashlib.sha256(json.dumps({
+        'item_id': str(item.id),
+        'reason': str(reason or '').strip(),
+        'relationship_type': str(relationship_type or '').strip(),
+        'explanation': str(explanation or '').strip(),
+        'expected_revision': int(expected_revision or 0),
+    }, sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()
+    replay_event = item.farmer.pipeline_events.filter(
+        request_id=request_id,
+        action='invoice_name_change_sent_request_corrected',
+    ).first()
+    if replay_event:
+        if str((replay_event.metadata or {}).get('payload_digest') or '') != payload_digest:
+            raise InvoiceCorrectionConflict('That retry key was already used for a different correction.')
+        return item
+    if int(expected_revision or 0) != int(item.revision):
+        raise InvoiceCorrectionConflict('This correction changed while you were reviewing it. Refresh and try again.')
+    if item.status != 'awaiting_replacement' or not item.batch_id or item.batch.status != 'awaiting_replacements':
+        raise ValueError('Only a sent request that is waiting for a corrected invoice can be corrected.')
+    reason = str(reason or '').strip()
+    explanation = str(explanation or '').strip()
+    if not reason:
+        raise ValueError('Explain why the sent request needs to be corrected.')
+    if relationship_type not in {'spouse', 'household_member'}:
+        raise ValueError('Choose Spouse or Other relative / household member.')
+    if relationship_type == 'household_member' and not explanation:
+        raise ValueError('Explain the relationship when choosing Other relative / household member.')
+    batch = InvoiceNameChangeBatch.objects.select_for_update().get(pk=item.batch_id)
+    old_artifact_id = str(batch.sent_artifact_id or '')
+    old_sent_reference = batch.sent_reference
+    item.relationship.relationship_type = relationship_type
+    item.relationship.attestation_note = explanation or item.relationship.attestation_note
+    item.relationship.save(update_fields=['relationship_type', 'attestation_note'])
+    item.status = 'draft'
+    item.revision += 1
+    item.save(update_fields=['status', 'revision', 'updated_at'])
+    batch.status = 'draft'
+    batch.sent_artifact = None
+    batch.letter_file_reference = ''
+    batch.letter_checksum = ''
+    batch.sent_reference = ''
+    batch.sent_by = ''
+    batch.sent_at = None
+    batch.revision += 1
+    batch.save(update_fields=[
+        'status', 'sent_artifact', 'letter_file_reference', 'letter_checksum',
+        'sent_reference', 'sent_by', 'sent_at', 'revision', 'updated_at',
+    ])
+    _record_case_event(
+        item.farmer,
+        action='invoice_name_change_sent_request_corrected',
+        actor=actor,
+        request_id=request_id,
+        metadata={
+            'item_id': str(item.id), 'reason': reason,
+            'superseded_artifact_id': old_artifact_id,
+            'superseded_sent_reference': old_sent_reference,
+            'payload_digest': payload_digest,
+        },
+    )
+    return item
 
 
 @transaction.atomic
@@ -585,22 +889,23 @@ def confirm_replacement(
     if replacement_id != expected_id:
         raise ValueError('The replacement invoice national ID does not match the applicant.')
     codes = discrepancy_codes(replacement, farmer)
-    if any(code in codes for code in ('name_variance', 'phone_mismatch')) and not str(verification_note or '').strip():
-        raise ValueError('Confirm the replacement name/phone variance with a verification note.')
     from core.services.invoice_parser import _apply_invoice_to_farmer, record_invoice_event
     _apply_invoice_to_farmer(farmer, replacement)
     replacement.status = 'matched'
     replacement.matched_farmer = farmer
     replacement.matched_order_number = farmer.order_number or ''
-    replacement.save(update_fields=['status', 'matched_farmer', 'matched_order_number', 'updated_at'])
+    replacement.revision += 1
+    replacement.save(update_fields=['status', 'matched_farmer', 'matched_order_number', 'revision', 'updated_at'])
     original = item.original_invoice
     original.status = 'superseded'
-    original.save(update_fields=['status', 'updated_at'])
+    original.revision += 1
+    original.save(update_fields=['status', 'revision', 'updated_at'])
     item.replacement_invoice = replacement
     item.status = 'completed'
     item.completed_by = str(actor or '').strip()
     item.completed_at = timezone.now()
-    item.save(update_fields=['replacement_invoice', 'status', 'completed_by', 'completed_at', 'updated_at'])
+    item.revision += 1
+    item.save(update_fields=['replacement_invoice', 'status', 'completed_by', 'completed_at', 'revision', 'updated_at'])
     record_invoice_event(original, 'note', actor=actor, note='Superseded by corrected invoice.', metadata={'replacement_invoice_id': str(replacement.id)})
     record_invoice_event(replacement, 'matched', actor=actor, note=str(verification_note or '').strip(), metadata={'name_change_item_id': str(item.id)})
     _record_case_event(
@@ -616,12 +921,13 @@ def confirm_replacement(
     )
     if codes:
         replacement_review = ensure_identity_review(replacement, farmer)
-        decide_identity_review(
-            replacement_review,
-            outcome=InvoiceIdentityReview.STATUS_SAME_PERSON,
-            actor=actor,
-            note=str(verification_note or '').strip(),
-        )
+        if replacement_review:
+            decide_identity_review(
+                replacement_review,
+                outcome=InvoiceIdentityReview.STATUS_SAME_PERSON,
+                actor=actor,
+                note=str(verification_note or '').strip(),
+            )
     from core.services.invoice_parser import refresh_invoice_batch_counts
     refresh_invoice_batch_counts(original.batch)
     if replacement.batch_id != original.batch_id:

@@ -800,7 +800,8 @@ def propose_invoice_batch_matches(batch: InvoiceUploadBatch) -> InvoiceUploadBat
         invoice.proposed_farmer = farmer
         invoice.proposed_order_number = farmer.order_number if farmer else ''
         invoice.review_notes = reason
-        invoice.save(update_fields=['proposed_farmer', 'proposed_order_number', 'review_notes', 'updated_at'])
+        invoice.revision += 1
+        invoice.save(update_fields=['proposed_farmer', 'proposed_order_number', 'review_notes', 'revision', 'updated_at'])
     return batch
 
 
@@ -838,6 +839,7 @@ def edit_draft_invoice(invoice: ParsedInvoice, values: dict, *, actor: str = '')
     invoice.calculated_balance_due = _decimal_or_none(check['calculated_balance_due'])
     invoice.balance_due_difference = _decimal_or_none(check['balance_due_difference'])
     invoice.balance_due_check_basis = check['balance_due_check_basis']
+    invoice.revision += 1
     invoice.save()
     record_invoice_event(invoice, 'note', actor=actor, note='Invoice extraction draft edited.')
     return invoice
@@ -913,7 +915,8 @@ def confirm_invoice_batch(batch: InvoiceUploadBatch, *, actor: str = '') -> Invo
             invoice.status = 'matched'
             invoice.matched_farmer = farmer
             invoice.matched_order_number = farmer.order_number or batch.order_number
-            invoice.save(update_fields=['status', 'matched_farmer', 'matched_order_number', 'updated_at'])
+            invoice.revision += 1
+            invoice.save(update_fields=['status', 'matched_farmer', 'matched_order_number', 'revision', 'updated_at'])
             record_invoice_event(invoice, 'matched', actor=actor, note='Confirmed from editable extraction review.')
             from core.services.invoice_identity import ensure_identity_review
             ensure_identity_review(invoice, farmer)
@@ -993,8 +996,9 @@ def manually_match_invoice(invoice: ParsedInvoice, farmer: JawabuFarmerMaster, *
         invoice.matched_farmer = farmer
         invoice.matched_order_number = farmer.order_number or ''
         invoice.review_notes = f"Manually matched by {actor_text}." + (f" {note_text}" if note_text else '')
+        invoice.revision += 1
         invoice.save(update_fields=[
-            'status', 'matched_farmer', 'matched_order_number', 'review_notes', 'updated_at',
+            'status', 'matched_farmer', 'matched_order_number', 'review_notes', 'revision', 'updated_at',
         ])
         record_invoice_event(
             invoice,
@@ -1045,8 +1049,9 @@ def unmatch_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') 
         invoice.matched_farmer = None
         invoice.matched_order_number = ''
         invoice.review_notes = f"Unmatched by {actor_text}." + (f" {note_text}" if note_text else '')
+        invoice.revision += 1
         invoice.save(update_fields=[
-            'status', 'matched_farmer', 'matched_order_number', 'review_notes', 'updated_at',
+            'status', 'matched_farmer', 'matched_order_number', 'review_notes', 'revision', 'updated_at',
         ])
         record_invoice_event(
             invoice,
@@ -1069,7 +1074,8 @@ def ignore_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') -
         actor_text = str(actor or 'portal').strip()
         invoice.status = 'ignored'
         invoice.review_notes = f"Ignored by {actor_text}." + (f" {note_text}" if note_text else '')
-        invoice.save(update_fields=['status', 'review_notes', 'updated_at'])
+        invoice.revision += 1
+        invoice.save(update_fields=['status', 'review_notes', 'revision', 'updated_at'])
         record_invoice_event(invoice, 'ignored', actor=actor_text, note=note_text)
         refresh_invoice_batch_counts(invoice.batch)
     return invoice
@@ -1084,7 +1090,8 @@ def restore_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') 
         actor_text = str(actor or 'portal').strip()
         invoice.status = 'unmatched'
         invoice.review_notes = f"Restored by {actor_text}." + (f" {note_text}" if note_text else '')
-        invoice.save(update_fields=['status', 'review_notes', 'updated_at'])
+        invoice.revision += 1
+        invoice.save(update_fields=['status', 'review_notes', 'revision', 'updated_at'])
         record_invoice_event(invoice, 'restored', actor=actor_text, note=note_text)
         refresh_invoice_batch_counts(invoice.batch)
     return invoice

@@ -1457,7 +1457,9 @@ def portal_invoices_screen(request, invoice_view: str = 'inbox', invoice_id: str
     into an inbox, focused reconciliation lists, an upload page, and a
     dedicated record detail screen.
     """
-    if invoice_view not in {'inbox', 'matched', 'ignored', 'all', 'upload', 'name_changes', 'detail'}:
+    if invoice_view == 'name_changes':
+        return HttpResponseRedirect('/portal/s/invoices/')
+    if invoice_view not in {'inbox', 'matched', 'ignored', 'all', 'upload', 'detail'}:
         return HttpResponse('Unknown invoice screen.', status=404)
     if invoice_view == 'detail' and not invoice_id:
         return HttpResponse('An invoice identifier is required.', status=404)
@@ -5097,7 +5099,7 @@ def portal_payment_batches(request):
         return JsonResponse({'ok': False, 'error': 'No scoped Jawabu group is available for payments.'}, status=403)
     try:
         batch = create_batch(
-            group_configuration=group, payment_mode=body.get('payment_mode'),
+            group_configuration=group,
             actor=getattr(request, 'portal_user', None), request_id=_portal_request_id(request, body),
         )
         return JsonResponse({'ok': True, 'batch': serialize_batch(batch)}, status=201)
@@ -5141,26 +5143,39 @@ def portal_payment_sequence(request):
         return _portal_payment_batch_error(exc)
 
 
-@csrf_exempt
-@require_http_methods(['GET', 'PATCH'])
+@require_http_methods(['GET'])
 def portal_payment_batch_detail(request, batch_id):
-    capability = 'portal.payment.view' if request.method == 'GET' else 'portal.payment.prepare'
+    capability = 'portal.payment.view'
     access_error = _portal_capability_error(request, capability)
     if access_error:
         return access_error
-    from payments.services import PaymentBatchError, serialize_batch, update_mode
+    from payments.services import serialize_batch
     batch = _portal_payment_batch_queryset(request).filter(pk=batch_id).first()
     if not batch:
         return JsonResponse({'ok': False, 'error': 'Payment batch not found.'}, status=404)
     scope_error = _portal_payment_batch_scope_error(request, batch, capability=capability)
     if scope_error:
         return scope_error
-    if request.method == 'GET':
-        return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
+    return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_payment_batch_case_mode(request, batch_id, farmer_id):
+    access_error = _portal_capability_error(request, 'portal.payment.prepare')
+    if access_error:
+        return access_error
+    from payments.services import PaymentBatchError, serialize_batch, update_case_mode
+    batch = _portal_payment_batch_queryset(request).filter(pk=batch_id).first()
+    if not batch:
+        return JsonResponse({'ok': False, 'error': 'Payment batch not found.'}, status=404)
+    scope_error = _portal_payment_batch_scope_error(request, batch, capability='portal.payment.prepare')
+    if scope_error:
+        return scope_error
     body = _portal_request_data(request)
     try:
-        batch = update_mode(
-            batch.id, payment_mode=body.get('payment_mode'), expected_revision=body.get('revision'),
+        batch = update_case_mode(
+            batch.id, farmer_id, payment_mode=body.get('payment_mode'), expected_revision=body.get('revision'),
             actor=getattr(request, 'portal_user', None), request_id=_portal_request_id(request, body),
         )
         return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
@@ -5193,7 +5208,7 @@ def portal_payment_batch_cases(request, batch_id):
             return scope_error
     try:
         batch = add_cases(
-            batch.id, farmer_ids=ids, expected_revision=body.get('revision'),
+            batch.id, farmer_ids=ids, payment_modes=body.get('payment_modes'), expected_revision=body.get('revision'),
             actor=getattr(request, 'portal_user', None), request_id=_portal_request_id(request, body),
         )
         return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
@@ -6284,6 +6299,8 @@ def _serialize_parsed_invoice(
         'proposed_order_number': invoice.proposed_order_number,
         'payment_readiness': readiness or {},
         'review_notes': invoice.review_notes,
+        'revision': invoice.revision,
+        'application_revision': farmer.workflow_revision if farmer else None,
         'created_at': invoice.created_at.isoformat() if invoice.created_at else None,
         'updated_at': invoice.updated_at.isoformat() if invoice.updated_at else None,
     }
@@ -6616,6 +6633,10 @@ def portal_invoice_detail(request, invoice_id: str):
 
     events = invoice.events.all().order_by('-created_at')[:25]
     invoice_data = _serialize_parsed_invoice(invoice, readiness_by_order)
+    name_change = (invoice_data.get('identity') or {}).get('name_change')
+    latest_letter = (name_change or {}).get('latest_letter')
+    if latest_letter and latest_letter.get('id'):
+        latest_letter['download_url'] = _invoice_name_change_download_url(request, latest_letter['id'])
     review = invoice.identity_reviews.filter(status='flagged_for_review').order_by('-created_at').first()
     if review and _portal_capability_error(request, 'portal.invoice_identity.manage', invoice.matched_farmer) is None:
         if invoice_data.get('identity', {}).get('review'):
@@ -6847,8 +6868,11 @@ def portal_invoice_identity_review(request, invoice_id: str):
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_invoice_name_change_create(request, invoice_id: str):
-    from core.models import InvoiceNameChangeBatch, ParsedInvoice
-    from core.services.invoice_identity import create_name_change, serialize_name_change_item
+    from core.models import ParsedInvoice
+    from core.services.invoice_identity import (
+        InvoiceCorrectionConflict, serialize_name_change_item, start_invoice_correction,
+    )
+    from core.services.invoice_name_change_letters import InvoiceNameChangeLetterError, generate_letter_artifact
 
     body = _json_body(request)
     try:
@@ -6860,37 +6884,95 @@ def portal_invoice_name_change_create(request, invoice_id: str):
     role_error = _portal_role_error(request, 'invoice_identity.manage', invoice.matched_farmer)
     if role_error:
         return role_error
-    review = invoice.identity_reviews.filter(status='different_person_confirmed').order_by('-created_at').first()
-    if not review:
-        return JsonResponse({'ok': False, 'error': 'Confirm that the invoice belongs to a different person first.'}, status=400)
-    batch = None
-    batch_id = str(body.get('batch_id') or '').strip()
-    if batch_id:
-        batch = InvoiceNameChangeBatch.objects.prefetch_related('items__farmer').filter(pk=batch_id).first()
-        if not batch:
-            return JsonResponse({'ok': False, 'error': 'Draft change-letter batch not found.'}, status=404)
-        for existing_item in batch.items.all():
-            scope_error = _portal_capability_error(
-                request, 'portal.invoice_identity.manage', existing_item.farmer,
-            )
-            if scope_error:
-                return scope_error
+    actor = _portal_sender_from_request(request)
+    request_id = _portal_request_id(request, body)
     try:
-        item = create_name_change(
-            review,
-            actor=_portal_sender_from_request(request),
+        item = start_invoice_correction(
+            invoice,
+            actor=actor,
             relationship_type=str(body.get('relationship_type') or 'spouse'),
-            related_name=str(body.get('related_name') or invoice.customer_name),
-            related_national_id=str(body.get('related_national_id') or invoice.customer_id),
-            related_phone=str(body.get('related_phone') or invoice.customer_phone),
-            attestation_note=str(body.get('attestation_note') or ''),
-            evidence_reference=str(body.get('evidence_reference') or ''),
-            client_request_id=_portal_request_id(request, body),
-            batch=batch,
+            explanation=str(body.get('explanation') or ''),
+            confirmed=body.get('confirmed') is True,
+            expected_invoice_revision=int(body.get('invoice_revision') or 0),
+            expected_application_revision=int(body.get('application_revision') or 0),
+            client_request_id=request_id,
+        )
+    except InvoiceCorrectionConflict as exc:
+        invoice.refresh_from_db()
+        return JsonResponse(
+            {'ok': False, 'error': str(exc), 'invoice': _serialize_parsed_invoice(invoice)},
+            status=409,
         )
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
-    return JsonResponse({'ok': True, 'name_change': serialize_name_change_item(item)}, status=201)
+    letter_warning = ''
+    try:
+        generate_letter_artifact(
+            item.batch,
+            actor=actor,
+            client_request_id=f'{request_id}:letter',
+            publish_to_drive=False,
+        )
+    except InvoiceNameChangeLetterError as exc:
+        # The correction is canonical even if a template needs attention. The
+        # detail screen gives staff the concrete blocker and a retry action.
+        letter_warning = str(exc)
+    item.refresh_from_db()
+    invoice.refresh_from_db()
+    payload = serialize_name_change_item(item)
+    latest = item.batch.letter_artifacts.order_by('-version').first()
+    if latest:
+        payload['latest_letter']['download_url'] = _invoice_name_change_download_url(request, latest.id)
+    return JsonResponse({
+        'ok': True,
+        'name_change': payload,
+        'invoice': _serialize_parsed_invoice(invoice),
+        'letter_warning': letter_warning,
+    }, status=201)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_invoice_name_change_correct_sent(request, item_id: str):
+    from core.models import InvoiceNameChangeItem
+    from core.services.invoice_identity import (
+        InvoiceCorrectionConflict, correct_sent_name_change, serialize_name_change_item,
+    )
+    from core.services.invoice_name_change_letters import InvoiceNameChangeLetterError, generate_letter_artifact
+
+    body = _json_body(request)
+    item = InvoiceNameChangeItem.objects.select_related('farmer', 'batch').filter(pk=item_id).first()
+    if not item:
+        return JsonResponse({'ok': False, 'error': 'Corrected-invoice request not found.'}, status=404)
+    role_error = _portal_role_error(request, 'invoice_identity.manage', item.farmer)
+    if role_error:
+        return role_error
+    actor = _portal_sender_from_request(request)
+    try:
+        item = correct_sent_name_change(
+            item,
+            actor=actor,
+            reason=str(body.get('reason') or ''),
+            relationship_type=str(body.get('relationship_type') or ''),
+            explanation=str(body.get('explanation') or ''),
+            expected_revision=int(body.get('revision') or 0),
+            client_request_id=_portal_request_id(request, body),
+        )
+    except InvoiceCorrectionConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=409)
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    warning = ''
+    try:
+        generate_letter_artifact(
+            item.batch,
+            actor=actor,
+            client_request_id=f'{_portal_request_id(request, body)}:letter',
+            publish_to_drive=False,
+        )
+    except InvoiceNameChangeLetterError as exc:
+        warning = str(exc)
+    return JsonResponse({'ok': True, 'name_change': serialize_name_change_item(item), 'letter_warning': warning})
 
 
 def _serialize_name_change_batch(request, batch) -> dict:
@@ -7159,6 +7241,7 @@ def portal_invoice_name_change_generate(request, batch_id: str):
         artifact, created = generate_letter_artifact(
             batch, actor=actor,
             client_request_id=_portal_request_id(request, body),
+            publish_to_drive=False,
         )
     except InvoiceNameChangeLetterError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)

@@ -77,6 +77,20 @@ class PortalImportStagingTests(TestCase):
         self.assertEqual(JawabuFarmerUploadBatch.objects.count(), 1)
         self.assertFalse(JawabuFarmerMaster.objects.exists())
 
+    def test_farmup_validation_previews_the_unit_count_consequence(self):
+        batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})
+        row = dict(batch.parsed_rows[0])
+        row['approved'] = True
+
+        _batch, validation, _counts = validate_portal_farmup(
+            batch_id=str(batch.pk), rows=[row], revision_token=farmup_revision_token(batch),
+            allowed_group_ids={self.group.group_id},
+        )
+
+        self.assertEqual(validation[0]['match']['current_unit_count'], 0)
+        self.assertEqual(validation[0]['match']['resulting_unit_count'], 1)
+        self.assertIn('first unit', validation[0]['match']['consequence'])
+
     def test_exact_file_with_new_request_key_reopens_monthly_worklist(self):
         batch, operation, _ = stage_portal_import(
             kind='farmup', filename='farmers.csv', content=FARMUP_CSV,

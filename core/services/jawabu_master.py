@@ -1806,6 +1806,12 @@ def upsert_farmer(cleaned: dict, *, return_instance: bool = False):
     defaults['customer'] = customer
     defaults['unit_number'] = unit_number
     if existing:
+        if not existing.lead_name:
+            existing.lead_name = existing.customer_name or ''
+            existing.lead_national_id = existing.national_id or ''
+            existing.lead_primary_phone = existing.primary_phone or ''
+            existing.lead_secondary_phone = existing.secondary_phone or ''
+            existing.lead_source_reference = existing.source_name or existing.external_id or existing.source or ''
         old_values = _farmup_provenance_values(existing)
         restarted = restart_expired_reappraisal(existing, fresh_sign_date=cleaned.get('sign_date', ''))
         farmup_owned = {
@@ -1869,6 +1875,14 @@ def upsert_farmer(cleaned: dict, *, return_instance: bool = False):
             )
         result = (False, existing.status, existing) if return_instance else (False, existing.status)
         return result
+    defaults.setdefault('lead_name', defaults.get('customer_name') or '')
+    defaults.setdefault('lead_national_id', defaults.get('national_id') or '')
+    defaults.setdefault('lead_primary_phone', defaults.get('primary_phone') or '')
+    defaults.setdefault('lead_secondary_phone', defaults.get('secondary_phone') or '')
+    defaults.setdefault(
+        'lead_source_reference',
+        defaults.get('source_name') or defaults.get('external_id') or defaults.get('source') or '',
+    )
     farmer = JawabuFarmerMaster.objects.create(**defaults)
     from core.services.jawabu_validation import canonicalize_farmer
     canonicalize_farmer(farmer, strict=True)
@@ -1881,6 +1895,8 @@ def upsert_farmer(cleaned: dict, *, return_instance: bool = False):
         'repayment_day', 'repayment_tenor_months', 'jbl_visit_status',
         'workflow_state', 'workflow_state_entered_at', 'updated_at',
         'branch', 'county', 'sub_county', 'branch_ref', 'county_ref', 'sub_county_ref',
+        'lead_name', 'lead_national_id', 'lead_primary_phone',
+        'lead_secondary_phone', 'lead_source_reference',
     ])
     from core.services.jawabu_validation import refresh_data_quality_issues
     refresh_data_quality_issues(farmer)

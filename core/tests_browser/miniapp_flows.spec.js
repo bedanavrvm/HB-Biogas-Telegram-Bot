@@ -322,16 +322,16 @@ test('All Cases checkbox filters apply automatically, combine and clear cleanly'
   await page.setViewportSize({width:390,height:700});
   for(const file of ['base.css','portal.css']) await page.addStyleTag({path:asset(file)});
   const boxes=await page.locator('[data-portal-filter-options="county"] label').evaluateAll(labels=>labels.map(label=>({top:label.offsetTop,height:label.getBoundingClientRect().height})));
-  expect(boxes.filter(box=>box.top===boxes[0].top).length).toBeGreaterThan(2);
+  expect(boxes.filter(box=>box.top===boxes[0].top).length).toBe(2);
   expect(Math.max(...boxes.map(box=>box.height))).toBeLessThan(40);
   await page.evaluate(()=>window.PortalMiniAppFilters.updateResultCount('all',17));
   await expect(page.locator('[data-portal-matching-count]')).toHaveText('17 matching cases');
   await page.locator('[data-portal-filter-reset]').click();
-  expect(await page.evaluate(()=>window.filterState.filtersByQueue.all.status)).toBe('');
+  expect(await page.evaluate(()=>window.filterState.filtersByQueue.all.status)).toEqual([]);
 });
 
 test('Portal filter sheet matches compact mobile controls with one search clear', async ({page}, testInfo)=>{
-  const template=fs.readFileSync(path.join(root,'core/templates/portal/partials/queue_tools.html'),'utf8').replace(/\{% if queue_key == 'all' %\}[^]*?\{% else %\}/g,'').replace(/\{%[^]*?%\}/g,'').replace(/\{\{ queue_key \}\}/g,'credit').replace(/\{\{[^]*?\}\}/g,'Cases');
+  const template=fs.readFileSync(path.join(root,'core/templates/portal/partials/queue_tools.html'),'utf8').replace(/\{% if queue_key == 'all' %\}[^]*?\{% endif %\}/g,'').replace(/\{%[^]*?%\}/g,'').replace(/\{\{ queue_key \}\}/g,'credit').replace(/\{\{[^]*?\}\}/g,'Cases');
   await page.setViewportSize({width:390,height:700});
   await page.setContent(`<body class="portal-app"><main id="content"><div style="padding:12px">${template}</div></main></body>`);
   for(const file of ['base.css','components.css','portal.css']) await page.addStyleTag({path:asset(file)});
@@ -509,8 +509,8 @@ test('Portal queue controls filter the full list and keep search data ephemeral'
       <div data-portal-filter-overlay hidden aria-hidden="true"><aside data-portal-filter-sheet>
         <button type="button" data-miniapp-sheet-close>Close</button>
         <form data-portal-filter-form>
-          <select name="county"><option value="">All counties</option></select>
-          <select name="branch"><option value="">All branches</option></select>
+          <fieldset><div data-portal-filter-options="county"></div></fieldset>
+          <fieldset><div data-portal-filter-options="branch"></div></fieldset>
           <select name="ordering"><option value="">Queue priority</option><option value="newest">Newest created</option></select>
           <button type="button" data-portal-filter-reset>Clear all</button><button type="submit">Apply</button>
         </form>
@@ -530,15 +530,16 @@ test('Portal queue controls filter the full list and keep search data ephemeral'
   await page.locator('[data-portal-queue-search]').fill('Customer 12345678');
   await page.waitForTimeout(300);
   await page.locator('[data-portal-filter-trigger]').click();
-  await page.locator('select[name="county"]').selectOption('Kiambu');
-  await page.locator('[data-portal-filter-form]').evaluate(form => form.requestSubmit());
+  await page.locator('input[name="county"][value="Kiambu"]').check();
+  await page.locator('input[name="county"][value="Nakuru"]').check();
+  await page.waitForTimeout(250);
 
   const result = await page.evaluate(() => ({
     loads: window.__queueLoads,
     stored: Object.keys(sessionStorage).map(key => sessionStorage.getItem(key)).join(' '),
     count: document.querySelector('[data-portal-filter-count]').textContent,
   }));
-  expect(result.loads.at(-1)).toMatchObject({ key: 'credit', pageNumber: 1, filters: { county: 'Kiambu' } });
+  expect(result.loads.at(-1)).toMatchObject({ key: 'credit', pageNumber: 1, filters: { county: ['Kiambu', 'Nakuru'] } });
   expect(result.stored).not.toContain('Customer 12345678');
   expect(result.count).toBe('1');
 });

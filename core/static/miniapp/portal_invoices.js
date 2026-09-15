@@ -11,10 +11,6 @@
     workspace: '',
     selectedInvoice: null,
     selectedIds: new Set(),
-    nameChangeSegment: 'ready',
-    nameChangePage: 1,
-    nameChangeSearch: '',
-    selectedNameChanges: new Set(),
     candidateScope: 'operational',
   };
   let searchTimer = null;
@@ -32,7 +28,7 @@
     const screen = document.getElementById('portal-screen');
     const view = screen?.dataset.invoiceView || 'inbox';
     return {
-      view: ['inbox', 'matched', 'ignored', 'all', 'upload', 'name_changes', 'detail'].includes(view) ? view : 'inbox',
+      view: ['inbox', 'matched', 'ignored', 'all', 'upload', 'detail'].includes(view) ? view : 'inbox',
       invoiceId: screen?.dataset.invoiceId || '',
     };
   }
@@ -42,7 +38,6 @@
     if (view === 'matched') return base + 'matched/';
     if (view === 'ignored') return base + 'ignored/';
     if (view === 'all') return base + 'all/';
-    if (view === 'name_changes') return base + 'name-changes/';
     if (view === 'upload') return base + 'upload/';
     if (view === 'detail' && invoiceId) return base + encodeURIComponent(invoiceId) + '/';
     return base;
@@ -292,14 +287,6 @@
       return;
     }
     target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading invoice detail...</div></div>';
-    if (window.sessionStorage?.getItem('portalInvoiceDetailReturn') === 'name_changes') {
-      const back = el('invoice-detail-route-back');
-      if (back) {
-        back.href = routeUrl('name_changes');
-        back.setAttribute('hx-get', routeUrl('name_changes'));
-        back.textContent = 'Back to name changes';
-      }
-    }
     const result = await deps.apiFetch('/invoice-pool/' + encodeURIComponent(invoiceId) + '/');
     if (!invoicesScreenIsActive() || readRoute().invoiceId !== invoiceId) return;
     if (!result.ok || !result.data?.ok) {
@@ -318,10 +305,6 @@
       const route = readRoute();
       if (route.view === 'detail') {
         await loadDetail(route.invoiceId);
-        return;
-      }
-      if (route.view === 'name_changes') {
-        await loadNameChanges(state.nameChangePage);
         return;
       }
       if (state.workspace !== route.view) {
@@ -408,47 +391,67 @@
       : '<span class="badge badge-grey">No source PDF link</span>';
     const identity = invoice.identity || {};
     const identityActions = [];
-    if (canManageInvoiceIdentity() && identity.blocker === 'invoice_identity_verification_pending') {
-      identityActions.push('<button type="button" class="btn btn-secondary invoice-identity-same">Confirm same person</button>');
-      identityActions.push('<button type="button" class="btn btn-primary invoice-identity-different">Confirm different person</button>');
-      identityActions.push('<button type="button" class="btn btn-secondary invoice-identity-flag">Flag for specialist review</button>');
-    }
-    if (canManageInvoiceIdentity() && identity.blocker === 'invoice_name_change_required') {
-      identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-start">Start change of invoice name</button>');
+    const hasDifferentIds = identity.discrepancy_codes?.includes('national_id_mismatch');
+    const hasMissingId = identity.discrepancy_codes?.includes('national_id_missing');
+    if (canManageInvoiceIdentity() && hasDifferentIds && !identity.name_change) {
+      identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-start">Request corrected invoice</button>');
     }
     if (canManageInvoiceIdentity() && identity.name_change?.batch_status === 'draft') {
-      identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-generate">Generate letter</button>');
-      if (identity.name_change.latest_letter?.drive_url) {
+      if (!identity.name_change.latest_letter?.is_current) {
+        identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-generate">Prepare letter</button>');
+      }
+      if (identity.name_change.latest_letter?.download_url) {
         identityActions.push('<button type="button" class="btn btn-secondary invoice-name-change-download">Download v' + escapeHtml(identity.name_change.latest_letter.version) + '</button>');
       }
-      if (identity.name_change.latest_letter?.is_current && identity.name_change.latest_letter?.drive_url) {
+      if (identity.name_change.latest_letter?.is_current) {
         identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-sent">Record letter sent</button>');
       }
     }
     if (canManageInvoiceIdentity() && identity.name_change?.status === 'awaiting_replacement') {
       identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-replacement">Confirm replacement invoice</button>');
+      identityActions.push('<button type="button" class="btn btn-secondary invoice-name-change-correct-sent">Correct sent request</button>');
     }
+    const varianceLabels = (identity.discrepancy_codes || []).filter(function (code) {
+      return !['national_id_mismatch', 'national_id_missing'].includes(code);
+    }).map(function (code) {
+      return code === 'name_variance' ? 'Name spelling differs' : code === 'phone_mismatch' ? 'Phone number differs' : code;
+    });
+    const identityNotice = hasMissingId
+      ? '<div class="invoice-card-warning">A national ID is missing. Correct the parsed invoice or applicant data before continuing.</div>'
+      : hasDifferentIds
+        ? '<div class="invoice-card-warning">The invoice holder and applicant have different national IDs. Payment stays blocked until a corrected invoice is confirmed.</div>'
+        : varianceLabels.length
+          ? '<div class="invoice-info-note">National ID matches. ' + escapeHtml(varianceLabels.join('. ')) + '.</div>'
+          : '<span class="badge badge-green">National ID matches</span>';
+    const letterPreview = identity.name_change?.latest_letter?.preview;
+    const letterPreviewHtml = letterPreview ? [
+      '<div class="invoice-letter-preview">',
+      '<div><strong>Letter preview</strong><span>Version ' + escapeHtml(identity.name_change.latest_letter.version) + ' · ' + escapeHtml(letterPreview.date || '-') + '</span></div>',
+      '<p>Request HomeBiogas to replace the invoice issued to <strong>' + escapeHtml(letterPreview.invoice_name || '-') + '</strong> with one for applicant <strong>' + escapeHtml(letterPreview.applicant_name || '-') + '</strong> (ID ' + escapeHtml(letterPreview.applicant_id || '-') + ').</p>',
+      '<small>Prepared for ' + escapeHtml(letterPreview.signatory || '-') + '. Download the DOCX for the exact governed wording.</small>',
+      '</div>',
+    ].join('') : '';
     const identityPanel = identity.invoice_identity ? [
       '<div class="form-section">',
-      '<h3 style="font-size:14px;margin:0 0 8px;">Invoice identity verification</h3>',
+      '<div class="invoice-section-heading"><div><h3>People linked to this invoice</h3><p>Matching an invoice never changes the applicant identity.</p></div><span class="badge ' + (['Matched', 'Corrected'].includes(identity.status_label) ? 'badge-green' : identity.status_label === 'Cancelled' ? 'badge-grey' : 'badge-orange') + '">' + escapeHtml(identity.status_label || 'Matched') + '</span></div>',
       '<div class="invoice-detail-grid">',
-      kv('Invoice name', identity.invoice_identity.name),
-      kv('Applicant name', identity.applicant_identity?.name),
-      kv('Invoice ID', identity.invoice_identity.national_id),
-      kv('Applicant ID', identity.applicant_identity?.national_id),
-      kv('Invoice phone', identity.invoice_identity.phone),
-      kv('Applicant phone', identity.applicant_identity?.phone),
+      kv('FarmUp lead / contact', identity.lead_identity?.name),
+      kv('Lead national ID', identity.lead_identity?.national_id),
+      kv('SysUp applicant / borrower', identity.applicant_identity?.name),
+      kv('Applicant national ID', identity.applicant_identity?.national_id),
+      kv('Invoice holder', identity.invoice_identity.name),
+      kv('Invoice holder national ID', identity.invoice_identity.national_id),
       '</div>',
-      identity.discrepancy_codes?.length ? '<div class="invoice-card-warning">Verify: ' + escapeHtml(identity.discrepancy_codes.join(', ')) + '</div>' : '<span class="badge badge-green">Identity matches</span>',
-      identity.review ? '<div class="meta">Review: ' + escapeHtml(identity.review.status) + (identity.review.decision_note ? ' — ' + escapeHtml(identity.review.decision_note) : '') + '</div>' : '',
-      identity.name_change ? '<div class="meta">Change request: ' + escapeHtml(identity.name_change.status) + ' | ' + escapeHtml(identity.name_change.batch_row_count || 0) + ' row(s)' + (identity.name_change.letter_readiness?.blockers?.length ? '<br>' + escapeHtml(identity.name_change.letter_readiness.blockers.join(' ')) : '') + '</div>' : '',
+      identityNotice,
+      letterPreviewHtml,
+      identity.name_change ? '<div class="invoice-correction-summary"><strong>' + escapeHtml(identity.status_label) + '</strong><span>' + escapeHtml(identity.name_change.relationship_type === 'spouse' ? 'Spouse' : 'Other relative / household member') + (identity.name_change.explanation ? ' · ' + escapeHtml(identity.name_change.explanation) : '') + '</span>' + (identity.name_change.letter_readiness?.blockers?.length ? '<small>' + escapeHtml(identity.name_change.letter_readiness.blockers.join(' ')) + '</small>' : '') + '</div>' : '',
       '<div class="invoice-detail-actions">' + identityActions.join('') + '</div>',
       '</div>',
     ].join('') : '';
     const actionButtons = [
       routeMode ? '<button type="button" class="btn btn-secondary invoice-detail-back">Back to invoices</button>' : '',
       canWriteInvoices() && ['draft', 'unmatched', 'ambiguous'].includes(invoice.status) ? '<button type="button" class="btn btn-primary invoice-detail-match-action">Match invoice</button>' : '',
-      canWriteInvoices() && invoice.status === 'matched' ? '<button type="button" class="btn btn-secondary invoice-detail-unmatch-action">Unmatch invoice</button>' : '',
+      canWriteInvoices() && invoice.status === 'matched' ? '<button type="button" class="btn btn-secondary invoice-detail-unmatch-action">Change applicant match</button>' : '',
       canWriteInvoices() && invoice.status !== 'ignored' ? '<button type="button" class="btn btn-secondary invoice-detail-ignore-action">Ignore invoice</button>' : '',
       canWriteInvoices() && invoice.status === 'ignored' ? '<button type="button" class="btn btn-secondary invoice-detail-restore-action">Restore invoice</button>' : '',
     ].join('');
@@ -505,25 +508,21 @@
       });
     });
     target.querySelector('.invoice-detail-back')?.addEventListener('click', function () {
-      const destination = window.sessionStorage?.getItem('portalInvoiceDetailReturn') === 'name_changes' ? 'name_changes' : 'inbox';
-      window.sessionStorage?.removeItem('portalInvoiceDetailReturn');
-      navigate(destination);
+      navigate('inbox');
     });
     target.querySelector('.invoice-detail-match-action')?.addEventListener('click', function () { openMatchOverlay(invoice); });
     target.querySelector('.invoice-detail-unmatch-action')?.addEventListener('click', function () { unmatchInvoice(invoice.id); });
     target.querySelector('.invoice-detail-ignore-action')?.addEventListener('click', function () { ignoreInvoice(invoice.id); });
     target.querySelector('.invoice-detail-restore-action')?.addEventListener('click', function () { restoreInvoice(invoice.id); });
-    target.querySelector('.invoice-identity-same')?.addEventListener('click', function () { decideInvoiceIdentity(invoice.id, 'same_person_confirmed'); });
-    target.querySelector('.invoice-identity-different')?.addEventListener('click', function () { decideInvoiceIdentity(invoice.id, 'different_person_confirmed'); });
-    target.querySelector('.invoice-identity-flag')?.addEventListener('click', function () { decideInvoiceIdentity(invoice.id, 'flagged_for_review'); });
     target.querySelector('.invoice-name-change-start')?.addEventListener('click', function () { startInvoiceNameChange(invoice); });
     target.querySelector('.invoice-name-change-generate')?.addEventListener('click', function () { generateInvoiceNameChangeLetter(identity.name_change, invoice.id, this); });
     target.querySelector('.invoice-name-change-download')?.addEventListener('click', function () {
-      const url = identity.name_change?.latest_letter?.drive_url;
+      const url = identity.name_change?.latest_letter?.download_url;
       if (url && deps.openPortalLink) deps.openPortalLink(url); else if (url) window.open(url, '_blank', 'noopener');
     });
     target.querySelector('.invoice-name-change-sent')?.addEventListener('click', function () { markInvoiceNameChangeSent(identity.name_change); });
     target.querySelector('.invoice-name-change-replacement')?.addEventListener('click', function () { confirmInvoiceReplacement(identity.name_change); });
+    target.querySelector('.invoice-name-change-correct-sent')?.addEventListener('click', function () { correctSentInvoiceNameChange(identity.name_change, invoice.id); });
   }
 
   async function decideInvoiceIdentity(invoiceId, outcome) {
@@ -593,26 +592,34 @@
   }
 
   async function startInvoiceNameChange(invoice) {
-    const values = await openInvoiceWorkflowSheet('Create invoice-name-change request', [
+    const identity = invoice.identity || {};
+    const values = await openInvoiceWorkflowSheet('Request corrected invoice', [
       '<div class="invoice-workflow-context"><strong>Invoice holder</strong><span>' + escapeHtml(invoice.customer_name || '-') + '</span><small>ID ' + escapeHtml(invoice.customer_id || '-') + '</small></div>',
-      '<div class="form-row"><label>Relationship</label><select name="relationship_type" required><option value="spouse">Spouse</option><option value="household_member">Household member</option></select></div>',
-      '<div class="form-row"><label>Operations attestation</label><textarea name="attestation_note" rows="3" required></textarea></div>',
-      '<div class="form-row"><label>Supporting evidence reference</label><input name="evidence_reference" required autocomplete="off"></div>',
-      '<p class="field-help">This creates a ready request. Select it with other verified requests in the Name changes workspace when you are ready to generate a letter.</p>',
-    ].join(''), 'Create request');
+      '<div class="invoice-workflow-context"><strong>Applicant / borrower</strong><span>' + escapeHtml(identity.applicant_identity?.name || invoice.matched_farmer_name || '-') + '</span><small>ID ' + escapeHtml(identity.applicant_identity?.national_id || '-') + '</small></div>',
+      '<div class="form-row"><label>Relationship</label><select name="relationship_type" required><option value="spouse">Spouse</option><option value="household_member">Other relative / household member</option></select></div>',
+      '<div class="form-row"><label>Explanation <span class="meta">(required for Other)</span></label><textarea name="explanation" rows="2" placeholder="Add useful context"></textarea></div>',
+      '<label class="invoice-confirm-row"><input type="checkbox" name="confirmed" value="yes" required><span>I confirm the invoice belongs to this household person and a corrected invoice is required.</span></label>',
+      '<p class="field-help">This creates the request and prepares its letter. Payment remains blocked until the corrected replacement invoice is confirmed.</p>',
+    ].join(''), 'Request corrected invoice');
     if (!values) return;
+    if (values.relationship_type === 'household_member' && !values.explanation?.trim()) {
+      return deps.showToast('Explain the relationship when choosing Other relative / household member.', 'error');
+    }
+    const retryKey = requestId();
     const response = await deps.apiFetch('/invoice-pool/' + encodeURIComponent(invoice.id) + '/name-change/', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', ...csrfHeader() },
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': retryKey, ...csrfHeader() },
       body: JSON.stringify({
-        relationship_type: values.relationship_type, related_name: invoice.customer_name,
-        related_national_id: invoice.customer_id, related_phone: invoice.customer_phone,
-        attestation_note: values.attestation_note.trim(), evidence_reference: values.evidence_reference.trim(),
-        client_request_id: requestId(),
+        relationship_type: values.relationship_type,
+        explanation: values.explanation?.trim() || '',
+        confirmed: values.confirmed === 'yes',
+        invoice_revision: invoice.revision,
+        application_revision: invoice.application_revision,
+        client_request_id: retryKey,
       }),
     });
     if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Could not start the invoice-name change.', 'error');
-    window.sessionStorage?.setItem('portalInvoiceNameChangeFocus', response.data.name_change?.id || '');
-    navigate('name_changes');
+    deps.showToast(response.data.letter_warning || 'Corrected-invoice request created.', response.data.letter_warning ? 'warning' : 'success');
+    loadDetail(invoice.id);
   }
 
   async function generateInvoiceNameChangeLetter(change, invoiceId, button) {
@@ -633,14 +640,14 @@
       }
       if (invoiceId) loadDetail(invoiceId);
     } finally {
-      if (button?.isConnected) { button.disabled = false; button.textContent = 'Generate letter'; }
+      if (button?.isConnected) { button.disabled = false; button.textContent = 'Prepare letter'; }
     }
   }
 
   async function markInvoiceNameChangeSent(change) {
     const letter = change?.latest_letter;
-    if (!letter?.id || !letter?.is_current || !letter?.drive_url) {
-      return deps.showToast('Generate and upload the current letter before recording it as sent.', 'error');
+    if (!letter?.id || !letter?.is_current) {
+      return deps.showToast('Prepare the current letter before recording it as sent.', 'error');
     }
     const values = await openInvoiceWorkflowSheet('Record letter sent', [
       '<div class="form-row"><label>Generated letter</label><input value="Version ' + escapeHtml(letter.version) + ' - ' + escapeHtml(letter.filename) + '" readonly></div>',
@@ -653,8 +660,29 @@
     });
     if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Could not record the sent letter.', 'error');
     deps.showToast('Letter marked as sent.', 'success');
-    if (readRoute().view === 'name_changes') loadNameChanges(state.nameChangePage);
-    else if (state.selectedInvoice?.id) loadDetail(state.selectedInvoice.id);
+    if (change?.original_invoice_id) loadDetail(change.original_invoice_id);
+  }
+
+  async function correctSentInvoiceNameChange(change, invoiceId) {
+    const values = await openInvoiceWorkflowSheet('Correct sent request', [
+      '<div class="form-row"><label>Why is this correction needed?</label><textarea name="reason" rows="2" required></textarea></div>',
+      '<div class="form-row"><label>Relationship</label><select name="relationship_type" required><option value="spouse"' + (change.relationship_type === 'spouse' ? ' selected' : '') + '>Spouse</option><option value="household_member"' + (change.relationship_type === 'household_member' ? ' selected' : '') + '>Other relative / household member</option></select></div>',
+      '<div class="form-row"><label>Explanation</label><textarea name="explanation" rows="2">' + escapeHtml(change.explanation || '') + '</textarea></div>',
+      '<p class="field-help">The already-sent letter stays in the audit history. A new version will be prepared and must be sent again.</p>',
+    ].join(''), 'Prepare corrected letter');
+    if (!values) return;
+    const retryKey = requestId();
+    const response = await deps.apiFetch('/invoice-name-change-items/' + encodeURIComponent(change.id) + '/correct-sent/', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': retryKey, ...csrfHeader() },
+      body: JSON.stringify({
+        reason: values.reason.trim(), relationship_type: values.relationship_type,
+        explanation: values.explanation.trim(), revision: change.revision,
+        client_request_id: retryKey,
+      }),
+    });
+    if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Could not correct the sent request.', 'error');
+    deps.showToast(response.data.letter_warning || 'New letter version prepared.', response.data.letter_warning ? 'warning' : 'success');
+    loadDetail(invoiceId);
   }
 
   async function confirmInvoiceReplacement(change) {

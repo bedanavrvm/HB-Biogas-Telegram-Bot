@@ -4221,6 +4221,36 @@ class JawabuIntegrityRulesTests(TestCase):
 
 
 class JawabuCase360Tests(TestCase):
+    def test_household_relationship_is_visible_from_both_linked_applicants(self):
+        from core.models import JawabuCustomer, JawabuHouseholdRelationship, JawabuRelatedPerson
+        from core.services.jawabu_case360 import serialize_case360
+
+        first_customer = JawabuCustomer.objects.create(national_id='11112222', customer_no='C-1')
+        second_customer = JawabuCustomer.objects.create(national_id='33334444', customer_no='C-2')
+        first = JawabuFarmerMaster.objects.create(
+            customer=first_customer, customer_name='First Applicant', national_id='11112222',
+        )
+        second = JawabuFarmerMaster.objects.create(
+            customer=second_customer, customer_name='Second Applicant', national_id='33334444',
+        )
+        person = JawabuRelatedPerson.objects.create(
+            linked_customer=second_customer, full_name='Second Applicant', national_id='33334444',
+        )
+        relationship = JawabuHouseholdRelationship.objects.create(
+            farmer=first, related_person=person, relationship_type='spouse',
+            attestation_note='Confirmed spouse.', evidence_reference='invoice:test',
+            confirmed_by='Operations',
+        )
+
+        outgoing = serialize_case360(first)['household_relationships']
+        incoming = serialize_case360(second)['household_relationships']
+
+        self.assertEqual(outgoing[0]['id'], str(relationship.id))
+        self.assertEqual(outgoing[0]['direction'], 'from_applicant')
+        self.assertEqual(incoming[0]['id'], str(relationship.id))
+        self.assertEqual(incoming[0]['direction'], 'to_applicant')
+        self.assertEqual(incoming[0]['linked_application_id'], str(first.id))
+
     def test_case360_data_migration_is_idempotent(self):
         import importlib
         from django.apps import apps

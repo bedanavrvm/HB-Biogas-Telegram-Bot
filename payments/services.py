@@ -41,10 +41,18 @@ def _digest(payload) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def case_payment_digest(farmer: JawabuFarmerMaster) -> str:
+def _normalize_payment_mode(value) -> str:
+    mode = str(value or '').strip().upper()
+    if mode not in dict(PaymentBatchCase.MODE_CHOICES):
+        raise PaymentBatchError('Choose Loan - Jawabu or Cash for every selected case.')
+    return mode
+
+
+def case_payment_digest(farmer: JawabuFarmerMaster, payment_mode: str = '') -> str:
     """Bind a review to all values that can change the payment row or eligibility."""
     return _digest({
         'farmer_id': str(farmer.pk),
+        'payment_mode': str(payment_mode or '').strip().upper(),
         'workflow_revision': farmer.workflow_revision,
         'customer_no': farmer.customer_no,
         'customer_name': farmer.customer_name,
@@ -104,11 +112,14 @@ def _active_memberships(batch):
 
 def _refresh_batch_digest(batch):
     values = [
-        {'farmer_id': str(item.farmer_id), 'digest': case_payment_digest(item.farmer)}
+        {
+            'farmer_id': str(item.farmer_id),
+            'payment_mode': item.payment_mode,
+            'digest': case_payment_digest(item.farmer, item.payment_mode),
+        }
         for item in _active_memberships(batch)
     ]
     batch.batch_digest = _digest({
-        'payment_mode': batch.payment_mode,
         'payment_number': batch.payment_number,
         'cases': values,
     })
@@ -154,6 +165,26 @@ def _invalidate_current_reviews(batch):
     return invalidated
 
 
+def _invalidate_membership_review(membership):
+    review = getattr(membership, 'review', None)
+    if not review or review.decision == PaymentCaseReview.DECISION_PENDING:
+        return []
+    evidence = [{
+        'farmer_id': str(membership.farmer_id),
+        'decision': review.decision,
+        'comment': review.comment,
+        'reviewed_digest': review.reviewed_digest,
+    }]
+    review.decision = PaymentCaseReview.DECISION_PENDING
+    review.comment = ''
+    review.reviewed_digest = ''
+    review.reviewed_by = None
+    review.reviewed_at = None
+    review.revision += 1
+    review.save()
+    return evidence
+
+
 def _require_revision(batch, expected_revision):
     if expected_revision is None:
         raise PaymentBatchError('Refresh the payment batch before making this change.')
@@ -166,34 +197,29 @@ def _require_revision(batch, expected_revision):
 
 
 @transaction.atomic
-def create_batch(*, group_configuration, payment_mode: str, actor=None, request_id: str = '') -> PaymentBatch:
-    mode = str(payment_mode or '').strip().upper()
-    if mode not in {PaymentBatch.MODE_LOAN_JAWABU, PaymentBatch.MODE_CASH}:
-        raise PaymentBatchError('Choose Loan - Jawabu or Cash as the payment mode.')
+def create_batch(*, group_configuration, actor=None, request_id: str = '') -> PaymentBatch:
     replayed = _replayed_batch(
         request_id, action='created',
-        metadata={'payment_mode': mode, 'group_configuration_id': group_configuration.pk},
+        metadata={'group_configuration_id': group_configuration.pk},
     )
     if replayed:
         return replayed
-    batch = PaymentBatch.objects.create(group_configuration=group_configuration, payment_mode=mode, created_by=actor)
+    batch = PaymentBatch.objects.create(group_configuration=group_configuration, created_by=actor)
     _refresh_batch_digest(batch)
     batch.save(update_fields=['batch_digest', 'updated_at'])
     _record(
         batch, 'created', actor=actor, request_id=request_id,
-        metadata={'payment_mode': mode, 'group_configuration_id': group_configuration.pk},
+        metadata={'group_configuration_id': group_configuration.pk},
     )
     return batch
 
 
 @transaction.atomic
-def update_mode(batch_id, *, payment_mode: str, expected_revision, actor=None, request_id=''):
-    mode = str(payment_mode or '').strip().upper()
-    if mode not in {PaymentBatch.MODE_LOAN_JAWABU, PaymentBatch.MODE_CASH}:
-        raise PaymentBatchError('Choose Loan - Jawabu or Cash as the payment mode.')
+def update_case_mode(batch_id, farmer_id, *, payment_mode: str, expected_revision, actor=None, request_id=''):
+    mode = _normalize_payment_mode(payment_mode)
     replayed = _replayed_batch(
-        request_id, action='mode_changed', batch_id=batch_id,
-        metadata={'payment_mode': mode},
+        request_id, action='case_mode_changed', batch_id=batch_id,
+        metadata={'farmer_id': str(farmer_id), 'payment_mode': mode},
     )
     if replayed:
         return replayed
@@ -201,28 +227,44 @@ def update_mode(batch_id, *, payment_mode: str, expected_revision, actor=None, r
     _require_revision(batch, expected_revision)
     if batch.status not in EDITABLE_STATUSES:
         raise PaymentBatchError('This completed or cancelled payment batch cannot be changed.')
-    if batch.payment_mode == mode:
+    membership = PaymentBatchCase.objects.select_for_update().select_related('farmer').filter(
+        batch=batch, farmer_id=farmer_id, is_active=True,
+    ).first()
+    if not membership:
+        raise PaymentBatchError('This case is not currently in the payment batch.')
+    if membership.payment_mode == mode:
         return batch
     _supersede_document(batch)
-    invalidated = _invalidate_current_reviews(batch)
-    batch.payment_mode = mode
+    invalidated = _invalidate_membership_review(membership)
+    membership.payment_mode = mode
+    membership.case_digest = case_payment_digest(membership.farmer, mode)
+    membership.save(update_fields=['payment_mode', 'case_digest', 'updated_at'])
     batch.status = PaymentBatch.STATUS_IN_REVIEW if batch.payment_number else PaymentBatch.STATUS_DRAFT
     batch.revision += 1
     _refresh_batch_digest(batch)
     batch.save()
     _record(
-        batch, 'mode_changed', actor=actor, request_id=request_id,
-        metadata={'payment_mode': mode, 'invalidated_reviews': invalidated},
+        batch, 'case_mode_changed', actor=actor, request_id=request_id,
+        metadata={
+            'farmer_id': str(farmer_id), 'payment_mode': mode,
+            'invalidated_reviews': invalidated,
+        },
     )
     return batch
 
 
 @transaction.atomic
-def add_cases(batch_id, *, farmer_ids, expected_revision, actor=None, request_id=''):
+def add_cases(batch_id, *, farmer_ids, payment_modes, expected_revision, actor=None, request_id=''):
     ids = list(dict.fromkeys(str(value) for value in farmer_ids if str(value).strip()))
+    if not ids:
+        raise PaymentBatchError('Select one or more cases to add.')
+    raw_modes = {str(key): value for key, value in payment_modes.items()} if isinstance(payment_modes, dict) else {}
+    modes = {}
+    for farmer_id in ids:
+        modes[farmer_id] = _normalize_payment_mode(raw_modes.get(farmer_id))
     replayed = _replayed_batch(
         request_id, action='cases_added', batch_id=batch_id,
-        metadata={'farmer_ids': sorted(ids)},
+        metadata={'farmer_ids': sorted(ids), 'payment_modes': {key: modes[key] for key in sorted(modes)}},
     )
     if replayed:
         return replayed
@@ -249,14 +291,16 @@ def add_cases(batch_id, *, farmer_ids, expected_revision, actor=None, request_id
     _supersede_document(batch)
     invalidated = _invalidate_current_reviews(batch)
     for farmer in farmers:
-        digest = case_payment_digest(farmer)
+        mode = modes[str(farmer.pk)]
+        digest = case_payment_digest(farmer, mode)
         membership, created = PaymentBatchCase.objects.get_or_create(
             batch=batch, farmer=farmer,
-            defaults={'case_digest': digest, 'added_by': actor},
+            defaults={'case_digest': digest, 'payment_mode': mode, 'added_by': actor},
         )
-        if not created and not membership.is_active:
+        if not created:
             membership.is_active = True
             membership.case_digest = digest
+            membership.payment_mode = mode
             membership.added_by = actor
             membership.added_at = timezone.now()
             membership.removed_by = None
@@ -292,6 +336,7 @@ def add_cases(batch_id, *, farmer_ids, expected_revision, actor=None, request_id
         batch, 'cases_added', actor=actor, request_id=request_id,
         metadata={
             'count': len(ids), 'farmer_ids': sorted(ids),
+            'payment_modes': {key: modes[key] for key in sorted(modes)},
             'invalidated_reviews': invalidated,
         },
     )
@@ -397,7 +442,7 @@ def review_case(batch_id, farmer_id, *, decision: str, comment: str, expected_re
     ).first()
     if not membership:
         raise PaymentBatchError('This case is not currently in the payment batch.')
-    digest = case_payment_digest(membership.farmer)
+    digest = case_payment_digest(membership.farmer, membership.payment_mode)
     review, _ = PaymentCaseReview.objects.select_for_update().get_or_create(membership=membership)
     review.decision = decision
     review.comment = comment
@@ -412,7 +457,7 @@ def review_case(batch_id, farmer_id, *, decision: str, comment: str, expected_re
     all_approved = all(
         hasattr(item, 'review')
         and item.review.decision == PaymentCaseReview.DECISION_APPROVED
-        and item.review.reviewed_digest == case_payment_digest(item.farmer)
+        and item.review.reviewed_digest == case_payment_digest(item.farmer, item.payment_mode)
         for item in active
     )
     batch.status = PaymentBatch.STATUS_REVIEW_COMPLETE if active and all_approved else PaymentBatch.STATUS_IN_REVIEW
@@ -447,7 +492,7 @@ def generate_reviewed_workbook(batch_id, *, expected_revision, actor=None, actor
             for item in memberships
             if not hasattr(item, 'review')
             or item.review.decision != PaymentCaseReview.DECISION_APPROVED
-            or item.review.reviewed_digest != case_payment_digest(item.farmer)
+            or item.review.reviewed_digest != case_payment_digest(item.farmer, item.payment_mode)
         ]
         if stale_case_ids:
             invalidated = _invalidate_current_reviews(batch)
@@ -463,11 +508,11 @@ def generate_reviewed_workbook(batch_id, *, expected_revision, actor=None, actor
             )
         else:
             comments = {str(item.farmer_id): item.review.comment for item in memberships}
+            case_payment_modes = {str(item.farmer_id): item.payment_mode for item in memberships}
             farmer_ids = list(comments)
             generation_revision = batch.revision
             generation_digest = batch.batch_digest
             payment_number = batch.payment_number
-            payment_mode = batch.payment_mode
     if stale_case_ids:
         raise PaymentBatchError('Payment details changed after review. Head of Rural must review the changed cases again.')
     # The legacy document model remains the immutable binary artifact store;
@@ -476,7 +521,7 @@ def generate_reviewed_workbook(batch_id, *, expected_revision, actor=None, actor
         document = create_payment_document(
             f'PAYMENT-{payment_number}', str(payment_number),
             actor=actor_label, status='awaiting_scan', farmer_ids=farmer_ids,
-            case_call_up_comments=comments, payment_mode=payment_mode,
+            case_call_up_comments=comments, case_payment_modes=case_payment_modes,
         )
     except PaymentTemplateError as exc:
         raise PaymentBatchError(str(exc)) from exc
@@ -598,9 +643,11 @@ def serialize_batch(batch: PaymentBatch, *, include_cases=True):
     cases = []
     counts = {'total': len(memberships), 'approved': 0, 'returned': 0, 'pending': 0, 'changed': 0}
     total = Decimal('0')
+    mode_counts = {value: 0 for value, _label in PaymentBatchCase.MODE_CHOICES}
     for item in memberships:
         review = getattr(item, 'review', None)
-        digest = case_payment_digest(item.farmer)
+        digest = case_payment_digest(item.farmer, item.payment_mode)
+        mode_counts[item.payment_mode] = mode_counts.get(item.payment_mode, 0) + 1
         changed = bool(review and review.reviewed_digest and review.reviewed_digest != digest)
         decision = PaymentCaseReview.DECISION_PENDING if changed or not review else review.decision
         counts[decision if decision in {'approved', 'returned', 'pending'} else 'pending'] += 1
@@ -616,6 +663,8 @@ def serialize_batch(batch: PaymentBatch, *, include_cases=True):
                 'order_number': item.farmer.order_number,
                 'amount': str(item.farmer.balance_due or ''),
                 'preferred_repayment_date': item.farmer.repayment_date,
+                'payment_mode': item.payment_mode,
+                'payment_mode_label': item.get_payment_mode_display(),
                 'decision': decision,
                 'comment': review.comment if review else '',
                 'changed_since_review': changed,
@@ -644,9 +693,13 @@ def serialize_batch(batch: PaymentBatch, *, include_cases=True):
                 .first()
                 or ''
             )
+    mode_labels = dict(PaymentBatchCase.MODE_CHOICES)
+    payment_mode_summary = ' · '.join(
+        f'{count} {mode_labels[mode]}' for mode, count in mode_counts.items() if count
+    ) or 'No cases'
     return {
         'id': str(batch.pk), 'payment_number': batch.payment_number,
-        'payment_mode': batch.payment_mode, 'payment_mode_label': batch.get_payment_mode_display(),
+        'payment_mode_summary': payment_mode_summary, 'payment_mode_counts': mode_counts,
         'status': batch.status, 'status_label': batch.get_status_display(),
         'revision': batch.revision, 'counts': counts, 'total_amount': str(total),
         'cases': cases, 'activity': activity, 'current_document_id': str(batch.current_document_id or ''),
@@ -683,7 +736,7 @@ def complete_batch_for_document(document, *, actor=None, request_id=''):
             item.farmer, action='payment_finalized', stage_key='payment',
             actor=document.finalized_by, request_id=f'payment-batch:{batch.id}:{item.farmer_id}',
             source='payment_batch',
-            new_values={'payment_number': str(batch.payment_number), 'payment_mode': batch.payment_mode},
+            new_values={'payment_number': str(batch.payment_number), 'payment_mode': item.payment_mode},
             metadata={'payment_batch_id': str(batch.id), 'payment_document_id': str(document.id)},
             actor_user=actor,
         )

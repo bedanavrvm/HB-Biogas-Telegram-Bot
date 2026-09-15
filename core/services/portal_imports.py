@@ -606,17 +606,26 @@ def _farmup_database_match(batch: JawabuFarmerUploadBatch, row: dict, index: int
         query |= Q(_farmup_phone_history_match=True)
     matches = list(customers.filter(query).order_by('pk')) if query.children else []
     if len(matches) > 1:
-        return {'kind': 'identity_conflict', 'farmer_id': '', 'changed_fields': []}
+        return {'kind': 'identity_conflict', 'farmer_id': '', 'changed_fields': [], 'consequence': 'No unit will be changed until the customer conflict is resolved.'}
     if str(cleaned.get('application_action') or 'update_existing') == 'create_additional_unit':
-        return {'kind': 'additional_unit', 'farmer_id': '', 'changed_fields': []}
+        current_count = JawabuFarmerMaster.objects.filter(customer=matches[0]).count() if matches else 0
+        return {
+            'kind': 'additional_unit', 'farmer_id': '', 'changed_fields': [],
+            'current_unit_count': current_count,
+            'resulting_unit_count': current_count + 1,
+            'consequence': (
+                f'Create a separate Unit {current_count + 1}; household unit count becomes {current_count + 1}.'
+                if current_count else 'Create the first unit and a new application track.'
+            ),
+        }
     if not matches:
-        return {'kind': 'new', 'farmer_id': '', 'changed_fields': []}
+        return {'kind': 'new', 'farmer_id': '', 'changed_fields': [], 'current_unit_count': 0, 'resulting_unit_count': 1, 'consequence': 'Create the first unit and a new application track.'}
     applications = JawabuFarmerMaster.objects.filter(customer=matches[0]).order_by('-updated_at', 'pk')
     if lock:
         applications = applications.select_for_update()
     existing = applications.first()
     if existing is None:
-        return {'kind': 'new', 'farmer_id': '', 'changed_fields': []}
+        return {'kind': 'new', 'farmer_id': '', 'changed_fields': [], 'current_unit_count': 0, 'resulting_unit_count': 1, 'consequence': 'Create the first unit and a new application track.'}
     changed = []
     for field, label in _FARMUP_COMPARE_FIELDS.items():
         incoming = cleaned.get(field)
@@ -628,6 +637,9 @@ def _farmup_database_match(batch: JawabuFarmerUploadBatch, row: dict, index: int
     return {
         'kind': 'update' if changed else 'unchanged',
         'farmer_id': str(existing.pk), 'changed_fields': changed,
+        'current_unit_count': applications.count(),
+        'resulting_unit_count': applications.count(),
+        'consequence': f'Use existing Unit {existing.unit_number}; no additional physical unit will be counted.',
     }
 
 

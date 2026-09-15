@@ -332,18 +332,24 @@ def _commit_values(row: dict[str, Any]) -> tuple[dict[str, str | Decimal], list[
     }, errors
 
 
-def _bind_customer_identity(farmer: JawabuFarmerMaster, *, national_id: str, phone: str, customer_no: str) -> None:
+def _bind_customer_identity(
+    farmer: JawabuFarmerMaster, *, national_id: str, phone: str,
+    customer_no: str, allow_rebind: bool = False,
+) -> None:
     """Keep the canonical JawabuCustomer identity aligned with the farmer row."""
     customer = farmer.customer
-    if customer is None:
-        identity_filter = Q()
-        if national_id:
-            identity_filter |= Q(national_id=national_id)
-        if phone:
-            identity_filter |= Q(primary_phone=phone)
-        if customer_no:
-            identity_filter |= Q(customer_no=customer_no)
-        customer = JawabuCustomer.objects.select_for_update().filter(identity_filter).first() if identity_filter.children else None
+    if customer is None or allow_rebind:
+        identity_matches = []
+        # Stable system identifiers take precedence. Phone remains a final
+        # compatibility lookup and is never used by household reconciliation.
+        for field, value in (('national_id', national_id), ('customer_no', customer_no), ('primary_phone', phone)):
+            if value:
+                match = JawabuCustomer.objects.select_for_update().filter(**{field: value}).first()
+                if match and match.pk not in {row.pk for row in identity_matches}:
+                    identity_matches.append(match)
+        if len(identity_matches) > 1:
+            raise ValueError('The SysUp identifiers belong to different customer records. Resolve the data conflict first.')
+        customer = identity_matches[0] if identity_matches else None
         if customer is None:
             customer = JawabuCustomer.objects.create(
                 national_id=national_id,
@@ -352,9 +358,9 @@ def _bind_customer_identity(farmer: JawabuFarmerMaster, *, national_id: str, pho
                 identity_enforced=True,
             )
         farmer.customer = customer
-    if national_id and not customer.national_id:
+    if national_id and (allow_rebind or not customer.national_id):
         customer.national_id = national_id
-    if phone and not customer.primary_phone:
+    if phone and (allow_rebind or not customer.primary_phone):
         customer.primary_phone = phone
     if customer_no:
         customer.customer_no = customer_no
@@ -415,6 +421,13 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
         national_id = str(values['national_id'])
         phone = str(values['phone'])
         customer_no = str(values['customer_no'])
+        initial_system_binding = not str(farmer.customer_no or '').strip() and not str(farmer.imab_customer_name or '').strip()
+        if not farmer.lead_name:
+            farmer.lead_name = farmer.customer_name or ''
+            farmer.lead_national_id = farmer.national_id or ''
+            farmer.lead_primary_phone = farmer.primary_phone or ''
+            farmer.lead_secondary_phone = farmer.secondary_phone or ''
+            farmer.lead_source_reference = farmer.source_name or farmer.external_id or farmer.source or ''
         conflicts = []
         for label, field, value in (
             ('ID NO', 'national_id', national_id),
@@ -422,28 +435,28 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
             ('Customer ID', 'customer_no', customer_no),
         ):
             existing = str(getattr(farmer, field) or '').strip()
-            if value and existing and value != existing:
+            if not initial_system_binding and value and existing and value != existing:
                 conflicts.append(f'{label} differs from the selected customer')
-        if _identifier_belongs_to_a_different_customer(
+        if not initial_system_binding and _identifier_belongs_to_a_different_customer(
             farmer, field_name='customer_no', value=customer_no,
         ):
             conflicts.append('Customer ID already belongs to another case')
-        if _identifier_belongs_to_a_different_customer(
+        if not initial_system_binding and _identifier_belongs_to_a_different_customer(
             farmer, field_name='national_id', value=national_id,
         ):
             conflicts.append('ID NO already belongs to another case')
-        if _identifier_belongs_to_a_different_customer(
+        if not initial_system_binding and _identifier_belongs_to_a_different_customer(
             farmer, field_name='primary_phone', value=phone,
         ):
             conflicts.append('Mobile No already belongs to another case')
         customer_scope = JawabuCustomer.objects.exclude(pk=farmer.customer_id) if farmer.customer_id else JawabuCustomer.objects.all()
-        if customer_no and customer_scope.filter(customer_no=customer_no).exists():
+        if not initial_system_binding and customer_no and customer_scope.filter(customer_no=customer_no).exists():
             conflicts.append('Customer ID already belongs to another canonical customer')
-        if national_id and customer_scope.filter(national_id=national_id).exists():
+        if not initial_system_binding and national_id and customer_scope.filter(national_id=national_id).exists():
             conflicts.append('ID NO already belongs to another canonical customer')
-        if phone and customer_scope.filter(primary_phone=phone).exists():
+        if not initial_system_binding and phone and customer_scope.filter(primary_phone=phone).exists():
             conflicts.append('Mobile No already belongs to another canonical customer')
-        if farmer.customer_id:
+        if farmer.customer_id and not initial_system_binding:
             customer = farmer.customer
             for label, field, value in (
                 ('ID NO', 'national_id', national_id),
@@ -469,21 +482,29 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
             'payment_product': farmer.payment_product,
             'system_deposit_paid_jbl': str(farmer.system_deposit_paid_jbl) if farmer.system_deposit_paid_jbl is not None else '',
         }
-        if national_id and not farmer.national_id:
+        if national_id:
             farmer.national_id = national_id
-        if phone and not farmer.primary_phone:
+        if phone:
             farmer.primary_phone = phone
         if customer_no:
             farmer.customer_no = customer_no
-        _bind_customer_identity(
-            farmer,
-            national_id=national_id,
-            phone=phone,
-            customer_no=customer_no,
-        )
+        try:
+            _bind_customer_identity(
+                farmer,
+                national_id=national_id,
+                phone=phone,
+                customer_no=customer_no,
+                allow_rebind=initial_system_binding,
+            )
+        except ValueError as exc:
+            _mark_review(row, str(exc))
+            errors.append(f'Row {index}: {exc}')
+            remaining.append(row)
+            continue
         exported_name = str(values['name'])
         if exported_name:
             farmer.imab_customer_name = exported_name
+            farmer.customer_name = exported_name
         branch = str(values['branch'])
         if branch:
             farmer.system_branch = branch
@@ -497,6 +518,9 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
         if values['lgf'] != '':
             farmer.system_deposit_paid_jbl = values['lgf']
         farmer.save()
+        if farmer.customer_id:
+            from core.services.invoice_identity import reconcile_related_person_for_customer
+            reconcile_related_person_for_customer(farmer.customer, farmer=farmer)
         from core.services.jawabu_validation import refresh_data_quality_issues
         refresh_data_quality_issues(farmer)
         from core.services.jawabu_case360 import record_pipeline_event

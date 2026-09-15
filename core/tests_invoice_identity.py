@@ -3,8 +3,12 @@ from decimal import Decimal
 
 from django.test import TestCase
 
-from core.models import InvoiceIdentityReview, InvoiceUploadBatch, JawabuFarmerMaster, ParsedInvoice
+from core.models import (
+    InvoiceIdentityReview, InvoiceUploadBatch, JawabuDataQualityIssue,
+    JawabuFarmerMaster, JawabuRelatedPerson, ParsedInvoice,
+)
 from core.services.invoice_identity import (
+    InvoiceCorrectionConflict,
     NameChangeBatchConflict,
     assemble_name_change_batch,
     close_name_change,
@@ -16,6 +20,7 @@ from core.services.invoice_identity import (
     ensure_identity_review,
     identity_gate,
     mark_name_change_sent,
+    start_invoice_correction,
 )
 from core.services.payment_documents import payment_readiness
 
@@ -48,31 +53,31 @@ class InvoiceIdentityWorkflowTests(TestCase):
         values.update(overrides)
         return ParsedInvoice.objects.create(**values)
 
-    def test_misspelled_name_with_same_normalized_id_requires_verification_not_name_change(self):
+    def test_misspelled_name_with_same_normalized_id_is_informational(self):
         invoice = self.invoice()
         self.assertEqual(discrepancy_codes(invoice, self.farmer), ['name_variance'])
         review = ensure_identity_review(invoice, self.farmer)
-        self.assertEqual(identity_gate(invoice, self.farmer)['blocker'], 'invoice_identity_verification_pending')
-
-        decide_identity_review(review, outcome='same_person_confirmed', actor='Operations', note='ID matches; spelling checked.')
-
+        self.assertIsNone(review)
         gate = identity_gate(invoice, self.farmer)
         self.assertEqual(gate['blocker'], '')
+        self.assertEqual(gate['status_label'], 'Matched')
         self.assertFalse(invoice.name_change_requests.exists())
 
     def test_same_id_phone_difference_is_verification_only(self):
         invoice = self.invoice(customer_name='MARY WANJIKU', customer_phone='0700000000')
         self.assertEqual(discrepancy_codes(invoice, self.farmer), ['phone_mismatch'])
         review = ensure_identity_review(invoice, self.farmer)
-        decide_identity_review(review, outcome='same_person_confirmed', actor='Operations', note='Applicant confirmed new contact.')
+        self.assertIsNone(review)
         self.assertEqual(identity_gate(invoice, self.farmer)['blocker'], '')
 
     def test_name_or_phone_variance_with_same_id_cannot_start_name_change(self):
         invoice = self.invoice(customer_name='M. Wanjiku', customer_phone='0700000000')
-        review = ensure_identity_review(invoice, self.farmer)
-        with self.assertRaisesMessage(ValueError, 'requires two present, different national IDs'):
-            decide_identity_review(
-                review, outcome='different_person_confirmed', actor='Operations', note='Not enough identity evidence.'
+        with self.assertRaisesMessage(ValueError, 'national IDs match'):
+            start_invoice_correction(
+                invoice, actor='Operations', relationship_type='spouse', explanation='', confirmed=True,
+                expected_invoice_revision=invoice.revision,
+                expected_application_revision=self.farmer.workflow_revision,
+                client_request_id='same-id-change',
             )
 
     def test_different_ids_cannot_be_confirmed_as_same_person(self):
@@ -96,9 +101,7 @@ class InvoiceIdentityWorkflowTests(TestCase):
             evidence_reference='drive-reference-1',
             client_request_id='change-request-1',
         )
-        item.batch = assemble_name_change_batch(
-            [item], actor='Operations', client_request_id='letter-batch-1',
-        )[0]
+        self.assertIsNotNone(item.batch_id)
         self.assertEqual(identity_gate(original, self.farmer)['blocker'], 'invoice_name_change_pending')
         item.batch.legacy_manual_letter_allowed = True
         item.batch.save(update_fields=['legacy_manual_letter_allowed', 'updated_at'])
@@ -148,7 +151,7 @@ class InvoiceIdentityWorkflowTests(TestCase):
         review.refresh_from_db()
         self.assertEqual(review.decision_note, 'Escalated due to conflicting evidence.')
 
-    def test_verified_name_change_is_independent_until_selected_for_a_letter(self):
+    def test_verified_name_change_gets_a_private_single_case_batch(self):
         original = self.invoice(customer_id='87654321', customer_name='Jane Wanjiku')
         review = ensure_identity_review(original, self.farmer)
         decide_identity_review(
@@ -162,15 +165,65 @@ class InvoiceIdentityWorkflowTests(TestCase):
             evidence_reference='evidence-1', client_request_id='independent-request-1',
         )
 
-        self.assertIsNone(item.batch_id)
-        batch, conflicts = assemble_name_change_batch(
-            [item], actor='Operations', client_request_id='assembled-batch-1',
-        )
-        item.refresh_from_db()
-        self.assertEqual(conflicts, [])
-        self.assertEqual(item.batch_id, batch.id)
+        self.assertIsNotNone(item.batch_id)
+        self.assertEqual(item.batch.items.count(), 1)
         with self.assertRaises(NameChangeBatchConflict):
             assemble_name_change_batch([item], actor='Operations', client_request_id='assembled-batch-2')
+
+    def test_inline_correction_is_idempotent_and_reuses_related_person_by_exact_id(self):
+        existing = JawabuRelatedPerson.objects.create(
+            full_name='Jane Wanjiku', national_id='87 654 321', primary_phone='254700000000',
+        )
+        invoice = self.invoice(customer_id='87654321', customer_name='Jane Wanjiku')
+        item = start_invoice_correction(
+            invoice, actor='Operations', relationship_type='spouse', explanation='', confirmed=True,
+            expected_invoice_revision=invoice.revision,
+            expected_application_revision=self.farmer.workflow_revision,
+            client_request_id='inline-change-1',
+        )
+        replay = start_invoice_correction(
+            invoice, actor='Operations', relationship_type='spouse', explanation='', confirmed=True,
+            expected_invoice_revision=invoice.revision,
+            expected_application_revision=self.farmer.workflow_revision,
+            client_request_id='inline-change-1',
+        )
+        self.assertEqual(item.id, replay.id)
+        self.assertEqual(item.relationship.related_person_id, existing.id)
+        self.assertEqual(item.batch.items.count(), 1)
+
+    def test_inline_correction_rejects_stale_invoice_or_application_revision(self):
+        invoice = self.invoice(customer_id='87654321', customer_name='Jane Wanjiku')
+        with self.assertRaisesMessage(InvoiceCorrectionConflict, 'invoice changed'):
+            start_invoice_correction(
+                invoice, actor='Operations', relationship_type='spouse', explanation='', confirmed=True,
+                expected_invoice_revision=invoice.revision + 1,
+                expected_application_revision=self.farmer.workflow_revision,
+                client_request_id='inline-stale-invoice',
+            )
+        with self.assertRaisesMessage(InvoiceCorrectionConflict, 'applicant changed'):
+            start_invoice_correction(
+                invoice, actor='Operations', relationship_type='spouse', explanation='', confirmed=True,
+                expected_invoice_revision=invoice.revision,
+                expected_application_revision=self.farmer.workflow_revision + 1,
+                client_request_id='inline-stale-applicant',
+            )
+        self.assertFalse(invoice.name_change_requests.exists())
+
+    def test_duplicate_related_person_ids_block_without_creating_another_person(self):
+        JawabuRelatedPerson.objects.create(full_name='Jane One', national_id='87654321')
+        JawabuRelatedPerson.objects.create(full_name='Jane Two', national_id='87 654 321')
+        invoice = self.invoice(customer_id='87654321', customer_name='Jane Wanjiku')
+        with self.assertRaisesMessage(ValueError, 'Several household records'):
+            start_invoice_correction(
+                invoice, actor='Operations', relationship_type='spouse', explanation='', confirmed=True,
+                expected_invoice_revision=invoice.revision,
+                expected_application_revision=self.farmer.workflow_revision,
+                client_request_id='inline-change-conflict',
+            )
+        self.assertEqual(JawabuRelatedPerson.objects.count(), 2)
+        self.assertTrue(JawabuDataQualityIssue.objects.filter(
+            farmer=self.farmer, code='duplicate_related_person_national_id', active=True,
+        ).exists())
 
     def test_cancelled_request_can_start_linked_follow_up_that_requires_reverification(self):
         original = self.invoice(customer_id='87654321', customer_name='Jane Wanjiku')

@@ -28,10 +28,6 @@ class PaymentSequenceState(models.Model):
 
 
 class PaymentBatch(models.Model):
-    MODE_LOAN_JAWABU = 'LOAN-JAWABU'
-    MODE_CASH = 'CASH'
-    MODE_CHOICES = [(MODE_LOAN_JAWABU, 'Loan - Jawabu'), (MODE_CASH, 'Cash')]
-
     STATUS_DRAFT = 'draft'
     STATUS_IN_REVIEW = 'in_review'
     STATUS_REVIEW_COMPLETE = 'review_complete'
@@ -51,10 +47,9 @@ class PaymentBatch(models.Model):
         db_comment='Jawabu workflow configuration owning this batch.',
     )
     payment_number = models.PositiveBigIntegerField(null=True, blank=True, db_comment='Official immutable number allocated at first submission.')
-    payment_mode = models.CharField(max_length=20, choices=MODE_CHOICES, db_comment='Single payment route applied to the whole batch.')
     status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_DRAFT, db_index=True, db_comment='Current server-controlled payment batch lifecycle state.')
     revision = models.PositiveBigIntegerField(default=1, db_comment='Optimistic concurrency revision for all batch mutations.')
-    batch_digest = models.CharField(max_length=64, blank=True, default='', db_comment='SHA-256 binding of current mode, number, membership, and case payment data.')
+    batch_digest = models.CharField(max_length=64, blank=True, default='', db_comment='SHA-256 binding of case modes, number, membership, and case payment data.')
     current_document = models.ForeignKey(
         'core.PaymentDocument', null=True, blank=True, on_delete=models.PROTECT,
         related_name='governed_payment_batches', db_comment='Latest generated workbook for this batch revision.',
@@ -86,9 +81,14 @@ class PaymentBatch(models.Model):
 class PaymentBatchCase(models.Model):
     """Auditable membership of one canonical Portal case in a payment batch."""
 
+    MODE_LOAN_JAWABU = 'LOAN-JAWABU'
+    MODE_CASH = 'CASH'
+    MODE_CHOICES = [(MODE_LOAN_JAWABU, 'Loan - Jawabu'), (MODE_CASH, 'Cash')]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_comment='Immutable membership identifier.')
     batch = models.ForeignKey(PaymentBatch, on_delete=models.PROTECT, related_name='case_memberships', db_comment='Authoritative payment batch containing this membership history.')
     farmer = models.ForeignKey('core.JawabuFarmerMaster', on_delete=models.PROTECT, related_name='payment_batch_memberships', db_comment='Canonical Portal case selected for payment.')
+    payment_mode = models.CharField(max_length=20, choices=MODE_CHOICES, db_comment='Payment route selected specifically for this case.')
     is_active = models.BooleanField(default=True, db_index=True, db_comment='Whether this case is currently included in the batch.')
     case_digest = models.CharField(max_length=64, db_comment='Current payment-data digest captured when membership or review changed.')
     added_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+', db_comment='Staff user who most recently added this case.')
@@ -101,7 +101,13 @@ class PaymentBatchCase(models.Model):
     class Meta:
         db_table = 'payment_batch_case'
         db_table_comment = 'Current and removed case membership for an authoritative payment batch.'
-        constraints = [models.UniqueConstraint(fields=['batch', 'farmer'], name='unique_payment_batch_case')]
+        constraints = [
+            models.UniqueConstraint(fields=['batch', 'farmer'], name='unique_payment_batch_case'),
+            models.CheckConstraint(
+                condition=models.Q(payment_mode__in=['LOAN-JAWABU', 'CASH']),
+                name='payment_batch_case_mode_valid',
+            ),
+        ]
         indexes = [models.Index(fields=['batch', 'is_active'], name='payment_batch_case_active_idx')]
 
 

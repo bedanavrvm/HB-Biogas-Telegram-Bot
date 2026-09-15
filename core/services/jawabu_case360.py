@@ -12,6 +12,7 @@ from django.utils import timezone
 from core.models import (
     GroupSheetConfiguration,
     JawabuFarmerMaster,
+    JawabuHouseholdRelationship,
     JawabuPipelineEvent,
     ParsedInvoice,
     PaymentDocument,
@@ -420,9 +421,17 @@ def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
     payments = _latest_payment_documents(
         [document for document in payment_documents if document.status == 'final']
     )
-    household_relationships = farmer.household_relationships.select_related(
+    household_relationships = list(farmer.household_relationships.select_related(
         'related_person', 'related_person__linked_customer',
-    ).order_by('-created_at')
+    ).order_by('-created_at'))
+    incoming_household_relationships = []
+    if farmer.customer_id:
+        incoming_household_relationships = list(
+            JawabuHouseholdRelationship.objects.select_related('farmer', 'related_person')
+            .filter(related_person__linked_customer_id=farmer.customer_id)
+            .exclude(farmer=farmer)
+            .order_by('-created_at')
+        )
     invoice_name_changes = farmer.invoice_name_changes.select_related(
         'batch', 'original_invoice', 'replacement_invoice',
     ).order_by('-created_at')
@@ -434,7 +443,7 @@ def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
         'workflow_state': current_workflow_state(farmer),
         'current_pipeline_state': current_pipeline_state_label(farmer),
         'sections': {
-            'identity': {'customer_name': farmer.customer_name, 'system_name': farmer.imab_customer_name, 'national_id': farmer.national_id, 'primary_phone': farmer.primary_phone, 'secondary_phone': farmer.secondary_phone, 'customer_no': farmer.customer_no, 'unit_number': farmer.unit_number},
+            'identity': {'customer_name': farmer.customer_name, 'system_name': farmer.imab_customer_name, 'national_id': farmer.national_id, 'primary_phone': farmer.primary_phone, 'secondary_phone': farmer.secondary_phone, 'customer_no': farmer.customer_no, 'unit_number': farmer.unit_number, 'lead_name': farmer.lead_name, 'lead_national_id': farmer.lead_national_id, 'lead_primary_phone': farmer.lead_primary_phone},
             # Ward is retained for source/import compatibility, but is not a
             # captured or used field in the staff-facing case history.
             'intake': {'hbg_visit_date': _case_date(farmer.hbg_visit_date or farmer.sign_date), 'county': farmer.county, 'constituency': farmer.sub_county, 'village': farmer.village, 'branch': farmer.branch, 'lead_source': farmer.lead_source, 'hb_sales_person': farmer.hb_sales_person, 'deposit_paid_hbg': _case_amount(farmer.deposit_paid_hbg if farmer.deposit_paid_hbg is not None else farmer.actual_receipts)},
@@ -452,9 +461,23 @@ def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
                 'national_id': relationship.related_person.national_id,
                 'phone': relationship.related_person.primary_phone,
                 'linked_customer_id': str(relationship.related_person.linked_customer_id or ''),
+                'direction': 'from_applicant',
+                'linked_application_id': '',
                 'confirmed_by': relationship.confirmed_by,
                 'confirmed_at': _case_datetime(relationship.confirmed_at),
-        } for relationship in household_relationships],
+        } for relationship in household_relationships] + [{
+                'id': str(relationship.id),
+                'relationship_type': relationship.relationship_type,
+                'status': relationship.status,
+                'name': relationship.farmer.customer_name,
+                'national_id': relationship.farmer.national_id,
+                'phone': relationship.farmer.primary_phone,
+                'linked_customer_id': str(farmer.customer_id),
+                'direction': 'to_applicant',
+                'linked_application_id': str(relationship.farmer_id),
+                'confirmed_by': relationship.confirmed_by,
+                'confirmed_at': _case_datetime(relationship.confirmed_at),
+        } for relationship in incoming_household_relationships],
         'invoice_name_changes': [{
                 'id': str(item.id),
                 'batch_reference': item.batch.reference,
