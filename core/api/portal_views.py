@@ -776,6 +776,27 @@ def _invoice_name_change_download_url(request, artifact_id: str) -> str:
     )
 
 
+def _invoice_name_change_preview_url(request, artifact_id: str) -> str:
+    token = TimestampSigner(salt='portal-invoice-name-change-preview').sign(json.dumps({
+        'artifact_id': str(artifact_id),
+        'user_id': str(getattr(getattr(request, 'portal_user', None), 'pk', '') or ''),
+    }, separators=(',', ':')))
+    return request.build_absolute_uri(
+        f'/api/portal/invoice-name-change-preview/{quote(token, safe="")}/'
+    )
+
+
+def _add_invoice_letter_urls(request, artifact: dict | None) -> dict | None:
+    if not artifact or not artifact.get('id'):
+        return artifact
+    artifact['download_url'] = _invoice_name_change_download_url(request, artifact['id'])
+    artifact['preview_url'] = (
+        _invoice_name_change_preview_url(request, artifact['id'])
+        if artifact.get('has_preview') else ''
+    )
+    return artifact
+
+
 def _jbl_media_open_url(request, farmer_id: str, *, attachment_id: str = '', legacy_index: int | None = None) -> str:
     """Issue a short-lived external-browser link after Mini App authorization.
 
@@ -6635,8 +6656,7 @@ def portal_invoice_detail(request, invoice_id: str):
     invoice_data = _serialize_parsed_invoice(invoice, readiness_by_order)
     name_change = (invoice_data.get('identity') or {}).get('name_change')
     latest_letter = (name_change or {}).get('latest_letter')
-    if latest_letter and latest_letter.get('id'):
-        latest_letter['download_url'] = _invoice_name_change_download_url(request, latest_letter['id'])
+    _add_invoice_letter_urls(request, latest_letter)
     review = invoice.identity_reviews.filter(status='flagged_for_review').order_by('-created_at').first()
     if review and _portal_capability_error(request, 'portal.invoice_identity.manage', invoice.matched_farmer) is None:
         if invoice_data.get('identity', {}).get('review'):
@@ -6922,7 +6942,7 @@ def portal_invoice_name_change_create(request, invoice_id: str):
     payload = serialize_name_change_item(item)
     latest = item.batch.letter_artifacts.order_by('-version').first()
     if latest:
-        payload['latest_letter']['download_url'] = _invoice_name_change_download_url(request, latest.id)
+        _add_invoice_letter_urls(request, payload['latest_letter'])
     return JsonResponse({
         'ok': True,
         'name_change': payload,
@@ -6984,8 +7004,7 @@ def _serialize_name_change_batch(request, batch) -> dict:
     }
     latest = batch.letter_artifacts.order_by('-version').first()
     artifact = serialize_artifact(latest)
-    if artifact:
-        artifact['download_url'] = _invoice_name_change_download_url(request, latest.id)
+    _add_invoice_letter_urls(request, artifact)
     return {
         'id': str(batch.id), 'reference': batch.reference, 'status': batch.status,
         'row_count': readiness['row_count'],
@@ -7291,6 +7310,82 @@ def portal_invoice_name_change_download(request, token: str):
         content_type=artifact.content_type,
     )
     response['Content-Disposition'] = f'attachment; filename="{artifact.filename}"'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
+@csrf_exempt
+@require_http_methods(["GET", "HEAD"])
+def portal_invoice_name_change_preview(request, token: str):
+    """Return a protected, WebView-safe rendering of one immutable letter PDF."""
+    try:
+        payload = json.loads(TimestampSigner(salt='portal-invoice-name-change-preview').unsign(token, max_age=900))
+        artifact_id = str(payload['artifact_id'])
+        actor_id = str(payload['user_id'])
+    except (BadSignature, KeyError, TypeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'This letter preview link has expired.'}, status=404)
+    from django.contrib.auth import get_user_model
+    from django.utils.http import content_disposition_header
+    from core.models import InvoiceNameChangeLetterArtifact
+    from core.services.telegram_identity import user_access
+
+    actor = get_user_model().objects.filter(pk=actor_id, is_active=True).first() if actor_id else None
+    from core.services.telegram_auth import authentication_bypass_allowed
+    local_auth_bypass = bool(
+        not getattr(settings, 'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True)
+        and authentication_bypass_allowed()
+        and not actor_id
+    )
+    if actor is None and not local_auth_bypass:
+        return JsonResponse({'ok': False, 'error': 'This preview is no longer authorized.'}, status=403)
+    artifact = InvoiceNameChangeLetterArtifact.objects.select_related('batch').prefetch_related(
+        'batch__items__farmer',
+    ).filter(pk=artifact_id).first()
+    if not artifact or not artifact.preview_file_content:
+        return JsonResponse({
+            'ok': False,
+            'error': 'This older letter has no in-app preview. Prepare a new letter version or download the DOCX.',
+        }, status=404)
+    if actor is not None:
+        request.portal_user = actor
+        request.portal_access = user_access(actor, 'jawabu_portal')
+        for item in artifact.batch.items.all():
+            scope_error = _portal_capability_error(
+                request, 'portal.invoice_identity.manage', item.farmer,
+            )
+            if scope_error:
+                return scope_error
+    try:
+        content = _portal_pdf_preview_html(
+            bytes(artifact.preview_file_content),
+            artifact.preview_filename or artifact.filename.replace('.docx', '.pdf'),
+        )
+    except Exception:
+        logger.exception('Could not render invoice-name-change preview artifact_id=%s', artifact.pk)
+        return JsonResponse({
+            'ok': False,
+            'error': 'The letter preview could not be opened. Download the DOCX or retry shortly.',
+        }, status=503)
+    if actor is not None and request.method == 'GET':
+        try:
+            from core.services.compliance_audit import record_sensitive_access
+            record_sensitive_access(
+                workflow='portal', action='portal.invoice_name_change.preview',
+                subject_type='invoice_name_change_letter', subject_id=str(artifact.pk),
+                actor=actor, request_id=_portal_request_id(request),
+                metadata={'batch_id': str(artifact.batch_id), 'version': artifact.version},
+            )
+        except Exception:
+            logger.exception('Could not audit invoice-name-change preview artifact_id=%s', artifact.pk)
+            return JsonResponse({
+                'ok': False,
+                'error': 'The letter cannot be opened safely because its access audit is unavailable.',
+            }, status=503)
+    response = HttpResponse(b'' if request.method == 'HEAD' else content, content_type='text/html; charset=utf-8')
+    response['Content-Disposition'] = content_disposition_header(
+        False, artifact.preview_filename or 'Invoice-name-change-letter.pdf',
+    )
+    response['Cache-Control'] = 'private, no-store, max-age=0'
     response['X-Content-Type-Options'] = 'nosniff'
     return response
 

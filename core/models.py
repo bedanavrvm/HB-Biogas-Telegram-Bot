@@ -8209,7 +8209,7 @@ class InvoiceNameChangeLetterTemplate(models.Model):
 
 
 class InvoiceNameChangeLetterArtifact(models.Model):
-    """Immutable, versioned DOCX rendered from one name-change batch snapshot."""
+    """Immutable, versioned DOCX and PDF rendered from one batch snapshot."""
 
     STATUS_GENERATED = 'generated'
     STATUS_UPLOAD_FAILED = 'upload_failed'
@@ -8235,6 +8235,10 @@ class InvoiceNameChangeLetterArtifact(models.Model):
     )
     file_content = models.BinaryField(blank=True, default=bytes)
     checksum = models.CharField(max_length=64)
+    preview_filename = models.CharField(max_length=255, blank=True, default='')
+    preview_content_type = models.CharField(max_length=255, default='application/pdf')
+    preview_file_content = models.BinaryField(blank=True, default=bytes)
+    preview_checksum = models.CharField(max_length=64, blank=True, default='')
     template_checksum = models.CharField(max_length=64)
     source_fingerprint = models.CharField(max_length=64, db_index=True)
     payload_snapshot = models.JSONField(default=dict)
@@ -8268,7 +8272,9 @@ class InvoiceNameChangeLetterArtifact(models.Model):
     IMMUTABLE_FIELDS = (
         'batch_id', 'template_id', 'version', 'filename', 'content_type',
         'file_content', 'checksum', 'template_checksum', 'source_fingerprint',
-        'payload_snapshot', 'generated_by', 'generated_at', 'client_request_id',
+        'preview_filename', 'preview_content_type', 'preview_file_content',
+        'preview_checksum', 'payload_snapshot', 'generated_by', 'generated_at',
+        'client_request_id',
     )
 
     def save(self, *args, **kwargs):
@@ -8278,7 +8284,7 @@ class InvoiceNameChangeLetterArtifact(models.Model):
                 for field in self.IMMUTABLE_FIELDS:
                     current = getattr(self, field)
                     previous = original[field]
-                    if field == 'file_content':
+                    if field in {'file_content', 'preview_file_content'}:
                         current = bytes(current or b'')
                         previous = bytes(previous or b'')
                     if current != previous:

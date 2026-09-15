@@ -15,6 +15,7 @@
   };
   let searchTimer = null;
   let candidateTimer = null;
+  let letterPreviewObjectUrl = '';
 
   function el(id) {
     return deps.el ? deps.el(id) : document.getElementById(id);
@@ -73,6 +74,42 @@
 
   function requestId() {
     return window.crypto?.randomUUID?.() || 'invoice-identity-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+  }
+
+  function closeLetterPreview() {
+    if (letterPreviewObjectUrl) {
+      window.SecureMediaViewer?.revoke(letterPreviewObjectUrl);
+      letterPreviewObjectUrl = '';
+    }
+  }
+
+  async function openLetterPreview(letter) {
+    if (!letter?.preview_url) {
+      return deps.showToast('This letter version has no in-app preview. Prepare a new version.', 'error');
+    }
+    const overlay = el('media-viewer-overlay');
+    const title = el('media-viewer-title');
+    const sub = el('media-viewer-sub');
+    const content = el('media-viewer-content');
+    if (!overlay || !content || !window.SecureMediaViewer) {
+      return deps.showToast('The secure letter viewer is unavailable. Refresh and retry.', 'error');
+    }
+    closeLetterPreview();
+    if (title) title.textContent = 'Corrected-invoice letter';
+    if (sub) sub.textContent = 'Version ' + String(letter.version || '-') + ' · ' + String(letter.preview_filename || 'PDF preview');
+    content.innerHTML = '<div class="media-viewer-loading" role="status"><span class="spinner-inline" aria-hidden="true"></span> Loading letter…</div>';
+    overlay.classList.add('open');
+    try {
+      const blob = await window.SecureMediaViewer.fetchAuthorizedBlob(letter.preview_url, {
+        headers: { 'X-Request-ID': requestId() },
+      });
+      letterPreviewObjectUrl = window.SecureMediaViewer.renderBlob(content, blob, {
+        mimeType: 'text/html',
+        name: letter.preview_filename || 'Corrected-invoice letter',
+      });
+    } catch (error) {
+      content.innerHTML = '<p class="media-viewer-error">' + escapeHtml(error.message || 'Could not open the letter preview.') + '</p>';
+    }
   }
 
   function canManageInvoiceIdentity() {
@@ -397,8 +434,11 @@
       identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-start">Request corrected invoice</button>');
     }
     if (canManageInvoiceIdentity() && identity.name_change?.batch_status === 'draft') {
-      if (!identity.name_change.latest_letter?.is_current) {
-        identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-generate">Prepare letter</button>');
+      if (!identity.name_change.latest_letter?.is_current || !identity.name_change.latest_letter?.preview_url) {
+        identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-generate">Prepare letter preview</button>');
+      }
+      if (identity.name_change.latest_letter?.preview_url) {
+        identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-preview">Preview v' + escapeHtml(identity.name_change.latest_letter.version) + '</button>');
       }
       if (identity.name_change.latest_letter?.download_url) {
         identityActions.push('<button type="button" class="btn btn-secondary invoice-name-change-download">Download v' + escapeHtml(identity.name_change.latest_letter.version) + '</button>');
@@ -423,12 +463,12 @@
         : varianceLabels.length
           ? '<div class="invoice-info-note">National ID matches. ' + escapeHtml(varianceLabels.join('. ')) + '.</div>'
           : '<span class="badge badge-green">National ID matches</span>';
-    const letterPreview = identity.name_change?.latest_letter?.preview;
-    const letterPreviewHtml = letterPreview ? [
+    const currentLetter = identity.name_change?.latest_letter;
+    const letterPreviewHtml = currentLetter ? [
       '<div class="invoice-letter-preview">',
-      '<div><strong>Letter preview</strong><span>Version ' + escapeHtml(identity.name_change.latest_letter.version) + ' · ' + escapeHtml(letterPreview.date || '-') + '</span></div>',
-      '<p>Request HomeBiogas to replace the invoice issued to <strong>' + escapeHtml(letterPreview.invoice_name || '-') + '</strong> with one for applicant <strong>' + escapeHtml(letterPreview.applicant_name || '-') + '</strong> (ID ' + escapeHtml(letterPreview.applicant_id || '-') + ').</p>',
-      '<small>Prepared for ' + escapeHtml(letterPreview.signatory || '-') + '. Download the DOCX for the exact governed wording.</small>',
+      '<div><strong>Generated letter</strong><span>Version ' + escapeHtml(currentLetter.version) + ' · ' + escapeHtml(fmtDate(currentLetter.generated_at)) + '</span></div>',
+      '<p>' + (currentLetter.preview_url ? 'The complete letter is ready to preview in the app.' : 'This older letter has no PDF preview. Prepare a new version to view it in the app.') + '</p>',
+      '<small>DOCX SHA-256: ' + escapeHtml(String(currentLetter.checksum || '').slice(0, 12)) + (currentLetter.preview_checksum ? ' · PDF SHA-256: ' + escapeHtml(String(currentLetter.preview_checksum).slice(0, 12)) : '') + '</small>',
       '</div>',
     ].join('') : '';
     const identityPanel = identity.invoice_identity ? [
@@ -516,6 +556,7 @@
     target.querySelector('.invoice-detail-restore-action')?.addEventListener('click', function () { restoreInvoice(invoice.id); });
     target.querySelector('.invoice-name-change-start')?.addEventListener('click', function () { startInvoiceNameChange(invoice); });
     target.querySelector('.invoice-name-change-generate')?.addEventListener('click', function () { generateInvoiceNameChangeLetter(identity.name_change, invoice.id, this); });
+    target.querySelector('.invoice-name-change-preview')?.addEventListener('click', function () { openLetterPreview(identity.name_change?.latest_letter); });
     target.querySelector('.invoice-name-change-download')?.addEventListener('click', function () {
       const url = identity.name_change?.latest_letter?.download_url;
       if (url && deps.openPortalLink) deps.openPortalLink(url); else if (url) window.open(url, '_blank', 'noopener');
@@ -634,13 +675,11 @@
       });
       if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Could not generate the letter.', 'error');
       const letter = response.data.batch?.latest_letter;
-      if (letter?.download_url) {
-        if (deps.openPortalLink) deps.openPortalLink(letter.download_url);
-        else window.open(letter.download_url, '_blank', 'noopener');
-      }
+      if (letter?.preview_url) await openLetterPreview(letter);
+      else deps.showToast('The letter was created, but its preview is unavailable. Download the DOCX from the record.', 'warning');
       if (invoiceId) loadDetail(invoiceId);
     } finally {
-      if (button?.isConnected) { button.disabled = false; button.textContent = 'Prepare letter'; }
+      if (button?.isConnected) { button.disabled = false; button.textContent = 'Prepare letter preview'; }
     }
   }
 
@@ -1198,6 +1237,11 @@
     bindUpload();
     bindMatchOverlay();
     bindBulkActions();
+    el('media-viewer-close')?.addEventListener('click', closeLetterPreview);
+    el('media-viewer-overlay')?.addEventListener('click', function (event) {
+      if (event.target === this) closeLetterPreview();
+    });
+    window.addEventListener('beforeunload', closeLetterPreview);
   }
 
   window.PortalMiniAppInvoices = {

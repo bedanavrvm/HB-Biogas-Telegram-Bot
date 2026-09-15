@@ -427,9 +427,9 @@ def publish_product_profile(*, definition: OriginationProductDefinition, actor):
     """Publish product terms/form authority without attaching a legal document."""
     if not getattr(actor, 'is_active', False) or not getattr(actor, 'is_superuser', False):
         raise ValidationError('Only an active Django Superuser may publish Origination products.')
-    locked = OriginationProductDefinition.objects.select_for_update().select_related(
-        'product_version__product',
-    ).get(pk=definition.pk)
+    # product_version is nullable. Its values are read after the product row
+    # is locked so PostgreSQL never attempts to lock an outer join.
+    locked = OriginationProductDefinition.objects.select_for_update().get(pk=definition.pk)
     if locked.lifecycle_status != locked.STATUS_DRAFT:
         raise ValidationError('Only a draft Origination product profile can be published.')
     if not locked.product_version_id or locked.product_version.status not in {

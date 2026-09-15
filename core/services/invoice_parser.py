@@ -879,7 +879,9 @@ def confirm_invoice_batch(batch: InvoiceUploadBatch, *, actor: str = '') -> Invo
             return batch
         if batch.status != 'awaiting_confirmation':
             raise ValueError('This invoice batch is not awaiting confirmation.')
-        invoices = list(batch.invoices.select_for_update().select_related('proposed_farmer'))
+        # proposed_farmer is nullable; joining it into a FOR UPDATE query
+        # produces a PostgreSQL outer-join lock failure.
+        invoices = list(batch.invoices.select_for_update())
         unresolved = [item for item in invoices if item.status != 'ignored' and (not item.proposed_farmer_id or not item.invoice_no or not item.invoice_date)]
         if unresolved:
             raise ValueError('Every invoice must have an invoice number, valid date, and farmer match, or be marked ignored.')

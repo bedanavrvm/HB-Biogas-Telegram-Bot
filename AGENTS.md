@@ -143,6 +143,7 @@ Key modules:
 - `group_reset.py` — controlled group data resets
 - `invoice_parser.py` — invoice extraction and parsing
 - `invoice_identity.py` — national-ID-led invoice identity verification, confirmed household links, and pre-payment invoice-name changes
+- `docx_pdf_preview.py` — bounded local companion-PDF rendering of governed invoice-name-change DOCX artifacts for secure Telegram WebView preview
 - `jawabu.py` — Jawabu message processing
 - `jawabu_media_access.py` — fail-closed, transactional native and compliance auditing for Portal evidence retrieval
 - `jbl_visit_documents.py` — local validated front/back Client ID and two-page LAF collation using existing WeasyPrint; complete PDFs remain case-linked protected evidence

@@ -1256,8 +1256,10 @@ def restart_application_with_main_laf(
     expected_revision: int, expected_catalogue_revision: str, client_request_id: str,
 ) -> tuple[LoanOriginationApplication, bool]:
     """Replace a draft while copying only type-compatible user-entered values."""
+    # product_version and branch_ref are nullable and must not be included in
+    # the row-locking query on PostgreSQL.
     source = LoanOriginationApplication.objects.select_for_update().select_related(
-        'product_definition', 'product_version', 'branch_ref',
+        'product_definition',
     ).get(pk=application_id)
     if source.officer_id != officer.pk:
         raise OriginationError('Only the assigned officer may restart this application.')

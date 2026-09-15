@@ -1,12 +1,16 @@
 import io
+import hashlib
+import json
 import zipfile
 from xml.etree import ElementTree as ET
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.core.signing import TimestampSigner
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from unittest.mock import patch
 
 from decimal import Decimal
+from pypdf import PdfReader
 
 from core.models import (
     InvoiceNameChangeLetterTemplate, InvoiceUploadBatch,
@@ -24,6 +28,7 @@ from core.services.invoice_name_change_letters import (
     render_docx,
     validate_template_file,
 )
+from core.services.docx_pdf_preview import render_docx_pdf
 
 
 W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
@@ -106,6 +111,29 @@ class InvoiceNameChangeDocxTests(SimpleTestCase):
         self.assertNotIn('{', text)
         self.assertEqual(len(list(root.iter(f'{{{W}}}tr'))), 3)
 
+    def test_populated_docx_renders_as_a_real_pdf_with_governed_values(self):
+        values = {
+            'invoice_name': 'JANE DOE', 'related_phone': '254700000001',
+            'applicant_name': 'MARY DOE', 'applicant_phone': '254700000002',
+            'applicant_id': '12345678', 'sales_person': 'JAWABU SALES ONE',
+        }
+        rendered = render_docx(
+            synthetic_letter(),
+            globals_={'date': '15th September 2026', 'signatory': 'Operations User'},
+            rows=[values],
+        )
+
+        preview = render_docx_pdf(
+            rendered,
+            expected_values=['15th September 2026', 'Operations User', *values.values()],
+        )
+
+        self.assertTrue(preview.startswith(b'%PDF'))
+        text = ' '.join(page.extract_text() or '' for page in PdfReader(io.BytesIO(preview)).pages)
+        self.assertIn('JANE', text)
+        self.assertIn('MARY', text)
+        self.assertIn('Operations User', text)
+
     def test_missing_required_placeholder_is_rejected(self):
         with self.assertRaisesMessage(InvoiceNameChangeLetterError, 'sales_person'):
             inspect_template(synthetic_letter(omit_token='sales_person'))
@@ -173,9 +201,17 @@ class InvoiceNameChangeArtifactTests(TestCase):
         self.assertEqual((first.version, second.version), (1, 2))
         self.assertEqual(first.payload_snapshot['signatory'], 'Operations User')
         self.assertEqual(len(first.payload_snapshot['rows']), 1)
+        self.assertTrue(bytes(first.preview_file_content).startswith(b'%PDF'))
+        self.assertEqual(first.preview_content_type, 'application/pdf')
+        self.assertEqual(first.preview_checksum, hashlib.sha256(bytes(first.preview_file_content)).hexdigest())
+        self.assertTrue(first.preview_filename.endswith('.pdf'))
         first.refresh_from_db()
         self.assertEqual(first.drive_file_id, 'drive-file-1')
         first.filename = 'tampered.docx'
+        with self.assertRaisesMessage(Exception, 'artifacts are immutable'):
+            first.save()
+        first.refresh_from_db()
+        first.preview_checksum = '0' * 64
         with self.assertRaisesMessage(Exception, 'artifacts are immutable'):
             first.save()
         first.refresh_from_db()
@@ -195,6 +231,29 @@ class InvoiceNameChangeArtifactTests(TestCase):
                 self.item.batch, actor='Operations',
                 letter_reference='manual-drive-link', sent_reference='HB-email-1',
             )
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    @patch('core.services.invoice_name_change_letters._template_bytes')
+    def test_protected_preview_endpoint_returns_webview_safe_document(self, template_bytes):
+        from core.api.portal_views import portal_invoice_name_change_preview
+        from core.services.invoice_name_change_letters import generate_letter_artifact
+
+        template_bytes.return_value = synthetic_letter()
+        artifact, _created = generate_letter_artifact(
+            self.item.batch, actor='Operations User', client_request_id='preview-endpoint-1',
+            publish_to_drive=False,
+        )
+        token = TimestampSigner(salt='portal-invoice-name-change-preview').sign(json.dumps({
+            'artifact_id': str(artifact.id), 'user_id': '',
+        }, separators=(',', ':')))
+
+        response = portal_invoice_name_change_preview(
+            RequestFactory().get(f'/api/portal/invoice-name-change-preview/{token}/'), token,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response['Content-Type'].startswith('text/html'))
+        self.assertContains(response, 'data:image/jpeg;base64,')
 
     @patch('core.services.invoice_name_change_letters._template_bytes')
     def test_local_letter_can_be_sent_and_explicit_correction_preserves_old_artifact(self, template_bytes):
@@ -237,5 +296,5 @@ class InvoiceNameChangeArtifactTests(TestCase):
         self.assertTrue(artifact.file_content)
         self.assertTrue(InvoiceNameChangeLetterArtifact.objects.filter(pk=artifact.pk).exists())
         self.assertTrue(
-            self.farmer.pipeline_events.filter(action='invoice_name_change_sent_request_corrected').exists()
+            self.farmer.pipeline_events.filter(action='invoice_name_change_sent_corrected').exists()
         )

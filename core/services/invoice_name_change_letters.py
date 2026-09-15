@@ -140,6 +140,25 @@ def validate_template_file(uploaded_file) -> bytes:
     except (AttributeError, OSError):
         pass
     inspect_template(data)
+    # A template is not publishable unless its populated document can also be
+    # rendered into the exact in-app companion preview.
+    sample_globals = {'date': '15th September 2026', 'signatory': 'JBL OPERATIONS'}
+    sample_row = {
+        'invoice_name': 'INVOICE HOLDER', 'related_phone': '254700000001',
+        'applicant_name': 'LOAN APPLICANT', 'applicant_phone': '254700000002',
+        'applicant_id': '12345678', 'sales_person': 'JBL SALES OFFICER',
+    }
+    try:
+        from core.services.docx_pdf_preview import render_docx_pdf
+        rendered = render_docx(data, globals_=sample_globals, rows=[sample_row])
+        render_docx_pdf(
+            rendered,
+            expected_values=[*sample_globals.values(), *sample_row.values()],
+        )
+    except ValueError as exc:
+        raise InvoiceNameChangeLetterError(
+            f'This DOCX cannot produce the in-app letter preview: {exc}'
+        ) from exc
     return data
 
 
@@ -364,12 +383,31 @@ def generate_letter_artifact(
             today = timezone.localdate()
             globals_ = {'date': formatted_nairobi_date(today), 'signatory': actor}
             rendered = render_docx(template_data, globals_=globals_, rows=readiness['rows'])
+            try:
+                from core.services.docx_pdf_preview import render_docx_pdf
+                expected_values = [
+                    *globals_.values(),
+                    *(
+                        row.get(field)
+                        for row in readiness['rows'] for field in ROW_FIELDS
+                        if row.get(field)
+                    ),
+                ]
+                preview_pdf = render_docx_pdf(rendered, expected_values=expected_values)
+            except ValueError as exc:
+                raise InvoiceNameChangeLetterError(
+                    f'The letter was not created because its preview could not be verified: {exc}'
+                ) from exc
             version = (locked.letter_artifacts.aggregate(value=Max('version'))['value'] or 0) + 1
             safe_ref = re.sub(r'[^A-Za-z0-9_-]+', '_', locked.reference or str(locked.id)[:8]).strip('_')
             filename = f'Request_for_Change_of_Invoice_Names_{safe_ref}_v{version}.docx'
+            preview_filename = f'Request_for_Change_of_Invoice_Names_{safe_ref}_v{version}.pdf'
             artifact = InvoiceNameChangeLetterArtifact.objects.create(
                 batch=locked, template=template, version=version, filename=filename,
                 file_content=rendered, checksum=hashlib.sha256(rendered).hexdigest(),
+                preview_filename=preview_filename,
+                preview_file_content=preview_pdf,
+                preview_checksum=hashlib.sha256(preview_pdf).hexdigest(),
                 template_checksum=template_checksum,
                 source_fingerprint=readiness['source_fingerprint'],
                 payload_snapshot={
@@ -405,24 +443,14 @@ def artifact_is_current(artifact: InvoiceNameChangeLetterArtifact) -> bool:
 def serialize_artifact(artifact: InvoiceNameChangeLetterArtifact | None) -> dict | None:
     if not artifact:
         return None
-    snapshot = artifact.payload_snapshot if isinstance(artifact.payload_snapshot, dict) else {}
-    rows = snapshot.get('rows') if isinstance(snapshot.get('rows'), list) else []
-    row = rows[0] if rows and isinstance(rows[0], dict) else {}
     return {
         'id': str(artifact.id), 'version': artifact.version, 'status': artifact.status,
         'filename': artifact.filename, 'checksum': artifact.checksum,
+        'preview_filename': artifact.preview_filename,
+        'preview_checksum': artifact.preview_checksum,
+        'has_preview': bool(artifact.preview_file_content and artifact.preview_checksum),
         'drive_url': artifact.drive_url, 'drive_error': artifact.drive_upload_error,
         'is_current': artifact_is_current(artifact),
         'generated_by': artifact.generated_by,
         'generated_at': artifact.generated_at.isoformat(),
-        'preview': {
-            'date': str(snapshot.get('date') or ''),
-            'signatory': str(snapshot.get('signatory') or ''),
-            'applicant_name': str(row.get('applicant_name') or ''),
-            'applicant_id': str(row.get('applicant_id') or ''),
-            'applicant_phone': str(row.get('applicant_phone') or ''),
-            'invoice_name': str(row.get('invoice_name') or ''),
-            'related_phone': str(row.get('related_phone') or ''),
-            'sales_person': str(row.get('sales_person') or ''),
-        },
     }

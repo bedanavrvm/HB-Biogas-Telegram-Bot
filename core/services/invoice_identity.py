@@ -236,6 +236,9 @@ class InvoiceCorrectionConflict(ValueError):
     """The invoice/application changed after the detail screen was loaded."""
 
 
+SENT_CORRECTION_EVENT_ACTION = 'invoice_name_change_sent_corrected'
+
+
 class RelatedPersonIdentityConflict(ValueError):
     """More than one related-person row claims the same normalized ID."""
 
@@ -558,8 +561,10 @@ def assemble_name_change_batch(
         if prior:
             return prior, []
     item_ids = sorted({str(item.pk) for item in items if item and item.pk})
+    # Keep nullable ``batch`` off the locked query. PostgreSQL rejects
+    # FOR UPDATE when select_related() introduces a LEFT OUTER JOIN.
     locked = list(
-        InvoiceNameChangeItem.objects.select_for_update().select_related('batch', 'farmer', 'review')
+        InvoiceNameChangeItem.objects.select_for_update().select_related('farmer', 'review')
         .filter(pk__in=item_ids).order_by('created_at')
     )
     conflicts = []
@@ -634,21 +639,24 @@ def close_name_change(
     item: InvoiceNameChangeItem, *, actor: str, reason: str,
     hb_communication_reference: str = '', withdraw: bool = False,
 ) -> InvoiceNameChangeItem:
-    item = InvoiceNameChangeItem.objects.select_for_update().select_related('batch', 'farmer').get(pk=item.pk)
+    item = InvoiceNameChangeItem.objects.select_for_update().select_related('farmer').get(pk=item.pk)
+    prior_batch = (
+        InvoiceNameChangeBatch.objects.select_for_update().get(pk=item.batch_id)
+        if item.batch_id else None
+    )
     reason = str(reason or '').strip()
     communication = str(hb_communication_reference or '').strip()
     if not reason:
         raise ValueError('A reason is required.')
-    prior_batch = item.batch
     if withdraw:
-        if not item.batch_id or item.batch.status not in {'sent_to_hb', 'awaiting_replacements'}:
+        if not prior_batch or prior_batch.status not in {'sent_to_hb', 'awaiting_replacements'}:
             raise ValueError('Only a request whose letter was sent to HB can be withdrawn.')
         if not communication:
             raise ValueError('The HB communication reference is required for withdrawal.')
         target = 'withdrawn'
         action = 'invoice_name_change_withdrawn'
     else:
-        if item.status != 'draft' or (item.batch_id and item.batch.status != 'draft'):
+        if item.status != 'draft' or (prior_batch and prior_batch.status != 'draft'):
             raise ValueError('Only an unsent request can be cancelled.')
         target = 'cancelled'
         action = 'invoice_name_change_cancelled'
@@ -795,8 +803,12 @@ def correct_sent_name_change(
 ) -> InvoiceNameChangeItem:
     """Explicitly reopen a sent request while preserving every old artifact."""
     item = InvoiceNameChangeItem.objects.select_for_update().select_related(
-        'batch', 'relationship', 'farmer',
+        'relationship', 'farmer',
     ).get(pk=item.pk)
+    batch = (
+        InvoiceNameChangeBatch.objects.select_for_update().get(pk=item.batch_id)
+        if item.batch_id else None
+    )
     request_id = str(client_request_id or '').strip()
     if not request_id:
         raise ValueError('A retry key is required to correct a sent request safely.')
@@ -809,7 +821,7 @@ def correct_sent_name_change(
     }, sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()
     replay_event = item.farmer.pipeline_events.filter(
         request_id=request_id,
-        action='invoice_name_change_sent_request_corrected',
+        action=SENT_CORRECTION_EVENT_ACTION,
     ).first()
     if replay_event:
         if str((replay_event.metadata or {}).get('payload_digest') or '') != payload_digest:
@@ -817,7 +829,7 @@ def correct_sent_name_change(
         return item
     if int(expected_revision or 0) != int(item.revision):
         raise InvoiceCorrectionConflict('This correction changed while you were reviewing it. Refresh and try again.')
-    if item.status != 'awaiting_replacement' or not item.batch_id or item.batch.status != 'awaiting_replacements':
+    if item.status != 'awaiting_replacement' or not batch or batch.status != 'awaiting_replacements':
         raise ValueError('Only a sent request that is waiting for a corrected invoice can be corrected.')
     reason = str(reason or '').strip()
     explanation = str(explanation or '').strip()
@@ -827,7 +839,6 @@ def correct_sent_name_change(
         raise ValueError('Choose Spouse or Other relative / household member.')
     if relationship_type == 'household_member' and not explanation:
         raise ValueError('Explain the relationship when choosing Other relative / household member.')
-    batch = InvoiceNameChangeBatch.objects.select_for_update().get(pk=item.batch_id)
     old_artifact_id = str(batch.sent_artifact_id or '')
     old_sent_reference = batch.sent_reference
     item.relationship.relationship_type = relationship_type
@@ -850,7 +861,7 @@ def correct_sent_name_change(
     ])
     _record_case_event(
         item.farmer,
-        action='invoice_name_change_sent_request_corrected',
+        action=SENT_CORRECTION_EVENT_ACTION,
         actor=actor,
         request_id=request_id,
         metadata={
@@ -871,10 +882,20 @@ def confirm_replacement(
     actor: str,
     verification_note: str = '',
 ) -> InvoiceNameChangeItem:
-    item = InvoiceNameChangeItem.objects.select_for_update().select_related('farmer', 'original_invoice', 'batch').get(pk=item.pk)
-    replacement = ParsedInvoice.objects.select_for_update().get(pk=replacement.pk)
+    item = InvoiceNameChangeItem.objects.select_for_update().get(pk=item.pk)
+    batch = (
+        InvoiceNameChangeBatch.objects.select_for_update().get(pk=item.batch_id)
+        if item.batch_id else None
+    )
     farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=item.farmer_id)
-    if item.status != 'awaiting_replacement' or item.batch.status != 'awaiting_replacements':
+    invoice_ids = sorted({item.original_invoice_id, replacement.pk}, key=str)
+    locked_invoices = {
+        invoice.pk: invoice
+        for invoice in ParsedInvoice.objects.select_for_update().filter(pk__in=invoice_ids).order_by('pk')
+    }
+    original = locked_invoices[item.original_invoice_id]
+    replacement = locked_invoices[replacement.pk]
+    if item.status != 'awaiting_replacement' or not batch or batch.status != 'awaiting_replacements':
         if item.status == 'completed' and item.replacement_invoice_id == replacement.id:
             return item
         raise ValueError('This change request is not awaiting a replacement invoice.')
@@ -898,7 +919,6 @@ def confirm_replacement(
     replacement.matched_order_number = farmer.order_number or ''
     replacement.revision += 1
     replacement.save(update_fields=['status', 'matched_farmer', 'matched_order_number', 'revision', 'updated_at'])
-    original = item.original_invoice
     original.status = 'superseded'
     original.revision += 1
     original.save(update_fields=['status', 'revision', 'updated_at'])
@@ -934,7 +954,7 @@ def confirm_replacement(
     refresh_invoice_batch_counts(original.batch)
     if replacement.batch_id != original.batch_id:
         refresh_invoice_batch_counts(replacement.batch)
-    if not item.batch.items.filter(status__in=['draft', 'awaiting_replacement']).exists():
-        item.batch.status = 'completed'
-        item.batch.save(update_fields=['status', 'updated_at'])
+    if not batch.items.filter(status__in=['draft', 'awaiting_replacement']).exists():
+        batch.status = 'completed'
+        batch.save(update_fields=['status', 'updated_at'])
     return item

@@ -381,7 +381,9 @@ def create_tat_configuration_request(config, actor: dict, *, setting_key: str, p
 
 @transaction.atomic
 def review_tat_configuration_request(request_id: str, actor: dict, *, approve: bool, review_comment: str = ''):
-    request = WorkflowConfigurationChangeRequest.objects.select_for_update().select_related('group_configuration', 'requested_by').get(pk=request_id)
+    # group_configuration is nullable, so load it only through the explicit
+    # locked lookup below instead of outer-joining it into FOR UPDATE.
+    request = WorkflowConfigurationChangeRequest.objects.select_for_update().select_related('requested_by').get(pk=request_id)
     if request.setting_key == WorkflowConfigurationChangeRequest.SETTING_HOLIDAYS:
         from core.services.tat_presentation import business_time_enabled
         if not business_time_enabled():

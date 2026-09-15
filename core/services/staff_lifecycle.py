@@ -606,9 +606,14 @@ def _replace_responsibilities(plan, user, replacement) -> list[str]:
     from core.services.tat_notifications import reroute_pending_task, user_can_receive_scope
 
     changed = []
-    assignments = list(TatResponsibilityAssignment.objects.select_for_update().filter(
+    assignment_ids = list(TatResponsibilityAssignment.objects.filter(
         Q(primary_user=user) | Q(backups__user=user), active=True,
-    ).distinct())
+    ).values_list('pk', flat=True).distinct())
+    assignments = list(
+        TatResponsibilityAssignment.objects.select_for_update()
+        .filter(pk__in=assignment_ids)
+        .order_by('pk')
+    )
     for assignment in assignments:
         if not user_can_receive_scope(
             replacement, group=assignment.group_configuration, branch=assignment.branch,
@@ -998,8 +1003,10 @@ def approve_lifecycle_plan(*, plan_id, approver, review_comment='') -> StaffLife
 @transaction.atomic
 def apply_scheduled_lifecycle_plan(*, plan_id) -> StaffLifecycleChangePlan:
     """Apply one previously approved plan when its effective time arrives."""
+    # reviewed_by is nullable and cannot be outer-joined into FOR UPDATE on
+    # PostgreSQL. It is not needed to apply the scheduled transition.
     plan = StaffLifecycleChangePlan.objects.select_for_update().select_related(
-        'target_user', 'requested_by', 'reviewed_by',
+        'target_user', 'requested_by',
     ).get(pk=plan_id)
     if plan.status != plan.STATUS_SCHEDULED:
         return plan

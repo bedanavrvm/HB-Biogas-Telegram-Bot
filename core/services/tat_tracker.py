@@ -262,7 +262,13 @@ def configured_products(workflow: dict | None = None) -> list[ProductConfig]:
     workflow = workflow or {}
     try:
         from core.services.workflow_catalog import workflow_product_codes
-        keys = workflow_product_codes('tat_tracker', workflow)
+        # Catalogue discovery is also used while historical migrations seed
+        # the capability matrix.  At that point a table can exist without all
+        # columns from the current model.  Keep a failed compatibility probe
+        # inside its own savepoint so PostgreSQL does not poison the caller's
+        # surrounding migration/workflow transaction.
+        with transaction.atomic():
+            keys = workflow_product_codes('tat_tracker', workflow)
     except Exception:
         # Retain the pre-catalogue bootstrap fallback for deployments that are
         # still applying the product migrations.
@@ -270,7 +276,9 @@ def configured_products(workflow: dict | None = None) -> list[ProductConfig]:
     resolved = []
     for key in keys:
         try:
-            resolved.append(_database_product_by_key(key))
+            with transaction.atomic():
+                database_product = _database_product_by_key(key)
+            resolved.append(database_product)
         except Exception:
             if key in PRODUCTS:
                 resolved.append(PRODUCTS[key])

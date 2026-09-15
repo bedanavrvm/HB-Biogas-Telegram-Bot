@@ -128,6 +128,41 @@ class InvoiceIdentityWorkflowTests(TestCase):
         self.assertEqual(self.farmer.national_id, '12345678')
         self.assertEqual(self.farmer.invoice_number, 'INV-2')
 
+    def test_replacement_confirmation_does_not_outer_join_nullable_locked_relations(self):
+        original = self.invoice(customer_id='87654321', customer_name='Jane Wanjiku', customer_phone='0700000000')
+        review = ensure_identity_review(original, self.farmer)
+        decide_identity_review(review, outcome='different_person_confirmed', actor='Operations', note='Confirmed spouse invoice.')
+        item = create_name_change(
+            review, actor='Operations', relationship_type='spouse',
+            related_name='Jane Wanjiku', related_national_id='87654321',
+            related_phone='0700000000', attestation_note='Confirmed relationship.',
+            evidence_reference='evidence-2', client_request_id='lock-safe-change',
+        )
+        item.batch.legacy_manual_letter_allowed = True
+        item.batch.save(update_fields=['legacy_manual_letter_allowed', 'updated_at'])
+        mark_name_change_sent(
+            item.batch, actor='Operations', letter_reference='letter-2', sent_reference='HB-email-2',
+        )
+        replacement = self.invoice(
+            invoice_no='INV-LOCK-SAFE', customer_name='Mary Wanjiku', customer_id='12345678',
+            status='unmatched', matched_farmer=None, matched_order_number='', invoice_date=date(2026, 9, 15),
+        )
+
+        with CaptureQueriesContext(connection) as captured:
+            confirm_replacement(item, replacement, actor='Operations')
+
+        locked_entity_reads = [
+            query['sql'].upper() for query in captured.captured_queries
+            if query['sql'].lstrip().upper().startswith('SELECT') and any(
+                table in query['sql'].upper() for table in (
+                    'CORE_INVOICENAMECHANGEITEM', 'CORE_INVOICENAMECHANGEBATCH',
+                    'CORE_PARSEDINVOICE', 'CORE_JAWABUFARMERMASTER',
+                )
+            )
+        ]
+        self.assertTrue(locked_entity_reads)
+        self.assertFalse(any('LEFT OUTER JOIN' in query for query in locked_entity_reads))
+
     def test_missing_invoice_id_stays_blocked_for_manual_verification(self):
         invoice = self.invoice(customer_id='')
         self.assertIn('national_id_missing', discrepancy_codes(invoice, self.farmer))

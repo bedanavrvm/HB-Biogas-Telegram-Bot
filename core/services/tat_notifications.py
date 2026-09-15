@@ -570,9 +570,9 @@ def reroute_pending_task(*, task: TatActionTask, actor, reason: str, request_id:
     # The case lock is shared with stage completion. Whichever operation wins
     # commits first; the loser then revalidates the terminal/pending state.
     case = TatTrackerCase.objects.select_for_update().get(pk=task.case_id)
-    task = TatActionTask.objects.select_for_update().select_related(
-        'case', 'group_configuration',
-    ).get(pk=task.pk)
+    # group_configuration is nullable; the case already has its own explicit
+    # lock above, so lock the task row without joined relations.
+    task = TatActionTask.objects.select_for_update().get(pk=task.pk)
     existing_event = TatTaskRerouteEvent.objects.filter(task=task, request_id=request_id).first()
     if existing_event:
         return task

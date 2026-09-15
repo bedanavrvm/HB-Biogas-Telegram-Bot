@@ -214,7 +214,9 @@ def resolve_case_configuration(
         raise TatConfigurationError('Explain why this product version is correct (at least 10 characters).')
     if not request_id:
         raise TatConfigurationError('A request ID is required.')
-    case = TatTrackerCase.objects.select_for_update().select_related('product').get(pk=case.pk)
+    # product is nullable for unresolved legacy cases. Lock the case alone and
+    # load the product normally only when it exists.
+    case = TatTrackerCase.objects.select_for_update().get(pk=case.pk)
     existing = TatConfigurationEvent.objects.filter(action='legacy_case_resolved', request_id=request_id).first()
     if existing:
         return case
