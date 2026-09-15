@@ -327,7 +327,7 @@
     const result = await deps.apiFetch('/invoice-pool/' + encodeURIComponent(invoiceId) + '/');
     if (!invoicesScreenIsActive() || readRoute().invoiceId !== invoiceId) return;
     if (!result.ok || !result.data?.ok) {
-      target.innerHTML = '<div class="empty-state"><div class="es-title">Invoice unavailable</div><div class="es-sub">' + escapeHtml(result.data?.error || 'Refresh the invoice inbox and try again.') + '</div><button type="button" class="btn btn-secondary invoice-detail-back">Back to invoices</button></div>';
+      target.innerHTML = '<div class="empty-state"><div class="es-title">Invoice unavailable</div><div class="es-sub">' + escapeHtml(result.data?.message || result.data?.error || 'Refresh the invoice inbox and try again.') + '</div><button type="button" class="btn btn-secondary invoice-detail-back">Back to invoices</button></div>';
       target.querySelector('.invoice-detail-back')?.addEventListener('click', function () { navigate('inbox'); });
       return;
     }
@@ -428,9 +428,10 @@
       : '<span class="badge badge-grey">No source PDF link</span>';
     const identity = invoice.identity || {};
     const identityActions = [];
+    const invoiceMatchEligible = identity.match_eligibility?.eligible !== false;
     const hasDifferentIds = identity.discrepancy_codes?.includes('national_id_mismatch');
     const hasMissingId = identity.discrepancy_codes?.includes('national_id_missing');
-    if (canManageInvoiceIdentity() && hasDifferentIds && !identity.name_change) {
+    if (canManageInvoiceIdentity() && invoiceMatchEligible && hasDifferentIds && !identity.name_change) {
       identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-start">Request corrected invoice</button>');
     }
     if (canManageInvoiceIdentity() && identity.name_change?.batch_status === 'draft') {
@@ -447,7 +448,7 @@
         identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-sent">Record letter sent</button>');
       }
     }
-    if (canManageInvoiceIdentity() && identity.name_change?.status === 'awaiting_replacement') {
+    if (canManageInvoiceIdentity() && invoiceMatchEligible && identity.name_change?.status === 'awaiting_replacement') {
       identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-replacement">Confirm replacement invoice</button>');
       identityActions.push('<button type="button" class="btn btn-secondary invoice-name-change-correct-sent">Correct sent request</button>');
     }
@@ -456,7 +457,9 @@
     }).map(function (code) {
       return code === 'name_variance' ? 'Name spelling differs' : code === 'phone_mismatch' ? 'Phone number differs' : code;
     });
-    const identityNotice = hasMissingId
+    const identityNotice = !invoiceMatchEligible
+      ? '<div class="invoice-card-warning">' + escapeHtml(identity.match_eligibility?.message || 'This invoice match has no finalized requisition/order. Unmatch it before continuing.') + '</div>'
+      : hasMissingId
       ? '<div class="invoice-card-warning">A national ID is missing. Correct the parsed invoice or applicant data before continuing.</div>'
       : hasDifferentIds
         ? '<div class="invoice-card-warning">The invoice holder and applicant have different national IDs. Payment stays blocked until a corrected invoice is confirmed.</div>'
@@ -576,7 +579,7 @@
       method: 'POST', headers: { 'Content-Type': 'application/json', ...csrfHeader() },
       body: JSON.stringify({ outcome: outcome, note: values.note.trim(), client_request_id: requestId() }),
     });
-    if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Identity verification failed.', 'error');
+    if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.message || response.data?.error || 'Identity verification failed.', 'error');
     loadDetail(invoiceId);
   }
 
@@ -658,7 +661,7 @@
         client_request_id: retryKey,
       }),
     });
-    if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Could not start the invoice-name change.', 'error');
+    if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.message || response.data?.error || 'Could not start the invoice-name change.', 'error');
     deps.showToast(response.data.letter_warning || 'Corrected-invoice request created.', response.data.letter_warning ? 'warning' : 'success');
     loadDetail(invoice.id);
   }
@@ -673,7 +676,7 @@
         headers: { 'Content-Type': 'application/json', 'Idempotency-Key': retryKey, ...csrfHeader() },
         body: JSON.stringify({ client_request_id: retryKey }),
       });
-      if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Could not generate the letter.', 'error');
+      if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.message || response.data?.error || 'Could not generate the letter.', 'error');
       const letter = response.data.batch?.latest_letter;
       if (letter?.preview_url) await openLetterPreview(letter);
       else deps.showToast('The letter was created, but its preview is unavailable. Download the DOCX from the record.', 'warning');
@@ -697,7 +700,7 @@
       method: 'POST', headers: { 'Content-Type': 'application/json', ...csrfHeader() },
       body: JSON.stringify({ artifact_id: letter.id, sent_reference: values.sent_reference.trim() }),
     });
-    if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Could not record the sent letter.', 'error');
+    if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.message || response.data?.error || 'Could not record the sent letter.', 'error');
     deps.showToast('Letter marked as sent.', 'success');
     if (change?.original_invoice_id) loadDetail(change.original_invoice_id);
   }
@@ -719,7 +722,7 @@
         client_request_id: retryKey,
       }),
     });
-    if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Could not correct the sent request.', 'error');
+    if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.message || response.data?.error || 'Could not correct the sent request.', 'error');
     deps.showToast(response.data.letter_warning || 'New letter version prepared.', response.data.letter_warning ? 'warning' : 'success');
     loadDetail(invoiceId);
   }
@@ -767,6 +770,10 @@
         }).join('') + '</div>'
         : '';
       const tier = farmer.match_tier || 'search_result';
+      const selectable = farmer.selectable !== false;
+      const eligibilityWarning = !selectable
+        ? '<div class="invoice-card-warning" style="margin-top:8px;">' + escapeHtml(farmer.status_note || 'This client cannot receive an invoice yet.') + '</div>'
+        : '';
       const tierLabel = tier === 'strong' ? 'Strong suggestion' : tier === 'likely' ? 'Likely suggestion' : tier === 'possible' ? 'Possible match' : 'Search result';
       const invoice = state.selectedInvoice || {};
       return [
@@ -781,14 +788,15 @@
         '</div>',
         '<div class="fc-sub">' + escapeHtml(deps.locationText(farmer)) + (farmer.order_number ? ' | Order ' + escapeHtml(farmer.order_number) : '') + (farmer.customer_no ? ' | Customer No ' + escapeHtml(farmer.customer_no) : '') + '</div>',
         reasons,
+        eligibilityWarning,
         conflict,
         '</div>',
-        '<button class="btn btn-primary invoice-select-candidate" data-farmer="' + escapeHtml(farmer.id) + '"' + (farmer.has_invoice ? ' data-conflict="1"' : '') + '>Confirm match</button>',
+        '<button class="btn btn-primary invoice-select-candidate" data-farmer="' + escapeHtml(farmer.id) + '"' + (farmer.has_invoice ? ' data-conflict="1"' : '') + (selectable ? '' : ' disabled') + '>Confirm match</button>',
         '</div>',
         '</div>',
       ].join('');
     }).join('');
-    target.querySelectorAll('.invoice-select-candidate').forEach(function (btn) {
+    target.querySelectorAll('.invoice-select-candidate:not([disabled])').forEach(function (btn) {
       btn.addEventListener('click', function () {
         matchInvoiceToFarmer(btn.dataset.farmer, btn.dataset.conflict === '1');
       });
@@ -808,7 +816,7 @@
       body: JSON.stringify({ farmer_id: farmerId, note: note }),
     });
     if (!response.ok || !response.data?.ok) {
-      deps.showToast(response.data?.error || 'Could not match invoice.', 'error');
+      deps.showToast(response.data?.message || response.data?.error || 'Could not match invoice.', 'error');
       return;
     }
     deps.showToast('Invoice matched.', 'success');
@@ -825,7 +833,7 @@
       body: JSON.stringify({ note: note }),
     });
     if (!response.ok || !response.data?.ok) {
-      deps.showToast(response.data?.error || 'Could not unmatch invoice.', 'error');
+      deps.showToast(response.data?.message || response.data?.error || 'Could not unmatch invoice.', 'error');
       return;
     }
     deps.showToast('Invoice unmatched.', 'success');
@@ -841,7 +849,7 @@
       body: JSON.stringify({ note: note }),
     });
     if (!response.ok || !response.data?.ok) {
-      deps.showToast(response.data?.error || 'Could not ignore invoice.', 'error');
+      deps.showToast(response.data?.message || response.data?.error || 'Could not ignore invoice.', 'error');
       return;
     }
     deps.showToast('Invoice ignored.', 'success');
@@ -857,7 +865,7 @@
       body: JSON.stringify({ note: note }),
     });
     if (!response.ok || !response.data?.ok) {
-      deps.showToast(response.data?.error || 'Could not restore invoice.', 'error');
+      deps.showToast(response.data?.message || response.data?.error || 'Could not restore invoice.', 'error');
       return;
     }
     deps.showToast('Invoice restored.', 'success');
@@ -876,7 +884,7 @@
       body: JSON.stringify({ action: action, invoice_ids: ids, note: note }),
     });
     if (!response.ok || !response.data?.ok) {
-      deps.showToast(response.data?.error || 'Bulk action failed.', 'error');
+      deps.showToast(response.data?.message || response.data?.error || 'Bulk action failed.', 'error');
       return;
     }
     state.selectedIds.clear();
@@ -1007,7 +1015,7 @@
     });
     if (!response.ok || !response.data?.ok) {
       const conflicts = response.data?.conflicts || [];
-      const detail = conflicts.length ? conflicts.map(function (item) { return item.applicant_name + ': ' + item.reason.replaceAll('_', ' '); }).join('\n') : response.data?.error;
+      const detail = conflicts.length ? conflicts.map(function (item) { return item.applicant_name + ': ' + item.reason.replaceAll('_', ' '); }).join('\n') : (response.data?.message || response.data?.error);
       deps.showToast(detail || 'Could not create the letter batch.', 'error');
       state.selectedNameChanges = new Set(response.data?.available_item_ids || itemIds);
       return loadNameChanges(state.nameChangePage);
@@ -1029,7 +1037,7 @@
       method: 'POST', headers: { 'Content-Type': 'application/json', ...csrfHeader() },
       body: JSON.stringify({ action: action, reason: values.reason, hb_communication_reference: values.hb_communication_reference || '' }),
     });
-    if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Could not close the request.', 'error');
+    if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.message || response.data?.error || 'Could not close the request.', 'error');
     deps.showToast(withdraw ? 'Request withdrawn.' : 'Request cancelled.', 'success');
     loadNameChanges(state.nameChangePage);
   }
@@ -1041,7 +1049,7 @@
     const response = await deps.apiFetch('/invoice-name-change-items/' + encodeURIComponent(itemId) + '/follow-up/', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key, ...csrfHeader() }, body: JSON.stringify({ client_request_id: key }),
     });
-    if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Could not start the follow-up.', 'error');
+    if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.message || response.data?.error || 'Could not start the follow-up.', 'error');
     window.sessionStorage?.setItem('portalInvoiceNameChangeFocus', response.data.name_change.id);
     window.sessionStorage?.setItem('portalInvoiceDetailReturn', 'name_changes');
     openInvoiceDetail(response.data.name_change.original_invoice_id);
@@ -1051,7 +1059,7 @@
     const overlay = document.createElement('div');
     overlay.className = 'sheet-overlay open invoice-workflow-overlay';
     overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-labelledby', 'replacement-sheet-title');
-    overlay.innerHTML = '<div class="sheet-panel invoice-workflow-form"><div class="sheet-handle"></div><div class="sheet-header"><div><h2 id="replacement-sheet-title">Select corrected invoice</h2><p class="sheet-sub">ID matches rank first; conflicting matches remain visible but cannot be selected.</p></div><button type="button" class="sheet-close-button" aria-label="Close">x</button></div><div class="sheet-body"><label class="invoice-search-control"><span class="sr-only">Search replacement invoices</span><input type="search" placeholder="Name, ID, phone, or invoice"></label><div class="replacement-candidate-list farmer-list"></div></div></div>';
+    overlay.innerHTML = '<div class="sheet-panel invoice-workflow-form"><div class="sheet-handle"></div><div class="sheet-header"><div><h2 id="replacement-sheet-title">Select corrected invoice</h2><p class="sheet-sub">The applicant national ID and full name must both match.</p></div><button type="button" class="sheet-close-button" aria-label="Close">x</button></div><div class="sheet-body"><label class="invoice-search-control"><span class="sr-only">Search replacement invoices</span><input type="search" placeholder="Name, ID, phone, or invoice"></label><div class="replacement-candidate-list farmer-list"></div></div></div>';
     document.body.appendChild(overlay);
     const list = overlay.querySelector('.replacement-candidate-list');
     const input = overlay.querySelector('input');
@@ -1061,13 +1069,22 @@
       const params = new URLSearchParams(); if (input.value.trim()) params.set('search', input.value.trim());
       const response = await deps.apiFetch('/invoice-name-change-items/' + encodeURIComponent(itemId) + '/replacement-candidates/?' + params.toString());
       const rows = response.data?.candidates || [];
-      if (!response.ok || !response.data?.ok || !rows.length) { list.innerHTML = '<div class="empty-state"><div class="es-title">No replacement invoices found</div><div class="es-sub">Upload the corrected PDF, then search again.</div></div>'; return; }
-      list.innerHTML = rows.map(function (row) { const inv = row.invoice; return '<article class="farmer-card replacement-candidate"><div><div class="invoice-card-heading"><div class="fc-name">Invoice ' + escapeHtml(inv.invoice_no || '-') + '</div>' + (row.id_match ? '<span class="badge badge-green">Applicant ID match</span>' : '<span class="badge badge-grey">Check identity</span>') + '</div><div class="fc-sub">' + escapeHtml(inv.customer_name || '-') + ' · ID ' + escapeHtml(inv.customer_id || '-') + ' · ' + escapeHtml(inv.status) + '</div>' + (row.status_note ? '<div class="invoice-card-warning">' + escapeHtml(row.status_note) + '</div>' : '') + '</div><button type="button" class="btn btn-primary choose-replacement" data-invoice="' + escapeHtml(inv.id) + '"' + (row.selectable ? '' : ' disabled') + '>Select</button></article>'; }).join('');
+      if (!response.ok || !response.data?.ok) { list.innerHTML = '<div class="empty-state"><div class="es-title">Could not load corrected invoices</div><div class="es-sub">' + escapeHtml(response.data?.message || response.data?.error || 'Refresh and try again.') + '</div></div>'; return; }
+      if (!rows.length) { list.innerHTML = '<div class="empty-state"><div class="es-title">No replacement invoices found</div><div class="es-sub">Upload the corrected PDF, then search again.</div></div>'; return; }
+      list.innerHTML = rows.map(function (row) {
+        const inv = row.invoice;
+        const identityMatches = row.id_match && row.name_match;
+        const badge = identityMatches
+          ? '<span class="badge badge-green">Identity matches</span>'
+          : '<span class="badge badge-grey">Cannot select</span>';
+        const phone = inv.customer_phone ? ' · Phone ' + escapeHtml(inv.customer_phone) : '';
+        return '<article class="farmer-card replacement-candidate"><div><div class="invoice-card-heading"><div class="fc-name">Invoice ' + escapeHtml(inv.invoice_no || '-') + '</div>' + badge + '</div><div class="fc-sub">' + escapeHtml(inv.customer_name || '-') + ' · ID ' + escapeHtml(inv.customer_id || '-') + phone + ' · ' + escapeHtml(inv.status) + '</div>' + (row.status_note ? '<div class="invoice-card-warning">' + escapeHtml(row.status_note) + '</div>' : '') + '</div><button type="button" class="btn btn-primary choose-replacement" data-invoice="' + escapeHtml(inv.id) + '"' + (row.selectable ? '' : ' disabled') + '>Select</button></article>';
+      }).join('');
       list.querySelectorAll('.choose-replacement:not([disabled])').forEach(function (button) { button.addEventListener('click', async function () {
-        const values = await openInvoiceWorkflowSheet('Confirm corrected invoice', '<div class="form-row"><label>Verification note</label><textarea name="verification_note" rows="3" placeholder="Required only when name or phone differs."></textarea></div>', 'Confirm replacement');
+        const values = await openInvoiceWorkflowSheet('Confirm corrected invoice', '<p>The national ID and full name match the applicant.</p><div class="form-row"><label>Phone verification note (required if phone differs)</label><textarea name="verification_note" rows="3" maxlength="500" placeholder="Explain any phone-number difference."></textarea></div>', 'Confirm replacement');
         if (!values) return;
         const result = await deps.apiFetch('/invoice-name-change-items/' + encodeURIComponent(itemId) + '/replacement/', { method: 'POST', headers: { 'Content-Type': 'application/json', ...csrfHeader() }, body: JSON.stringify({ replacement_invoice_id: button.dataset.invoice, verification_note: values.verification_note || '' }) });
-        if (!result.ok || !result.data?.ok) return deps.showToast(result.data?.error || 'Could not confirm the replacement.', 'error');
+        if (!result.ok || !result.data?.ok) return deps.showToast(result.data?.message || result.data?.error || 'Could not confirm the replacement.', 'error');
         close(); deps.showToast('Corrected invoice confirmed.', 'success'); loadNameChanges(state.nameChangePage);
       }); });
     }

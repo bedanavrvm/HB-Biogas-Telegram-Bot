@@ -310,7 +310,11 @@ def _row_payload(
     else:
         from core.services.invoice_identity import identity_gate
         identity = identity_gate(invoice, farmer)
-        if identity.get('blocker') == 'invoice_name_change_pending':
+        if identity.get('blocker') == 'invoice_client_not_requisitioned':
+            missing.append('Finalized requisition/order')
+        elif identity.get('blocker') == 'invoice_requisition_mismatch':
+            missing.append('Invoice match does not belong to this finalized order')
+        elif identity.get('blocker') == 'invoice_name_change_pending':
             missing.append('Waiting for corrected invoice')
         elif identity.get('blocker') == 'invoice_name_change_required':
             missing.append('Request a corrected invoice')

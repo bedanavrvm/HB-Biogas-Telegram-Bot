@@ -14,6 +14,7 @@ from core.models import (
     InvoiceNameChangeBatch,
     InvoiceNameChangeItem,
     InvoiceNameChangeLetterArtifact,
+    InvoiceUploadBatch,
     JawabuCustomer,
     JawabuDataQualityIssue,
     JawabuFarmerMaster,
@@ -119,6 +120,9 @@ def ensure_identity_review(
 
 
 def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
+    from core.services.invoice_parser import official_requisition_eligibility
+
+    match_eligibility = official_requisition_eligibility(farmer)
     codes = discrepancy_codes(invoice, farmer)
     material_codes = [code for code in codes if code in {'national_id_missing', 'national_id_mismatch'}]
     reviews = invoice.identity_reviews.filter(farmer=farmer).order_by('-created_at')
@@ -127,7 +131,9 @@ def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
         status__in=['draft', 'awaiting_replacement'],
     ).select_related('batch', 'review').first()
     latest_change = open_change or invoice.name_change_requests.select_related('batch', 'review').order_by('-created_at').first()
-    if open_change and open_change.review.status == InvoiceIdentityReview.STATUS_PENDING:
+    if not match_eligibility['eligible']:
+        blocker = match_eligibility['code']
+    elif open_change and open_change.review.status == InvoiceIdentityReview.STATUS_PENDING:
         blocker = 'invoice_identity_verification_pending'
     elif open_change:
         blocker = 'invoice_name_change_pending'
@@ -141,7 +147,9 @@ def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
         blocker = 'invoice_identity_flagged'
     else:
         blocker = 'invoice_identity_verification_pending'
-    if latest_change:
+    if not match_eligibility['eligible']:
+        presentation_status = 'Invalid match - no finalized order'
+    elif latest_change:
         if latest_change.status == 'completed':
             presentation_status = 'Corrected'
         elif latest_change.status in {'cancelled', 'withdrawn'}:
@@ -172,6 +180,7 @@ def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
             'national_id': farmer.lead_national_id or farmer.national_id,
             'phone': farmer.lead_primary_phone or farmer.primary_phone,
         },
+        'match_eligibility': match_eligibility,
     }
 
 
@@ -234,6 +243,15 @@ def serialize_name_change_item(item: InvoiceNameChangeItem | None) -> dict | Non
 
 class InvoiceCorrectionConflict(ValueError):
     """The invoice/application changed after the detail screen was loaded."""
+
+
+class InvoiceIdentityWorkflowError(ValueError):
+    """Reviewed invoice-identity failure safe to expose through the Mini App."""
+
+    def __init__(self, code: str, message: str, *, status: int = 409):
+        super().__init__(message)
+        self.code = code
+        self.status = status
 
 
 SENT_CORRECTION_EVENT_ACTION = 'invoice_name_change_sent_corrected'
@@ -362,6 +380,8 @@ def _start_invoice_correction_locked(
     if not invoice.matched_farmer_id:
         raise ValueError('Match the invoice to an applicant first.')
     farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=invoice.matched_farmer_id)
+    from core.services.invoice_parser import require_official_requisition
+    require_official_requisition(farmer, lock=True)
     if int(expected_invoice_revision or 0) != int(invoice.revision):
         raise InvoiceCorrectionConflict('This invoice changed while you were reviewing it. Refresh and try again.')
     if int(expected_application_revision or 0) != int(farmer.workflow_revision):
@@ -888,6 +908,8 @@ def confirm_replacement(
         if item.batch_id else None
     )
     farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=item.farmer_id)
+    from core.services.invoice_parser import require_official_requisition
+    eligibility = require_official_requisition(farmer, lock=True)
     invoice_ids = sorted({item.original_invoice_id, replacement.pk}, key=str)
     locked_invoices = {
         invoice.pk: invoice
@@ -898,20 +920,63 @@ def confirm_replacement(
     if item.status != 'awaiting_replacement' or not batch or batch.status != 'awaiting_replacements':
         if item.status == 'completed' and item.replacement_invoice_id == replacement.id:
             return item
-        raise ValueError('This change request is not awaiting a replacement invoice.')
+        raise InvoiceIdentityWorkflowError(
+            'replacement_request_not_ready',
+            'This request is not waiting for a corrected invoice. Refresh the invoice record.',
+        )
     if replacement.pk == item.original_invoice_id:
-        raise ValueError('The original invoice cannot replace itself.')
+        raise InvoiceIdentityWorkflowError(
+            'replacement_invoice_conflict', 'The original invoice cannot replace itself.',
+        )
     if replacement.matched_farmer_id and replacement.matched_farmer_id != farmer.id:
-        raise ValueError('The replacement invoice is already matched to another applicant.')
+        raise InvoiceIdentityWorkflowError(
+            'replacement_invoice_conflict',
+            'This invoice is already matched to another applicant.',
+        )
     if replacement.status not in {'draft', 'unmatched', 'ambiguous', 'ignored', 'matched'}:
-        raise ValueError('Select an available replacement invoice.')
+        raise InvoiceIdentityWorkflowError(
+            'replacement_invoice_conflict', 'Select an available corrected invoice.',
+        )
+    upload_batch = InvoiceUploadBatch.objects.select_for_update().get(pk=replacement.batch_id)
+    upload_order = str(upload_batch.order_number or '').strip()
+    if upload_order and upload_order != eligibility['order_number']:
+        raise InvoiceIdentityWorkflowError(
+            'replacement_invoice_order_mismatch',
+            'This corrected invoice was uploaded for a different order.',
+        )
     expected_id = normalize_national_id(farmer.national_id)
     replacement_id = normalize_national_id(replacement.customer_id)
     if not replacement_id:
-        raise ValueError('The replacement invoice has no usable national ID and must be verified before completion.')
+        raise InvoiceIdentityWorkflowError(
+            'replacement_invoice_identity_mismatch',
+            'The corrected invoice has no usable national ID.',
+        )
     if replacement_id != expected_id:
-        raise ValueError('The replacement invoice national ID does not match the applicant.')
+        raise InvoiceIdentityWorkflowError(
+            'replacement_invoice_identity_mismatch',
+            'The corrected invoice national ID does not match the applicant.',
+        )
+    expected_name = normalize_person_name(applicant_identity(farmer)['name'])
+    replacement_name = normalize_person_name(replacement.customer_name)
+    if not replacement_name or replacement_name != expected_name:
+        raise InvoiceIdentityWorkflowError(
+            'replacement_invoice_identity_mismatch',
+            'The corrected invoice name does not match the applicant.',
+        )
     codes = discrepancy_codes(replacement, farmer)
+    verification_note = str(verification_note or '').strip()
+    if 'phone_mismatch' in codes and not verification_note:
+        raise InvoiceIdentityWorkflowError(
+            'replacement_invoice_verification_note_required',
+            'Explain the phone-number difference before confirming this corrected invoice.',
+            status=400,
+        )
+    if len(verification_note) > 500:
+        raise InvoiceIdentityWorkflowError(
+            'replacement_invoice_verification_note_required',
+            'Keep the phone-number verification note to 500 characters or fewer.',
+            status=400,
+        )
     from core.services.invoice_parser import _apply_invoice_to_farmer, record_invoice_event
     _apply_invoice_to_farmer(farmer, replacement)
     replacement.status = 'matched'

@@ -12,7 +12,13 @@ PDF_PREVIEW_MAX_RENDERED_BYTES = 10 * 1024 * 1024
 PDF_PREVIEW_SCALE = 1.25
 
 
-def pdf_preview_html(content: bytes, filename: str) -> bytes:
+def pdf_preview_html(
+    content: bytes,
+    filename: str,
+    *,
+    show_filename: bool = True,
+    show_single_page_caption: bool = True,
+) -> bytes:
     """Render bounded PDF pages into a self-contained WebView-safe document."""
     if not content or len(content) > PDF_PREVIEW_MAX_SOURCE_BYTES:
         raise ValueError('This PDF is too large for an in-app preview.')
@@ -46,7 +52,7 @@ def pdf_preview_html(content: bytes, filename: str) -> bytes:
         if total_pages > page_count else ''
     )
     image_markup = ''.join(
-        f'<figure><figcaption>Page {index}</figcaption>'
+        f'<figure>{f"<figcaption>Page {index}</figcaption>" if total_pages > 1 or show_single_page_caption else ""}'
         f'<img src="data:image/jpeg;base64,{encoded}" alt="{html_escape(filename)} - page {index}"></figure>'
         for index, encoded in enumerate(page_images, start=1)
     )
@@ -60,4 +66,4 @@ def pdf_preview_html(content: bytes, filename: str) -> bytes:
   figcaption {{ padding: 7px 10px; color: #667085; font-size: 12px; }}
   img {{ display: block; width: 100%; height: auto; }}
   .notice {{ max-width: 980px; margin: 0 auto 12px; padding: 8px 10px; border-radius: 6px; background: #fff4e5; color: #7a4d00; }}
-</style></head><body><header>{html_escape(filename)}</header>{continuation}{image_markup}</body></html>'''.encode('utf-8')
+</style></head><body>{f"<header>{html_escape(filename)}</header>" if show_filename else ""}{continuation}{image_markup}</body></html>'''.encode('utf-8')

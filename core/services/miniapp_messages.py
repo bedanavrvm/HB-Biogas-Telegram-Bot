@@ -46,6 +46,27 @@ MESSAGE_CATALOG: dict[str, MiniAppMessage] = {
     "invalid_request": MiniAppMessage(
         "The app could not read this request. Try the action again. If it continues, contact JBL and share reference {request_id}.", 400,
     ),
+    "invoice_client_not_requisitioned": MiniAppMessage(
+        "This client has no finalized requisition/order and cannot receive an invoice yet.", 409,
+    ),
+    "invoice_requisition_mismatch": MiniAppMessage(
+        "This client does not match the finalized requisition membership. Repair the order before matching an invoice.", 409,
+    ),
+    "replacement_invoice_identity_mismatch": MiniAppMessage(
+        "The corrected invoice must match the applicant's national ID and full name.", 409,
+    ),
+    "replacement_invoice_order_mismatch": MiniAppMessage(
+        "This corrected invoice was uploaded for a different order.", 409,
+    ),
+    "replacement_invoice_conflict": MiniAppMessage(
+        "This corrected invoice is no longer available. Refresh the list and choose another invoice.", 409,
+    ),
+    "replacement_invoice_verification_note_required": MiniAppMessage(
+        "Explain the phone-number difference before confirming this corrected invoice.", 400,
+    ),
+    "replacement_request_not_ready": MiniAppMessage(
+        "This request is not waiting for a corrected invoice. Refresh the invoice record.", 409,
+    ),
     "tat_create_invalid_intent": MiniAppMessage(
         "This form can only create a new loan case. Open the existing case to make a correction.", 400,
     ),

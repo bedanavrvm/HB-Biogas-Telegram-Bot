@@ -9,7 +9,13 @@ from django.utils import timezone
 from django.db import transaction
 from django.db.models import Count, Q
 
-from core.models import InvoiceUploadBatch, JawabuFarmerMaster, ParsedInvoice, ParsedInvoiceEvent
+from core.models import (
+    InvoiceUploadBatch,
+    JawabuFarmerMaster,
+    ParsedInvoice,
+    ParsedInvoiceEvent,
+    RequisitionBatch,
+)
 from core.services.portal_publication import reserve_farmer_publication
 from core.services.workflow_transitions import next_workflow_revision
 
@@ -18,6 +24,82 @@ logger = logging.getLogger(__name__)
 
 class InvoiceUploadStorageError(RuntimeError):
     pass
+
+
+class InvoiceMatchEligibilityError(ValueError):
+    """A safe, stable business error raised before invoice data is applied."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+        self.status = 409
+
+
+def official_requisition_eligibility(
+    farmer: JawabuFarmerMaster,
+    *,
+    lock: bool = False,
+) -> dict:
+    """Prove that *farmer* belongs to one finalized immutable requisition.
+
+    A manually populated order number is not sufficient.  Invoice matching is
+    allowed only when the order workbook was finalized and the farmer UUID is
+    part of that exact immutable membership snapshot.
+    """
+    order_number = str(farmer.order_number or '').strip()
+    if not order_number or not farmer.requisition_date:
+        return {
+            'eligible': False,
+            'code': 'invoice_client_not_requisitioned',
+            'message': 'This client has no finalized requisition/order and cannot receive an invoice yet.',
+            'order_number': order_number,
+        }
+    queryset = RequisitionBatch.objects
+    if lock:
+        queryset = queryset.select_for_update()
+    requisition = queryset.filter(order_number=order_number).first()
+    if (
+        requisition is None
+        or requisition.version < 1
+        or requisition.finalized_at is None
+        or not requisition.file_content
+        or not str(requisition.content_checksum or '').strip()
+    ):
+        return {
+            'eligible': False,
+            'code': 'invoice_client_not_requisitioned',
+            'message': 'This client has no finalized requisition/order and cannot receive an invoice yet.',
+            'order_number': order_number,
+        }
+    member_ids = {str(value) for value in (requisition.farmer_ids or []) if value}
+    if (
+        str(farmer.pk) not in member_ids
+        or requisition.requisition_date != farmer.requisition_date
+    ):
+        return {
+            'eligible': False,
+            'code': 'invoice_requisition_mismatch',
+            'message': 'This client does not match the finalized requisition membership. Repair the order before matching an invoice.',
+            'order_number': order_number,
+        }
+    return {
+        'eligible': True,
+        'code': '',
+        'message': '',
+        'order_number': order_number,
+        'requisition_batch_id': str(requisition.pk),
+    }
+
+
+def require_official_requisition(
+    farmer: JawabuFarmerMaster,
+    *,
+    lock: bool = False,
+) -> dict:
+    result = official_requisition_eligibility(farmer, lock=lock)
+    if not result['eligible']:
+        raise InvoiceMatchEligibilityError(result['code'], result['message'])
+    return result
 
 
 def record_invoice_match_result(batch: InvoiceUploadBatch, result: dict) -> InvoiceUploadBatch:
@@ -47,12 +129,24 @@ def record_invoice_match_result(batch: InvoiceUploadBatch, result: dict) -> Invo
         status = str(item.get('status') or '').lower()
         event_action = 'note'
         if status == 'matched':
-            matched_count += 1
-            parsed.status = 'matched'
-            parsed.matched_farmer = farmers_by_id.get(str(item.get('matched_farmer_id') or '').strip())
-            parsed.matched_order_number = str(item.get('matched_order_number') or result.get('order_number') or '').strip()
-            parsed.review_notes = ''
-            event_action = 'matched'
+            proposed_farmer = farmers_by_id.get(str(item.get('matched_farmer_id') or '').strip())
+            eligibility = official_requisition_eligibility(proposed_farmer) if proposed_farmer else {
+                'eligible': False,
+                'message': 'The matched client record was not found.',
+            }
+            if eligibility['eligible']:
+                matched_count += 1
+                parsed.status = 'matched'
+                parsed.matched_farmer = proposed_farmer
+                parsed.matched_order_number = eligibility['order_number']
+                parsed.review_notes = ''
+                event_action = 'matched'
+            else:
+                review_count += 1
+                parsed.status = 'unmatched'
+                parsed.matched_farmer = None
+                parsed.matched_order_number = ''
+                parsed.review_notes = eligibility['message']
         elif status == 'ambiguous':
             review_count += 1
             parsed.status = 'ambiguous'
@@ -790,6 +884,7 @@ def _invoice_dict_from_parsed(invoice: ParsedInvoice) -> dict:
 def propose_invoice_batch_matches(batch: InvoiceUploadBatch) -> InvoiceUploadBatch:
     """Populate suggestions only; never mutate farmer workflow data."""
     farmers = list(JawabuFarmerMaster.objects.filter(order_number=batch.order_number, status='active')) if batch.order_number else []
+    farmers = [farmer for farmer in farmers if official_requisition_eligibility(farmer)['eligible']]
     for invoice in batch.invoices.filter(status='draft'):
         payload = {
             'customer_id': invoice.customer_id,
@@ -824,9 +919,11 @@ def edit_draft_invoice(invoice: ParsedInvoice, values: dict, *, actor: str = '')
         invoice.invoice_date = parse_invoice_date(invoice.invoice_date_raw)
     if 'farmer_id' in values:
         farmer_id = str(values.get('farmer_id') or '').strip()
-        farmer = JawabuFarmerMaster.objects.filter(pk=farmer_id, status='active').first() if farmer_id else None
+        farmer = JawabuFarmerMaster.objects.select_for_update().filter(pk=farmer_id, status='active').first() if farmer_id else None
         if farmer_id and not farmer:
             raise ValueError('Selected farmer was not found.')
+        if farmer:
+            require_official_requisition(farmer, lock=True)
         invoice.proposed_farmer = farmer
         invoice.proposed_order_number = farmer.order_number if farmer else ''
     if 'ignored' in values:
@@ -889,6 +986,8 @@ def confirm_invoice_batch(batch: InvoiceUploadBatch, *, actor: str = '') -> Invo
         if len(farmer_ids) != len(set(farmer_ids)):
             raise ValueError('Two invoices in this batch propose the same farmer. Resolve the duplicate before confirming.')
         farmers = {f.id: f for f in JawabuFarmerMaster.objects.select_for_update().filter(id__in=farmer_ids)}
+        for farmer in farmers.values():
+            require_official_requisition(farmer, lock=True)
         for invoice in invoices:
             if invoice.status == 'ignored':
                 continue
@@ -991,12 +1090,13 @@ def manually_match_invoice(invoice: ParsedInvoice, farmer: JawabuFarmerMaster, *
     with transaction.atomic():
         invoice = ParsedInvoice.objects.select_for_update().select_related('batch').get(pk=invoice.pk)
         farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=farmer.pk)
+        eligibility = require_official_requisition(farmer, lock=True)
         _apply_invoice_to_farmer(farmer, invoice)
         note_text = str(note or '').strip()
         actor_text = str(actor or 'portal').strip()
         invoice.status = 'matched'
         invoice.matched_farmer = farmer
-        invoice.matched_order_number = farmer.order_number or ''
+        invoice.matched_order_number = eligibility['order_number']
         invoice.review_notes = f"Manually matched by {actor_text}." + (f" {note_text}" if note_text else '')
         invoice.revision += 1
         invoice.save(update_fields=[
@@ -1119,6 +1219,7 @@ def match_and_update_invoices(order_number: str, pdf_bytes: bytes) -> dict:
         order_number=order_number,
         status='active'
     ))
+    farmers = [farmer for farmer in farmers if official_requisition_eligibility(farmer)['eligible']]
 
     logger.info("Invoice upload parsed %s invoice(s) for order %s", len(invoices), order_number)
     logger.info("Invoice upload candidate farmer count for order %s: %s", order_number, len(farmers))
@@ -1132,6 +1233,8 @@ def match_and_update_invoices(order_number: str, pdf_bytes: bytes) -> dict:
         if matched_farmer:
             try:
                 with transaction.atomic():
+                    matched_farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=matched_farmer.pk)
+                    require_official_requisition(matched_farmer, lock=True)
                     matched_farmer.invoice_number = inv["invoice_no"]
                     matched_farmer.invoice_date = parse_invoice_date(inv["invoice_date"])
                     matched_farmer.invoice_amount = clean_amount(inv["invoice_amount"])

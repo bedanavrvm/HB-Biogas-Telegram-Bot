@@ -29,6 +29,7 @@ from core.services.template_storage import GoogleDriveTemplateStorage, TemplateS
 
 
 DOCX_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+PREVIEW_RENDERER_VERSION = 2
 WORD_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 W = f'{{{WORD_NS}}}'
 
@@ -413,6 +414,7 @@ def generate_letter_artifact(
                 payload_snapshot={
                     'date': globals_['date'], 'signatory': actor,
                     'rows': readiness['rows'], 'template_checksum': template_checksum,
+                    'preview_renderer_version': PREVIEW_RENDERER_VERSION,
                 },
                 generated_by=actor, client_request_id=request_id,
             )
@@ -437,7 +439,22 @@ def generate_letter_artifact(
 
 def artifact_is_current(artifact: InvoiceNameChangeLetterArtifact) -> bool:
     rows, blockers = _canonical_rows(artifact.batch)
-    return not blockers and artifact.source_fingerprint == source_fingerprint(rows)
+    active_template = InvoiceNameChangeLetterTemplate.objects.filter(
+        template_key=InvoiceNameChangeLetterTemplate.TEMPLATE_KEY,
+        is_active=True,
+    ).first()
+    return bool(
+        not blockers
+        and artifact.source_fingerprint == source_fingerprint(rows)
+        and active_template
+        and artifact.template_id == active_template.id
+        and (
+            not active_template.checksum
+            or artifact.template_checksum == active_template.checksum
+        )
+        and int((artifact.payload_snapshot or {}).get('preview_renderer_version') or 0)
+        == PREVIEW_RENDERER_VERSION
+    )
 
 
 def serialize_artifact(artifact: InvoiceNameChangeLetterArtifact | None) -> dict | None:

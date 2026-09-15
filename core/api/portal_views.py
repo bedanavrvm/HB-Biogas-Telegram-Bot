@@ -863,11 +863,11 @@ def _jbl_media_access_audit_error(
     return None
 
 
-def _portal_pdf_preview_html(content: bytes, filename: str) -> bytes:
+def _portal_pdf_preview_html(content: bytes, filename: str, **options) -> bytes:
     """Compatibility wrapper around the shared Telegram-safe PDF renderer."""
     from core.services.secure_media_preview import pdf_preview_html
 
-    return pdf_preview_html(content, filename)
+    return pdf_preview_html(content, filename, **options)
 
 
 def _upload_generated_workbook_to_drive(data: bytes, filename: str, order_number: str) -> tuple[str, str]:
@@ -5091,6 +5091,22 @@ def _portal_payment_batch_error(exc):
     return None
 
 
+def _invoice_domain_error_response(request, exc):
+    """Expose only reviewed invoice-domain guidance with a stable code."""
+    from core.services.miniapp_messages import miniapp_error_response
+
+    code = str(getattr(exc, 'code', '') or 'invalid_request')
+    status = int(getattr(exc, 'status', 400) or 400)
+    return miniapp_error_response(
+        request,
+        code,
+        workflow='portal',
+        status=status,
+        user_message=str(exc),
+        developer_message=code,
+    )
+
+
 @csrf_exempt
 @require_http_methods(['GET', 'POST'])
 def portal_payment_batches(request):
@@ -6339,7 +6355,7 @@ def _serialize_parsed_invoice(
 @require_http_methods(["PATCH", "POST"])
 def portal_invoice_draft_edit(request, invoice_id: str):
     from core.models import ParsedInvoice
-    from core.services.invoice_parser import edit_draft_invoice
+    from core.services.invoice_parser import InvoiceMatchEligibilityError, edit_draft_invoice
 
     try:
         payload = json.loads(request.body or b'{}')
@@ -6350,6 +6366,8 @@ def portal_invoice_draft_edit(request, invoice_id: str):
         invoice = edit_draft_invoice(invoice, payload, actor=_portal_sender_from_request(request))
     except ParsedInvoice.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Invoice draft not found.'}, status=404)
+    except InvoiceMatchEligibilityError as exc:
+        return _invoice_domain_error_response(request, exc)
     except (ValueError, json.JSONDecodeError) as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     return JsonResponse({'ok': True, 'invoice': _serialize_parsed_invoice(invoice)})
@@ -6359,7 +6377,7 @@ def portal_invoice_draft_edit(request, invoice_id: str):
 @require_http_methods(["POST"])
 def portal_invoice_batch_confirm(request, batch_id: str):
     from core.models import InvoiceUploadBatch
-    from core.services.invoice_parser import confirm_invoice_batch
+    from core.services.invoice_parser import InvoiceMatchEligibilityError, confirm_invoice_batch
 
     try:
         batch = InvoiceUploadBatch.objects.get(pk=batch_id)
@@ -6373,6 +6391,8 @@ def portal_invoice_batch_confirm(request, batch_id: str):
         batch = confirm_invoice_batch(batch, actor=_portal_sender_from_request(request))
     except InvoiceUploadBatch.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Invoice batch not found.'}, status=404)
+    except InvoiceMatchEligibilityError as exc:
+        return _invoice_domain_error_response(request, exc)
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     affected_farmers = [
@@ -6680,6 +6700,7 @@ def portal_invoice_farmer_candidates(request):
     from core.models import JawabuFarmerMaster
     from core.services.identifiers import normalize_kenyan_phone, normalize_national_id
     from core.services.invoice_identity import normalize_person_name
+    from core.services.invoice_parser import official_requisition_eligibility
 
     access_error = _portal_read_access_error(request, capability='portal.invoice.view')
     if access_error:
@@ -6772,10 +6793,10 @@ def portal_invoice_farmer_candidates(request):
         points, reasons, tier = score(farmer)
         scored.append((points, farmer.customer_name or '', farmer, reasons, tier))
     scored.sort(key=lambda item: (-item[0], item[1]))
-    return JsonResponse({
-        'ok': True,
-        'farmers': [
-            {
+    candidate_rows = []
+    for points, _name, farmer, reasons, tier in scored[:15]:
+        eligibility = official_requisition_eligibility(farmer)
+        candidate_rows.append({
                 'id': str(farmer.id),
                 'customer_name': farmer.customer_name,
                 'national_id': farmer.national_id,
@@ -6794,9 +6815,13 @@ def portal_invoice_farmer_candidates(request):
                 'match_reasons': reasons,
                 'match_tier': tier,
                 'candidate_scope': candidate_scope,
-            }
-            for points, _name, farmer, reasons, tier in scored[:15]
-        ],
+                'match_eligibility': eligibility,
+                'selectable': eligibility['eligible'],
+                'status_note': eligibility['message'],
+            })
+    return JsonResponse({
+        'ok': True,
+        'farmers': candidate_rows,
         'candidate_scope': candidate_scope,
         'historical_search': candidate_scope == 'historical',
     })
@@ -6814,7 +6839,7 @@ def _json_body(request) -> dict:
 def portal_invoice_match(request, invoice_id: str):
     """Manually link a parsed invoice to the correct farmer/order record."""
     from core.models import JawabuFarmerMaster, ParsedInvoice
-    from core.services.invoice_parser import manually_match_invoice
+    from core.services.invoice_parser import InvoiceMatchEligibilityError, manually_match_invoice
 
     body = _json_body(request)
     farmer_id = str(body.get('farmer_id') or '').strip()
@@ -6834,6 +6859,8 @@ def portal_invoice_match(request, invoice_id: str):
 
     try:
         invoice = manually_match_invoice(invoice, farmer, actor=_portal_sender_from_request(request), note=note)
+    except InvoiceMatchEligibilityError as exc:
+        return _invoice_domain_error_response(request, exc)
     except Exception as exc:
         logger.exception("Manual invoice match failed")
         return JsonResponse({'ok': False, 'error': 'Manual invoice matching failed. Retry or contact an administrator.'}, status=500)
@@ -6892,6 +6919,7 @@ def portal_invoice_name_change_create(request, invoice_id: str):
     from core.services.invoice_identity import (
         InvoiceCorrectionConflict, serialize_name_change_item, start_invoice_correction,
     )
+    from core.services.invoice_parser import InvoiceMatchEligibilityError
     from core.services.invoice_name_change_letters import InvoiceNameChangeLetterError, generate_letter_artifact
 
     body = _json_body(request)
@@ -6923,6 +6951,8 @@ def portal_invoice_name_change_create(request, invoice_id: str):
             {'ok': False, 'error': str(exc), 'invoice': _serialize_parsed_invoice(invoice)},
             status=409,
         )
+    except InvoiceMatchEligibilityError as exc:
+        return _invoice_domain_error_response(request, exc)
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     letter_warning = ''
@@ -7191,7 +7221,9 @@ def portal_invoice_name_change_follow_up(request, item_id: str):
 def portal_invoice_name_change_replacement_candidates(request, item_id: str):
     from django.db.models import Q
     from core.models import InvoiceNameChangeItem, ParsedInvoice
-    from core.services.identifiers import normalize_national_id
+    from core.services.identifiers import normalize_kenyan_phone, normalize_national_id
+    from core.services.invoice_identity import applicant_identity, normalize_person_name
+    from core.services.invoice_parser import official_requisition_eligibility
 
     item = InvoiceNameChangeItem.objects.select_related('farmer', 'original_invoice').filter(pk=item_id).first()
     if not item:
@@ -7207,28 +7239,63 @@ def portal_invoice_name_change_replacement_candidates(request, item_id: str):
             | Q(customer_id__icontains=search) | Q(customer_phone__icontains=search)
         )
     expected_id = normalize_national_id(item.farmer.national_id)
+    expected_name = normalize_person_name(applicant_identity(item.farmer)['name'])
+    expected_phone = normalize_kenyan_phone(item.farmer.primary_phone)
+    applicant_eligibility = official_requisition_eligibility(item.farmer)
     rows = []
     for invoice in invoices.order_by('-created_at')[:100]:
         id_match = bool(expected_id and normalize_national_id(invoice.customer_id) == expected_id)
+        name_match = bool(expected_name and normalize_person_name(invoice.customer_name) == expected_name)
+        invoice_phone = normalize_kenyan_phone(invoice.customer_phone)
+        phone_match = bool(expected_phone and invoice_phone and invoice_phone == expected_phone)
         conflict = bool(invoice.matched_farmer_id and invoice.matched_farmer_id != item.farmer_id)
+        upload_order = str(invoice.batch.order_number or '').strip()
+        order_mismatch = bool(
+            upload_order and upload_order != applicant_eligibility.get('order_number', '')
+        )
+        blockers = []
+        if not applicant_eligibility['eligible']:
+            blockers.append(applicant_eligibility['message'])
+        if conflict:
+            blockers.append('This invoice is already matched to another applicant.')
+        if invoice.status not in {'draft', 'unmatched', 'ambiguous', 'ignored', 'matched'}:
+            blockers.append('This invoice is not available for matching.')
+        if not id_match:
+            blockers.append('The national ID does not match the applicant.')
+        if not name_match:
+            blockers.append('The name does not match the applicant.')
+        if order_mismatch:
+            blockers.append('This invoice was uploaded for a different order.')
+        warnings = []
+        if id_match and name_match and expected_phone and invoice_phone and not phone_match:
+            warnings.append('The phone number differs. Add a verification note when confirming.')
         rows.append({
             'invoice': _serialize_parsed_invoice(invoice),
             'id_match': id_match,
+            'name_match': name_match,
+            'phone_match': phone_match,
             'conflict': conflict,
-            'selectable': not conflict and invoice.status in {'draft', 'unmatched', 'ambiguous', 'ignored', 'matched'},
-            'status_note': (
-                f'Matched to {invoice.matched_farmer.customer_name}' if conflict
+            'blockers': blockers,
+            'warnings': warnings,
+            'selectable': not blockers,
+            'status_note': blockers[0] if blockers else (
+                warnings[0] if warnings
                 else 'Ignored - will be restored on confirmation' if invoice.status == 'ignored'
                 else 'Already matched to this applicant' if invoice.matched_farmer_id == item.farmer_id
-                else ''
+                else 'Applicant ID and name match.'
             ),
         })
     # Python's sort is stable, so equally ranked results retain the queryset's
     # newest-first order instead of quietly preferring an older upload.
     rows.sort(key=lambda row: (
-        not row['id_match'], row['conflict'], row['invoice']['status'] != 'unmatched',
+        not row['selectable'], not row['id_match'], not row['name_match'],
+        row['conflict'], row['invoice']['status'] != 'unmatched',
     ))
-    return JsonResponse({'ok': True, 'candidates': rows[:30]})
+    return JsonResponse({
+        'ok': True,
+        'candidates': rows[:30],
+        'applicant_eligibility': applicant_eligibility,
+    })
 
 
 @csrf_exempt
@@ -7359,6 +7426,8 @@ def portal_invoice_name_change_preview(request, token: str):
         content = _portal_pdf_preview_html(
             bytes(artifact.preview_file_content),
             artifact.preview_filename or artifact.filename.replace('.docx', '.pdf'),
+            show_filename=False,
+            show_single_page_caption=False,
         )
     except Exception:
         logger.exception('Could not render invoice-name-change preview artifact_id=%s', artifact.pk)
@@ -7453,7 +7522,7 @@ def portal_invoice_name_change_replacement(request, item_id: str):
             verification_note=str(body.get('verification_note') or ''),
         )
     except ValueError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return _invoice_domain_error_response(request, exc)
     return JsonResponse({'ok': True, 'name_change': serialize_name_change_item(item)})
 
 

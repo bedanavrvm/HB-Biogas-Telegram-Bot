@@ -131,7 +131,37 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
             'payment_product': 'BIOGAS PREMIUM',
         }
         data.update(overrides)
-        return JawabuFarmerMaster.objects.create(**data)
+        farmer = JawabuFarmerMaster.objects.create(**data)
+        if farmer.order_number and farmer.requisition_date:
+            batch, _created = RequisitionBatch.objects.get_or_create(
+                order_number=farmer.order_number,
+                defaults={
+                    'version': 1,
+                    'requisition_date': farmer.requisition_date,
+                    'finalized_at': timezone.now(),
+                    'farmer_ids': [],
+                    'farmer_count': 0,
+                    'file_content': b'official-requisition-fixture',
+                    'content_checksum': 'official-requisition-fixture-checksum',
+                    'status': 'generated',
+                },
+            )
+            member_ids = [str(value) for value in (batch.farmer_ids or [])]
+            if str(farmer.id) not in member_ids:
+                member_ids.append(str(farmer.id))
+                batch.farmer_ids = member_ids
+                batch.farmer_count = len(member_ids)
+                batch.requisition_date = farmer.requisition_date
+                batch.version = max(1, batch.version)
+                batch.finalized_at = batch.finalized_at or timezone.now()
+                batch.file_content = batch.file_content or b'official-requisition-fixture'
+                batch.content_checksum = batch.content_checksum or 'official-requisition-fixture-checksum'
+                batch.status = 'generated'
+                batch.save(update_fields=[
+                    'farmer_ids', 'farmer_count', 'requisition_date', 'version',
+                    'finalized_at', 'file_content', 'content_checksum', 'status', 'updated_at',
+                ])
+        return farmer
 
     def invoice_batch(self, farmer=None):
         batch = InvoiceUploadBatch.objects.create(
@@ -489,6 +519,29 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
             mock_reserve_publication.call_args.kwargs['request_id'],
             f'invoice-match:{invoice.id}:{farmer.id}',
         )
+
+    def test_manual_invoice_match_rejects_client_without_finalized_order_with_named_error(self):
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Not Yet Ordered', national_id='77889900',
+            primary_phone='254711222333', order_number='ORDER-NOT-FINAL',
+            requisition_date=date(2026, 9, 15), status='active',
+        )
+        invoice = self.invoice_batch().invoices.get()
+
+        response = self.client.post(
+            reverse('portal_invoice_match', args=[str(invoice.id)]),
+            data=json.dumps({'farmer_id': str(farmer.id)}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()['code'], 'invoice_client_not_requisitioned')
+        self.assertIn('no finalized requisition/order', response.json()['message'])
+        invoice.refresh_from_db()
+        farmer.refresh_from_db()
+        self.assertEqual(invoice.status, 'unmatched')
+        self.assertIsNone(invoice.matched_farmer_id)
+        self.assertEqual(farmer.invoice_number, '')
 
     @patch('core.services.invoice_parser.reserve_farmer_publication')
     def test_manual_invoice_unmatch_endpoint_clears_linked_farmer_invoice_fields(self, mock_reserve_publication):
@@ -875,19 +928,15 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
 
     def test_batch_detail_uses_live_invoice_count_over_stored_snapshot(self):
         farmer = self.farmer()
-        RequisitionBatch.objects.create(
-            order_number='ORDER-001',
-            requisition_date=date(2026, 7, 23),
-            farmer_ids=[str(farmer.id)],
-            farmer_count=1,
-            invoice_summary={
-                'invoiced_count': 0,
-                'pending_invoice_count': 1,
-                'last_invoice_upload_status': 'success',
-                'last_invoice_upload_error': '',
-                'invoice_batch_id': 'upload-001',
-            },
-        )
+        requisition = RequisitionBatch.objects.get(order_number='ORDER-001')
+        requisition.invoice_summary = {
+            'invoiced_count': 0,
+            'pending_invoice_count': 1,
+            'last_invoice_upload_status': 'success',
+            'last_invoice_upload_error': '',
+            'invoice_batch_id': 'upload-001',
+        }
+        requisition.save(update_fields=['invoice_summary', 'updated_at'])
 
         response = self.client.get(reverse('portal_requisition_batch_detail', args=['ORDER-001']))
 

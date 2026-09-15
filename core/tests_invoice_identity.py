@@ -3,11 +3,12 @@ from decimal import Decimal
 
 from django.db import connection
 from django.test import TestCase
+from django.utils import timezone
 from django.test.utils import CaptureQueriesContext
 
 from core.models import (
     InvoiceIdentityReview, InvoiceUploadBatch, JawabuDataQualityIssue,
-    JawabuFarmerMaster, JawabuRelatedPerson, ParsedInvoice,
+    JawabuFarmerMaster, JawabuRelatedPerson, ParsedInvoice, RequisitionBatch,
 )
 from core.services.invoice_identity import (
     InvoiceCorrectionConflict,
@@ -24,6 +25,11 @@ from core.services.invoice_identity import (
     mark_name_change_sent,
     start_invoice_correction,
 )
+from core.services.invoice_parser import (
+    InvoiceMatchEligibilityError,
+    manually_match_invoice,
+    official_requisition_eligibility,
+)
 from core.services.payment_documents import payment_readiness
 
 
@@ -36,7 +42,15 @@ class InvoiceIdentityWorkflowTests(TestCase):
             primary_phone='0712345678',
             customer_no='C-1',
             order_number='ORDER-1',
+            requisition_date=date(2026, 9, 1),
             status='active',
+        )
+        RequisitionBatch.objects.create(
+            order_number='ORDER-1', version=1,
+            requisition_date=self.farmer.requisition_date,
+            finalized_at=timezone.now(), farmer_ids=[str(self.farmer.id)],
+            farmer_count=1, file_content=b'official-workbook',
+            content_checksum='official-checksum', status='generated',
         )
         self.batch = InvoiceUploadBatch.objects.create(original_filename='invoice.pdf', status='parsed')
 
@@ -162,6 +176,57 @@ class InvoiceIdentityWorkflowTests(TestCase):
         ]
         self.assertTrue(locked_entity_reads)
         self.assertFalse(any('LEFT OUTER JOIN' in query for query in locked_entity_reads))
+
+    def test_invoice_match_requires_membership_in_a_finalized_requisition(self):
+        eligible = official_requisition_eligibility(self.farmer)
+        self.assertTrue(eligible['eligible'])
+
+        RequisitionBatch.objects.filter(order_number=self.farmer.order_number).update(farmer_ids=[])
+        mismatch = official_requisition_eligibility(self.farmer)
+        self.assertFalse(mismatch['eligible'])
+        self.assertEqual(mismatch['code'], 'invoice_requisition_mismatch')
+
+        invoice = self.invoice(status='unmatched', matched_farmer=None, matched_order_number='')
+        with self.assertRaisesMessage(InvoiceMatchEligibilityError, 'finalized requisition membership'):
+            manually_match_invoice(invoice, self.farmer, actor='Operations')
+        invoice.refresh_from_db()
+        self.farmer.refresh_from_db()
+        self.assertEqual(invoice.status, 'unmatched')
+        self.assertIsNone(invoice.matched_farmer_id)
+        self.assertEqual(self.farmer.invoice_number, '')
+
+    def test_replacement_requires_exact_name_and_phone_difference_note(self):
+        original = self.invoice(customer_id='87654321', customer_name='Jane Wanjiku', customer_phone='0700000000')
+        item = start_invoice_correction(
+            original, actor='Operations', relationship_type='spouse', explanation='', confirmed=True,
+            expected_invoice_revision=original.revision,
+            expected_application_revision=self.farmer.workflow_revision,
+            client_request_id='replacement-identity-rules',
+        )
+        item.batch.legacy_manual_letter_allowed = True
+        item.batch.save(update_fields=['legacy_manual_letter_allowed', 'updated_at'])
+        mark_name_change_sent(
+            item.batch, actor='Operations', letter_reference='letter-rules', sent_reference='HB-email-rules',
+        )
+        wrong_name = self.invoice(
+            invoice_no='INV-WRONG-NAME', customer_name='Mary Wanjiko', customer_id='12345678',
+            status='unmatched', matched_farmer=None, matched_order_number='',
+        )
+        with self.assertRaisesMessage(ValueError, 'name does not match'):
+            confirm_replacement(item, wrong_name, actor='Operations')
+
+        phone_difference = self.invoice(
+            invoice_no='INV-PHONE', customer_name='Mary Wanjiku', customer_id='12345678',
+            customer_phone='0700111222', status='unmatched', matched_farmer=None, matched_order_number='',
+        )
+        with self.assertRaisesMessage(ValueError, 'phone-number difference'):
+            confirm_replacement(item, phone_difference, actor='Operations')
+
+        confirmed = confirm_replacement(
+            item, phone_difference, actor='Operations',
+            verification_note='Confirmed the alternate number with the applicant.',
+        )
+        self.assertEqual(confirmed.status, 'completed')
 
     def test_missing_invoice_id_stays_blocked_for_manual_verification(self):
         invoice = self.invoice(customer_id='')

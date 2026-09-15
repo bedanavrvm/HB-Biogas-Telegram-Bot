@@ -2,11 +2,13 @@ import io
 import hashlib
 import json
 import zipfile
+from datetime import date
 from xml.etree import ElementTree as ET
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.signing import TimestampSigner
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 from unittest.mock import patch
 
 from decimal import Decimal
@@ -14,7 +16,7 @@ from pypdf import PdfReader
 
 from core.models import (
     InvoiceNameChangeLetterTemplate, InvoiceUploadBatch,
-    JawabuFarmerMaster, ParsedInvoice,
+    JawabuFarmerMaster, ParsedInvoice, RequisitionBatch,
 )
 from core.services.invoice_identity import (
     correct_sent_name_change, create_name_change, decide_identity_review,
@@ -70,6 +72,28 @@ def synthetic_letter(*, omit_token='') -> bytes:
         archive.writestr('word/document.xml', document)
         archive.writestr('word/header1.xml', b'unchanged-header')
         archive.writestr('word/media/image1.jpg', b'unchanged-logo')
+    return output.getvalue()
+
+
+def synthetic_letter_with_link_field() -> bytes:
+    source = synthetic_letter()
+    with zipfile.ZipFile(io.BytesIO(source)) as archive:
+        parts = {name: archive.read(name) for name in archive.namelist()}
+    document = parts['word/document.xml'].decode('utf-8')
+    linked_value = (
+        '<w:p>'
+        '<w:r><w:fldChar w:fldCharType="begin"/></w:r>'
+        '<w:r><w:instrText xml:space="preserve"> LINK Excel.Sheet.12 "C:\\Users\\Officer\\Desktop\\client-list.xlsx" "Sheet1!R1C1" \\a \\f 4 \\h MERGEFORMAT </w:instrText></w:r>'
+        '<w:r><w:fldChar w:fldCharType="separate"/></w:r>'
+        '<w:r><w:t>VISIBLE CLIENT VALUE</w:t></w:r>'
+        '<w:r><w:fldChar w:fldCharType="end"/></w:r>'
+        '</w:p>'
+    )
+    parts['word/document.xml'] = document.replace('<w:sectPr/>', linked_value + '<w:sectPr/>').encode('utf-8')
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, 'w') as archive:
+        for name, content in parts.items():
+            archive.writestr(name, content)
     return output.getvalue()
 
 
@@ -134,6 +158,15 @@ class InvoiceNameChangeDocxTests(SimpleTestCase):
         self.assertIn('MARY', text)
         self.assertIn('Operations User', text)
 
+    def test_preview_renders_field_result_without_leaking_word_link_instructions(self):
+        preview = render_docx_pdf(synthetic_letter_with_link_field())
+        text = ' '.join(page.extract_text() or '' for page in PdfReader(io.BytesIO(preview)).pages)
+
+        self.assertIn('VISIBLE CLIENT VALUE', text)
+        self.assertNotIn('MERGEFORMAT', text)
+        self.assertNotIn('LINK Excel', text)
+        self.assertNotIn('client-list.xlsx', text)
+
     def test_missing_required_placeholder_is_rejected(self):
         with self.assertRaisesMessage(InvoiceNameChangeLetterError, 'sales_person'):
             inspect_template(synthetic_letter(omit_token='sales_person'))
@@ -150,7 +183,14 @@ class InvoiceNameChangeArtifactTests(TestCase):
             customer_name='Mary Wanjiku', imab_customer_name='MARY WANJIKU',
             national_id='12345678', primary_phone='0712345678',
             hb_sales_person='Jawabu Sales One', customer_no='C-1',
-            order_number='ORDER-1', status='active',
+            order_number='ORDER-1', requisition_date=date(2026, 9, 1), status='active',
+        )
+        RequisitionBatch.objects.create(
+            order_number='ORDER-1', version=1,
+            requisition_date=self.farmer.requisition_date,
+            finalized_at=timezone.now(), farmer_ids=[str(self.farmer.id)],
+            farmer_count=1, file_content=b'official-workbook',
+            content_checksum='official-checksum', status='generated',
         )
         upload = InvoiceUploadBatch.objects.create(original_filename='invoice.pdf', status='parsed')
         invoice = ParsedInvoice.objects.create(

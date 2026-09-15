@@ -104,6 +104,11 @@ def _image_html(archive: zipfile.ZipFile, relationships: dict[str, str], run: ET
 
 def _run_html(archive: zipfile.ZipFile, relationships: dict[str, str], run: ET.Element) -> str:
     properties = run.find(f'{W}rPr')
+    if properties is not None and (
+        properties.find(f'{W}vanish') is not None
+        or properties.find(f'{W}webHidden') is not None
+    ):
+        return ''
     styles: list[str] = []
     if properties is not None:
         if properties.find(f'{W}b') is not None:
@@ -117,7 +122,9 @@ def _run_html(archive: zipfile.ZipFile, relationships: dict[str, str], run: ET.E
             styles.append(f'font-size:{max(7, min(30, int(size) / 2))}pt')
     parts: list[str] = []
     for node in run.iter():
-        if node.tag in {f'{W}t', f'{W}instrText'}:
+        # ``instrText`` is Word field source code (for example a LINK to the
+        # spreadsheet used to build the template), never letter content.
+        if node.tag == f'{W}t':
             parts.append(html.escape(node.text or ''))
         elif node.tag == f'{W}tab':
             parts.append('&emsp;')
@@ -135,7 +142,34 @@ def _paragraph_html(archive: zipfile.ZipFile, relationships: dict[str, str], par
     properties = paragraph.find(f'{W}pPr')
     alignment = _property_value(properties, 'jc')
     css_alignment = {'center': 'center', 'right': 'right', 'both': 'justify'}.get(alignment, 'left')
-    runs = ''.join(_run_html(archive, relationships, run) for run in paragraph.iter(f'{W}r'))
+    deleted_runs = {
+        id(run)
+        for deleted in paragraph.iter(f'{W}del')
+        for run in deleted.iter(f'{W}r')
+    }
+    field_stack: list[bool] = []
+    rendered_runs: list[str] = []
+    for run in paragraph.iter(f'{W}r'):
+        if id(run) in deleted_runs:
+            continue
+        markers = [
+            str(node.attrib.get(f'{W}fldCharType') or node.attrib.get(f'{W}type') or '')
+            for node in run.iter(f'{W}fldChar')
+        ]
+        for marker in markers:
+            if marker == 'begin':
+                field_stack.append(False)
+            elif marker == 'separate' and field_stack:
+                field_stack[-1] = True
+        # Outside a field all text is visible. Inside a field only its cached
+        # result, after ``separate``, is visible. This keeps the actual value
+        # while suppressing LINK/MERGEFORMAT instructions and local paths.
+        if not field_stack or all(field_stack):
+            rendered_runs.append(_run_html(archive, relationships, run))
+        for marker in markers:
+            if marker == 'end' and field_stack:
+                field_stack.pop()
+    runs = ''.join(rendered_runs)
     return f'<p style="text-align:{css_alignment}">{runs or "&nbsp;"}</p>'
 
 
@@ -232,4 +266,11 @@ def render_docx_pdf(data: bytes, *, expected_values: list[str] | None = None) ->
         missing = [value for value in expected_values if _normalise_text(value) not in extracted]
         if missing:
             raise DocxPreviewError('The generated preview did not retain every governed letter value.')
+    extracted_text = ' '.join(page.extract_text() or '' for page in PdfReader(io.BytesIO(pdf)).pages)
+    leaked_field_code = re.search(
+        r'(?i)(MERGEFORMAT|LINK\s+(?:Excel|Word)|[A-Z]:\\[^\n]+\.(?:xlsx?|docx?))',
+        extracted_text,
+    )
+    if leaked_field_code:
+        raise DocxPreviewError('The generated preview contains hidden template instructions. Repair the letter template and try again.')
     return pdf
