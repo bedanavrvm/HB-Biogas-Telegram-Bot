@@ -10,7 +10,11 @@ from core.services.database_catalog import database_catalog, table_comment
 class DatabaseCatalogueTests(SimpleTestCase):
     def test_every_core_model_has_complete_catalogue_metadata(self):
         entries = database_catalog(include_usage=False)
-        models = list(apps.get_app_config('core').get_models())
+        models = [
+            model
+            for app_label in ('core', 'requisitions', 'payments')
+            for model in apps.get_app_config(app_label).get_models()
+        ]
 
         self.assertEqual(len(entries), len(models))
         self.assertEqual(len({item['table'] for item in entries}), len(models))

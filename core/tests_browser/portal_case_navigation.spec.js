@@ -168,7 +168,8 @@ test('Portal unfinished visit and local media survive inspection; nested Back cl
   await page.goBack();
   await expect(page).toHaveURL(/\/cases\/case-1/);
   await expect(page.locator('#media-viewer-overlay')).not.toHaveClass(/open/);
-  await page.locator('.case-history-action').click();
+  await expect(page.locator('.case-history-back')).toHaveAttribute('aria-label', 'Back to JBL Visit');
+  await page.locator('.case-history-back').click();
   await expect(page.locator('#btn-submit-jbl')).toBeVisible();
   await expect(page.locator('#jbl-comment')).toHaveValue('Synthetic unfinished visit notes');
   await expect(page.locator('#jbl-visit-photo-media-name')).toContainText('1 selected');

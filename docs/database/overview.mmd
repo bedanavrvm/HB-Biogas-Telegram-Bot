@@ -7,7 +7,9 @@ flowchart LR
   jawabu["Jawabu"]
   order_approval["Order Approval"]
   origination["Origination"]
+  payments["Payments"]
   platform["Platform"]
+  requisitions["Requisitions"]
   spin["Spin"]
   tat["Tat"]
   access --> catalog
@@ -18,11 +20,15 @@ flowchart LR
   integration --> platform
   jawabu --> catalog
   jawabu --> order_approval
+  jawabu --> platform
   order_approval --> catalog
   order_approval --> jawabu
   origination --> catalog
   origination --> jawabu
+  payments --> jawabu
+  payments --> platform
   platform --> jawabu
+  requisitions --> platform
   spin --> catalog
   tat --> catalog
   tat --> platform

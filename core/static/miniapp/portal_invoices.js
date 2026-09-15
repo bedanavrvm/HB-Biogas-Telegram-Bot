@@ -1095,6 +1095,16 @@
   function bindUpload() {
     if (document.documentElement.dataset.invoicePoolUploadBound === 'true') return;
     document.documentElement.dataset.invoicePoolUploadBound = 'true';
+    document.addEventListener('change', function (event) {
+      if (event.target.id !== 'invoice-pool-file') return;
+      const files = event.target.files ? Array.from(event.target.files) : [];
+      const dropzone = document.getElementById('invoice-pool-dropzone');
+      const title = document.getElementById('invoice-pool-file-title');
+      const detail = document.getElementById('invoice-pool-file-detail');
+      dropzone?.classList.toggle('has-selection', files.length > 0);
+      if (title) title.textContent = files.length ? (files.length === 1 ? files[0].name : files.length + ' invoice PDFs selected') : 'Upload invoice PDFs';
+      if (detail) detail.textContent = files.length > 1 ? files.slice(0, 3).map(function (file) { return file.name; }).join(' · ') : (files.length ? 'Ready to upload and parse' : 'Tap to select one or more PDF files');
+    });
     document.addEventListener('submit', async function (event) {
       const form = event.target.closest('#invoice-pool-upload-form');
       if (!form) return;
@@ -1115,29 +1125,42 @@
         formData.append('file', file);
       });
       if (deps.setButtonLoading) deps.setButtonLoading(submit, true, files.length > 1 ? 'Uploading PDFs...' : 'Uploading...');
-      const response = await deps.portalApi.postForm('/invoice-pool/upload/', formData, deps.tg, csrfHeader());
-      if (deps.setButtonLoading) deps.setButtonLoading(submit, false);
-      const data = response.data || {};
-      if (!response.ok || data.ok === false) {
-        const failures = Array.isArray(data.failures) ? data.failures : [];
-        const failureHtml = failures.length
-          ? '<ul class="mini-list">' + failures.map(function (item) {
-              return '<li><strong>' + escapeHtml(item.filename || 'PDF') + ':</strong> ' + escapeHtml(item.error || 'Upload failed') + '</li>';
-            }).join('') + '</ul>'
-          : '';
-        if (resultBox) resultBox.innerHTML = '<div class="batch-warning" style="margin-top:10px;">' + escapeHtml(data.error || 'Invoice upload failed.') + failureHtml + '</div>';
-        deps.showToast(data.error || 'Invoice upload failed.', 'error');
-        return;
+      try {
+        const response = await deps.portalApi.postForm('/invoice-pool/upload/', formData, deps.tg, csrfHeader());
+        const data = response.data || {};
+        if (!response.ok || data.ok === false) {
+          const failures = Array.isArray(data.failures) ? data.failures : [];
+          const failureHtml = failures.length
+            ? '<ul class="mini-list">' + failures.map(function (item) {
+                return '<li><strong>' + escapeHtml(item.filename || 'PDF') + ':</strong> ' + escapeHtml(item.error || 'Upload failed') + '</li>';
+              }).join('') + '</ul>'
+            : '';
+          if (resultBox) resultBox.innerHTML = '<div class="batch-warning" style="margin-top:10px;">' + escapeHtml(data.error || 'Invoice upload failed.') + failureHtml + '</div>';
+          deps.showToast(data.error || 'Invoice upload failed.', 'error');
+          return;
+        }
+        if (fileInput) fileInput.value = '';
+        const dropzone = document.getElementById('invoice-pool-dropzone');
+        dropzone?.classList.remove('has-selection');
+        dropzone?.classList.add('upload-complete');
+        const title = document.getElementById('invoice-pool-file-title');
+        const detail = document.getElementById('invoice-pool-file-detail');
+        if (title) title.textContent = files.length > 1 ? files.length + ' invoice PDFs uploaded' : (files[0]?.name || 'Invoice PDF') + ' uploaded';
+        if (detail) detail.textContent = 'Tap to select another invoice PDF';
+        if (resultBox) {
+          const uploaded = data.total_uploaded || 1;
+          const failed = data.total_failed || 0;
+          const failedBadge = failed ? ' <span class="badge badge-red">' + escapeHtml(failed) + ' failed</span>' : '';
+          resultBox.innerHTML = '<span class="badge badge-green">Uploaded ' + escapeHtml(uploaded) + ' PDF(s)</span> <span class="badge badge-blue">Parsed ' + escapeHtml(data.total_parsed || 0) + ' invoice(s)</span> <span class="badge badge-orange">' + escapeHtml(data.unmatched_count || 0) + ' unmatched</span>' + failedBadge;
+        }
+        deps.showToast(files.length > 1 ? 'Invoices uploaded to pool.' : 'Invoice uploaded to pool.', 'success');
+        load(1);
+      } catch (error) {
+        if (resultBox) resultBox.innerHTML = '<div class="batch-warning" style="margin-top:10px;">The invoice upload did not finish. Check your connection and retry.</div>';
+        deps.showToast('The invoice upload did not finish. Check your connection and retry.', 'error');
+      } finally {
+        if (deps.setButtonLoading) deps.setButtonLoading(submit, false);
       }
-      if (fileInput) fileInput.value = '';
-      if (resultBox) {
-        const uploaded = data.total_uploaded || 1;
-        const failed = data.total_failed || 0;
-        const failedBadge = failed ? ' <span class="badge badge-red">' + escapeHtml(failed) + ' failed</span>' : '';
-        resultBox.innerHTML = '<span class="badge badge-green">Uploaded ' + escapeHtml(uploaded) + ' PDF(s)</span> <span class="badge badge-blue">Parsed ' + escapeHtml(data.total_parsed || 0) + ' invoice(s)</span> <span class="badge badge-orange">' + escapeHtml(data.unmatched_count || 0) + ' unmatched</span>' + failedBadge;
-      }
-      deps.showToast(files.length > 1 ? 'Invoices uploaded to pool.' : 'Invoice uploaded to pool.', 'success');
-      load(1);
     });
   }
 

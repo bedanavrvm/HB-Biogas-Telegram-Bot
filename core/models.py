@@ -8345,6 +8345,9 @@ class PaymentDocument(models.Model):
         ('pending_review', 'Pending Head of Rural review'),
         ('reviewed', 'Reviewed'),
         ('final', 'Final'),
+        ('awaiting_scan', 'Awaiting signed scan'),
+        ('completed', 'Completed'),
+        ('superseded', 'Superseded'),
         ('failed', 'Failed'),
     ]
 

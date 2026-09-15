@@ -1,0 +1,24 @@
+erDiagram
+  payment_batch {
+    string id
+  }
+  payment_batch_case {
+    string id
+  }
+  payment_batch_event {
+    string id
+  }
+  payment_case_review {
+    string id
+  }
+  payment_sequence_event {
+    string id
+  }
+  payment_sequence_state {
+    string id
+  }
+  payment_batch ||--o{ payment_batch_case : contains
+  payment_batch ||--o{ payment_batch_event : contains
+  payment_batch_case ||--o{ payment_case_review : contains
+  payment_batch ||--o{ payment_sequence_event : contains
+  payment_sequence_state ||--o{ payment_sequence_event : contains

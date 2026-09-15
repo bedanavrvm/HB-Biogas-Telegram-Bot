@@ -501,6 +501,23 @@ def _write_payment_rows(ws, layout: PaymentTemplateLayout, rows: list[dict[str, 
     return totals_row
 
 
+def _write_payment_mode(ws, config: dict[str, str], payment_mode: str) -> bool:
+    """Fill the governed template marker without guessing an arbitrary cell."""
+    if not payment_mode:
+        return False
+    configured = str(config.get('payment_mode_cell') or '').strip().upper()
+    if configured:
+        ws[configured] = payment_mode
+        return True
+    for row in range(1, min(ws.max_row, 20) + 1):
+        for column in range(1, min(ws.max_column, 30) + 1):
+            value = ' '.join(_words(ws.cell(row=row, column=column).value))
+            if {'MODE', 'PAYMENT'} <= set(value.split()):
+                ws.cell(row=row, column=column + 1, value=payment_mode)
+                return True
+    return False
+
+
 def generate_payment_workbook(
     order_number: str,
     payment_number: str,
@@ -508,6 +525,7 @@ def generate_payment_workbook(
     *,
     call_up_comments: str | None = None,
     case_call_up_comments: dict[str, str] | None = None,
+    payment_mode: str = '',
 ) -> tuple[bytes, dict[str, Any]]:
     payment_number = normalize_payment_number(payment_number)
     readiness = payment_readiness(
@@ -535,6 +553,8 @@ def generate_payment_workbook(
     totals_row = _write_payment_rows(ws, layout, rows)
     payment_label = f'#{payment_number}'
     ws['H4'] = payment_label
+    config_values = _read_config_sheet(wb)
+    payment_mode_written = _write_payment_mode(ws, config_values, str(payment_mode or '').strip())
     ws.title = payment_label
     config = wb['_TEMPLATE_CONFIG'] if '_TEMPLATE_CONFIG' in wb.sheetnames else None
     if config:
@@ -548,6 +568,8 @@ def generate_payment_workbook(
         **{key: value for key, value in readiness.items() if key not in {'ready', 'blocked'}},
         'template_sheet': layout.sheet_name,
         'payment_number': payment_number,
+        'payment_mode': str(payment_mode or '').strip(),
+        'payment_mode_written': payment_mode_written,
         'header_row': layout.header_row,
         'data_start_row': layout.data_start_row,
         'totals_row': totals_row,
@@ -581,6 +603,7 @@ def create_payment_document(
     status: str | None = None,
     call_up_comments: str | None = None,
     case_call_up_comments: dict[str, str] | None = None,
+    payment_mode: str = '',
 ) -> PaymentDocument:
     """Create a preview or Head-of-Rural review artifact.
 
@@ -593,7 +616,7 @@ def create_payment_document(
             'Direct final payment generation is disabled. Submit a payment review and approve it through Head of Rural.'
         )
     artifact_status = status or 'preview'
-    if artifact_status not in {'preview', 'pending_review'}:
+    if artifact_status not in {'preview', 'pending_review', 'awaiting_scan'}:
         raise PaymentTemplateError('Unsupported payment document status.')
     xlsx, summary = generate_payment_workbook(
         order_number,
@@ -601,6 +624,7 @@ def create_payment_document(
         farmer_ids=farmer_ids,
         call_up_comments=call_up_comments,
         case_call_up_comments=case_call_up_comments,
+        payment_mode=payment_mode,
     )
     readiness_snapshot = payment_readiness(
         order_number,

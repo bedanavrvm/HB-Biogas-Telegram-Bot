@@ -2333,7 +2333,7 @@
           </div>
         </div>
         <div class="form-row"><label>Final Decision <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="final-decision" aria-required="true"><option value="">- Select -</option>${decisionOptions}</select></div>
-        <div class="form-row"><label>Repayment Dates</label><input type="text" id="final-repayment-date" placeholder="e.g. 10TH" value="${deps.escapeHtml(farmer.repayment_date || '')}"></div>
+        <div class="form-row"><label>Preferred repayment day</label><input type="text" id="final-repayment-date" inputmode="numeric" placeholder="e.g. 10" value="${deps.escapeHtml(farmer.repayment_date || '')}"><small>Day of the month, from 1 to 31.</small></div>
         <div class="form-row"><label>Tenor</label><input type="text" id="final-repayment-tenor" placeholder="e.g. 6 months" value="${deps.escapeHtml(farmer.repayment_tenor || '')}"></div>
         <div class="form-row form-row-wide final-comment-row"><label>After-call Comments</label><textarea id="final-comment" rows="4" placeholder="Summarize the call, customer response, and decision...">${deps.escapeHtml(farmer.final_decision_comment || '')}</textarea>${voiceWidget('final_decision_comment', 'final-comment')}</div>
         <p id="workflow-draft-state" class="field-help jbl-draft-state form-row-wide" aria-live="polite" title="Form fields save automatically.">Autosave on</p>

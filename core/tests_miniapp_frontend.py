@@ -49,20 +49,20 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/components.js?v=2', html)
         self.assertIn('miniapp/asset_loader.js?v=1', html)
         self.assertIn('miniapp/portal_queues.js?v=10', html)
-        self.assertIn('miniapp/portal_farmer_sheet.js?v=63', html)
+        self.assertIn('miniapp/portal_farmer_sheet.js?v=71', html)
         self.assertIn('miniapp/utils.js?v=13', html)
         self.assertIn('miniapp/portal_helpers.js?v=7', html)
         self.assertIn('miniapp/components.css?v=2', html)
-        self.assertIn('miniapp/portal.css?v=99', html)
-        self.assertIn('miniapp/portal_filters.js?v=12', html)
+        self.assertIn('miniapp/portal.css?v=108', html)
+        self.assertIn('miniapp/portal_filters.js?v=15', html)
         self.assertIn('miniapp/portal_imports.js?v=7', html)
         self.assertNotIn('portal-import-group', html)
-        self.assertIn('miniapp/portal_requisitions.js?v=35', html)
+        self.assertIn('miniapp/portal_requisitions.js?v=38', html)
         self.assertIn('miniapp/portal_api.js?v=9', html)
-        self.assertIn('miniapp/portal_invoices.js?v=16', html)
-        self.assertIn('miniapp/portal_payments.js?v=7', html)
+        self.assertIn('miniapp/portal_invoices.js?v=18', html)
+        self.assertIn('miniapp/portal_payments.js?v=10', html)
         self.assertIn('miniapp/portal_curated_reports.js?v=2', html)
-        self.assertIn('miniapp/portal.js?v=83', html)
+        self.assertIn('miniapp/portal.js?v=86', html)
         self.assertNotIn('vendor-chartjs-4.5.1.umd.min.js', html)
         self.assertNotIn('<script src="/static/miniapp/vendor-leaflet-1.9.4.js', html)
         self.assertIn('miniapp/portal_case_history.js?v=1', html)
@@ -605,7 +605,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('try {', invoice_source)
         self.assertIn('finally {\n      state.loading = false;', invoice_source)
         self.assertIn('Could not load invoices', invoice_source)
-        self.assertIn('Could not load invoiced cases', payment_source)
+        self.assertIn('Could not load payment cases', payment_source)
 
     def test_portal_queue_filters_use_shared_server_backed_controls(self):
         source = Path('core/static/miniapp/portal_filters.js').read_text(encoding='utf-8')
@@ -873,7 +873,10 @@ class MiniAppFrontendSmokeTests(TestCase):
             'window.PortalMiniAppPayments',
             'payment-candidate-checkbox',
             '/payments/candidates/',
-            '/payments/selection/',
+            '/payments/batches/',
+            'data-payment-batch-filter',
+            'activeBatch.revision',
+            '/cancel/',
             'farmer_ids',
         ):
             self.assertIn(expected, source)

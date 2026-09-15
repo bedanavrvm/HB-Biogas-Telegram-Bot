@@ -69,10 +69,17 @@
       originRoot.replaceWith(root);
       document.getElementById('content')?.scrollTo(0, 0);
       root.dataset.historySource = originPage;
-      const action = root.querySelector('.case-history-action');
-      if (action && overlays.length) {
-        action.textContent = 'Back to form';
-        action.addEventListener('click', event => { event.preventDefault(); back(); });
+      const backButton = root.querySelector('.case-history-back');
+      if (backButton) {
+        const sourceLabels = {
+          payments: 'Back to Payment Batch', requisition: 'Back to Order Preparation',
+          jbl: 'Back to JBL Visit', credit: 'Back to Credit Analysis',
+          final: 'Back to Head of Rural Review',
+        };
+        const label = sourceLabels[originPage] || 'Back';
+        backButton.setAttribute('aria-label', label);
+        backButton.setAttribute('title', label);
+        backButton.addEventListener('click', event => { event.preventDefault(); back(); });
       }
       deps.activate('case_history');
       changed();

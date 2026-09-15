@@ -17,7 +17,11 @@ from django.db import connection
 
 
 ROOT = Path(__file__).resolve().parents[2]
-USAGE_ROOTS = (ROOT / 'core' / 'api', ROOT / 'core' / 'services', ROOT / 'core' / 'management')
+CATALOGUE_APP_LABELS = ('core', 'requisitions', 'payments')
+USAGE_ROOTS = (
+    ROOT / 'core' / 'api', ROOT / 'core' / 'services', ROOT / 'core' / 'management',
+    ROOT / 'requisitions', ROOT / 'payments',
+)
 
 DOMAIN_RULES = (
     ('origination', ('Origination', 'LoanOrigination')),
@@ -51,6 +55,54 @@ MODEL_OVERRIDES: dict[str, dict[str, Any]] = {
         'source_of_truth': True,
         'lifecycle': 'active',
         'retention': 'Permanent; sequence audit events are never edited or deleted.',
+    },
+    'payments.PaymentSequenceState': {
+        'domain': 'payments',
+        'purpose': 'Group-scoped source of truth for the next official payment number.',
+        'classification': 'configuration_state',
+        'source_of_truth': True,
+        'lifecycle': 'active',
+        'retention': 'Retain permanently; allocated numbers are never reused and adjustments remain attributed.',
+    },
+    'payments.PaymentBatch': {
+        'domain': 'payments',
+        'purpose': 'Authoritative payment batch from editable preparation through accepted signed scan.',
+        'classification': 'authoritative_record',
+        'source_of_truth': True,
+        'lifecycle': 'active',
+        'retention': 'Retained permanently with payment and signed-document evidence.',
+    },
+    'payments.PaymentBatchCase': {
+        'domain': 'payments',
+        'purpose': 'Auditable current and removed membership of a Portal case in one payment batch.',
+        'classification': 'business_assignment',
+        'source_of_truth': True,
+        'lifecycle': 'active',
+        'retention': 'Retained permanently with the owning payment batch.',
+    },
+    'payments.PaymentCaseReview': {
+        'domain': 'payments',
+        'purpose': 'Current per-case Head of Rural decision bound to exact payment data.',
+        'classification': 'authoritative_record',
+        'source_of_truth': True,
+        'lifecycle': 'active',
+        'retention': 'Retained permanently with the owning payment batch.',
+    },
+    'payments.PaymentSequenceEvent': {
+        'domain': 'payments',
+        'purpose': 'Immutable evidence for every official payment-number allocation or adjustment.',
+        'classification': 'immutable_event',
+        'source_of_truth': True,
+        'lifecycle': 'active',
+        'retention': 'Permanent; sequence evidence is never edited or deleted.',
+    },
+    'payments.PaymentBatchEvent': {
+        'domain': 'payments',
+        'purpose': 'Append-only customer-data-minimized history of payment batch mutations.',
+        'classification': 'immutable_event',
+        'source_of_truth': True,
+        'lifecycle': 'active',
+        'retention': 'Permanent; retained with the payment batch and signed-document evidence.',
     },
     'core.TatTrackerCase': {
         'domain': 'tat',
@@ -264,7 +316,14 @@ def _live_statistics() -> dict[str, dict[str, Any]]:
 
 
 def database_catalog(*, include_usage: bool = True, include_live: bool = False) -> list[dict[str, Any]]:
-    models = sorted(apps.get_app_config('core').get_models(), key=lambda model: model._meta.db_table)
+    models = sorted(
+        (
+            model
+            for app_label in CATALOGUE_APP_LABELS
+            for model in apps.get_app_config(app_label).get_models()
+        ),
+        key=lambda model: model._meta.db_table,
+    )
     parents, children = _relations(models)
     live = _live_statistics() if include_live else {}
     usages, writers = usage_inventory(model.__name__ for model in models) if include_usage else ({}, {})
@@ -290,7 +349,7 @@ def database_catalog(*, include_usage: bool = True, include_live: bool = False) 
             'children': child_labels,
             'cross_domain_parents': [
                 label for label in parent_labels
-                if label.startswith('core.') and domain_for(apps.get_model(label)) != domain
+                if domain_for(apps.get_model(label)) != domain
             ],
             'used_by': usages.get(model.__name__, []),
             'direct_orm_writers': writers.get(model.__name__, []),

@@ -55,6 +55,12 @@ class SheetPublicationRegistryTests(SimpleTestCase):
         self.assertIn('Product Name', aliases_for('jawabu_master', 'payment_product'))
         self.assertIn('LGF Balance', aliases_for('jawabu_master', 'system_deposit_paid_jbl'))
 
+    def test_preferred_repayment_date_headers_are_supported(self):
+        self.assertIn('Preferred Repayment Date', aliases_for('jawabu_master', 'repayment_date'))
+        self.assertIn('PREFERRED REPAYMENT DAY', aliases_for('internal_order', 'repayment_date'))
+        report = coverage_for_headers('jawabu_master', ['Preferred Repayment Date'])
+        self.assertEqual(report['present'][0]['field'], 'repayment_date')
+
 
 class SheetImportBoundaryTests(SimpleTestCase):
     def test_legacy_import_calls_are_explicitly_disabled(self):

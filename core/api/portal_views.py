@@ -5023,6 +5023,334 @@ def _active_requisition_sequence(request):
     return rows[0], None
 
 
+def _portal_payment_group(request, requested_group=''):
+    """Resolve one enabled Jawabu group inside the actor's complete grant scope."""
+    from core.models import GroupSheetConfiguration
+    allowed = _portal_import_group_ids(request)
+    groups = GroupSheetConfiguration.objects.filter(enabled=True)
+    if allowed is not None:
+        groups = groups.filter(group_id__in=allowed)
+    if requested_group:
+        groups = groups.filter(group_id=requested_group)
+    return next((
+        item for item in groups.order_by('group_id')
+        if (item.workflow or {}).get('type') in {'jawabu_homebiogas', 'jawabu'}
+    ), None)
+
+
+def _portal_payment_batch_queryset(request):
+    from payments.models import PaymentBatch
+    queryset = PaymentBatch.objects.select_related(
+        'group_configuration', 'current_document',
+    ).prefetch_related(
+        'case_memberships__farmer', 'case_memberships__review',
+    )
+    allowed = _portal_import_group_ids(request)
+    if allowed is not None:
+        queryset = queryset.filter(group_configuration__group_id__in=allowed)
+    return queryset
+
+
+def _portal_payment_batch_scope_error(request, batch, *, capability):
+    """Require every current case in a batch to remain inside actor scope."""
+    farmers = [
+        membership.farmer
+        for membership in batch.case_memberships.filter(is_active=True).select_related('farmer')
+    ]
+    return _portal_farmers_scope_error(request, farmers, capability=capability)
+
+
+def _portal_payment_batch_error(exc):
+    from payments.services import PaymentBatchError
+    if isinstance(exc, PaymentBatchError):
+        status = 409 if 'changed while' in str(exc) else 400
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=status)
+    return None
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'POST'])
+def portal_payment_batches(request):
+    """List monitored payment batches or create one compact editable draft."""
+    capability = 'portal.payment.view' if request.method == 'GET' else 'portal.payment.prepare'
+    access_error = _portal_capability_error(request, capability)
+    if access_error:
+        return access_error
+    from payments.models import PaymentBatch
+    from payments.services import PaymentBatchError, create_batch, serialize_batch
+    if request.method == 'GET':
+        queryset = _portal_payment_batch_queryset(request)
+        status = str(request.GET.get('status') or '').strip()
+        if status:
+            values = [value for value in status.split(',') if value in dict(PaymentBatch.STATUS_CHOICES)]
+            if values:
+                queryset = queryset.filter(status__in=values)
+        batches = [
+            serialize_batch(item, include_cases=False)
+            for item in queryset.order_by('-created_at')[:100]
+            if _portal_payment_batch_scope_error(request, item, capability='portal.payment.view') is None
+        ]
+        return JsonResponse({'ok': True, 'batches': batches, 'count': len(batches)})
+    body = _portal_request_data(request)
+    group = _portal_payment_group(request, str(body.get('group_id') or '').strip())
+    if not group:
+        return JsonResponse({'ok': False, 'error': 'No scoped Jawabu group is available for payments.'}, status=403)
+    try:
+        batch = create_batch(
+            group_configuration=group, payment_mode=body.get('payment_mode'),
+            actor=getattr(request, 'portal_user', None), request_id=_portal_request_id(request, body),
+        )
+        return JsonResponse({'ok': True, 'batch': serialize_batch(batch)}, status=201)
+    except PaymentBatchError as exc:
+        return _portal_payment_batch_error(exc)
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'PATCH'])
+def portal_payment_sequence(request):
+    """Read or explicitly align the next official payment number (IT only)."""
+    access_error = _portal_capability_error(request, 'portal.payment.sequence.manage')
+    if access_error:
+        return access_error
+    from payments.models import PaymentSequenceState
+    from payments.services import PaymentBatchError, adjust_sequence
+
+    body = _portal_request_data(request) if request.method == 'PATCH' else {}
+    group_id = str(body.get('group_id') or request.GET.get('group_id') or '').strip()
+    group = _portal_payment_group(request, group_id)
+    if not group:
+        return JsonResponse({'ok': False, 'error': 'No scoped Jawabu group is available for payments.'}, status=403)
+    if request.method == 'GET':
+        state = PaymentSequenceState.objects.filter(group_configuration=group).first()
+        return JsonResponse({
+            'ok': True, 'group_id': group.group_id,
+            'next_number': state.next_number if state else 1,
+            'revision': state.revision if state else 0,
+        })
+    try:
+        state = adjust_sequence(
+            group_configuration=group, next_number=body.get('next_number'), reason=body.get('reason'),
+            actor=getattr(request, 'portal_user', None), request_id=_portal_request_id(request, body),
+            expected_revision=body.get('revision'),
+        )
+        return JsonResponse({
+            'ok': True, 'group_id': group.group_id,
+            'next_number': state.next_number, 'revision': state.revision,
+        })
+    except PaymentBatchError as exc:
+        return _portal_payment_batch_error(exc)
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'PATCH'])
+def portal_payment_batch_detail(request, batch_id):
+    capability = 'portal.payment.view' if request.method == 'GET' else 'portal.payment.prepare'
+    access_error = _portal_capability_error(request, capability)
+    if access_error:
+        return access_error
+    from payments.services import PaymentBatchError, serialize_batch, update_mode
+    batch = _portal_payment_batch_queryset(request).filter(pk=batch_id).first()
+    if not batch:
+        return JsonResponse({'ok': False, 'error': 'Payment batch not found.'}, status=404)
+    scope_error = _portal_payment_batch_scope_error(request, batch, capability=capability)
+    if scope_error:
+        return scope_error
+    if request.method == 'GET':
+        return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
+    body = _portal_request_data(request)
+    try:
+        batch = update_mode(
+            batch.id, payment_mode=body.get('payment_mode'), expected_revision=body.get('revision'),
+            actor=getattr(request, 'portal_user', None), request_id=_portal_request_id(request, body),
+        )
+        return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
+    except PaymentBatchError as exc:
+        return _portal_payment_batch_error(exc)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_payment_batch_cases(request, batch_id):
+    access_error = _portal_capability_error(request, 'portal.payment.prepare')
+    if access_error:
+        return access_error
+    from core.models import JawabuFarmerMaster
+    from payments.services import PaymentBatchError, add_cases, serialize_batch
+    batch = _portal_payment_batch_queryset(request).filter(pk=batch_id).first()
+    if not batch:
+        return JsonResponse({'ok': False, 'error': 'Payment batch not found.'}, status=404)
+    scope_error = _portal_payment_batch_scope_error(request, batch, capability='portal.payment.prepare')
+    if scope_error:
+        return scope_error
+    body = _portal_request_data(request)
+    ids = body.get('farmer_ids') or []
+    if not isinstance(ids, list):
+        return JsonResponse({'ok': False, 'error': 'Select one or more cases to add.'}, status=400)
+    farmers = list(JawabuFarmerMaster.objects.filter(pk__in=ids))
+    for farmer in farmers:
+        scope_error = _portal_read_access_error(request, farmer, capability='portal.payment.prepare')
+        if scope_error:
+            return scope_error
+    try:
+        batch = add_cases(
+            batch.id, farmer_ids=ids, expected_revision=body.get('revision'),
+            actor=getattr(request, 'portal_user', None), request_id=_portal_request_id(request, body),
+        )
+        return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
+    except PaymentBatchError as exc:
+        return _portal_payment_batch_error(exc)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_payment_batch_case_remove(request, batch_id, farmer_id):
+    access_error = _portal_capability_error(request, 'portal.payment.prepare')
+    if access_error:
+        return access_error
+    from payments.services import PaymentBatchError, remove_case, serialize_batch
+    batch = _portal_payment_batch_queryset(request).filter(pk=batch_id).first()
+    if not batch:
+        return JsonResponse({'ok': False, 'error': 'Payment batch not found.'}, status=404)
+    scope_error = _portal_payment_batch_scope_error(request, batch, capability='portal.payment.prepare')
+    if scope_error:
+        return scope_error
+    body = _portal_request_data(request)
+    try:
+        batch = remove_case(
+            batch.id, farmer_id, reason=body.get('reason'), expected_revision=body.get('revision'),
+            actor=getattr(request, 'portal_user', None), request_id=_portal_request_id(request, body),
+        )
+        return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
+    except PaymentBatchError as exc:
+        return _portal_payment_batch_error(exc)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_payment_batch_submit(request, batch_id):
+    access_error = _portal_capability_error(request, 'portal.payment.prepare')
+    if access_error:
+        return access_error
+    from payments.services import PaymentBatchError, serialize_batch, submit_for_review
+    batch = _portal_payment_batch_queryset(request).filter(pk=batch_id).first()
+    if not batch:
+        return JsonResponse({'ok': False, 'error': 'Payment batch not found.'}, status=404)
+    scope_error = _portal_payment_batch_scope_error(request, batch, capability='portal.payment.prepare')
+    if scope_error:
+        return scope_error
+    body = _portal_request_data(request)
+    try:
+        batch = submit_for_review(
+            batch.id, expected_revision=body.get('revision'), actor=getattr(request, 'portal_user', None),
+            request_id=_portal_request_id(request, body),
+        )
+        return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
+    except PaymentBatchError as exc:
+        return _portal_payment_batch_error(exc)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_payment_batch_case_review(request, batch_id, farmer_id):
+    body = _portal_request_data(request)
+    batch = _portal_payment_batch_queryset(request).filter(pk=batch_id).first()
+    if not batch:
+        return JsonResponse({'ok': False, 'error': 'Payment batch not found.'}, status=404)
+    membership = batch.case_memberships.filter(farmer_id=farmer_id, is_active=True).select_related('farmer').first()
+    if not membership:
+        return JsonResponse({'ok': False, 'error': 'This case is not in the payment batch.'}, status=404)
+    authority_error = _portal_approval_authority_error(request, membership.farmer, 'payment_review')
+    if authority_error:
+        return authority_error
+    from payments.services import PaymentBatchError, review_case, serialize_batch
+    try:
+        batch = review_case(
+            batch.id, farmer_id, decision=body.get('decision'), comment=body.get('comment'),
+            expected_revision=body.get('revision'), actor=getattr(request, 'portal_user', None),
+            request_id=_portal_request_id(request, body),
+        )
+        return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
+    except PaymentBatchError as exc:
+        return _portal_payment_batch_error(exc)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_payment_batch_generate(request, batch_id):
+    access_error = _portal_capability_error(request, 'portal.payment.review')
+    if access_error:
+        return access_error
+    from payments.services import PaymentBatchError, generate_reviewed_workbook, serialize_batch
+    batch = _portal_payment_batch_queryset(request).filter(pk=batch_id).first()
+    if not batch:
+        return JsonResponse({'ok': False, 'error': 'Payment batch not found.'}, status=404)
+    for membership in batch.case_memberships.filter(is_active=True).select_related('farmer'):
+        authority_error = _portal_approval_authority_error(request, membership.farmer, 'payment_review')
+        if authority_error:
+            return authority_error
+    body = _portal_request_data(request)
+    try:
+        batch = generate_reviewed_workbook(
+            batch.id, expected_revision=body.get('revision'), actor=getattr(request, 'portal_user', None),
+            actor_label=_portal_sender_from_request(request), request_id=_portal_request_id(request, body),
+        )
+        return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
+    except PaymentBatchError as exc:
+        return _portal_payment_batch_error(exc)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_payment_batch_cancel(request, batch_id):
+    access_error = _portal_capability_error(request, 'portal.payment.prepare')
+    if access_error:
+        return access_error
+    from payments.services import PaymentBatchError, cancel_batch, serialize_batch
+    batch = _portal_payment_batch_queryset(request).filter(pk=batch_id).first()
+    if not batch:
+        return JsonResponse({'ok': False, 'error': 'Payment batch not found.'}, status=404)
+    scope_error = _portal_payment_batch_scope_error(request, batch, capability='portal.payment.prepare')
+    if scope_error:
+        return scope_error
+    body = _portal_request_data(request)
+    try:
+        batch = cancel_batch(
+            batch.id, reason=body.get('reason'), expected_revision=body.get('revision'),
+            actor=getattr(request, 'portal_user', None), request_id=_portal_request_id(request, body),
+        )
+        return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
+    except PaymentBatchError as exc:
+        return _portal_payment_batch_error(exc)
+
+
+@require_http_methods(['GET', 'HEAD'])
+def portal_payment_batch_workbook(request, batch_id):
+    """Download the retained current workbook without depending on Drive/WebView behavior."""
+    from django.utils.http import content_disposition_header
+
+    access_error = _portal_capability_error(request, 'portal.payment.view')
+    if access_error:
+        return access_error
+    batch = _portal_payment_batch_queryset(request).filter(pk=batch_id).first()
+    if not batch or not batch.current_document_id:
+        return JsonResponse({'ok': False, 'error': 'The current payment workbook was not found.'}, status=404)
+    document = batch.current_document
+    if not _portal_saved_document_in_scope(
+        request, document.order_number, document.farmer_ids, capability='portal.payment.view',
+    ):
+        return JsonResponse({'ok': False, 'error': 'You do not have access to this payment workbook.'}, status=403)
+    data = bytes(document.file_content or b'')
+    if not data:
+        return JsonResponse({'ok': False, 'error': 'The retained payment workbook is unavailable. Generate it again.'}, status=404)
+    response = HttpResponse(
+        b'' if request.method == 'HEAD' else data,
+        content_type=document.content_type or 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = content_disposition_header(True, document.filename or f'Payment-{batch.payment_number}.xlsx')
+    response['Content-Length'] = str(len(data))
+    return response
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_requisition_preview(request):
@@ -7119,10 +7447,28 @@ def portal_payment_candidates(request):
     farmers = list(queryset[:250])
     readiness = payment_readiness(farmer_ids=[str(farmer.id) for farmer in farmers]) if farmers else {'ready': [], 'blocked': []}
     pending_map = _pending_payment_review_map(request)
+    from payments.models import PaymentBatch, PaymentBatchCase
+    governed_memberships = PaymentBatchCase.objects.filter(
+        farmer_id__in=[farmer.id for farmer in farmers], is_active=True,
+        batch__status__in=[
+            PaymentBatch.STATUS_DRAFT, PaymentBatch.STATUS_IN_REVIEW,
+            PaymentBatch.STATUS_REVIEW_COMPLETE, PaymentBatch.STATUS_AWAITING_SCAN,
+        ],
+    ).select_related('batch')
+    governed_map = {str(item.farmer_id): item.batch for item in governed_memberships}
     pending_review = []
     ready = []
     blocked = []
     for item in readiness.get('ready', []):
+        governed = governed_map.get(str(item.get('farmer_id')))
+        if governed:
+            pending_review.append({
+                **item,
+                'payment_review_document_id': str(governed.current_document_id or ''),
+                'payment_review_payment_number': governed.payment_number or 'Draft',
+                'payment_review_order_number': governed.get_status_display(),
+            })
+            continue
         document = pending_map.get(str(item.get('farmer_id')))
         if document:
             item = {
@@ -7137,6 +7483,15 @@ def portal_payment_candidates(request):
         else:
             ready.append(item)
     for item in readiness.get('blocked', []):
+        governed = governed_map.get(str(item.get('farmer_id')))
+        if governed:
+            pending_review.append({
+                **item,
+                'payment_review_document_id': str(governed.current_document_id or ''),
+                'payment_review_payment_number': governed.payment_number or 'Draft',
+                'payment_review_order_number': governed.get_status_display(),
+            })
+            continue
         document = pending_map.get(str(item.get('farmer_id')))
         if document:
             item = {

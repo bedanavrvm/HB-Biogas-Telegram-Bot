@@ -107,8 +107,11 @@ def source_artifact(document_type: str, document_id: str, *, lock: bool = False)
             raise PhysicalSignoffError('A preview cannot be physically signed. Generate the requisition first.')
         data = bytes(document.file_content or b'')
     elif document_type == DocumentSignoffPolicy.DOCUMENT_PAYMENT:
-        if document.status != 'final':
-            raise PhysicalSignoffError('Only a final payment schedule can be physically signed.')
+        if document.status not in {'awaiting_scan', 'final', 'completed'}:
+            raise PhysicalSignoffError('Only the current payment schedule awaiting a signed scan can be uploaded.')
+        governed_batch = document.governed_payment_batches.order_by('-updated_at').first()
+        if governed_batch and (governed_batch.current_document_id != document.id or governed_batch.status not in {'awaiting_scan', 'completed'}):
+            raise PhysicalSignoffError('This payment workbook was superseded. Upload the signed copy of the current version.')
         data = bytes(document.file_content or b'')
     else:
         raise PhysicalSignoffError('Select a supported generated document type.')
@@ -261,6 +264,12 @@ def _upload_to_drive(signoff: DocumentPhysicalSignoff, *, actor) -> DocumentPhys
             signoff.approved_by = actor
             signoff.approved_at = timezone.now()
             signoff.save(update_fields=['status', 'approved_by', 'approved_at', 'updated_at'])
+            if signoff.document_type == DocumentSignoffPolicy.DOCUMENT_PAYMENT:
+                from payments.services import complete_batch_for_document
+                complete_batch_for_document(
+                    signoff.payment_document, actor=actor,
+                    request_id=f'payment-scan:{signoff.id}',
+                )
             _record_event(signoff, DocumentPhysicalSignoffEvent.ACTION_APPROVED, actor=actor, metadata={
                 'source_checksum': signoff.source_checksum,
                 'scan_checksum': signoff.scan_checksum,
@@ -416,7 +425,8 @@ def serialize_physical_signoff(signoff: DocumentPhysicalSignoff | None, *, docum
 def document_signoff_summary(document_type: str, document, *, can_upload: bool = False) -> dict:
     data = bytes(getattr(document, 'file_content', b'') or b'')
     source_available = bool(data) and (
-        document_type == DocumentSignoffPolicy.DOCUMENT_REQUISITION or getattr(document, 'status', '') == 'final'
+        document_type == DocumentSignoffPolicy.DOCUMENT_REQUISITION
+        or getattr(document, 'status', '') in {'awaiting_scan', 'final', 'completed'}
     )
     if not source_available:
         return serialize_physical_signoff(None, document_type=document_type, source_available=False, can_upload=False)

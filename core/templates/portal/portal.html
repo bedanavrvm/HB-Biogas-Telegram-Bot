@@ -287,7 +287,7 @@
         </div>
         <div class="field-group">
           <label for="invoice-pool-file">HB invoice PDFs</label>
-          <label class="invoice-upload-dropzone" for="invoice-pool-file"><span class="upload-icon">↑</span><strong>Upload invoice PDFs</strong><small>Tap to select one or more PDF files</small></label>
+          <label class="invoice-upload-dropzone" id="invoice-pool-dropzone" for="invoice-pool-file"><span class="upload-icon">↑</span><strong id="invoice-pool-file-title">Upload invoice PDFs</strong><small id="invoice-pool-file-detail">Tap to select one or more PDF files</small></label>
           <input type="file" id="invoice-pool-file" name="file" accept="application/pdf" multiple hidden>
         </div>
         <button class="btn btn-primary" id="invoice-pool-upload-submit" type="submit">Upload & Parse</button>
@@ -353,25 +353,27 @@
   <!-- Payment batch selection -->
   {% if active_screen == 'payments' %}
   <section id="page-payments" class="page{% if active_screen == 'payments' %} active{% endif %}">
-    <header><h1>Payments</h1><p class="meta">Select invoice-matched cases for a numbered payment batch</p></header>
-    <div class="payment-builder-toolbar" data-required-capability="portal.payment.prepare">
-      <label><span>Payment No.</span><input id="payments-number" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 89"></label>
-      <label class="payment-builder-search"><span>Find a case</span><input id="payments-search" type="search" placeholder="Name, ID, phone, invoice, or order"></label>
-      <button type="button" class="btn btn-secondary" id="payments-search-button">Search</button>
+    <header class="portal-queue-header"><div><h1>Payments</h1><p class="meta">Prepare, review and complete payment batches</p></div><button type="button" class="queue-refresh-button" id="payments-refresh" aria-label="Refresh payments" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button></header>
+    <div id="payments-summary" class="payment-summary-strip" aria-live="polite"></div>
+    <div class="payment-filter-chips payment-batch-filters" aria-label="Filter payment batches"><button type="button" class="active" data-payment-batch-filter="open">Open</button><button type="button" data-payment-batch-filter="completed">Completed</button><button type="button" data-payment-batch-filter="cancelled">Cancelled</button><button type="button" data-payment-batch-filter="all">All</button></div>
+    <div class="payment-new-row" data-required-capability="portal.payment.prepare">
+      <label><span>Payment mode</span><select id="payments-mode"><option value="LOAN-JAWABU">Loan - Jawabu</option><option value="CASH">Cash</option></select></label>
+      <button type="button" class="btn btn-primary" id="payments-new">New batch</button>
     </div>
-    <div class="payment-builder-actions" data-required-capability="portal.payment.prepare">
-      <div><strong id="payments-selected-count">0 selected</strong><span id="payments-ready-summary">Loading invoiced cases...</span></div>
-      <button type="button" class="btn btn-secondary" id="payments-select-ready">Select all ready</button>
-      <button type="button" class="btn btn-secondary" id="payments-preview">Preview selected</button>
-      <button type="button" class="btn btn-primary" id="payments-finalize">Submit for Head of Rural review</button>
-    </div>
-    <div id="payments-list" class="payment-candidate-list"><div class="empty-state"><div class="spinner-inline"></div></div></div>
-    <section id="payments-workbook-preview" class="payment-selection-preview" hidden>
-      <header><div><h2>Selected Payment Values</h2><p>Review the payment values in the same column structure as the template. Excel is generated only after submission for review.</p></div></header>
-      <div id="payments-workbook-content"></div>
-    </section>
-    <section id="payments-review-panel" class="payment-selection-preview" hidden>
-      <div id="payments-review-content"></div>
+    <details class="payment-sequence-panel" data-required-capability="portal.payment.sequence.manage"><summary>Official number settings</summary><div><label><span>Next payment number</span><input id="payments-sequence-next" type="number" min="1" inputmode="numeric"></label><label><span>Reason</span><input id="payments-sequence-reason" type="text" placeholder="Align with official register"></label><button type="button" class="btn btn-secondary" id="payments-sequence-save">Save</button></div><small id="payments-sequence-status">Loading…</small></details>
+    <div id="payments-batches" class="payment-batch-list"><div class="empty-state"><div class="spinner-inline"></div></div></div>
+    <section id="payments-detail" class="payment-detail" hidden>
+      <header class="payment-detail-header"><button type="button" class="icon-button" id="payments-detail-back" aria-label="Back to payment batches" title="Back"><i data-lucide="arrow-left"></i></button><div><h2 id="payments-detail-title">Payment batch</h2><p id="payments-detail-meta"></p></div></header>
+      <div id="payments-progress" class="payment-progress"></div>
+      <div id="payments-current-cases" class="payment-current-cases"></div>
+      <details class="payment-activity"><summary>Batch activity</summary><div id="payments-activity"></div></details>
+      <div id="payments-add-panel" data-required-capability="portal.payment.prepare">
+        <div class="payment-search-row"><label><span>Add cases</span><input id="payments-search" type="search" placeholder="Search customer, ID, phone, invoice or order" autocomplete="off"></label><strong id="payments-result-count">0 found</strong></div>
+        <div class="payment-filter-chips" id="payments-filter-chips"><button type="button" class="active" data-payment-filter="ready">Ready</button><button type="button" data-payment-filter="blocked">Needs attention</button><button type="button" data-payment-filter="pending">In another batch</button></div>
+        <div class="payment-selection-bar"><strong id="payments-selected-count">0 selected</strong><button type="button" id="payments-clear-selection">Clear</button><button type="button" class="btn btn-primary" id="payments-add-selected">Add selected</button></div>
+        <div id="payments-list" class="payment-candidate-list"></div>
+      </div>
+      <div id="payments-primary-action" class="payment-primary-action"></div>
     </section>
   </section>
   {% endif %}
