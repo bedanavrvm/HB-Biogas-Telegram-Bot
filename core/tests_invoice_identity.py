@@ -1,7 +1,9 @@
 from datetime import date
 from decimal import Decimal
 
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 
 from core.models import (
     InvoiceIdentityReview, InvoiceUploadBatch, JawabuDataQualityIssue,
@@ -190,6 +192,29 @@ class InvoiceIdentityWorkflowTests(TestCase):
         self.assertEqual(item.id, replay.id)
         self.assertEqual(item.relationship.related_person_id, existing.id)
         self.assertEqual(item.batch.items.count(), 1)
+
+    def test_inline_correction_locks_nullable_farmer_independently(self):
+        invoice = self.invoice(customer_id='87654321', customer_name='Jane Wanjiku')
+
+        with CaptureQueriesContext(connection) as captured:
+            item = start_invoice_correction(
+                invoice, actor='Operations', relationship_type='spouse', explanation='', confirmed=True,
+                expected_invoice_revision=invoice.revision,
+                expected_application_revision=self.farmer.workflow_revision,
+                client_request_id='inline-independent-locks',
+            )
+
+        invoice_reads = [
+            query['sql'].upper() for query in captured.captured_queries
+            if 'FROM "CORE_PARSEDINVOICE"' in query['sql'].upper()
+        ]
+        farmer_reads = [
+            query['sql'].upper() for query in captured.captured_queries
+            if 'FROM "CORE_JAWABUFARMERMASTER"' in query['sql'].upper()
+        ]
+        self.assertIsNotNone(item.pk)
+        self.assertTrue(any('JOIN' not in query for query in invoice_reads))
+        self.assertTrue(any('JOIN' not in query for query in farmer_reads))
 
     def test_inline_correction_rejects_stale_invoice_or_application_revision(self):
         invoice = self.invoice(customer_id='87654321', customer_name='Jane Wanjiku')

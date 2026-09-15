@@ -376,8 +376,8 @@
     state.selectedInvoice = null;
   }
 
-  function kv(label, value) {
-    return '<div class="invoice-detail-field"><div class="meta">' + escapeHtml(label) + '</div><div class="name">' + escapeHtml(value || '-') + '</div></div>';
+  function kv(label, value, { wide = false } = {}) {
+    return '<div class="invoice-detail-field' + (wide ? ' invoice-detail-field-wide' : '') + '"><div class="meta">' + escapeHtml(label) + '</div><div class="name">' + escapeHtml(value || '-') + '</div></div>';
   }
 
   function renderInvoiceDetail(data, target = el('invoice-detail-content'), { routeMode = false } = {}) {
@@ -483,12 +483,12 @@
       '<div class="form-section">',
       '<h3 style="font-size:14px;margin:0 0 8px;">Parsed fields</h3>',
       '<div class="invoice-detail-grid">',
-      kv('Batch', batch.original_filename || invoice.batch_filename),
-      kv('Page', invoice.page),
       kv('Invoice date', invoice.invoice_date),
+      kv('Page', invoice.page),
       kv('Matched order', invoice.matched_order_number),
-      kv('Matched farmer', invoice.matched_farmer_name),
       kv('Balance check', invoice.balance_due_check),
+      kv('Batch', batch.original_filename || invoice.batch_filename, { wide: true }),
+      kv('Matched farmer', invoice.matched_farmer_name, { wide: true }),
       '</div>',
       '</div>',
       identityPanel,

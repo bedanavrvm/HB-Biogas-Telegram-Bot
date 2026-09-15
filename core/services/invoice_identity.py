@@ -353,7 +353,9 @@ def _start_invoice_correction_locked(
         if prior.original_invoice_id != invoice.id:
             raise InvoiceCorrectionConflict('That retry key belongs to another invoice correction.')
         return prior
-    invoice = ParsedInvoice.objects.select_for_update().select_related('matched_farmer').get(pk=invoice.pk)
+    # Lock the invoice without joining its nullable matched_farmer relation.
+    # PostgreSQL rejects FOR UPDATE against the nullable side of an outer join.
+    invoice = ParsedInvoice.objects.select_for_update().get(pk=invoice.pk)
     if not invoice.matched_farmer_id:
         raise ValueError('Match the invoice to an applicant first.')
     farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=invoice.matched_farmer_id)

@@ -53,13 +53,13 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/utils.js?v=15', html)
         self.assertIn('miniapp/portal_helpers.js?v=7', html)
         self.assertIn('miniapp/components.css?v=2', html)
-        self.assertIn('miniapp/portal.css?v=109', html)
+        self.assertIn('miniapp/portal.css?v=110', html)
         self.assertIn('miniapp/portal_filters.js?v=16', html)
         self.assertIn('miniapp/portal_imports.js?v=7', html)
         self.assertNotIn('portal-import-group', html)
         self.assertIn('miniapp/portal_requisitions.js?v=38', html)
         self.assertIn('miniapp/portal_api.js?v=9', html)
-        self.assertIn('miniapp/portal_invoices.js?v=18', html)
+        self.assertIn('miniapp/portal_invoices.js?v=19', html)
         self.assertIn('miniapp/portal_payments.js?v=11', html)
         self.assertIn('miniapp/portal_curated_reports.js?v=2', html)
         self.assertIn('miniapp/portal.js?v=86', html)
@@ -379,6 +379,7 @@ class MiniAppFrontendSmokeTests(TestCase):
     def test_invoice_name_change_is_inline_with_local_letter_and_identity_safeguards(self):
         source = Path('core/static/miniapp/portal_invoices.js').read_text(encoding='utf-8')
         template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')
+        stylesheet = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
 
         self.assertIn('openInvoiceWorkflowSheet', source)
         self.assertIn('Request corrected invoice', source)
@@ -397,6 +398,10 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertNotIn('window.prompt', source)
         self.assertNotIn('window.confirm', source)
         self.assertNotIn('Invoice name changes', template)
+        self.assertIn("kv('Batch', batch.original_filename || invoice.batch_filename, { wide: true })", source)
+        self.assertIn("kv('Matched farmer', invoice.matched_farmer_name, { wide: true })", source)
+        self.assertIn('.invoice-detail-field-wide { grid-column: 1 / -1; }', stylesheet)
+        self.assertNotIn('@media (max-width: 480px) { .invoice-detail-grid { grid-template-columns: 1fr; } }', stylesheet)
 
     def test_portal_sheets_do_not_reexpand_during_external_media_activity_return(self):
         navigation_source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
