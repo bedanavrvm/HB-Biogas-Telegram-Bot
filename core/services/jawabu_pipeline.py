@@ -2175,11 +2175,12 @@ def sync_farmer_to_master_sheet(
         now_text = timezone.now().strftime('%d-%m-%Y %H:%M')
         changes = {}
 
+        from core.services.jawabu_case_reference import display_case_reference
         for header in (MASTER_CASE_ID_HEADER, 'Master Record ID'):
             if normalize_header(header) not in header_lookup:
                 continue
             current_value = row_values[header_lookup[normalize_header(header)] - 1]
-            case_id = str(farmer.pk)
+            case_id = display_case_reference(farmer.pk) if header == MASTER_CASE_ID_HEADER else str(farmer.pk)
             if str(current_value or '').strip().casefold() != case_id.casefold():
                 set_header_value(row_values, header_lookup, header, case_id)
                 changes[header] = {'before': current_value, 'after': case_id}

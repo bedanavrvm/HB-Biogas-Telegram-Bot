@@ -103,6 +103,12 @@ def ensure_identity_review(
     existing = invoice.identity_reviews.filter(status=InvoiceIdentityReview.STATUS_PENDING).first()
     if existing:
         if existing.farmer_id == farmer.id:
+            existing.discrepancy_codes = codes
+            existing.invoice_identity = invoice_identity(invoice)
+            existing.applicant_identity = applicant_identity(farmer)
+            existing.save(update_fields=[
+                'discrepancy_codes', 'invoice_identity', 'applicant_identity', 'updated_at',
+            ])
             return existing
         existing.status = InvoiceIdentityReview.STATUS_CANCELLED
         existing.decision_note = 'Invoice was rematched to another applicant.'

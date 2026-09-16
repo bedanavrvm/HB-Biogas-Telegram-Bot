@@ -30,6 +30,7 @@ from core.models import (
     PortalReportChart,
     PortalReportDefinition,
 )
+from core.services.jawabu_case_reference import display_case_reference
 from core.services.compliance_audit import record_event
 
 
@@ -407,6 +408,12 @@ def _json_value(value: Any) -> Any:
     return value
 
 
+def _report_value(field: ReportField, value: Any) -> Any:
+    if field.key == 'case_id':
+        return display_case_reference(value)
+    return _json_value(value)
+
+
 def definition_payload(definition: PortalReportDefinition) -> dict[str, Any]:
     config = validate_configuration(definition.configuration or {})
     return {
@@ -581,7 +588,7 @@ def run_definition(*, definition: PortalReportDefinition, user, access: dict | N
     selected = [_field(key) for key in config['fields']]
     expressions = [field.expression for field in selected]
     rows = [
-        {field.key: _json_value(raw.get(field.expression)) for field in selected}
+        {field.key: _report_value(field, raw.get(field.expression)) for field in selected}
         for raw in queryset[(page - 1) * PAGE_SIZE:page * PAGE_SIZE].values(*expressions)
     ]
     charts = []
@@ -792,7 +799,7 @@ def run_curated_report(*, preset: str, filters: Any, user, access: dict | None, 
     page = min(page, pages)
     selected = [_field(key) for key in CURATED_REPORT_FIELDS[preset]]
     rows = [
-        {field.key: _json_value(raw.get(field.expression)) for field in selected}
+        {field.key: _report_value(field, raw.get(field.expression)) for field in selected}
         for raw in queryset[(page - 1) * PAGE_SIZE:page * PAGE_SIZE].values(*[field.expression for field in selected])
     ]
     if preset == 'pipeline':
@@ -857,7 +864,7 @@ def export_curated_report(*, preset: str, filters: Any, user, access: dict | Non
     data_sheet = workbook.create_sheet('Data')
     data_sheet.append([field.label for field in selected])
     for row in rows:
-        values = [_json_value(row.get(field.expression)) for field in selected]
+        values = [_report_value(field, row.get(field.expression)) for field in selected]
         data_sheet.append([value if value is None or isinstance(value, (str, int, float, bool)) else str(value) for value in values])
     for cell in data_sheet[1]:
         cell.font = Font(bold=True)
@@ -898,7 +905,7 @@ def export_xlsx(*, definition: PortalReportDefinition, user, access: dict | None
     for cell in data_sheet[1]:
         cell.font = Font(bold=True)
     for row in rows:
-        data_sheet.append([row.get(field.expression) for field in selected])
+        data_sheet.append([_report_value(field, row.get(field.expression)) for field in selected])
     for column in data_sheet.columns:
         letter = column[0].column_letter
         data_sheet.column_dimensions[letter].width = min(36, max(12, max(len(str(cell.value or '')) for cell in column) + 2))

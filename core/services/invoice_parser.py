@@ -920,11 +920,114 @@ def propose_invoice_batch_matches(batch: InvoiceUploadBatch) -> InvoiceUploadBat
     return batch
 
 
+def _normalized_exact_name(value: str) -> str:
+    return re.sub(r'[^A-Z0-9]+', ' ', str(value or '').upper()).strip()
+
+
+def _exact_invoice_identity_match(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> bool:
+    """Require one complete, exact identity tuple before automatic matching."""
+    invoice_id = normalize_national_id(invoice.customer_id)
+    invoice_name = _normalized_exact_name(invoice.customer_name)
+    invoice_phone = clean_phone(invoice.customer_phone)
+    if not invoice_id or not invoice_name:
+        return False
+    identities = (
+        (farmer.national_id, farmer.customer_name, farmer.primary_phone),
+        (farmer.lead_national_id, farmer.lead_name, farmer.lead_primary_phone),
+    )
+    for national_id, name, phone in identities:
+        if invoice_id != normalize_national_id(national_id):
+            continue
+        if invoice_name != _normalized_exact_name(name):
+            continue
+        if invoice_phone and invoice_phone != clean_phone(phone):
+            continue
+        return True
+    return False
+
+
+def auto_match_invoice_batch(
+    batch: InvoiceUploadBatch,
+    *,
+    farmers,
+    actor: str = '',
+) -> dict:
+    """Commit only unique exact matches; return explicit manual-review rows."""
+    eligible = [farmer for farmer in farmers if official_requisition_eligibility(farmer)['eligible']]
+    claimed_farmer_ids = set()
+    matched = []
+    manual_review = []
+    for invoice in batch.invoices.select_related('batch').order_by('page', 'created_at'):
+        if invoice.status not in {'draft', 'unmatched', 'ambiguous'}:
+            continue
+        candidates = [farmer for farmer in eligible if _exact_invoice_identity_match(invoice, farmer)]
+        reason = ''
+        if not invoice.invoice_no or not invoice.invoice_date:
+            reason = 'Invoice number or valid invoice date is missing.'
+        elif len(candidates) > 1:
+            reason = 'More than one finalized-order case has the same invoice identity.'
+        elif not candidates:
+            reason = 'No unique exact ID, name and phone match was found in finalized orders.'
+        elif candidates[0].pk in claimed_farmer_ids:
+            reason = 'More than one uploaded invoice matched the same case.'
+        elif candidates[0].invoice_number and str(candidates[0].invoice_number).strip() != str(invoice.invoice_no).strip():
+            reason = 'This case already has a different invoice number.'
+        elif ParsedInvoice.objects.filter(
+            invoice_no__iexact=str(invoice.invoice_no).strip(), status='matched',
+        ).exclude(pk=invoice.pk).exists():
+            reason = 'This invoice number is already matched to another case.'
+
+        if reason:
+            invoice.status = 'ambiguous' if len(candidates) > 1 else 'unmatched'
+            invoice.proposed_farmer = candidates[0] if len(candidates) == 1 else None
+            invoice.proposed_order_number = candidates[0].order_number if len(candidates) == 1 else ''
+            invoice.review_notes = reason
+            invoice.revision += 1
+            invoice.save(update_fields=[
+                'status', 'proposed_farmer', 'proposed_order_number', 'review_notes',
+                'revision', 'updated_at',
+            ])
+            record_invoice_event(invoice, 'note', actor=actor, note=reason, metadata={'source': 'automatic_match'})
+            manual_review.append({
+                'invoice_id': str(invoice.pk), 'invoice_no': invoice.invoice_no,
+                'customer_name': invoice.customer_name, 'reason': reason,
+            })
+            continue
+
+        farmer = candidates[0]
+        manually_match_invoice(
+            invoice, farmer, actor=actor,
+            note='Automatically matched from exact finalized-order identity details.',
+        )
+        claimed_farmer_ids.add(farmer.pk)
+        matched.append({
+            'invoice_id': str(invoice.pk), 'invoice_no': invoice.invoice_no,
+            'customer_name': invoice.customer_name, 'farmer_id': str(farmer.pk),
+        })
+
+    batch.refresh_from_db()
+    refresh_invoice_batch_counts(batch)
+    return {'matched': matched, 'manual_review': manual_review, 'batch': batch}
+
+
 @transaction.atomic
 def edit_draft_invoice(invoice: ParsedInvoice, values: dict, *, actor: str = '') -> ParsedInvoice:
     invoice = ParsedInvoice.objects.select_for_update().get(pk=invoice.pk)
-    if invoice.batch.status != 'awaiting_confirmation' or invoice.status not in {'draft', 'ignored'}:
-        raise ValueError('Only an unconfirmed invoice draft can be edited.')
+    if invoice.status == 'superseded':
+        raise ValueError('A superseded invoice cannot be edited.')
+    expected_revision = values.get('revision')
+    if expected_revision not in (None, '') and int(expected_revision) != invoice.revision:
+        raise ValueError('This invoice changed while you were editing it. Refresh and try again.')
+    correction_reason = str(values.get('correction_reason') or '').strip()
+    if invoice.status == 'matched' and not correction_reason:
+        raise ValueError('Enter a reason for correcting this matched invoice.')
+    before = {
+        field: str(getattr(invoice, field) or '') for field in (
+            'invoice_no', 'invoice_date_raw', 'customer_name', 'customer_id',
+            'customer_phone', 'invoice_amount', 'total_after_discount', 'discount',
+            'payment', 'balance_due',
+        )
+    }
     text_fields = ('invoice_no', 'customer_name', 'customer_id', 'customer_phone', 'invoice_date_raw')
     amount_fields = ('invoice_amount', 'total_after_discount', 'discount', 'payment', 'balance_due')
     for field in text_fields:
@@ -956,9 +1059,44 @@ def edit_draft_invoice(invoice: ParsedInvoice, values: dict, *, actor: str = '')
     invoice.calculated_balance_due = _decimal_or_none(check['calculated_balance_due'])
     invoice.balance_due_difference = _decimal_or_none(check['balance_due_difference'])
     invoice.balance_due_check_basis = check['balance_due_check_basis']
+    if invoice.invoice_no and ParsedInvoice.objects.filter(
+        invoice_no__iexact=invoice.invoice_no, status='matched',
+    ).exclude(pk=invoice.pk).exists():
+        raise ValueError('That invoice number is already matched to another case.')
+    after = {field: str(getattr(invoice, field) or '') for field in before}
+    changed = {field: {'before': before[field], 'after': after[field]} for field in before if before[field] != after[field]}
+    if not changed:
+        raise ValueError('No parsed fields changed.')
     invoice.revision += 1
     invoice.save()
-    record_invoice_event(invoice, 'note', actor=actor, note='Invoice extraction draft edited.')
+    if invoice.matched_farmer_id and changed:
+        farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=invoice.matched_farmer_id)
+        revision_before = farmer.workflow_revision
+        _apply_invoice_to_farmer(farmer, invoice)
+        from core.services.invoice_identity import ensure_identity_review
+        review = ensure_identity_review(invoice, farmer)
+        if review is None:
+            invoice.identity_reviews.filter(status='pending').update(
+                status='cancelled',
+                decision_note='Parsed invoice data was corrected and no identity discrepancy remains.',
+                decided_by=str(actor or 'system'), decided_at=timezone.now(), updated_at=timezone.now(),
+            )
+        from core.services.jawabu_case360 import record_pipeline_event
+        record_pipeline_event(
+            farmer, action='invoice_extraction_corrected', stage_key='invoice', actor=actor,
+            request_id=f'invoice-edit:{invoice.id}:{invoice.revision}', source='invoice_manual_correction',
+            old_values={key: value['before'] for key, value in changed.items()},
+            new_values={key: value['after'] for key, value in changed.items()},
+            metadata={'invoice_id': str(invoice.id), 'reason': correction_reason},
+            reason=correction_reason,
+            revision_before=revision_before,
+            revision_after=farmer.workflow_revision,
+        )
+    record_invoice_event(
+        invoice, 'note', actor=actor,
+        note=correction_reason or 'Invoice extraction draft edited.',
+        metadata={'source': 'manual_extraction_correction', 'changes': changed},
+    )
     return invoice
 
 

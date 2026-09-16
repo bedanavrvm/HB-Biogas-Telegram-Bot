@@ -24,6 +24,8 @@ from core.models import (
     RequisitionBatch,
 )
 from core.services.invoice_parser import ingest_invoice_upload_batch
+from core.services.invoice_identity import ensure_identity_review, identity_gate
+from core.services.jawabu_validation import format_repayment_day, parse_repayment_day
 from core.services.payment_documents import (
     create_payment_document,
     generate_payment_workbook,
@@ -328,6 +330,53 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(InvoiceUploadBatch.objects.count(), 2)
         self.assertEqual(ParsedInvoice.objects.count(), 2)
 
+    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_invoice_review_upload_auto_matches_one_exact_finalized_order_identity(self, storage, parse_pdf):
+        farmer = self.farmer()
+        storage.return_value.upload.return_value = ('drive-id', 'https://drive.test/pdf')
+        parse_pdf.return_value = ([{
+            'page': 1, 'invoice_no': '9505', 'invoice_date': '20/07/2026',
+            'customer_name': 'Mary Wanjiku', 'customer_id': '12345678',
+            'customer_phone': '254712345678', 'invoice_amount': '54,000.00',
+            'payment': '6,000.00', 'balance_due': '43,500.00',
+        }], 1)
+
+        response = self.client.post(reverse('portal_invoice_pool_upload'), {
+            'file': SimpleUploadedFile('exact.pdf', b'%PDF-1.4 exact', content_type='application/pdf'),
+        })
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['auto_matched_count'], 1)
+        self.assertEqual(data['manual_review_count'], 0)
+        self.assertEqual(data['auto_matched'][0]['filename'], 'exact.pdf')
+        invoice = ParsedInvoice.objects.get()
+        self.assertEqual(invoice.status, 'matched')
+        self.assertEqual(invoice.matched_farmer, farmer)
+
+    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_invoice_review_upload_reports_partial_file_failures_by_name(self, storage, parse_pdf):
+        storage.return_value.upload.return_value = ('drive-id', 'https://drive.test/pdf')
+        parse_pdf.return_value = ([], 1)
+
+        response = self.client.post(reverse('portal_invoice_pool_upload'), {
+            'file': [
+                SimpleUploadedFile('kept.pdf', b'%PDF-1.4 kept', content_type='application/pdf'),
+                SimpleUploadedFile('wrong.txt', b'not a pdf', content_type='text/plain'),
+            ],
+        })
+
+        self.assertEqual(response.status_code, 207)
+        data = response.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['total_uploaded'], 1)
+        self.assertEqual(data['total_failed'], 1)
+        self.assertEqual(data['failures'][0]['filename'], 'wrong.txt')
+        self.assertEqual(data['manual_review_count'], 1)
+
     def test_invoice_pool_endpoint_lists_batches_and_invoices_with_filters(self):
         farmer = self.farmer(order_number='ORDER-MATCHED')
         batch = self.invoice_batch(farmer)
@@ -477,6 +526,40 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertIn(str(duplicate.id), duplicate_ids)
         reasons = data['duplicates'][0]['duplicate_reasons']
         self.assertTrue({'Same invoice no', 'Same ID', 'Same phone'} & set(reasons))
+
+    @patch('core.services.invoice_parser.reserve_farmer_publication')
+    def test_matched_invoice_parsed_fields_can_be_corrected_and_audited(self, _publication):
+        farmer = self.farmer(order_number='ORDER-CORRECT-PARSED')
+        batch = self.invoice_batch(farmer)
+        invoice = batch.invoices.get()
+        invoice.customer_id = ''
+        invoice.save(update_fields=['customer_id', 'updated_at'])
+        review = ensure_identity_review(invoice, farmer)
+        self.assertIsNotNone(review)
+        prior_farmer_revision = farmer.workflow_revision
+
+        response = self.client.post(
+            reverse('portal_invoice_draft_edit', args=[str(invoice.id)]),
+            data=json.dumps({
+                'customer_id': farmer.national_id,
+                'correction_reason': 'National ID was visible in the source PDF but was not extracted.',
+                'revision': invoice.revision,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        invoice.refresh_from_db()
+        farmer.refresh_from_db()
+        review.refresh_from_db()
+        self.assertEqual(invoice.customer_id, farmer.national_id)
+        self.assertEqual(identity_gate(invoice, farmer)['blocker'], '')
+        self.assertEqual(review.status, 'cancelled')
+        self.assertGreater(farmer.workflow_revision, prior_farmer_revision)
+        event = invoice.events.first()
+        self.assertEqual(event.metadata['source'], 'manual_extraction_correction')
+        self.assertIn('customer_id', event.metadata['changes'])
+        self.assertTrue(farmer.pipeline_events.filter(action='invoice_extraction_corrected').exists())
 
     @patch('core.services.invoice_parser.reserve_farmer_publication')
     def test_manual_invoice_match_endpoint_links_invoice_to_farmer(self, mock_reserve_publication):
@@ -802,6 +885,19 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         prepared_rows = [row for row in range(1, ws.max_row + 1) if ws.cell(row=row, column=3).value == 'PREPARED BY:']
         self.assertTrue(prepared_rows)
         self.assertGreater(prepared_rows[0], summary['totals_row'])
+
+    def test_payment_workbook_projects_full_repayment_dates_as_ordinal_days(self):
+        farmer = self.farmer(repayment_date='2026-07-03', repayment_day=None)
+        self.invoice_batch(farmer)
+
+        xlsx, _summary = generate_payment_workbook('ORDER-001', '107')
+        workbook = load_workbook(io.BytesIO(xlsx), data_only=False)
+        layout = payment_template_layout(workbook)
+        ws = workbook['#107']
+
+        self.assertEqual(ws.cell(layout.data_start_row, layout.columns['repayment_dates']).value, '3RD')
+        self.assertEqual(parse_repayment_day('2026-07-20'), 20)
+        self.assertEqual(format_repayment_day('2026-07-20'), '20TH')
 
     def test_legacy_payment_template_uses_reserved_column_for_case_mode(self):
         farmer = self.farmer()

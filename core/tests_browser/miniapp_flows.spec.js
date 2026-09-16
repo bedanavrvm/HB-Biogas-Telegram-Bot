@@ -358,6 +358,71 @@ test('Portal filter sheet matches compact mobile controls with one search clear'
   await expect(page.locator('[data-portal-filter-overlay]')).toBeHidden();
 });
 
+test('Invoice record stays compact and editable on a 360px mobile viewport', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.setContent(`<!doctype html><body class="workflow-standard portal-app">
+    <main id="content"><div id="portal-screen" data-screen="invoices" data-invoice-view="detail" data-invoice-id="invoice-1">
+      <section id="invoice-detail-page"></section>
+    </div></main>
+    <div id="media-viewer-overlay"><button id="media-viewer-close"></button><div id="media-viewer-content"></div></div>
+  </body>`);
+  for (const file of ['base.css', 'components.css', 'workflow_standard.css', 'portal.css']) {
+    await page.addStyleTag({ path: asset(file) });
+  }
+  await page.addScriptTag({ path: asset('portal_invoices.js') });
+  await page.evaluate(() => {
+    const invoice = {
+      id: 'invoice-1', revision: 4, status: 'matched', invoice_no: '10031',
+      invoice_date: '2026-09-16', customer_name: 'JOHN MAINA NDIRANGU',
+      customer_id: '', customer_phone: '254710825661', invoice_amount: '54000',
+      total_after_discount: '49500', discount: '4500', payment: '5000',
+      balance_due: '44500', calculated_balance_due: '44500',
+      balance_due_difference: '0', balance_due_check: 'OK',
+      balance_due_check_basis: 'total_after_discount_minus_payment', page: 1,
+      matched_order_number: '101', matched_farmer_name: 'JOHN MAINA NDIRANGU',
+      identity: {
+        status_label: 'Matched', discrepancy_codes: ['national_id_missing'],
+        match_eligibility: { eligible: true },
+        lead_identity: { name: 'JOHN MAINA NDIRANGU', national_id: '7192741' },
+        applicant_identity: { name: 'JOHN MAINA NDIRANGU', national_id: '7192741' },
+        invoice_identity: { name: 'JOHN MAINA NDIRANGU', national_id: '' },
+      },
+    };
+    window.PortalMiniAppInvoices.init({
+      el: id => document.getElementById(id),
+      escapeHtml: value => String(value ?? ''),
+      fmtDate: value => value === '2026-09-16' ? '16-09-2026' : String(value || '-'),
+      state: { capabilities: new Set(['portal.invoice.write']) },
+      apiFetch: async () => ({
+        ok: true,
+        data: {
+          ok: true, invoice, batch: { original_filename: 'invoice-10031.pdf' },
+          events: [{ action: 'parsed', actor: 'Operations', created_at: '2026-09-16' }],
+          duplicates: [], source_pdf_url: 'https://miniapp.test/invoice.pdf',
+        },
+      }),
+      portalApi: { postJson: async () => ({ ok: true, data: { ok: true } }) },
+      showToast() {}, setButtonLoading() {}, getCookie() { return ''; },
+    });
+    return window.PortalMiniAppInvoices.load(1);
+  });
+
+  await expect(page.locator('.invoice-record-summary')).toBeVisible();
+  await expect(page.locator('.invoice-financial-strip')).toContainText('KES 54,000');
+  await expect(page.locator('.invoice-parsed-grid')).toContainText('National ID');
+  await expect(page.locator('.invoice-parsed-grid')).toContainText('Check basis');
+  await expect(page.locator('.invoice-identity-comparison')).toBeVisible();
+  expect(await page.locator('#invoice-detail-page').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+
+  await page.locator('.invoice-parsed-edit-toggle').click();
+  await expect(page.locator('.invoice-parsed-edit-form')).toBeVisible();
+  await expect(page.locator('.invoice-parsed-grid')).toBeHidden();
+  await page.locator('input[name="customer_id"]').fill('7192741');
+  await expect(page.locator('textarea[name="correction_reason"]')).toBeVisible();
+  expect(await page.locator('.invoice-parsed-edit-form').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('invoice-record-mobile.png'), fullPage: true });
+});
+
 test('Import History keeps compact mobile cards and working review navigation', async ({page}, testInfo) => {
   const template = fs.readFileSync(path.join(root,'core/templates/portal/portal.html'),'utf8');
   const start = template.indexOf('<section id="page-imports"');

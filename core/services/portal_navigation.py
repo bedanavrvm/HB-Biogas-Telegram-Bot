@@ -10,7 +10,8 @@ PORTAL_NAV_ITEMS = (
     ('jbl', 'Visit Queue', 'map-pinned', 'portal.jbl_queue.view'),
     ('my_visits', 'My Submitted Visits', 'clipboard-check', 'portal.jbl_followup.view'),
     ('credit', 'Credit Analysis', 'shield-check', 'portal.credit_queue.view'),
-    ('final', 'Final Approval', 'badge-check', 'portal.final_review.view'),
+    ('final', 'Order Approval', 'badge-check', 'portal.final_review.view'),
+    ('payment_approvals', 'Payment Approval', 'circle-dollar-sign', 'portal.payment.review'),
     ('requisition', 'Order Preparation', 'shopping-bag', 'portal.requisition.view'),
     ('deferred', 'Deferred & Reappraisal', 'clock', 'portal.deferred.view'),
     ('all', 'All Cases', 'database', 'portal.case.read'),
@@ -29,7 +30,7 @@ PIPELINE_STAGES = (
     ('intake', 'Intake', 'inbox', ('farmup', 'imports')),
     ('visit', 'Field Visit', 'map-pinned', ('jbl', 'my_visits')),
     ('credit', 'Credit', 'shield-check', ('credit',)),
-    ('approval', 'Approval', 'badge-check', ('final',)),
+    ('approval', 'Approval', 'badge-check', ('final', 'payment_approvals')),
     ('fulfilment', 'Fulfilment', 'package-check', ('requisition', 'batches')),
     ('finance', 'Finance', 'banknote', ('invoices', 'payments', 'history')),
 )
@@ -42,6 +43,7 @@ PORTAL_SCREEN_PRESENTATION = {
     'my_visits': {'hub': 'pipeline', 'stage': 'visit', 'group': 'Pipeline · Field Visit', 'order': 1},
     'credit': {'hub': 'pipeline', 'stage': 'credit', 'group': 'Pipeline · Credit', 'order': 0},
     'final': {'hub': 'pipeline', 'stage': 'approval', 'group': 'Pipeline · Approval', 'order': 0},
+    'payment_approvals': {'hub': 'pipeline', 'stage': 'approval', 'group': 'Pipeline · Approval', 'order': 1},
     'requisition': {'hub': 'pipeline', 'stage': 'fulfilment', 'group': 'Pipeline · Fulfilment', 'order': 0},
     'batches': {'hub': 'pipeline', 'stage': 'fulfilment', 'group': 'Pipeline · Fulfilment', 'order': 1},
     'invoices': {'hub': 'pipeline', 'stage': 'finance', 'group': 'Pipeline · Finance', 'order': 0},
@@ -88,9 +90,15 @@ def get_portal_nav_items(user, *, access=None) -> list[dict]:
         if capability not in permitted:
             continue
         presentation = portal_screen_presentation(key)
+        if key == 'payments':
+            url = reverse('portal_payments_screen')
+        elif key == 'payment_approvals':
+            url = reverse('portal_payment_approvals_screen')
+        else:
+            url = reverse('portal_screen', kwargs={'screen': key})
         items.append({
             'key': key, 'label': label, 'icon': icon,
-            'url': reverse('portal_screen', kwargs={'screen': key}),
+            'url': url,
             'capability': capability, 'category': presentation['group'],
             'hub': presentation['hub'], 'stage': presentation.get('stage', ''),
             'order': presentation['order'],

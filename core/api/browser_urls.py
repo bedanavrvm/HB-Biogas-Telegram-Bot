@@ -9,6 +9,8 @@ from .portal_views import (
     portal_farmup_review_screen,
     portal_home,
     portal_invoices_screen,
+    portal_payment_approvals_screen,
+    portal_payments_screen,
     portal_reports_screen,
     portal_screen,
 )
@@ -52,5 +54,9 @@ urlpatterns = [
     path('portal/s/invoices/name-changes/', portal_invoices_screen, {'invoice_view': 'name_changes'}, name='portal_invoice_name_changes_screen'),
     path('portal/s/invoices/upload/', portal_invoices_screen, {'invoice_view': 'upload'}, name='portal_invoices_upload'),
     path('portal/s/invoices/<str:invoice_id>/', portal_invoices_screen, {'invoice_view': 'detail'}, name='portal_invoice_screen_detail'),
+    path('portal/s/payments/', portal_payments_screen, name='portal_payments_screen'),
+    path('portal/s/payments/<uuid:batch_id>/', portal_payments_screen, name='portal_payment_batch_screen_detail'),
+    path('portal/s/approvals/payments/', portal_payment_approvals_screen, name='portal_payment_approvals_screen'),
+    path('portal/s/approvals/payments/<uuid:batch_id>/', portal_payment_approvals_screen, name='portal_payment_approval_detail'),
     path('portal/s/<str:screen>/', portal_screen, name='portal_screen'),
 ]

@@ -122,7 +122,7 @@
     const raw = String(value).replace(/,/g, '').trim();
     const number = Number(raw);
     const display = Number.isFinite(number)
-      ? (Number.isInteger(number) ? String(number) : String(number).replace(/\.0+$/, ''))
+      ? number.toLocaleString('en-KE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
       : String(value);
     return 'KES ' + escapeHtml(display);
   }
@@ -472,24 +472,21 @@
       '</div>',
     ].join('') : '';
     const identityPanel = identity.invoice_identity ? [
-      '<div class="form-section">',
-      '<div class="invoice-section-heading"><div><h3>People linked to this invoice</h3><p>Matching an invoice never changes the applicant identity.</p></div><span class="badge ' + (['Matched', 'Corrected'].includes(identity.status_label) ? 'badge-green' : identity.status_label === 'Cancelled' ? 'badge-grey' : 'badge-orange') + '">' + escapeHtml(identity.status_label || 'Matched') + '</span></div>',
-      '<div class="invoice-detail-grid">',
-      kv('FarmUp lead / contact', identity.lead_identity?.name),
-      kv('Lead national ID', identity.lead_identity?.national_id),
-      kv('SysUp applicant / borrower', identity.applicant_identity?.name),
-      kv('Applicant national ID', identity.applicant_identity?.national_id),
-      kv('Invoice holder', identity.invoice_identity.name),
-      kv('Invoice holder national ID', identity.invoice_identity.national_id),
+      '<section class="form-section invoice-record-section">',
+      '<div class="invoice-section-heading"><h3>People linked to this invoice</h3><span class="badge ' + (['Matched', 'Corrected'].includes(identity.status_label) ? 'badge-green' : identity.status_label === 'Cancelled' ? 'badge-grey' : 'badge-orange') + '">' + escapeHtml(identity.status_label || 'Matched') + '</span></div>',
+      '<div class="invoice-identity-comparison">',
+      '<div><small>FarmUp lead</small><strong>' + escapeHtml(identity.lead_identity?.name || '-') + '</strong><span>ID ' + escapeHtml(identity.lead_identity?.national_id || '-') + '</span></div>',
+      '<div><small>SysUp applicant</small><strong>' + escapeHtml(identity.applicant_identity?.name || '-') + '</strong><span>ID ' + escapeHtml(identity.applicant_identity?.national_id || '-') + '</span></div>',
+      '<div><small>Invoice holder</small><strong>' + escapeHtml(identity.invoice_identity.name || '-') + '</strong><span>ID ' + escapeHtml(identity.invoice_identity.national_id || '-') + '</span></div>',
       '</div>',
       identityNotice,
       letterPreviewHtml,
       identity.name_change ? '<div class="invoice-correction-summary"><strong>' + escapeHtml(identity.status_label) + '</strong><span>' + escapeHtml(identity.name_change.relationship_type === 'spouse' ? 'Spouse' : 'Other relative / household member') + (identity.name_change.explanation ? ' · ' + escapeHtml(identity.name_change.explanation) : '') + '</span>' + (identity.name_change.letter_readiness?.blockers?.length ? '<small>' + escapeHtml(identity.name_change.letter_readiness.blockers.join(' ')) + '</small>' : '') + '</div>' : '',
       '<div class="invoice-detail-actions">' + identityActions.join('') + '</div>',
-      '</div>',
+      '</section>',
     ].join('') : '';
     const actionButtons = [
-      routeMode ? '<button type="button" class="btn btn-secondary invoice-detail-back">Back to invoices</button>' : '',
+      canWriteInvoices() ? '<button type="button" class="btn btn-secondary invoice-parsed-edit-toggle">Edit parsed data</button>' : '',
       canWriteInvoices() && ['draft', 'unmatched', 'ambiguous'].includes(invoice.status) ? '<button type="button" class="btn btn-primary invoice-detail-match-action">Match invoice</button>' : '',
       canWriteInvoices() && invoice.status === 'matched' ? '<button type="button" class="btn btn-secondary invoice-detail-unmatch-action">Change applicant match</button>' : '',
       canWriteInvoices() && invoice.status !== 'ignored' ? '<button type="button" class="btn btn-secondary invoice-detail-ignore-action">Ignore invoice</button>' : '',
@@ -507,36 +504,63 @@
       }).join('')
       : '<div class="empty-state"><div class="es-title">No audit events yet</div></div>';
     target.innerHTML = [
-      '<div class="batch-client-list">',
-      '<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;flex-wrap:wrap;">',
+      '<section class="invoice-record-summary">',
+      '<div class="invoice-record-heading">',
       '<div><div class="fc-name">Invoice ' + escapeHtml(invoice.invoice_no || '-') + '</div>',
       '<div class="fc-sub">' + escapeHtml(invoice.customer_name || 'Unknown customer') + ' | ID ' + escapeHtml(invoice.customer_id || '-') + ' | ' + escapeHtml(invoice.customer_phone || '-') + '</div></div>',
       '<span class="badge ' + badgeClass(invoice.status) + '">' + escapeHtml(invoice.status || '-') + '</span>',
       '</div>',
-      '<div class="fc-badges" style="margin-top:10px;">',
-      '<span class="badge badge-grey">Amount: ' + money(invoice.invoice_amount) + '</span>',
-      '<span class="badge badge-grey">HBG deposit: ' + money(hbgDeposit(invoice)) + '</span>',
-      '<span class="badge badge-grey">Balance: ' + money(invoice.balance_due) + '</span>',
+      '<div class="invoice-financial-strip">',
+      '<span><small>Amount</small><strong>' + money(invoice.invoice_amount) + '</strong></span>',
+      '<span><small>HBG deposit</small><strong>' + money(hbgDeposit(invoice)) + '</strong></span>',
+      '<span><small>Balance</small><strong>' + money(invoice.balance_due) + '</strong></span>',
       '</div>',
       '<div class="invoice-detail-actions">' + sourceLink + actionButtons + '</div>',
-      '</div>',
-      '<div class="form-section">',
-      '<h3 style="font-size:14px;margin:0 0 8px;">Parsed fields</h3>',
-      '<div class="invoice-detail-grid">',
-      kv('Invoice date', invoice.invoice_date),
+      '</section>',
+      '<section class="form-section invoice-record-section">',
+      '<div class="invoice-section-heading"><h3>Parsed fields</h3></div>',
+      '<div class="invoice-parsed-grid">',
+      kv('Invoice number', invoice.invoice_no),
+      kv('Invoice date', fmtDate(invoice.invoice_date)),
+      kv('Invoice holder', invoice.customer_name),
+      kv('National ID', invoice.customer_id),
+      kv('Phone', invoice.customer_phone),
+      kv('Invoice amount', money(invoice.invoice_amount)),
+      kv('Total after discount', money(invoice.total_after_discount)),
+      kv('Discount', money(invoice.discount)),
+      kv('Payment / HBG deposit', money(invoice.payment)),
+      kv('Balance due', money(invoice.balance_due)),
       kv('Page', invoice.page),
       kv('Matched order', invoice.matched_order_number),
       kv('Balance check', invoice.balance_due_check),
-      kv('Batch', batch.original_filename || invoice.batch_filename, { wide: true }),
-      kv('Matched farmer', invoice.matched_farmer_name, { wide: true }),
+      kv('Calculated balance', money(invoice.calculated_balance_due)),
+      kv('Balance difference', money(invoice.balance_due_difference)),
+      kv('Check basis', invoice.balance_due_check_basis),
       '</div>',
+      '<form class="invoice-parsed-edit-form" hidden>',
+      '<div class="invoice-parsed-edit-grid">',
+      '<label>Invoice number<input name="invoice_no" value="' + escapeHtml(invoice.invoice_no || '') + '"></label>',
+      '<label>Invoice date<input name="invoice_date" inputmode="numeric" placeholder="DD-MM-YYYY" value="' + escapeHtml(fmtDate(invoice.invoice_date || '')) + '"></label>',
+      '<label>Invoice holder<input name="customer_name" value="' + escapeHtml(invoice.customer_name || '') + '"></label>',
+      '<label>National ID<input name="customer_id" inputmode="numeric" value="' + escapeHtml(invoice.customer_id || '') + '"></label>',
+      '<label>Phone<input name="customer_phone" inputmode="tel" value="' + escapeHtml(invoice.customer_phone || '') + '"></label>',
+      '<label>Invoice amount<input name="invoice_amount" inputmode="decimal" value="' + escapeHtml(invoice.invoice_amount || '') + '"></label>',
+      '<label>Total after discount<input name="total_after_discount" inputmode="decimal" value="' + escapeHtml(invoice.total_after_discount || '') + '"></label>',
+      '<label>Discount<input name="discount" inputmode="decimal" value="' + escapeHtml(invoice.discount || '') + '"></label>',
+      '<label>Payment / HBG deposit<input name="payment" inputmode="decimal" value="' + escapeHtml(invoice.payment || '') + '"></label>',
+      '<label>Balance due<input name="balance_due" inputmode="decimal" value="' + escapeHtml(invoice.balance_due || '') + '"></label>',
       '</div>',
+      '<label class="invoice-correction-reason">Correction reason<textarea name="correction_reason" rows="2" placeholder="Required for an already matched invoice"></textarea></label>',
+      '<div class="invoice-parsed-edit-actions"><button type="button" class="btn btn-secondary invoice-parsed-edit-cancel">Cancel</button><button type="submit" class="btn btn-primary">Save correction</button></div>',
+      '</form>',
+      '<p class="invoice-record-source-meta">' + escapeHtml(batch.original_filename || invoice.batch_filename || 'No source filename') + (invoice.matched_farmer_name ? ' · ' + escapeHtml(invoice.matched_farmer_name) : '') + '</p>',
+      '</section>',
       identityPanel,
-      '<details class="form-section"' + (duplicates.length ? ' open' : '') + '>',
+      '<details class="form-section invoice-record-details"' + (duplicates.length ? ' open' : '') + '>',
       '<summary>Duplicate check' + (duplicates.length ? ' (' + escapeHtml(duplicates.length) + ')' : '') + '</summary>',
       duplicateHtml,
       '</details>',
-      '<details class="form-section">',
+      '<details class="form-section invoice-record-details">',
       '<summary>Audit trail (' + escapeHtml(events.length) + ')</summary>',
       eventHtml,
       '</details>',
@@ -547,10 +571,37 @@
         else window.open(btn.dataset.url, '_blank', 'noopener');
       });
     });
-    target.querySelector('.invoice-detail-back')?.addEventListener('click', function () {
-      navigate('inbox');
-    });
     target.querySelector('.invoice-detail-match-action')?.addEventListener('click', function () { openMatchOverlay(invoice); });
+    const parsedGrid = target.querySelector('.invoice-parsed-grid');
+    const parsedForm = target.querySelector('.invoice-parsed-edit-form');
+    const editToggle = target.querySelector('.invoice-parsed-edit-toggle');
+    const toggleParsedEdit = function (editing) {
+      if (parsedGrid) parsedGrid.hidden = editing;
+      if (parsedForm) parsedForm.hidden = !editing;
+      if (editToggle) editToggle.textContent = editing ? 'Editing parsed data' : 'Edit parsed data';
+    };
+    editToggle?.addEventListener('click', function () { toggleParsedEdit(true); });
+    target.querySelector('.invoice-parsed-edit-cancel')?.addEventListener('click', function () { toggleParsedEdit(false); });
+    parsedForm?.addEventListener('submit', async function (event) {
+      event.preventDefault();
+      const button = parsedForm.querySelector('[type="submit"]');
+      const values = Object.fromEntries(new FormData(parsedForm).entries());
+      values.revision = invoice.revision;
+      if (invoice.status === 'matched' && !String(values.correction_reason || '').trim()) {
+        return deps.showToast('Enter a reason for correcting this matched invoice.', 'error');
+      }
+      deps.setButtonLoading?.(button, true, 'Saving...');
+      try {
+        const response = await deps.apiFetch('/invoice-pool/' + encodeURIComponent(invoice.id) + '/draft/', {
+          method: 'POST', headers: {'Content-Type': 'application/json', ...csrfHeader()}, body: JSON.stringify(values),
+        });
+        if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not save the parsed invoice correction.');
+        deps.showToast('Parsed invoice data corrected and audited.', 'success');
+        await loadDetail(invoice.id);
+      } catch (error) {
+        deps.showToast(error.message || 'Could not save the parsed invoice correction.', 'error');
+      } finally { deps.setButtonLoading?.(button, false); }
+    });
     target.querySelector('.invoice-detail-unmatch-action')?.addEventListener('click', function () { unmatchInvoice(invoice.id); });
     target.querySelector('.invoice-detail-ignore-action')?.addEventListener('click', function () { ignoreInvoice(invoice.id); });
     target.querySelector('.invoice-detail-restore-action')?.addEventListener('click', function () { restoreInvoice(invoice.id); });
@@ -1259,12 +1310,25 @@
         if (title) title.textContent = files.length > 1 ? files.length + ' invoice PDFs uploaded' : (files[0]?.name || 'Invoice PDF') + ' uploaded';
         if (detail) detail.textContent = 'Tap to select another invoice PDF';
         if (resultBox) {
-          const uploaded = data.total_uploaded || 1;
-          const failed = data.total_failed || 0;
-          const failedBadge = failed ? ' <span class="badge badge-red">' + escapeHtml(failed) + ' failed</span>' : '';
-          resultBox.innerHTML = '<span class="badge badge-green">Uploaded ' + escapeHtml(uploaded) + ' PDF(s)</span> <span class="badge badge-blue">Parsed ' + escapeHtml(data.total_parsed || 0) + ' invoice(s)</span> <span class="badge badge-orange">' + escapeHtml(data.unmatched_count || 0) + ' unmatched</span>' + failedBadge;
+          const uploaded = Number(data.total_uploaded || 0);
+          const failed = Number(data.total_failed || 0);
+          const matched = Number(data.auto_matched_count || 0);
+          const review = Number(data.manual_review_count || data.unmatched_count || 0);
+          const failures = Array.isArray(data.failures) ? data.failures : [];
+          const reviewRows = Array.isArray(data.manual_review) ? data.manual_review : [];
+          const matchedRows = Array.isArray(data.auto_matched) ? data.auto_matched : [];
+          const list = function (items, value) {
+            return items.length ? '<ul class="mini-list">' + items.map(function (item) { return '<li>' + escapeHtml(value(item)) + '</li>'; }).join('') + '</ul>' : '';
+          };
+          resultBox.innerHTML = '<div class="invoice-upload-outcome" role="status">'
+            + '<strong>Successfully uploaded ' + escapeHtml(uploaded) + ' invoice file' + (uploaded === 1 ? '' : 's') + '.</strong>'
+            + '<div class="invoice-upload-counts"><span>' + escapeHtml(matched) + ' auto-matched</span><span>' + escapeHtml(review) + ' need manual review</span><span>' + escapeHtml(failed) + ' failed</span></div>'
+            + (matchedRows.length ? '<h4>Auto-matched</h4>' + list(matchedRows, function (item) { return (item.filename || 'PDF') + ': Invoice ' + (item.invoice_no || '-') + ' — ' + (item.customer_name || 'Unknown customer'); }) : '')
+            + (reviewRows.length ? '<h4>Manual review</h4>' + list(reviewRows, function (item) { return (item.filename || 'PDF') + ': Invoice ' + (item.invoice_no || '-') + ' — ' + (item.reason || 'Review required'); }) : '')
+            + (failures.length ? '<h4>Failed files</h4>' + list(failures, function (item) { return (item.filename || 'PDF') + ': ' + (item.error || 'Upload failed'); }) : '')
+            + '</div>';
         }
-        deps.showToast(files.length > 1 ? 'Invoices uploaded to pool.' : 'Invoice uploaded to pool.', 'success');
+        deps.showToast('Uploaded ' + (data.total_uploaded || 0) + ' invoice file(s): ' + (data.auto_matched_count || 0) + ' auto-matched, ' + (data.manual_review_count || data.unmatched_count || 0) + ' need review.', data.total_failed ? 'warning' : 'success');
         load(1);
       } catch (error) {
         if (resultBox) resultBox.innerHTML = '<div class="batch-warning" style="margin-top:10px;">The invoice upload did not finish. Check your connection and retry.</div>';

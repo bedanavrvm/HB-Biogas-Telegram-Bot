@@ -23,6 +23,7 @@ from core.services.portal_reporting import (
     validate_charts,
     validate_configuration,
 )
+from core.services.jawabu_case_reference import display_case_reference
 from core.services.reporting_relationships import portal_relationship_summary
 from core.services.workflow_capabilities import has_capability
 
@@ -137,6 +138,7 @@ class PortalReportingTests(TestCase):
         self.assertEqual(result['total_rows'], 1)
         self.assertEqual(result['summary']['Awaiting visit'], 1)
         self.assertEqual(result['rows'][0]['customer_name'], self.emb_u_case.customer_name)
+        self.assertEqual(result['rows'][0]['case_id'], display_case_reference(self.emb_u_case.id))
         self.assertNotIn('comments', {column['key'] for column in result['columns']})
 
     def test_fixed_finance_export_uses_decimal_values_and_current_period(self):
@@ -155,7 +157,7 @@ class PortalReportingTests(TestCase):
             preset='finance', filters={}, user=self.it_user,
             access={'roles': ['IT'], 'branches': ['EMBU']},
         )))
-        self.assertEqual(workbook['Data']['A2'].value, str(self.emb_u_case.id))
+        self.assertEqual(workbook['Data']['A2'].value, display_case_reference(self.emb_u_case.id))
 
     def test_chart_rules_reject_unapproved_dimensions_and_incomplete_date_grouping(self):
         with self.assertRaises(PortalReportingError):

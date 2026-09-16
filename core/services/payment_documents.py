@@ -373,7 +373,10 @@ def _row_payload(
             missing.append('Resolve the invoice holder mismatch')
     if farmer.balance_due is None:
         missing.append('Balance Due')
-    if not farmer.repayment_date:
+    from core.services.jawabu_validation import format_repayment_day
+
+    repayment_day = format_repayment_day(farmer.repayment_day or farmer.repayment_date)
+    if not repayment_day:
         missing.append('Repayment Dates')
     if not farmer.repayment_tenor:
         missing.append('Tenor')
@@ -420,7 +423,7 @@ def _row_payload(
         'deposit_paid_jbl': jbl_deposit,
         'loan_amount': None,
         'payment_mode': str((case_payment_modes or {}).get(str(farmer.id), '') or '').upper(),
-        'repayment_dates': farmer.repayment_date,
+        'repayment_dates': repayment_day,
         'tenor': farmer.repayment_tenor,
         'product': str(farmer.payment_product or '').upper(),
         # Payment COL is a separate Head-of-Rural checkpoint.  It must not

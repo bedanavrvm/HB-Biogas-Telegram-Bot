@@ -203,7 +203,7 @@ MASTER_SYSTEM_HEADERS = [
 ]
 
 MASTER_CASE_ID_HEADER = 'Case ID'
-MASTER_CASE_ID_DESCRIPTION = 'BACKEND-OWNED: immutable Django case UUID used to prevent duplicate rows.'
+MASTER_CASE_ID_DESCRIPTION = 'BACKEND-OWNED: short staff-facing case reference. Exact UUID is retained in hidden Master Record ID.'
 
 MASTER_FIELD_HEADERS = {
     'unit_number': ['Unit Number'],
@@ -1059,7 +1059,8 @@ def merge_master_row_values(
 
     status = 'created' if created else 'updated'
     record_id = str(cleaned.get('id') or cleaned.get('duplicate_key') or '')
-    set_header_value(row_values, header_lookup, MASTER_CASE_ID_HEADER, record_id)
+    from core.services.jawabu_case_reference import display_case_reference
+    set_header_value(row_values, header_lookup, MASTER_CASE_ID_HEADER, display_case_reference(record_id))
     set_header_value(row_values, header_lookup, 'Master Record ID', record_id)
     set_header_value(row_values, header_lookup, 'Import Batch ID', str(batch.id))
     set_header_value(row_values, header_lookup, 'Source Filename', batch.source_filename)

@@ -222,6 +222,7 @@
       isExternalFilterPresent:() => needsReviewOnly, doesExternalFilterPass:p => !needsReviewOnly || p.data._state !== 'ready',
       defaultColDef:{sortable:true, resizable:true, suppressHeaderMenuButton:true},
       columnDefs:[
+        {headerName:'#', colId:'row_number', width:48, minWidth:48, maxWidth:48, pinned:'left', lockPinned:true, sortable:false, resizable:false, valueGetter:p => p.node.rowIndex + 1},
         {headerName:'', colId:'selected', width:40, minWidth:40, maxWidth:40, pinned:'left', sortable:false, resizable:false, checkboxSelection:p => rowSelectable(p.data), cellClass:'farmup-selection-cell'},
         {headerName:'State', colId:'state', width:142, pinned:window.innerWidth > 700 ? 'left' : null, sortable:false, cellRenderer:statusRenderer, tooltipValueGetter:statusTooltip},
         {field:'Source Row', headerName:'Row', width:62, editable:false}, textColumn('Customer Name',180), textColumn('National ID',120), textColumn('Primary Phone',135), textColumn('Secondary Phone',135),

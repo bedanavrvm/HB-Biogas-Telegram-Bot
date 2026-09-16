@@ -91,9 +91,22 @@ def parse_money(value: Any) -> Decimal | None:
 
 
 def parse_repayment_day(value: Any) -> int | None:
-    match = re.search(r'\d{1,2}', str(value or ''))
-    day = int(match.group()) if match else None
+    parsed_date = parse_business_date(value)
+    if parsed_date is not None:
+        return parsed_date.day
+    text = str(value or '').strip().upper()
+    match = re.fullmatch(r'(?:DAY\s*)?(\d{1,2})(?:ST|ND|RD|TH)?', text)
+    day = int(match.group(1)) if match else None
     return day if day and 1 <= day <= 31 else None
+
+
+def format_repayment_day(value: Any) -> str:
+    """Return the governed repayment day as a compact ordinal, never a date."""
+    day = parse_repayment_day(value)
+    if day is None:
+        return ''
+    suffix = 'TH' if 10 < day % 100 < 14 else {1: 'ST', 2: 'ND', 3: 'RD'}.get(day % 10, 'TH')
+    return f'{day}{suffix}'
 
 
 def parse_tenor_months(value: Any) -> int | None:

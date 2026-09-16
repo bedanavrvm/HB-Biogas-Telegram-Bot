@@ -89,6 +89,16 @@ class PaymentBatchServiceTests(TestCase):
         self.assertEqual(payload['payment_mode_counts'], {'LOAN-JAWABU': 1, 'CASH': 1})
 
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
+    def test_batch_payload_exposes_ordinal_repayment_day(self, _readiness):
+        farmer = self.farmer('18')
+        farmer.repayment_date = '2026-09-02'
+        farmer.repayment_day = None
+        farmer.save(update_fields=['repayment_date', 'repayment_day', 'updated_at'])
+        batch = self.add(self.batch(), farmer)
+
+        self.assertEqual(serialize_batch(batch)['cases'][0]['preferred_repayment_date'], '2ND')
+
+    @patch('payments.services.payment_readiness', side_effect=ready.__func__)
     def test_generation_receives_the_exact_mode_for_every_approved_case(self, _readiness):
         cash, loan = self.farmer('16'), self.farmer('17')
         batch = self.add(

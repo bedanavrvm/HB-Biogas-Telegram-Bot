@@ -49,20 +49,20 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/components.js?v=3', html)
         self.assertIn('miniapp/asset_loader.js?v=1', html)
         self.assertIn('miniapp/portal_queues.js?v=13', html)
-        self.assertIn('miniapp/portal_farmer_sheet.js?v=72', html)
-        self.assertIn('miniapp/utils.js?v=15', html)
-        self.assertIn('miniapp/portal_helpers.js?v=7', html)
+        self.assertIn('miniapp/portal_farmer_sheet.js?v=74', html)
+        self.assertIn('miniapp/utils.js?v=16', html)
+        self.assertIn('miniapp/portal_helpers.js?v=8', html)
         self.assertIn('miniapp/components.css?v=2', html)
-        self.assertIn('miniapp/portal.css?v=112', html)
+        self.assertIn('miniapp/portal.css?v=116', html)
         self.assertIn('miniapp/portal_filters.js?v=16', html)
         self.assertIn('miniapp/portal_imports.js?v=7', html)
         self.assertNotIn('portal-import-group', html)
-        self.assertIn('miniapp/portal_requisitions.js?v=38', html)
+        self.assertIn('miniapp/portal_requisitions.js?v=39', html)
         self.assertIn('miniapp/portal_api.js?v=9', html)
-        self.assertIn('miniapp/portal_invoices.js?v=21', html)
-        self.assertIn('miniapp/portal_payments.js?v=12', html)
+        self.assertIn('miniapp/portal_invoices.js?v=23', html)
+        self.assertIn('miniapp/portal_payments.js?v=15', html)
         self.assertIn('miniapp/portal_curated_reports.js?v=3', html)
-        self.assertIn('miniapp/portal.js?v=87', html)
+        self.assertIn('miniapp/portal.js?v=89', html)
         self.assertNotIn('vendor-chartjs-4.5.1.umd.min.js', html)
         self.assertNotIn('<script src="/static/miniapp/vendor-leaflet-1.9.4.js', html)
         self.assertIn('miniapp/portal_case_history.js?v=1', html)
@@ -223,7 +223,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("return 'case_history'", source)
         self.assertIn("document.getElementById('portal-screen')?.dataset.screen", source)
         self.assertIn("document.addEventListener('DOMContentLoaded', activateScreen)", source)
-        self.assertContains(response, 'miniapp/miniapp-nav.js?v=24')
+        self.assertContains(response, 'miniapp/miniapp-nav.js?v=25')
 
     def test_telegram_back_never_uses_host_history_for_a_cold_portal_screen(self):
         source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
@@ -383,14 +383,15 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertIn('openInvoiceWorkflowSheet', source)
         self.assertIn('Request corrected invoice', source)
-        self.assertIn('FarmUp lead / contact', source)
-        self.assertIn('SysUp applicant / borrower', source)
+        self.assertIn('FarmUp lead', source)
+        self.assertIn('SysUp applicant', source)
         self.assertIn('Invoice holder', source)
         self.assertIn('invoice_revision: invoice.revision', source)
         self.assertIn('application_revision: invoice.application_revision', source)
         self.assertIn('confirmed: values.confirmed ===', source)
         self.assertIn('Correct sent request', source)
-        self.assertIn('Letter preview', source)
+        self.assertIn('openLetterPreview', source)
+        self.assertIn('Generated letter', source)
         self.assertIn('openReplacementSelector', source)
         self.assertIn("'/generate/'", source)
         self.assertIn('artifact_id: letter.id', source)
@@ -398,8 +399,12 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertNotIn('window.prompt', source)
         self.assertNotIn('window.confirm', source)
         self.assertNotIn('Invoice name changes', template)
-        self.assertIn("kv('Batch', batch.original_filename || invoice.batch_filename, { wide: true })", source)
-        self.assertIn("kv('Matched farmer', invoice.matched_farmer_name, { wide: true })", source)
+        self.assertIn('invoice-record-source-meta', source)
+        self.assertIn('invoice-parsed-edit-toggle', source)
+        self.assertIn('invoice-parsed-edit-form', source)
+        self.assertIn('name="correction_reason"', source)
+        self.assertIn("kv('National ID', invoice.customer_id)", source)
+        self.assertIn('invoice-identity-comparison', source)
         self.assertIn('.invoice-detail-field-wide { grid-column: 1 / -1; }', stylesheet)
         self.assertNotIn('@media (max-width: 480px) { .invoice-detail-grid { grid-template-columns: 1fr; } }', stylesheet)
 
@@ -647,7 +652,7 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         for queue_key in ('jbl', 'my_visits', 'credit', 'final', 'requisition', 'deferred', 'all'):
             self.assertIn(f'queue_key="{queue_key}"', template)
-        self.assertIn('Filters apply to the full authorized queue.', tools)
+        self.assertIn('Choose filters to narrow this queue.', tools)
         self.assertIn('delay: 250', Path('core/static/miniapp/portal_filters.js').read_text(encoding='utf-8'))
         self.assertIn('[20, 40, 60, 80, 90, 100, 110, 125, 140, 160, 180, 200]', components)
         self.assertNotIn("focusId: String(source.focusId", components)
@@ -857,7 +862,6 @@ class MiniAppFrontendSmokeTests(TestCase):
         template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')
         self.assertIn('id="requisition-preview-confirm" type="button"', template)
         self.assertNotIn('id="requisition-preview-confirm" type="button" hidden', template)
-        self.assertIn('must never replace it', source)
 
     def test_history_actions_use_shell_link_and_payment_case_review_cards(self):
         portal_source = Path('core/static/miniapp/portal.js').read_text(encoding='utf-8')
@@ -873,7 +877,8 @@ class MiniAppFrontendSmokeTests(TestCase):
 
     def test_head_of_rural_screen_exposes_only_final_decisions(self):
         response = self.client.get(reverse('portal_screen', kwargs={'screen': 'final'}))
-        self.assertContains(response, 'Approved cases move automatically to Orders.')
+        self.assertContains(response, 'Make final case decisions before order preparation.')
+        self.assertContains(response, 'Order Approval')
         self.assertNotContains(response, 'data-final-review-stage')
         self.assertNotContains(response, 'Payment files')
         self.assertNotContains(response, 'id="final-review-stage"')
@@ -903,6 +908,30 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('permanently allocates the next official payment number', source)
         self.assertNotIn('payments-detail-mode', source)
         self.assertNotIn('id="payments-mode"', Path('core/templates/portal/portal.html').read_text(encoding='utf-8'))
+
+    def test_payment_preparation_and_approval_have_distinct_route_backed_screens(self):
+        batch_id = '00000000-0000-0000-0000-000000000001'
+
+        self.assertEqual(reverse('portal_payments_screen'), '/portal/s/payments/')
+        self.assertEqual(
+            reverse('portal_payment_batch_screen_detail', kwargs={'batch_id': batch_id}),
+            f'/portal/s/payments/{batch_id}/',
+        )
+        self.assertEqual(reverse('portal_payment_approvals_screen'), '/portal/s/approvals/payments/')
+        self.assertEqual(
+            reverse('portal_payment_approval_detail', kwargs={'batch_id': batch_id}),
+            f'/portal/s/approvals/payments/{batch_id}/',
+        )
+        self.assertEqual(
+            reverse('portal_payment_batch_detail', kwargs={'batch_id': batch_id}),
+            f'/api/portal/payments/batches/{batch_id}/',
+        )
+
+        source = Path('core/static/miniapp/portal_payments.js').read_text(encoding='utf-8')
+        self.assertIn("screen() === 'payment_approvals'", source)
+        self.assertIn("function detailUrl(id)", source)
+        self.assertIn("window.location.assign(detailUrl(batch.dataset.paymentBatch))", source)
+        self.assertIn("if (routeBatchId)", source)
 
     def test_order_and_invoice_surfaces_do_not_expose_payment_actions(self):
         requisitions = Path('core/static/miniapp/portal_requisitions.js').read_text(encoding='utf-8')

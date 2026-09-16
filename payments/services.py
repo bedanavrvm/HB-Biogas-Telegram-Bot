@@ -15,6 +15,7 @@ from core.services.payment_documents import (
     create_payment_document,
     payment_readiness,
 )
+from core.services.jawabu_validation import format_repayment_day
 from payments.models import (
     PaymentBatch,
     PaymentBatchCase,
@@ -75,8 +76,10 @@ def case_payment_digest(farmer: JawabuFarmerMaster, payment_mode: str = '') -> s
         'discount': farmer.discount,
         'deposit_paid_hbg': farmer.deposit_paid_hbg,
         'deposit_paid_jbl': farmer.system_deposit_paid_jbl,
-        'preferred_repayment_day': farmer.repayment_day,
-        'preferred_repayment_date': farmer.repayment_date,
+        'preferred_repayment_day': format_repayment_day(farmer.repayment_day or farmer.repayment_date),
+        # Retain the legacy source text in the review digest so an out-of-band
+        # correction cannot be hidden merely because the typed day is stale.
+        'preferred_repayment_source': farmer.repayment_date,
         'repayment_tenor_months': farmer.repayment_tenor_months,
         'repayment_tenor': farmer.repayment_tenor,
         'payment_product': farmer.payment_product,
@@ -681,7 +684,9 @@ def serialize_batch(batch: PaymentBatch, *, include_cases=True):
                 'invoice_number': item.farmer.invoice_number,
                 'order_number': item.farmer.order_number,
                 'amount': str(item.farmer.balance_due or ''),
-                'preferred_repayment_date': item.farmer.repayment_date,
+                'preferred_repayment_date': format_repayment_day(
+                    item.farmer.repayment_day or item.farmer.repayment_date
+                ),
                 'payment_mode': item.payment_mode,
                 'payment_mode_label': item.get_payment_mode_display(),
                 'decision': decision,

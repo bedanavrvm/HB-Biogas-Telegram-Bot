@@ -27,6 +27,7 @@ from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from django.shortcuts import render
+from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
@@ -1457,6 +1458,32 @@ def portal_invoices_screen(request, invoice_view: str = 'inbox', invoice_id: str
 
 
 @require_http_methods(["GET", "HEAD"])
+def portal_payments_screen(request, batch_id=None):
+    """Render payment preparation as a list or one focused batch record."""
+    context = _portal_screen_context(
+        'payments',
+        payment_view='detail' if batch_id else 'inbox',
+        payment_batch_id=str(batch_id or ''),
+    )
+    if request.htmx:
+        return _portal_screen_fragment(request, 'payments', context=context)
+    return render(request, 'portal/portal_screen_full.html', context)
+
+
+@require_http_methods(["GET", "HEAD"])
+def portal_payment_approvals_screen(request, batch_id=None):
+    """Render the capability-driven payment approval queue and batch review."""
+    context = _portal_screen_context(
+        'payment_approvals',
+        payment_view='detail' if batch_id else 'inbox',
+        payment_batch_id=str(batch_id or ''),
+    )
+    if request.htmx:
+        return _portal_screen_fragment(request, 'payment_approvals', context=context)
+    return render(request, 'portal/portal_screen_full.html', context)
+
+
+@require_http_methods(["GET", "HEAD"])
 def portal_case_history_detail(request, farmer_id: str):
     """Render one customer's Case 360 as a dedicated navigable screen."""
     context = _portal_screen_context('case_history', case_history_farmer_id=farmer_id)
@@ -1466,16 +1493,22 @@ def portal_case_history_detail(request, farmer_id: str):
         'jbl': 'JBL Visit',
         'my_visits': 'My Submitted Visits',
         'credit': 'Credit Analysis',
-        'final': 'Final Approval',
+        'final': 'Order Approval',
         'requisition': 'Order Preparation',
         'deferred': 'Deferred & Reappraisal',
         'all': 'All Cases',
         'payments': 'Payment Preparation',
+        'payment_approvals': 'Payment Approval',
     }
     if source not in source_labels:
         source = 'all'
     context['case_history_source_screen'] = source
     context['case_history_back_label'] = f"Back to {source_labels[source]}"
+    context['case_history_back_url'] = (
+        reverse('portal_payments_screen') if source == 'payments'
+        else reverse('portal_payment_approvals_screen') if source == 'payment_approvals'
+        else reverse('portal_screen', kwargs={'screen': source})
+    )
     if request.htmx:
         return _portal_screen_fragment(request, 'case_history', context=context)
     return render(request, 'portal/portal_screen_full.html', context)
@@ -6129,6 +6162,7 @@ def portal_upload_batch_invoices(request):
         )
         from core.models import JawabuFarmerMaster, RequisitionBatch
         from core.services.invoice_parser import (
+            auto_match_invoice_batch,
             ingest_invoice_upload_batch,
             propose_invoice_batch_matches,
         )
@@ -6158,14 +6192,22 @@ def portal_upload_batch_invoices(request):
         match_candidates = [farmer for farmer in JawabuFarmerMaster.objects.filter(
             order_number=order_number, status='active',
         ).order_by('customer_name') if official_requisition_eligibility(farmer)['eligible']]
+        match_candidates = _portal_scoped_farmers(match_candidates, request, capability='portal.invoice.write')
+        auto_result = auto_match_invoice_batch(
+            upload_batch, farmers=match_candidates, actor=_portal_sender_from_request(request),
+        )
+        upload_batch = auto_result['batch']
         result = {
             'ok': upload_batch.total_parsed > 0,
-            'requires_confirmation': True,
+            'requires_confirmation': bool(auto_result['manual_review']),
             'invoice_batch_id': str(upload_batch.id),
             'invoice_batch_status': upload_batch.status,
             'drive_url': upload_batch.drive_url,
             'total_parsed': upload_batch.total_parsed,
-            'matched_count': 0,
+            'matched_count': upload_batch.matched_count,
+            'manual_review_count': len(auto_result['manual_review']),
+            'auto_matched': auto_result['matched'],
+            'manual_review': auto_result['manual_review'],
             'max_file_size_mb': max_mb,
             'results': [_serialize_parsed_invoice(item) for item in upload_batch.invoices.select_related('proposed_farmer')],
             'match_candidates': [{
@@ -6183,8 +6225,8 @@ def portal_upload_batch_invoices(request):
             batch = RequisitionBatch.objects.get(order_number=order_number)
             farmers = _farmers_for_batch(order_number, batch.farmer_ids or None)
             summary = _invoice_summary_for_farmers(farmers)
-            summary.update({'total_parsed': upload_batch.total_parsed, 'matched_count': 0,
-                            'last_invoice_upload_status': 'awaiting_confirmation',
+            summary.update({'total_parsed': upload_batch.total_parsed, 'matched_count': upload_batch.matched_count,
+                            'last_invoice_upload_status': upload_batch.status,
                             'last_invoice_upload_error': '', 'invoice_batch_id': str(upload_batch.id)})
             batch.status = 'needs_review'
             batch.invoice_summary = summary
@@ -6223,22 +6265,29 @@ def portal_invoice_pool_upload(request):
         if scope_error:
             return scope_error
     request_id = _portal_request_id(request, request.POST.dict())
+    validated_files = []
+    failures = []
     for pdf_index, pdf_file in enumerate(pdf_files, start=1):
         if not str(pdf_file.name or '').lower().endswith('.pdf'):
-            return JsonResponse({'ok': False, 'error': f'Only PDF files are supported: {pdf_file.name}'}, status=400)
+            failures.append({'filename': pdf_file.name, 'error': 'Only PDF files are supported.'})
+            continue
         if getattr(pdf_file, 'size', 0) and pdf_file.size > max_bytes:
-            return JsonResponse({
-                'ok': False,
-                'error': f'Invoice PDF is too large for this Mini App upload: {pdf_file.name}. Maximum size is {max_mb} MB.',
-                'max_file_size_mb': max_mb,
-            }, status=413)
+            failures.append({'filename': pdf_file.name, 'error': f'File exceeds the {max_mb} MB upload limit.'})
+            continue
+        validated_files.append((pdf_index, pdf_file))
 
-    from core.services.invoice_parser import InvoiceUploadStorageError, ingest_invoice_upload_batch
+    from core.services.invoice_parser import (
+        InvoiceUploadStorageError,
+        auto_match_invoice_batch,
+        ingest_invoice_upload_batch,
+    )
+    from core.models import JawabuFarmerMaster
 
     batches = []
-    failures = []
+    auto_matched = []
+    manual_review = []
     uploaded_by = _portal_sender_from_request(request)
-    for pdf_index, pdf_file in enumerate(pdf_files, start=1):
+    for pdf_index, pdf_file in validated_files:
         filename = getattr(pdf_file, 'name', '') or 'hb_invoices.pdf'
         try:
             batch = ingest_invoice_upload_batch(
@@ -6249,6 +6298,28 @@ def portal_invoice_pool_upload(request):
                 order_number=order_number,
                 client_request_id=(f'{request_id}:{pdf_index}' if request_id else ''),
             )
+            candidates = JawabuFarmerMaster.objects.filter(status='active')
+            if order_number:
+                candidates = candidates.filter(order_number=order_number)
+            candidates = _portal_scoped_farmers(
+                candidates.order_by('customer_name'), request, capability='portal.invoice.write',
+            )
+            match_result = auto_match_invoice_batch(
+                batch, farmers=candidates, actor=uploaded_by,
+            )
+            batch = match_result['batch']
+            auto_matched.extend([
+                {**item, 'filename': filename} for item in match_result['matched']
+            ])
+            manual_review.extend([
+                {**item, 'filename': filename} for item in match_result['manual_review']
+            ])
+            if not batch.total_parsed:
+                manual_review.append({
+                    'filename': filename, 'invoice_no': '',
+                    'customer_name': '',
+                    'reason': 'No valid HomeBiogas invoice was parsed from this file.',
+                })
             batches.append(batch)
         except InvoiceUploadStorageError as exc:
             logger.exception('Invoice PDF storage failed for filename=%s', filename)
@@ -6272,7 +6343,7 @@ def portal_invoice_pool_upload(request):
     first_batch = batches[0]
 
     return JsonResponse({
-        'ok': total_parsed > 0 and not failures,
+        'ok': bool(batches),
         'invoice_batch_id': str(first_batch.id),
         'invoice_batch_ids': [str(batch.id) for batch in batches],
         'drive_url': first_batch.drive_url,
@@ -6282,6 +6353,10 @@ def portal_invoice_pool_upload(request):
         'total_failed': len(failures),
         'total_pages': total_pages,
         'total_parsed': total_parsed,
+        'auto_matched_count': len(auto_matched),
+        'manual_review_count': len(manual_review),
+        'auto_matched': auto_matched,
+        'manual_review': manual_review,
         'unmatched_count': unmatched_count,
         'batches': [_serialize_invoice_batch(batch) for batch in batches],
         'failures': failures,
@@ -6359,6 +6434,9 @@ def _serialize_parsed_invoice(
         ) else '',
         'balance_due': str(invoice.balance_due) if invoice.balance_due is not None else '',
         'balance_due_check': invoice.balance_due_check,
+        'calculated_balance_due': str(invoice.calculated_balance_due) if invoice.calculated_balance_due is not None else '',
+        'balance_due_difference': str(invoice.balance_due_difference) if invoice.balance_due_difference is not None else '',
+        'balance_due_check_basis': invoice.balance_due_check_basis,
         'status': invoice.status,
         'matched_farmer_id': str(farmer.id) if farmer else '',
         'matched_farmer_name': farmer.customer_name if farmer else '',
@@ -6406,7 +6484,7 @@ def portal_invoice_draft_edit(request, invoice_id: str):
             return role_error
         invoice = edit_draft_invoice(invoice, payload, actor=_portal_sender_from_request(request))
     except ParsedInvoice.DoesNotExist:
-        return JsonResponse({'ok': False, 'error': 'Invoice draft not found.'}, status=404)
+        return JsonResponse({'ok': False, 'error': 'Invoice record not found.'}, status=404)
     except InvoiceMatchEligibilityError as exc:
         return _invoice_domain_error_response(request, exc)
     except (ValueError, json.JSONDecodeError) as exc:

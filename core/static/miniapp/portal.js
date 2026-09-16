@@ -83,7 +83,7 @@
   }
 
   function routeSignature(page, root = currentScreenRoot()) {
-    return `${page}:${root?.dataset.caseFarmerId || ''}:${root?.dataset.reportView || ''}:${root?.dataset.reportId || ''}:${root?.dataset.reportStep || ''}:${root?.dataset.invoiceView || ''}:${root?.dataset.invoiceId || ''}`;
+    return `${page}:${root?.dataset.caseFarmerId || ''}:${root?.dataset.reportView || ''}:${root?.dataset.reportId || ''}:${root?.dataset.reportStep || ''}:${root?.dataset.invoiceView || ''}:${root?.dataset.invoiceId || ''}:${root?.dataset.paymentBatchId || ''}`;
   }
 
   function isCurrentScreen(page) {
@@ -189,6 +189,7 @@
     batches: 'portal.batches.view',
     invoices: 'portal.invoice.view',
     payments: 'portal.payment.view',
+    payment_approvals: 'portal.payment.review',
     history: 'portal.documents.view',
     imports: 'portal.imports.view',
     farmup: 'portal.farmup.view',
@@ -709,7 +710,7 @@
   const queueConfig = portalQueues.config ? portalQueues.config() : {
     jbl: { endpoint: '/jbl-queue/', fragmentEndpoint: '/queues/jbl/fragment/', listId: 'jbl-list', pageKey: 'jbl', mode: 'jbl_visit', emptyTitle: 'JBL visit queue is clear', emptySub: 'No farmer is waiting for a JBL visit.' },
     credit: { endpoint: '/credit-queue/', fragmentEndpoint: '/queues/credit/fragment/', listId: 'credit-list', pageKey: 'credit', mode: 'credit', emptyTitle: 'Credit queue is clear', emptySub: 'No farmer is waiting for credit analysis.' },
-    final: { endpoint: '/final-review-queue/', fragmentEndpoint: '/queues/final/fragment/', listId: 'final-list', pageKey: 'final', mode: 'final_review', emptyTitle: 'Final review queue is clear', emptySub: 'No client is waiting for Head of Rural review.' },
+    final: { endpoint: '/final-review-queue/', fragmentEndpoint: '/queues/final/fragment/', listId: 'final-list', pageKey: 'final', mode: 'final_review', emptyTitle: 'Order approval queue is clear', emptySub: 'No client is waiting for an order approval decision.' },
     requisition: { endpoint: '/requisition-queue/', fragmentEndpoint: '/queues/requisition/fragment/', listId: 'req-list', pageKey: 'requisition', mode: 'requisition', emptyTitle: 'No orders to assign', emptySub: 'Approved cases awaiting an order number will appear here.' },
     deferred: { endpoint: '/deferred/', fragmentEndpoint: '/queues/deferred/fragment/', listId: 'deferred-list', pageKey: 'deferred', mode: null, emptyTitle: 'No deferred cases', emptySub: 'No farmers are deferred or flagged.' },
     all: { endpoint: '/farmers/', fragmentEndpoint: '/queues/all/fragment/', listId: 'all-list', pageKey: 'all', mode: null, emptyTitle: 'No farmers found', emptySub: 'Try a different search term.' },
@@ -1639,7 +1640,7 @@
     if (page === 'invoices' && portalInvoices.load) return portalInvoices.load(1);
     if (page === 'history') return loadHistory();
     if (page === 'case_history') return loadCaseHistory();
-    if (page === 'payments' && portalPayments.load) return portalPayments.load();
+    if ((page === 'payments' || page === 'payment_approvals') && portalPayments.load) return portalPayments.load();
     if (page === 'imports' && portalImports.load) return portalImports.load();
     if (page === 'farmup' && portalFarmUp.load) return portalFarmUp.load();
     else if (page === 'reports' && portalReports.load) {
