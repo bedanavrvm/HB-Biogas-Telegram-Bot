@@ -9,7 +9,7 @@ async function boot(page, queue, serverCards = false, capabilities = null) {
   await page.route('http://miniapp.test/**', route => {
     const url = new URL(route.request().url());
     if (url.pathname.startsWith('/portal/cases/')) {
-      return route.fulfill({ contentType: 'text/html', body: `<div id="portal-screen" data-screen="case_history" data-case-farmer-id="case-1" data-top-level="false"><section id="page-case_history"><a class="case-history-back" href="/portal/s/${queue}/" data-return-screen="${queue}">Back</a><a class="case-history-action" href="/portal/s/${queue}/?action_case=case-1">Work</a><div id="case-history-selected"><div id="case-history-content"></div></div></section></div>` });
+      return route.fulfill({ contentType: 'text/html', body: `<div id="portal-screen" data-screen="case_history" data-case-farmer-id="case-1" data-top-level="false"><section id="page-case_history"><a class="case-history-back" href="/portal/s/${queue}/" data-return-screen="${queue}" aria-label="Back"><span class="sr-only">Back</span></a><div id="case-history-selected"><div id="case-history-content"></div></div></section></div>` });
     }
     return route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Portal queue</title>' });
   });
@@ -51,6 +51,20 @@ async function boot(page, queue, serverCards = false, capabilities = null) {
   await page.addScriptTag({ path: asset('miniapp-nav.js') });
   await expect(page.locator('.farmer-card')).toHaveCount(1);
 }
+
+test('Case History uses one compact mobile back control', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="case_history"><section id="page-case_history" class="page active"><header class="case-history-page-header"><a class="case-history-back" href="/portal/s/jbl/" aria-label="Back to JBL Visit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 19-7-7 7-7"></path><path d="M19 12H5"></path></svg><span class="sr-only">Back to JBL Visit</span></a><div><h1>Complete Case History</h1><p class="meta">Full customer record, workflow timeline, TAT, documents, and data quality</p></div></header></section></div></main></body>`);
+  for (const name of ['base.css', 'workflow_standard.css', 'portal.css']) await page.addStyleTag({ path: asset(name) });
+  const back = page.locator('.case-history-back');
+  await expect(back).toHaveCount(1);
+  await expect(page.locator('.case-history-action')).toHaveCount(0);
+  const box = await back.boundingBox();
+  expect(box.width).toBe(44);
+  expect(box.height).toBe(44);
+  expect(await back.evaluate(node => getComputedStyle(node).borderTopWidth)).toBe('0px');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
+});
 
 for (const serverCards of [false, true]) {
   const rendering = serverCards ? 'server fragments' : 'client cards';

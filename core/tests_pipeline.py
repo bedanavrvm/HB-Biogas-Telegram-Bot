@@ -1945,19 +1945,28 @@ class JblPipelineApiTestCase(TestCase):
         self.assertContains(response, 'Complete Case History')
         self.assertNotContains(response, 'id="case-history-search-form"')
 
-    def test_case_history_returns_to_source_queue_and_keeps_explicit_action(self):
+    def test_case_history_has_one_back_control_for_each_supported_source(self):
         url = reverse('portal_case_history_detail', kwargs={'farmer_id': self.farmer.id})
-        response = self.client.get(url, {'from': 'jbl'})
-        self.assertContains(response, 'data-return-screen="jbl"')
-        self.assertContains(response, f'?action_case={self.farmer.id}')
-        self.assertContains(response, 'portal.jbl_visit.write')
-        self.assertContains(response, 'id="portal-actor-role" hidden')
-        self.assertContains(response, 'id="portal-freshness" hidden')
-        response = self.client.get(url, {'from': 'requisition'})
-        self.assertContains(response, 'data-return-screen="requisition"')
-        self.assertNotContains(response, '?action_case=')
+        for source, label in (
+            ('dashboard', 'Back to Home'),
+            ('jbl', 'Back to JBL Visit'),
+            ('my_visits', 'Back to My Submitted Visits'),
+            ('credit', 'Back to Credit Analysis'),
+            ('final', 'Back to Final Approval'),
+            ('requisition', 'Back to Order Preparation'),
+            ('deferred', 'Back to Deferred &amp; Reappraisal'),
+            ('all', 'Back to All Cases'),
+            ('payments', 'Back to Payment Preparation'),
+        ):
+            with self.subTest(source=source):
+                response = self.client.get(url, {'from': source})
+                self.assertContains(response, f'data-return-screen="{source}"')
+                self.assertContains(response, f'aria-label="{label}"')
+                self.assertContains(response, 'class="case-history-back"', count=1)
+                self.assertNotContains(response, 'case-history-action')
         response = self.client.get(url, {'from': 'https://example.com'})
         self.assertContains(response, 'data-return-screen="all"')
+        self.assertContains(response, 'aria-label="Back to All Cases"')
 
     def test_case_history_customer_fragment_omits_shell(self):
         response = self.client.get(

@@ -1499,7 +1499,7 @@ test('Case inspection allows only recovery autosaves, not submissions or invoice
 test('Case History click does not create a blocking save and Back retains edits and photos',async({page})=>{
   await installPortalRouteFixture(page);
   await page.goto('http://miniapp.test/portal/s/dashboard/');
-  await page.route('http://miniapp.test/portal/cases/case-1/**',route=>route.fulfill({contentType:'text/html',body:'<section id="portal-screen" data-screen="case_history" data-case-farmer-id="case-1"><a class="case-history-action" href="/portal/s/dashboard/">Back</a></section>'}));
+  await page.route('http://miniapp.test/portal/cases/case-1/**',route=>route.fulfill({contentType:'text/html',body:'<section id="portal-screen" data-screen="case_history" data-case-farmer-id="case-1"><a class="case-history-back" href="/portal/s/dashboard/" data-return-screen="dashboard" aria-label="Back"><span class="sr-only">Back</span></a></section>'}));
   await page.evaluate(()=>{
     document.getElementById('portal-screen').insertAdjacentHTML('beforeend','<input id="retained-village"><input id="retained-photo" type="file"><a id="case360-toggle" href="/portal/cases/case-1/?from=jbl">Case History</a>');
     window.__saves=0;window.__messages=[];

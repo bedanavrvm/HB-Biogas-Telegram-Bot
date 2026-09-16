@@ -1452,16 +1452,21 @@ def portal_case_history_detail(request, farmer_id: str):
     """Render one customer's Case 360 as a dedicated navigable screen."""
     context = _portal_screen_context('case_history', case_history_farmer_id=farmer_id)
     source = request.GET.get('from', 'all')
-    if source not in {'all', 'jbl', 'my_visits', 'credit', 'final', 'deferred', 'requisition'}:
+    source_labels = {
+        'dashboard': 'Home',
+        'jbl': 'JBL Visit',
+        'my_visits': 'My Submitted Visits',
+        'credit': 'Credit Analysis',
+        'final': 'Final Approval',
+        'requisition': 'Order Preparation',
+        'deferred': 'Deferred & Reappraisal',
+        'all': 'All Cases',
+        'payments': 'Payment Preparation',
+    }
+    if source not in source_labels:
         source = 'all'
     context['case_history_source_screen'] = source
-    actions = {
-        'jbl': ('Log visit', 'portal.jbl_visit.write'),
-        'credit': ('Review credit', 'portal.credit.write'),
-        'final': ('Review decision', 'portal.final_review.write'),
-    }
-    if source in actions:
-        context['case_history_action_label'], context['case_history_action_capability'] = actions[source]
+    context['case_history_back_label'] = f"Back to {source_labels[source]}"
     if request.htmx:
         return _portal_screen_fragment(request, 'case_history', context=context)
     return render(request, 'portal/portal_screen_full.html', context)

@@ -72,14 +72,19 @@
       const backButton = root.querySelector('.case-history-back');
       if (backButton) {
         const sourceLabels = {
-          payments: 'Back to Payment Batch', requisition: 'Back to Order Preparation',
+          dashboard: 'Back to Home',
+          payments: 'Back to Payment Preparation', requisition: 'Back to Order Preparation',
           jbl: 'Back to JBL Visit', credit: 'Back to Credit Analysis',
-          final: 'Back to Head of Rural Review',
+          final: 'Back to Final Approval', my_visits: 'Back to My Submitted Visits',
+          deferred: 'Back to Deferred & Reappraisal', all: 'Back to All Cases',
         };
-        const label = sourceLabels[originPage] || 'Back';
+        const label = sourceLabels[originPage] || 'Back to previous screen';
+        backButton.href = context.originUrl;
+        backButton.dataset.returnScreen = originPage;
         backButton.setAttribute('aria-label', label);
         backButton.setAttribute('title', label);
-        backButton.addEventListener('click', event => { event.preventDefault(); back(); });
+        const accessibleText = backButton.querySelector('.sr-only');
+        if (accessibleText) accessibleText.textContent = label;
       }
       deps.activate('case_history');
       changed();

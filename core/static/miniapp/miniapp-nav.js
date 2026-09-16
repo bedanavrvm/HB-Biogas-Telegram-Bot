@@ -243,7 +243,7 @@
     if (destination.origin !== window.location.origin || !destination.pathname.startsWith('/portal/')) return;
     if (destination.href === window.location.href) return;
     if (window.PortalCaseNavigation?.canOpen?.(destination.href)
-        || ((link.classList.contains('case-history-back') || link.classList.contains('case-history-action'))
+        || (link.classList.contains('case-history-back')
           && window.PortalCaseNavigation?.canReturn?.())) return;
     if (window.MiniAppUtils?.canNavigatePage?.(destination.href) === false) {
       event.preventDefault();

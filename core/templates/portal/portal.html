@@ -408,9 +408,8 @@
   <section id="page-case_history" class="page{% if active_screen == 'case_history' %} active{% endif %}">
     {% if case_history_farmer_id %}
     <header class="case-history-page-header">
-      <a href="{% url 'portal_screen' screen=case_history_source_screen|default:'all' %}" data-return-screen="{{ case_history_source_screen|default:'all' }}" class="case-history-back" aria-label="Back to cases" title="Back to cases"><i data-lucide="arrow-left" aria-hidden="true"></i><span class="sr-only">Back to Cases</span></a>
+      <a href="{% url 'portal_screen' screen=case_history_source_screen|default:'all' %}" data-return-screen="{{ case_history_source_screen|default:'all' }}" class="case-history-back" aria-label="{{ case_history_back_label|default:'Back to All Cases' }}" title="{{ case_history_back_label|default:'Back to All Cases' }}"><i data-lucide="arrow-left" aria-hidden="true"></i><span class="sr-only">{{ case_history_back_label|default:'Back to All Cases' }}</span></a>
       <div><h1>Complete Case History</h1><p class="meta">Full customer record, workflow timeline, TAT, documents, and data quality</p></div>
-      {% if case_history_action_label %}<a class="btn btn-primary case-history-action" data-required-capability="{{ case_history_action_capability }}" href="{% url 'portal_screen' screen=case_history_source_screen %}?action_case={{ case_history_farmer_id }}">{{ case_history_action_label }}</a>{% endif %}
     </header>
     <div id="case-history-selected">
       <div id="case-history-content" class="case360"><div class="empty-state"><div class="spinner-inline"></div></div></div>
