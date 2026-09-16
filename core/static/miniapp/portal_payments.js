@@ -69,7 +69,6 @@
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not load payment batches.');
       batches = response.data.batches || [];
       renderBatches();
-      if (capability('portal.payment.sequence.manage')) loadSequence();
       if (activeBatch) await openBatch(activeBatch.id, {quiet: true});
     } catch (error) {
       if (target) target.innerHTML = `<div class="batch-warning">${escape(error.message || 'Could not load payment batches.')}</div>`;
@@ -130,7 +129,7 @@
     el('payments-batches').hidden = true;
     el('payments-summary').hidden = true;
     document.querySelector('.payment-batch-filters')?.setAttribute('hidden', '');
-    document.querySelector('.payment-new-row')?.setAttribute('hidden', '');
+    el('payments-new')?.setAttribute('hidden', '');
     renderDetail();
   }
 
@@ -142,7 +141,7 @@
     el('payments-batches').hidden = false;
     el('payments-summary').hidden = false;
     document.querySelector('.payment-batch-filters')?.removeAttribute('hidden');
-    document.querySelector('.payment-new-row')?.removeAttribute('hidden');
+    if (capability('portal.payment.prepare')) el('payments-new')?.removeAttribute('hidden');
     renderBatches();
   }
 
@@ -182,13 +181,22 @@
   function renderDetail() {
     if (!activeBatch) return;
     const counts = activeBatch.counts || {};
+    const emptyDraft = activeBatch.status === 'draft' && Number(counts.total || 0) === 0;
+    el('payments-detail')?.classList.toggle('payment-detail-empty', emptyDraft);
     el('payments-detail-title').textContent = activeBatch.payment_number ? `Payment #${activeBatch.payment_number}` : 'Draft payment';
     el('payments-detail-meta').textContent = `${activeBatch.payment_mode_summary} · ${activeBatch.status_label}`;
     el('payments-progress').innerHTML = `<span><strong>${escape(counts.total || 0)}</strong><small>Cases</small></span><span><strong>${escape(counts.approved || 0)}</strong><small>Approved</small></span><span><strong>${escape(counts.returned || 0)}</strong><small>Returned</small></span><span><strong>${escape(counts.pending || 0)}</strong><small>Awaiting</small></span><span class="payment-progress-total"><strong>${escape(money(activeBatch.total_amount))}</strong><small>Total</small></span>`;
+    el('payments-progress').hidden = emptyDraft;
     const cases = activeBatch.cases || [];
     el('payments-current-cases').innerHTML = cases.length ? cases.map(caseRow).join('') : '<div class="empty-state compact"><div class="es-title">No cases added</div></div>';
+    if (el('payments-current-section')) el('payments-current-section').hidden = emptyDraft;
     const activity = activeBatch.activity || [];
     el('payments-activity').innerHTML = activity.length ? activity.map(item => `<div><strong>${escape(activityLabel(item.action))}</strong><small>${escape(item.actor)} &middot; ${escape(formatDateTime(item.created_at))}</small></div>`).join('') : '<small>No batch changes recorded.</small>';
+    const activityPanel = el('payments-activity')?.closest('.payment-activity');
+    if (activityPanel) activityPanel.hidden = emptyDraft;
+    if (el('payments-add-step')) el('payments-add-step').textContent = emptyDraft ? 'Step 1' : 'Add cases';
+    if (el('payments-add-title')) el('payments-add-title').textContent = emptyDraft ? 'Build the payment batch' : 'Choose cases and payment modes';
+    if (el('payments-add-help')) el('payments-add-help').textContent = emptyDraft ? 'Choose a payment mode, select the cases, then add them to this draft.' : 'Select a payment mode for each case before adding it.';
     const addPanel = el('payments-add-panel');
     if (addPanel) addPanel.hidden = !capability('portal.payment.prepare') || ['completed', 'cancelled'].includes(activeBatch.status);
     renderPrimaryAction();
@@ -198,7 +206,7 @@
   function renderPrimaryAction() {
     const target = el('payments-primary-action');
     if (!target || !activeBatch) return;
-    if (activeBatch.status === 'draft' && capability('portal.payment.prepare')) {
+    if (activeBatch.status === 'draft' && capability('portal.payment.prepare') && Number(activeBatch.counts?.total || 0) > 0) {
       target.innerHTML = '<button type="button" class="btn btn-primary" id="payments-submit-review">Submit for Head of Rural review</button>';
     } else if (activeBatch.status === 'in_review') {
       target.innerHTML = `<div class="payment-state-note"><strong>${activeBatch.counts.approved || 0} of ${activeBatch.counts.total || 0} reviewed</strong><small>Head of Rural reviews each case here.</small></div>`;
@@ -214,9 +222,10 @@
         : '';
       target.innerHTML = `<div class="payment-complete"><strong>Payment completed</strong><small>The signed batch is locked.</small></div>${signed}`;
     } else target.innerHTML = '';
-    if (capability('portal.payment.prepare') && !['completed', 'cancelled'].includes(activeBatch.status)) {
+    if (capability('portal.payment.prepare') && Number(activeBatch.counts?.total || 0) > 0 && !['completed', 'cancelled'].includes(activeBatch.status)) {
       target.insertAdjacentHTML('beforeend', '<button type="button" class="payment-cancel-link" id="payments-cancel">Cancel</button>');
     }
+    target.hidden = target.childElementCount === 0;
   }
 
   function candidateCard(item, kind) {
@@ -433,5 +442,5 @@
   }
 
   function init(initialDeps) { deps = initialDeps; bind(); }
-  window.PortalMiniAppPayments = {init, load};
+  window.PortalMiniAppPayments = {init, load, loadSequence};
 })();

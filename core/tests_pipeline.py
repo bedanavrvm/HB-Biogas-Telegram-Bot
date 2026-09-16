@@ -989,6 +989,25 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertNotIn('Saved views', source)
         self.assertIn('const PORTAL_WORKSPACE_UI_ENABLED = false;', script)
 
+    def test_nested_portal_workspaces_use_compact_shared_patterns(self):
+        root = Path(__file__).resolve().parent
+        template = (root / 'templates' / 'portal' / 'portal.html').read_text(encoding='utf-8')
+        batch_template = (root / 'templates' / 'portal' / 'partials' / 'batch_card.html').read_text(encoding='utf-8')
+        invoices = (root / 'static' / 'miniapp' / 'portal_invoices.js').read_text(encoding='utf-8')
+
+        self.assertNotIn('Review only', template)
+        self.assertNotIn('Customer records stay unchanged', template)
+        self.assertNotIn('invoice-workspace-filters', template)
+        self.assertNotIn('More filters', template)
+        self.assertIn('id="invoice-filter-overlay"', template)
+        self.assertIn('class="portal-queue-tools invoice-list-toolbar"', template)
+        self.assertNotIn('payment-sequence-panel', template)
+        self.assertIn('id="portal-payment-sequence-settings"', template)
+        self.assertIn('class="payment-detail-section payment-add-section"', template)
+        for label in ('HB deposit:', 'JBL deposit:', 'Invoice:', 'Discount:', 'Balance:'):
+            self.assertNotIn(label, batch_template)
+        self.assertNotIn('class="fc-badges invoice-card-money"', invoices)
+
     def test_portal_dashboard_cards_have_one_navigation_owner_and_icon_controls(self):
         template = Path(__file__).resolve().parent / 'templates' / 'portal' / 'portal.html'
         source = template.read_text(encoding='utf-8')
@@ -1082,13 +1101,13 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertIn('function impactWithFallback(kind, durationMs)', utils)
         self.assertIn("window.navigator?.vibrate === 'function'", utils)
 
-    def grant_portal_access(self, role='JBL_OFFICER', branches=None):
+    def grant_portal_access(self, role='JBL_OFFICER', branches=None, telegram_id='12345'):
         user = get_user_model().objects.create_user(
-            username=f'portal-{role.lower()}', first_name='Portal', last_name='User', is_active=True,
+            username=f'portal-{role.lower()}-{telegram_id}', first_name='Portal', last_name='User', is_active=True,
         )
         user.set_unusable_password()
         user.save(update_fields=['password'])
-        UserProfile.objects.create(user=user, telegram_id='12345')
+        UserProfile.objects.create(user=user, telegram_id=telegram_id)
         AccessGrant.objects.create(
             user=user, workflow='jawabu_portal', role=role,
             branch=(branches or [''])[0],
@@ -1104,7 +1123,7 @@ class PortalMiniAppAuthTestCase(TestCase):
             branch=(branches or [''])[0],
         )
 
-    def _signed_init_data(self, token='test-token'):
+    def _signed_init_data(self, token='test-token', telegram_id='12345'):
         import hashlib
         import hmac
         import time
@@ -1113,7 +1132,7 @@ class PortalMiniAppAuthTestCase(TestCase):
         payload = {
             'auth_date': str(int(time.time())),
             'query_id': 'portal-test-query',
-            'user': json.dumps({'id': 12345, 'first_name': 'Portal', 'last_name': 'User'}, separators=(',', ':')),
+            'user': json.dumps({'id': int(telegram_id), 'first_name': 'Portal', 'last_name': 'User'}, separators=(',', ':')),
         }
         data_check_string = "\n".join(
             f"{key}={value}" for key, value in sorted(payload.items())
@@ -1417,6 +1436,7 @@ class PortalMiniAppAuthTestCase(TestCase):
         settings_data = settings_response.json()['data']
         self.assertTrue(settings_data['operations']['health'])
         self.assertTrue(settings_data['operations']['delegation'])
+        self.assertFalse(settings_data['operations']['payment_sequence'])
         self.assertEqual(settings_data['branches'], ['Embu'])
         # Head of Rural sees the final-review queue, not the JBL officer's
         # visit queue.  Settings must only offer queues the current role can
@@ -1446,6 +1466,39 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertEqual(personal['default_filters']['branch'], 'Embu')
         self.assertNotIn('status', personal['default_filters'])
         self.assertTrue(personal['compact_cards'])
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
+    def test_payment_number_settings_are_available_only_to_it_and_operations(self):
+        GroupSheetConfiguration.objects.create(
+            group_id='payment-settings-group', sheet_id='payment-settings-sheet',
+            sheet_name='Master Data', enabled=True, workflow={'type': 'jawabu'},
+        )
+        for telegram_id, role, allowed in (
+            ('123451', 'OPERATIONS_ADMIN', True),
+            ('123452', 'IT', True),
+            ('123453', 'HB_STAFF', False),
+            ('123454', 'BUSINESS_ADMIN', False),
+        ):
+            with self.subTest(role=role):
+                self.grant_portal_access(role=role, telegram_id=telegram_id)
+                headers = {'HTTP_X_TELEGRAM_INIT_DATA': self._signed_init_data(telegram_id=telegram_id)}
+                settings_response = self.client.get(reverse('portal_settings'), **headers)
+                self.assertEqual(settings_response.status_code, 200)
+                self.assertEqual(settings_response.json()['data']['operations']['payment_sequence'], allowed)
+                sequence_response = self.client.get(reverse('portal_payment_sequence'), **headers)
+                self.assertEqual(sequence_response.status_code, 200 if allowed else 403)
+                edit_response = self.client.patch(
+                    reverse('portal_payment_sequence'),
+                    data=json.dumps({
+                        'next_number': 20 if role == 'OPERATIONS_ADMIN' else 21,
+                        'reason': 'Align the test payment register.',
+                        'revision': sequence_response.json().get('revision', 0),
+                    }),
+                    content_type='application/json',
+                    HTTP_X_REQUEST_ID=f'payment-sequence-{telegram_id}',
+                    **headers,
+                )
+                self.assertEqual(edit_response.status_code, 200 if allowed else 403)
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_workspace_saved_views_are_private_validated_and_safe_after_access_drift(self):
@@ -1893,6 +1946,25 @@ class JblPipelineApiTestCase(TestCase):
                 self.assertContains(response, f'data-invoice-view="{invoice_view}"')
                 self.assertContains(response, f'data-invoice-id="{expected_invoice_id}"')
                 self.assertContains(response, 'data-top-level="true"' if invoice_view == 'inbox' else 'data-top-level="false"')
+
+    def test_nested_finance_screens_render_the_compact_controls(self):
+        invoices = self.client.get(reverse('portal_invoices_screen'))
+        self.assertEqual(invoices.status_code, 200)
+        self.assertContains(invoices, 'id="invoice-filter-overlay"')
+        self.assertNotContains(invoices, 'More filters')
+
+        payments = self.client.get(reverse('portal_screen', kwargs={'screen': 'payments'}))
+        self.assertEqual(payments.status_code, 200)
+        self.assertContains(payments, 'class="payment-detail-section payment-add-section"')
+        self.assertNotContains(payments, 'payment-sequence-panel')
+
+        settings = self.client.get(reverse('portal_screen', kwargs={'screen': 'settings'}))
+        self.assertEqual(settings.status_code, 200)
+        self.assertContains(settings, 'id="portal-payment-sequence-settings"')
+
+        imports = self.client.get(reverse('portal_screen', kwargs={'screen': 'imports'}))
+        self.assertEqual(imports.status_code, 200)
+        self.assertNotContains(imports, 'Customer records stay unchanged')
 
     def test_invoice_workspace_detail_fragment_omits_shell(self):
         response = self.client.get(

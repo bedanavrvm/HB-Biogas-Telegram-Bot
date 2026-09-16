@@ -16,6 +16,7 @@
   let searchTimer = null;
   let candidateTimer = null;
   let letterPreviewObjectUrl = '';
+  let invoiceFilterSheet = null;
 
   function el(id) {
     return deps.el ? deps.el(id) : document.getElementById(id);
@@ -228,11 +229,7 @@
         '<div class="invoice-card-customer">' + escapeHtml(invoice.customer_name || 'Unknown invoice holder') + '</div>',
         '<div class="invoice-card-meta"><span>ID ' + escapeHtml(invoice.customer_id || '-') + '</span><span>' + escapeHtml(invoice.customer_phone || '-') + '</span>' + matched + '</div>',
         duplicateBadge ? '<div class="invoice-duplicate-alert">' + duplicateBadge + ' Review before matching.</div>' : '',
-        '<div class="fc-badges invoice-card-money">',
-        '<span class="badge badge-grey">Amount: ' + money(invoice.invoice_amount) + '</span>',
-        '<span class="badge badge-grey">Balance: ' + money(invoice.balance_due) + '</span>',
-        readinessBadge,
-        '</div>',
+        readinessBadge ? '<div class="fc-badges">' + readinessBadge + '</div>' : '',
         invoice.balance_due_check && String(invoice.balance_due_check).toLowerCase() !== 'ok' ? '<div class="invoice-card-warning">Balance check: ' + escapeHtml(invoice.balance_due_check) + '</div>' : '',
         invoice.review_notes ? '<div class="invoice-card-warning">' + escapeHtml(invoice.review_notes) + '</div>' : '',
         '</div>',
@@ -310,7 +307,7 @@
         '<article class="farmer-card invoice-upload-history-card">',
         '<div class="invoice-card-heading"><div class="fc-name">' + escapeHtml(batch.original_filename || 'Invoice PDF') + '</div><span class="badge ' + badgeClass(batch.status) + '">' + escapeHtml(batch.status || '-') + '</span></div>',
         '<div class="invoice-card-meta"><span>' + escapeHtml(fmtDate(batch.created_at)) + '</span><span>' + escapeHtml(batch.total_parsed || 0) + ' parsed</span><span>' + escapeHtml(batch.unmatched_count || 0) + ' unmatched</span></div>',
-        '<div class="fc-badges invoice-card-money">' + sync + (batch.error ? '<span class="badge badge-red">' + escapeHtml(batch.error) + '</span>' : '') + '</div>',
+        '<div class="fc-badges invoice-upload-status">' + sync + (batch.error ? '<span class="badge badge-red">' + escapeHtml(batch.error) + '</span>' : '') + '</div>',
         '</article>',
       ].join('');
     }).join('');
@@ -1096,9 +1093,30 @@
   function bindFilters() {
     if (document.documentElement.dataset.invoiceFiltersBound === 'true') return;
     document.documentElement.dataset.invoiceFiltersBound = 'true';
+    const components = window.MiniAppComponents || {};
+    const syncFilterPresentation = function () {
+      const select = el('invoice-pool-review');
+      const count = el('invoice-filter-count');
+      const activeCount = state.review ? 1 : 0;
+      if (count) { count.hidden = !activeCount; count.textContent = String(activeCount); }
+      components.renderFilterChips?.(el('invoice-filter-chips'), state.review ? {
+        review: {label: 'Show', text: select?.selectedOptions?.[0]?.textContent || state.review, value: state.review},
+      } : {}, function () {
+        state.review = '';
+        if (select) select.value = '';
+        syncFilterPresentation();
+        load(1);
+      });
+    };
+    invoiceFilterSheet = components.bindFilterSheet?.({
+      trigger: el('invoice-filter-trigger'), overlay: el('invoice-filter-overlay'),
+      sheet: el('invoice-filter-sheet'), form: el('invoice-filter-form'), onApply: function () {},
+    });
+    syncFilterPresentation();
     document.addEventListener('change', function (event) {
       if (event.target.id === 'invoice-pool-review') state.review = event.target.value || '';
       else return;
+      syncFilterPresentation();
       load(1);
     });
     document.addEventListener('input', function (event) {
@@ -1109,6 +1127,7 @@
         return;
       }
       if (event.target.id !== 'invoice-pool-search') return;
+      if (el('invoice-pool-search-clear')) el('invoice-pool-search-clear').hidden = !event.target.value;
       clearTimeout(searchTimer);
       state.search = event.target.value.trim();
       searchTimer = setTimeout(function () { load(1); }, 350);
@@ -1132,12 +1151,20 @@
         updateNameChangeSelection();
         return;
       }
-      if (!event.target.closest('#invoice-pool-clear')) return;
-      state.review = '';
-      state.search = '';
-      if (el('invoice-pool-review')) el('invoice-pool-review').value = '';
-      if (el('invoice-pool-search')) el('invoice-pool-search').value = '';
-      load(1);
+      if (event.target.closest('#invoice-pool-search-clear')) {
+        state.search = '';
+        if (el('invoice-pool-search')) { el('invoice-pool-search').value = ''; el('invoice-pool-search').focus(); }
+        el('invoice-pool-search-clear').hidden = true;
+        load(1);
+        return;
+      }
+      if (event.target.closest('#invoice-pool-clear')) {
+        state.review = '';
+        if (el('invoice-pool-review')) el('invoice-pool-review').value = '';
+        syncFilterPresentation();
+        invoiceFilterSheet?.close?.();
+        load(1);
+      }
     });
   }
 

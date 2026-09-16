@@ -594,7 +594,7 @@ def adjust_sequence(
     *, group_configuration, next_number, reason: str, actor=None,
     request_id='', expected_revision=None,
 ):
-    """Explicit IT repair for a sequence; allocated numbers are never reused."""
+    """Explicit IT/Operations repair; allocated payment numbers are never reused."""
     reason = str(reason or '').strip()
     if not reason:
         raise PaymentBatchError('Give a reason for changing the next payment number.')

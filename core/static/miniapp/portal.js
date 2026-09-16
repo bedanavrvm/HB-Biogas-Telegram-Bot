@@ -1858,6 +1858,7 @@
     document.body.classList.toggle('portal-compact-cards', Boolean(personal.compact_cards));
     applyWorkspaceVisibility();
     if (loadOperations) await renderPortalOperations(data.data?.operations || {});
+    if (loadOperations && data.data?.operations?.payment_sequence) await portalPayments.loadSequence?.();
     return personal;
   }
 

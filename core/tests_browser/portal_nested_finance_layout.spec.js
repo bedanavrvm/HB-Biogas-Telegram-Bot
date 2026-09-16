@@ -1,0 +1,109 @@
+'use strict';
+
+const path = require('node:path');
+const { test, expect } = require('playwright/test');
+
+const asset = name => path.resolve(__dirname, '../static/miniapp', name);
+
+async function loadPortalStyles(page) {
+  for (const name of ['base.css', 'components.css', 'workflow_standard.css', 'portal.css']) {
+    await page.addStyleTag({ path: asset(name) });
+  }
+}
+
+async function assertNoHorizontalOverflow(page, width) {
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+}
+
+test('invoice filters use the shared compact sheet without overflowing a 320px phone', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="invoices" data-invoice-view="inbox"><section id="page-invoices" class="page active">
+    <section class="portal-queue-tools invoice-list-toolbar" aria-label="Invoice search and filters">
+      <div class="portal-queue-tools-primary">
+        <label class="portal-queue-search" for="invoice-pool-search"><span aria-hidden="true">⌕</span><input type="search" id="invoice-pool-search" placeholder="Search invoice, customer, ID, phone, order, or file"><button type="button" id="invoice-pool-search-clear" hidden>×</button></label>
+        <button type="button" class="miniapp-filter-trigger" id="invoice-filter-trigger"><span>Filters</span><span class="miniapp-filter-count" id="invoice-filter-count" hidden>0</span></button>
+      </div>
+      <div class="miniapp-filter-chips" id="invoice-filter-chips"></div>
+      <div class="miniapp-sheet-overlay" id="invoice-filter-overlay" aria-hidden="true" hidden><aside class="miniapp-sheet" id="invoice-filter-sheet" role="dialog">
+        <header class="miniapp-sheet-header"><div><strong>Filter invoices</strong><p>Show invoices that need a specific kind of review.</p></div><button type="button" data-miniapp-sheet-close>×</button></header>
+        <form class="miniapp-sheet-body" id="invoice-filter-form"><label for="invoice-pool-review">Show<select id="invoice-pool-review"><option value="">All records on this page</option><option value="duplicates">Possible duplicates</option></select></label><footer class="miniapp-sheet-actions"><button class="btn btn-secondary" id="invoice-pool-clear" type="button">Reset</button><button class="btn btn-primary" type="submit">Done</button></footer></form>
+      </aside></div>
+    </section>
+    <div id="invoice-pool-summary"></div><div id="invoice-pool-list"></div><div id="pg-invoices"></div><div id="invoice-bulk-toolbar"></div>
+  </section></div></main><div id="toast"></div></body>`);
+  await loadPortalStyles(page);
+  await page.addScriptTag({ path: asset('components.js') });
+  await page.addScriptTag({ path: asset('portal_invoices.js') });
+  await page.evaluate(() => {
+    window.PortalMiniAppInvoices.init({
+      el: id => document.getElementById(id),
+      escapeHtml: value => String(value ?? ''),
+      state: { capabilities: new Set(['portal.invoice.view']) },
+      apiFetch: async () => ({ ok: true, data: { ok: true, summary: {}, invoices: [], pagination: { page: 1, pages: 1 } } }),
+      showToast() {},
+    });
+  });
+
+  await assertNoHorizontalOverflow(page, 320);
+  await page.locator('#invoice-filter-trigger').click();
+  await expect(page.locator('#invoice-filter-overlay')).toBeVisible();
+  await assertNoHorizontalOverflow(page, 320);
+  const sheet = await page.locator('#invoice-filter-sheet').boundingBox();
+  expect(sheet.x).toBeGreaterThanOrEqual(0);
+  expect(sheet.x + sheet.width).toBeLessThanOrEqual(320);
+  await page.locator('#invoice-pool-review').selectOption('duplicates');
+  await expect(page.locator('#invoice-filter-count')).toHaveText('1');
+  await expect(page.locator('#invoice-filter-chips')).toContainText('Possible duplicates');
+  await page.locator('#invoice-filter-form button[type="submit"]').click();
+  await expect(page.locator('#invoice-filter-overlay')).toBeHidden();
+});
+
+test('an empty first payment batch exposes one compact build step at 320px', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="payments"><section id="page-payments" class="page active">
+    <header class="portal-queue-header"><div><h1>Payments</h1><p class="meta">Prepare, review and complete payment batches</p></div><div class="payment-header-actions"><button id="payments-refresh">↻</button><button class="btn btn-primary" id="payments-new">New batch</button></div></header>
+    <div id="payments-summary" class="payment-summary-strip"></div><nav class="portal-invoice-tabs payment-batch-filters"><button class="active" data-payment-batch-filter="open">Open</button><button data-payment-batch-filter="completed">Completed</button><button data-payment-batch-filter="cancelled">Cancelled</button><button data-payment-batch-filter="all">All</button></nav><div id="payments-batches" class="payment-batch-list"></div>
+    <section id="payments-detail" class="payment-detail" hidden><header class="payment-detail-header"><button id="payments-detail-back">←</button><div><h2 id="payments-detail-title"></h2><p id="payments-detail-meta"></p></div></header><div id="payments-progress" class="payment-progress"></div>
+      <section id="payments-current-section" class="payment-detail-section"><header><span class="payment-step">Batch cases</span><h3>Cases in this batch</h3></header><div id="payments-current-cases" class="payment-current-cases"></div></section>
+      <section id="payments-add-panel" class="payment-detail-section payment-add-section"><header><span class="payment-step" id="payments-add-step">Add cases</span><h3 id="payments-add-title">Choose cases and payment modes</h3><p id="payments-add-help"></p></header><div class="payment-search-row"><label><span>Add cases</span><input id="payments-search" type="search" placeholder="Search customer, ID, phone, invoice or order"></label><strong id="payments-result-count">0 found</strong></div><div class="payment-filter-chips" id="payments-filter-chips"><button class="active" data-payment-filter="ready">Ready</button><button data-payment-filter="blocked">Needs attention</button><button data-payment-filter="pending">In another batch</button></div><div class="payment-selection-bar"><strong id="payments-selected-count">0 selected</strong><button id="payments-clear-selection">Clear</button><button class="btn btn-primary" id="payments-add-selected">Add selected</button></div><div id="payments-list" class="payment-candidate-list"></div></section>
+      <details class="payment-activity"><summary>Batch activity</summary><div id="payments-activity"></div></details><div id="payments-primary-action" class="payment-primary-action"></div>
+    </section>
+  </section></div></main><div id="toast"></div></body>`);
+  await loadPortalStyles(page);
+  await page.addScriptTag({ path: asset('portal_payments.js') });
+  await page.evaluate(() => {
+    const emptyBatch = { id: 'batch-1', status: 'draft', status_label: 'Draft', payment_mode_summary: 'Payment modes chosen per case', total_amount: '0', revision: 1, counts: { total: 0, approved: 0, returned: 0, pending: 0 }, cases: [], activity: [] };
+    window.PortalMiniAppPayments.init({
+      el: id => document.getElementById(id), escapeHtml: value => String(value ?? ''),
+      state: { capabilities: new Set(['portal.payment.prepare']) },
+      setButtonLoading() {}, showToast() {}, openPortalLink() {},
+      apiFetch: async (url, options = {}) => {
+        if (url === '/payments/batches/' && options.method === 'POST') return { ok: true, data: { ok: true, batch: emptyBatch } };
+        if (url === '/payments/batches/') return { ok: true, data: { ok: true, batches: [emptyBatch] } };
+        if (url.startsWith('/payments/batches/batch-1/')) return { ok: true, data: { ok: true, batch: emptyBatch } };
+        if (url.startsWith('/payments/candidates/')) return { ok: true, data: { ok: true, ready: [], blocked: [], pending_review: [] } };
+        return { ok: false, data: { ok: false, error: 'Unexpected test request' } };
+      },
+    });
+  });
+  await page.locator('#payments-new').click();
+  await expect(page.locator('#payments-add-title')).toHaveText('Build the payment batch');
+  await expect(page.locator('#payments-add-step')).toHaveText('Step 1');
+  await expect(page.locator('#payments-current-section')).toBeHidden();
+  await expect(page.locator('#payments-progress')).toBeHidden();
+  await expect(page.locator('.payment-activity')).toBeHidden();
+  await expect(page.locator('#payments-primary-action')).toBeEmpty();
+  await expect(page.locator('#payments-add-panel')).toBeVisible();
+  await assertNoHorizontalOverflow(page, 320);
+});
+
+test('official payment settings stack controls on a 320px phone', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><section id="page-settings" class="page active"><section id="portal-payment-sequence-settings" class="portal-settings-card"><div class="portal-settings-heading"><span class="settings-eyebrow">OPERATIONS</span><h2>Official payment number</h2><p>Set the next number only when aligning the Portal with the official payment register.</p></div><div class="portal-settings-grid payment-sequence-settings-grid"><label>Next payment number<input id="payments-sequence-next" type="number" value="12"></label><label>Reason<input id="payments-sequence-reason" type="text" placeholder="Reason for the register alignment"></label></div><div class="portal-settings-action-row"><small id="payments-sequence-status">Next official payment: 12</small><button class="btn btn-primary" id="payments-sequence-save">Save official number</button></div></section></section></main></body>`);
+  await loadPortalStyles(page);
+  await assertNoHorizontalOverflow(page, 320);
+  const status = await page.locator('#payments-sequence-status').boundingBox();
+  const button = await page.locator('#payments-sequence-save').boundingBox();
+  expect(button.y).toBeGreaterThan(status.y + status.height - 1);
+  expect(button.width).toBeGreaterThan(250);
+});

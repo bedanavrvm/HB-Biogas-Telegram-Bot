@@ -1526,6 +1526,7 @@ def _portal_setting_options(request, actor) -> dict:
             'health': has_capability(actor, 'jawabu_portal', 'portal.health.read', access=access),
             'maintenance': has_capability(actor, 'jawabu_portal', 'portal.health.maintenance.manage', access=access),
             'delegation': has_capability(actor, 'jawabu_portal', 'portal.approval.delegation.authorize', access=access),
+            'payment_sequence': has_capability(actor, 'jawabu_portal', 'portal.payment.sequence.manage', access=access),
         },
     }
 
@@ -5097,7 +5098,7 @@ def portal_payment_batches(request):
 @csrf_exempt
 @require_http_methods(['GET', 'PATCH'])
 def portal_payment_sequence(request):
-    """Read or explicitly align the next official payment number (IT only)."""
+    """Read or explicitly align the next official payment number (IT/Operations)."""
     access_error = _portal_capability_error(request, 'portal.payment.sequence.manage')
     if access_error:
         return access_error
@@ -5114,7 +5115,9 @@ def portal_payment_sequence(request):
         return JsonResponse({
             'ok': True, 'group_id': group.group_id,
             'next_number': state.next_number if state else 1,
-            'revision': state.revision if state else 0,
+            # Match PaymentSequenceState's initial revision so the first
+            # settings save does not immediately fail optimistic locking.
+            'revision': state.revision if state else 1,
         })
     try:
         state = adjust_sequence(

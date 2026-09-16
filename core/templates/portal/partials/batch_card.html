@@ -28,13 +28,6 @@
     </div>
   </div>
   <div class="batch-card-meta-row">
-    <span class="badge badge-grey">HB deposit: {% if batch.amount_summary.deposit_hb != None %}KES {{ batch.amount_summary.deposit_hb }}{% else %}—{% endif %}</span>
-    <span class="badge badge-grey">JBL deposit: {% if batch.amount_summary.deposit_jbl != None %}KES {{ batch.amount_summary.deposit_jbl }}{% else %}—{% endif %}</span>
-    <span class="badge badge-grey">Invoice: {% if batch.amount_summary.invoice_amount != None %}KES {{ batch.amount_summary.invoice_amount }}{% else %}—{% endif %}</span>
-    <span class="badge badge-grey">Discount: {% if batch.amount_summary.discount != None %}KES {{ batch.amount_summary.discount }}{% else %}—{% endif %}</span>
-    <span class="badge badge-grey">Balance: {% if batch.amount_summary.balance_due != None %}KES {{ batch.amount_summary.balance_due }}{% else %}—{% endif %}</span>
-  </div>
-  <div class="batch-card-meta-row">
     {% for farmer in batch.farmers|slice:":8" %}
       <span class="badge {% if farmer.invoiced %}badge-green{% else %}badge-grey{% endif %}" title="{% if farmer.invoice_number %}Invoice {{ farmer.invoice_number }}{% else %}No invoice uploaded{% endif %}">
         {{ farmer.customer_name|default:"Unnamed" }} ({{ farmer.county|default:"N/A" }})
