@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from decimal import Decimal
 
 from django.core.serializers.json import DjangoJSONEncoder
@@ -24,8 +25,14 @@ from payments.models import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 class PaymentBatchError(ValueError):
-    pass
+    def __init__(self, message, *, code='payment_batch_invalid', status=400):
+        super().__init__(message)
+        self.code = code
+        self.status = status
 
 
 EDITABLE_STATUSES = {
@@ -524,10 +531,22 @@ def generate_reviewed_workbook(batch_id, *, expected_revision, actor=None, actor
             case_call_up_comments=comments, case_payment_modes=case_payment_modes,
         )
     except PaymentTemplateError as exc:
-        raise PaymentBatchError(str(exc)) from exc
-    except Exception as exc:
+        logger.warning(
+            'Payment workbook template rejected: batch=%s payment=%s reason=%s',
+            batch_id, payment_number, str(exc),
+        )
         raise PaymentBatchError(
-            'The payment workbook could not be published. The batch is unchanged; retry when the connection is stable.'
+            str(exc), code='payment_workbook_template_invalid', status=400,
+        ) from exc
+    except Exception as exc:
+        logger.exception(
+            'Payment workbook publication failed: batch=%s payment=%s',
+            batch_id, payment_number,
+        )
+        raise PaymentBatchError(
+            'The payment workbook could not be published. The batch is unchanged; retry shortly. '
+            'If it continues, share the error reference with IT.',
+            code='payment_workbook_publication_failed', status=503,
         ) from exc
     conflict = False
     with transaction.atomic():

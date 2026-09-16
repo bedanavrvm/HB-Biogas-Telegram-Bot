@@ -93,6 +93,8 @@ def _write_system_value(
     ws: Any, row: int, column: int, value: Any, *,
     style_from: Any = None, bold: bool = False, wrap: bool = False,
 ) -> None:
+    if isinstance(value, str):
+        value = value.upper()
     cell = ws.cell(row=row, column=column, value=value)
     if style_from is not None:
         cell.font = copy.copy(style_from.font)
@@ -154,7 +156,7 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
             elif "ORDERNO:" in val_clean or "BATCH/ORDERREF:" in val_clean or "ORDERREF:" in val_clean:
                 order_ref_cell = cell
 
-    date_str = requisition_date.strftime('%d-%B-%Y') if isinstance(requisition_date, (date, datetime)) else str(requisition_date)
+    date_str = requisition_date.strftime('%d-%m-%Y') if isinstance(requisition_date, (date, datetime)) else str(requisition_date)
     if date_cell:
         date_cell.value = str(date_cell.value or '').split(':')[0] + ':'
         _write_system_value(ws, date_cell.row, date_cell.column + 1, date_str, style_from=date_cell, bold=True)
@@ -279,23 +281,23 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
     for idx, farmer in enumerate(farmers):
         r = first_data_row + idx
         _write_system_value(ws, r, col_no, idx + 1)  # NO.
-        _write_system_value(ws, r, col_name, farmer.customer_name, wrap=True)  # NAME OF THE CUSTOMER
+        _write_system_value(ws, r, col_name, str(farmer.customer_name or '').upper(), wrap=True)  # NAME OF THE CUSTOMER
         _write_system_value(ws, r, col_phone, farmer.primary_phone)  # CONTACT NO.
         _write_system_value(ws, r, col_id, farmer.national_id)  # ID NO.
-        _write_system_value(ws, r, col_credit, farmer.credit_decision)  # CREDIT ANALYSIS
+        _write_system_value(ws, r, col_credit, str(farmer.credit_decision or '').upper())  # CREDIT ANALYSIS
         callup_comment = str(getattr(farmer, 'final_decision_comment', '') or '').strip()
-        _write_system_value(ws, r, col_callup, callup_comment, wrap=True)  # HEAD OF URBAN CALLUP COMMENT
-        _write_system_value(ws, r, col_county, farmer.county, wrap=True)  # COUNTY
+        _write_system_value(ws, r, col_callup, callup_comment.upper(), wrap=True)  # HEAD OF URBAN CALLUP COMMENT
+        _write_system_value(ws, r, col_county, str(farmer.county or '').upper(), wrap=True)  # COUNTY
         location_text = requisition_location_text(farmer)
-        _write_system_value(ws, r, col_landmark, location_text, wrap=True)  # LOCATION & NEAREST LANDMARK
+        _write_system_value(ws, r, col_landmark, location_text.upper(), wrap=True)  # LOCATION & NEAREST LANDMARK
         
         hbg_deposit, jbl_deposit = requisition_order_deposit_values(farmer)
         _write_system_value(ws, r, col_hbg, hbg_deposit if hbg_deposit is not None else "")  # HBG
         _write_system_value(ws, r, col_jbl, jbl_deposit if jbl_deposit is not None else "")  # JBL
-        ws.cell(row=r, column=col_hbg).number_format = '0'
-        ws.cell(row=r, column=col_jbl).number_format = '0'
+        ws.cell(row=r, column=col_hbg).number_format = '#,##0'
+        ws.cell(row=r, column=col_jbl).number_format = '#,##0'
             
-        _write_system_value(ws, r, col_sales, farmer.hb_sales_person, wrap=True)  # HB SALES PERSON
+        _write_system_value(ws, r, col_sales, str(farmer.hb_sales_person or '').upper(), wrap=True)  # HB SALES PERSON
 
         line_count = max(
             1,

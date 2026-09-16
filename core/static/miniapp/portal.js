@@ -451,7 +451,7 @@
     }
     if (isNaN(d.getTime())) return String(v);
     const day = String(d.getDate()).padStart(2, '0');
-    const month = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+    const month = String(d.getMonth() + 1).padStart(2, '0');
     const year = String(d.getFullYear());
     return `${day}-${month}-${year}`;
   }

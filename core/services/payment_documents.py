@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import re
+from copy import copy
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -263,6 +264,54 @@ def payment_template_layout(wb) -> PaymentTemplateLayout:
     )
 
 
+def _ensure_case_payment_mode_column(ws, layout: PaymentTemplateLayout) -> PaymentTemplateLayout:
+    """Add the governed per-case mode to legacy templates that predate it.
+
+    The checked-in and already-published templates reserve a styled trailing
+    column inside their print area.  Older versions do not label that column,
+    which previously made every governed batch fail at generation time.  Keep
+    the template geometry intact and use that existing slot rather than
+    inserting or shifting the official workbook columns.
+    """
+    if 'payment_mode' in layout.columns:
+        return layout
+
+    source_col = layout.columns.get('call_up_comments') or max(layout.columns.values())
+    target_col = source_col + 1
+    header = ws.cell(row=layout.header_row, column=target_col)
+    if str(header.value or '').strip():
+        raise PaymentTemplateError(
+            'Payment workbook has no available column for the required case payment mode. '
+            'Update the active payment template in Django Admin.'
+        )
+
+    source_header = ws.cell(row=layout.header_row, column=source_col)
+    header.value = 'PAYMENT MODE'
+    header._style = copy(source_header._style)
+    header.font = copy(source_header.font)
+    header.fill = copy(source_header.fill)
+    header.border = copy(source_header.border)
+    header.alignment = copy(source_header.alignment)
+    header.protection = copy(source_header.protection)
+    header.number_format = source_header.number_format
+    source_letter = get_column_letter(source_col)
+    target_letter = get_column_letter(target_col)
+    if not ws.column_dimensions[target_letter].width:
+        ws.column_dimensions[target_letter].width = ws.column_dimensions[source_letter].width
+
+    columns = {**layout.columns, 'payment_mode': target_col}
+    return PaymentTemplateLayout(
+        sheet_name=layout.sheet_name,
+        header_row=layout.header_row,
+        data_start_row=layout.data_start_row,
+        totals_row=layout.totals_row,
+        signature_block_start_row=layout.signature_block_start_row,
+        columns=columns,
+        sum_columns=layout.sum_columns,
+        config_warnings=(*layout.config_warnings, 'legacy template payment-mode column activated'),
+    )
+
+
 def _amount(value) -> Decimal | None:
     if value is None or value == '':
         return None
@@ -356,12 +405,12 @@ def _row_payload(
         'requisition_date': farmer.requisition_date,
         'order_no': farmer.order_number,
         'cust_no': farmer.customer_no,
-        'name_imab': farmer.imab_customer_name,
-        'name': farmer.customer_name,
+        'name_imab': str(farmer.imab_customer_name or '').upper(),
+        'name': str(farmer.customer_name or '').upper(),
         'mobile_no': farmer.primary_phone,
         'secondary_mobile': farmer.secondary_phone,
-        'branch': farmer.system_branch or farmer.branch,
-        'loan_officer': farmer.system_loan_officer or farmer.jbl_officer,
+        'branch': str(farmer.system_branch or farmer.branch or '').upper(),
+        'loan_officer': str(farmer.system_loan_officer or farmer.jbl_officer or '').upper(),
         # BALANCE DUE from the source invoice is the amount used for payment.
         # Expected Invoice Amount stays blank until its formula is agreed.
         'hb_invoice_amount': farmer.balance_due,
@@ -370,20 +419,20 @@ def _row_payload(
         'deposit_paid_hbg': hbg_deposit,
         'deposit_paid_jbl': jbl_deposit,
         'loan_amount': None,
-        'payment_mode': (case_payment_modes or {}).get(str(farmer.id), ''),
+        'payment_mode': str((case_payment_modes or {}).get(str(farmer.id), '') or '').upper(),
         'repayment_dates': farmer.repayment_date,
         'tenor': farmer.repayment_tenor,
-        'product': farmer.payment_product,
+        'product': str(farmer.payment_product or '').upper(),
         # Payment COL is a separate Head-of-Rural checkpoint.  It must not
         # inherit the earlier order/requisition decision comment: a payment
         # draft is intentionally blank until HOR approves that batch.
         'call_up_comments': str(
             case_comment if case_comment is not None else (call_up_comments or '')
-        ).strip(),
+        ).strip().upper(),
         # This is reference-only metadata for the in-app review; the payment
         # workbook layout intentionally ignores it.
         'farmer_id': str(farmer.id),
-        'order_call_up_comments': str(farmer.final_decision_comment or '').strip(),
+        'order_call_up_comments': str(farmer.final_decision_comment or '').strip().upper(),
     }
     return row, missing, invoice
 
@@ -458,11 +507,11 @@ def _set_cell(ws, row: int, col: int | None, value):
         return
     if isinstance(value, (date, datetime)):
         cell.value = value
-        cell.number_format = 'dd-mmm-yyyy'
+        cell.number_format = 'dd-mm-yyyy'
     elif isinstance(value, Decimal):
         cell.value = _xlsx_number(value)
     else:
-        cell.value = value or ''
+        cell.value = value.upper() if isinstance(value, str) else (value or '')
 
 
 def _copy_payment_template_row(ws, src_row: int, dst_row: int) -> None:
@@ -496,20 +545,20 @@ def _write_payment_rows(ws, layout: PaymentTemplateLayout, rows: list[dict[str, 
                 'hb_invoice_amount', 'expected_invoice_amount', 'discount',
                 'deposit_paid_hbg', 'deposit_paid_jbl', 'loan_amount',
             } and layout.columns.get(key):
-                ws.cell(row=row, column=layout.columns[key]).number_format = '0'
+                ws.cell(row=row, column=layout.columns[key]).number_format = '#,##0'
 
     totals_row = first_data_row + count
     for col in layout.sum_columns:
         if col == layout.columns.get('expected_invoice_amount'):
             ws.cell(row=totals_row, column=col, value='')
-            ws.cell(row=totals_row, column=col).number_format = '0'
+            ws.cell(row=totals_row, column=col).number_format = '#,##0'
             continue
         letter = get_column_letter(col)
         if count:
             ws.cell(row=totals_row, column=col, value=f'=SUM({letter}{first_data_row}:{letter}{first_data_row + count - 1})')
         else:
             ws.cell(row=totals_row, column=col, value=0)
-        ws.cell(row=totals_row, column=col).number_format = '0'
+        ws.cell(row=totals_row, column=col).number_format = '#,##0'
     return totals_row
 
 
@@ -562,11 +611,9 @@ def generate_payment_workbook(
         raise PaymentTemplateError(str(exc)) from exc
     wb = openpyxl.load_workbook(io.BytesIO(template_bytes))
     layout = payment_template_layout(wb)
-    if case_payment_modes is not None and 'payment_mode' not in layout.columns:
-        raise PaymentTemplateError(
-            'Payment workbook is missing the Payment Mode column required for case-specific payment modes.'
-        )
     ws = wb[layout.sheet_name]
+    if case_payment_modes is not None:
+        layout = _ensure_case_payment_mode_column(ws, layout)
     rows = [item['row'] for item in readiness['ready']]
     totals_row = _write_payment_rows(ws, layout, rows)
     payment_label = f'#{payment_number}'

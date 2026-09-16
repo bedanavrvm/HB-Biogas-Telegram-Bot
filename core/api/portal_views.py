@@ -999,7 +999,7 @@ def _requisition_order_dates(existing, batch) -> set:
 
 def _format_requisition_date(value):
     parsed = _coerce_requisition_date(value)
-    return parsed.strftime('%d-%B-%Y') if parsed else str(value or '')
+    return parsed.strftime('%d-%m-%Y') if parsed else str(value or '')
 
 
 def _requisition_order_date_conflict(
@@ -4889,11 +4889,57 @@ def portal_farmer_detail(request, farmer_id: str):
             })
     card['spin_references'] = spin_references
     case360 = serialize_case360(farmer)
+    can_correct_case = has_capability(
+        actor,
+        'jawabu_portal',
+        'portal.case.correct',
+        access=getattr(request, 'portal_access', None),
+    ) if actor is not None else False
+    if can_correct_case:
+        from core.services.portal_case_corrections import correction_payload
+        case360['correction'] = correction_payload(farmer)
+    case360['can_correct'] = can_correct_case
     logger.info(
         'Portal Case History serialized farmer_id=%s request_id=%s duration_ms=%s',
         farmer.id, request_id or '-', int((time.monotonic() - started_at) * 1000),
     )
     return JsonResponse({'ok': True, 'farmer': card, 'case360': case360})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_farmer_case_correction(request, farmer_id: str):
+    """Apply one revision-checked Case History correction with timeline evidence."""
+    from core.models import JawabuFarmerMaster
+    from core.services.portal_case_corrections import correct_case_fields
+
+    try:
+        farmer = JawabuFarmerMaster.objects.get(pk=farmer_id)
+    except JawabuFarmerMaster.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
+    access_error = _portal_capability_error(request, 'portal.case.correct', farmer)
+    if access_error:
+        return access_error
+    try:
+        payload = json.loads(request.body or b'{}')
+        farmer = correct_case_fields(
+            farmer,
+            values=payload.get('values') or {},
+            expected_revision=int(payload.get('expected_revision') or 0),
+            reason=payload.get('reason') or '',
+            request_id=_portal_request_id(request, payload),
+            actor=request.portal_user,
+        )
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        status = 409 if 'changed after you opened' in str(exc) else 400
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=status)
+    from core.services.jawabu_case360 import serialize_case360
+    from core.services.portal_case_corrections import correction_payload
+
+    case360 = serialize_case360(farmer)
+    case360['can_correct'] = True
+    case360['correction'] = correction_payload(farmer)
+    return JsonResponse({'ok': True, 'case360': case360})
 
 
 
@@ -5043,11 +5089,21 @@ def _portal_payment_batch_scope_error(request, batch, *, capability):
     return _portal_farmers_scope_error(request, farmers, capability=capability)
 
 
-def _portal_payment_batch_error(exc):
+def _portal_payment_batch_error(request, exc):
     from payments.services import PaymentBatchError
     if isinstance(exc, PaymentBatchError):
-        status = 409 if 'changed while' in str(exc) else 400
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=status)
+        from core.services.miniapp_messages import miniapp_error_response
+
+        status = int(getattr(exc, 'status', 0) or (409 if 'changed while' in str(exc) else 400))
+        return miniapp_error_response(
+            request,
+            str(getattr(exc, 'code', '') or 'payment_batch_invalid'),
+            workflow='portal',
+            status=status,
+            user_message=str(exc),
+            developer_message=type(exc.__cause__).__name__ if exc.__cause__ else type(exc).__name__,
+            exception=exc.__cause__ if status >= 500 else None,
+        )
     return None
 
 
@@ -5101,7 +5157,7 @@ def portal_payment_batches(request):
         )
         return JsonResponse({'ok': True, 'batch': serialize_batch(batch)}, status=201)
     except PaymentBatchError as exc:
-        return _portal_payment_batch_error(exc)
+        return _portal_payment_batch_error(request, exc)
 
 
 @csrf_exempt
@@ -5139,7 +5195,7 @@ def portal_payment_sequence(request):
             'next_number': state.next_number, 'revision': state.revision,
         })
     except PaymentBatchError as exc:
-        return _portal_payment_batch_error(exc)
+        return _portal_payment_batch_error(request, exc)
 
 
 @require_http_methods(['GET'])
@@ -5179,7 +5235,7 @@ def portal_payment_batch_case_mode(request, batch_id, farmer_id):
         )
         return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
     except PaymentBatchError as exc:
-        return _portal_payment_batch_error(exc)
+        return _portal_payment_batch_error(request, exc)
 
 
 @csrf_exempt
@@ -5212,7 +5268,7 @@ def portal_payment_batch_cases(request, batch_id):
         )
         return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
     except PaymentBatchError as exc:
-        return _portal_payment_batch_error(exc)
+        return _portal_payment_batch_error(request, exc)
 
 
 @csrf_exempt
@@ -5236,7 +5292,7 @@ def portal_payment_batch_case_remove(request, batch_id, farmer_id):
         )
         return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
     except PaymentBatchError as exc:
-        return _portal_payment_batch_error(exc)
+        return _portal_payment_batch_error(request, exc)
 
 
 @csrf_exempt
@@ -5260,7 +5316,7 @@ def portal_payment_batch_submit(request, batch_id):
         )
         return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
     except PaymentBatchError as exc:
-        return _portal_payment_batch_error(exc)
+        return _portal_payment_batch_error(request, exc)
 
 
 @csrf_exempt
@@ -5285,7 +5341,7 @@ def portal_payment_batch_case_review(request, batch_id, farmer_id):
         )
         return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
     except PaymentBatchError as exc:
-        return _portal_payment_batch_error(exc)
+        return _portal_payment_batch_error(request, exc)
 
 
 @csrf_exempt
@@ -5310,7 +5366,7 @@ def portal_payment_batch_generate(request, batch_id):
         )
         return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
     except PaymentBatchError as exc:
-        return _portal_payment_batch_error(exc)
+        return _portal_payment_batch_error(request, exc)
 
 
 @csrf_exempt
@@ -5334,7 +5390,7 @@ def portal_payment_batch_cancel(request, batch_id):
         )
         return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
     except PaymentBatchError as exc:
-        return _portal_payment_batch_error(exc)
+        return _portal_payment_batch_error(request, exc)
 
 
 @require_http_methods(['GET', 'HEAD'])
@@ -6071,7 +6127,7 @@ def portal_upload_batch_invoices(request):
             getattr(pdf_file, 'name', ''),
             getattr(pdf_file, 'size', ''),
         )
-        from core.models import RequisitionBatch
+        from core.models import JawabuFarmerMaster, RequisitionBatch
         from core.services.invoice_parser import (
             ingest_invoice_upload_batch,
             propose_invoice_batch_matches,
@@ -6098,6 +6154,10 @@ def portal_upload_batch_invoices(request):
             })
 
         upload_batch = propose_invoice_batch_matches(upload_batch)
+        from core.services.invoice_parser import official_requisition_eligibility
+        match_candidates = [farmer for farmer in JawabuFarmerMaster.objects.filter(
+            order_number=order_number, status='active',
+        ).order_by('customer_name') if official_requisition_eligibility(farmer)['eligible']]
         result = {
             'ok': upload_batch.total_parsed > 0,
             'requires_confirmation': True,
@@ -6108,6 +6168,16 @@ def portal_upload_batch_invoices(request):
             'matched_count': 0,
             'max_file_size_mb': max_mb,
             'results': [_serialize_parsed_invoice(item) for item in upload_batch.invoices.select_related('proposed_farmer')],
+            'match_candidates': [{
+                'id': str(farmer.id),
+                'applicant_name': farmer.customer_name,
+                'applicant_national_id': farmer.national_id,
+                'applicant_phone': farmer.primary_phone,
+                'lead_name': farmer.lead_name,
+                'lead_national_id': farmer.lead_national_id,
+                'lead_phone': farmer.lead_primary_phone,
+                'order_number': farmer.order_number,
+            } for farmer in match_candidates],
         }
         try:
             batch = RequisitionBatch.objects.get(order_number=order_number)
@@ -6296,6 +6366,15 @@ def _serialize_parsed_invoice(
         'proposed_farmer_id': str(invoice.proposed_farmer_id or ''),
         'proposed_farmer_name': invoice.proposed_farmer.customer_name if invoice.proposed_farmer_id else '',
         'proposed_order_number': invoice.proposed_order_number,
+        'proposed_farmer': {
+            'id': str(invoice.proposed_farmer_id),
+            'applicant_name': invoice.proposed_farmer.customer_name,
+            'applicant_national_id': invoice.proposed_farmer.national_id,
+            'applicant_phone': invoice.proposed_farmer.primary_phone,
+            'lead_name': invoice.proposed_farmer.lead_name,
+            'lead_national_id': invoice.proposed_farmer.lead_national_id,
+            'lead_phone': invoice.proposed_farmer.lead_primary_phone,
+        } if invoice.proposed_farmer_id else None,
         'payment_readiness': readiness or {},
         'review_notes': invoice.review_notes,
         'revision': invoice.revision,

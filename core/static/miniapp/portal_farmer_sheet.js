@@ -412,7 +412,7 @@
     }).join('')}</ol>`;
   }
 
-  function caseHeader(sections, workflowState = '', currentPipelineState = '') {
+  function caseHeader(sections, workflowState = '', currentPipelineState = '', canCorrect = false) {
     const identity = sections.identity || {};
     const intake = sections.intake || {};
     const systemName = identity.system_name && identity.system_name !== identity.customer_name
@@ -423,8 +423,21 @@
       : sections.final_review?.decision || sections.credit?.decision || sections.jbl_visit?.status || 'Application received');
     return `<header class="case360-hero">
       <div class="case360-identity"><span class="case360-eyebrow">Customer case</span><h2>${deps.escapeHtml(identity.customer_name || 'Unnamed customer')}</h2><p>${deps.escapeHtml([systemName, identity.national_id && `ID ${identity.national_id}`, identity.primary_phone, intake.branch].filter(Boolean).join('  |  ') || 'Identifiers not recorded')}</p></div>
-      <span class="case360-status">${deps.escapeHtml(status)}</span>
+      <div class="case360-hero-actions"><span class="case360-status">${deps.escapeHtml(status)}</span>${canCorrect ? '<button type="button" class="case360-edit-toggle" aria-label="Edit case fields" title="Edit case fields"><i data-lucide="pencil" aria-hidden="true"></i><span class="sr-only">Edit case fields</span></button>' : ''}</div>
     </header>${caseStageFlow(sections, workflowState)}`;
+  }
+
+  function caseCorrectionMarkup(correction) {
+    const groups = {};
+    (correction?.fields || []).forEach(field => {
+      (groups[field.section] ||= []).push(field);
+    });
+    const fields = Object.entries(groups).map(([section, items]) => `<fieldset><legend>${deps.escapeHtml(humanLabel(section))}</legend><div class="case360-correction-grid">${items.map(field => {
+      const inputMode = field.type === 'date' ? ' inputmode="numeric" placeholder="DD-MM-YYYY"' : field.type === 'money' ? ' inputmode="decimal"' : '';
+      const type = field.type === 'tel' ? 'tel' : 'text';
+      return `<label><span>${deps.escapeHtml(field.label)}</span><input type="${type}" data-case-correction-field="${deps.escapeHtml(field.key)}" value="${deps.escapeHtml(field.value || '')}"${inputMode}></label>`;
+    }).join('')}</div></fieldset>`).join('');
+    return `<form class="case360-correction-form" hidden>${fields}<label class="case360-correction-reason"><span>Correction reason</span><textarea data-case-correction-reason rows="2" required placeholder="State what was wrong and why this correction is required"></textarea></label><div class="case360-correction-actions"><button type="button" class="btn btn-secondary case360-correction-cancel">Return to view mode</button><button type="submit" class="btn btn-primary">Save correction</button></div></form>`;
   }
 
   function caseTatCounter(record, key) {
@@ -554,11 +567,11 @@
     const invoiceChangeCards = invoiceNameChanges.length ? `<details class="case360-section"><summary><div><h3>Invoice Name Changes</h3><p>Original and corrected invoice history</p></div><span class="case360-chevron" aria-hidden="true"></span></summary><div class="case360-related-cases">${invoiceNameChanges.map(item => `<div class="case360-related-case"><strong>${deps.escapeHtml(item.original_invoice || '-')} → ${deps.escapeHtml(item.replacement_invoice || 'Awaiting replacement')}</strong><span>${deps.escapeHtml(humanLabel(item.status || ''))} · ${deps.escapeHtml(item.batch_reference || '')}</span></div>`).join('')}</div></details>` : '';
     const escalationAlert = escalation ? `<div class="case360-escalation level-${deps.escapeHtml(escalation.escalation_level)}"><strong>SLA escalation: ${deps.escapeHtml(escalation.routing_role)}</strong><span>${deps.escapeHtml(formatTatMinutes(escalation.overdue_minutes))} overdue at ${deps.escapeHtml(escalation.threshold_percent)}% threshold</span></div>` : '';
     root.innerHTML = `
-      ${caseHeader(sections, data.workflow_state || '', data.current_pipeline_state || '')}
+      ${caseHeader(sections, data.workflow_state || '', data.current_pipeline_state || '', Boolean(data.can_correct))}
       <div class="case360-tabs" role="tablist">
         ${tabs.map(([key, label, count], index) => `<button type="button" role="tab" aria-selected="${index ? 'false' : 'true'}" data-case360-tab="${key}" class="${index ? '' : 'active'}"><span>${label}</span>${count !== '' ? `<b>${count}</b>` : ''}</button>`).join('')}
       </div>
-      <section class="case360-panel" role="tabpanel" data-case360-panel="overview">${escalationAlert}<div class="case360-sections">${sectionCards}${householdCards}${invoiceChangeCards}${relatedCaseCards}</div></section>
+      <section class="case360-panel" role="tabpanel" data-case360-panel="overview">${data.can_correct ? caseCorrectionMarkup(data.correction) : ''}<div class="case360-view-content">${escalationAlert}<div class="case360-sections">${sectionCards}${householdCards}${invoiceChangeCards}${relatedCaseCards}</div></div></section>
       <section class="case360-panel" role="tabpanel" data-case360-panel="timeline" hidden>
         <div class="case360-panel-heading"><div><h3>Case Timeline</h3><p>Recorded actions in chronological order</p></div><strong>${timeline.length} events</strong></div>
         ${timeline.length ? `<div class="case360-timeline">${timeline.map(event => `<article class="${event.redacted ? 'redacted' : ''}"><time>${deps.escapeHtml(deps.fmtDate(event.occurred_at))}</time><div><strong>${deps.escapeHtml(event.title || humanLabel(event.action))}</strong><small>${deps.escapeHtml([event.actor, event.authority && `Authority: ${event.authority}`, event.stage, humanLabel(event.origin || event.source)].filter(Boolean).join(' · ') || 'System')}</small>${event.detail ? `<p>${deps.escapeHtml(event.detail)}</p>` : ''}${event.artifact?.url ? `<a class="case360-link" href="${deps.escapeHtml(event.artifact.url)}" target="_blank" rel="noopener">${deps.escapeHtml(event.artifact.name || 'Open linked document')} ↗</a>` : ''}</div></article>`).join('')}</div>` : '<div class="empty-state">No exact events recorded yet.</div>'}
@@ -571,6 +584,7 @@
       <section class="case360-panel" role="tabpanel" data-case360-panel="documents" hidden><div class="case360-panel-heading"><div><h3>Case Documents</h3><p>View supported evidence without leaving Portal, or open a file in its external app.</p></div></div><div class="case360-documents" data-case360-documents></div></section>
       <section class="case360-panel" role="tabpanel" data-case360-panel="quality" hidden><div class="case360-panel-heading"><div><h3>Data Quality</h3><p>Validation checks requiring staff attention</p></div></div>${validation.length ? `<div class="case360-quality-list">${validation.map(issue => `<article><span>!</span><div><strong>${deps.escapeHtml(humanLabel(issue.field))}</strong><p>${deps.escapeHtml(issue.message)}</p></div></article>`).join('')}</div>` : '<div class="case360-valid"><strong>All checks passed</strong><span>All monitored business fields are valid.</span></div>'}</section>`;
     root.hidden = false;
+    if (window.lucide) window.lucide.createIcons({ attrs: { 'stroke-width': 2 } });
     renderCaseDocumentList(docLinks, root.querySelector('[data-case360-documents]'));
     if (case360CounterCleanup) case360CounterCleanup();
     case360CounterCleanup = window.MiniAppRuntime?.bindServerCounters?.(root, {
@@ -590,6 +604,46 @@
     root.querySelectorAll('[data-related-farmer]').forEach(button => button.addEventListener('click', () => {
       window.location.assign('/portal/cases/' + encodeURIComponent(button.dataset.relatedFarmer) + '/');
     }));
+    const correctionForm = root.querySelector('.case360-correction-form');
+    const correctionToggle = root.querySelector('.case360-edit-toggle');
+    const viewContent = root.querySelector('.case360-view-content');
+    const setCorrectionMode = enabled => {
+      if (!correctionForm || !correctionToggle || !viewContent) return;
+      correctionForm.hidden = !enabled;
+      viewContent.hidden = enabled;
+      root.classList.toggle('case360-editing', enabled);
+      correctionToggle.classList.toggle('active', enabled);
+      correctionToggle.setAttribute('aria-label', enabled ? 'Return to view mode' : 'Edit case fields');
+      correctionToggle.title = enabled ? 'Return to view mode' : 'Edit case fields';
+      if (enabled) correctionForm.querySelector('input')?.focus();
+    };
+    correctionToggle?.addEventListener('click', () => setCorrectionMode(correctionForm?.hidden !== false));
+    correctionForm?.querySelector('.case360-correction-cancel')?.addEventListener('click', () => setCorrectionMode(false));
+    correctionForm?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const submit = correctionForm.querySelector('button[type="submit"]');
+      const values = {};
+      correctionForm.querySelectorAll('[data-case-correction-field]').forEach(input => { values[input.dataset.caseCorrectionField] = input.value; });
+      const reason = correctionForm.querySelector('[data-case-correction-reason]')?.value?.trim() || '';
+      if (!reason) { deps.showToast('Enter a correction reason for the audit timeline.', 'error'); return; }
+      deps.setButtonLoading?.(submit, true, 'Saving');
+      try {
+        const farmerId = documents.farmer_id || state().selectedFarmer?.id;
+        const requestId = window.crypto?.randomUUID?.() || `case-correction-${Date.now()}`;
+        const response = await deps.apiFetch('/farmers/' + encodeURIComponent(farmerId) + '/correction/', {
+          method: 'POST',
+          body: JSON.stringify({ values, reason, expected_revision: data.correction?.workflow_revision, request_id: requestId }),
+          headers: { 'X-Request-ID': requestId },
+        });
+        if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'The case correction could not be saved.');
+        deps.showToast('Case correction saved and added to the timeline.', 'success');
+        renderCase360(response.data.case360, root);
+      } catch (error) {
+        deps.showToast(error.message || 'The case correction could not be saved.', 'error');
+      } finally {
+        deps.setButtonLoading?.(submit, false);
+      }
+    });
   }
 
   async function loadCase360(farmer) {

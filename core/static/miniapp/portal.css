@@ -3825,7 +3825,9 @@ body.portal-app input[type="search"]::-webkit-search-decoration { -webkit-appear
   color:var(--brand-primary);
 }
 .client-media-actions .media-external-link svg { width:17px; height:17px; }
-.workflow-standard.portal-app .phone-call-button { width:44px; min-width:44px; padding:0; }
+.workflow-standard.portal-app .phone-call-button { width:32px; min-width:32px; min-height:32px; height:32px; padding:0; border-width:1px !important; border-radius:8px; }
+.workflow-standard.portal-app .phone-call-button svg,
+.workflow-standard.portal-app .phone-call-button svg * { width:15px; height:15px; }
 .workflow-standard.portal-app .phone-call-button .sr-only { position:absolute !important; }
 .operational-detail-sheet .voice-language-button,
 .jbl-visit-sheet .voice-language-button {
@@ -4031,6 +4033,46 @@ body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-s
    group is present; the fields alone own the scrollable space. */
 .portal-queue-tools .miniapp-sheet > .miniapp-sheet-body { flex:1 1 auto; min-height:0; align-content:start; padding-bottom:0; }
 .portal-queue-tools .miniapp-sheet-actions { margin:auto -12px 0; padding-bottom:max(8px,env(safe-area-inset-bottom,0px)); }
+
+/* Invoice inbox is an operational list: counts and controls form compact
+   strips instead of consuming a card row each on narrow phones. */
+#page-invoices #invoice-pool-summary { grid-template-columns:repeat(3,minmax(0,1fr)); gap:0; overflow:hidden; margin:0 0 6px; border:1px solid var(--border-color); border-radius:9px; }
+#page-invoices #invoice-pool-summary:has(.invoice-summary-not-parsed) { grid-template-columns:repeat(4,minmax(0,1fr)); }
+#page-invoices #invoice-pool-summary > .batch-summary-item { min-width:0; border:0; border-right:1px solid var(--border-color); border-radius:0; padding:5px 4px; text-align:center; }
+#page-invoices #invoice-pool-summary > .batch-summary-item:last-child { border-right:0; }
+#page-invoices #invoice-pool-summary strong { font-size:14px; line-height:1.1; }
+#page-invoices #invoice-pool-summary span { margin-top:2px; overflow:hidden; font-size:8px; line-height:1.15; text-overflow:ellipsis; white-space:nowrap; }
+.invoice-list-toolbar.portal-queue-tools { gap:5px; margin:0 0 7px; }
+.invoice-list-toolbar .portal-queue-tools-primary { display:flex; flex-wrap:nowrap; gap:6px; }
+.invoice-list-toolbar .portal-queue-search { min-height:38px; flex:1 1 auto; border-radius:9px; }
+.invoice-list-toolbar .portal-queue-search input { min-height:36px; padding:5px 0; font-size:11px; }
+.invoice-list-toolbar .miniapp-filter-trigger { width:40px; min-width:40px; min-height:38px; padding:0; border-radius:9px; }
+.invoice-list-toolbar .miniapp-filter-trigger > span:not(.miniapp-filter-count) { display:none; }
+
+.invoice-upload-comparison { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:5px; grid-column:1/-1; }
+.invoice-upload-comparison > div { min-width:0; border:1px solid var(--border-color); border-radius:8px; background:var(--bg-muted); padding:6px; }
+.invoice-upload-comparison strong,.invoice-upload-comparison span,.invoice-upload-comparison small { display:block; overflow-wrap:anywhere; }
+.invoice-upload-comparison strong { color:var(--text-muted); font-size:8px; text-transform:uppercase; }
+.invoice-upload-comparison span { margin-top:2px; font-size:10px; font-weight:750; }
+.invoice-upload-comparison small { margin-top:2px; color:var(--text-muted); font-size:8px; line-height:1.2; }
+.invoice-draft-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; }
+.invoice-draft-row > label { display:grid; gap:3px; min-width:0; font-size:9px; font-weight:700; }
+.invoice-draft-row > label input,.invoice-draft-row > label select { width:100%; min-width:0; min-height:34px; }
+.invoice-draft-row .invoice-draft-match { grid-column:1/-1; }
+
+.case360-hero-actions { display:flex; align-items:center; gap:6px; }
+.case360-edit-toggle { display:grid; width:34px; min-width:34px; height:34px; place-items:center; border:1px solid var(--border-color); border-radius:9px; background:var(--bg-surface); color:var(--color-primary); }
+.case360-edit-toggle.active { border-color:var(--color-primary); background:color-mix(in srgb,var(--color-primary) 12%,var(--bg-surface)); }
+.case360-edit-toggle svg { width:15px; height:15px; }
+.case360-correction-form { display:grid; gap:8px; }
+.case360-correction-form[hidden],.case360-view-content[hidden] { display:none; }
+.case360-correction-form fieldset { min-width:0; margin:0; border:1px solid var(--border-color); border-radius:10px; padding:8px; }
+.case360-correction-form legend { padding:0 4px; color:var(--text-muted); font-size:9px; font-weight:800; text-transform:uppercase; }
+.case360-correction-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; }
+.case360-correction-grid label,.case360-correction-reason { display:grid; gap:3px; min-width:0; color:var(--text-muted); font-size:9px; font-weight:700; }
+.case360-correction-grid input,.case360-correction-reason textarea { width:100%; min-width:0; min-height:36px; border:1px solid var(--border-color); border-radius:8px; background:var(--bg-base); color:var(--text-primary); padding:6px 8px; font-size:11px; }
+.case360-correction-reason textarea { resize:vertical; }
+.case360-correction-actions { display:grid; grid-template-columns:1fr 1fr; gap:7px; position:sticky; bottom:max(0px,env(safe-area-inset-bottom)); padding-top:2px; background:var(--bg-base); }
 
 .portal-invoice-tabs.payment-batch-filters button { display:grid; min-width:0; min-height:38px; place-items:center; border:0; border-radius:7px; background:transparent; color:var(--text-muted); padding:6px; font-size:10px; font-weight:700; line-height:1.1; text-align:center; }
 .portal-invoice-tabs.payment-batch-filters button.active { background:var(--bg-surface); color:var(--color-primary); box-shadow:0 1px 5px rgba(15,23,42,.12); }

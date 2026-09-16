@@ -309,8 +309,8 @@ class JblPipelineServiceTestCase(TestCase):
 
     def test_farmer_card_exposes_hb_visit_date_source(self):
         card = farmer_to_card(self.farmer_stage1)
-        self.assertEqual(card['sign_date'], '24-June-2026')
-        self.assertEqual(card['hbg_visit_date_label'], '24-Jun-2026')
+        self.assertEqual(card['sign_date'], '24-06-2026')
+        self.assertEqual(card['hbg_visit_date_label'], '24-06-2026')
 
     def test_farmer_card_strips_legacy_hb_date_marker(self):
         self.farmer_stage1.sign_date = "'15-May-2026"
@@ -318,9 +318,9 @@ class JblPipelineServiceTestCase(TestCase):
 
         card = farmer_to_card(self.farmer_stage1)
 
-        self.assertEqual(card['sign_date'], '15-May-2026')
+        self.assertEqual(card['sign_date'], '15-05-2026')
         self.assertEqual(card['hbg_visit_date'], '2026-05-15')
-        self.assertEqual(card['hbg_visit_date_label'], '15-05-26')
+        self.assertEqual(card['hbg_visit_date_label'], '15-05-2026')
 
     def test_farmer_card_location_excludes_branch_and_collapses_repeated_places(self):
         self.farmer_stage1.county = 'Kiambu'
@@ -3186,7 +3186,7 @@ class JblPipelineApiTestCase(TestCase):
 
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()['code'], 'requisition_date_conflict')
-        self.assertIn('24-July-2026', response.json()['error'])
+        self.assertIn('24-07-2026', response.json()['error'])
         new_farmer.refresh_from_db()
         self.assertEqual(new_farmer.order_number, '')
         self.assertIsNone(new_farmer.requisition_date)
@@ -4420,7 +4420,7 @@ class JawabuCase360Tests(TestCase):
         self.assertEqual(payload['sections']['identity']['national_id'], '12345678')
         self.assertEqual(payload['sections']['intake']['deposit_paid_hbg'], '5000')
         self.assertNotIn('ward', payload['sections']['intake'])
-        self.assertEqual(payload['sections']['jbl_visit']['visit_date'], '24-July-2026')
+        self.assertEqual(payload['sections']['jbl_visit']['visit_date'], '24-07-2026')
         self.assertEqual(payload['timeline'][0]['action'], 'tracking_started')
         self.assertNotIn('raw_data', str(payload))
 

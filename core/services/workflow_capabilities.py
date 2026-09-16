@@ -34,6 +34,7 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     # consequential actions on that screen.
     CapabilityDefinition('portal.dashboard.view', 'jawabu_portal', 'View dashboard', 'Dashboard', _roles('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', OPERATIONS_ADMIN_ROLE, 'IT', BUSINESS_ADMIN_ROLE)),
     CapabilityDefinition('portal.case.read', 'jawabu_portal', 'View all cases and case history', 'Cases', _roles('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', OPERATIONS_ADMIN_ROLE, 'IT', BUSINESS_ADMIN_ROLE)),
+    CapabilityDefinition('portal.case.correct', 'jawabu_portal', 'Correct case master data with audit evidence', 'Cases', _roles(OPERATIONS_ADMIN_ROLE, 'IT'), ('portal.case.read',)),
     CapabilityDefinition('portal.deferred.view', 'jawabu_portal', 'View deferred cases', 'Cases', _roles('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', OPERATIONS_ADMIN_ROLE, BUSINESS_ADMIN_ROLE), ('portal.case.read',)),
     CapabilityDefinition('portal.jbl_queue.view', 'jawabu_portal', 'View JBL visit queue', 'JBL visit', _roles('JBL_OFFICER', OPERATIONS_ADMIN_ROLE)),
     CapabilityDefinition('portal.jbl_followup.view', 'jawabu_portal', 'View my submitted JBL visits', 'JBL visit', _roles('JBL_OFFICER'), ('portal.case.read',)),

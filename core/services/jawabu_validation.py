@@ -77,7 +77,7 @@ def normalize_date_text(value: Any) -> str:
         parsed = parse_business_date(text)
         if parsed is None:
             return text
-    return parsed.strftime('%d-%B-%Y')
+    return parsed.strftime('%d-%m-%Y')
 
 
 def parse_money(value: Any) -> Decimal | None:

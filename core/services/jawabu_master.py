@@ -371,7 +371,7 @@ def flag_farmup_master_sheet_conflicts(
         header_lookup = header_lookup_from_headers(headers)
         existing = build_master_existing_index(values, header_lookup, data_start_row)
         details = []
-        now_text = timezone.now().strftime('%d-%B-%Y %H:%M')
+        now_text = timezone.now().strftime('%d-%m-%Y %H:%M')
         for index, row in enumerate(review_rows, start=1):
             if row.get('approved') is False:
                 continue
@@ -787,7 +787,7 @@ def write_rows_to_master_sheet(
     overwrite_details = []
     pending_updates = []
     deposit_repairs = []
-    now_text = timezone.now().strftime('%d-%B-%Y %H:%M')
+    now_text = timezone.now().strftime('%d-%m-%Y %H:%M')
     for cleaned in cleaned_rows:
         try:
             row_number = find_master_row_number(cleaned, existing)
@@ -1086,7 +1086,7 @@ def append_master_import_log(*, service, log_sheet_name: str, batch: JawabuFarme
             ]])
         sheet.append_row([
             str(batch.id), batch.source_filename, batch.group_id, batch.sender,
-            timezone.now().strftime('%d-%B-%Y %H:%M'), batch.total_rows,
+            timezone.now().strftime('%d-%m-%Y %H:%M'), batch.total_rows,
             result.get('created', 0), result.get('updated', 0), result.get('conflicts', 0),
             '; '.join(result.get('errors') or []),
         ], value_input_option='USER_ENTERED')

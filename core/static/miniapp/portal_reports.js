@@ -204,7 +204,7 @@
     if (helpers.fmtDate) return helpers.fmtDate(value);
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString('en-GB', {
-      day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
     });
   }
   function formatValue(value, type) {
@@ -212,7 +212,7 @@
     if (type === 'date') {
       if (helpers.fmtDate) return helpers.fmtDate(value);
       const parsed = new Date(value);
-      return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+      return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
     }
     if (type === 'number') return String(value).replace(/\.00$/, '');
     return String(value);

@@ -785,14 +785,14 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(ws['D8'].value, 'ORDER-001')
         self.assertEqual(ws['E8'].value, '15357')
         self.assertEqual(ws['G8'].value, 'MARY WANJIKU')
-        self.assertEqual(ws['H8'].value, 'Mary Wanjiku')
-        self.assertEqual(ws['K8'].value, 'Nakuru Branch')
-        self.assertEqual(ws['L8'].value, 'Officer Jane')
+        self.assertEqual(ws['H8'].value, 'MARY WANJIKU')
+        self.assertEqual(ws['K8'].value, 'NAKURU BRANCH')
+        self.assertEqual(ws['L8'].value, 'OFFICER JANE')
         self.assertEqual(ws['M8'].value, 43500)
-        self.assertEqual(ws['M8'].number_format, '0')
+        self.assertEqual(ws['M8'].number_format, '#,##0')
         self.assertIn(ws['N8'].value, (None, ''))
         self.assertEqual(ws['O8'].value, 4500)
-        self.assertEqual(ws['O8'].number_format, '0')
+        self.assertEqual(ws['O8'].number_format, '#,##0')
         self.assertEqual(ws['P8'].value, 6000)
         self.assertIsNone(ws['R8'].value)
         self.assertEqual(ws['S8'].value, '10TH')
@@ -802,6 +802,22 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         prepared_rows = [row for row in range(1, ws.max_row + 1) if ws.cell(row=row, column=3).value == 'PREPARED BY:']
         self.assertTrue(prepared_rows)
         self.assertGreater(prepared_rows[0], summary['totals_row'])
+
+    def test_legacy_payment_template_uses_reserved_column_for_case_mode(self):
+        farmer = self.farmer()
+        self.invoice_batch(farmer)
+
+        xlsx, summary = generate_payment_workbook(
+            'ORDER-001', '108', farmer_ids=[str(farmer.id)],
+            case_payment_modes={str(farmer.id): 'LOAN-JAWABU'},
+        )
+        workbook = load_workbook(io.BytesIO(xlsx), data_only=False)
+        ws = workbook['#108']
+        layout = payment_template_layout(workbook)
+
+        self.assertEqual(ws.cell(layout.header_row, layout.columns['payment_mode']).value, 'PAYMENT MODE')
+        self.assertEqual(ws.cell(layout.data_start_row, layout.columns['payment_mode']).value, 'LOAN-JAWABU')
+        self.assertIn('legacy template payment-mode column activated', summary['config_warnings'])
 
     def test_payment_preview_data_returns_rows_without_generating_workbook(self):
         farmer = self.farmer()
@@ -1013,7 +1029,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         workbook = load_workbook(io.BytesIO(xlsx), data_only=False)
         ws = workbook['#89']
         layout = payment_template_layout(workbook)
-        self.assertEqual(ws.cell(row=layout.data_start_row, column=layout.columns['call_up_comments']).value, final.call_up_comments)
+        self.assertEqual(ws.cell(row=layout.data_start_row, column=layout.columns['call_up_comments']).value, final.call_up_comments.upper())
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_payment_approval_persists_a_comment_for_each_case(self, storage):
@@ -1045,7 +1061,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         layout = payment_template_layout(workbook)
         self.assertEqual(
             workbook['#107'].cell(row=layout.data_start_row, column=layout.columns['call_up_comments']).value,
-            comment,
+            comment.upper(),
         )
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')

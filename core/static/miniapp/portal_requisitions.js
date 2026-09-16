@@ -100,6 +100,7 @@
   }
 
   function renderPrintableRequisition(data) {
+    const caps = value => String(value == null ? '' : value).toUpperCase();
     const farmers = data.farmers || [...(data.ready || []), ...(data.blocked || []).map(item => item.farmer)];
     const rows = farmers.map((farmer, index) => {
       const source = String(farmer.lead_source || '').toLowerCase();
@@ -117,16 +118,16 @@
       }
       return `<tr>
         <td>${index + 1}</td>
-        <td>${deps.escapeHtml(farmer.customer_name || '-')}</td>
+        <td>${deps.escapeHtml(caps(farmer.customer_name || '-'))}</td>
         <td>${deps.escapeHtml(farmer.primary_phone || '-')}</td>
         <td>${deps.escapeHtml(farmer.national_id || '-')}</td>
-        <td>${deps.escapeHtml(farmer.credit_decision || '-')}</td>
-        <td>${deps.escapeHtml(farmer.final_decision_comment || '')}</td>
-        <td>${deps.escapeHtml(farmer.county || '-')}</td>
-        <td>${deps.escapeHtml(preview.location || '-')}</td>
+        <td>${deps.escapeHtml(caps(farmer.credit_decision || '-'))}</td>
+        <td>${deps.escapeHtml(caps(farmer.final_decision_comment || ''))}</td>
+        <td>${deps.escapeHtml(caps(farmer.county || '-'))}</td>
+        <td>${deps.escapeHtml(caps(preview.location || '-'))}</td>
         <td>${paymentAmount(preview.hbg_deposit)}</td>
         <td>${paymentAmount(preview.jbl_deposit)}</td>
-        <td>${deps.escapeHtml(farmer.hb_sales_person || '-')}</td>
+        <td>${deps.escapeHtml(caps(farmer.hb_sales_person || '-'))}</td>
       </tr>`;
     }).join('');
     return `<article class="requisition-print-preview">
@@ -140,14 +141,14 @@
   }
 
   function paymentValue(value) {
-    return value === null || value === undefined || value === '' ? '' : deps.escapeHtml(value);
+    return value === null || value === undefined || value === '' ? '' : deps.escapeHtml(String(value).toUpperCase());
   }
 
   function paymentAmount(value) {
     if (value === null || value === undefined || value === '') return '';
     const number = Number(String(value).replace(/,/g, ''));
     if (!Number.isFinite(number)) return deps.escapeHtml(value);
-    return deps.escapeHtml(Number.isInteger(number) ? String(number) : String(number).replace(/\.0+$/, ''));
+    return deps.escapeHtml(Math.round(number).toLocaleString('en-US', { maximumFractionDigits: 0 }));
   }
 
   function requestedPaymentNumber() {
@@ -1073,10 +1074,15 @@
         );
         if (res.requires_confirmation) {
           invoiceResultsSummary.textContent = `Review ${res.total_parsed || 0} extracted invoice(s). No farmer or Sheet has been updated yet.`;
-          invoiceResultsList.innerHTML = (res.results || []).map(row => `
+          const matchCandidates = res.match_candidates || [];
+          const candidateOptions = selectedId => '<option value="">Select the matching applicant</option>' + matchCandidates.map(candidate => `<option value="${deps.escapeHtml(candidate.id)}"${String(candidate.id) === String(selectedId || '') ? ' selected' : ''}>${deps.escapeHtml(String(candidate.applicant_name || candidate.lead_name || 'Unnamed applicant').toUpperCase())} · ID ${deps.escapeHtml(candidate.applicant_national_id || candidate.lead_national_id || '-')}</option>`).join('');
+          const comparison = (row, candidate) => `<div class="invoice-upload-comparison"><div><strong>FarmUp lead</strong><span>${deps.escapeHtml(String(candidate?.lead_name || '-').toUpperCase())}</span><small>ID ${deps.escapeHtml(candidate?.lead_national_id || '-')} · ${deps.escapeHtml(candidate?.lead_phone || '-')}</small></div><div><strong>Invoice holder</strong><span>${deps.escapeHtml(String(row.customer_name || '-').toUpperCase())}</span><small>ID ${deps.escapeHtml(row.customer_id || '-')} · ${deps.escapeHtml(row.customer_phone || '-')}</small></div><div><strong>SysUp applicant</strong><span>${deps.escapeHtml(String(candidate?.applicant_name || '-').toUpperCase())}</span><small>ID ${deps.escapeHtml(candidate?.applicant_national_id || '-')} · ${deps.escapeHtml(candidate?.applicant_phone || '-')}</small></div></div>`;
+          invoiceResultsList.innerHTML = (res.results || []).map(row => {
+            const proposed = matchCandidates.find(candidate => String(candidate.id) === String(row.proposed_farmer_id || '')) || row.proposed_farmer;
+            return `
             <div class="batch-client-row invoice-draft-row" data-invoice="${deps.escapeHtml(row.id)}">
               <label>Invoice no<input data-field="invoice_no" value="${deps.escapeHtml(row.invoice_no || '')}"></label>
-              <label>Date<input type="date" data-field="invoice_date" value="${deps.escapeHtml(row.invoice_date || '')}"></label>
+              <label>Invoice date<input type="text" inputmode="numeric" placeholder="DD-MM-YYYY" data-field="invoice_date" value="${deps.escapeHtml(deps.fmtDate(row.invoice_date || ''))}"></label>
               <label>Customer<input data-field="customer_name" value="${deps.escapeHtml(row.customer_name || '')}"></label>
               <label>ID<input data-field="customer_id" value="${deps.escapeHtml(row.customer_id || '')}"></label>
               <label>Phone<input data-field="customer_phone" value="${deps.escapeHtml(row.customer_phone || '')}"></label>
@@ -1084,8 +1090,20 @@
               <label>Discount<input inputmode="decimal" data-field="discount" value="${deps.escapeHtml(row.discount || '')}"></label>
               <label>Payment<input inputmode="decimal" data-field="payment" value="${deps.escapeHtml(row.payment || '')}"></label>
               <label>Balance due<input inputmode="decimal" data-field="balance_due" value="${deps.escapeHtml(row.balance_due || '')}"></label>
-              <div class="meta">Proposed match: ${deps.escapeHtml(row.proposed_farmer_name || 'Unresolved')} ${row.proposed_order_number ? `| Order ${deps.escapeHtml(row.proposed_order_number)}` : ''}</div>
-            </div>`).join('') + '<button class="btn btn-primary" type="button" id="invoice-confirm-batch">Confirm Entire Batch</button>';
+              <label class="invoice-draft-match">Match to applicant<select data-field="farmer_id">${candidateOptions(row.proposed_farmer_id)}</select></label>
+              ${comparison(row, proposed)}
+            </div>`;
+          }).join('') + '<button class="btn btn-primary" type="button" id="invoice-confirm-batch">Confirm Entire Batch</button>';
+          invoiceResultsList.querySelectorAll('.invoice-draft-row').forEach(draft => {
+            draft.querySelector('[data-field="farmer_id"]')?.addEventListener('change', event => {
+              const row = (res.results || []).find(item => String(item.id) === String(draft.dataset.invoice)) || {};
+              const candidate = matchCandidates.find(item => String(item.id) === String(event.target.value));
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = comparison(row, candidate);
+              const current = draft.querySelector('.invoice-upload-comparison');
+              if (current && wrapper.firstElementChild) current.replaceWith(wrapper.firstElementChild);
+            });
+          });
           el('invoice-confirm-batch')?.addEventListener('click', async event => {
             deps.setButtonLoading(event.currentTarget, true, 'Confirming...');
             try {

@@ -1767,7 +1767,7 @@ def assign_order(
         .values_list('requisition_date', flat=True)
     )
     if existing_dates and requested_requisition_date not in existing_dates:
-        labels = ', '.join(sorted(value.strftime('%d-%B-%Y') for value in existing_dates))
+        labels = ', '.join(sorted(value.strftime('%d-%m-%Y') for value in existing_dates))
         return False, (
             f'Order number {order_number} already has requisition date {labels}. '
             'Use the same date for this order or choose a new order number.'
@@ -1877,10 +1877,10 @@ def farmer_to_card(
         # spreadsheet text marker such as ``'15-May-2026`` to the Mini App.
         'sign_date': normalize_date_text(farmer.sign_date),
         'hbg_visit_date': hbg_visit_date.isoformat() if hbg_visit_date else None,
-        'hbg_visit_date_label': hbg_visit_date.strftime('%d-%b-%Y') if hbg_visit_date else None,
+        'hbg_visit_date_label': hbg_visit_date.strftime('%d-%m-%Y') if hbg_visit_date else None,
         # Stage 2
         'jbl_visit_date': farmer.jbl_visit_date.isoformat() if farmer.jbl_visit_date else None,
-        'jbl_visit_date_label': farmer.jbl_visit_date.strftime('%d-%b-%Y') if farmer.jbl_visit_date else None,
+        'jbl_visit_date_label': farmer.jbl_visit_date.strftime('%d-%m-%Y') if farmer.jbl_visit_date else None,
         'jbl_officer': farmer.jbl_officer,
         'jbl_visit_status': farmer.jbl_visit_status,
         'jbl_visit_comment': farmer.jbl_visit_comment,
@@ -2040,9 +2040,9 @@ def _attributed_sheet_comment(comment: Any, occurred_at, actor: Any, role: str) 
     if occurred_at:
         if isinstance(occurred_at, datetime):
             local_time = timezone.localtime(occurred_at) if timezone.is_aware(occurred_at) else occurred_at
-            details.append(local_time.strftime('%d-%B-%Y %H:%M'))
+            details.append(local_time.strftime('%d-%m-%Y %H:%M'))
         else:
-            details.append(occurred_at.strftime('%d-%B-%Y'))
+            details.append(occurred_at.strftime('%d-%m-%Y'))
     if str(actor or '').strip():
         details.append(str(actor).strip())
     if details:
@@ -2172,7 +2172,7 @@ def sync_farmer_to_master_sheet(
             row_values.extend([''] * (len(headers) - len(row_values)))
 
         # Update pipeline fields
-        now_text = timezone.now().strftime('%d-%B-%Y %H:%M')
+        now_text = timezone.now().strftime('%d-%m-%Y %H:%M')
         changes = {}
 
         for header in (MASTER_CASE_ID_HEADER, 'Master Record ID'):
@@ -2200,7 +2200,7 @@ def sync_farmer_to_master_sheet(
                 candidates('hbg_visit_date', 'Sign Date', 'Sign Date__2'),
                 normalize_date_text(hbg_visit_date) if hbg_visit_date else '',
             ),
-            'jbl_visit_date': (candidates('jbl_visit_date'), farmer.jbl_visit_date.strftime('%d-%B-%Y') if farmer.jbl_visit_date else ''),
+            'jbl_visit_date': (candidates('jbl_visit_date'), farmer.jbl_visit_date.strftime('%d-%m-%Y') if farmer.jbl_visit_date else ''),
             'jbl_officer': (candidates('jbl_officer'), _smart_sheet_label(farmer.jbl_officer)),
             'jbl_visit_status': (candidates('jbl_visit_status'), farmer.jbl_visit_status),
             'current_pipeline_state': (candidates('current_pipeline_state'), current_pipeline_state_label(farmer)),
@@ -2336,11 +2336,11 @@ def _jawabu_group_config():
 
 
 def _date_text(value) -> str:
-    return value.strftime('%d-%B-%Y') if value else ''
+    return value.strftime('%d-%m-%Y') if value else ''
 
 
 def _datetime_text(value) -> str:
-    return value.strftime('%d-%B-%Y %H:%M') if value else ''
+    return value.strftime('%d-%m-%Y %H:%M') if value else ''
 
 
 def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
@@ -2444,7 +2444,7 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
             # fallback scan before a new key can be allocated.
             values = sheet.get_all_values()
         record_id = current_record_id or _next_internal_order_record_id(values or [], header_lookup, workflow)
-        now_text = timezone.now().strftime('%d-%B-%Y %H:%M')
+        now_text = timezone.now().strftime('%d-%m-%Y %H:%M')
         changes = {}
 
         def candidates(field_name, *fallback):

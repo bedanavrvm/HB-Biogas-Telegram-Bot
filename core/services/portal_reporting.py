@@ -851,7 +851,7 @@ def export_curated_report(*, preset: str, filters: Any, user, access: dict | Non
     details = workbook.active
     details.title = 'Report details'
     details.append(['Report', preset.title()])
-    details.append(['Generated at', timezone.localtime().strftime('%d-%B-%Y %H:%M')])
+    details.append(['Generated at', timezone.localtime().strftime('%d-%m-%Y %H:%M')])
     details.append(['Period', f'{period["from"]} to {period["to"]}' if period else 'Live snapshot'])
     details.append(['Rows exported', len(rows)])
     data_sheet = workbook.create_sheet('Data')
@@ -888,7 +888,7 @@ def export_xlsx(*, definition: PortalReportDefinition, user, access: dict | None
     details.append(['Report', definition.title])
     details.append(['Source', 'Portal customer cases'])
     details.append(['Definition version', definition.version])
-    details.append(['Generated at', timezone.localtime().strftime('%d-%B-%Y %H:%M')])
+    details.append(['Generated at', timezone.localtime().strftime('%d-%m-%Y %H:%M')])
     details.append(['Filters', _filter_description(config['filters']) or 'None'])
     details.append(['Rows exported', len(rows)])
     for cell in details[1]:

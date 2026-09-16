@@ -37,7 +37,7 @@ MILESTONES = (
 
 def _case_date(value: Any) -> str | None:
     parsed = value if isinstance(value, date) else parse_business_date(value)
-    return parsed.strftime('%d-%B-%Y') if parsed else None
+    return parsed.strftime('%d-%m-%Y') if parsed else None
 
 
 def _case_datetime(value: Any) -> str | None:
@@ -45,9 +45,9 @@ def _case_datetime(value: Any) -> str | None:
         return None
     if isinstance(value, datetime):
         displayed = timezone.localtime(value) if timezone.is_aware(value) else value
-        return displayed.strftime('%d-%B-%Y %H:%M')
+        return displayed.strftime('%d-%m-%Y %H:%M')
     parsed = parse_business_date(value)
-    return parsed.strftime('%d-%B-%Y') if parsed else None
+    return parsed.strftime('%d-%m-%Y') if parsed else None
 
 
 def _case_amount(value: Any) -> str | None:

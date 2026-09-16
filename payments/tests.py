@@ -1,9 +1,10 @@
 from decimal import Decimal
+import json
 from unittest.mock import patch
 
 from django.apps import apps
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from openpyxl import Workbook
 
@@ -312,6 +313,27 @@ class PaymentBatchServiceTests(TestCase):
 
 
 class PaymentWorkflowContractTests(TestCase):
+    def test_payment_error_uses_current_message_contract_with_actionable_copy(self):
+        from core.api.portal_views import _portal_payment_batch_error
+
+        request = RequestFactory().post(
+            '/api/portal/payments/batches/example/generate/',
+            HTTP_X_MINIAPP_MESSAGE_CONTRACT='2',
+        )
+        response = _portal_payment_batch_error(
+            request,
+            PaymentBatchError(
+                'The payment workbook template needs attention.',
+                code='payment_workbook_template_invalid',
+            ),
+        )
+        payload = json.loads(response.content)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(payload['code'], 'payment_workbook_template_invalid')
+        self.assertEqual(payload['message'], 'The payment workbook template needs attention.')
+        self.assertNotIn('error', payload)
+
     def test_payment_mode_marker_supports_configured_and_detected_cells(self):
         configured = Workbook()
         ws = configured.active

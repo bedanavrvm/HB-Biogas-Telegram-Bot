@@ -24,9 +24,9 @@ def _value(value: Any) -> str:
     if value is None:
         return ''
     if isinstance(value, datetime):
-        return value.strftime('%d-%b-%Y %H:%M')
+        return value.strftime('%d-%m-%Y %H:%M')
     if isinstance(value, date):
-        return value.strftime('%d-%b-%Y')
+        return value.strftime('%d-%m-%Y')
     if isinstance(value, Decimal):
         return format(value, 'f')
     return str(value)

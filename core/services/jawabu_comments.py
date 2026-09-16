@@ -65,7 +65,7 @@ def master_comment_history(farmer: JawabuFarmerMaster) -> str:
     for entry in entries:
         occurred_at = entry.occurred_at
         local_time = timezone.localtime(occurred_at) if timezone.is_aware(occurred_at) else occurred_at
-        timestamp = local_time.strftime('%d-%B-%Y %H:%M')
+        timestamp = local_time.strftime('%d-%m-%Y %H:%M')
         actor = str(entry.actor or '').strip() or 'Unknown staff member'
         role = str(entry.role_label or entry.role_code or 'Portal staff').strip()
         lines.append(f'{entry.comment}\n{timestamp} · {actor} · {role}')

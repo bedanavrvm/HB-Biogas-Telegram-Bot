@@ -18,6 +18,7 @@ from core.models import (
 )
 from core.services.portal_publication import reserve_farmer_publication
 from core.services.workflow_transitions import next_workflow_revision
+from core.services.identifiers import normalize_national_id
 
 logger = logging.getLogger(__name__)
 
@@ -786,6 +787,9 @@ def _farmer_debug_snapshot(farmer: JawabuFarmerMaster) -> dict:
         'customer_name': farmer.customer_name,
         'national_id': farmer.national_id,
         'primary_phone': farmer.primary_phone,
+        'lead_name': farmer.lead_name,
+        'lead_national_id': farmer.lead_national_id,
+        'lead_primary_phone': farmer.lead_primary_phone,
         'normalized_primary_phone': clean_phone(farmer.primary_phone),
         'order_number': farmer.order_number,
         'status': farmer.status,
@@ -794,19 +798,25 @@ def _farmer_debug_snapshot(farmer: JawabuFarmerMaster) -> dict:
 
 def _invoice_match_diagnostics(inv: dict, farmers: list[JawabuFarmerMaster], order_number: str) -> dict:
     identity = _invoice_debug_identity(inv)
-    inv_id = identity['parsed_national_id']
+    inv_id = normalize_national_id(identity['parsed_national_id'])
     inv_phone = identity['normalized_parsed_phone']
     inv_name = identity['parsed_customer_name'].upper()
 
-    batch_id_matches = [f for f in farmers if inv_id and str(f.national_id).strip() == inv_id]
-    batch_phone_matches = [f for f in farmers if inv_phone and clean_phone(f.primary_phone) == inv_phone]
-    batch_name_matches = [f for f in farmers if inv_name and str(f.customer_name).strip().upper() == inv_name]
+    batch_id_matches = [f for f in farmers if inv_id and inv_id in {
+        normalize_national_id(f.national_id), normalize_national_id(f.lead_national_id),
+    }]
+    batch_phone_matches = [f for f in farmers if inv_phone and inv_phone in {
+        clean_phone(f.primary_phone), clean_phone(f.lead_primary_phone),
+    }]
+    batch_name_matches = [f for f in farmers if inv_name and inv_name in {
+        str(f.customer_name or '').strip().upper(), str(f.lead_name or '').strip().upper(),
+    }]
 
     query = Q()
     if inv_id:
-        query |= Q(national_id=inv_id)
+        query |= Q(national_id=inv_id) | Q(lead_national_id=inv_id)
     if inv_name:
-        query |= Q(customer_name__iexact=identity['parsed_customer_name'])
+        query |= Q(customer_name__iexact=identity['parsed_customer_name']) | Q(lead_name__iexact=identity['parsed_customer_name'])
     outside_candidates = []
     if query:
         batch_ids = {f.id for f in farmers}
@@ -817,7 +827,9 @@ def _invoice_match_diagnostics(inv: dict, farmers: list[JawabuFarmerMaster], ord
         batch_ids = {f.id for f in farmers}
         existing_ids = {f.id for f in outside_candidates}
         phone_candidates = JawabuFarmerMaster.objects.exclude(id__in=batch_ids | existing_ids).order_by('order_number', 'customer_name')
-        outside_candidates.extend([f for f in phone_candidates if clean_phone(f.primary_phone) == inv_phone][:10 - len(outside_candidates)])
+        outside_candidates.extend([f for f in phone_candidates if inv_phone in {
+            clean_phone(f.primary_phone), clean_phone(f.lead_primary_phone),
+        }][:10 - len(outside_candidates)])
 
     if not farmers:
         reason = f"No active farmer records found in selected batch/order '{order_number}'."
@@ -841,14 +853,18 @@ def _invoice_match_diagnostics(inv: dict, farmers: list[JawabuFarmerMaster], ord
     }
 
 def _match_invoice_to_farmer(inv: dict, farmers: list[JawabuFarmerMaster]):
-    inv_id = str(inv.get("customer_id") or '').strip()
+    inv_id = normalize_national_id(inv.get("customer_id") or '')
     inv_name = str(inv.get("customer_name") or '').strip().upper()
     inv_phone = clean_phone(inv.get("customer_phone") or '')
 
     if inv_id:
-        id_matches = [f for f in farmers if str(f.national_id).strip() == inv_id]
+        id_matches = [f for f in farmers if inv_id in {
+            normalize_national_id(f.national_id), normalize_national_id(f.lead_national_id),
+        }]
         if len(id_matches) > 1 and inv_phone:
-            phone_filtered = [f for f in id_matches if clean_phone(f.primary_phone) == inv_phone]
+            phone_filtered = [f for f in id_matches if inv_phone in {
+                clean_phone(f.primary_phone), clean_phone(f.lead_primary_phone),
+            }]
             if len(phone_filtered) == 1:
                 return phone_filtered[0], ''
         matched, reason = _resolve_unique_match(id_matches, 'National ID')
@@ -856,13 +872,17 @@ def _match_invoice_to_farmer(inv: dict, farmers: list[JawabuFarmerMaster]):
             return matched, reason
 
     if inv_phone:
-        phone_matches = [f for f in farmers if clean_phone(f.primary_phone) == inv_phone]
+        phone_matches = [f for f in farmers if inv_phone in {
+            clean_phone(f.primary_phone), clean_phone(f.lead_primary_phone),
+        }]
         matched, reason = _resolve_unique_match(phone_matches, 'Primary Phone')
         if matched or reason:
             return matched, reason
 
     if inv_name:
-        name_matches = [f for f in farmers if str(f.customer_name).strip().upper() == inv_name]
+        name_matches = [f for f in farmers if inv_name in {
+            str(f.customer_name or '').strip().upper(), str(f.lead_name or '').strip().upper(),
+        }]
         matched, reason = _resolve_unique_match(name_matches, 'Customer Name')
         if matched or reason:
             return matched, reason

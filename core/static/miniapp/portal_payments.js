@@ -175,7 +175,7 @@
   function formatDateTime(value) {
     if (!value) return '';
     const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? value : date.toLocaleString('en-KE', {day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'});
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString('en-GB', {day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'}).replace(',', '');
   }
 
   function renderDetail() {
@@ -272,9 +272,11 @@
   }
 
   async function mutate(path, body, button, loadingText) {
+    document.querySelector('.payment-generation-error')?.remove();
     deps.setButtonLoading(button, true, loadingText || 'Saving...');
+    let response = null;
     try {
-      const response = await request(path, 'POST', {...body, revision: activeBatch.revision});
+      response = await request(path, 'POST', {...body, revision: activeBatch.revision});
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'The payment batch could not be updated.');
       activeBatch = response.data.batch;
       renderDetail();
@@ -283,7 +285,15 @@
       if (list.ok && list.data?.ok) { batches = list.data.batches || []; renderSummary(); }
       return true;
     } catch (error) {
-      deps.showToast(error.message || 'The payment batch could not be updated.', 'error');
+      const message = error.message || 'The payment batch could not be updated.';
+      deps.showToast(message, 'error');
+      if (path.endsWith('/generate/')) {
+        const requestId = response?.data?.request_id || response?.requestId || '';
+        el('payments-primary-action')?.insertAdjacentHTML(
+          'beforeend',
+          `<div class="batch-warning payment-generation-error" role="alert"><strong>Workbook not generated</strong><span>${escape(message)}</span>${requestId ? `<small>Reference ${escape(requestId)}</small>` : ''}</div>`,
+        );
+      }
       if (/changed (while|after review)/i.test(String(error.message || ''))) {
         await openBatch(activeBatch.id, {quiet: true});
       }

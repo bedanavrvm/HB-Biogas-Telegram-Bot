@@ -187,6 +187,7 @@ from .portal_views import (
     portal_all_cases,
     portal_deferred,
     portal_farmer_detail,
+    portal_farmer_case_correction,
     portal_auth_required,
 )
 from .complaint_case_views import (
@@ -559,5 +560,6 @@ urlpatterns = [
     # All cases + deferred
     path('portal/farmers/', portal_auth_required(portal_all_cases), name='portal_all_cases'),
     path('portal/farmers/<str:farmer_id>/', portal_auth_required(portal_farmer_detail), name='portal_farmer_detail'),
+    path('portal/farmers/<str:farmer_id>/correction/', portal_auth_required(portal_farmer_case_correction), name='portal_farmer_case_correction'),
     path('portal/deferred/', portal_auth_required(portal_deferred), name='portal_deferred'),
 ]

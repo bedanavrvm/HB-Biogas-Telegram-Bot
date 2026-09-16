@@ -124,7 +124,7 @@ class JawabuParsedRecord:
     def message_label(self) -> str:
         date_text = ''
         if self.received_at:
-            date_text = timezone.localtime(self.received_at).strftime('%d-%b-%Y %H:%M')
+            date_text = timezone.localtime(self.received_at).strftime('%d-%m-%Y %H:%M')
         media = self.fields.get('media_filenames') or '<no media filename>'
         return f"{date_text or 'no date'} | {self.sender or 'unknown sender'} | {media}"
 
@@ -1211,13 +1211,13 @@ def parse_sheet_datetime(value) -> datetime | None:
 def format_sheet_date(value) -> str:
     if not value:
         return ''
-    return timezone.localtime(value).strftime('%d-%b-%Y')
+    return timezone.localtime(value).strftime('%d-%m-%Y')
 
 
 def format_sheet_datetime(value) -> str:
     if not value:
         return ''
-    return timezone.localtime(value).strftime('%d-%b-%Y %H:%M')
+    return timezone.localtime(value).strftime('%d-%m-%Y %H:%M')
 
 
 def duplicate_summary(parsed: JawabuParsedRecord, existing, group_id: str) -> dict:
@@ -1225,7 +1225,7 @@ def duplicate_summary(parsed: JawabuParsedRecord, existing, group_id: str) -> di
     for record in list(existing[:5]) if hasattr(existing, '__getitem__') else list(existing)[:5]:
         when = ''
         if record.whatsapp_message_at:
-            when = timezone.localtime(record.whatsapp_message_at).strftime('%d-%b-%Y %H:%M')
+            when = timezone.localtime(record.whatsapp_message_at).strftime('%d-%m-%Y %H:%M')
         media = (record.parsed_fields or {}).get('media_filenames') or '<no media filename>'
         existing_messages.append(
             f"{when or 'no date'} | {record.sender or 'unknown sender'} | {media}"

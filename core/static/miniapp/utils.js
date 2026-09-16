@@ -393,7 +393,7 @@
     const date = parseDisplayDate(value);
     if (!date) return value ? String(value) : '-';
     const day = String(date.getDate()).padStart(2, '0');
-    const month = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][date.getMonth()];
+    const month = String(date.getMonth() + 1).padStart(2, '0');
     return day + '-' + month + '-' + date.getFullYear();
   }
 

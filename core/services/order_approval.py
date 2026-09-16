@@ -1372,7 +1372,7 @@ def preferred_sheet_date_value(value: str) -> str:
         return ''
     html_value = html_date_value(value)
     try:
-        return datetime.strptime(html_value, '%Y-%m-%d').strftime('%d-%b-%Y')
+        return datetime.strptime(html_value, '%Y-%m-%d').strftime('%d-%m-%Y')
     except ValueError:
         return value
 
