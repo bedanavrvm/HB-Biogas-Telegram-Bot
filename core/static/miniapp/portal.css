@@ -2235,7 +2235,7 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .jbl-live-camera-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .jbl-live-camera-heading h2 { margin:0; color:var(--text-primary); }
 .jbl-camera-viewport { position:relative; width:100%; min-height:0; height:min(66dvh,calc((100vw - 28px) * 4 / 3)); flex:0 1 auto; max-height:66dvh; margin:12px 0; border-radius:14px; overflow:hidden; background:#050806; }
-.jbl-camera-viewport video { width:100%; height:100%; display:block; object-fit:contain; object-position:center; }
+.jbl-camera-viewport video { width:100%; height:100%; display:block; object-fit:cover; object-position:center; }
 .jbl-camera-status { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:16px; background:rgba(0,0,0,.55); color:#fff; font-size:14px; text-align:center; }
 .jbl-camera-status[hidden] { display:none; }
 .jbl-camera-footer { display:grid; gap:8px; padding:0; color:var(--text-muted); font-size:11px; }
@@ -4027,6 +4027,11 @@ body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-s
 .invoice-list-toolbar .miniapp-sheet-body label:last-of-type { grid-column:1; }
 .invoice-list-toolbar .miniapp-sheet-actions { grid-column:1; }
 
+/* Filter actions stay against the viewport edge even when only one filter
+   group is present; the fields alone own the scrollable space. */
+.portal-queue-tools .miniapp-sheet > .miniapp-sheet-body { flex:1 1 auto; min-height:0; align-content:start; padding-bottom:0; }
+.portal-queue-tools .miniapp-sheet-actions { margin:auto -12px 0; padding-bottom:max(8px,env(safe-area-inset-bottom,0px)); }
+
 .portal-invoice-tabs.payment-batch-filters button { display:grid; min-width:0; min-height:38px; place-items:center; border:0; border-radius:7px; background:transparent; color:var(--text-muted); padding:6px; font-size:10px; font-weight:700; line-height:1.1; text-align:center; }
 .portal-invoice-tabs.payment-batch-filters button.active { background:var(--bg-surface); color:var(--color-primary); box-shadow:0 1px 5px rgba(15,23,42,.12); }
 .payment-header-actions { display:flex; align-items:center; gap:6px; }
@@ -4055,4 +4060,51 @@ body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-s
   .payment-detail-section { padding:9px; }
   .portal-settings-action-row { align-items:stretch; flex-direction:column; }
   .portal-settings-action-row .btn { width:100%; }
+}
+
+/* Route-backed FarmUp review: keep intake chrome off the editing screen and
+   reserve the phone viewport for the governed row table. */
+.farmup-review-page { min-height:calc(var(--miniapp-viewport-height, 100dvh) - 118px); }
+#page-farmup.farmup-review-page .portal-import-review { overflow:visible; border:0; border-radius:0; background:transparent; }
+#page-farmup.farmup-review-page .portal-import-review-heading { display:grid; grid-template-columns:44px minmax(0,1fr) auto; align-items:center; min-height:56px; padding:6px 0 9px; border-bottom:1px solid var(--border-color); background:transparent; }
+.farmup-review-back { display:inline-grid; width:44px; height:44px; min-height:44px; padding:0; place-items:center; border:0; border-radius:10px; background:transparent; color:var(--text-primary); }
+.farmup-review-back svg { width:20px; height:20px; stroke:currentColor; }
+#page-farmup.farmup-review-page .portal-import-review-heading h2 { overflow:hidden; margin-top:1px; font-size:14px; text-overflow:ellipsis; white-space:nowrap; }
+.farmup-review-setup { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; padding:8px 0; }
+#page-farmup .farmup-review-setup .farmup-version-upload,
+#page-farmup .farmup-review-setup .farmup-mapping-panel { min-width:0; margin:0; }
+#page-farmup .farmup-review-setup .farmup-version-upload { align-items:center; padding:8px; }
+#page-farmup .farmup-review-setup .farmup-mapping-summary { height:100%; box-sizing:border-box; padding:8px; }
+#page-farmup.farmup-review-page .farmup-toolbar { grid-template-columns:minmax(0,1fr) auto auto repeat(4,32px); padding:7px 0; border-bottom:0; }
+#page-farmup.farmup-review-page .farmup-selection-summary { position:static; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:0; margin:0; padding:0; border:1px solid var(--border-color); border-bottom:0; border-radius:9px 9px 0 0; overflow:hidden; }
+#page-farmup.farmup-review-page .farmup-selection-summary span { display:grid; gap:1px; padding:6px; border:0; border-right:1px solid var(--border-color); border-radius:0; text-align:center; }
+#page-farmup.farmup-review-page .farmup-selection-summary span:last-child { border-right:0; }
+#page-farmup.farmup-review-page .farmup-grid-wrap { border:1px solid var(--border-color); }
+
+/* Every operational detail uses the same useful GPS treatment as Credit. */
+.operational-gps-summary { overflow:hidden; margin:10px 0 !important; border:1px solid var(--border-color); border-radius:11px; background:var(--bg-surface); }
+.operational-gps-summary .sheet-map-heading { min-height:50px; padding:8px 10px; border-bottom:1px solid var(--border-color); }
+.operational-gps-summary .sheet-map-location-icon { display:grid; width:28px; height:28px; flex:0 0 28px; place-items:center; border-radius:8px; background:color-mix(in srgb,var(--brand-primary) 9%,var(--bg-surface)); color:var(--brand-primary); }
+.operational-gps-summary .sheet-map-location-icon svg { width:15px; height:15px; stroke:currentColor; }
+.operational-gps-summary .sheet-map-copy { display:grid; min-width:0; }
+.operational-gps-summary #sheet-map-meta { overflow:hidden; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
+.operational-gps-summary #sheet-map { display:block !important; height:190px; min-height:190px; }
+.operational-gps-summary #sheet-map-fallback:not([hidden]) { display:block !important; }
+.operational-gps-summary .map-refresh-button { display:inline-grid !important; width:36px; min-width:36px; height:36px; min-height:36px; padding:0; place-items:center; border:1px solid var(--border-color); border-radius:9px; background:var(--bg-surface); color:var(--brand-primary); }
+.operational-gps-summary .sheet-map-actions { gap:6px; }
+.operational-gps-summary .sheet-map-actions a { min-height:36px; margin:0; padding:6px 9px; border:1px solid color-mix(in srgb,var(--brand-primary) 24%,var(--border-color)); border-radius:9px; background:color-mix(in srgb,var(--brand-primary) 8%,var(--bg-surface)); color:var(--brand-primary); text-decoration:none; }
+
+/* Validation text gets its own row instead of competing with document labels
+   and picker/camera controls. */
+.jbl-visit-sheet .jbl-document-slot { flex-wrap:wrap; }
+.jbl-visit-sheet .jbl-document-slot .jbl-field-error { order:10; width:100%; flex:1 0 100%; margin:0; line-height:1.25; }
+
+@media (max-width:430px) {
+  .farmup-review-setup { grid-template-columns:1fr; }
+  #page-farmup.farmup-review-page .farmup-toolbar { grid-template-columns:minmax(0,1fr) auto auto repeat(2,32px); }
+  #page-farmup.farmup-review-page .farmup-toolbar input { grid-column:1/-1; }
+  #page-farmup.farmup-review-page .farmup-selection-summary span { padding:5px 3px; font-size:9px; }
+  .operational-gps-summary #sheet-map { height:170px; min-height:170px; }
+  .operational-gps-summary .sheet-map-actions a span { display:none; }
+  .operational-gps-summary .sheet-map-actions a { width:36px; min-width:36px; padding:0; justify-content:center; }
 }

@@ -3,7 +3,7 @@
   <div id="portal-offline-banner">Offline. You can view already loaded data, but uploads and updates need a connection.</div>
 {% endif %}
 
-<div id="portal-screen" data-screen="{{ active_screen }}" data-case-farmer-id="{{ case_history_farmer_id|default:'' }}" data-report-view="{{ report_view|default:'' }}" data-report-id="{{ report_id|default:'' }}" data-report-step="{{ report_step|default:'' }}" data-invoice-view="{{ invoice_view|default:'' }}" data-invoice-id="{{ invoice_id|default:'' }}" data-top-level="{% if case_history_farmer_id %}false{% elif report_view and report_view != 'catalogue' %}false{% elif invoice_view and invoice_view != 'inbox' %}false{% else %}true{% endif %}">
+<div id="portal-screen" data-screen="{{ active_screen }}" data-case-farmer-id="{{ case_history_farmer_id|default:'' }}" data-report-view="{{ report_view|default:'' }}" data-report-id="{{ report_id|default:'' }}" data-report-step="{{ report_step|default:'' }}" data-invoice-view="{{ invoice_view|default:'' }}" data-invoice-id="{{ invoice_id|default:'' }}" data-farmup-batch-id="{{ farmup_batch_id|default:'' }}" data-top-level="{% if case_history_farmer_id or farmup_batch_id %}false{% elif report_view and report_view != 'catalogue' %}false{% elif invoice_view and invoice_view != 'inbox' %}false{% else %}true{% endif %}">
 
   <!-- Dashboard -->
   {% if active_screen == 'dashboard' %}
@@ -414,7 +414,7 @@
       <h1>Case History</h1>
       <p class="meta">Timeline, turnaround time, documents, and internally collected case data</p>
     </header>
-    <form id="case-history-search-form" class="search-bar" role="search">
+    <form id="case-history-search-form" class="search-bar portal-search-control" role="search">
       <input id="case-history-search" type="search" placeholder="Search name, phone, or ID..." autocomplete="off" enterkeyhint="search">
       <button type="submit" class="btn btn-primary">Search</button>
     </form>
@@ -441,7 +441,11 @@
   {% endif %}
 
   {% if active_screen == 'farmup' %}
-  <section id="page-farmup" class="page{% if active_screen == 'farmup' %} active{% endif %}" data-required-capability="portal.farmup.view">
+  <section id="page-farmup" class="page{% if active_screen == 'farmup' %} active{% endif %}{% if farmup_batch_id %} farmup-review-page{% endif %}" data-required-capability="portal.farmup.view">
+    {% if farmup_batch_id %}
+    <div id="portal-farmup-feedback" aria-live="polite"></div>
+    <section id="portal-farmup-review" class="portal-import-review" aria-live="polite"><div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading FarmUp worklist…</div></div></section>
+    {% else %}
     <header class="farmup-intake-heading"><h1>FarmUp Intake</h1><p class="meta">Review and commit monthly farmer intake records.</p><div id="farmup-pending-badge" class="farmup-pending-badge" hidden aria-live="polite"></div></header>
     <form id="portal-farmup-upload" class="portal-import-upload portal-farmup-upload">
       <h2>Upload CSV</h2>
@@ -458,6 +462,7 @@
       <div id="portal-farmup-list" class="farmer-list"><div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading FarmUp batches...</div></div></div>
     </section>
     <div id="farmup-pending-action" class="farmup-pending-action" hidden></div>
+    {% endif %}
   </section>
   {% endif %}
 

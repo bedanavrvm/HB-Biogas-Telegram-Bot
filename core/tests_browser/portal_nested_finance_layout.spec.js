@@ -51,11 +51,29 @@ test('invoice filters use the shared compact sheet without overflowing a 320px p
   const sheet = await page.locator('#invoice-filter-sheet').boundingBox();
   expect(sheet.x).toBeGreaterThanOrEqual(0);
   expect(sheet.x + sheet.width).toBeLessThanOrEqual(320);
+  const actions = await page.locator('#invoice-filter-form .miniapp-sheet-actions').boundingBox();
+  expect(Math.abs(actions.y + actions.height - 568)).toBeLessThanOrEqual(14);
   await page.locator('#invoice-pool-review').selectOption('duplicates');
   await expect(page.locator('#invoice-filter-count')).toHaveText('1');
   await expect(page.locator('#invoice-filter-chips')).toContainText('Possible duplicates');
   await page.locator('#invoice-filter-form button[type="submit"]').click();
   await expect(page.locator('#invoice-filter-overlay')).toBeHidden();
+});
+
+test('operational GPS cards and JBL media errors retain their compact mobile geometry', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.setContent(`<body class="workflow-standard portal-app"><main id="content">
+    <div class="sheet-overlay operational-detail-sheet final-review-sheet open"><div class="sheet-panel"><section id="sheet-map-container" class="operational-gps-summary"><div class="sheet-map-heading"><span class="sheet-map-location-icon">⌖</span><span class="sheet-map-copy"><strong>Recorded GPS</strong><span id="sheet-map-meta">GPS: -1.234567, 36.987654</span></span><span class="sheet-map-actions"><button class="map-refresh-button">↻</button><a><span>Open Maps</span></a></span></div><div id="sheet-map"></div></section></div></div>
+    <section class="sheet-overlay jbl-visit-sheet open"><div class="jbl-document-slot invalid"><span>Front</span><label class="jbl-slot-picker jbl-media-icon-button">⌕</label><small class="jbl-field-error">Capture Client ID front.</small></div></section>
+  </main></body>`);
+  await loadPortalStyles(page);
+  await expect(page.locator('.operational-gps-summary #sheet-map')).toHaveCSS('height', '170px');
+  await expect(page.locator('.operational-gps-summary .sheet-map-location-icon')).toHaveCSS('display', 'grid');
+  const label = await page.locator('.jbl-document-slot > span').boundingBox();
+  const picker = await page.locator('.jbl-document-slot .jbl-slot-picker').boundingBox();
+  const error = await page.locator('.jbl-document-slot .jbl-field-error').boundingBox();
+  expect(error.y).toBeGreaterThanOrEqual(Math.max(label.y + label.height, picker.y + picker.height));
+  await assertNoHorizontalOverflow(page, 320);
 });
 
 test('an empty first payment batch exposes one compact build step at 320px', async ({ page }) => {

@@ -6,6 +6,7 @@ from .complaint_case_views import complaint_cases_app
 from .origination_views import origination_app, origination_signing_app
 from .portal_views import (
     portal_case_history_detail,
+    portal_farmup_review_screen,
     portal_home,
     portal_invoices_screen,
     portal_reports_screen,
@@ -36,6 +37,7 @@ urlpatterns = [
     path('complaints/', complaint_cases_app, name='complaint_cases_app'),
     path('portal/', portal_home, name='portal_home'),
     path('portal/cases/<str:farmer_id>/', portal_case_history_detail, name='portal_case_history_detail'),
+    path('portal/s/farmup/<str:batch_id>/', portal_farmup_review_screen, name='portal_farmup_review_screen'),
     path('portal/s/reports/', portal_reports_screen, name='portal_reports_screen'),
     path('portal/s/reports/new/', portal_reports_screen, {'report_view': 'edit'}, name='portal_reports_new'),
     path('portal/s/reports/new/<str:report_step>/', portal_reports_screen, {'report_view': 'edit'}, name='portal_reports_new_step'),

@@ -110,7 +110,7 @@
   }
   function updateSummary() {
     const c = reviewCounts(), target = node('farmup-selection-summary');
-    if (target) target.innerHTML = `<span class="selected"><strong>${c.selected}</strong> commit</span><span class="edited"><strong>${c.editedCells}</strong> edits / ${c.editedRows} rows</span><span><strong>${c.creates}</strong> new</span><span><strong>${c.updates}</strong> updates</span><span><strong>${c.unchanged}</strong> unchanged</span><span><strong>${c.held}</strong> held</span><span><strong>${c.excluded}</strong> excluded</span><span class="danger"><strong>${c.unresolved}</strong> unresolved</span>${c.hidden ? `<span><strong>${c.hidden}</strong> selected hidden</span>` : ''}`;
+    if (target) target.innerHTML = `<span class="selected"><strong>${c.selected}</strong> commit</span><span class="edited"><strong>${c.editedCells}</strong> edits</span><span><strong>${c.held}</strong> held</span><span class="danger"><strong>${c.unresolved}</strong> unresolved</span>${c.hidden ? `<span><strong>${c.hidden}</strong> selected hidden</span>` : ''}`;
     const selectAll = node('farmup-select-all'); if (selectAll) selectAll.title = `Select all ${c.valid} eligible cases`;
     if (node('farmup-commit')) node('farmup-commit').disabled = !c.selected;
     syncDirtyProtection();
@@ -197,7 +197,7 @@
       }
       const top = grid.getBoundingClientRect().top;
       const commitHeight = node('farmup-commit')?.closest('.farmup-commit-bar')?.getBoundingClientRect().height || 0;
-      grid.style.height = `${Math.max(96, Math.min(680, Math.floor(viewportBottom - top - commitHeight - 18)))}px`;
+      grid.style.height = `${Math.max(192, Math.min(680, Math.floor(viewportBottom - top - commitHeight - 12)))}px`;
       grid.style.scrollMarginBottom = `${commitHeight + 18}px`;
       try {
         gridApi?.setColumnsPinned?.(['state'], window.innerWidth > 700 ? 'left' : null);
@@ -271,7 +271,8 @@
     if (gridApi) { gridApi.destroy(); gridApi = null; } prepareRows(); target.hidden = false;
     const tools = `<div class="farmup-toolbar"><input id="farmup-search" type="search" value="${escapeHtml(search)}" placeholder="Search all rows…"><div class="farmup-mode-toggle" role="group" aria-label="Review layout"><button type="button" data-farmup-mode="table" aria-label="Table review" title="Table review">${icon('table-2')}</button><button type="button" data-farmup-mode="carousel" aria-label="Swipe review" title="Swipe review">${icon('gallery-horizontal')}</button></div><button class="btn btn-secondary ${needsReviewOnly ? 'active' : ''}" id="farmup-review-filter" aria-pressed="${needsReviewOnly}">Needs review</button><button class="icon-button" id="farmup-select-all" aria-label="Select all eligible" title="Select all eligible">${icon('list-checks')}</button><button class="icon-button" id="farmup-clear-all" aria-label="Hold all" title="Hold all">${icon('pause')}</button><button class="icon-button" id="farmup-exclude-selected" aria-label="Exclude selected" title="Exclude selected">${icon('circle-minus')}</button><button class="icon-button" id="farmup-restore-excluded" aria-label="Restore exclusions" title="Restore exclusions">${icon('undo-2')}</button></div>`;
     const review = active.mapping?.state === 'needs_mapping' ? '' : `${tools}<div id="farmup-selection-summary" class="farmup-selection-summary" aria-live="polite"></div><div id="farmup-grid-wrap" class="farmup-grid-wrap" role="region" aria-label="FarmUp editable review table. Scroll horizontally to reach all fields." tabindex="0"><div id="farmup-grid" class="ag-theme-quartz farmup-grid"></div></div><div id="farmup-carousel" class="farmup-carousel" hidden></div>${can('portal.farmup.commit') && active.status !== 'committed' ? '<div class="farmup-commit-bar"><span>Selected rows commit now; other rows stay held.</span><button class="btn btn-primary" id="farmup-commit">Review commit</button></div>' : ''}`;
-    target.innerHTML = `<div class="portal-import-review-heading"><div><span class="settings-eyebrow">${escapeHtml(active.period_label || 'FARMUP')} · VERSION ${Number(active.version_number || 1)}</span><h2>${escapeHtml(active.source_filename || 'FarmUp')}</h2><p>Edited cells are blue; invalid cells remain red. ${(active.versions || []).length} immutable upload version${(active.versions || []).length === 1 ? '' : 's'} retained.</p></div><div class="portal-import-actions">${can('portal.publication.retry') && active.committed_count ? `<button class="btn btn-secondary" id="farmup-repair">${icon('wrench')} Repair Sheet</button>` : ''}<button class="icon-button" id="farmup-close" aria-label="Close review" title="Close review">${icon('x')}</button></div></div>${can('portal.farmup.stage') && active.is_current_version ? '<form id="farmup-version-upload" class="farmup-version-upload"><label><span>Updated monthly CSV</span><input type="file" name="file" data-farmup-file required></label><button class="btn btn-secondary" type="submit">Upload version</button></form>' : ''}<div id="farmup-commit-receipt" class="farmup-commit-receipt" hidden></div><section id="farmup-mapping-panel" class="farmup-mapping-panel"></section>${review}`;
+    const routeBack = Boolean(node('portal-screen')?.dataset.farmupBatchId);
+    target.innerHTML = `<div class="portal-import-review-heading"><button class="farmup-review-back" id="farmup-close" aria-label="Back to FarmUp worklists" title="Back to FarmUp worklists">${icon('arrow-left')}</button><div><span class="settings-eyebrow">${escapeHtml(active.period_label || 'FARMUP')} · V${Number(active.version_number || 1)}</span><h2>${escapeHtml(active.source_filename || 'FarmUp')}</h2></div><div class="portal-import-actions">${can('portal.publication.retry') && active.committed_count ? `<button class="btn btn-secondary" id="farmup-repair">${icon('wrench')} Repair Sheet</button>` : ''}${routeBack ? '' : `<button class="icon-button" id="farmup-close-inline" aria-label="Close review" title="Close review">${icon('x')}</button>`}</div></div><div id="farmup-commit-receipt" class="farmup-commit-receipt" hidden></div><div class="farmup-review-setup">${can('portal.farmup.stage') && active.is_current_version ? '<form id="farmup-version-upload" class="farmup-version-upload"><label><span>Updated CSV</span><input type="file" name="file" data-farmup-file required></label><button class="btn btn-secondary" type="submit">Upload version</button></form>' : ''}<section id="farmup-mapping-panel" class="farmup-mapping-panel"></section></div>${review}`;
     renderMapping(); window.lucide?.createIcons?.();
     const priorReceipt = node('farmup-commit-receipt');
     if (priorReceipt && active.publication?.status && active.publication.status !== 'not_required') { priorReceipt.hidden = false; priorReceipt.textContent = active.publication.status === 'synced' ? `Master Data Sheet synchronized for ${active.publication.synced || 0} publication operation(s).` : active.publication.status === 'needs_attention' ? 'Portal data is saved. Master Data Sheet synchronization needs repair.' : 'Portal data is saved. Master Data Sheet synchronization is queued.'; }
@@ -281,6 +282,14 @@
     const result = await api.apiFetch(`/farmup/${encodeURIComponent(batchId)}/`, {}, tg);
     if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'FarmUp preview could not be loaded.');
     clearDirtyProtection(); active = result.data.batch; commitRequestKey = ''; search = ''; needsReviewOnly = false; carouselIndex = 0; mappingOpen = active.mapping?.state === 'needs_mapping'; await renderEditor();
+  }
+  function reviewUrl(batchId) { return `/portal/s/farmup/${encodeURIComponent(batchId)}/`; }
+  function routeToReview(batchId) {
+    if (/^\/portal(?:\/|$)/.test(window.location.pathname) && !node('portal-screen')?.dataset.farmupBatchId) {
+      window.location.assign(reviewUrl(batchId));
+      return true;
+    }
+    return false;
   }
   function validateFarmupFile(input) {
     const file = input?.files?.[0]; if (!file) return false;
@@ -301,7 +310,7 @@
       utils.setCloseProtection?.('portal-farmup-file-selected', false);
       const message = result.data.replayed ? `${filename} was already uploaded. Opening its worklist.` : `${filename} uploaded successfully. Review the rows before committing.`;
       window.PortalAppShell?.showToast?.(message, 'success'); feedback(message, 'success');
-      try { await load({silent:true}); await openBatch(result.data.batch.id); }
+      try { if (!routeToReview(result.data.batch.id)) { await load({silent:true}); await openBatch(result.data.batch.id); } }
       catch (error) { feedback(`CSV uploaded successfully, but its review could not open. Refresh to retry. ${error.message || ''}`, 'error'); }
       if (result.data.archive_operation_id) await attemptDrive(result.data.archive_operation_id, true);
     } finally { setLoading(button, false); }
@@ -376,9 +385,9 @@
   document.addEventListener('submit', event => { if (event.target.matches('#portal-farmup-upload')) { event.preventDefault(); return upload(event.target).catch(error => { feedback(error.message, 'error'); window.PortalAppShell?.showToast?.(error.message, 'error'); }); } if (event.target.matches('#farmup-version-upload')) { event.preventDefault(); return uploadVersion(event.target).catch(error => { feedback(error.message, 'error'); window.PortalAppShell?.showToast?.(error.message, 'error'); }); } });
   document.addEventListener('input', event => { if (event.target.id !== 'farmup-search') return; search = event.target.value; gridApi?.setGridOption('quickFilterText', search); carouselIndex = 0; if (reviewMode === 'carousel') renderCarousel(); updateSummary(); });
   document.addEventListener('click', event => {
-    const open = event.target.closest('.farmup-open'); if (open) return openBatch(open.dataset.batchId).catch(error => feedback(error.message, 'error'));
+    const open = event.target.closest('.farmup-open'); if (open) { if (routeToReview(open.dataset.batchId)) return; return openBatch(open.dataset.batchId).catch(error => feedback(error.message, 'error')); }
     if (event.target.closest('#portal-farmup-refresh')) return load().catch(error => feedback(error.message, 'error'));
-    if (event.target.closest('#farmup-close')) { if ((active?.rows || []).some(row => editedFields(row).length || rowWorkflowChanged(row)) && !window.confirm('Discard uncommitted FarmUp edits and selections?')) return; clearDirtyProtection(); gridApi?.destroy(); gridApi = null; node('portal-farmup-review').hidden = true; active = null; renderBatches(); return; }
+    if (event.target.closest('#farmup-close, #farmup-close-inline')) { if ((active?.rows || []).some(row => editedFields(row).length || rowWorkflowChanged(row)) && !window.confirm('Discard uncommitted FarmUp edits and selections?')) return; clearDirtyProtection(); gridApi?.destroy(); gridApi = null; if (node('portal-screen')?.dataset.farmupBatchId) { window.location.assign('/portal/s/farmup/'); return; } node('portal-farmup-review').hidden = true; active = null; renderBatches(); return; }
     const mode = event.target.closest('[data-farmup-mode]'); if (mode) return setReviewMode(mode.dataset.farmupMode);
     if (event.target.closest('#farmup-review-filter')) { needsReviewOnly = !needsReviewOnly; gridApi?.onFilterChanged(); event.target.closest('button').classList.toggle('active', needsReviewOnly); event.target.closest('button').setAttribute('aria-pressed', String(needsReviewOnly)); carouselIndex = 0; if (reviewMode === 'carousel') renderCarousel(); updateSummary(); return; }
     if (event.target.closest('#farmup-select-all')) { gridApi?.forEachNodeAfterFilter(n => { if (rowSelectable(n.data)) { n.data.disposition = 'commit_now'; n.data.approved = true; n.setSelected(true); } }); updateSummary(); return; }
@@ -410,5 +419,10 @@
     feedback(message, repairProgress.failed ? 'error' : 'success');
     if (!repairProgress.pending.size) { window.PortalAppShell?.showToast?.(message, repairProgress.failed ? 'error' : 'success'); load({silent:true}).catch(() => {}); }
   });
-  window.PortalMiniAppFarmUp = {load};
+  async function loadScreen() {
+    const batchId = node('portal-screen')?.dataset.farmupBatchId;
+    if (batchId) return openBatch(batchId);
+    return load();
+  }
+  window.PortalMiniAppFarmUp = {load: loadScreen};
 })();

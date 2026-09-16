@@ -1087,14 +1087,15 @@ class PortalMiniAppAuthTestCase(TestCase):
         for queue in ('jbl', 'my_visits', 'credit', 'final', 'requisition', 'deferred', 'all', 'batches'):
             self.assertIn(f'data-queue-refresh="{queue}"', template)
         self.assertIn('class="search-bar portal-search-control"', template)
-        self.assertIn("['jbl_visit', 'credit', 'final_review'].includes(mode)", script)
+        self.assertIn("['jbl_visit', 'credit', 'final_review', 'deferred'].includes(mode)", script)
         self.assertIn("sheetOverlay?.classList.toggle('final-review-sheet', mode === 'final_review')", script)
-        self.assertIn("const backLabels = { jbl_visit: 'Visits', credit: 'Credit', final_review: 'Reviews' }", script)
+        self.assertIn("const backLabels = { jbl_visit: 'Visits', credit: 'Credit', final_review: 'Reviews', deferred: 'Deferred' }", script)
         self.assertIn('.operational-detail-sheet:not(.jbl-visit-sheet) .sheet-navigation', stylesheet)
         self.assertIn('.final-review-sheet .final-comment-row textarea', stylesheet)
         self.assertIn('.credit-analysis-sheet .credit-jbl-comment p { font-style:normal; }', stylesheet)
         self.assertIn('.credit-analysis-sheet .credit-analysis-form {', stylesheet)
         self.assertIn('.credit-analysis-sheet .credit-gps-summary #sheet-map {', stylesheet)
+        self.assertIn('.operational-gps-summary #sheet-map {', stylesheet)
         self.assertNotIn('if (isCreditSummary) return;', script)
         self.assertIn('<span class="sr-only">Call customer</span>', script)
         self.assertNotIn('<span>Call</span>', script)
@@ -1965,6 +1966,17 @@ class JblPipelineApiTestCase(TestCase):
         imports = self.client.get(reverse('portal_screen', kwargs={'screen': 'imports'}))
         self.assertEqual(imports.status_code, 200)
         self.assertNotContains(imports, 'Customer records stay unchanged')
+
+    def test_farmup_review_route_separates_the_editor_from_intake_chrome(self):
+        response = self.client.get(reverse('portal_farmup_review_screen', kwargs={'batch_id': 'batch-test-123'}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-screen="farmup"')
+        self.assertContains(response, 'data-farmup-batch-id="batch-test-123"')
+        self.assertContains(response, 'class="page active farmup-review-page"')
+        self.assertContains(response, 'id="portal-farmup-review"')
+        self.assertNotContains(response, 'id="portal-farmup-upload"')
+        self.assertNotContains(response, 'Recent batches')
 
     def test_invoice_workspace_detail_fragment_omits_shell(self):
         response = self.client.get(

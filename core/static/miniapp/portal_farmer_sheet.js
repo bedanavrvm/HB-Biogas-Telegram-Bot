@@ -848,9 +848,10 @@
     const mapLink = el('sheet-map-link');
     const mapMeta = el('sheet-map-meta');
     const mapTitle = mapContainer.querySelector('.sheet-map-heading strong');
-    const isCreditSummary = state().activeMode === 'credit';
-    mapContainer.classList.toggle('credit-gps-summary', isCreditSummary);
-    if (mapTitle) mapTitle.textContent = isCreditSummary ? 'Recorded GPS' : 'Recorded location';
+    const isOperationalSummary = state().activeMode !== 'jbl_visit';
+    mapContainer.classList.toggle('credit-gps-summary', state().activeMode === 'credit');
+    mapContainer.classList.toggle('operational-gps-summary', isOperationalSummary);
+    if (mapTitle) mapTitle.textContent = isOperationalSummary ? 'Recorded GPS' : 'Recorded location';
     if (mapMeta) mapMeta.textContent = `GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
     if (mapLink) {
       mapLink.href = `https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}`;
@@ -911,7 +912,7 @@
     const mapContainer = el('sheet-map-container');
     if (mapContainer) {
       mapContainer.style.display = 'none';
-      mapContainer.classList.remove('map-unavailable');
+      mapContainer.classList.remove('map-unavailable', 'credit-gps-summary', 'operational-gps-summary');
     }
     const mapLink = el('sheet-map-link');
     if (mapLink) mapLink.hidden = true;

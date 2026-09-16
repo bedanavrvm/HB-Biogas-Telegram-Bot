@@ -206,6 +206,7 @@ test('FarmUp final review row stays above the scrollbar and commit bar',async({p
   for(const height of [700,440]){
     await page.setViewportSize({width:390,height});
     await page.locator('#farmup-grid').evaluate(grid=>grid.scrollIntoView({block:'start'}));
+    expect((await page.locator('#farmup-grid').boundingBox()).height).toBeGreaterThanOrEqual(192);
     await page.locator('#farmup-grid .ag-grid-viewport').evaluate(viewport=>{viewport.scrollTop=viewport.scrollHeight;});
     const row=page.locator('#farmup-grid .ag-grid-scrolling-container .ag-row[row-index="34"]');
     await expect(row).toBeVisible();
@@ -275,7 +276,7 @@ test('Portal refresh actions sit at the right content edge across screens', asyn
   }
 });
 
-test('Portal camera uses full height with an uncropped preview on mobile and desktop', async ({page},testInfo)=>{
+test('Portal camera uses full height with an edge-to-edge preview on mobile and desktop', async ({page},testInfo)=>{
   const template=fs.readFileSync(path.join(root,'core/templates/portal/portal.html'),'utf8');
   const start=template.indexOf('<div class="sheet-overlay jbl-camera-overlay"');
   const end=template.indexOf('</section>',start)+10;
@@ -290,7 +291,7 @@ test('Portal camera uses full height with an uncropped preview on mobile and des
     expect(bounds.width).toBeLessThanOrEqual(620);
     expect(Math.abs(bounds.y+bounds.height-height)).toBeLessThan(2);
     await expect(page.locator('#jbl-camera-done')).toBeVisible();
-    expect(await page.locator('#jbl-camera-video').evaluate(video=>getComputedStyle(video).objectFit)).toBe('contain');
+    expect(await page.locator('#jbl-camera-video').evaluate(video=>getComputedStyle(video).objectFit)).toBe('cover');
     await page.screenshot({path:testInfo.outputPath(`camera-${label}.png`),fullPage:true});
   }
 });
@@ -756,7 +757,7 @@ test('Portal FarmUp renders a compact mobile grid with explicit selection counts
   await page.keyboard.type('Edited Farmer');
   await page.keyboard.press('Enter');
   await expect(page.locator('.ag-cell').filter({ hasText: 'Edited Farmer' }).first()).toHaveClass(/farmup-cell-edited/);
-  await expect(page.locator('#farmup-selection-summary')).toContainText('1 edits / 1 rows');
+  await expect(page.locator('#farmup-selection-summary')).toContainText('1 edits');
   await page.locator('[data-farmup-mode="carousel"]').click();
   await expect(page.locator('.farmup-carousel-card')).toContainText('Edited Farmer');
   await expect(page.locator('.farmup-carousel-field.edited')).toHaveCount(1);

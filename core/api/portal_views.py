@@ -1390,6 +1390,15 @@ def portal_screen(request, screen: str):
 
 
 @require_http_methods(["GET", "HEAD"])
+def portal_farmup_review_screen(request, batch_id: str):
+    """Render one FarmUp worklist as a focused, route-backed review screen."""
+    context = _portal_screen_context('farmup', farmup_batch_id=str(batch_id or '').strip())
+    if request.htmx:
+        return _portal_screen_fragment(request, 'farmup', context=context)
+    return render(request, 'portal/portal_screen_full.html', context)
+
+
+@require_http_methods(["GET", "HEAD"])
 def portal_reports_screen(
     request,
     report_view: str = 'catalogue',
