@@ -282,6 +282,33 @@
     } finally { deps.setButtonLoading(button, false); }
   }
 
+  function confirmFirstSubmission() {
+    if (activeBatch?.payment_number) return Promise.resolve(true);
+    const counts = activeBatch?.counts || {};
+    const copy = `Submit ${counts.total || 0} case${Number(counts.total || 0) === 1 ? '' : 's'} for Head of Rural review? This permanently allocates the next official payment number.`;
+    const dialog = el('payment-submit-confirm');
+    if (!dialog?.showModal) {
+      return Promise.resolve(window.confirm(`${copy}\n\nThe number remains used even if this batch is later cancelled.`));
+    }
+    el('payment-submit-confirm-copy').textContent = copy;
+    el('payment-submit-confirm-cases').textContent = String(counts.total || 0);
+    el('payment-submit-confirm-total').textContent = money(activeBatch?.total_amount);
+    return new Promise(resolve => {
+      const close = () => {
+        dialog.removeEventListener('close', close);
+        resolve(dialog.returnValue === 'confirm');
+      };
+      dialog.addEventListener('close', close);
+      dialog.showModal();
+    });
+  }
+
+  async function submitForReview(button) {
+    if (!await confirmFirstSubmission()) return;
+    if (button.disabled) return;
+    await mutate(`/payments/batches/${activeBatch.id}/submit/`, {}, button, 'Submitting...');
+  }
+
   async function changeCaseMode(select) {
     const farmerId = select.dataset.paymentCaseMode;
     const prior = activeBatch.cases.find(item => item.farmer_id === farmerId)?.payment_mode;
@@ -386,7 +413,7 @@
       if (filter) { candidateFilter = filter.dataset.paymentFilter; return renderCandidates(); }
       if (target.closest('#payments-clear-selection')) { selected.clear(); return renderCandidates(); }
       if (target.closest('#payments-add-selected')) return addSelected(target.closest('#payments-add-selected'));
-      if (target.closest('#payments-submit-review')) return mutate(`/payments/batches/${activeBatch.id}/submit/`, {}, target.closest('#payments-submit-review'), 'Submitting...');
+      if (target.closest('#payments-submit-review')) return submitForReview(target.closest('#payments-submit-review'));
       if (target.closest('#payments-generate')) return mutate(`/payments/batches/${activeBatch.id}/generate/`, {}, target.closest('#payments-generate'), 'Generating...');
       if (target.closest('#payments-open-workbook')) return deps.openPortalLink(activeBatch.current_document_url);
       if (target.closest('#payments-open-signed-copy')) return deps.openPortalLink(activeBatch.signed_scan_url);

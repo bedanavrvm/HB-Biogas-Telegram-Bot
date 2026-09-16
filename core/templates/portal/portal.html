@@ -116,14 +116,6 @@
       <div><h1>JBL Visit Queue</h1><p class="meta">Farmers visited by HB, not yet visited by JBL</p></div>
       <button type="button" class="queue-refresh-button" data-queue-refresh="jbl" aria-label="Refresh JBL visit queue" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
-    <div id="requisition-sequence-panel" class="batch-panel portal-initially-hidden" data-required-capability="portal.requisition.sequence.manage">
-      <div class="batch-title"><i data-lucide="hash" aria-hidden="true"></i><span>Official number sequence</span></div>
-      <div class="batch-form"><div class="form-row inline">
-        <div class="field-group"><label for="requisition-sequence-next">Next number</label><input id="requisition-sequence-next" type="number" min="1" inputmode="numeric"></div>
-        <div class="field-group"><label for="requisition-sequence-reason">Reason</label><input id="requisition-sequence-reason" type="text" placeholder="Align with official paperwork"></div>
-        <button type="button" class="btn btn-secondary" id="requisition-sequence-save">Save sequence</button>
-      </div><p class="meta" id="requisition-sequence-status">Loading official sequence…</p></div>
-    </div>
     {% include "portal/partials/queue_tools.html" with queue_key="jbl" queue_label="visit queue" %}
     <div id="jbl-list" class="farmer-list">
       <div class="empty-state"><div class="spinner-inline"></div></div>
@@ -165,22 +157,9 @@
   {% if active_screen == 'final' %}
   <section id="page-final" class="page{% if active_screen == 'final' %} active{% endif %}">
     <header class="portal-queue-header">
-      <div><h1>Head of Rural Review</h1><p class="meta">Make final decisions and review payment batches. Approved cases move automatically to Orders.</p></div>
+      <div><h1>Head of Rural Review</h1><p class="meta">Make final decisions. Approved cases move automatically to Orders.</p></div>
       <button type="button" class="queue-refresh-button" data-queue-refresh="final" aria-label="Refresh Head of Rural review" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
-    <div class="review-stage-toolbar" aria-label="Head of Rural review queue">
-      <div class="review-stage-tabs" role="tablist" aria-label="Choose review queue">
-        <button type="button" class="review-stage-tab is-active" role="tab" aria-selected="true" aria-controls="final-list" data-final-review-stage="decision">
-          <span>Orders</span>
-          <small>Final decisions</small>
-        </button>
-        <button type="button" class="review-stage-tab" role="tab" aria-selected="false" aria-controls="final-list" data-final-review-stage="payment">
-          <span>Payments</span>
-          <small>Pending payment files</small>
-        </button>
-      </div>
-      <p id="final-review-stage-help" class="meta">Record the final decision before an approved case moves to Orders.</p>
-    </div>
     {% include "portal/partials/queue_tools.html" with queue_key="final" queue_label="Head of Rural review queue" %}
     <div id="final-list" class="farmer-list">
       <div class="empty-state"><div class="spinner-inline"></div></div>
@@ -195,6 +174,14 @@
       <div><h1>Requisition Queue</h1><p class="meta">Final decision approved - assign order number</p></div>
       <button type="button" class="queue-refresh-button" data-queue-refresh="requisition" aria-label="Refresh requisition queue" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
+    <div id="requisition-sequence-panel" class="batch-panel portal-initially-hidden" data-required-capability="portal.requisition.sequence.manage">
+      <div class="batch-title"><i data-lucide="hash" aria-hidden="true"></i><span>Official number sequence</span></div>
+      <div class="batch-form"><div class="form-row inline">
+        <div class="field-group"><label for="requisition-sequence-next">Next number</label><input id="requisition-sequence-next" type="number" min="1" inputmode="numeric"></div>
+        <div class="field-group"><label for="requisition-sequence-reason">Reason</label><input id="requisition-sequence-reason" type="text" placeholder="Align with official paperwork"></div>
+        <button type="button" class="btn btn-secondary" id="requisition-sequence-save">Save sequence</button>
+      </div><p class="meta" id="requisition-sequence-status">Loading official sequence…</p></div>
+    </div>
     {% include "portal/partials/queue_tools.html" with queue_key="requisition" queue_label="order preparation queue" %}
     <div id="requisition-batch-panel" class="batch-panel portal-initially-hidden" data-required-capability="portal.requisition.finalize">
       <div class="batch-title">
@@ -329,9 +316,11 @@
   <section id="page-payments" class="page{% if active_screen == 'payments' %} active{% endif %}">
     <header class="portal-queue-header"><div><h1>Payments</h1><p class="meta">Prepare, review and complete payment batches</p></div><button type="button" class="queue-refresh-button" id="payments-refresh" aria-label="Refresh payments" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button></header>
     <div id="payments-summary" class="payment-summary-strip" aria-live="polite"></div>
-    <div class="payment-filter-chips payment-batch-filters" aria-label="Filter payment batches"><button type="button" class="active" data-payment-batch-filter="open">Open</button><button type="button" data-payment-batch-filter="completed">Completed</button><button type="button" data-payment-batch-filter="cancelled">Cancelled</button><button type="button" data-payment-batch-filter="all">All</button></div>
-    <div class="payment-new-row" data-required-capability="portal.payment.prepare">
-      <button type="button" class="btn btn-primary" id="payments-new">New batch</button>
+    <div class="payment-list-toolbar">
+      <div class="payment-filter-chips payment-batch-filters" aria-label="Filter payment batches"><button type="button" class="active" data-payment-batch-filter="open">Open</button><button type="button" data-payment-batch-filter="completed">Completed</button><button type="button" data-payment-batch-filter="cancelled">Cancelled</button><button type="button" data-payment-batch-filter="all">All</button></div>
+      <div class="payment-new-row" data-required-capability="portal.payment.prepare">
+        <button type="button" class="btn btn-primary" id="payments-new">New batch</button>
+      </div>
     </div>
     <details class="payment-sequence-panel" data-required-capability="portal.payment.sequence.manage"><summary>Official number settings</summary><div><label><span>Next payment number</span><input id="payments-sequence-next" type="number" min="1" inputmode="numeric"></label><label><span>Reason</span><input id="payments-sequence-reason" type="text" placeholder="Align with official register"></label><button type="button" class="btn btn-secondary" id="payments-sequence-save">Save</button></div><small id="payments-sequence-status">Loading…</small></details>
     <div id="payments-batches" class="payment-batch-list"><div class="empty-state"><div class="spinner-inline"></div></div></div>
@@ -350,6 +339,22 @@
     </section>
   </section>
   {% endif %}
+
+  <dialog id="payment-submit-confirm" class="portal-confirm-dialog" aria-labelledby="payment-submit-confirm-title">
+    <form method="dialog">
+      <h2 id="payment-submit-confirm-title">Allocate official payment number?</h2>
+      <p id="payment-submit-confirm-copy"></p>
+      <dl class="payment-submit-impact">
+        <div><dt>Cases</dt><dd id="payment-submit-confirm-cases">0</dd></div>
+        <div><dt>Batch total</dt><dd id="payment-submit-confirm-total">KES 0</dd></div>
+      </dl>
+      <p class="portal-confirm-warning">The number remains used even if this batch is later cancelled.</p>
+      <div class="portal-confirm-actions">
+        <button value="cancel" class="btn btn-secondary">Cancel</button>
+        <button value="confirm" class="btn btn-primary">Submit and allocate number</button>
+      </div>
+    </form>
+  </dialog>
 
   <!-- Deferred -->
   {% if active_screen == 'deferred' %}
@@ -512,7 +517,6 @@
       <div class="portal-settings-grid">
         <label>Start on<select id="portal-preference-default-screen"></select></label>
         <label>Open work queue first<select id="portal-preference-default-queue"></select><span class="field-help">When selected, this queue opens instead of the landing screen.</span></label>
-        <label>Review list<select id="portal-preference-review-status"></select><span class="field-help">Used when the Review queue opens.</span></label>
         <label class="portal-settings-check"><input id="portal-preference-compact-cards" type="checkbox"><span>Use compact case cards<span class="field-help">Keep the next action and essential status visible; open a case for full detail.</span></span></label>
       </div>
       <div class="form-actions"><button id="portal-save-personal-settings" class="btn btn-primary" type="submit">Save my settings</button><button id="portal-clear-personal-settings" class="btn btn-secondary" type="button">Clear defaults</button></div>

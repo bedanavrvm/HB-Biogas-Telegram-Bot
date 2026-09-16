@@ -2126,15 +2126,6 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
-.review-stage-toolbar { margin:0 0 12px; padding:4px; border:1px solid var(--border-color); border-radius:12px; background:var(--bg-surface); }
-.review-stage-tabs { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:4px; padding:3px; border-radius:9px; background:var(--bg-muted); }
-.review-stage-tab { min-width:0; min-height:48px; padding:7px 10px; border:0; border-radius:7px; background:transparent; color:var(--text-muted); font:inherit; text-align:left; cursor:pointer; transition:background .16s ease, color .16s ease, box-shadow .16s ease; }
-.review-stage-tab > span, .review-stage-tab > small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.review-stage-tab > span { font-size:13px; font-weight:800; }
-.review-stage-tab > small { margin-top:2px; font-size:10px; font-weight:600; }
-.review-stage-tab.is-active { background:var(--button-color, var(--brand-primary)); color:var(--button-text-color, #fff); box-shadow:0 1px 3px rgba(15,23,42,.18); }
-.review-stage-tab:focus-visible { outline:2px solid var(--link-color, var(--brand-primary)); outline-offset:2px; }
-.review-stage-toolbar .meta { display:block; margin:8px 8px 5px; color:var(--text-muted); font-size:11px; line-height:1.35; }
 .btn-open-payment-review { margin-top:9px; width:100%; justify-content:center; }
 .payment-case-comment { width:100%; min-height:56px; resize:vertical; }
 .payment-review-case-list { display:grid; gap:10px; }
@@ -3937,3 +3928,122 @@ body.portal-app #requisition-preview-overlay .sheet-body { min-height:0; flex:1 
 body.portal-app #requisition-preview-overlay .sheet-footer { padding-bottom:calc(10px + env(safe-area-inset-bottom,0px)); }
 body.portal-app #requisition-preview-list > * { flex-shrink:0; min-width:0; }
 body.portal-app .requisition-print-scroll { padding-bottom:3px; }
+
+/* Portal compactness pass. Mobile is the base composition; wider workspaces
+   add columns without changing the governed workflow components. */
+
+body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-summary) {
+  overflow:hidden;
+  gap:0;
+  border:1px solid var(--border-color);
+  border-radius:10px;
+  background:var(--bg-surface);
+}
+
+body.portal-app .payment-summary-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }
+body.portal-app #dashboard-activity.is-empty .dashboard-activity-layout { grid-template-columns:64px minmax(0,1fr); gap:6px; }
+body.portal-app #dashboard-activity.is-empty .dashboard-today { min-height:54px; padding:8px; }
+body.portal-app #dashboard-activity.is-empty .dashboard-today strong { font-size:20px; }
+body.portal-app #dashboard-activity.is-empty .dashboard-today span { margin-top:2px; font-size:10px; }
+body.portal-app #dashboard-activity.is-empty .empty-state { display:grid; min-height:54px; align-content:center; padding:8px 10px; border:1px solid var(--border-color); border-radius:var(--radius-sm); background:var(--bg-surface); }
+body.portal-app #dashboard-activity.is-empty .empty-state .es-sub { font-size:11px; }
+body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-summary) > :is(div,span) {
+  border:0;
+  border-right:1px solid var(--border-color);
+  border-bottom:1px solid var(--border-color);
+  border-radius:0;
+}
+body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-summary) > :is(div,span):nth-child(2n) { border-right:0; }
+body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-summary) > :is(div,span):nth-last-child(-n+2) { border-bottom:0; }
+
+.payment-list-toolbar { display:flex; flex-direction:column; }
+.payment-new-row { margin:4px 0 8px; }
+.payment-new-row .btn { width:100%; justify-content:center; }
+.payment-sequence-panel summary { min-height:40px; display:flex; align-items:center; padding:8px 10px; font-size:10px; }
+.payment-sequence-panel > small { font-size:10px; }
+.payment-batch-card-stats small,
+.payment-case-history small,
+.payment-case-values,
+.payment-case-warning { font-size:10px; }
+
+.portal-confirm-dialog { width:min(calc(100% - 24px),420px); border:1px solid var(--border-color); border-radius:14px; padding:0; background:var(--bg-surface); color:var(--text-primary); }
+.portal-confirm-dialog::backdrop { background:rgba(15,23,42,.48); }
+.portal-confirm-dialog form { display:grid; gap:10px; padding:16px; }
+.portal-confirm-dialog h2,.portal-confirm-dialog p,.portal-confirm-dialog dl { margin:0; }
+.portal-confirm-dialog h2 { font-size:17px; }
+.portal-confirm-dialog p { color:var(--text-muted); font-size:12px; line-height:1.45; }
+.payment-submit-impact { display:grid; grid-template-columns:1fr 1fr; overflow:hidden; border:1px solid var(--border-color); border-radius:9px; }
+.payment-submit-impact > div { padding:8px 10px; }
+.payment-submit-impact > div + div { border-left:1px solid var(--border-color); }
+.payment-submit-impact dt { color:var(--text-muted); font-size:10px; }
+.payment-submit-impact dd { margin:2px 0 0; font-size:13px; font-weight:800; }
+.portal-confirm-dialog .portal-confirm-warning { color:var(--status-warning); font-weight:700; }
+.portal-confirm-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.portal-confirm-actions .btn { min-height:42px; justify-content:center; }
+
+#page-farmup .invoice-upload-dropzone { min-height:64px; }
+#page-farmup .farmup-batch-card .portal-import-actions { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; }
+#page-farmup .farmup-batch-card .portal-import-actions .farmup-open { width:100%; }
+
+.credit-analysis-sheet .credit-gps-summary.map-unavailable #sheet-map { display:none !important; }
+.credit-analysis-sheet .credit-gps-summary.map-unavailable { min-height:0; }
+.credit-analysis-sheet .credit-gps-summary.map-unavailable #sheet-map-fallback { min-height:0; padding:7px 10px; font-size:10px; }
+.invoice-duplicate-alert { border:0; border-radius:0; background:transparent; padding:3px 0 3px 7px; }
+
+.portal-curated-tabs { padding:4px; border-radius:13px; }
+.portal-curated-tabs button { border-radius:10px; }
+.portal-curated-filters label { font-size:10px; }
+.portal-curated-summary span,
+.portal-curated-chart small { font-size:10px; }
+.portal-curated-chart > div > span { font-size:10px; }
+.portal-results-heading { align-items:center; }
+.portal-results-heading > div:first-child { display:flex; align-items:baseline; gap:6px; }
+.portal-results-heading > div:first-child > span { color:var(--text-muted); font-size:10px; }
+
+.decision-reason-row[hidden],.decision-other-note[hidden],#final-comment-required[hidden] { display:none !important; }
+.decision-reason-row select,.decision-other-note textarea { width:100%; }
+
+@media (max-width:600px) {
+  .portal-curated-filters { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); overflow:visible; align-items:end; }
+  .portal-curated-filters label { flex:auto; }
+  .portal-curated-filters label:nth-of-type(3) { grid-column:1 / -1; }
+  .portal-curated-filters .btn { min-height:40px; font-size:11px; justify-content:center; }
+  .portal-results-heading { align-items:flex-start; flex-wrap:wrap; }
+  .portal-results-heading .miniapp-table-zoom { margin-left:0; }
+  #invoice-pool-summary { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  #invoice-pool-summary > .batch-summary-item { border-right:1px solid var(--border-color); border-bottom:0; }
+  #invoice-pool-summary > .batch-summary-item:last-child { border-right:0; }
+}
+
+@media (max-width:360px) {
+  #page-farmup .farmup-intake-heading { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:start; }
+  #page-farmup .farmup-intake-heading h1 { margin:0; }
+  #page-farmup .farmup-intake-heading .meta { grid-column:1 / -1; grid-row:2; margin:0; }
+  #page-farmup .farmup-pending-badge { grid-column:2; grid-row:1; max-width:140px; margin:0; }
+  .operational-detail-sheet:not(.jbl-visit-sheet) .info-list { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .operational-detail-sheet:not(.jbl-visit-sheet) .info-row { border-right:1px solid var(--border-color); }
+  .operational-detail-sheet:not(.jbl-visit-sheet) .info-row:nth-child(even) { border-right:0; }
+  .operational-detail-sheet:not(.jbl-visit-sheet) .info-row-credit-status { grid-column:1 / -1; border-right:0; }
+  .jbl-visit-sheet #jbl-date-help { max-height:24px; font-size:10px; line-height:1.2; white-space:normal; text-overflow:clip; }
+}
+
+@media (min-width:700px) {
+  body.portal-app .payment-summary-strip { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .payment-list-toolbar { flex-direction:row; align-items:center; justify-content:space-between; gap:12px; }
+  .payment-new-row { margin:0; }
+  .payment-new-row .btn { width:auto; }
+  .payment-sequence-panel { width:max-content; min-width:190px; max-width:100%; }
+}
+
+@media (min-width:900px) {
+  body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-summary) > :is(div,span) { border-bottom:0; border-right:1px solid var(--border-color); }
+  body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-summary) > :is(div,span):nth-child(2n) { border-right:1px solid var(--border-color); }
+  body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-summary) > :is(div,span):last-child { border-right:0; }
+  .dashboard-activity-layout { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  #dashboard-activity.is-empty .dashboard-activity-layout { grid-template-columns:64px minmax(0,1fr); }
+  .dashboard-activity-layout .dashboard-metric-list { display:contents; }
+  .dashboard-today,.dashboard-metric-row { min-height:58px; padding:9px 11px; }
+  .dashboard-today strong { font-size:22px; }
+  :is(.dashboard-recent-list,#final-list,#portal-farmup-list) { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; }
+  #page-farmup .farmup-batch-card + .farmup-batch-card { margin-top:0; }
+}

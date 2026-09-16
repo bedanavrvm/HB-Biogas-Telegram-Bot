@@ -1270,12 +1270,16 @@ class PortalMiniAppAuthTestCase(TestCase):
 
         saved = self.client.post(url, data=json.dumps({'payload': {
             'saved_at': 1_754_000_000_001,
-            'values': {'credit-decision': 'Approved', 'credit-imab': 'Pending', 'credit-customer-no': ''},
+            'values': {
+                'credit-decision': 'Rejected', 'credit-reason-code': 'affordability',
+                'credit-decision-comment': '', 'credit-imab': 'Pending', 'credit-customer-no': '',
+            },
         }}), content_type='application/json', **headers)
 
         self.assertEqual(saved.status_code, 200)
         restored = self.client.get(url, HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data())
         self.assertEqual(restored.json()['draft']['payload']['values']['credit-imab'], 'Pending')
+        self.assertEqual(restored.json()['draft']['payload']['values']['credit-reason-code'], 'affordability')
         self.assertEqual(user.miniapp_drafts.filter(workflow='portal_credit_decision').count(), 1)
         rejected = self.client.post(url, data=json.dumps({'payload': {
             'values': {'credit-decision': 'Approved', 'files': 'data:application/pdf;base64,no'},
@@ -1297,7 +1301,8 @@ class PortalMiniAppAuthTestCase(TestCase):
         saved = self.client.post(url, data=json.dumps({'payload': {
             'saved_at': 1_754_000_000_002,
             'values': {
-                'final-decision': 'Approved', 'final-repayment-date': '10TH',
+                'final-decision': 'Deferred / On Hold', 'final-reason-code': 'affordability',
+                'final-repayment-date': '10TH',
                 'final-repayment-tenor': '6 months', 'final-comment': 'Customer confirmed terms.',
             },
         }}), content_type='application/json', HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(), HTTP_X_REQUEST_ID='final-draft-1')
@@ -1439,6 +1444,7 @@ class PortalMiniAppAuthTestCase(TestCase):
         personal = response.json()['data']
         self.assertEqual(personal['default_filters']['queue'], 'final')
         self.assertEqual(personal['default_filters']['branch'], 'Embu')
+        self.assertNotIn('status', personal['default_filters'])
         self.assertTrue(personal['compact_cards'])
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
@@ -1989,9 +1995,8 @@ class JblPipelineApiTestCase(TestCase):
         self.assertIn(str(invoiced.id), returned_ids)
         self.assertNotIn(str(delayed.id), returned_ids)
 
-    def test_head_of_rural_review_lenses_include_requisition_and_payment_batches(self):
-        self.farmer.final_decision = 'Approved'
-        self.farmer.order_number = ''
+    def test_legacy_review_stage_parameters_resolve_to_the_final_decision_queue(self):
+        self.farmer.final_decision = 'Pending'
         self.farmer.jbl_visit_date = date(2026, 7, 24)
         self.farmer.credit_decision = 'Approved'
         self.farmer.imab_created = 'Yes'
@@ -2002,24 +2007,24 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(requisition.status_code, 200)
         self.assertIn(str(self.farmer.id), {item['id'] for item in requisition.json()['farmers']})
 
-        payment = PaymentDocument.objects.create(
+        PaymentDocument.objects.create(
             order_number='ORDER-PAYMENT', payment_number='12', status='pending_review',
             farmer_ids=[str(self.farmer.id)], row_count=1,
         )
         payment_queue = self.client.get(reverse('portal_final_review_queue'), {'stage': 'payment'})
         self.assertEqual(payment_queue.status_code, 200)
         item = next(item for item in payment_queue.json()['farmers'] if item['id'] == str(self.farmer.id))
-        self.assertEqual(item['payment_review_document_id'], str(payment.id))
-        self.assertEqual(item['payment_review_payment_number'], '12')
+        self.assertNotIn('payment_review_document_id', item)
+        self.assertNotIn('payment_review_payment_number', item)
 
         payment_fragment = self.client.get(
             reverse('portal_queue_fragment', kwargs={'queue_key': 'final'}),
             {'stage': 'payment'},
         )
         self.assertEqual(payment_fragment.status_code, 200)
-        self.assertContains(payment_fragment, 'Payment Review')
-        self.assertContains(payment_fragment, 'Payment #12')
-        self.assertContains(payment_fragment, f'data-payment-document-id="{payment.id}"')
+        self.assertContains(payment_fragment, f'data-farmer-id="{self.farmer.id}"')
+        self.assertNotContains(payment_fragment, 'Payment Review')
+        self.assertNotContains(payment_fragment, 'Payment #12')
 
     def test_portal_jbl_queue_fragment_renders_cards(self):
         """Verify the htmx JBL queue fragment renders useful farmer cards."""

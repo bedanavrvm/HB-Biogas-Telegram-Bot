@@ -763,11 +763,13 @@
       footerEl.innerHTML = '<button class="primary" id="btn-submit-credit">Set Credit Decision</button>';
       el('btn-submit-credit').addEventListener('click', submitCreditDecision);
       wireCreditImabFields();
+      wireDecisionReasonFields('credit');
       wireWorkflowDraft(farmer, mode);
     } else if (mode === 'final_review') {
       formEl.innerHTML = buildFinalReviewForm(farmer);
       footerEl.innerHTML = '<button class="primary" id="btn-submit-final">Save Final Review</button>';
       el('btn-submit-final').addEventListener('click', submitFinalDecision);
+      wireDecisionReasonFields('final');
       wireWorkflowDraft(farmer, mode);
       wireVoiceWidget('final_decision_comment');
     } else if (mode === 'deferred') {
@@ -859,6 +861,7 @@
       (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
     const tileUrl = isDark ? basemaps.dark_url : basemaps.light_url;
     if (!window.L || !basemaps.enabled || !tileUrl) {
+      mapContainer.classList.add('map-unavailable');
       if (mapInstance) {
         mapInstance.remove();
         mapInstance = null;
@@ -871,15 +874,18 @@
 
     const attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
     const showMapFallback = () => {
+      mapContainer.classList.add('map-unavailable');
       const fallback = el('sheet-map-fallback');
       if (fallback) fallback.hidden = false;
     };
     const hideMapFallback = () => {
+      mapContainer.classList.remove('map-unavailable');
       const fallback = el('sheet-map-fallback');
       if (fallback) fallback.hidden = true;
     };
 
     if (!mapInstance) {
+      mapContainer.classList.remove('map-unavailable');
       mapInstance = L.map('sheet-map', { zoomControl: true, attributionControl: true }).setView([lat, lng], 15);
       const tiles = L.tileLayer(tileUrl, { attribution, maxZoom: 20 }).addTo(mapInstance);
       tiles.on('tileerror', showMapFallback);
@@ -903,7 +909,10 @@
 
   function destroyMap() {
     const mapContainer = el('sheet-map-container');
-    if (mapContainer) mapContainer.style.display = 'none';
+    if (mapContainer) {
+      mapContainer.style.display = 'none';
+      mapContainer.classList.remove('map-unavailable');
+    }
     const mapLink = el('sheet-map-link');
     if (mapLink) mapLink.hidden = true;
     const fallback = el('sheet-map-fallback');
@@ -2029,11 +2038,11 @@
   const PORTAL_ACTIVE_WORKFLOW_DRAFT_KEY = 'portal:case-workflow-active';
   const WORKFLOW_DRAFT_CONFIG = {
     credit: {
-      fields: ['credit-decision', 'credit-imab', 'credit-customer-no'],
+      fields: ['credit-decision', 'credit-reason-code', 'credit-decision-comment', 'credit-imab', 'credit-customer-no'],
       endpoint: farmerId => `/api/portal/credit-queue/${encodeURIComponent(farmerId)}/draft/`,
     },
     final_review: {
-      fields: ['final-decision', 'final-repayment-date', 'final-repayment-tenor', 'final-comment'],
+      fields: ['final-decision', 'final-reason-code', 'final-repayment-date', 'final-repayment-tenor', 'final-comment'],
       endpoint: farmerId => `/api/portal/final-review-queue/${encodeURIComponent(farmerId)}/draft/`,
     },
   };
@@ -2070,7 +2079,15 @@
       const field = el(id);
       if (field) field.value = value;
     });
-    if (mode === 'credit') el('credit-imab')?.dispatchEvent(new Event('change'));
+    if (mode === 'credit') {
+      el('credit-imab')?.dispatchEvent(new Event('change'));
+      el('credit-decision')?.dispatchEvent(new Event('change'));
+      el('credit-reason-code')?.dispatchEvent(new Event('change'));
+    }
+    if (mode === 'final_review') {
+      el('final-decision')?.dispatchEvent(new Event('change'));
+      el('final-reason-code')?.dispatchEvent(new Event('change'));
+    }
     return true;
   }
 
@@ -2248,6 +2265,7 @@
         ${spinReferences ? `<div class="credit-reference-panel"><div class="field-help"><strong>SPIN / CRB reference</strong> · reports already uploaded for this customer</div>${spinReferences}</div>` : ''}
         <div class="form-row"><label>Credit Decision <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="credit-decision" aria-required="true"><option value="">- Select a decision -</option>${decisionOptions}</select></div>
         <div class="form-row"><label>Created on iMAB? <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="credit-imab" aria-required="true">${imabOptions}</select></div>
+        ${decisionReasonMarkup('credit', true)}
         <div class="form-row form-row-wide credit-customer-number-row">
           <span class="credit-customer-number-heading"><label>Customer No.</label><span id="credit-imab-help" class="field-help credit-customer-requirement">${customerNoDisabled ? 'Available after iMAB creation' : 'Required before Head of Rural review'}</span></span>
           <input type="text" id="credit-customer-no" inputmode="numeric" pattern="[0-9]*" placeholder="IMAB customer number" value="${deps.escapeHtml(customerNoDisabled ? '' : (farmer.customer_no || ''))}"${customerNoDisabled ? ' disabled' : ''}>
@@ -2256,6 +2274,80 @@
       </div>
       ${productConfigurationMarkup(farmer, 'credit_decision')}
     `;
+  }
+
+  function decisionReasonMarkup(prefix, includeOtherNote) {
+    const options = (state().metaApprovalReasons || []).map(item =>
+      `<option value="${deps.escapeHtml(item.value)}">${deps.escapeHtml(item.label)}</option>`
+    ).join('');
+    return `<div class="form-row form-row-wide decision-reason-row" id="${prefix}-reason-row" hidden>
+      <label for="${prefix}-reason-code">Decision reason <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label>
+      <select id="${prefix}-reason-code"><option value="">- Select a reason -</option>${options}</select>
+      <small class="jbl-field-error" id="${prefix}-reason-error" role="alert"></small>
+    </div>${includeOtherNote ? `<div class="form-row form-row-wide decision-other-note" id="${prefix}-other-note-row" hidden>
+      <label for="${prefix}-decision-comment">Explain this decision <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label>
+      <textarea id="${prefix}-decision-comment" rows="2" placeholder="Briefly explain the decision"></textarea>
+      <small class="jbl-field-error" id="${prefix}-comment-error" role="alert"></small>
+    </div>` : ''}`;
+  }
+
+  function decisionNeedsReason(value) {
+    return ['Rejected', 'Deferred / On Hold'].includes(String(value || '').trim());
+  }
+
+  function wireDecisionReasonFields(prefix) {
+    const decision = el(`${prefix}-decision`);
+    const reason = el(`${prefix}-reason-code`);
+    const reasonRow = el(`${prefix}-reason-row`);
+    const note = el(`${prefix}-decision-comment`) || (prefix === 'final' ? el('final-comment') : null);
+    const noteRow = el(`${prefix}-other-note-row`);
+    const noteRequiredMarker = el(`${prefix}-comment-required`);
+    if (!decision || !reason || !reasonRow) return;
+    const syncReason = () => {
+      const required = decisionNeedsReason(decision.value);
+      reasonRow.hidden = !required;
+      reason.required = required;
+      reason.setAttribute('aria-required', String(required));
+      if (!required) {
+        reason.value = '';
+        if (el(`${prefix}-reason-error`)) el(`${prefix}-reason-error`).textContent = '';
+      }
+      const needsNote = required && reason.value === 'other';
+      if (noteRow) noteRow.hidden = !needsNote;
+      if (noteRequiredMarker) noteRequiredMarker.hidden = !needsNote;
+      if (note) {
+        note.required = needsNote;
+        note.setAttribute('aria-required', String(needsNote));
+        if (!needsNote && noteRow) {
+          note.value = '';
+        }
+        if (!needsNote && el(`${prefix}-comment-error`)) el(`${prefix}-comment-error`).textContent = '';
+      }
+    };
+    decision.addEventListener('change', syncReason);
+    reason.addEventListener('change', syncReason);
+    syncReason();
+  }
+
+  function validateDecisionReason(prefix, decisionValue, commentValue = '') {
+    const reason = el(`${prefix}-reason-code`);
+    const reasonError = el(`${prefix}-reason-error`);
+    const comment = el(`${prefix}-decision-comment`) || (prefix === 'final' ? el('final-comment') : null);
+    const commentError = el(`${prefix}-comment-error`);
+    if (reasonError) reasonError.textContent = '';
+    if (commentError) commentError.textContent = '';
+    if (!decisionNeedsReason(decisionValue)) return '';
+    if (!reason?.value) {
+      if (reasonError) reasonError.textContent = 'Choose a reason for this decision.';
+      reason?.focus();
+      return null;
+    }
+    if (reason.value === 'other' && !String(comment?.value || commentValue || '').trim()) {
+      if (commentError) commentError.textContent = 'Explain the decision when reason is Other.';
+      (comment || el('final-comment'))?.focus();
+      return null;
+    }
+    return reason.value;
   }
 
   function wireCreditImabFields() {
@@ -2333,9 +2425,10 @@
           </div>
         </div>
         <div class="form-row"><label>Final Decision <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="final-decision" aria-required="true"><option value="">- Select -</option>${decisionOptions}</select></div>
+        ${decisionReasonMarkup('final', false)}
         <div class="form-row"><label>Preferred repayment day</label><input type="text" id="final-repayment-date" inputmode="numeric" placeholder="e.g. 10" value="${deps.escapeHtml(farmer.repayment_date || '')}"><small>Day of the month, from 1 to 31.</small></div>
         <div class="form-row"><label>Tenor</label><input type="text" id="final-repayment-tenor" placeholder="e.g. 6 months" value="${deps.escapeHtml(farmer.repayment_tenor || '')}"></div>
-        <div class="form-row form-row-wide final-comment-row"><label>After-call Comments</label><textarea id="final-comment" rows="4" placeholder="Summarize the call, customer response, and decision...">${deps.escapeHtml(farmer.final_decision_comment || '')}</textarea>${voiceWidget('final_decision_comment', 'final-comment')}</div>
+        <div class="form-row form-row-wide final-comment-row"><label>After-call Comments <span id="final-comment-required" class="required-marker" aria-hidden="true" hidden>*</span></label><textarea id="final-comment" rows="4" placeholder="Summarize the call, customer response, and decision...">${deps.escapeHtml(farmer.final_decision_comment || '')}</textarea><small class="jbl-field-error" id="final-comment-error" role="alert"></small>${voiceWidget('final_decision_comment', 'final-comment')}</div>
         <p id="workflow-draft-state" class="field-help jbl-draft-state form-row-wide" aria-live="polite" title="Form fields save automatically.">Autosave on</p>
       </div>
       ${productConfigurationMarkup(farmer, 'final_decision')}
@@ -2691,8 +2784,11 @@
     const decision = el('credit-decision')?.value || '';
     const imabCreated = el('credit-imab')?.value || '';
     const customerNo = (el('credit-customer-no')?.value || '').replace(/[^0-9]/g, '');
+    const reasonCode = validateDecisionReason('credit', decision);
+    const decisionComment = el('credit-decision-comment')?.value || '';
     const productConfiguration = collectProductConfiguration();
     if (!decision) return deps.showToast('Please select a decision', 'error');
+    if (reasonCode === null) return deps.showToast('Complete the decision reason.', 'error');
     if (imabCreated !== 'Yes') return deps.showToast('Create the customer in IMAB before sending this case to Head of Rural review.', 'error');
     if (!customerNo) return deps.showToast('Enter the IMAB Customer No before sending this case to Head of Rural review.', 'error');
 
@@ -2703,6 +2799,8 @@
       body: JSON.stringify({
         request_id: requestId(), workflow_revision: Number(farmer.workflow_revision || 1),
         decision, imab_created: imabCreated, customer_no: customerNo,
+        reason_code: reasonCode,
+        decision_comment: decisionComment,
         product_requirement_evidence: productConfiguration.requirementEvidence,
         product_custom_values: productConfiguration.customValues,
       }),
@@ -2720,10 +2818,12 @@
     if (!farmer) return;
     const finalDecision = el('final-decision')?.value || '';
     const decisionComment = el('final-comment')?.value || '';
+    const reasonCode = validateDecisionReason('final', finalDecision, decisionComment);
     const repaymentDate = el('final-repayment-date')?.value || '';
     const repaymentTenor = el('final-repayment-tenor')?.value || '';
     const productConfiguration = collectProductConfiguration();
     if (!finalDecision) return deps.showToast('Please select a final decision', 'error');
+    if (reasonCode === null) return deps.showToast('Complete the decision reason.', 'error');
 
     const btn = el('btn-submit-final');
     deps.setButtonLoading(btn, true, 'Saving...');
@@ -2733,6 +2833,7 @@
         request_id: requestId(),
         workflow_revision: Number(farmer.workflow_revision || 1),
         final_decision: finalDecision,
+        reason_code: reasonCode,
         decision_comment: decisionComment,
         voice_transcription_id: acceptedVoiceAttempts.final_decision_comment || '',
         repayment_date: repaymentDate,

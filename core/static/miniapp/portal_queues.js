@@ -29,12 +29,6 @@
   }
 
   function appendCommonFilters(params, state, queueKey) {
-    // The selected Head of Rural lens belongs to the Final Review queue, not
-    // to whatever page the shell last considered active. This keeps a payment
-    // review selection intact across fragment swaps and direct navigation.
-    if (queueKey === 'final' && (state.filters || {}).reviewStage) {
-      params.set('stage', state.filters.reviewStage);
-    }
     const filters = (state.filtersByQueue || {})[queueKey] || {};
     ['county', 'branch', 'status', 'ordering'].forEach(function (key) {
       const values = Array.isArray(filters[key]) ? filters[key] : [filters[key]];

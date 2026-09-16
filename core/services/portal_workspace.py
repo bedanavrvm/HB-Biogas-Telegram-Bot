@@ -86,6 +86,8 @@ def _normalise_view_payload(payload: dict[str, Any], *, options: dict[str, Any])
         raise PortalWorkspaceError('Only the branch and review list may be saved in a workspace view.')
     branch = str(filters.get('branch') or '').strip()
     status = str(filters.get('status') or '').strip().casefold()
+    if status in {'decision', 'payment'}:
+        status = ''
     allowed_branches = {
         str(value).strip().casefold(): str(value).strip()
         for value in options.get('branches') or ()

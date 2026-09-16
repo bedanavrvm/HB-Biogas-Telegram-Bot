@@ -37,6 +37,7 @@
     metaDecisions: [],
     metaImabOptions: [],
     metaFinalDecisions: [],
+    metaApprovalReasons: [],
     approvalDelegationGates: [],
     metaBranches: [],
     metaCounties: [],
@@ -60,7 +61,6 @@
     filters: {
       county: '',
       branch: '',
-      reviewStage: String(restoredPortalUi.reviewStage || 'decision'),
     },
     selectedRequisitions: new Set(),
     selectedRequisitionRevisions: new Map(),
@@ -173,7 +173,6 @@
   function rememberPortalUi() {
     portalUiContext?.write?.({
       activePage: state.activePage,
-      reviewStage: state.filters.reviewStage,
     });
   }
 
@@ -619,12 +618,16 @@
     }
     const activity = dashboard.activity_7d || [];
     const activitySection = el('dashboard-activity');
-    if (activitySection) activitySection.hidden = false;
-    if (el('dashboard-today-count')) el('dashboard-today-count').textContent = dashboard.activity_today?.completed_actions ?? 0;
+    const todayActivity = Number(dashboard.activity_today?.completed_actions || 0);
+    if (activitySection) {
+      activitySection.hidden = false;
+      activitySection.classList.toggle('is-empty', !activity.length && !todayActivity);
+    }
+    if (el('dashboard-today-count')) el('dashboard-today-count').textContent = todayActivity;
     if (el('dashboard-activity-list')) {
       el('dashboard-activity-list').innerHTML = activity.length
         ? activity.map(item => `<div class="dashboard-metric-row"><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.count)}</strong></div>`).join('')
-        : '<div class="empty-state"><div class="es-sub">No recorded workflow activity in the last 7 days.</div></div>';
+        : '<div class="empty-state compact"><div class="es-sub">No recorded workflow activity in the last 7 days.</div></div>';
     }
     const distribution = dashboard.pipeline_distribution || [];
     if (el('dashboard-pipeline')) {
@@ -712,45 +715,6 @@
     all: { endpoint: '/farmers/', fragmentEndpoint: '/queues/all/fragment/', listId: 'all-list', pageKey: 'all', mode: null, emptyTitle: 'No farmers found', emptySub: 'Try a different search term.' },
     batches: { endpoint: '/requisition-batches/', fragmentEndpoint: '/requisition-batches/fragment/', listId: 'batches-list', pageKey: 'batches', mode: null, emptyTitle: 'No batches found', emptySub: 'No requisition batches have been generated yet.' },
   };
-
-  const FINAL_REVIEW_STAGES = new Set(['decision', 'payment']);
-
-  function normaliseFinalReviewStage(value) {
-    const stage = String(value || '').trim().toLowerCase();
-    return FINAL_REVIEW_STAGES.has(stage) ? stage : 'decision';
-  }
-
-  // The review queue is a two-way operational choice, not a filter with an
-  // arbitrary third state. Keeping the active tab and request state together
-  // prevents a fragment refresh from showing a different list than its tab.
-  function syncFinalReviewStageTabs() {
-    const stage = normaliseFinalReviewStage(state.filters.reviewStage);
-    state.filters.reviewStage = stage;
-    document.querySelectorAll('[data-final-review-stage]').forEach(tab => {
-      const active = tab.dataset.finalReviewStage === stage;
-      tab.classList.toggle('is-active', active);
-      tab.setAttribute('aria-selected', String(active));
-      tab.tabIndex = active ? 0 : -1;
-    });
-    const help = el('final-review-stage-help');
-    if (help) {
-      help.textContent = stage === 'payment'
-        ? 'Review the exact cases captured in each pending payment file.'
-        : 'Record the final decision before an approved case moves to Orders.';
-    }
-  }
-
-  async function selectFinalReviewStage(value) {
-    const stage = normaliseFinalReviewStage(value);
-    if (state.filters.reviewStage === stage) {
-      syncFinalReviewStageTabs();
-      return;
-    }
-    state.filters.reviewStage = stage;
-    syncFinalReviewStageTabs();
-    rememberPortalUi();
-    if (state.activePage === 'final') await loadQueue('final', 1);
-  }
 
   function queueKeyForList(listId) {
     if (portalQueues.queueKeyForList) return portalQueues.queueKeyForList(listId);
@@ -910,10 +874,6 @@
       const values = Array.isArray(queueFilters[key]) ? queueFilters[key] : [queueFilters[key]];
       values.forEach(value => { if (String(value || '').trim()) params.append(key, value); });
     });
-    // Keep the payment/decision lens in the legacy fragment fallback too.
-    // A stale or blocked queue helper must not silently revert HOR to the
-    // final-decision queue after the user has changed the selector.
-    if (qKey === 'final' && state.filters.reviewStage) params.set('stage', state.filters.reviewStage);
     try {
       const fragmentPath = cfg.fragmentEndpoint + '?' + params.toString();
       const html = portalApi.fetchHtml
@@ -1201,18 +1161,6 @@
     }
   }
 
-  function paymentReviewMarkup(farmer) {
-    if (state.filters.reviewStage !== 'payment' || !farmer.payment_review_document_id) return '';
-    return `<span class="badge badge-orange">Payment #${escapeHtml(farmer.payment_review_payment_number || '-')} awaiting HOR review</span><span class="badge badge-grey">Order ${escapeHtml(farmer.payment_review_order_number || '-')}</span>
-      <button type="button" class="btn btn-secondary btn-open-payment-review" data-payment-document-id="${escapeHtml(farmer.payment_review_document_id)}">Open payment review</button>`;
-  }
-
-  function reviewCardMode(cfg, qKey) {
-    if (qKey !== 'final') return cfg.mode;
-    if (state.filters.reviewStage === 'payment') return null;
-    return cfg.mode;
-  }
-
   function openQueueCase(farmer, queue, mode) {
     const policy = {
       jbl: 'jbl_visit', credit: 'credit', final: 'final_review', deferred: 'deferred',
@@ -1225,10 +1173,6 @@
     if (policy[queue] === 'history') {
       portalFilters.rememberSelection?.(queue, farmer.id);
       return navigateToUrl(caseHistoryUrl(farmer.id, queue));
-    }
-    if (queue === 'final' && state.filters.reviewStage === 'payment') {
-      showToast('Use Review payment to open the payment decision.', 'info');
-      return;
     }
     return openCurrentFarmerSheet(farmer, policy[queue]);
   }
@@ -1280,17 +1224,12 @@
     const locationValue = locationText(f);
     const location = escapeHtml(locationValue === '-' ? 'Location not provided' : locationValue);
     const phone = escapeHtml(f.primary_phone || 'Phone not provided');
-    const paymentReview = state.filters.reviewStage === 'payment' && f.payment_review_payment_number;
-    const status = escapeHtml(paymentReview ? 'Payment Review' : (f.current_pipeline_state || 'In Progress'));
+    const status = escapeHtml(f.current_pipeline_state || 'In Progress');
     const badges = [];
     if (f.unit_number) badges.push(`<span class="badge badge-grey">Unit ${escapeHtml(f.unit_number)}</span>`);
-    if (paymentReview) {
-      badges.push(`<span class="badge badge-orange">Payment #${escapeHtml(f.payment_review_payment_number)}</span>`);
-      badges.push(`<span class="badge badge-grey">Order ${escapeHtml(f.payment_review_order_number || '-')}</span>`);
-    }
     if (f.reappraisal_required) badges.push(`<span class="badge badge-red">Reappraisal required since ${escapeHtml(f.deferred_until || '')}</span>`);
     if (qKey === 'credit' && f.jbl_visit_status) badges.push(`<span class="badge badge-orange">${escapeHtml(f.jbl_visit_status)}</span>`);
-    if (qKey === 'final' && !paymentReview && f.credit_decision) badges.push(`<span class="badge badge-green">${escapeHtml(f.credit_decision)}</span>`);
+    if (qKey === 'final' && f.credit_decision) badges.push(`<span class="badge badge-green">${escapeHtml(f.credit_decision)}</span>`);
     if (qKey === 'requisition' && f.final_decision) badges.push(`<span class="badge badge-green">Final: ${escapeHtml(f.final_decision)}</span>`);
     if (qKey === 'all') {
       if (f.order_number) badges.push(`<span class="badge badge-green">Order: ${escapeHtml(f.order_number)}</span>`);
@@ -1298,10 +1237,6 @@
       else if (f.credit_decision && f.credit_decision !== 'Pending') badges.push(`<span class="badge badge-green">${escapeHtml(f.credit_decision)}</span>`);
       else if (f.jbl_visit_status) badges.push(`<span class="badge badge-orange">${escapeHtml(f.jbl_visit_status)}</span>`);
     }
-    const paymentAction = paymentReview && f.payment_review_document_id
-      ? `<button type="button" class="btn btn-secondary btn-open-payment-review operational-queue-card-action" data-payment-document-id="${escapeHtml(f.payment_review_document_id)}"><i data-lucide="file-check" aria-hidden="true"></i><span>Open Payment Review</span></button>`
-      : '';
-
     return `<div class="operational-queue-card-content">
       <div class="operational-queue-card-heading">
         <div class="operational-queue-card-identity">${displayNumber}<span class="fc-name">${name}</span></div>
@@ -1312,7 +1247,6 @@
         <span class="operational-queue-card-meta operational-queue-card-phone"><i data-lucide="phone" aria-hidden="true"></i><span>${phone}</span></span>
       </div>
       ${badges.length ? `<div class="operational-queue-card-bottom">${badges.join('')}</div>` : ''}
-      ${paymentAction}
     </div>`;
   }
 
@@ -1336,7 +1270,7 @@
         const qKey = card.dataset.qkey;
         const farmerId = card.dataset.farmerId;
         const farmer = (state.queues[qKey] || []).find(item => String(item.id) === String(farmerId)) || { id: farmerId };
-        return openQueueCase(farmer, qKey, reviewCardMode(cfg, qKey));
+        return openQueueCase(farmer, qKey, cfg.mode);
       });
     });
 
@@ -1459,6 +1393,7 @@
     state.metaDecisions = data.credit_decisions || [];
     state.metaImabOptions = data.imab_created_options || [];
     state.metaFinalDecisions = data.final_decisions || [];
+    state.metaApprovalReasons = data.approval_reasons || [];
     state.approvalDelegationGates = data.approval_delegation_gates || [];
     state.metaBranches = data.branches || [];
     state.metaCounties = data.counties || [];
@@ -1919,7 +1854,6 @@
     if (el('portal-settings-release')) el('portal-settings-release').textContent = data.data?.account?.app_release || 'Current release';
     populatePortalSettingScreens(data.data?.screens || [], personal.default_screen);
     populatePortalSettingSelect('portal-preference-default-queue', data.data?.queues || [], personal.default_filters?.queue, 'Use landing screen');
-    populatePortalSettingSelect('portal-preference-review-status', data.data?.review_statuses || [], personal.default_filters?.status, 'Final decisions');
     if (el('portal-preference-compact-cards')) el('portal-preference-compact-cards').checked = Boolean(personal.compact_cards);
     document.body.classList.toggle('portal-compact-cards', Boolean(personal.compact_cards));
     applyWorkspaceVisibility();
@@ -1957,7 +1891,6 @@
       + '<label>Screen<select name="screen">' + workspaceSelectOptions(settings.screens || [], view.screen) + '</select></label>'
       + '<label>Queue<select name="queue">' + workspaceSelectOptions(settings.queues || [], view.queue, 'Use screen') + '</select></label>'
       + '<label>Branch<select name="branch">' + workspaceSelectOptions(settings.branches || [], filters.branch, 'All permitted branches') + '</select></label>'
-      + '<label>Review list<select name="status">' + workspaceSelectOptions(settings.review_statuses || [], filters.status, 'Not a review list') + '</select></label>'
       + '<label>Order<select name="ordering">' + workspaceSelectOptions([{ key: 'queue_default', label: 'Queue default' }, { key: 'newest', label: 'Newest first' }], view.ordering) + '</select></label>'
       + '<div class="portal-workspace-edit-actions"><button type="submit" class="workspace-primary">Save view</button><button type="button" class="workspace-cancel-edit">Cancel</button></div>'
       + '</form>';
@@ -2040,13 +1973,11 @@
     }
     state.workspaceOrdering = view.ordering === 'newest' ? 'newest' : 'queue_default';
     state.filters.branch = String(view.filters?.branch || '');
-    state.filters.reviewStage = String(view.filters?.status || 'decision');
     const destination = String(view.queue || view.screen || '');
     if (!destination || !hasCapability(PAGE_CAPABILITIES[destination])) {
       showToast('This saved view is no longer available to your Portal access.', 'error');
       return;
     }
-    syncFinalReviewStageTabs();
     rememberPortalUi();
     navigateTo(destination);
   }
@@ -2059,7 +1990,7 @@
       queue,
       filters: {
         branch: state.filters.branch || '',
-        status: state.activePage === 'final' ? state.filters.reviewStage || 'decision' : '',
+        status: '',
       },
       ordering: el('portal-workspace-view-order')?.value || state.workspaceOrdering || 'queue_default',
     };
@@ -2104,13 +2035,7 @@
     const isRootLanding = /\/portal\/?$/.test(window.location.pathname);
     const savedFilters = state.personalPreference?.default_filters || {};
     const startupView = isRootLanding ? state.workspace?.startup_view : null;
-    const hasRestoredReviewStage = Object.prototype.hasOwnProperty.call(restoredPortalUi, 'reviewStage');
-    const workspaceFilters = startupView?.filters || {};
     if (startupView) state.workspaceOrdering = startupView.ordering === 'newest' ? 'newest' : 'queue_default';
-    if (isRootLanding && !hasRestoredReviewStage && ['decision', 'payment'].includes(workspaceFilters.status || savedFilters.status)) {
-      state.filters.reviewStage = workspaceFilters.status || savedFilters.status;
-    }
-    syncFinalReviewStageTabs();
     const savedQueue = isRootLanding ? String(startupView?.queue || savedFilters.queue || '') : '';
     const requestedPage = savedQueue && hasCapability(PAGE_CAPABILITIES[savedQueue])
       ? savedQueue
@@ -2391,13 +2316,6 @@
     }
   });
 
-  document.addEventListener('click', event => {
-    const reviewTab = event.target.closest('[data-final-review-stage]');
-    if (!reviewTab) return;
-    event.preventDefault();
-    selectFinalReviewStage(reviewTab.dataset.finalReviewStage);
-  });
-
   document.addEventListener('change', event => {
     if (event.target.matches('#portal-preference-compact-cards')) {
       document.body.classList.toggle('portal-compact-cards', Boolean(event.target.checked));
@@ -2485,7 +2403,7 @@
           default_screen: el('portal-preference-default-screen')?.value || '',
           default_filters: {
             queue: el('portal-preference-default-queue')?.value || '',
-            status: el('portal-preference-review-status')?.value || '',
+            status: '',
           },
           compact_cards: Boolean(el('portal-preference-compact-cards')?.checked),
         },

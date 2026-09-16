@@ -48,21 +48,21 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_imports.js'), html.index('miniapp/portal.js'))
         self.assertIn('miniapp/components.js?v=3', html)
         self.assertIn('miniapp/asset_loader.js?v=1', html)
-        self.assertIn('miniapp/portal_queues.js?v=12', html)
-        self.assertIn('miniapp/portal_farmer_sheet.js?v=71', html)
+        self.assertIn('miniapp/portal_queues.js?v=13', html)
+        self.assertIn('miniapp/portal_farmer_sheet.js?v=72', html)
         self.assertIn('miniapp/utils.js?v=15', html)
         self.assertIn('miniapp/portal_helpers.js?v=7', html)
         self.assertIn('miniapp/components.css?v=2', html)
-        self.assertIn('miniapp/portal.css?v=110', html)
+        self.assertIn('miniapp/portal.css?v=112', html)
         self.assertIn('miniapp/portal_filters.js?v=16', html)
         self.assertIn('miniapp/portal_imports.js?v=7', html)
         self.assertNotIn('portal-import-group', html)
         self.assertIn('miniapp/portal_requisitions.js?v=38', html)
         self.assertIn('miniapp/portal_api.js?v=9', html)
-        self.assertIn('miniapp/portal_invoices.js?v=19', html)
-        self.assertIn('miniapp/portal_payments.js?v=11', html)
-        self.assertIn('miniapp/portal_curated_reports.js?v=2', html)
-        self.assertIn('miniapp/portal.js?v=86', html)
+        self.assertIn('miniapp/portal_invoices.js?v=21', html)
+        self.assertIn('miniapp/portal_payments.js?v=12', html)
+        self.assertIn('miniapp/portal_curated_reports.js?v=3', html)
+        self.assertIn('miniapp/portal.js?v=87', html)
         self.assertNotIn('vendor-chartjs-4.5.1.umd.min.js', html)
         self.assertNotIn('<script src="/static/miniapp/vendor-leaflet-1.9.4.js', html)
         self.assertIn('miniapp/portal_case_history.js?v=1', html)
@@ -223,7 +223,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("return 'case_history'", source)
         self.assertIn("document.getElementById('portal-screen')?.dataset.screen", source)
         self.assertIn("document.addEventListener('DOMContentLoaded', activateScreen)", source)
-        self.assertContains(response, 'miniapp/miniapp-nav.js?v=23')
+        self.assertContains(response, 'miniapp/miniapp-nav.js?v=24')
 
     def test_telegram_back_never_uses_host_history_for_a_cold_portal_screen(self):
         source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
@@ -670,21 +670,19 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('.farmer-list > .queue-empty-state', stylesheet)
         self.assertIn('min-height: 148px', stylesheet)
 
-    def test_final_review_queue_keeps_its_selected_lens_in_every_request_path(self):
+    def test_final_review_queue_is_the_single_canonical_decision_queue(self):
         queue_source = Path('core/static/miniapp/portal_queues.js').read_text(encoding='utf-8')
         portal_source = Path('core/static/miniapp/portal.js').read_text(encoding='utf-8')
         filter_source = Path('core/static/miniapp/portal_filters.js').read_text(encoding='utf-8')
         portal_template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')
         list_template = Path('core/templates/portal/partials/farmer_list.html').read_text(encoding='utf-8')
 
-        self.assertIn("queueKey === 'final'", queue_source)
+        self.assertIn("final: { endpoint: '/final-review-queue/'", queue_source)
         self.assertNotIn("state.activePage === 'final'", queue_source)
-        self.assertIn("params.set('stage', state.filters.reviewStage)", queue_source)
-        self.assertIn("qKey === 'final' && state.filters.reviewStage", portal_source)
-        self.assertIn("selectFinalReviewStage", portal_source)
-        self.assertIn("closest('[data-final-review-stage]')", portal_source)
-        self.assertIn('data-final-review-stage="decision"', portal_template)
-        self.assertIn('data-final-review-stage="payment"', portal_template)
+        self.assertNotIn("params.set('stage', state.filters.reviewStage)", queue_source)
+        self.assertNotIn('reviewStage', portal_source)
+        self.assertNotIn('data-final-review-stage', portal_template)
+        self.assertNotIn('Payment files', portal_template)
         self.assertNotIn('id="final-review-stage"', portal_template)
         self.assertNotIn("el('final-review-stage')", filter_source)
         self.assertIn('data-queue-key="{{ queue_key }}"', list_template)
@@ -732,7 +730,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("if (!state().cartoBasemaps?.enabled)", sheet_source)
         self.assertNotIn("'https://{s}.basemaps.cartocdn.com", sheet_source)
 
-    def test_credit_form_excludes_unrequested_approval_controls(self):
+    def test_credit_form_exposes_only_reasons_required_by_the_approval_contract(self):
         source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
         stylesheet = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
         template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')
@@ -743,9 +741,12 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertNotIn("buildApprovalReasonFields('credit')", form)
         self.assertNotIn("renderApprovalConditions(farmer, 'credit')", form)
         self.assertIn("decision !== 'Pending'", form)
-        self.assertNotIn('credit-reason-code', submit)
+        self.assertIn("decisionReasonMarkup('credit', true)", form)
+        self.assertIn('credit-reason-code', source)
         self.assertNotIn('credit-conditions', submit)
-        self.assertNotIn('reason_code:', submit)
+        self.assertIn('reason_code: reasonCode', submit)
+        self.assertIn('decision_comment: decisionComment', submit)
+        self.assertIn('.decision-other-note[hidden]', stylesheet)
         self.assertNotIn('conditions }', submit)
         self.assertNotIn('Approved with Conditions', source)
         self.assertIn('form-section form-grid credit-analysis-form', form)
@@ -760,12 +761,12 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('.credit-analysis-sheet .credit-gps-summary #sheet-map', stylesheet)
         self.assertIn('data-lucide="external-link"', template)
 
-    def test_final_review_form_uses_client_media_without_reason_or_condition_controls(self):
+    def test_final_review_form_uses_client_media_and_conditional_decision_reasons(self):
         source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
         form = source[source.index('function buildFinalReviewForm'):source.index('async function loadClientMedia')]
-        submit = source[source.index('async function submitFinalDecision'):source.index('function buildRequisitionBatchNotice')]
+        submit = source[source.index('async function submitFinalDecision'):source.index('function bindEvents')]
 
-        self.assertNotIn('Decision reason', form)
+        self.assertIn("decisionReasonMarkup('final', false)", form)
         self.assertNotIn('approval-condition', form)
         self.assertNotIn("decision !== 'Under Review'", form)
         self.assertIn('btn-view-client-media', form)
@@ -786,8 +787,8 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertNotIn('docs.google.com/gview', source)
         self.assertNotIn('item.viewer_url', source)
         self.assertNotIn('item.open_url || item.view_url', source)
-        self.assertIn('JBL visit photo', source)
-        self.assertIn('Signed LAF Document', source)
+        self.assertIn('Supporting Photo', source)
+        self.assertIn('Signed LAF', source)
         self.assertIn('form-grid final-review-grid', form)
         self.assertIn('form-row form-row-wide', form)
         stylesheet = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
@@ -798,7 +799,9 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('-webkit-text-fill-color: #fff', stylesheet)
         self.assertIn('--portal-z-media: 260;', stylesheet)
         self.assertIn('#media-viewer-overlay { z-index: var(--portal-z-media); }', stylesheet)
-        self.assertNotIn('final-reason-code', submit)
+        self.assertIn('final-reason-code', source)
+        self.assertIn('reason_code: reasonCode', submit)
+        self.assertIn('id="final-comment-required"', form)
         self.assertNotIn('final-conditions', submit)
         self.assertNotIn('Approved with Conditions', source)
         self.assertIn("wireVoiceWidget('final_decision_comment')", source)
@@ -868,12 +871,11 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('data-payment-case-card', requisitions_source)
         self.assertIn('bindPaymentReviewAccordion', requisitions_source)
 
-    def test_head_of_rural_tabs_only_expose_order_and_payment_reviews(self):
+    def test_head_of_rural_screen_exposes_only_final_decisions(self):
         response = self.client.get(reverse('portal_screen', kwargs={'screen': 'final'}))
-        self.assertContains(response, 'data-final-review-stage="decision"')
-        self.assertContains(response, 'data-final-review-stage="payment"')
-        self.assertContains(response, '>Orders<')
-        self.assertContains(response, '>Payments<')
+        self.assertContains(response, 'Approved cases move automatically to Orders.')
+        self.assertNotContains(response, 'data-final-review-stage')
+        self.assertNotContains(response, 'Payment files')
         self.assertNotContains(response, 'id="final-review-stage"')
         self.assertNotContains(response, 'Ready for requisition / order')
 
@@ -892,8 +894,13 @@ class MiniAppFrontendSmokeTests(TestCase):
             'payment_modes',
             'data-payment-candidate-mode',
             'data-payment-case-mode',
+            'confirmFirstSubmission',
+            'payment-submit-confirm',
         ):
             self.assertIn(expected, source)
+        template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')
+        self.assertIn('id="payment-submit-confirm"', template)
+        self.assertIn('permanently allocates the next official payment number', source)
         self.assertNotIn('payments-detail-mode', source)
         self.assertNotIn('id="payments-mode"', Path('core/templates/portal/portal.html').read_text(encoding='utf-8'))
 

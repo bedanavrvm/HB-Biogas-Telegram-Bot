@@ -76,6 +76,7 @@ def decision_code(decision: str) -> str:
         'Approved': JawabuApprovalRecord.DECISION_APPROVED,
         'Rejected': JawabuApprovalRecord.DECISION_REJECTED,
         'Deferred': JawabuApprovalRecord.DECISION_DEFERRED,
+        'Deferred / On Hold': JawabuApprovalRecord.DECISION_DEFERRED,
         'Returned for Rework': JawabuApprovalRecord.DECISION_RETURNED,
     }
     if value not in mapping:

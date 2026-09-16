@@ -343,7 +343,6 @@ def _numbered_farmer_cards(
     items,
     pagination,
     *,
-    review_map=None,
     include_detail_metadata: bool = False,
 ):
     """Serialize one current page with ephemeral, human-facing positions.
@@ -360,8 +359,6 @@ def _numbered_farmer_cards(
             farmer,
             include_detail_metadata=include_detail_metadata,
         )
-        if review_map is not None:
-            card = _card_with_payment_review_metadata(farmer, card, review_map)
         card['display_number'] = first_position + offset
         cards.append(card)
     return cards
@@ -618,15 +615,8 @@ PORTAL_QUEUE_CAPABILITIES = {
 
 
 def _portal_review_stage(request, params=None) -> str:
-    """Normalize final-review queue stages, including the legacy requisition URL.
-
-    The staff UI presents only Orders (``decision``) and Payments.  Retaining
-    ``requisition`` here preserves existing direct links while the dedicated
-    Orders screen remains the one place staff assign requisition batches.
-    """
-    params = params if params is not None else request.GET
-    value = str(params.get('stage') or params.get('review_stage') or 'decision').strip().lower()
-    return value if value in {'decision', 'requisition', 'payment'} else 'decision'
+    """Keep cached legacy review links on the canonical decision queue."""
+    return 'decision'
 
 
 def _pending_payment_review_map(request=None):
@@ -650,37 +640,6 @@ def _pending_payment_review_map(request=None):
         for farmer_id in document.farmer_ids or []:
             pending.setdefault(str(farmer_id), document)
     return pending
-
-
-def _payment_review_queryset(request, *, params=None):
-    """Return active farmers and their pending payment-review metadata."""
-    from core.models import JawabuApprovalDelegation, JawabuFarmerMaster
-
-    review_map = _pending_payment_review_map(request)
-    if not review_map:
-        return JawabuFarmerMaster.objects.none(), review_map
-    queryset = JawabuFarmerMaster.objects.filter(
-        status='active', id__in=list(review_map),
-    )
-    return _apply_county_branch_filters(
-        queryset, request, params=params, capability='portal.final_review.view',
-    ), review_map
-
-
-def _card_with_payment_review_metadata(farmer, card, review_map):
-    document = review_map.get(str(farmer.id))
-    if not document:
-        return card
-    card.update({
-        'payment_review_document_id': str(document.id),
-        'payment_review_payment_number': document.payment_number,
-        'payment_review_order_number': ', '.join(
-            (document.validation_summary or {}).get('order_numbers') or [document.order_number]
-        ),
-        'payment_review_version': document.version,
-        'payment_review_created_at': document.created_at.isoformat() if document.created_at else None,
-    })
-    return card
 
 
 def _portal_queue_queryset(queue_key: str, request, *, params=None):
@@ -732,13 +691,7 @@ def _portal_queue_queryset(queue_key: str, request, *, params=None):
         qs = _apply_county_branch_filters(qs, request, params=params, capability=queue_capability)
     else:
         if queue_key == 'final':
-            stage = _portal_review_stage(request, params=params)
-            if stage == 'requisition':
-                qs = jawabu_pipeline.requisition_queue()
-            elif stage == 'payment':
-                qs, _review_map = _payment_review_queryset(request, params=params)
-            else:
-                qs = jawabu_pipeline.final_review_queue()
+            qs = jawabu_pipeline.final_review_queue()
         else:
             service = getattr(jawabu_pipeline, config['service'])
             qs = service(params.get('search', '').strip()) if queue_key == 'jbl' else service()
@@ -1563,10 +1516,7 @@ def _portal_setting_options(request, actor) -> dict:
         'screens': screens,
         'queues': [item for item in screens if item['key'] in PORTAL_QUEUE_FRAGMENT_CONFIG],
         'branches': branches,
-        'review_statuses': [
-            {'value': 'decision', 'label': 'Final decisions'},
-            {'value': 'payment', 'label': 'Payment batches awaiting review'},
-        ],
+        'review_statuses': [],
         'operations': {
             'health': has_capability(actor, 'jawabu_portal', 'portal.health.read', access=access),
             'maintenance': has_capability(actor, 'jawabu_portal', 'portal.health.maintenance.manage', access=access),
@@ -1635,13 +1585,13 @@ def portal_settings(request):
             raise ValueError('Saved filters must be a JSON object.')
         queue = str(filters.get('queue') or '').strip()
         branch = str(filters.get('branch') or '').strip()
-        review_status = str(filters.get('status') or '').strip()
         if queue and queue not in allowed_queues:
             raise ValueError('Choose a work queue available to your Portal access.')
         if branch and branch.casefold() not in allowed_branches:
             raise ValueError('Choose a branch within your Portal access scope.')
-        if review_status and review_status not in {'decision', 'payment'}:
-            raise ValueError('Choose a valid default review list.')
+        if filters.get('status'):
+            filters = {**filters, 'status': ''}
+            preferences = {**preferences, 'default_filters': filters}
         if branch:
             preferences = {
                 **preferences,
@@ -2131,6 +2081,8 @@ def portal_meta(request):
     }
     carto_key = str(getattr(settings, 'CARTO_BASEMAP_API_KEY', '') or '').strip()
     carto_key_query = f'?key={quote(carto_key, safe="")}' if carto_key else ''
+    from core.services.jawabu_approvals import REASON_CODES
+
     response = JsonResponse({
         'ok': True,
         'business_date': timezone.localdate().isoformat(),
@@ -2144,6 +2096,9 @@ def portal_meta(request):
         ],
         'jbl_visit_draft_fields': list(PORTAL_JBL_VISIT_DRAFT_FIELDS),
         'credit_decisions': [c[0] for c in JawabuFarmerMaster.CREDIT_DECISION_CHOICES],
+        'approval_reasons': [
+            {'value': value, 'label': label} for value, label in REASON_CODES
+        ],
         'imab_created_options': ['Yes', 'No', 'Pending'],
         'final_decisions': [c[0] for c in JawabuFarmerMaster.FINAL_DECISION_CHOICES],
         'approval_delegation_gates': delegation_gates,
@@ -3252,13 +3207,8 @@ def portal_queue_fragment(request, queue_key: str):
 
     items, pagination = _paginate_qs(qs, request, page_size=10)
     review_stage = _portal_review_stage(request) if queue_key == 'final' else ''
-    review_map = _pending_payment_review_map(request) if review_stage == 'payment' else {}
     fragment_mode = config['mode']
-    if queue_key == 'final' and review_stage == 'requisition':
-        fragment_mode = 'requisition'
-    elif queue_key == 'final' and review_stage == 'payment':
-        fragment_mode = ''
-    farmer_cards = _numbered_farmer_cards(items, pagination, review_map=review_map)
+    farmer_cards = _numbered_farmer_cards(items, pagination)
     return render(request, 'portal/partials/farmer_list.html', {
         'farmers': farmer_cards,
         'pagination': pagination,
@@ -3580,12 +3530,19 @@ def portal_jbl_visit_draft(request, farmer_id: str):
 _PORTAL_CASE_DRAFT_CONFIG = {
     'credit': {
         'workflow': 'portal_credit_decision',
-        'fields': {'credit-decision': 80, 'credit-imab': 32, 'credit-customer-no': 80},
+        'fields': {
+            'credit-decision': 80,
+            'credit-reason-code': 80,
+            'credit-decision-comment': 2_000,
+            'credit-imab': 32,
+            'credit-customer-no': 80,
+        },
     },
     'final_review': {
         'workflow': 'portal_final_review',
         'fields': {
             'final-decision': 80,
+            'final-reason-code': 80,
             'final-repayment-date': 80,
             'final-repayment-tenor': 80,
             'final-comment': 2_000,
@@ -4528,6 +4485,7 @@ def portal_set_credit_decision(request, farmer_id: str):
     imab_created = str(body.get('imab_created') or '').strip()
     customer_no = str(body.get('customer_no') or '').strip()
     reason_code = str(body.get('reason_code') or '').strip()
+    decision_comment = str(body.get('decision_comment') or '').strip()
     if body.get('conditions'):
         return JsonResponse({'ok': False, 'error': 'Conditional approvals are no longer supported.'}, status=400)
     if not decision:
@@ -4541,6 +4499,7 @@ def portal_set_credit_decision(request, farmer_id: str):
             imab_created=imab_created,
             customer_no=customer_no,
             reason_code=reason_code,
+            decision_comment=decision_comment,
             sender=sender,
             request_id=_portal_request_id(request, body),
             expected_revision=expected_revision,
@@ -4571,26 +4530,12 @@ def portal_final_review_queue(request):
     access_error = _portal_read_access_error(request, capability='portal.final_review.view')
     if access_error:
         return access_error
-    """GET /api/portal/final-review-queue/ - the Head of Rural review lenses.
-
-    ``stage=decision`` is the original final-decision queue.  ``stage=requisition``
-    shows approved cases waiting for order batching, while ``stage=payment``
-    shows the exact farmers captured by pending payment review documents.
-    """
-    from core.services.jawabu_pipeline import final_review_queue, farmer_to_card
+    """GET /api/portal/final-review-queue/ - canonical final decisions."""
+    from core.services.jawabu_pipeline import final_review_queue
     stage = _portal_review_stage(request)
-    review_map = {}
-    if stage == 'requisition':
-        from core.services.jawabu_pipeline import requisition_queue
-        qs = _apply_portal_ordering(_apply_county_branch_filters(
-            requisition_queue(), request, capability='portal.final_review.view',
-        ), params=request.GET)
-    elif stage == 'payment':
-        qs, review_map = _payment_review_queryset(request)
-    else:
-        qs = _apply_portal_ordering(_apply_county_branch_filters(
-            final_review_queue(), request, capability='portal.final_review.view',
-        ), params=request.GET)
+    qs = _apply_portal_ordering(_apply_county_branch_filters(
+        final_review_queue(), request, capability='portal.final_review.view',
+    ), params=request.GET)
     qs = _apply_portal_ordering(qs, params=request.GET)
     qs = _apply_portal_search(qs, params=request.GET)
     items, pagination = _paginate_qs(qs, request, page_size=10)
@@ -4599,7 +4544,7 @@ def portal_final_review_queue(request):
         'calculated_at': timezone.now().isoformat(),
         'queue': 'final_review',
         'review_stage': stage,
-        'farmers': _numbered_farmer_cards(items, pagination, review_map=review_map),
+        'farmers': _numbered_farmer_cards(items, pagination),
         'pagination': pagination,
     })
 

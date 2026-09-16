@@ -12,10 +12,12 @@ from core.models import AccessGrant, JawabuApprovalRecord, JawabuFarmerMaster, M
 from core.services.jawabu_approvals import (
     approval_is_effective,
     create_delegation,
+    decision_code,
     invalidate_material_approvals,
     record_approval,
     revoke_delegation,
     require_effective_approval,
+    validate_reason,
     visit_media_orphan_report,
 )
 from core.services.jawabu_pipeline import log_jbl_visit, set_credit_decision
@@ -54,6 +56,18 @@ class PortalApprovalControlsTests(TestCase):
         self.farmer.refresh_from_db()
         self.assertEqual(self.farmer.credit_decision, 'Pending')
         self.assertFalse(self.farmer.approval_records.filter(gate='credit').exists())
+
+    def test_on_hold_decision_uses_the_governed_deferred_approval_code(self):
+        self.assertEqual(decision_code('Deferred / On Hold'), JawabuApprovalRecord.DECISION_DEFERRED)
+        decision, reason = validate_reason(
+            decision='Deferred / On Hold', reason_code='affordability', comment='',
+        )
+        self.assertEqual(decision, JawabuApprovalRecord.DECISION_DEFERRED)
+        self.assertEqual(reason, 'affordability')
+
+    def test_other_negative_decision_reason_requires_an_explanation(self):
+        with self.assertRaisesRegex(ValidationError, 'Explain the decision'):
+            validate_reason(decision='Rejected', reason_code='other', comment='')
 
     def test_unauthorized_staff_cannot_record_an_approval(self):
         with self.assertRaises(ValidationError):
