@@ -146,7 +146,6 @@
 
   function renderSummary(summary) {
     const target = el('invoice-pool-summary');
-    if (!target) return;
     const route = readRoute();
     const needsReview = summary.needs_action_count !== undefined
       ? Number(summary.needs_action_count || 0)
@@ -163,6 +162,16 @@
           { label: 'Matched', value: summary.matched_count || 0 },
           { label: 'Ignored', value: summary.ignored_count || 0 },
         ];
+    const counts = {
+      'invoice-count-needs-review': needsReview,
+      'invoice-count-matched': summary.matched_count || 0,
+      'invoice-count-ignored': summary.ignored_count || 0,
+    };
+    Object.entries(counts).forEach(function ([id, value]) {
+      const node = el(id);
+      if (node) node.textContent = String(value);
+    });
+    if (!target) return;
     target.innerHTML = items.map(function (item) {
       const key = item.label.toLowerCase().replace(/\s+/g, '-');
       const alert = (key === 'needs-review' || key === 'not-parsed') && Number(item.value) > 0;
@@ -194,47 +203,30 @@
       return;
     }
     target.innerHTML = invoices.map(function (invoice) {
-      const matched = invoice.matched_farmer_name || invoice.matched_order_number
-        ? '<span>Matched: ' + escapeHtml(invoice.matched_farmer_name || '-') + (invoice.matched_order_number ? ' | Order ' + escapeHtml(invoice.matched_order_number) : '') + '</span>'
-        : '';
       const readiness = invoice.payment_readiness || {};
-      const readinessBadge = invoice.status === 'matched' && invoice.matched_order_number
-        ? readiness.error
-          ? '<span class="badge badge-red">Payment readiness unavailable</span>'
-          : readiness.blocked_count > 0
-            ? '<span class="badge badge-orange">Payment blocked: ' + escapeHtml(readiness.blocked_count) + '</span>'
-            : '<span class="badge badge-green">Payment ready: ' + escapeHtml(readiness.ready_count || 0) + '</span>'
-        : '';
-      const duplicateBadge = invoice.duplicate_count > 0
-        ? '<span class="badge badge-orange">Possible duplicates: ' + escapeHtml(invoice.duplicate_count) + '</span>'
-        : '';
       const needsMatch = canWriteInvoices() && ['draft', 'unmatched', 'ambiguous'].includes(invoice.status);
-      const primaryAction = needsMatch
-        ? '<button class="btn btn-primary invoice-match-action" data-invoice="' + escapeHtml(invoice.id) + '">Review match</button>'
-        : '<button class="btn btn-primary invoice-detail-action" data-invoice="' + escapeHtml(invoice.id) + '">Review invoice</button>';
       const secondaryActions = [
-        needsMatch ? '<button type="button" class="invoice-detail-action" data-invoice="' + escapeHtml(invoice.id) + '">View details</button>' : '',
         canWriteInvoices() && invoice.status === 'matched' ? '<button type="button" class="invoice-unmatch-action" data-invoice="' + escapeHtml(invoice.id) + '">Unmatch</button>' : '',
         canWriteInvoices() && invoice.status !== 'ignored' ? '<button type="button" class="invoice-ignore-action" data-invoice="' + escapeHtml(invoice.id) + '">Ignore</button>' : '',
         canWriteInvoices() && invoice.status === 'ignored' ? '<button type="button" class="invoice-restore-action" data-invoice="' + escapeHtml(invoice.id) + '">Restore</button>' : '',
       ].filter(Boolean).join('');
-      const actions = primaryAction + (secondaryActions ? '<details class="invoice-card-menu"><summary aria-label="More invoice actions">More</summary><div>' + secondaryActions + '</div></details>' : '');
+      const warningCount = Number(invoice.duplicate_count || 0)
+        + (readiness.error || Number(readiness.blocked_count || 0) > 0 ? 1 : 0)
+        + (invoice.balance_due_check && String(invoice.balance_due_check).toLowerCase() !== 'ok' ? 1 : 0)
+        + (invoice.review_notes ? 1 : 0);
       const checked = state.selectedIds.has(invoice.id) ? ' checked' : '';
       return [
-        '<article class="farmer-card invoice-pool-card invoice-status-' + escapeHtml(invoice.status || 'unknown') + (checked ? ' is-selected' : '') + '">',
+        '<article class="invoice-pool-card invoice-status-' + escapeHtml(invoice.status || 'unknown') + (checked ? ' is-selected' : '') + '" data-invoice-open="' + escapeHtml(invoice.id) + '" role="link" tabindex="0" aria-label="Open invoice ' + escapeHtml(invoice.invoice_no || '') + '">',
+        secondaryActions ? '<details class="invoice-card-menu"><summary aria-label="More invoice actions" title="More actions"><i data-lucide="more-vertical" aria-hidden="true"></i></summary><div>' + secondaryActions + '</div></details>' : '',
         '<div class="invoice-card-main">',
         canWriteInvoices() && invoice.status !== 'matched' ? '<input type="checkbox" class="invoice-select-row" data-invoice="' + escapeHtml(invoice.id) + '" aria-label="Select invoice ' + escapeHtml(invoice.invoice_no || '') + '"' + checked + '>' : '<span></span>',
         '<div class="invoice-card-content">',
         '<div class="invoice-card-heading"><div class="fc-name">Invoice ' + escapeHtml(invoice.invoice_no || '-') + '</div><span class="badge ' + badgeClass(invoice.status) + '">' + escapeHtml(invoice.status || '-') + '</span></div>',
         '<div class="invoice-card-customer">' + escapeHtml(invoice.customer_name || 'Unknown invoice holder') + '</div>',
-        '<div class="invoice-card-meta"><span>ID ' + escapeHtml(invoice.customer_id || '-') + '</span><span>' + escapeHtml(invoice.customer_phone || '-') + '</span>' + matched + '</div>',
-        duplicateBadge ? '<div class="invoice-duplicate-alert">' + duplicateBadge + ' Review before matching.</div>' : '',
-        readinessBadge ? '<div class="fc-badges">' + readinessBadge + '</div>' : '',
-        invoice.balance_due_check && String(invoice.balance_due_check).toLowerCase() !== 'ok' ? '<div class="invoice-card-warning">Balance check: ' + escapeHtml(invoice.balance_due_check) + '</div>' : '',
-        invoice.review_notes ? '<div class="invoice-card-warning">' + escapeHtml(invoice.review_notes) + '</div>' : '',
+        '<div class="invoice-card-meta"><span>ID ' + escapeHtml(invoice.customer_id || '-') + '</span><span>' + escapeHtml(invoice.matched_order_number ? 'Order ' + invoice.matched_order_number : (invoice.customer_phone || '-')) + '</span></div>',
+        warningCount ? '<span class="invoice-card-alert"><i data-lucide="circle-alert" aria-hidden="true"></i>' + escapeHtml(warningCount) + ' item' + (warningCount === 1 ? '' : 's') + ' to review</span>' : '',
         '</div>',
         '</div>',
-        '<div class="invoice-card-actions">' + actions + '</div>',
         '</article>',
       ].join('');
     }).join('');
@@ -248,6 +240,19 @@
         else state.selectedIds.delete(input.dataset.invoice);
         input.closest('.invoice-pool-card')?.classList.toggle('is-selected', input.checked);
         updateBulkToolbar();
+      });
+    });
+    target.querySelectorAll('[data-invoice-open]').forEach(function (card) {
+      const open = function (event) {
+        if (event.target.closest('input, button, summary, details, a, select, textarea')) return;
+        openInvoiceDetail(card.dataset.invoiceOpen);
+      };
+      card.addEventListener('click', open);
+      card.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openInvoiceDetail(card.dataset.invoiceOpen);
+        }
       });
     });
     target.querySelectorAll('.invoice-detail-action').forEach(function (btn) {
@@ -435,12 +440,6 @@
       if (!identity.name_change.latest_letter?.is_current || !identity.name_change.latest_letter?.preview_url) {
         identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-generate">Prepare letter preview</button>');
       }
-      if (identity.name_change.latest_letter?.preview_url) {
-        identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-preview">Preview v' + escapeHtml(identity.name_change.latest_letter.version) + '</button>');
-      }
-      if (identity.name_change.latest_letter?.download_url) {
-        identityActions.push('<button type="button" class="btn btn-secondary invoice-name-change-download">Download v' + escapeHtml(identity.name_change.latest_letter.version) + '</button>');
-      }
       if (identity.name_change.latest_letter?.is_current) {
         identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-sent">Record letter sent</button>');
       }
@@ -468,7 +467,10 @@
       '<div class="invoice-letter-preview">',
       '<div><strong>Generated letter</strong><span>Version ' + escapeHtml(currentLetter.version) + ' · ' + escapeHtml(fmtDate(currentLetter.generated_at)) + '</span></div>',
       '<p>' + (currentLetter.preview_url ? 'The complete letter is ready to preview in the app.' : 'This older letter has no PDF preview. Prepare a new version to view it in the app.') + '</p>',
-      '<small>DOCX SHA-256: ' + escapeHtml(String(currentLetter.checksum || '').slice(0, 12)) + (currentLetter.preview_checksum ? ' · PDF SHA-256: ' + escapeHtml(String(currentLetter.preview_checksum).slice(0, 12)) : '') + '</small>',
+      '<div class="invoice-letter-actions">',
+      currentLetter.preview_url ? '<button type="button" class="btn btn-primary invoice-name-change-preview"><i data-lucide="eye" aria-hidden="true"></i>Preview letter</button>' : '',
+      currentLetter.download_url ? '<button type="button" class="btn btn-secondary invoice-name-change-download"><i data-lucide="download" aria-hidden="true"></i>Download letter</button>' : '',
+      '</div>',
       '</div>',
     ].join('') : '';
     const identityPanel = identity.invoice_identity ? [
@@ -486,11 +488,11 @@
       '</section>',
     ].join('') : '';
     const actionButtons = [
-      canWriteInvoices() ? '<button type="button" class="btn btn-secondary invoice-parsed-edit-toggle">Edit parsed data</button>' : '',
+      canWriteInvoices() ? '<button type="button" class="invoice-record-action invoice-parsed-edit-toggle" title="Edit parsed fields" aria-label="Edit parsed fields"><i data-lucide="pencil" aria-hidden="true"></i><span>Edit fields</span></button>' : '',
       canWriteInvoices() && ['draft', 'unmatched', 'ambiguous'].includes(invoice.status) ? '<button type="button" class="btn btn-primary invoice-detail-match-action">Match invoice</button>' : '',
-      canWriteInvoices() && invoice.status === 'matched' ? '<button type="button" class="btn btn-secondary invoice-detail-unmatch-action">Change applicant match</button>' : '',
-      canWriteInvoices() && invoice.status !== 'ignored' ? '<button type="button" class="btn btn-secondary invoice-detail-ignore-action">Ignore invoice</button>' : '',
-      canWriteInvoices() && invoice.status === 'ignored' ? '<button type="button" class="btn btn-secondary invoice-detail-restore-action">Restore invoice</button>' : '',
+      canWriteInvoices() && invoice.status === 'matched' ? '<button type="button" class="invoice-record-action invoice-detail-unmatch-action" title="Change applicant match" aria-label="Change applicant match"><i data-lucide="user-round-search" aria-hidden="true"></i><span>Change match</span></button>' : '',
+      canWriteInvoices() && invoice.status !== 'ignored' ? '<button type="button" class="invoice-record-action invoice-detail-ignore-action" title="Ignore invoice" aria-label="Ignore invoice"><i data-lucide="circle-slash" aria-hidden="true"></i><span>Ignore</span></button>' : '',
+      canWriteInvoices() && invoice.status === 'ignored' ? '<button type="button" class="invoice-record-action invoice-detail-restore-action" title="Restore invoice" aria-label="Restore invoice"><i data-lucide="rotate-ccw" aria-hidden="true"></i><span>Restore</span></button>' : '',
     ].join('');
     const duplicateHtml = duplicates.length
       ? duplicates.map(function (dup) {
@@ -522,7 +524,7 @@
       '<div class="invoice-parsed-grid">',
       kv('Invoice number', invoice.invoice_no),
       kv('Invoice date', fmtDate(invoice.invoice_date)),
-      kv('Invoice holder', invoice.customer_name),
+      kv('Invoice holder', invoice.customer_name, {wide: true}),
       kv('National ID', invoice.customer_id),
       kv('Phone', invoice.customer_phone),
       kv('Invoice amount', money(invoice.invoice_amount)),
@@ -535,7 +537,7 @@
       kv('Balance check', invoice.balance_due_check),
       kv('Calculated balance', money(invoice.calculated_balance_due)),
       kv('Balance difference', money(invoice.balance_due_difference)),
-      kv('Check basis', invoice.balance_due_check_basis),
+      kv('Check basis', invoice.balance_due_check_basis, {wide: true}),
       '</div>',
       '<form class="invoice-parsed-edit-form" hidden>',
       '<div class="invoice-parsed-edit-grid">',
@@ -610,7 +612,11 @@
     target.querySelector('.invoice-name-change-preview')?.addEventListener('click', function () { openLetterPreview(identity.name_change?.latest_letter); });
     target.querySelector('.invoice-name-change-download')?.addEventListener('click', function () {
       const url = identity.name_change?.latest_letter?.download_url;
-      if (url && deps.openPortalLink) deps.openPortalLink(url); else if (url) window.open(url, '_blank', 'noopener');
+      if (url && deps.downloadPortalFile) deps.downloadPortalFile({
+        url,
+        filename: `Invoice-name-change-v${identity.name_change?.latest_letter?.version || 1}.docx`,
+      });
+      else if (url && deps.openPortalLink) deps.openPortalLink(url);
     });
     target.querySelector('.invoice-name-change-sent')?.addEventListener('click', function () { markInvoiceNameChangeSent(identity.name_change); });
     target.querySelector('.invoice-name-change-replacement')?.addEventListener('click', function () { confirmInvoiceReplacement(identity.name_change); });
@@ -989,7 +995,7 @@
         primary = batch.latest_letter?.is_current && batch.latest_letter?.drive_url
           ? '<button type="button" class="btn btn-primary name-change-record-sent" data-batch="' + escapeHtml(batch.id) + '">Record sent</button>'
           : '<button type="button" class="btn btn-primary name-change-generate" data-batch="' + escapeHtml(batch.id) + '">Generate letter</button>';
-        secondary = batch.latest_letter?.download_url ? '<button type="button" class="name-change-download" data-url="' + escapeHtml(batch.latest_letter.download_url) + '">Open current letter</button>' : '';
+        secondary = batch.latest_letter?.download_url ? '<button type="button" class="name-change-download" data-url="' + escapeHtml(batch.latest_letter.download_url) + '" data-version="' + escapeHtml(batch.latest_letter.version || 1) + '">Download current letter</button>' : '';
       } else if (item.status === 'awaiting_replacement') {
         primary = '<button type="button" class="btn btn-primary name-change-replacement" data-item="' + escapeHtml(item.id) + '">Select replacement</button>';
         secondary = '<button type="button" class="name-change-close" data-item="' + escapeHtml(item.id) + '" data-action="withdraw">Withdraw request</button>';
@@ -1025,7 +1031,10 @@
       });
     });
     target.querySelectorAll('.name-change-record-sent').forEach(function (button) { button.addEventListener('click', function () { const batch = batchById.get(button.dataset.batch); if (batch) markInvoiceNameChangeSent({ batch_id: batch.id, latest_letter: batch.latest_letter }).then(function () { loadNameChanges(state.nameChangePage); }); }); });
-    target.querySelectorAll('.name-change-download').forEach(function (button) { button.addEventListener('click', function () { deps.openPortalLink ? deps.openPortalLink(button.dataset.url) : window.open(button.dataset.url, '_blank', 'noopener'); }); });
+    target.querySelectorAll('.name-change-download').forEach(function (button) { button.addEventListener('click', function () {
+      if (deps.downloadPortalFile) deps.downloadPortalFile({url: button.dataset.url, filename: `Invoice-name-change-v${button.dataset.version || 1}.docx`});
+      else if (deps.openPortalLink) deps.openPortalLink(button.dataset.url);
+    }); });
     target.querySelectorAll('.name-change-close').forEach(function (button) { button.addEventListener('click', function () { closeNameChangeRequest(button.dataset.item, button.dataset.action); }); });
     target.querySelectorAll('.name-change-follow-up').forEach(function (button) { button.addEventListener('click', function () { startNameChangeFollowUp(button.dataset.item); }); });
     target.querySelectorAll('.name-change-replacement').forEach(function (button) { button.addEventListener('click', function () { openReplacementSelector(button.dataset.item); }); });

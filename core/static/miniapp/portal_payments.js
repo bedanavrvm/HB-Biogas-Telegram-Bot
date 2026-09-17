@@ -11,6 +11,7 @@
   const selected = new Set();
   const selectedModes = new Map();
   let searchTimer = null;
+  let detailLoadVersion = 0;
 
   function el(id) { return deps.el(id); }
   function escape(value) { return deps.escapeHtml(value == null ? '' : value); }
@@ -147,8 +148,11 @@
   }
 
   async function openBatch(id, options) {
+    const loadVersion = ++detailLoadVersion;
+    const routeSignature = `${screen()}:${detailBatchId()}`;
     try {
       const response = await deps.apiFetch(`/payments/batches/${encodeURIComponent(id)}/`);
+      if (!active() || loadVersion !== detailLoadVersion || routeSignature !== `${screen()}:${detailBatchId()}`) return;
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not open payment batch.');
       activeBatch = response.data.batch;
       showDetail();
@@ -181,19 +185,32 @@
 
   function renderDetail() {
     if (!activeBatch) return;
+    const detailRoot = document.getElementById('payments-detail');
+    const required = {
+      title: detailRoot?.querySelector('#payments-detail-title'),
+      meta: detailRoot?.querySelector('#payments-detail-meta'),
+      progress: detailRoot?.querySelector('#payments-progress'),
+      cases: detailRoot?.querySelector('#payments-current-cases'),
+      activity: detailRoot?.querySelector('#payments-activity'),
+    };
+    if (!detailRoot || Object.values(required).some(node => !node)) {
+      deps.showToast('Payment details could not be displayed. Refresh this screen and try again.', 'error');
+      window.dispatchEvent(new CustomEvent('portal:render-error', {detail: {screen: screen(), component: 'payment-detail'}}));
+      return;
+    }
     const counts = activeBatch.counts || {};
     const emptyDraft = activeBatch.status === 'draft' && Number(counts.total || 0) === 0;
-    el('payments-detail')?.classList.toggle('payment-detail-empty', emptyDraft);
-    el('payments-detail-title').textContent = activeBatch.payment_number ? `Payment #${activeBatch.payment_number}` : 'Draft payment';
-    el('payments-detail-meta').textContent = `${activeBatch.payment_mode_summary} · ${activeBatch.status_label}`;
-    el('payments-progress').innerHTML = `<span><strong>${escape(counts.total || 0)}</strong><small>Cases</small></span><span><strong>${escape(counts.approved || 0)}</strong><small>Approved</small></span><span><strong>${escape(counts.returned || 0)}</strong><small>Returned</small></span><span><strong>${escape(counts.pending || 0)}</strong><small>Awaiting</small></span><span class="payment-progress-total"><strong>${escape(money(activeBatch.total_amount))}</strong><small>Total</small></span>`;
-    el('payments-progress').hidden = emptyDraft;
+    detailRoot.classList.toggle('payment-detail-empty', emptyDraft);
+    required.title.textContent = activeBatch.payment_number ? `Payment #${activeBatch.payment_number}` : 'Draft payment';
+    required.meta.textContent = `${activeBatch.payment_mode_summary} · ${activeBatch.status_label}`;
+    required.progress.innerHTML = `<span><strong>${escape(counts.total || 0)}</strong><small>Cases</small></span><span><strong>${escape(counts.approved || 0)}</strong><small>Approved</small></span><span><strong>${escape(counts.returned || 0)}</strong><small>Returned</small></span><span><strong>${escape(counts.pending || 0)}</strong><small>Awaiting</small></span><span class="payment-progress-total"><strong>${escape(money(activeBatch.total_amount))}</strong><small>Total</small></span>`;
+    required.progress.hidden = emptyDraft;
     const cases = activeBatch.cases || [];
-    el('payments-current-cases').innerHTML = cases.length ? cases.map(caseRow).join('') : '<div class="empty-state compact"><div class="es-title">No cases added</div></div>';
+    required.cases.innerHTML = cases.length ? cases.map(caseRow).join('') : '<div class="empty-state compact"><div class="es-title">No cases added</div></div>';
     if (el('payments-current-section')) el('payments-current-section').hidden = emptyDraft;
     const activity = activeBatch.activity || [];
-    el('payments-activity').innerHTML = activity.length ? activity.map(item => `<div><strong>${escape(activityLabel(item.action))}</strong><small>${escape(item.actor)} &middot; ${escape(formatDateTime(item.created_at))}</small></div>`).join('') : '<small>No batch changes recorded.</small>';
-    const activityPanel = el('payments-activity')?.closest('.payment-activity');
+    required.activity.innerHTML = activity.length ? activity.map(item => `<div><strong>${escape(activityLabel(item.action))}</strong><small>${escape(item.actor)} &middot; ${escape(formatDateTime(item.created_at))}</small></div>`).join('') : '<small>No batch changes recorded.</small>';
+    const activityPanel = required.activity.closest('.payment-activity');
     if (activityPanel) activityPanel.hidden = emptyDraft;
     if (el('payments-add-step')) el('payments-add-step').textContent = emptyDraft ? 'Step 1' : 'Add cases';
     if (el('payments-add-title')) el('payments-add-title').textContent = emptyDraft ? 'Build the payment batch' : 'Choose cases and payment modes';
@@ -216,7 +233,7 @@
     } else if (activeBatch.status === 'review_complete') {
       target.innerHTML = '<div class="payment-state-note"><strong>Approval complete</strong><small>The authorised approver will generate the workbook.</small></div>';
     } else if (activeBatch.status === 'awaiting_scan') {
-      const open = activeBatch.current_document_url ? '<button type="button" class="btn btn-secondary" id="payments-open-workbook">Open workbook</button>' : '';
+      const open = activeBatch.workbook_download_url ? '<button type="button" class="btn btn-secondary" id="payments-open-workbook"><i data-lucide="download"></i> Download workbook</button>' : '';
       const upload = capability('portal.documents.sign') ? '<label class="payment-scan-picker"><input type="file" id="payments-scan-file" accept="application/pdf,image/jpeg,image/png"><span id="payments-scan-label">Select signed scan</span></label><button type="button" class="btn btn-primary" id="payments-upload-scan">Upload signed copy</button>' : '<p class="payment-state-note">Waiting for an authorised user to upload the signed copy.</p>';
       target.innerHTML = open + upload;
     } else if (activeBatch.status === 'completed') {
@@ -437,7 +454,7 @@
       if (target.closest('#payments-add-selected')) return addSelected(target.closest('#payments-add-selected'));
       if (target.closest('#payments-submit-review')) return submitForReview(target.closest('#payments-submit-review'));
       if (target.closest('#payments-generate')) return mutate(`/payments/batches/${activeBatch.id}/generate/`, {}, target.closest('#payments-generate'), 'Generating...');
-      if (target.closest('#payments-open-workbook')) return deps.openPortalLink(activeBatch.current_document_url);
+      if (target.closest('#payments-open-workbook')) return deps.downloadPortalFile({url: activeBatch.workbook_download_url, filename: activeBatch.workbook_filename || `Payment-${activeBatch.payment_number || 'workbook'}.xlsx`});
       if (target.closest('#payments-open-signed-copy')) return deps.openPortalLink(activeBatch.signed_scan_url);
       if (target.closest('#payments-upload-scan')) return uploadScan(target.closest('#payments-upload-scan'));
       if (target.closest('#payments-cancel')) return cancelBatch(target.closest('#payments-cancel'));

@@ -1,9 +1,11 @@
-from datetime import date
+from datetime import date, timedelta
 
 from django.test import TestCase
+from django.utils import timezone
 
 from core.models import InvoiceIdentityReview, InvoiceUploadBatch, JawabuFarmerMaster, ParsedInvoice
 from core.services.portal_dashboard import dashboard_payload
+from core.services.jawabu_case360 import record_pipeline_event
 
 
 class PortalActionDashboardTests(TestCase):
@@ -64,3 +66,22 @@ class PortalActionDashboardTests(TestCase):
         self.assertIn('overview', payload)
         self.assertNotIn('deferred', {item['key'] for item in payload['pipeline']})
         self.assertIn('recent_cases', payload)
+
+    def test_business_metrics_count_only_named_pipeline_outcomes_in_scope(self):
+        allowed = self.farmer('Allowed farmer', 'Nakuru')
+        other = self.farmer('Other farmer', 'Ruiru')
+        now = timezone.now()
+        record_pipeline_event(allowed, action='jbl_visit_completed', stage_key='jbl_visit', occurred_at=now)
+        record_pipeline_event(allowed, action='credit_decision_recorded', stage_key='credit', occurred_at=now - timedelta(days=2))
+        record_pipeline_event(allowed, action='screen_opened', stage_key='credit', occurred_at=now)
+        record_pipeline_event(other, action='jbl_visit_completed', stage_key='jbl_visit', occurred_at=now)
+
+        payload = dashboard_payload(None, access={'branches': ['Nakuru']})
+        metrics = {item['key']: item for item in payload['business_metrics']}
+
+        self.assertEqual(metrics['visits_completed']['today'], 1)
+        self.assertEqual(metrics['visits_completed']['last_7_days'], 1)
+        self.assertEqual(metrics['credit_decisions']['today'], 0)
+        self.assertEqual(metrics['credit_decisions']['last_7_days'], 1)
+        self.assertEqual(metrics['final_decisions']['last_7_days'], 0)
+        self.assertEqual(metrics['orders_finalized']['last_7_days'], 0)

@@ -76,9 +76,9 @@ test('operational GPS cards and JBL media errors retain their compact mobile geo
   await assertNoHorizontalOverflow(page, 320);
 });
 
-test('an empty first payment batch exposes one compact build step at 320px', async ({ page }) => {
+test('an empty payment detail route exposes one compact build step at 320px', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
-  await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="payments"><section id="page-payments" class="page active">
+  await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="payments" data-payment-batch-id="batch-1"><section id="page-payments" class="page active">
     <header class="portal-queue-header"><div><h1>Payments</h1><p class="meta">Prepare, review and complete payment batches</p></div><div class="payment-header-actions"><button id="payments-refresh">↻</button><button class="btn btn-primary" id="payments-new">New batch</button></div></header>
     <div id="payments-summary" class="payment-summary-strip"></div><nav class="portal-invoice-tabs payment-batch-filters"><button class="active" data-payment-batch-filter="open">Open</button><button data-payment-batch-filter="completed">Completed</button><button data-payment-batch-filter="cancelled">Cancelled</button><button data-payment-batch-filter="all">All</button></nav><div id="payments-batches" class="payment-batch-list"></div>
     <section id="payments-detail" class="payment-detail" hidden><header class="payment-detail-header"><button id="payments-detail-back">←</button><div><h2 id="payments-detail-title"></h2><p id="payments-detail-meta"></p></div></header><div id="payments-progress" class="payment-progress"></div>
@@ -103,8 +103,8 @@ test('an empty first payment batch exposes one compact build step at 320px', asy
         return { ok: false, data: { ok: false, error: 'Unexpected test request' } };
       },
     });
+    return window.PortalMiniAppPayments.load();
   });
-  await page.locator('#payments-new').click();
   await expect(page.locator('#payments-add-title')).toHaveText('Build the payment batch');
   await expect(page.locator('#payments-add-step')).toHaveText('Step 1');
   await expect(page.locator('#payments-current-section')).toBeHidden();

@@ -19,7 +19,7 @@
 
   function formatDateTime(value) {
     if (!value) return '—';
-    if (helpers.fmtDate) return helpers.fmtDate(value);
+    if (helpers.fmtDateTime) return helpers.fmtDateTime(value);
     if (utils.formatDateTime) return utils.formatDateTime(value);
     return String(value).replace('T', ' ').slice(0, 16);
   }
@@ -91,6 +91,7 @@
 
   async function load({ silent = false } = {}) {
     if (!importsScreenIsActive()) return;
+    bindUploadForm();
     const list = node('portal-import-list');
     if (!list) return;
     if (!silent) list.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading staged imports...</div></div>';
@@ -159,7 +160,7 @@
       const table = !rows.length
         ? '<div class="empty-state"><div class="es-title">No source rows</div><div class="es-sub">This staged file has no non-blank source rows to display.</div></div>'
         : `<div class="portal-import-table-wrap"><table class="portal-import-table"><thead><tr>${columns.map(column => `<th>${escapeHtml(column)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${columns.map((column, index) => `<td>${escapeHtml(displayCell(row?.[index]))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-      target.innerHTML = `<div class="portal-import-review-heading"><div><span class="settings-eyebrow">REVIEW ONLY</span><h2>${escapeHtml(batch.source_filename || 'Staged import')}</h2><p>${escapeHtml(batch.total_rows || 0)} source rows · ${escapeHtml(batch.review_needed || 0)} validation flags. No Portal commit action is available.</p></div><button type="button" class="btn btn-secondary" id="portal-import-review-close">Close review</button></div>${table}`;
+      target.innerHTML = `<div class="portal-import-review-heading"><div><h2>${escapeHtml(batch.source_filename || 'Staged import')}</h2><p>${escapeHtml(batch.total_rows || 0)} source rows · ${escapeHtml(batch.review_needed || 0)} validation flags</p></div><button type="button" class="btn btn-secondary" id="portal-import-review-close">Close review</button></div>${table}`;
       if (pageCount > 1) {
         target.insertAdjacentHTML('beforeend', `<div class="portal-import-pager"><span>Showing page ${escapeHtml(currentPage)} of ${escapeHtml(pageCount)} (${escapeHtml(totalRows)} rows)</span><div><button type="button" class="btn btn-secondary portal-import-review-page" data-batch-id="${escapeHtml(batch.id)}" data-page="${escapeHtml(currentPage - 1)}" ${currentPage <= 1 ? 'disabled' : ''}>Previous</button><button type="button" class="btn btn-secondary portal-import-review-page" data-batch-id="${escapeHtml(batch.id)}" data-page="${escapeHtml(currentPage + 1)}" ${currentPage >= pageCount ? 'disabled' : ''}>Next</button></div></div>`);
       }
@@ -207,12 +208,22 @@
     await load({ silent: true });
   }
 
-  document.addEventListener('submit', event => {
-    const form = event.target.closest('.portal-import-upload');
-    if (!form) return;
-    event.preventDefault();
-    stage(form);
-  });
+  function bindUploadForm() {
+    const form = document.querySelector('#page-imports .portal-import-upload[data-import-kind="sysup"]');
+    if (!form || form.dataset.bound === 'true') return;
+    form.dataset.bound = 'true';
+    const input = form.querySelector('input[type="file"]');
+    const label = form.querySelector('.invoice-upload-dropzone span');
+    input?.addEventListener('change', function () {
+      const file = input.files?.[0];
+      if (label) label.textContent = file ? file.name : 'Tap to select system export';
+      feedback(file ? `${file.name} is ready to upload.` : 'Choose a SysUp source file.', file ? 'info' : 'error');
+    });
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      stage(form);
+    });
+  }
 
   document.addEventListener('click', event => {
     const refresh = event.target.closest('#portal-import-refresh');
@@ -259,5 +270,6 @@
     }
   });
 
+  bindUploadForm();
   window.PortalMiniAppImports = { load };
 })();

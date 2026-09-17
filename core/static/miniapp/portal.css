@@ -4204,5 +4204,63 @@ body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-s
   .invoice-identity-comparison { grid-template-columns:1fr; }
   .invoice-identity-comparison>div { grid-template-columns:76px minmax(0,1fr); align-items:center; text-align:left; }
   .invoice-identity-comparison>div span { grid-column:2; }
-  .invoice-parsed-edit-grid { grid-template-columns:1fr; }
+}
+
+/* Mobile-first operational density: completed work and recent cases are rows,
+   not decorative dashboard cards. */
+.dashboard-business-metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); overflow:hidden; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-surface); }
+.dashboard-business-metric { display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:baseline; gap:3px; min-width:0; padding:8px; border-right:1px solid var(--border-color); border-bottom:1px solid var(--border-color); }
+.dashboard-business-metric:nth-child(2n) { border-right:0; }
+.dashboard-business-metric:nth-last-child(-n+2) { border-bottom:0; }
+.dashboard-business-metric>span { grid-column:1/-1; overflow:hidden; color:var(--text-muted); font-size:9px; font-weight:750; text-overflow:ellipsis; white-space:nowrap; }
+.dashboard-business-metric strong,.dashboard-business-metric b { font-size:15px; }
+.dashboard-business-metric small { color:var(--text-muted); font-size:8px; font-weight:650; }
+.dashboard-recent-list { display:grid !important; grid-template-columns:1fr !important; gap:0 !important; overflow:hidden; border:1px solid var(--border-color); border-radius:10px; }
+.dashboard-case-row { display:grid; grid-template-columns:minmax(0,1fr) auto 18px; align-items:center; gap:7px; min-width:0; padding:8px 9px; border-bottom:1px solid var(--border-color); background:var(--bg-surface); color:var(--text-primary); text-decoration:none; }
+.dashboard-case-row:last-child { border-bottom:0; }
+.dashboard-case-row>span:first-child { display:grid; min-width:0; gap:1px; }
+.dashboard-case-row strong,.dashboard-case-row small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dashboard-case-row strong { font-size:11px; }
+.dashboard-case-row small { color:var(--text-muted); font-size:8px; }
+.dashboard-case-row .dashboard-case-reason { max-width:112px; border-radius:999px; background:var(--bg-muted); padding:3px 6px; color:var(--text-muted); font-size:8px; font-weight:700; text-align:center; }
+.dashboard-case-row svg { width:15px; height:15px; color:var(--text-muted); }
+
+/* Invoice inbox: count pills live in tabs, the toolbar remains one row, and
+   the card itself is the primary navigation target. */
+.portal-invoice-tabs a { display:flex; gap:4px; }
+.portal-invoice-tabs .count-pill { display:inline-grid; min-width:18px; height:18px; place-items:center; border-radius:999px; background:color-mix(in srgb,var(--color-primary) 12%,var(--bg-surface)); color:var(--color-primary); padding:0 5px; font-size:9px; }
+.invoice-list-toolbar .portal-queue-tools-primary { width:100%; }
+.invoice-list-toolbar .portal-queue-search { min-width:0; }
+.invoice-pool-card { position:relative; display:block; min-width:0; cursor:pointer; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-surface); padding:8px 38px 8px 8px; }
+.invoice-pool-card:focus-visible { outline:2px solid var(--color-primary); outline-offset:2px; }
+.invoice-card-main { grid-template-columns:18px minmax(0,1fr); }
+.invoice-card-heading { padding-right:0; }
+.invoice-card-meta { display:flex; flex-wrap:wrap; gap:3px 8px; margin-top:2px; color:var(--text-muted); font-size:9px; }
+.invoice-card-alert { display:inline-flex; align-items:center; gap:3px; margin-top:4px; color:var(--portal-status-warning); font-size:8px; font-weight:750; }
+.invoice-card-alert svg { width:11px; height:11px; }
+.invoice-card-menu { position:absolute; top:5px; right:5px; z-index:2; }
+.invoice-card-menu summary { width:32px; min-width:32px; height:32px; min-height:32px; justify-content:center; border:0; padding:0; background:transparent; }
+.invoice-card-menu summary svg { width:17px; height:17px; }
+.invoice-card-menu>div { right:0; left:auto; min-width:142px; }
+
+.invoice-detail-route-header { display:grid; grid-template-columns:44px minmax(0,1fr); align-items:center; gap:6px; }
+.invoice-detail-route-header .case-history-back { display:grid; width:44px; height:44px; place-items:center; border:0; border-radius:999px; background:transparent; color:var(--color-primary); text-decoration:none; }
+.invoice-detail-route-header .case-history-back:active { background:color-mix(in srgb,var(--color-primary) 9%,transparent); }
+.invoice-detail-route-header .case-history-back svg { width:20px; height:20px; stroke-width:2.25; }
+.invoice-record-summary .invoice-detail-actions { grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
+.invoice-record-summary .invoice-detail-actions>*:first-child { grid-column:auto; }
+.invoice-record-action { display:grid; min-width:0; min-height:48px; place-items:center; align-content:center; gap:2px; border:1px solid var(--border-color); border-radius:9px; background:var(--bg-surface); color:var(--text-primary); padding:5px 3px; }
+.invoice-record-action svg { width:17px; height:17px; color:var(--color-primary); }
+.invoice-record-action span { overflow:hidden; max-width:100%; font-size:8px; font-weight:750; text-overflow:ellipsis; white-space:nowrap; }
+.invoice-parsed-grid .invoice-detail-field { display:grid; align-content:start; gap:2px; border:0; border-bottom:1px solid var(--border-color); border-radius:0; background:transparent; padding:6px 3px; text-align:left; }
+.invoice-parsed-grid .invoice-detail-field:nth-last-child(-n+2) { border-bottom:0; }
+.invoice-parsed-grid .invoice-detail-field .meta { color:var(--text-muted); font-size:8px; font-weight:750; text-transform:uppercase; }
+.invoice-parsed-grid .invoice-detail-field .name { font-size:10px; font-weight:650; }
+.invoice-letter-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+.invoice-letter-actions .btn { min-height:38px; padding:6px; font-size:9px; }
+
+@media (max-width:340px) {
+  .dashboard-case-row .dashboard-case-reason { max-width:88px; }
+  .portal-invoice-tabs a { gap:2px; font-size:8px; }
+  .portal-invoice-tabs .count-pill { min-width:16px; height:16px; padding:0 4px; font-size:8px; }
 }

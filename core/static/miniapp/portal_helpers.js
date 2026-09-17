@@ -44,8 +44,12 @@
     const day = String(date.getDate()).padStart(2, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const year = String(date.getFullYear());
-    const time = String(value).match(/(?:T|\s)(\d{1,2}):(\d{2})/);
-    return `${day}-${month}-${year}${time ? ` ${String(time[1]).padStart(2, '0')}:${time[2]}` : ''}`;
+    return `${day}-${month}-${year}`;
+  }
+
+  function fmtDateTime(value) {
+    if (utils.formatDateTime) return utils.formatDateTime(value);
+    return fmtDate(value);
   }
 
   function stageBadge(farmer) {
@@ -186,6 +190,7 @@
     finalDecisionBadge,
     fmt,
     fmtDate,
+    fmtDateTime,
     invoiceResultRows,
     invoiceResultsSummary,
     invoiceFileSizeLabel,

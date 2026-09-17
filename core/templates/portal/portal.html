@@ -78,11 +78,8 @@
     </section>
 
     <section id="dashboard-activity" class="dashboard-action-section" hidden>
-      <div class="stage-summary-heading"><h2>Movement</h2><span>Last 7 days</span></div>
-      <div class="dashboard-activity-layout">
-        <article class="dashboard-today"><strong id="dashboard-today-count">0</strong><span>today</span></article>
-        <div id="dashboard-activity-list" class="dashboard-metric-list"></div>
-      </div>
+      <div class="stage-summary-heading"><h2>Completed work</h2><span>Today and last 7 days</span></div>
+      <div id="dashboard-activity-list" class="dashboard-business-metrics"></div>
     </section>
 
     <section id="dashboard-recent" class="dashboard-action-section" hidden>
@@ -174,14 +171,6 @@
       <div><h1>Requisition Queue</h1><p class="meta">Final decision approved - assign order number</p></div>
       <button type="button" class="queue-refresh-button" data-queue-refresh="requisition" aria-label="Refresh requisition queue" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
-    <div id="requisition-sequence-panel" class="batch-panel portal-initially-hidden" data-required-capability="portal.requisition.sequence.manage">
-      <div class="batch-title"><i data-lucide="hash" aria-hidden="true"></i><span>Official number sequence</span></div>
-      <div class="batch-form"><div class="form-row inline">
-        <div class="field-group"><label for="requisition-sequence-next">Next number</label><input id="requisition-sequence-next" type="number" min="1" inputmode="numeric"></div>
-        <div class="field-group"><label for="requisition-sequence-reason">Reason</label><input id="requisition-sequence-reason" type="text" placeholder="Align with official paperwork"></div>
-        <button type="button" class="btn btn-secondary" id="requisition-sequence-save">Save sequence</button>
-      </div><p class="meta" id="requisition-sequence-status">Loading official sequence…</p></div>
-    </div>
     {% include "portal/partials/queue_tools.html" with queue_key="requisition" queue_label="order preparation queue" %}
     <div id="requisition-batch-panel" class="batch-panel portal-initially-hidden" data-required-capability="portal.requisition.finalize">
       <div class="batch-title">
@@ -216,12 +205,12 @@
   {% if active_screen == 'invoices' %}
   <section id="page-invoices" class="page{% if active_screen == 'invoices' %} active{% endif %}">
     {% if invoice_view == 'detail' %}
-    <header class="invoice-page-header">
+    <header class="invoice-page-header invoice-detail-route-header">
+      <a class="case-history-back" id="invoice-detail-route-back" href="{% url 'portal_invoices_screen' %}" aria-label="Back to invoices" title="Back to invoices"><i data-lucide="arrow-left" aria-hidden="true"></i><span class="sr-only">Back to invoices</span></a>
       <div>
         <p class="eyebrow">INVOICE DETAIL</p>
         <h1>Invoice record</h1>
       </div>
-      <a class="btn btn-secondary" id="invoice-detail-route-back" href="{% url 'portal_invoices_screen' %}">Back to invoices</a>
     </header>
     <div id="invoice-detail-page" class="invoice-detail-page">
       <div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading invoice detail...</div></div>
@@ -269,12 +258,11 @@
       <div class="invoice-header-actions"><a class="btn btn-primary" data-required-capability="portal.invoice.write" href="{% url 'portal_invoices_upload' %}">Upload invoices</a></div>
     </header>
     <nav class="portal-invoice-tabs" aria-label="Invoice status">
-      <a class="{% if invoice_view != 'matched' and invoice_view != 'ignored' %}active{% endif %}" href="{% url 'portal_invoices_screen' %}">Needs review</a>
-      <a class="{% if invoice_view == 'matched' %}active{% endif %}" href="{% url 'portal_invoices_matched' %}">Matched</a>
-      <a class="{% if invoice_view == 'ignored' %}active{% endif %}" href="{% url 'portal_invoices_ignored' %}">Ignored</a>
+      <a class="{% if invoice_view != 'matched' and invoice_view != 'ignored' %}active{% endif %}" href="{% url 'portal_invoices_screen' %}">Needs review <span class="count-pill" id="invoice-count-needs-review">0</span></a>
+      <a class="{% if invoice_view == 'matched' %}active{% endif %}" href="{% url 'portal_invoices_matched' %}">Matched <span class="count-pill" id="invoice-count-matched">0</span></a>
+      <a class="{% if invoice_view == 'ignored' %}active{% endif %}" href="{% url 'portal_invoices_ignored' %}">Ignored <span class="count-pill" id="invoice-count-ignored">0</span></a>
       <a class="{% if invoice_view == 'all' %}active{% endif %}" href="{% url 'portal_invoices_all' %}">All</a>
     </nav>
-    <div class="batch-summary-grid" id="invoice-pool-summary"></div>
     <section class="portal-queue-tools invoice-list-toolbar" aria-label="Invoice search and filters">
       <div class="portal-queue-tools-primary">
         <label class="portal-queue-search" for="invoice-pool-search"><i data-lucide="search" aria-hidden="true"></i><input type="search" id="invoice-pool-search" placeholder="Search invoice, customer, ID, phone, order, or file" autocomplete="off" enterkeyhint="search"><button type="button" id="invoice-pool-search-clear" aria-label="Clear invoice search" title="Clear search" hidden><i data-lucide="x" aria-hidden="true"></i></button></label>
@@ -519,6 +507,11 @@
       <div class="form-actions"><button id="portal-save-personal-settings" class="btn btn-primary" type="submit">Save my settings</button><button id="portal-clear-personal-settings" class="btn btn-secondary" type="button">Clear defaults</button></div>
     </form>
     <div id="portal-settings-operations" class="portal-settings-operations" aria-live="polite"></div>
+    <section id="requisition-sequence-panel" class="portal-settings-card" data-required-capability="portal.requisition.sequence.manage" hidden>
+      <div class="portal-settings-heading"><span class="settings-eyebrow">OPERATIONS</span><h2>Official order number</h2><p>Set the next number only when aligning the Portal with the official order register.</p></div>
+      <div class="portal-settings-grid payment-sequence-settings-grid"><label>Next order number<input id="requisition-sequence-next" type="number" min="1" inputmode="numeric"></label><label>Reason<input id="requisition-sequence-reason" type="text" placeholder="Reason for the register alignment"></label></div>
+      <div class="portal-settings-action-row"><small id="requisition-sequence-status">Loading…</small><button type="button" class="btn btn-primary" id="requisition-sequence-save">Save official number</button></div>
+    </section>
     <section id="portal-payment-sequence-settings" class="portal-settings-card" data-required-capability="portal.payment.sequence.manage" hidden>
       <div class="portal-settings-heading"><span class="settings-eyebrow">OPERATIONS</span><h2>Official payment number</h2><p>Set the next number only when aligning the Portal with the official payment register.</p></div>
       <div class="portal-settings-grid payment-sequence-settings-grid"><label>Next payment number<input id="payments-sequence-next" type="number" min="1" inputmode="numeric"></label><label>Reason<input id="payments-sequence-reason" type="text" placeholder="Reason for the register alignment"></label></div>

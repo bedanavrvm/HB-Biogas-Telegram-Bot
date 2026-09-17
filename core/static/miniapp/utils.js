@@ -380,7 +380,7 @@
   function parseDisplayDate(value) {
     if (!value) return null;
     const text = String(value).trim();
-    const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})(.*)$/);
+    const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (iso) {
       const date = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
       return Number.isNaN(date.getTime()) ? null : date;
@@ -398,10 +398,19 @@
   }
 
   function formatDateTime(value) {
-    const date = parseDisplayDate(value);
-    if (!date) return value ? String(value) : '-';
-    const time = String(value).match(/(?:T|\s)(\d{1,2}):(\d{2})/);
-    return formatDate(value) + (time ? ' ' + String(time[1]).padStart(2, '0') + ':' + time[2] : '');
+    if (!value) return '-';
+    const text = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return formatDate(text);
+    const date = new Date(text);
+    if (Number.isNaN(date.getTime())) return text;
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Africa/Nairobi', day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }).formatToParts(date).reduce(function (result, part) {
+      if (part.type !== 'literal') result[part.type] = part.value;
+      return result;
+    }, {});
+    return `${parts.day}-${parts.month}-${parts.year} ${parts.hour}:${parts.minute}`;
   }
 
   async function fetchJson(url, options) {

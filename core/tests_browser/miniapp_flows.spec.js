@@ -72,8 +72,10 @@ test('Staff activation remains readable in dark mode and follows Telegram theme 
 
 test('Portal date labels use readable full-year dates',async({page})=>{
   await page.setContent('<p>Portal dates</p>');
+  await loadUtilities(page);
   await page.addScriptTag({path:asset('portal_helpers.js')});
-  expect(await page.evaluate(()=>window.PortalMiniAppHelpers.fmtDate('2026-05-05'))).toBe('05-May-2026');
+  expect(await page.evaluate(()=>window.PortalMiniAppHelpers.fmtDate('2026-05-05'))).toBe('05-05-2026');
+  expect(await page.evaluate(()=>window.PortalMiniAppHelpers.fmtDateTime('2026-09-17T07:30:00Z'))).toBe('17-09-2026 10:30');
 });
 
 test('Order preview exposes and highlights every blocked case reason',async({page})=>{
@@ -150,7 +152,11 @@ test('Workbook download click uses Telegram native download and browser fallback
   await page.evaluate(()=>{
     window.downloads=[];window.browserLinks=[];window.messages=[];
     window.downloadTg={downloadFile:(options,callback)=>{window.downloads.push(options);callback(true);}};
-    PortalMiniAppRequisitions.init({el:id=>document.getElementById(id),state:{capabilities:new Set()},tg:window.downloadTg,showToast:message=>window.messages.push(message),openPortalLink:url=>window.browserLinks.push(url)});
+    const downloadPortalFile=({url,filename})=>{
+      if(typeof window.downloadTg.downloadFile==='function') return window.downloadTg.downloadFile({url,file_name:filename},accepted=>window.messages.push(accepted===false?'Download cancelled.':'Download started.'));
+      window.browserLinks.push(url);
+    };
+    PortalMiniAppRequisitions.init({el:id=>document.getElementById(id),state:{capabilities:new Set()},tg:window.downloadTg,showToast:message=>window.messages.push(message),openPortalLink:url=>window.browserLinks.push(url),downloadPortalFile});
   });
   await page.locator('#requisition-workbook-download').click();
   expect(await page.evaluate(()=>window.downloads)).toEqual([{url:'https://miniapp.test/api/portal/requisition-download/signed-test/',file_name:'Order-1.xlsx'}]);

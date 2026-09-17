@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import resolve
 
@@ -802,6 +803,30 @@ class PortalImportStagingTests(TestCase):
         retained_detail = self.client.get(f'/api/portal/farmup/{batch.pk}/')
         self.assertEqual(retained_detail.status_code, 200)
         self.assertEqual(len(retained_detail.json()['batch']['rows']), 1)
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    @patch('core.api.portal_views._portal_import_group_ids', return_value=None)
+    def test_sysup_multipart_route_stages_a_visible_review_batch(self, _group_scope):
+        request_id = 'portal-sysup-upload-route-0001'
+        response = self.client.post(
+            '/api/portal/imports/sysup/stage/',
+            data={
+                'file': SimpleUploadedFile('customers-without-loans.csv', SYSUP_CSV, content_type='text/csv'),
+                'client_request_id': request_id,
+            },
+            headers={'X-Request-ID': request_id, 'Idempotency-Key': request_id},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.json()['ok'])
+        batch = JawabuFarmerUploadBatch.objects.get(pk=response.json()['batch']['id'])
+        self.assertEqual(batch.import_kind, 'system_export')
+        self.assertEqual(batch.total_rows, 1)
+        self.assertFalse(JawabuFarmerMaster.objects.exists())
+
+        listing = self.client.get('/api/portal/imports/')
+        self.assertEqual(listing.status_code, 200)
+        self.assertEqual(listing.json()['batches'][0]['id'], str(batch.pk))
 
     @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='test-shared-drive-root')
     @patch('core.services.order_approval.GoogleDriveMediaStorage.upload', return_value=('drive-file-1', 'https://drive.example/file-1'))

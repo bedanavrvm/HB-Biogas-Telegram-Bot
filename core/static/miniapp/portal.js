@@ -441,7 +441,7 @@
       .map(value => String(value || '').trim()).filter(Boolean).join(' | ') || '-';
   }
   function fmtDate(v) {
-    if (portalHelpers.fmtDate) return portalHelpers.fmtDate(v);
+    if (portalHelpers.fmtDateTime) return portalHelpers.fmtDateTime(v);
     if (!v) return '-';
     let d;
     if (/^\d{4}-\d{2}-\d{2}$/.test(String(v))) {
@@ -459,7 +459,7 @@
 
   function fmtDateTime(v) {
     if (!v) return '-';
-    if (portalHelpers.fmtDate) return portalHelpers.fmtDate(v);
+    if (portalHelpers.fmtDateTime) return portalHelpers.fmtDateTime(v);
     if (utils.formatDateTime) return utils.formatDateTime(v);
     const text = String(v);
     const match = text.match(/(?:T|\s)(\d{1,2}):(\d{2})/);
@@ -617,18 +617,16 @@
       attentionSection.hidden = !attention.length;
       attentionList.innerHTML = attention.map(item => `<a class="dashboard-action-card dashboard-route-link ${item.severity === 'urgent' ? 'urgent' : ''}" href="${escapeHtml(item.url || '#')}"><span><strong>${escapeHtml(item.label || 'Needs attention')}</strong><span>${escapeHtml(item.severity || 'review')}</span></span><b>${escapeHtml(item.count || 0)}</b></a>`).join('');
     }
-    const activity = dashboard.activity_7d || [];
+    const activity = dashboard.business_metrics || [];
     const activitySection = el('dashboard-activity');
-    const todayActivity = Number(dashboard.activity_today?.completed_actions || 0);
     if (activitySection) {
       activitySection.hidden = false;
-      activitySection.classList.toggle('is-empty', !activity.length && !todayActivity);
+      activitySection.classList.toggle('is-empty', !activity.length);
     }
-    if (el('dashboard-today-count')) el('dashboard-today-count').textContent = todayActivity;
     if (el('dashboard-activity-list')) {
       el('dashboard-activity-list').innerHTML = activity.length
-        ? activity.map(item => `<div class="dashboard-metric-row"><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.count)}</strong></div>`).join('')
-        : '<div class="empty-state compact"><div class="es-sub">No recorded workflow activity in the last 7 days.</div></div>';
+        ? activity.map(item => `<div class="dashboard-business-metric"><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.today)}</strong><small>today</small><b>${escapeHtml(item.last_7_days)}</b><small>7 days</small></div>`).join('')
+        : '<div class="empty-state compact"><div class="es-sub">No completed pipeline work in the last 7 days.</div></div>';
     }
     const distribution = dashboard.pipeline_distribution || [];
     if (el('dashboard-pipeline')) {
@@ -647,7 +645,7 @@
     const recentList = el('dashboard-recent-list');
     if (recentSection && recentList) {
       recentSection.hidden = !recent.length;
-      recentList.innerHTML = recent.slice(0, 5).map(item => `<a class="farmer-card dashboard-case-link dashboard-route-link" href="${escapeHtml(item.url)}"><div class="fc-top"><div><div class="fc-name">${escapeHtml(item.customer_name || 'Unnamed customer')}</div><div class="fc-sub">${escapeHtml([item.branch, item.stage].filter(Boolean).join(' · '))}</div></div><i data-lucide="arrow-up-right"></i></div><div class="dashboard-case-reason">${escapeHtml(item.reason || 'Recently updated')}</div></a>`).join('');
+      recentList.innerHTML = recent.slice(0, 5).map(item => `<a class="dashboard-case-row dashboard-route-link" href="${escapeHtml(item.url)}"><span><strong>${escapeHtml(item.customer_name || 'Unnamed customer')}</strong><small>${escapeHtml([item.branch, item.stage].filter(Boolean).join(' · '))}</small></span><span class="dashboard-case-reason">${escapeHtml(item.reason || 'Recently updated')}</span><i data-lucide="chevron-right" aria-hidden="true"></i></a>`).join('');
     }
     if (window.lucide) {
       window.lucide.createIcons();
@@ -1107,6 +1105,25 @@
     else window.open(url, '_blank', 'noopener');
   }
 
+  function downloadPortalFile({ url, filename }) {
+    if (!url) {
+      showToast('This download is unavailable. Reopen the record and try again.', 'error');
+      return;
+    }
+    const safeFilename = String(filename || 'download').trim() || 'download';
+    if (typeof tg?.downloadFile === 'function') {
+      tg.downloadFile({ url, file_name: safeFilename }, accepted => {
+        showToast(
+          accepted === false ? 'Download cancelled. Select download to try again.' : 'Download started. Check your device downloads.',
+          accepted === false ? 'info' : 'success',
+        );
+      });
+      return;
+    }
+    openPortalLink(url);
+    showToast('The file was opened in your browser for download.', 'info');
+  }
+
   function summaryGrid(items) {
     if (portalHelpers.summaryGrid) return portalHelpers.summaryGrid(items);
     return items.map(item => `
@@ -1502,10 +1519,7 @@
         ${kind === 'payments' ? `<span class="badge ${doc.status === 'final' ? 'badge-green' : doc.status === 'failed' ? 'badge-red' : 'badge-orange'}">${doc.status === 'final' ? 'Final' : doc.status === 'failed' ? 'Storage retry needed' : 'Awaiting Head of Rural review'}</span>` : ''}
         <div class="history-document-actions">
           <button type="button" class="btn btn-secondary history-view-document" data-kind="${kind}" data-id="${escapeHtml(doc.id)}" data-order="${escapeHtml(doc.order_number || '')}">${kind === 'payments' && doc.status !== 'final' ? 'Review payment' : 'View preview'}</button>
-          ${doc.drive_url || doc.download_url ? `<button type="button" class="btn btn-primary history-open-excel" data-url="${escapeHtml(doc.drive_url || doc.download_url)}">Open Excel</button>` : ''}
-          ${hasCapability('portal.documents.regenerate') && kind === 'payments'
-            ? (doc.status === 'final' || doc.status === 'failed' ? `<button type="button" class="btn btn-secondary history-regenerate-payment" data-id="${escapeHtml(doc.id)}">${doc.status === 'failed' ? 'Retry payment doc' : 'Regenerate payment doc'}</button>` : '')
-            : (hasCapability('portal.documents.regenerate') && kind === 'orders' ? `<button type="button" class="btn btn-secondary history-regenerate-order" data-order="${escapeHtml(doc.order_number || '')}" data-requisition-date="${escapeHtml(doc.requisition_date || '')}" data-farmer-ids="${escapeHtml((doc.farmer_ids || []).join(','))}">Regenerate requisition/order</button>` : '')}
+          ${doc.download_url ? `<button type="button" class="btn btn-primary history-open-excel" data-download="true" data-filename="${escapeHtml(doc.filename || `${kind === 'payments' ? 'Payment' : 'Order'}-${doc.payment_number || doc.order_number || 'workbook'}.xlsx`)}" data-url="${escapeHtml(doc.download_url)}">Download workbook</button>` : doc.drive_url ? `<button type="button" class="btn btn-primary history-open-excel" data-url="${escapeHtml(doc.drive_url)}">Open in Drive</button>` : ''}
         </div>
         ${physicalSignoffMarkup(doc, kind)}
         ${priorPhysicalSignoffsMarkup(doc)}
@@ -1860,6 +1874,7 @@
     applyWorkspaceVisibility();
     if (loadOperations) await renderPortalOperations(data.data?.operations || {});
     if (loadOperations && data.data?.operations?.payment_sequence) await portalPayments.loadSequence?.();
+    if (loadOperations && data.data?.operations?.requisition_sequence) await portalRequisitions.loadSequence?.();
     return personal;
   }
 
@@ -2220,9 +2235,8 @@
     const excelButton = event.target.closest('.history-open-excel');
     if (excelButton) {
       event.preventDefault();
-      // This handler lives in the portal shell, not the requisitions module;
-      // using the module's `deps` here throws before the link can open.
-      openPortalLink(excelButton.dataset.url || '');
+      if (excelButton.dataset.download === 'true') downloadPortalFile({url: excelButton.dataset.url || '', filename: excelButton.dataset.filename || 'workbook.xlsx'});
+      else openPortalLink(excelButton.dataset.url || '');
       return;
     }
     const signedScanButton = event.target.closest('.history-open-signed-scan');
@@ -2271,26 +2285,6 @@
         await loadHistory(historyKind);
       }).catch(error => showToast(error.message || 'Could not retry the signed scan upload.', 'error'))
         .finally(() => setButtonLoading(retrySignedScanButton, false));
-      return;
-    }
-    const regenerateOrderButton = event.target.closest('.history-regenerate-order');
-    if (regenerateOrderButton) {
-      event.preventDefault();
-      portalRequisitions.regenerateOrderHistory?.(
-        regenerateOrderButton.dataset.order || '',
-        String(regenerateOrderButton.dataset.farmerIds || '').split(',').filter(Boolean),
-        regenerateOrderButton.dataset.requisitionDate || '',
-        regenerateOrderButton,
-      );
-      return;
-    }
-    const regeneratePaymentButton = event.target.closest('.history-regenerate-payment');
-    if (regeneratePaymentButton) {
-      event.preventDefault();
-      portalRequisitions.regeneratePaymentHistory?.(
-        regeneratePaymentButton.dataset.id || '',
-        regeneratePaymentButton,
-      );
       return;
     }
     const viewButton = event.target.closest('.history-view-document');
@@ -2457,6 +2451,7 @@
   window.PortalAppShell = {
     hasCapability,
     showToast,
+    downloadPortalFile,
     activate(page) {
       if (!page) return;
       const root = currentScreenRoot();
@@ -2508,6 +2503,7 @@
       onClose: () => portalFilters.restorePosition?.(state.activePage),
       openAssignedOrder,
       openPortalLink,
+      downloadPortalFile,
       portalApi,
       reloadCurrentQueue,
       setButtonLoading,
@@ -2550,6 +2546,7 @@
       loadHistory,
       loadQueue,
       openPortalLink,
+      downloadPortalFile,
       portalApi,
       portalHelpers,
       renderWarnings,
@@ -2570,6 +2567,7 @@
       getCookie,
       locationText,
       openPortalLink,
+      downloadPortalFile,
       portalApi,
       setButtonLoading,
       showToast,
@@ -2585,6 +2583,7 @@
       escapeHtml,
       getCookie,
       openPortalLink,
+      downloadPortalFile,
       portalApi,
       requisitions: portalRequisitions,
       setButtonLoading,

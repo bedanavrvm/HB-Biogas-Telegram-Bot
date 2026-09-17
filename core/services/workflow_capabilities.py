@@ -48,7 +48,7 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     CapabilityDefinition('portal.requisition.view', 'jawabu_portal', 'View requisition queue', 'Orders', _roles('JBL_OFFICER', 'HB_STAFF', OPERATIONS_ADMIN_ROLE, 'IT')),
     CapabilityDefinition('portal.requisition.write', 'jawabu_portal', 'Assign orders and generate requisitions', 'Orders', _roles('HB_STAFF', OPERATIONS_ADMIN_ROLE), ('portal.requisition.view',)),
     CapabilityDefinition('portal.requisition.finalize', 'jawabu_portal', 'Finalize official requisition orders', 'Orders', _roles(OPERATIONS_ADMIN_ROLE), ('portal.requisition.view',)),
-    CapabilityDefinition('portal.requisition.sequence.manage', 'jawabu_portal', 'Align the official requisition number sequence', 'Orders', _roles('IT')),
+    CapabilityDefinition('portal.requisition.sequence.manage', 'jawabu_portal', 'Align the official requisition number sequence', 'Orders', _roles('IT', OPERATIONS_ADMIN_ROLE)),
     CapabilityDefinition('portal.batches.view', 'jawabu_portal', 'View requisition batches', 'Orders', _roles('HB_STAFF', OPERATIONS_ADMIN_ROLE)),
     CapabilityDefinition('portal.invoice.view', 'jawabu_portal', 'View invoices', 'Invoices', _roles('HB_STAFF', OPERATIONS_ADMIN_ROLE)),
     CapabilityDefinition('portal.invoice.write', 'jawabu_portal', 'Upload, match, and edit invoices', 'Invoices', _roles('HB_STAFF', OPERATIONS_ADMIN_ROLE), ('portal.invoice.view',)),

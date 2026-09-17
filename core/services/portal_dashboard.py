@@ -176,6 +176,21 @@ def dashboard_payload(user, *, access=None) -> dict:
         {'key': row['stage_key'] or 'other', 'label': (row['stage_key'] or 'Other').replace('_', ' ').title(), 'count': row['count']}
         for row in events.values('stage_key').annotate(count=Count('id')).order_by('-count')[:6]
     ]
+    metric_definitions = (
+        ('visits_completed', 'Visits completed', 'jbl_visit_completed'),
+        ('credit_decisions', 'Credit decisions', 'credit_decision_recorded'),
+        ('final_decisions', 'Final decisions', 'final_decision_recorded'),
+        ('orders_finalized', 'Orders finalized', 'order_assigned'),
+    )
+    business_metrics = [
+        {
+            'key': key,
+            'label': label,
+            'today': events.filter(action=action, occurred_at__gte=today_start).count(),
+            'last_7_days': events.filter(action=action).count(),
+        }
+        for key, label, action in metric_definitions
+    ]
 
     recent_cases = []
     if 'portal.case.read' in capabilities:
@@ -215,6 +230,7 @@ def dashboard_payload(user, *, access=None) -> dict:
         'attention': attention,
         'activity_today': {'completed_actions': today_events},
         'activity_7d': activity_7d,
+        'business_metrics': business_metrics,
         'pipeline_distribution': pipeline_distribution,
         'pipeline': pipeline,
         'overview': {

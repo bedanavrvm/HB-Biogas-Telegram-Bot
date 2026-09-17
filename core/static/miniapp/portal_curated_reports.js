@@ -76,9 +76,9 @@
   }
   async function exportXlsx() {
     const key = requestId();
-    const response = await fetch(`${api().apiBase()}/reports/workspace/export/`, {method:'POST', headers:{'Content-Type':'application/json', ...api().initDataHeader(state.tg), 'X-Request-ID':key, 'Idempotency-Key':key}, body:JSON.stringify({preset:state.preset, filters:filters(), client_request_id:key})});
-    if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(payload.error || 'The report could not be exported.'); }
-    const url = URL.createObjectURL(await response.blob()); const link = document.createElement('a'); link.href = url; link.download = `portal-${state.preset}-report.xlsx`; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); toast('XLSX download ready.', 'success');
+    const response = await api().postJson('/reports/workspace/export/', {preset:state.preset, filters:filters(), prepare_download:true, client_request_id:key}, state.tg);
+    if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'The report could not be exported.');
+    window.PortalAppShell?.downloadPortalFile?.({url:response.data.download_url, filename:response.data.filename});
   }
   document.addEventListener('click', event => {
     if (!root()?.contains(event.target)) return;

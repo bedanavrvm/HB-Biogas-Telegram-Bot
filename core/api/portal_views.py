@@ -730,6 +730,18 @@ def _invoice_name_change_download_url(request, artifact_id: str) -> str:
     )
 
 
+def _payment_workbook_download_url(request, batch) -> str:
+    if not getattr(batch, 'current_document_id', None):
+        return ''
+    token = TimestampSigner(salt='portal-payment-workbook-download').sign(json.dumps({
+        'batch_id': str(batch.pk),
+        'user_id': str(getattr(getattr(request, 'portal_user', None), 'pk', '') or ''),
+    }, separators=(',', ':')))
+    return request.build_absolute_uri(
+        f'/api/portal/payment-workbook-download/{quote(token, safe="")}/'
+    )
+
+
 def _invoice_name_change_preview_url(request, artifact_id: str) -> str:
     token = TimestampSigner(salt='portal-invoice-name-change-preview').sign(json.dumps({
         'artifact_id': str(artifact_id),
@@ -1569,6 +1581,7 @@ def _portal_setting_options(request, actor) -> dict:
             'maintenance': has_capability(actor, 'jawabu_portal', 'portal.health.maintenance.manage', access=access),
             'delegation': has_capability(actor, 'jawabu_portal', 'portal.approval.delegation.authorize', access=access),
             'payment_sequence': has_capability(actor, 'jawabu_portal', 'portal.payment.sequence.manage', access=access),
+            'requisition_sequence': has_capability(actor, 'jawabu_portal', 'portal.requisition.sequence.manage', access=access),
         },
     }
 
@@ -2980,6 +2993,19 @@ def portal_curated_report_export(request):
 
     payload = _portal_request_data(request)
     preset = str(payload.get('preset') or 'pipeline')
+    if payload.get('prepare_download'):
+        token = TimestampSigner(salt='portal-curated-report-download').sign(json.dumps({
+            'preset': preset,
+            'filters': payload.get('filters') or {},
+            'user_id': str(getattr(getattr(request, 'portal_user', None), 'pk', '') or ''),
+        }, separators=(',', ':'), sort_keys=True))
+        return JsonResponse({
+            'ok': True,
+            'download_url': request.build_absolute_uri(
+                f'/api/portal/reports/workspace/download/{quote(token, safe="")}/'
+            ),
+            'filename': f'portal-{preset}-report.xlsx',
+        })
     try:
         workbook = export_curated_report(
             preset=preset, filters=payload.get('filters') or {},
@@ -2996,6 +3022,45 @@ def portal_curated_report_export(request):
         return JsonResponse({'ok': False, 'error': 'The report export could not be prepared. Please retry.'}, status=500)
     response = HttpResponse(workbook, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     response['Content-Disposition'] = f'attachment; filename="portal-{preset}-report.xlsx"'
+    return response
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'HEAD'])
+def portal_curated_report_download(request, token: str):
+    """Generate one short-lived, user-bound curated export for Telegram."""
+    try:
+        payload = json.loads(TimestampSigner(salt='portal-curated-report-download').unsign(token, max_age=900))
+        actor_id = str(payload['user_id'])
+        preset = str(payload.get('preset') or 'pipeline')
+        filters = payload.get('filters') or {}
+    except (BadSignature, KeyError, TypeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'Download link expired. Reopen Reports and try again.'}, status=404)
+    from django.contrib.auth import get_user_model
+    from core.services.portal_reporting import PortalReportingError, export_curated_report, record_curated_run
+    from core.services.telegram_identity import user_access
+    from core.services.workflow_capabilities import has_capability
+
+    actor = get_user_model().objects.filter(pk=actor_id, is_active=True).first() if actor_id else None
+    access = user_access(actor, 'jawabu_portal') if actor else None
+    if actor is None or not has_capability(actor, 'jawabu_portal', 'portal.reports.view', access=access):
+        return JsonResponse({'ok': False, 'error': 'You no longer have access to this report.'}, status=403)
+    try:
+        workbook = export_curated_report(preset=preset, filters=filters, user=actor, access=access)
+        record_curated_run(
+            preset=preset, actor=actor,
+            request_id=f'portal-report-download-{hashlib.sha256(token.encode()).hexdigest()[:24]}',
+            exported=True,
+        )
+    except PortalReportingError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    response = HttpResponse(
+        b'' if request.method == 'HEAD' else workbook,
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f'attachment; filename="portal-{preset}-report.xlsx"'
+    response['Content-Length'] = str(len(workbook))
+    response['X-Content-Type-Options'] = 'nosniff'
     return response
 
 
@@ -5140,6 +5205,15 @@ def _portal_payment_batch_error(request, exc):
     return None
 
 
+def _serialize_portal_payment_batch(request, batch, *, include_cases=True):
+    from payments.services import serialize_batch
+
+    payload = serialize_batch(batch, include_cases=include_cases)
+    payload['workbook_download_url'] = _payment_workbook_download_url(request, batch)
+    payload['workbook_filename'] = batch.current_document.filename if batch.current_document_id else ''
+    return payload
+
+
 def _invoice_domain_error_response(request, exc):
     """Expose only reviewed invoice-domain guidance with a stable code."""
     from core.services.miniapp_messages import miniapp_error_response
@@ -5174,7 +5248,7 @@ def portal_payment_batches(request):
             if values:
                 queryset = queryset.filter(status__in=values)
         batches = [
-            serialize_batch(item, include_cases=False)
+            _serialize_portal_payment_batch(request, item, include_cases=False)
             for item in queryset.order_by('-created_at')[:100]
             if _portal_payment_batch_scope_error(request, item, capability='portal.payment.view') is None
         ]
@@ -5188,7 +5262,7 @@ def portal_payment_batches(request):
             group_configuration=group,
             actor=getattr(request, 'portal_user', None), request_id=_portal_request_id(request, body),
         )
-        return JsonResponse({'ok': True, 'batch': serialize_batch(batch)}, status=201)
+        return JsonResponse({'ok': True, 'batch': _serialize_portal_payment_batch(request, batch)}, status=201)
     except PaymentBatchError as exc:
         return _portal_payment_batch_error(request, exc)
 
@@ -5244,7 +5318,7 @@ def portal_payment_batch_detail(request, batch_id):
     scope_error = _portal_payment_batch_scope_error(request, batch, capability=capability)
     if scope_error:
         return scope_error
-    return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
+    return JsonResponse({'ok': True, 'batch': _serialize_portal_payment_batch(request, batch)})
 
 
 @csrf_exempt
@@ -5266,7 +5340,7 @@ def portal_payment_batch_case_mode(request, batch_id, farmer_id):
             batch.id, farmer_id, payment_mode=body.get('payment_mode'), expected_revision=body.get('revision'),
             actor=getattr(request, 'portal_user', None), request_id=_portal_request_id(request, body),
         )
-        return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
+        return JsonResponse({'ok': True, 'batch': _serialize_portal_payment_batch(request, batch)})
     except PaymentBatchError as exc:
         return _portal_payment_batch_error(request, exc)
 
@@ -5299,7 +5373,7 @@ def portal_payment_batch_cases(request, batch_id):
             batch.id, farmer_ids=ids, payment_modes=body.get('payment_modes'), expected_revision=body.get('revision'),
             actor=getattr(request, 'portal_user', None), request_id=_portal_request_id(request, body),
         )
-        return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
+        return JsonResponse({'ok': True, 'batch': _serialize_portal_payment_batch(request, batch)})
     except PaymentBatchError as exc:
         return _portal_payment_batch_error(request, exc)
 
@@ -5323,7 +5397,7 @@ def portal_payment_batch_case_remove(request, batch_id, farmer_id):
             batch.id, farmer_id, reason=body.get('reason'), expected_revision=body.get('revision'),
             actor=getattr(request, 'portal_user', None), request_id=_portal_request_id(request, body),
         )
-        return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
+        return JsonResponse({'ok': True, 'batch': _serialize_portal_payment_batch(request, batch)})
     except PaymentBatchError as exc:
         return _portal_payment_batch_error(request, exc)
 
@@ -5347,7 +5421,7 @@ def portal_payment_batch_submit(request, batch_id):
             batch.id, expected_revision=body.get('revision'), actor=getattr(request, 'portal_user', None),
             request_id=_portal_request_id(request, body),
         )
-        return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
+        return JsonResponse({'ok': True, 'batch': _serialize_portal_payment_batch(request, batch)})
     except PaymentBatchError as exc:
         return _portal_payment_batch_error(request, exc)
 
@@ -5372,7 +5446,7 @@ def portal_payment_batch_case_review(request, batch_id, farmer_id):
             expected_revision=body.get('revision'), actor=getattr(request, 'portal_user', None),
             request_id=_portal_request_id(request, body),
         )
-        return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
+        return JsonResponse({'ok': True, 'batch': _serialize_portal_payment_batch(request, batch)})
     except PaymentBatchError as exc:
         return _portal_payment_batch_error(request, exc)
 
@@ -5397,7 +5471,7 @@ def portal_payment_batch_generate(request, batch_id):
             batch.id, expected_revision=body.get('revision'), actor=getattr(request, 'portal_user', None),
             actor_label=_portal_sender_from_request(request), request_id=_portal_request_id(request, body),
         )
-        return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
+        return JsonResponse({'ok': True, 'batch': _serialize_portal_payment_batch(request, batch)})
     except PaymentBatchError as exc:
         return _portal_payment_batch_error(request, exc)
 
@@ -5421,7 +5495,7 @@ def portal_payment_batch_cancel(request, batch_id):
             batch.id, reason=body.get('reason'), expected_revision=body.get('revision'),
             actor=getattr(request, 'portal_user', None), request_id=_portal_request_id(request, body),
         )
-        return JsonResponse({'ok': True, 'batch': serialize_batch(batch)})
+        return JsonResponse({'ok': True, 'batch': _serialize_portal_payment_batch(request, batch)})
     except PaymentBatchError as exc:
         return _portal_payment_batch_error(request, exc)
 
@@ -5451,6 +5525,44 @@ def portal_payment_batch_workbook(request, batch_id):
     )
     response['Content-Disposition'] = content_disposition_header(True, document.filename or f'Payment-{batch.payment_number}.xlsx')
     response['Content-Length'] = str(len(data))
+    return response
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'HEAD'])
+def portal_payment_workbook_download(request, token: str):
+    """Serve one short-lived, user-bound workbook to Telegram's downloader."""
+    try:
+        payload = json.loads(TimestampSigner(salt='portal-payment-workbook-download').unsign(token, max_age=900))
+        batch_id = str(payload['batch_id'])
+        actor_id = str(payload['user_id'])
+    except (BadSignature, KeyError, TypeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'Download link expired. Reopen this payment and try again.'}, status=404)
+    from django.contrib.auth import get_user_model
+    from django.utils.http import content_disposition_header
+    from core.services.telegram_identity import user_access
+
+    actor = get_user_model().objects.filter(pk=actor_id, is_active=True).first() if actor_id else None
+    if actor is None:
+        return JsonResponse({'ok': False, 'error': 'This download link is no longer authorized.'}, status=403)
+    request.portal_user = actor
+    request.portal_access = user_access(actor, 'jawabu_portal')
+    if _portal_capability_error(request, 'portal.payment.view'):
+        return JsonResponse({'ok': False, 'error': 'You no longer have access to this payment workbook.'}, status=403)
+    batch = _portal_payment_batch_queryset(request).filter(pk=batch_id).select_related('current_document').first()
+    if not batch or not batch.current_document_id:
+        return JsonResponse({'ok': False, 'error': 'The current payment workbook was not found.'}, status=404)
+    data = bytes(batch.current_document.file_content or b'')
+    if not data:
+        return JsonResponse({'ok': False, 'error': 'The retained payment workbook is unavailable.'}, status=404)
+    filename = batch.current_document.filename or f'Payment-{batch.payment_number}.xlsx'
+    response = HttpResponse(
+        b'' if request.method == 'HEAD' else data,
+        content_type=batch.current_document.content_type or 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = content_disposition_header(True, filename)
+    response['Content-Length'] = str(len(data))
+    response['X-Content-Type-Options'] = 'nosniff'
     return response
 
 

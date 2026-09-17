@@ -841,20 +841,7 @@
     const url = action.href;
     const filename = action.dataset.filename;
     if (!url || !filename) return deps.showToast('Reopen this order in Batches to get a new download link.', 'error');
-    if (typeof deps.tg?.downloadFile === 'function') {
-      try {
-        deps.tg.downloadFile({url, file_name:filename}, accepted => {
-          deps.showToast(accepted === false ? 'Download cancelled. Select Download workbook to try again.' : 'Download started. Check your device downloads.', accepted === false ? 'info' : 'success');
-        });
-        return;
-      } catch (_) { /* Older Telegram clients use the system-browser fallback. */ }
-    }
-    try {
-      deps.openPortalLink(url);
-      deps.showToast('Workbook opened in your browser. Check Downloads.', 'info');
-    } catch (_) {
-      deps.showToast('Could not open the workbook. Try again or reopen this order in Batches.', 'error');
-    }
+    deps.downloadPortalFile?.({url, filename});
   }
 
   function openRequisitionPreview(data, { readOnly = false } = {}) {
@@ -1254,6 +1241,7 @@
 
   window.PortalMiniAppRequisitions = {
     init,
+    loadSequence: loadOrderSequence,
     restoreSelection,
     openBatchDetail,
     openInvoiceOverlay,
