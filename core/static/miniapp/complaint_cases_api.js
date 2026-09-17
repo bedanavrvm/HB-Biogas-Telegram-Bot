@@ -9,6 +9,7 @@
     error.details = normalized.details || {};
     error.presentation = normalized.presentation || {};
     error.requestId = normalized.request_id || response?.headers?.get('X-Request-ID') || '';
+    error.supportReference = normalized.support_reference || utils?.displaySupportReference?.(error.requestId) || '';
     error.payload = normalized;
     return error;
   }

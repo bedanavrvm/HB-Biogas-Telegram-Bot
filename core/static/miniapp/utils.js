@@ -289,11 +289,21 @@
     return 'We could not complete that action. Check the information and try again.';
   }
 
+  function displaySupportReference(value) {
+    const supplied = String(value || '').trim().toUpperCase();
+    if (/^ERR-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/.test(supplied)) return supplied;
+    const compact = supplied.replace(/[^0-9A-Z]/g, '');
+    if (!compact) return '';
+    const tail = compact.slice(-8).padStart(8, '0');
+    return `ERR-${tail.slice(0, 4)}-${tail.slice(4)}`;
+  }
+
   function normalizeResponsePayload(response, payload, fallback) {
     const data = payload && typeof payload === 'object' ? payload : {};
     const currentContract = response && response.headers
       ? response.headers.get('X-MiniApp-Message-Contract') === MESSAGE_CONTRACT_VERSION : false;
     const requestId = data.request_id || (response && response.headers ? response.headers.get('X-Request-ID') : '') || '';
+    const supportReference = displaySupportReference(data.support_reference || requestId);
     const failed = !response || !response.ok || data.ok === false || data.success === false;
     const suppliedPresentation = data.presentation && typeof data.presentation === 'object'
       ? data.presentation : {};
@@ -316,6 +326,7 @@
       data.error = message;
     }
     data.request_id = requestId;
+    data.support_reference = supportReference;
     return data;
   }
 
@@ -327,6 +338,7 @@
     error.details = data.details || {};
     error.presentation = data.presentation || {};
     error.requestId = data.request_id || '';
+    error.supportReference = data.support_reference || '';
     error.payload = data;
     return error;
   }
@@ -356,12 +368,14 @@
     error.details = {};
     error.presentation = { tone: 'error', persistence: 'until_resolved', surface_hint: 'banner' };
     error.requestId = requestId;
+    error.supportReference = displaySupportReference(requestId);
     error.payload = {
       ok: false,
       success: false,
       code: error.code,
       message: error.message,
       request_id: requestId,
+      support_reference: error.supportReference,
       presentation: error.presentation,
     };
     return error;
@@ -788,6 +802,7 @@
     handledMessageCodes: handledMessageCodes,
     messageHeaders: messageHeaders,
     normalizeResponsePayload: normalizeResponsePayload,
+    displaySupportReference: displaySupportReference,
     clientRequestError: clientRequestError,
     runButtonAction: runButtonAction,
     setButtonFeedback: setButtonFeedback,

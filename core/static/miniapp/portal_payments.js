@@ -308,7 +308,7 @@
       const message = error.message || 'The payment batch could not be updated.';
       deps.showToast(message, 'error');
       if (path.endsWith('/generate/')) {
-        const requestId = response?.data?.request_id || response?.requestId || '';
+        const requestId = response?.data?.support_reference || window.MiniAppUtils?.displaySupportReference?.(response?.data?.request_id || response?.requestId) || '';
         el('payments-primary-action')?.insertAdjacentHTML(
           'beforeend',
           `<div class="batch-warning payment-generation-error" role="alert"><strong>Workbook not generated</strong><span>${escape(message)}</span>${requestId ? `<small>Reference ${escape(requestId)}</small>` : ''}</div>`,

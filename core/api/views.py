@@ -592,6 +592,58 @@ def tat_tracker_tasks(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 @miniapp_write_response
+def tat_tracker_recognition(request):
+    payload = _tat_json_body(request)
+    _group_id, group_config, _user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    capability_error = _tat_capability_error(user, 'tat.recognition.view', group_config)
+    if capability_error:
+        return capability_error
+    from core.services.workflow_recognition import tat_recognition_payload
+    capabilities = set(user.get('capabilities') or [])
+    return JsonResponse({'ok': True, 'data': tat_recognition_payload(
+        user.get('_canonical_user'),
+        period=str(payload.get('period') or ''),
+        include_people='tat.recognition.people.view' in capabilities,
+    )})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@miniapp_write_response
+def tat_tracker_task_read(request):
+    payload = _tat_json_body(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    _group_id, group_config, _user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    capability_error = _tat_capability_error(user, 'tat.home.view', group_config)
+    if capability_error:
+        return capability_error
+    from core.models import TatActionTask
+    from core.services.tat_notifications import mark_task_read, task_access_allowed
+    from core.services.telegram_identity import database_group_configuration
+
+    task = TatActionTask.objects.select_related('group_configuration', 'case').filter(
+        pk=str(payload.get('task_id') or '').strip(),
+        group_configuration=database_group_configuration(group_config),
+        status=TatActionTask.STATUS_PENDING,
+    ).first()
+    actor = user.get('_canonical_user')
+    if not task or not task_access_allowed(task, actor):
+        return JsonResponse({'ok': False, 'error': 'This assigned task is no longer available.'}, status=404)
+    mark_task_read(task, actor)
+    return JsonResponse({'ok': True, 'data': {
+        'task_id': str(task.pk), 'case_id': task.case.case_id, 'stage_key': task.stage_key,
+    }})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@miniapp_write_response
 def tat_tracker_connect_private_alerts(request):
     payload = _tat_json_body(request)
     key_error = _bind_miniapp_write_request(request, payload)

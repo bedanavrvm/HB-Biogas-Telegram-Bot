@@ -30,6 +30,7 @@ function loadUtils(fetchImplementation) {
     error => {
       assert.equal(error.code, 'client_network_unavailable');
       assert.equal(error.requestId, 'network-12345678');
+      assert.equal(error.supportReference, 'ERR-1234-5678');
       assert.equal(error.presentation.surface_hint, 'banner');
       assert.doesNotMatch(error.message, /internal host|failed to fetch/i);
       return true;
@@ -58,6 +59,9 @@ function loadUtils(fetchImplementation) {
     headers: { get(name) { return name === 'Retry-After' ? '12' : ''; } },
   }, { ok: false, code: 'retry_later', message: 'Wait.' });
   assert.equal(normalized.details.retry_after, '12');
+  assert.equal(normalized.support_reference, '');
+  assert.equal(retryUtils.displaySupportReference('7f23a4b1-1234-5678-90ab-cdef12345678'), 'ERR-1234-5678');
+  assert.equal(retryUtils.displaySupportReference('ERR-7K4M-2P9Q'), 'ERR-7K4M-2P9Q');
 
   const tatSource = fs.readFileSync(path.join(__dirname, '..', 'static', 'miniapp', 'tat_tracker.js'), 'utf8');
   assert.match(tatSource, /if \(tone === 'ok'\) showNotice\(message, tone\)/);

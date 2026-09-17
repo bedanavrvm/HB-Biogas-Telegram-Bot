@@ -555,6 +555,7 @@ def _stage_samples(cases, filters, *, include_people=False, context=None):
                 'case_id': case.case_id, 'stage_key': stage.key, 'stage': stage.label,
                 '_stage_order': stage_order,
                 'role': stage.role, 'person': event.actor_name if include_people and event else '',
+                'person_user_id': str(event.actor_user_id or '') if include_people and event else '',
                 'group_id': str(case.group_id), 'branch': str(case.branch or ''),
                 'product_key': str(case.product_key or ''),
                 'product': str(case.product_label or case.product_key or ''),

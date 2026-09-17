@@ -9,6 +9,7 @@ safe diagnostic context.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import json
 import logging
 import re
@@ -44,7 +45,7 @@ class MiniAppMessage:
 
 MESSAGE_CATALOG: dict[str, MiniAppMessage] = {
     "invalid_request": MiniAppMessage(
-        "The app could not read this request. Try the action again. If it continues, contact JBL and share reference {request_id}.", 400,
+        "The app could not read this request. Try the action again. If it continues, contact JBL and share reference {support_reference}.", 400,
     ),
     "invoice_client_not_requisitioned": MiniAppMessage(
         "This client has no finalized requisition/order and cannot receive an invoice yet.", 409,
@@ -150,7 +151,7 @@ MESSAGE_CATALOG: dict[str, MiniAppMessage] = {
         tone="warning",
     ),
     "unexpected_error": MiniAppMessage(
-        "Something went wrong. Please try again. If it continues, contact JBL and share reference {request_id}.", 500,
+        "Something went wrong. Please try again. If it continues, contact JBL and share reference {support_reference}.", 500,
     ),
     "origination_shared_signer_phone": MiniAppMessage(
         "{roles} use the same phone ending {phone_last4}. Confirm that this is intentional before sending the signing link.", 409,
@@ -205,6 +206,7 @@ _SAFE_DETAIL_KEYS = frozenset({
     "field", "fields", "phone_last4", "retry_after", "roles",
 })
 _SAFE_CODE = re.compile(r"[a-z][a-z0-9_]{2,79}\Z")
+_CROCKFORD_BASE32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 
 class MiniAppUserError(Exception):
@@ -250,6 +252,17 @@ def request_reference(request) -> str:
         return uuid.uuid4().hex
 
 
+def support_reference(request_id: str) -> str:
+    """Return a short verbal support code while retaining the full request id internally."""
+    value = str(request_id or "").strip() or uuid.uuid4().hex
+    number = int.from_bytes(hashlib.sha256(value.encode("utf-8")).digest()[:5], "big")
+    encoded = "".join(
+        _CROCKFORD_BASE32[(number >> shift) & 31]
+        for shift in range(35, -1, -5)
+    )
+    return f"ERR-{encoded[:4]}-{encoded[4:]}"
+
+
 def _default_code(status: int, payload: Mapping[str, Any]) -> str:
     supplied = str(payload.get("code") or "").strip().casefold()
     if supplied in MESSAGE_CATALOG:
@@ -275,12 +288,20 @@ def _default_code(status: int, payload: Mapping[str, Any]) -> str:
 
 def render_message(code: str, *, details: Mapping[str, Any] | None = None, request_id: str = "") -> str:
     message = MESSAGE_CATALOG[code].text
-    values = {**_safe_details(details or {}), "request_id": request_id}
+    short_reference = support_reference(request_id)
+    values = {
+        **_safe_details(details or {}),
+        "request_id": request_id,
+        "support_reference": short_reference,
+    }
     try:
         return message.format_map(_SafeFormat(values))
     except (KeyError, ValueError):
         logger.error("Mini App message formatting failed: code=%s", code)
-        return MESSAGE_CATALOG["unexpected_error"].text.format(request_id=request_id)
+        return MESSAGE_CATALOG["unexpected_error"].text.format(
+            request_id=request_id,
+            support_reference=short_reference,
+        )
 
 
 def message_presentation(code: str, *, status: int = 400) -> dict[str, str]:
@@ -318,6 +339,7 @@ def miniapp_error_response(
         known_code = True
     safe_details = _safe_details(details or {})
     request_id = request_reference(request)
+    short_reference = support_reference(request_id)
     final_status = int(status or (MESSAGE_CATALOG[code].status if known_code else 400))
     message = user_message or render_message(code, details=safe_details, request_id=request_id)
     # Existing workflow payloads such as a winning revision snapshot remain
@@ -330,6 +352,7 @@ def miniapp_error_response(
         "code": code,
         "message": message,
         "request_id": request_id,
+        "support_reference": short_reference,
         "presentation": message_presentation(code, status=final_status),
     })
     legacy = not _uses_current_contract(request)
@@ -348,9 +371,9 @@ def miniapp_error_response(
         else logger.info
     )
     log(
-        "Mini App request failed: workflow=%s code=%s request_id=%s status=%s "
+        "Mini App request failed: workflow=%s code=%s request_id=%s support_reference=%s status=%s "
         "path=%s legacy_error_mirror=%s exception=%s developer_message=%s",
-        workflow, code, request_id, final_status, request.path, legacy,
+        workflow, code, request_id, short_reference, final_status, request.path, legacy,
         type(exception).__name__ if exception else "", developer_message[:300],
     )
     if final_status >= 500 and exception is not None:
@@ -422,7 +445,7 @@ def normalize_miniapp_response(request, response, *, workflow: str):
         extra={
             key: value for key, value in payload.items()
             if key not in {
-                'ok', 'success', 'code', 'message', 'error', 'request_id',
+                'ok', 'success', 'code', 'message', 'error', 'request_id', 'support_reference',
                 'details', 'errors', 'traceback', 'exception', 'debug', 'sql',
                 'presentation',
             }

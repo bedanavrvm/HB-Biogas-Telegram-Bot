@@ -188,6 +188,22 @@
 .shell-actor-copy strong { max-width: 150px; overflow: hidden; color: var(--text-primary); text-overflow: ellipsis; white-space: nowrap; }
 #portal-actor-role { max-width: 220px; overflow: hidden; padding: 3px 7px; border: 1px solid var(--border-color); border-radius: 999px; background: var(--bg-surface); color: var(--text-muted); font-size: 9px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
 #portal-actor-role:empty { display: none; }
+.portal-notification-button { position:relative; display:grid; width:36px; min-width:36px; height:36px; place-items:center; padding:0; border:1px solid var(--border-color); border-radius:9px; background:var(--bg-surface); color:var(--text-primary); }
+.portal-notification-button svg { width:17px; height:17px; }
+.portal-notification-button>span { position:absolute; top:-4px; right:-4px; display:grid; min-width:17px; height:17px; place-items:center; padding:0 3px; border:2px solid var(--bg-surface); border-radius:999px; background:var(--color-danger); color:#fff; font-size:8px; font-weight:800; }
+.portal-notification-button>span[hidden] { display:none; }
+.portal-notification-panel { position:fixed; z-index:95; top:56px; right:8px; width:min(360px,calc(100vw - 16px)); max-height:min(70dvh,520px); overflow:auto; border:1px solid var(--border-color); border-radius:12px; background:var(--bg-surface); box-shadow:0 14px 34px rgba(15,23,42,.22); }
+.portal-notification-panel[hidden] { display:none; }
+.portal-notification-panel>div:first-child { position:sticky; z-index:1; top:0; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:9px 10px; border-bottom:1px solid var(--border-color); background:var(--bg-surface); }
+.portal-notification-panel h2 { margin:0; font-size:13px; }
+.portal-notification-panel>div:first-child button { width:32px; min-width:32px; min-height:32px; padding:0; border:0; background:transparent; color:var(--text-muted); font-size:20px; }
+.portal-notification-row { display:grid; grid-template-columns:minmax(0,1fr) auto 16px; align-items:center; gap:7px; padding:9px 10px; border-bottom:1px solid var(--border-color); color:var(--text-primary); text-decoration:none; }
+.portal-notification-row:last-child { border-bottom:0; }
+.portal-notification-row strong,.portal-notification-row small { display:block; }
+.portal-notification-row strong { font-size:11px; }
+.portal-notification-row small { margin-top:2px; color:var(--text-muted); font-size:9px; text-transform:capitalize; }
+.portal-notification-row b { display:grid; min-width:26px; height:26px; place-items:center; border-radius:999px; background:var(--color-soft); color:var(--brand-primary); font-size:10px; }
+.portal-notification-row svg { width:15px; }
 .portal-connection-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: var(--portal-status-success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--portal-status-success) 15%, transparent); }
 .portal-connection-dot.is-offline { background: var(--portal-status-danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--portal-status-danger) 15%, transparent); }
 #portal-freshness { flex: 0 0 auto; white-space: nowrap; }
@@ -4224,6 +4240,22 @@ body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-s
 .dashboard-case-row small { color:var(--text-muted); font-size:8px; }
 .dashboard-case-row .dashboard-case-reason { max-width:112px; border-radius:999px; background:var(--bg-muted); padding:3px 6px; color:var(--text-muted); font-size:8px; font-weight:700; text-align:center; }
 .dashboard-case-row svg { width:15px; height:15px; color:var(--text-muted); }
+.portal-queue-header input[type="month"] { width:132px; min-height:36px; padding:6px 7px; border:1px solid var(--border-color); border-radius:8px; background:var(--bg-surface); color:var(--text-primary); font-size:11px; }
+.performance-formula { margin:8px 0 10px; padding:8px 9px; border-radius:8px; background:var(--bg-muted); color:var(--text-muted); font-size:10px; line-height:1.4; }
+.performance-personal { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 8px; padding:10px; border:1px solid color-mix(in srgb,var(--brand-primary) 35%,var(--border-color)); border-radius:10px; background:color-mix(in srgb,var(--brand-primary) 6%,var(--bg-surface)); }
+.performance-personal>span,.performance-personal>small { color:var(--text-muted); font-size:10px; }
+.performance-personal>strong { color:var(--brand-primary); font-size:15px; }
+.performance-personal>small { grid-column:1/-1; }
+.performance-list { overflow:hidden; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-surface); }
+.performance-row { display:grid; grid-template-columns:58px minmax(0,1fr) auto; align-items:center; gap:7px; min-height:58px; padding:7px 9px; border-bottom:1px solid var(--border-color); }
+.performance-row:last-child { border-bottom:0; }
+.performance-row.unranked { opacity:.72; }
+.performance-row>span:nth-child(2),.performance-row strong,.performance-row small { display:block; min-width:0; }
+.performance-row strong { overflow:hidden; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+.performance-row small { margin-top:2px; color:var(--text-muted); font-size:8px; line-height:1.25; }
+.performance-rank { color:var(--brand-primary); font-size:9px; font-weight:800; }
+.performance-row>b { color:var(--text-primary); font-size:15px; text-align:right; }
+.performance-row>b small { text-align:right; }
 
 /* Invoice inbox: count pills live in tabs, the toolbar remains one row, and
    the card itself is the primary navigation target. */

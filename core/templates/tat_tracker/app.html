@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>TAT Tracker</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="{% static 'miniapp/utils.js' %}?v=12"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=13"></script>
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=61">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=62">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}" data-task-token="{{ task_token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -28,6 +28,10 @@
           <p id="userLine" class="user-line">Opening tracker...</p>
         </div>
       </div>
+      <button id="privateTaskButton" type="button" class="ghost-btn task-inbox-button" aria-label="Assigned work" title="Assigned work" aria-controls="privateTaskSection" aria-expanded="false">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
+        <span id="privateTaskCount" class="task-inbox-count" hidden>0</span>
+      </button>
       <button id="refreshBtn" type="button" class="ghost-btn refresh-btn" aria-label="Refresh tracker" title="Refresh tracker">
         <svg class="icon-refresh" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
           <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l.73-.73"/>
@@ -49,6 +53,10 @@
       <button id="dashboardWorkspaceBtn" type="button" aria-pressed="false" data-required-capability="tat.reports.view" hidden>
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 13h6v7H4zM14 4h6v16h-6zM4 4h6v5H4z"/></svg>
         <span>TAT Reports</span>
+      </button>
+      <button id="recognitionWorkspaceBtn" type="button" aria-pressed="false" data-required-capability="tat.recognition.view" hidden>
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a4 4 0 0 0 4 4M17 6h3v2a4 4 0 0 1-4 4"/></svg>
+        <span>Recognition</span>
       </button>
     </nav>
 
@@ -103,6 +111,14 @@
       <nav class="tat-report-pagination" aria-label="TAT report pages"><button id="tatReportPrevious" type="button" class="secondary">Previous</button><span id="tatReportPage">Page 1 of 1</span><button id="tatReportNext" type="button" class="secondary">Next</button></nav>
     </section>
 
+    <section id="recognitionView" class="view recognition-view" aria-label="TAT recognition">
+      <div class="report-title-row"><div class="dashboard-heading"><p class="eyebrow">Team-first recognition</p><h2>TAT contribution</h2><p>Compares equivalent roles using completed stages and on-time delivery.</p></div><input id="tatRecognitionPeriod" type="month" aria-label="Recognition month"></div>
+      <p id="tatRecognitionFormula" class="recognition-formula"></p>
+      <section id="tatPersonalRecognition" class="recognition-personal" hidden></section>
+      <section><div class="stage-summary-heading"><h2>Role standings</h2><span>Minimum five completed stages to rank</span></div><div id="tatTeamRecognition" class="recognition-list"></div></section>
+      <section id="tatPeopleRecognitionSection" hidden><div class="stage-summary-heading"><h2>Individual breakdown</h2><span>Management and IT only</span></div><div id="tatPeopleRecognition" class="recognition-list"></div></section>
+    </section>
+
     <nav id="trackerTabs" class="tabs" aria-label="Tracker views">
       <button type="button" data-view="queue" class="active">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
@@ -150,6 +166,11 @@
       </div>
       <p id="queueFreshness" class="queue-freshness" role="status" aria-live="polite">Updating queue…</p>
       <div id="activeQueueFilters" class="active-filters" aria-label="Active filters" hidden></div>
+
+      <section id="privateTaskSection" class="section-block task-inbox-block" aria-labelledby="privateTaskHeading" hidden>
+        <div class="task-inbox-heading"><div><span class="eyebrow">Assigned work</span><h2 id="privateTaskHeading">Needs your input</h2></div><button id="closePrivateTasks" type="button" class="ghost-btn" aria-label="Close assigned work">&times;</button></div>
+        <div id="privateTaskList" class="task-inbox-list"></div>
+      </section>
 
       <section class="section-block active-queue-block">
         <div id="queueList" class="case-list"></div>
@@ -413,13 +434,13 @@
 
   <script src="{% static 'miniapp/telegram.js' %}?v=3"></script>
   {% include "miniapp_diagnostics.html" %}
-  <script src="{% static 'miniapp/tat_api.js' %}?v=5"></script>
+  <script src="{% static 'miniapp/tat_api.js' %}?v=6"></script>
   <script src="{% static 'miniapp/tat_bro_assignment.js' %}?v=1"></script>
   <script src="{% static 'miniapp/tat_case_validation.js' %}?v=1"></script>
   <script src="{% static 'miniapp/tat_formatters.js' %}?v=2"></script>
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
   <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=3"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=93"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=94"></script>
 </body>
 </html>

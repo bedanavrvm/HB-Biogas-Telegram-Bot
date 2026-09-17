@@ -35,6 +35,7 @@
       error.code = data.code || '';
       error.status = response.status;
       error.requestId = data.request_id || response.headers.get('X-Request-ID') || requestId;
+      error.supportReference = data.support_reference || utils?.displaySupportReference?.(error.requestId) || '';
       throw error;
     }
     return data;

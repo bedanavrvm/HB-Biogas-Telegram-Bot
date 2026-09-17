@@ -1015,7 +1015,7 @@
 
   {{ location_catalog|json_script:"location-catalog-data" }}
   {% include "miniapp_diagnostics.html" %}
-  <script src="{% static 'miniapp/utils.js' %}?v=9"></script>
+  <script src="{% static 'miniapp/utils.js' %}?v=13"></script>
   <script src="{% static 'miniapp/order_approval_api.js' %}?v=3"></script>
   <script>
     const tg = window.MiniAppUtils?.initTelegram?.() || (window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null);

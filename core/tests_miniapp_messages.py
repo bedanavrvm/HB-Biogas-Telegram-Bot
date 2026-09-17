@@ -13,6 +13,7 @@ from core.services.miniapp_messages import (
     MESSAGE_CONTRACT_VERSION,
     miniapp_error_response,
     normalize_miniapp_response,
+    support_reference,
 )
 
 
@@ -39,7 +40,9 @@ class MiniAppMessageContractTests(SimpleTestCase):
         self.assertEqual(payload['presentation']['persistence'], 'until_resolved')
         self.assertNotIn('error', payload)
         self.assertNotIn('DatabaseError', payload['message'])
-        self.assertIn('request-12345678', payload['message'])
+        self.assertEqual(payload['support_reference'], support_reference('request-12345678'))
+        self.assertIn(payload['support_reference'], payload['message'])
+        self.assertNotIn('request-12345678', payload['message'])
         self.assertEqual(response[MESSAGE_CONTRACT_HEADER], MESSAGE_CONTRACT_VERSION)
 
     def test_cached_client_receives_only_safe_legacy_mirror_and_is_instrumented(self):
@@ -55,6 +58,12 @@ class MiniAppMessageContractTests(SimpleTestCase):
         self.assertEqual(payload['message'], payload['error'])
         self.assertNotIn('raw internal exception', payload['message'])
         self.assertTrue(any('legacy_error_mirror=True' in item for item in captured.output))
+
+    def test_support_reference_is_short_stable_and_unambiguous(self):
+        first = support_reference('request-12345678')
+        self.assertEqual(first, support_reference('request-12345678'))
+        self.assertRegex(first, r'^ERR-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$')
+        self.assertNotRegex(first, r'[ILOU]')
 
     def test_shared_phone_message_contains_only_safe_role_context(self):
         request = self.factory.post(

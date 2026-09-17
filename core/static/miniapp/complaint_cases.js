@@ -96,7 +96,7 @@
     state.errorRetry = typeof retry === 'function' ? retry : null;
     $('errorBannerTitle').textContent = presentation.tone === 'warning' ? 'Please check' : 'Action needed';
     $('errorBannerMessage').textContent = error.message || 'We could not complete that action.';
-    const reference = String(error.requestId || error.payload?.request_id || '').trim();
+    const reference = String(error.supportReference || error.payload?.support_reference || utils.displaySupportReference?.(error.requestId || error.payload?.request_id) || '').trim();
     $('errorBannerReference').textContent = reference ? `Reference: ${reference}` : '';
     $('errorBannerReference').hidden = !reference;
     $('errorBannerRetry').hidden = !state.errorRetry;

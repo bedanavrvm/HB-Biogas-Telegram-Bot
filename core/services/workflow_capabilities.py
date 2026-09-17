@@ -33,6 +33,8 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     # Jawabu Portal: a view capability owns a screen; write capabilities own
     # consequential actions on that screen.
     CapabilityDefinition('portal.dashboard.view', 'jawabu_portal', 'View dashboard', 'Dashboard', _roles('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', OPERATIONS_ADMIN_ROLE, 'IT', BUSINESS_ADMIN_ROLE)),
+    CapabilityDefinition('portal.performance.view', 'jawabu_portal', 'View Portal team and personal performance', 'Dashboard', _roles('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', OPERATIONS_ADMIN_ROLE, 'IT', BUSINESS_ADMIN_ROLE)),
+    CapabilityDefinition('portal.performance.people.view', 'jawabu_portal', 'View named Portal performance', 'Dashboard', _roles('IT', BUSINESS_ADMIN_ROLE), ('portal.performance.view',)),
     CapabilityDefinition('portal.case.read', 'jawabu_portal', 'View all cases and case history', 'Cases', _roles('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', OPERATIONS_ADMIN_ROLE, 'IT', BUSINESS_ADMIN_ROLE)),
     CapabilityDefinition('portal.case.correct', 'jawabu_portal', 'Correct case master data with audit evidence', 'Cases', _roles(OPERATIONS_ADMIN_ROLE, 'IT'), ('portal.case.read',)),
     CapabilityDefinition('portal.deferred.view', 'jawabu_portal', 'View deferred cases', 'Cases', _roles('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', OPERATIONS_ADMIN_ROLE, BUSINESS_ADMIN_ROLE), ('portal.case.read',)),
@@ -96,6 +98,8 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     CapabilityDefinition('complaint.case.manage', 'complaint_cases', 'Legacy complaint manager access', 'Cases', _roles('MANAGER'), ('complaint.queue.view',)),
     # TAT tracker.  Individual stages are appended dynamically below.
     CapabilityDefinition('tat.home.view', 'tat_tracker', 'View TAT queue', 'Queue', _roles('BRO', BUSINESS_ADMIN_ROLE, 'CA', 'BM', 'SECRETARY', 'CHAIR', 'LOAN_APPROVER', 'FINANCE', 'IT', 'MANAGEMENT')),
+    CapabilityDefinition('tat.recognition.view', 'tat_tracker', 'View team and personal TAT recognition', 'Reporting', _roles('BRO', BUSINESS_ADMIN_ROLE, 'CA', 'BM', 'SECRETARY', 'CHAIR', 'LOAN_APPROVER', 'FINANCE', 'IT', 'MANAGEMENT'), ('tat.home.view',)),
+    CapabilityDefinition('tat.recognition.people.view', 'tat_tracker', 'View named TAT recognition', 'Reporting', _roles('IT', 'MANAGEMENT'), ('tat.recognition.view',)),
     CapabilityDefinition('tat.reports.view', 'tat_tracker', 'View TAT reports', 'Reporting', _roles('IT', 'MANAGEMENT'), ('tat.home.view',)),
     CapabilityDefinition('tat.reports.people.view', 'tat_tracker', 'View named TAT performance', 'Reporting', _roles('IT', 'MANAGEMENT'), ('tat.reports.view',)),
     CapabilityDefinition('tat.case.create', 'tat_tracker', 'Create TAT cases', 'Cases', _roles('BRO', BUSINESS_ADMIN_ROLE, 'IT'), ('tat.home.view',)),

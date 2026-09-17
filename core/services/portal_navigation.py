@@ -7,6 +7,7 @@ from django.urls import reverse
 # presentation metadata can regroup work without becoming a second policy.
 PORTAL_NAV_ITEMS = (
     ('dashboard', 'Home', 'house', 'portal.dashboard.view'),
+    ('performance', 'Performance', 'trophy', 'portal.performance.view'),
     ('jbl', 'Visit Queue', 'map-pinned', 'portal.jbl_queue.view'),
     ('my_visits', 'My Submitted Visits', 'clipboard-check', 'portal.jbl_followup.view'),
     ('credit', 'Credit Analysis', 'shield-check', 'portal.credit_queue.view'),
@@ -37,6 +38,7 @@ PIPELINE_STAGES = (
 
 PORTAL_SCREEN_PRESENTATION = {
     'dashboard': {'hub': 'home', 'group': 'Home', 'order': 0},
+    'performance': {'hub': 'home', 'group': 'Home', 'order': 1},
     'farmup': {'hub': 'pipeline', 'stage': 'intake', 'group': 'Pipeline · Intake', 'order': 0},
     'imports': {'hub': 'pipeline', 'stage': 'intake', 'group': 'Pipeline · Intake', 'order': 1},
     'jbl': {'hub': 'pipeline', 'stage': 'visit', 'group': 'Pipeline · Field Visit', 'order': 0},

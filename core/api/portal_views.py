@@ -2089,6 +2089,23 @@ def portal_dashboard(request):
     return JsonResponse({'ok': True, 'calculated_at': timezone.now().isoformat(), **payload})
 
 
+@csrf_exempt
+@require_http_methods(["GET"])
+def portal_performance(request):
+    access_error = _portal_read_access_error(request, capability='portal.performance.view')
+    if access_error:
+        return access_error
+    from core.services.workflow_capabilities import effective_capability_keys
+    from core.services.workflow_recognition import portal_performance_payload
+    user = getattr(request, 'portal_user', None)
+    access = getattr(request, 'portal_access', None)
+    capabilities = effective_capability_keys(user, 'jawabu_portal', access=access)
+    return JsonResponse({'ok': True, 'data': portal_performance_payload(
+        user, access=access, period=str(request.GET.get('period') or ''),
+        include_people='portal.performance.people.view' in capabilities,
+    )})
+
+
 # ── Meta / dropdown lists ─────────────────────────────────────────────────────
 
 PORTAL_JBL_VISIT_DRAFT_FIELDS = (

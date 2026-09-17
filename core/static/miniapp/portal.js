@@ -178,6 +178,7 @@
 
   const PAGE_CAPABILITIES = {
     dashboard: 'portal.dashboard.view',
+    performance: 'portal.performance.view',
     jbl: 'portal.jbl_queue.view',
     my_visits: 'portal.jbl_followup.view',
     credit: 'portal.credit_queue.view',
@@ -562,7 +563,8 @@
         : 'Check your connection and try again.';
       loading.innerHTML = '<strong>Dashboard unavailable</strong><span>'
         + escapeHtml(message) + '</span><span>' + escapeHtml(guidance) + '</span>';
-      if (requestId) loading.insertAdjacentHTML('beforeend', '<span class="error-reference">Reference: ' + escapeHtml(requestId) + '</span>');
+      const supportReference = data?.support_reference || utils.displaySupportReference?.(requestId) || '';
+      if (supportReference) loading.insertAdjacentHTML('beforeend', '<span class="error-reference">Reference: ' + escapeHtml(supportReference) + '</span>');
       loading.insertAdjacentHTML('beforeend', '<button type="button" class="btn btn-secondary portal-dashboard-retry">Retry</button>');
       loading.setAttribute('aria-busy', 'false');
       loading.style.display = 'block';
@@ -723,7 +725,61 @@
   }
 
   function queueFailureMarkup(qKey, message, requestId) {
-    return `<div class="empty-state queue-empty-state queue-error miniapp-feedback" data-tone="error" role="alert"><div class="es-icon">!</div><div class="es-title">Queue unavailable</div><div class="es-sub">${escapeHtml(message || 'The queue could not be loaded.')}</div><button type="button" class="btn btn-secondary queue-retry" data-queue="${escapeHtml(qKey)}">Try Again</button>${requestId ? `<div class="es-sub error-reference">Reference: ${escapeHtml(requestId)}</div>` : ''}</div>`;
+    const supportReference = utils.displaySupportReference?.(requestId) || '';
+    return `<div class="empty-state queue-empty-state queue-error miniapp-feedback" data-tone="error" role="alert"><div class="es-icon">!</div><div class="es-title">Queue unavailable</div><div class="es-sub">${escapeHtml(message || 'The queue could not be loaded.')}</div><button type="button" class="btn btn-secondary queue-retry" data-queue="${escapeHtml(qKey)}">Try Again</button>${supportReference ? `<div class="es-sub error-reference">Reference: ${escapeHtml(supportReference)}</div>` : ''}</div>`;
+  }
+
+  function renderPortalNotifications(payload) {
+    const queues = (payload?.queues || []).filter(item => Number(item.count || 0) > 0);
+    const alerts = (payload?.attention || []).filter(item => Number(item.count || 0) > 0);
+    const standaloneAlertKeys = new Set(['invoice_identity', 'invoice_name_change', 'integration_failure']);
+    const count = queues.reduce((sum, item) => sum + Number(item.count || 0), 0)
+      + alerts.filter(item => standaloneAlertKeys.has(item.key)).reduce((sum, item) => sum + Number(item.count || 0), 0);
+    const rows = [
+      ...queues.map(item => ({ ...item, detail: item.urgent_count ? `${item.urgent_count} overdue` : 'Assigned workflow' })),
+      ...alerts.map(item => ({ ...item, detail: item.severity === 'urgent' ? 'Urgent follow-up' : 'Needs attention' })),
+    ];
+    const badge = el('portal-notification-count');
+    badge.textContent = String(count);
+    badge.hidden = !count;
+    el('portal-notification-list').innerHTML = rows.length
+      ? rows.map(item => `<a class="portal-notification-row" href="${escapeHtml(item.url || '#')}"><span><strong>${escapeHtml(item.label || 'Needs attention')}</strong><small>${escapeHtml(item.detail)}</small></span><b>${escapeHtml(item.count || 0)}</b><i data-lucide="chevron-right" aria-hidden="true"></i></a>`).join('')
+      : '<div class="empty-state"><div class="es-title">No assigned work</div><div class="es-sub">New cases requiring your role will appear here.</div></div>';
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  async function loadPortalNotifications() {
+    if (!hasCapability('portal.dashboard.view')) return;
+    const { ok, data } = await apiFetch('/dashboard/');
+    if (ok) renderPortalNotifications(data);
+  }
+
+  function portalPerformanceRow(item) {
+    const rank = item.ranked ? `#${item.rank}` : 'Building sample';
+    return `<article class="performance-row${item.ranked ? '' : ' unranked'}"><span class="performance-rank">${escapeHtml(rank)}</span><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.visits_completed)} visits · ${escapeHtml(item.credit_conversion)}% to credit</small><small>${escapeHtml(item.final_conversion)}% final approval · ${escapeHtml(item.payment_conversion)}% payment-finalized · ${escapeHtml(item.pending_outcome)} pending</small></span><b>${escapeHtml(item.score)}<small>score</small></b></article>`;
+  }
+
+  async function loadPortalPerformance() {
+    if (!isCurrentScreen('performance')) return;
+    const periodInput = el('portal-performance-period');
+    if (!periodInput.value) {
+      const today = new Date();
+      periodInput.value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    }
+    const { ok, data } = await apiFetch('/performance/?period=' + encodeURIComponent(periodInput.value));
+    if (!ok || !data?.ok) throw new Error(data?.message || data?.error || 'Performance could not be loaded.');
+    const payload = data.data || {};
+    el('portal-performance-formula').textContent = `${payload.formula || ''}. Downstream outcomes remain visible but do not penalise cases still in progress.`;
+    const personal = payload.personal;
+    el('portal-personal-performance').hidden = !personal;
+    if (personal) el('portal-personal-performance').innerHTML = `<span>Your progress</span><strong>${personal.ranked ? `#${escapeHtml(personal.rank)} · ` : ''}${escapeHtml(personal.score)} score</strong><small>${escapeHtml(personal.visits_completed)} visits · ${escapeHtml(personal.credit_conversion)}% to credit${personal.ranked ? '' : ' · building sample'}</small>`;
+    el('portal-team-performance').innerHTML = (payload.team_rows || []).map(portalPerformanceRow).join('') || '<div class="empty-state"><div class="es-title">No visits recorded</div><div class="es-sub">Completed visits for this month will appear here.</div></div>';
+    el('portal-people-performance-section').hidden = !payload.people_visible;
+    el('portal-people-performance').innerHTML = (payload.people_rows || []).map(portalPerformanceRow).join('');
+    if (!periodInput.dataset.bound) {
+      periodInput.dataset.bound = 'true';
+      periodInput.addEventListener('change', () => loadPortalPerformance().catch(error => showToast(error.message, 'error')));
+    }
   }
 
   function renderQueueFailure(listEl, qKey, page, message, requestId) {
@@ -1651,6 +1707,7 @@
   // Page router
   function loadPage(page) {
     if (page === 'dashboard') return loadDashboard();
+    if (page === 'performance') return loadPortalPerformance();
     if (page === 'invoices' && portalInvoices.load) return portalInvoices.load(1);
     if (page === 'history') return loadHistory();
     if (page === 'case_history') return loadCaseHistory();
@@ -2030,6 +2087,7 @@
   async function init() {
     configureHtmx();
     await loadMeta();
+    loadPortalNotifications().catch(() => {});
     await portalRequisitions.restoreSelection?.();
     try { await loadPortalSettings(); } catch (_) { /* Settings are non-critical to opening the workflow. */ }
     if (canManagePortalWorkspace()) {
@@ -2038,6 +2096,7 @@
     const runtime = window.MiniAppRuntime;
     if (runtime?.createVisibleInterval) {
       runtime.createVisibleInterval(loadMeta, 60000, { immediateOnResume: true });
+      runtime.createVisibleInterval(() => loadPortalNotifications().catch(() => {}), 60000, { immediateOnResume: true });
       runtime.createVisibleInterval(function () {
         if (!state.lastRefreshedAt || Date.now() - state.lastRefreshedAt < 30000) return;
         if (state.activePage === 'dashboard') return loadDashboard({ skipIfBusy: true });
@@ -2592,6 +2651,23 @@
       tg,
     });
   }
+
+  el('portal-notification-button')?.addEventListener('click', () => {
+    const panel = el('portal-notification-panel');
+    const opening = panel.hidden;
+    panel.hidden = !opening;
+    el('portal-notification-button').setAttribute('aria-expanded', String(opening));
+    if (opening) loadPortalNotifications().catch(() => {});
+  });
+  el('portal-notification-close')?.addEventListener('click', () => {
+    el('portal-notification-panel').hidden = true;
+    el('portal-notification-button').setAttribute('aria-expanded', 'false');
+    el('portal-notification-button').focus();
+  });
+  el('portal-notification-list')?.addEventListener('click', event => {
+    const link = event.target.closest('a[href]');
+    if (link) { event.preventDefault(); navigateToUrl(link.href); }
+  });
 
   updateConnectionBanner();
   window.PortalCaseNavigation?.init?.({

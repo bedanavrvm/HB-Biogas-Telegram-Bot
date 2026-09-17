@@ -153,8 +153,8 @@
   function contextualTatApiError(path, error) {
     if (!error || error.name === 'AbortError') return error;
     const detail = String(error.message || 'Please try again.').trim();
-    const requestId = String(error.requestId || '').trim();
-    const reference = requestId && !detail.includes(requestId) ? ` Reference: ${requestId}.` : '';
+    const referenceId = String(error.supportReference || utils.displaySupportReference?.(error.requestId) || '').trim();
+    const reference = referenceId && !detail.includes(referenceId) ? ` Reference: ${referenceId}.` : '';
     error.message = `${tatApiAction(path)} failed. ${detail}${reference}`;
     return error;
   }
@@ -188,6 +188,7 @@
         const error = new Error(data.message || data.error || 'Request failed.');
         error.code = data.code || '';
         error.requestId = data.request_id || response.headers.get('X-Request-ID') || requestId;
+        error.supportReference = data.support_reference || utils.displaySupportReference?.(error.requestId) || '';
         throw error;
       }
       return data;
@@ -350,11 +351,15 @@
     document.querySelectorAll('.view').forEach((node) => node.classList.remove('active'));
     document.querySelectorAll('.tabs button').forEach((node) => node.classList.toggle('active', node.dataset.view === view));
     const dashboard = view === 'dashboard';
-    $('trackerTabs').hidden = dashboard;
-    $('casesWorkspaceBtn').classList.toggle('active', !dashboard);
-    $('casesWorkspaceBtn').setAttribute('aria-pressed', String(!dashboard));
+    const recognition = view === 'recognition';
+    const workspaceView = dashboard || recognition;
+    $('trackerTabs').hidden = workspaceView;
+    $('casesWorkspaceBtn').classList.toggle('active', !workspaceView);
+    $('casesWorkspaceBtn').setAttribute('aria-pressed', String(!workspaceView));
     $('dashboardWorkspaceBtn').classList.toggle('active', dashboard);
     $('dashboardWorkspaceBtn').setAttribute('aria-pressed', String(dashboard));
+    $('recognitionWorkspaceBtn').classList.toggle('active', recognition);
+    $('recognitionWorkspaceBtn').setAttribute('aria-pressed', String(recognition));
     const target = $(view + 'View');
     if (target) target.classList.add('active');
     if (tg && tg.BackButton) {
@@ -767,8 +772,10 @@
     const list = $('privateTaskList');
     if (!section || !list) return;
     const items = data.items || [];
-    $('privateTaskCount').textContent = data.unread_count || data.total || items.length;
-    section.hidden = !items.length;
+    const unread = Number(data.unread_count || 0);
+    $('privateTaskCount').textContent = unread || data.total || items.length;
+    $('privateTaskCount').hidden = !items.length;
+    if (!items.length) section.hidden = true;
     list.replaceChildren();
     items.forEach((item) => {
       const button = document.createElement('button');
@@ -783,9 +790,41 @@
           <span class="role-chip">${escapeHtml(item.kind === 'backup' ? 'Backup cover' : item.role)}</span>
           <span aria-hidden="true">&rsaquo;</span>
         </span>`;
-      button.addEventListener('click', () => openCase(item.case_id, item.stage_key));
+      button.addEventListener('click', async () => {
+        try {
+          if (item.unread) await api('/api/tat-tracker/tasks/read/', { task_id: item.task_id });
+          await openCase(item.case_id, item.stage_key);
+          loadTaskInbox().catch(() => {});
+        } catch (error) {
+          presentTatError(error);
+        }
+      });
       list.appendChild(button);
     });
+  }
+
+  function recognitionRow(item, volumeLabel) {
+    const rank = item.ranked ? `#${item.rank}` : 'Building sample';
+    const detail = item.median_minutes == null ? '' : ` · median ${formatMinutes(item.median_minutes)}`;
+    const recovered = item.overdue_recovered ? ` · ${item.overdue_recovered} overdue completed` : '';
+    return `<article class="recognition-row${item.ranked ? '' : ' unranked'}"><span class="recognition-rank">${escapeHtml(rank)}</span><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.completed ?? item.visits_completed ?? 0)} ${escapeHtml(volumeLabel)} · ${escapeHtml(item.on_time_rate ?? item.credit_conversion ?? 0)}% quality${escapeHtml(detail)}${escapeHtml(recovered)}</small></span><b>${escapeHtml(item.score)}<small>score</small></b></article>`;
+  }
+
+  function renderTatRecognition(data) {
+    const payload = data || {};
+    $('tatRecognitionFormula').textContent = `${payload.formula || ''}. Recent or small samples stay visible but are not ranked.`;
+    const personal = payload.personal;
+    $('tatPersonalRecognition').hidden = !personal;
+    if (personal) $('tatPersonalRecognition').innerHTML = `<span>Your progress</span><strong>${personal.ranked ? `#${escapeHtml(personal.rank)} · ` : ''}${escapeHtml(personal.score)} score</strong><small>${escapeHtml(personal.completed)} completed · ${escapeHtml(personal.on_time_rate)}% on time${personal.ranked ? '' : ' · building sample'}</small>`;
+    $('tatTeamRecognition').innerHTML = (payload.team_rows || []).map(item => recognitionRow(item, 'completed')).join('') || '<p class="chart-empty-static">No completed TAT stages are recorded for this month.</p>';
+    $('tatPeopleRecognitionSection').hidden = !payload.people_visible;
+    $('tatPeopleRecognition').innerHTML = (payload.people_rows || []).map(item => recognitionRow(item, 'completed')).join('');
+  }
+
+  async function loadTatRecognition() {
+    const period = $('tatRecognitionPeriod').value;
+    const result = await api('/api/tat-tracker/recognition/', { period });
+    renderTatRecognition(result.data || {});
   }
 
   function renderPrivateAlertConnection(connection) {
@@ -1321,6 +1360,10 @@
 
   function bootstrap(data) {
     state.data = data;
+    if (!$('tatRecognitionPeriod').value) {
+      const today = new Date();
+      $('tatRecognitionPeriod').value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    }
     if (!state.report.loaded) setDefaultReportDates();
     state.workflowMode = data.workflow_mode || null;
     if (!data.authorized) throw new Error(data.reason || 'Unauthorized.');
@@ -1330,7 +1373,7 @@
     document.querySelectorAll('[data-required-capability]').forEach((node) => {
       node.hidden = !capabilities.has(node.dataset.requiredCapability);
     });
-    $('workspaceTabs').classList.toggle('single-tab', !capabilities.has('tat.reports.view'));
+    $('workspaceTabs').classList.toggle('single-tab', !capabilities.has('tat.reports.view') && !capabilities.has('tat.recognition.view'));
     const roles = (user.roles || []).join(', ') || 'Staff';
     $('userLine').textContent = `${user.name || 'Staff'} | ${roles}`;
     const productInput = $('newCaseForm')?.elements.product_key;
@@ -1354,6 +1397,7 @@
     state.lastSuccessfulHome = snapshotHome();
     markRefreshSuccess();
     renderPrivateAlertConnection(data.private_alerts || {});
+    renderTaskInbox(data.task_inbox || {});
     $('trackerTabs').classList.add('has-settings');
     const initialView = applyPersonalPreference(data.personal || {});
     show(initialView);
@@ -2151,8 +2195,8 @@
 
   function contextualReportError(action, error) {
     const detail = String(error?.message || 'Please try again.').trim();
-    const requestId = String(error?.requestId || '').trim();
-    const reference = requestId && !detail.includes(requestId) ? ` Reference: ${requestId}.` : '';
+    const referenceId = String(error?.supportReference || utils.displaySupportReference?.(error?.requestId) || '').trim();
+    const reference = referenceId && !detail.includes(referenceId) ? ` Reference: ${referenceId}.` : '';
     return `${action}: ${detail}${reference}`;
   }
 
@@ -3117,6 +3161,7 @@
         const data = utils.normalizeResponsePayload ? utils.normalizeResponsePayload(response, raw) : raw;
         const error = new Error(data.message || data.error || 'The server could not prepare the workbook.');
         error.requestId = data.request_id || response.headers.get('X-Request-ID') || requestId;
+        error.supportReference = data.support_reference || utils.displaySupportReference?.(error.requestId) || '';
         throw error;
       }
       const blob = await response.blob(); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `tat-report-${new Date().toISOString().slice(0, 10)}.xlsx`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 30000);
@@ -3261,6 +3306,27 @@
     } finally {
       state.refreshing = false;
     }
+  });
+  $('recognitionWorkspaceBtn').addEventListener('click', () => {
+    utils.impactWithFallback?.('light', 20);
+    show('recognition');
+    loadTatRecognition().catch(presentTatError);
+  });
+  $('tatRecognitionPeriod').addEventListener('change', () => loadTatRecognition().catch(presentTatError));
+  $('privateTaskButton').addEventListener('click', () => {
+    const section = $('privateTaskSection');
+    const opening = section.hidden;
+    section.hidden = !opening;
+    $('privateTaskButton').setAttribute('aria-expanded', String(opening));
+    if (opening) {
+      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      loadTaskInbox().catch(presentTatError);
+    }
+  });
+  $('closePrivateTasks').addEventListener('click', () => {
+    $('privateTaskSection').hidden = true;
+    $('privateTaskButton').setAttribute('aria-expanded', 'false');
+    $('privateTaskButton').focus();
   });
   $('backBtn').addEventListener('click', returnToQueue);
   document.querySelectorAll('[data-home-queue]').forEach((button) => button.addEventListener('click', () => {
@@ -3515,7 +3581,7 @@
     if (runtime) {
       runtime.createVisibleInterval(function () {
         if (!state.data) return null;
-        const requests = [refresh({ background: true, periodic: true }).catch(() => {})];
+        const requests = [refresh({ background: true, periodic: true }).catch(() => {}), loadTaskInbox().catch(() => {})];
         if (state.currentView === 'detail') requests.push(refreshDetailBackground().catch(() => {}));
         return Promise.all(requests);
       }, 30000, { immediateOnResume: true });
@@ -3530,6 +3596,7 @@
     window.setInterval(function () {
       if (document.visibilityState !== 'hidden' && state.data) {
         refresh({ background: true, periodic: true }).catch(() => {});
+        loadTaskInbox().catch(() => {});
         if (state.currentView === 'detail') refreshDetailBackground().catch(() => {});
       }
     }, 30000);
