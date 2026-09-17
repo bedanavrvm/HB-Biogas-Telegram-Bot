@@ -803,35 +803,64 @@
     });
   }
 
-  function recognitionRow(item, volumeLabel) {
-    const rank = item.ranked ? `#${item.rank}` : 'Building sample';
-    const detail = item.median_minutes == null ? '' : ` · median ${formatMinutes(item.median_minutes)}`;
-    const recovered = item.overdue_recovered ? ` · ${item.overdue_recovered} overdue completed` : '';
-    const excluded = item.excluded_target_unavailable ? ` · ${item.excluded_target_unavailable} excluded (no target)` : '';
-    const corrected = item.corrected ? ` · ${item.corrected} corrected` : '';
-    const fallback = item.attribution_fallback ? ` · ${item.attribution_fallback} legacy actor fallback` : '';
-    const cohort = item.cohort && item.cohort !== item.label ? ` · ${item.cohort}` : '';
-    return `<article class="recognition-row${item.ranked ? '' : ' unranked'}"><span class="recognition-rank">${escapeHtml(rank)}</span><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.completed ?? item.visits_completed ?? 0)} comparable ${escapeHtml(volumeLabel)}${escapeHtml(cohort)} · ${escapeHtml(item.on_time_rate ?? item.credit_conversion ?? 0)}% quality${escapeHtml(detail)}${escapeHtml(recovered)}${escapeHtml(excluded)}${escapeHtml(corrected)}${escapeHtml(fallback)}</small></span><b>${escapeHtml(item.score)}<small>quality floor</small></b></article>`;
+  function recognitionContext(item) {
+    return [item.branch, item.product].filter(Boolean).map(value => `<span title="${escapeHtml(value)}">${escapeHtml(value)}</span>`).join('');
   }
 
-  function personalRecognition(rows) {
+  function recognitionRank(item) {
+    if (!item.ranked) return '<span class="recognition-rank unranked" aria-label="Not ranked yet"><b aria-hidden="true">—</b><small>Not ranked</small></span>';
+    const rank = Number(item.rank || 0);
+    const podium = rank >= 1 && rank <= 3 ? ` podium-${rank}` : '';
+    return `<span class="recognition-rank${podium}" aria-label="Rank ${escapeHtml(rank)}"><b>#${escapeHtml(rank)}</b><small>Rank</small></span>`;
+  }
+
+  function recognitionRow(item, named = false) {
+    const label = named ? (item.label || 'Unnamed staff member') : (item.role || item.label || 'Unassigned role');
+    return `<article class="recognition-row${item.ranked ? '' : ' unranked'}">
+      ${recognitionRank(item)}
+      <div class="recognition-row-main"><strong title="${escapeHtml(label)}">${escapeHtml(label)}</strong><div class="recognition-context">${recognitionContext(item)}</div><div class="recognition-row-metrics"><span><b>${escapeHtml(item.on_time_rate || 0)}%</b> On time</span><span><b>${escapeHtml(item.completed || 0)}</b> Stages</span></div></div>
+      <span class="recognition-score" aria-label="Performance score ${escapeHtml(item.score || 0)}"><b>${escapeHtml(item.score || 0)}</b><small>Score</small></span>
+    </article>`;
+  }
+
+  function personalRecognition(rows, minimumSample) {
     return rows.map(item => {
-      const excluded = item.excluded_target_unavailable ? ` · ${item.excluded_target_unavailable} excluded because no target was configured` : '';
-      const fallback = item.attribution_fallback ? ` · ${item.attribution_fallback} used legacy actor attribution` : '';
-      return `<div class="recognition-personal-cohort"><span>${escapeHtml(item.cohort || 'Assigned role')}</span><strong>${item.ranked ? `#${escapeHtml(item.rank)} · ` : ''}${escapeHtml(item.score)} quality floor</strong><small>${escapeHtml(item.completed)} comparable stages · ${escapeHtml(item.on_time_rate)}% on time${item.ranked ? '' : ' · building sample'}${escapeHtml(excluded)}${escapeHtml(fallback)}</small></div>`;
+      const completed = Number(item.completed || 0);
+      const counted = Math.min(completed, minimumSample);
+      const remaining = Math.max(0, minimumSample - completed);
+      const guidance = item.ranked
+        ? 'Included in this month’s ranking'
+        : `Complete ${remaining} more counted stage${remaining === 1 ? '' : 's'} to join this month’s ranking`;
+      return `<article class="recognition-result-card">
+        <header><div><strong>${escapeHtml(item.role || 'Assigned role')}</strong><div class="recognition-context">${recognitionContext(item)}</div></div><span class="recognition-result-rank">${item.ranked ? `#${escapeHtml(item.rank)}` : 'Not ranked yet'}</span></header>
+        <div class="recognition-result-metrics"><span><small>On time</small><b>${escapeHtml(item.on_time_rate || 0)}%</b></span><span><small>Completed stages</small><b>${escapeHtml(completed)}</b></span><span><small>Performance score</small><b>${escapeHtml(item.score || 0)}</b></span></div>
+        <div class="recognition-progress-label"><span>${escapeHtml(counted)} of ${escapeHtml(minimumSample)} counted stages</span><strong>${escapeHtml(guidance)}</strong></div>
+        <div class="recognition-progress" role="progressbar" aria-label="Ranking eligibility" aria-valuemin="0" aria-valuemax="${escapeHtml(minimumSample)}" aria-valuenow="${escapeHtml(counted)}"><span style="width:${minimumSample ? Math.round(counted * 100 / minimumSample) : 0}%"></span></div>
+      </article>`;
     }).join('');
+  }
+
+  function recognitionMethodology(methodology) {
+    const item = methodology || {};
+    return `<p>${escapeHtml(item.score_method || '')}</p><p>${escapeHtml(item.cohort_basis || '')}</p><p>${escapeHtml(item.correction_policy || '')}</p><p>${escapeHtml(item.late_work_policy || '')}</p><dl class="recognition-data-checks"><div><dt>Recorded completions</dt><dd>${escapeHtml(item.completed_total || 0)}</dd></div><div><dt>Counted stages</dt><dd>${escapeHtml(item.counted_total || 0)}</dd></div><div><dt>No target configured</dt><dd>${escapeHtml(item.excluded_target_unavailable || 0)}</dd></div><div><dt>Corrected records</dt><dd>${escapeHtml(item.corrected || 0)}</dd></div><div><dt>Actor fallback</dt><dd>${escapeHtml(item.attribution_fallback || 0)}</dd></div><div><dt>Overdue completed</dt><dd>${escapeHtml(item.overdue_recovered || 0)}</dd></div></dl>`;
   }
 
   function renderTatRecognition(data) {
     const payload = data || {};
-    const asOf = payload.calculated_at ? ` Calculated ${formatTatDateTime(payload.calculated_at)}.` : '';
-    $('tatRecognitionFormula').textContent = `${payload.formula || ''}. ${payload.cohort_basis || ''}. ${payload.revision_policy || ''}${asOf} ${payload.late_credit_policy || ''} Samples without a configured target are shown but excluded from both score and eligibility.`;
+    const minimumSample = Math.max(1, Number(payload.minimum_ranked_sample || 20));
+    $('tatRecognitionUpdated').textContent = payload.calculated_at ? `Updated at ${formatTatDateTime(payload.calculated_at)}` : '';
     const personalRows = payload.personal_rows || (payload.personal ? [payload.personal] : []);
-    $('tatPersonalRecognition').hidden = !personalRows.length;
-    if (personalRows.length) $('tatPersonalRecognition').innerHTML = `<span>Your live provisional result</span>${personalRecognition(personalRows)}`;
-    $('tatTeamRecognition').innerHTML = (payload.team_rows || []).map(item => recognitionRow(item, 'completed')).join('') || '<p class="chart-empty-static">No completed TAT stages are recorded for this month.</p>';
+    $('tatPersonalRecognition').innerHTML = personalRows.length
+      ? `<div class="recognition-section-heading"><h3>Your result this month</h3></div>${personalRecognition(personalRows, minimumSample)}`
+      : '<div class="recognition-empty"><strong>Your result will appear after you complete a stage.</strong></div>';
+    $('tatRecognitionMinimum').textContent = `${minimumSample} counted stages required`;
+    $('tatTeamRecognition').innerHTML = (payload.team_rows || []).map(item => recognitionRow(item)).join('') || '<div class="recognition-empty"><strong>No counted stages for this month</strong></div>';
     $('tatPeopleRecognitionSection').hidden = !payload.people_visible;
-    $('tatPeopleRecognition').innerHTML = (payload.people_rows || []).map(item => recognitionRow(item, 'completed')).join('');
+    $('tatPeopleRecognition').innerHTML = (payload.people_rows || []).map(item => recognitionRow(item, true)).join('') || '<div class="recognition-empty"><strong>No individual results for this month</strong></div>';
+    const technical = $('tatRecognitionTechnical');
+    technical.hidden = !payload.technical_details_visible;
+    technical.open = false;
+    $('tatRecognitionTechnicalContent').innerHTML = payload.technical_details_visible ? recognitionMethodology(payload.methodology) : '';
   }
 
   async function loadTatRecognition() {

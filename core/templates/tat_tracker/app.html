@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=64">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=65">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}" data-task-token="{{ task_token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -112,11 +112,11 @@
     </section>
 
     <section id="recognitionView" class="view recognition-view" aria-label="TAT recognition">
-      <div class="report-title-row"><div class="dashboard-heading"><p class="eyebrow">Live team insight</p><h2>TAT contribution</h2><p>Provisional role comparisons using comparable completed stages and on-time delivery.</p></div><input id="tatRecognitionPeriod" type="month" aria-label="Recognition month"></div>
-      <p id="tatRecognitionFormula" class="recognition-formula"></p>
-      <section id="tatPersonalRecognition" class="recognition-personal" hidden></section>
-      <section><div class="stage-summary-heading"><h2>Like-for-like role standings</h2><span>Minimum 20 comparable stages to rank</span></div><div id="tatTeamRecognition" class="recognition-list"></div></section>
-      <section id="tatPeopleRecognitionSection" hidden><div class="stage-summary-heading"><h2>Individual breakdown</h2><span>Management and IT only</span></div><div id="tatPeopleRecognition" class="recognition-list"></div></section>
+      <header class="recognition-header"><div><p class="eyebrow">Recognition</p><h2>Monthly recognition</h2><p>See your on-time performance and how your role is doing this month.</p></div><label class="recognition-period"><span>Month</span><input id="tatRecognitionPeriod" type="month" aria-label="Recognition month"></label><p id="tatRecognitionUpdated" class="recognition-updated" aria-live="polite"></p></header>
+      <section id="tatPersonalRecognition" class="recognition-personal" aria-label="Your result this month"></section>
+      <section class="recognition-standings"><div class="stage-summary-heading"><h2>Role standings</h2><span id="tatRecognitionMinimum">20 counted stages required</span></div><div id="tatTeamRecognition" class="recognition-list"></div></section>
+      <section id="tatPeopleRecognitionSection" class="recognition-standings" hidden><div class="stage-summary-heading"><h2>Individual breakdown</h2><span>Management and IT only</span></div><div id="tatPeopleRecognition" class="recognition-list"></div></section>
+      <details id="tatRecognitionTechnical" class="recognition-technical" hidden><summary>Calculation and data checks</summary><div id="tatRecognitionTechnicalContent"></div></details>
     </section>
 
     <nav id="trackerTabs" class="tabs" aria-label="Tracker views">
@@ -441,6 +441,6 @@
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
   <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=3"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=96"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=97"></script>
 </body>
 </html>

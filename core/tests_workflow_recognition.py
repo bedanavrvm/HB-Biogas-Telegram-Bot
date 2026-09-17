@@ -1,6 +1,8 @@
 from datetime import datetime
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 
@@ -12,6 +14,7 @@ from core.services.workflow_recognition import (
     _empty_tat_counts,
     _score_rows,
     portal_performance_payload,
+    tat_recognition_payload,
 )
 
 
@@ -117,3 +120,60 @@ class PortalRecognitionProjectionTests(TestCase):
         self.assertEqual(august['team_rows'][0]['credit_ready'], 1)
         self.assertEqual(september['team_rows'], [])
         self.assertEqual(august['result_status'], 'live_provisional')
+
+
+class TatRecognitionPresentationTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username='tat-recognition-user', first_name='Mary', last_name='Wanjiku',
+        )
+
+    def _sample(self, *, role='BRO', branch='Embu', product='Standard', sla_state='within_target'):
+        return {
+            'group_id': '-100tat', 'case_id': f'case-{role}-{branch}-{product}',
+            'stage_key': 'bro_review', 'role': role, 'branch': branch,
+            'product': product, 'product_key': product.lower(),
+            'person_user_id': str(self.user.pk), 'person': 'Mary Wanjiku',
+            'sla_state': sla_state, 'elapsed_minutes': 60, 'corrected': False,
+        }
+
+    @patch('core.services.tat_reporting._metric_scope_q', return_value=Q())
+    @patch('core.services.tat_reporting._stage_samples')
+    def test_ordinary_payload_is_structured_without_technical_methodology(self, stage_samples, _scope):
+        stage_samples.return_value = [self._sample() for _ in range(20)]
+
+        payload = tat_recognition_payload(self.user, period='2026-09', include_people=False)
+
+        row = payload['team_rows'][0]
+        self.assertEqual((row['role'], row['branch'], row['product']), ('BRO', 'Embu', 'Standard'))
+        self.assertTrue(row['ranked'])
+        self.assertEqual(row['rank'], 1)
+        self.assertEqual(row['on_time_rate'], 100.0)
+        self.assertTrue(row['key'].startswith('cohort-'))
+        self.assertNotIn('-100tat', row['key'])
+        self.assertFalse(payload['technical_details_visible'])
+        self.assertIsNone(payload['methodology'])
+        self.assertEqual(payload['people_rows'], [])
+        self.assertNotIn('formula', payload)
+
+    @patch('core.services.tat_reporting._metric_scope_q', return_value=Q())
+    @patch('core.services.tat_reporting._stage_samples')
+    def test_management_payload_keeps_multiple_cohorts_and_one_audit_summary(self, stage_samples, _scope):
+        stage_samples.return_value = (
+            [self._sample() for _ in range(20)]
+            + [self._sample(role='CA', branch='Nakuru', product='HOCC') for _ in range(19)]
+            + [self._sample(role='CA', branch='Nakuru', product='HOCC', sla_state='target_unavailable')]
+        )
+
+        payload = tat_recognition_payload(self.user, period='2026-09', include_people=True)
+
+        self.assertEqual(len(payload['personal_rows']), 2)
+        by_role = {row['role']: row for row in payload['personal_rows']}
+        self.assertTrue(by_role['BRO']['ranked'])
+        self.assertFalse(by_role['CA']['ranked'])
+        self.assertEqual(by_role['CA']['completed'], 19)
+        self.assertEqual(by_role['CA']['excluded_target_unavailable'], 1)
+        self.assertTrue(payload['technical_details_visible'])
+        self.assertTrue(payload['people_visible'])
+        self.assertIn('Wilson', payload['methodology']['score_method'])
+        self.assertEqual(payload['methodology']['excluded_target_unavailable'], 1)

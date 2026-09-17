@@ -856,7 +856,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Ready for my role', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=96", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=97", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -894,10 +894,11 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-sheet-overlay', stylesheet)
         self.assertIn('class="notice-close tat-sheet-close"', template)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
-        self.assertIn("miniapp/tat_tracker.css' %}?v=64", template)
+        self.assertIn("miniapp/tat_tracker.css' %}?v=65", template)
         self.assertIn('id="tatGridZoom"', template)
         self.assertIn('id="tatGridZoomOut"', template)
         self.assertIn('id="tatGridZoomReset"', template)
+
         self.assertIn('id="tatGridZoomIn"', template)
         self.assertIn('miniapp/ag_grid_zoom.js', template)
         self.assertIn("miniapp/ag_grid_zoom.js' %}?v=3", template)
@@ -927,6 +928,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertNotIn('Pending BRO application', source)
         self.assertIn("appendTargetInput(grid, 'Total target (optional)'", source)
         self.assertIn("'Sum of stages'", source)
+
         self.assertIn('id="tatReportMetrics"', template)
         self.assertIn("show('dashboard');", source)
         self.assertIn('.home-queue-tabs {', stylesheet)
@@ -944,6 +946,17 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.queue-pagination', stylesheet)
         self.assertNotIn('.tat-business-time', stylesheet)
         self.assertIn('.check-label[hidden]', stylesheet)
+
+    def test_recognition_uses_plain_mobile_contract_and_existing_failure_boundary(self):
+        source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
+        template = Path('core/templates/tat_tracker/app.html').read_text(encoding='utf-8')
+
+        self.assertIn('Monthly recognition', template)
+        self.assertIn('Your result this month', source)
+        self.assertIn('No counted stages for this month', source)
+        self.assertIn("$('tatRecognitionPeriod').addEventListener('change', () => loadTatRecognition().catch(presentTatError))", source)
+        self.assertIn('role="progressbar" aria-label="Ranking eligibility"', source)
+        self.assertIn('Calculation and data checks', template)
 
     def test_tat_report_ui_reuses_vendored_grid_and_compact_correction_actions(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')

@@ -1461,27 +1461,77 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
 .task-inbox-heading button { width: 32px; min-width: 32px; min-height: 32px; padding: 0; font-size: 20px; }
 .task-inbox-list { display: grid; gap: 6px; padding: 0 8px 8px; }
 .recognition-view { gap: 10px; }
-.recognition-view input[type="month"] { width: 132px; min-height: 34px; padding: 5px 7px; border: 1px solid var(--tat-line); border-radius: 8px; background: var(--tat-surface); color: var(--tat-text); font-size: 10px; }
-.recognition-formula { margin: 0; padding: 8px 9px; border-radius: 8px; background: var(--tat-surface-2); color: var(--tat-muted); font-size: 9px; line-height: 1.4; }
-.recognition-personal { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; padding: 10px; border: 1px solid color-mix(in srgb, var(--tat-accent) 35%, var(--tat-line)); border-radius: 10px; background: color-mix(in srgb, var(--tat-accent) 6%, var(--tat-surface)); }
-.recognition-personal > span, .recognition-personal > small { color: var(--tat-muted); font-size: 9px; }
-.recognition-personal > strong { color: var(--tat-accent); font-size: 14px; }
-.recognition-personal > small { grid-column: 1 / -1; }
-.recognition-personal-cohort { display: grid; grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; padding-top: 6px; border-top: 1px solid var(--tat-line); }
-.recognition-personal-cohort:first-of-type { padding-top: 0; border-top: 0; }
-.recognition-personal-cohort > span, .recognition-personal-cohort > small { color: var(--tat-muted); font-size: 9px; }
-.recognition-personal-cohort > strong { color: var(--tat-accent); font-size: 12px; text-align: right; }
-.recognition-personal-cohort > small { grid-column: 1 / -1; }
+.recognition-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 4px 10px; }
+.recognition-header h2, .recognition-header p { margin: 0; }
+.recognition-header h2 { font-size: 18px; line-height: 1.2; }
+.recognition-header > div > p:last-child { max-width: 430px; margin-top: 3px; color: var(--tat-muted); font-size: 12px; line-height: 1.35; }
+.recognition-period { display: grid; gap: 2px; color: var(--tat-muted); font-size: 11px; font-weight: 700; }
+.recognition-period input[type="month"] { width: 132px; min-height: 36px; padding: 5px 7px; border: 1px solid var(--tat-line); border-radius: 8px; background: var(--tat-surface); color: var(--tat-text); font-size: 12px; }
+.recognition-updated { grid-column: 1 / -1; min-height: 15px; color: var(--tat-muted); font-size: 11px; }
+.recognition-personal { display: grid; gap: 7px; }
+.recognition-section-heading h3 { margin: 0; color: var(--tat-text); font-size: 13px; }
+.recognition-result-card { display: grid; gap: 8px; padding: 10px; border: 1px solid color-mix(in srgb, var(--tat-accent) 35%, var(--tat-line)); border-radius: 10px; background: color-mix(in srgb, var(--tat-accent) 6%, var(--tat-surface)); }
+.recognition-result-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.recognition-result-card header > div { min-width: 0; }
+.recognition-result-card header strong { display: block; overflow: hidden; color: var(--tat-text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.recognition-result-rank { flex: 0 0 auto; padding: 3px 7px; border: 1px solid color-mix(in srgb, var(--tat-accent) 35%, var(--tat-line)); border-radius: 999px; color: var(--tat-accent); font-size: 11px; font-weight: 800; white-space: nowrap; }
+.recognition-context { display: flex; min-width: 0; gap: 4px; margin-top: 3px; }
+.recognition-context span { overflow: hidden; min-width: 0; padding: 2px 5px; border-radius: 999px; background: var(--tat-surface-2); color: var(--tat-muted); font-size: 11px; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+.recognition-result-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--tat-line); border-radius: 8px; background: var(--tat-surface); }
+.recognition-result-metrics span { min-width: 0; padding: 7px 4px; text-align: center; }
+.recognition-result-metrics span + span { border-left: 1px solid var(--tat-line); }
+.recognition-result-metrics small, .recognition-result-metrics b { display: block; }
+.recognition-result-metrics small { overflow: hidden; color: var(--tat-muted); font-size: 11px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.recognition-result-metrics b { margin-top: 2px; color: var(--tat-text); font-size: 16px; }
+.recognition-progress-label { display: grid; gap: 2px; color: var(--tat-muted); font-size: 11px; }
+.recognition-progress-label strong { color: var(--tat-text); font-size: 11px; font-weight: 650; }
+.recognition-progress { overflow: hidden; height: 6px; border-radius: 999px; background: var(--tat-surface-2); }
+.recognition-progress span { display: block; height: 100%; border-radius: inherit; background: var(--tat-accent); }
+.recognition-standings { display: grid; gap: 6px; }
+.recognition-standings[hidden], .recognition-technical[hidden] { display: none; }
+.recognition-standings .stage-summary-heading { align-items: end; }
+.recognition-standings .stage-summary-heading h2 { font-size: 14px; }
+.recognition-standings .stage-summary-heading span { font-size: 11px; }
 .recognition-list { overflow: hidden; border: 1px solid var(--tat-line); border-radius: 10px; background: var(--tat-surface); }
-.recognition-row { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; align-items: center; gap: 7px; min-height: 50px; padding: 7px 9px; border-bottom: 1px solid var(--tat-line); }
+.recognition-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) 48px; align-items: center; gap: 7px; min-height: 68px; padding: 7px 9px; border-bottom: 1px solid var(--tat-line); }
 .recognition-row:last-child { border-bottom: 0; }
-.recognition-row.unranked { opacity: .72; }
-.recognition-row > span:nth-child(2), .recognition-row strong, .recognition-row small { display: block; min-width: 0; }
-.recognition-row strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.recognition-row small { margin-top: 2px; color: var(--tat-muted); font-size: 8px; }
-.recognition-rank { color: var(--tat-accent); font-size: 9px; font-weight: 850; }
-.recognition-row > b { color: var(--tat-text); font-size: 14px; text-align: right; }
-.recognition-row > b small { text-align: right; }
+.recognition-row.unranked { background: color-mix(in srgb, var(--tat-surface-2) 55%, transparent); }
+.recognition-rank { display: grid; width: 42px; height: 42px; place-content: center; border: 1px solid var(--tat-line); border-radius: 50%; color: var(--tat-accent); text-align: center; }
+.recognition-rank b, .recognition-rank small { display: block; }
+.recognition-rank b { font-size: 13px; }
+.recognition-rank small { color: var(--tat-muted); font-size: 11px; line-height: 1; }
+.recognition-rank.unranked { border-style: dashed; }
+.recognition-rank.unranked small { max-width: 38px; line-height: 1.05; }
+.recognition-rank.podium-1 { border-color: #d7a916; background: color-mix(in srgb, #d7a916 13%, var(--tat-surface)); color: #8a6700; }
+.recognition-rank.podium-2 { border-color: #94a3b8; background: color-mix(in srgb, #94a3b8 13%, var(--tat-surface)); color: var(--tat-text); }
+.recognition-rank.podium-3 { border-color: #b77943; background: color-mix(in srgb, #b77943 13%, var(--tat-surface)); color: #8a4f24; }
+.recognition-row-main { min-width: 0; }
+.recognition-row-main > strong { display: -webkit-box; overflow: hidden; color: var(--tat-text); font-size: 12px; line-height: 1.25; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.recognition-row-metrics { display: flex; flex-wrap: wrap; gap: 3px 8px; margin-top: 4px; color: var(--tat-muted); font-size: 11px; }
+.recognition-row-metrics b { color: var(--tat-text); }
+.recognition-score { display: grid; justify-items: end; min-width: 0; text-align: right; }
+.recognition-score b { color: var(--tat-text); font-size: 15px; }
+.recognition-score small { color: var(--tat-muted); font-size: 11px; }
+.recognition-empty { padding: 14px 10px; color: var(--tat-muted); font-size: 12px; text-align: center; }
+.recognition-empty strong { font-weight: 600; }
+.recognition-technical { border: 1px solid var(--tat-line); border-radius: 10px; background: var(--tat-surface); }
+.recognition-technical summary { padding: 10px; color: var(--tat-text); font-size: 12px; font-weight: 750; cursor: pointer; }
+.recognition-technical > div { display: grid; gap: 7px; padding: 0 10px 10px; border-top: 1px solid var(--tat-line); }
+.recognition-technical p { margin: 7px 0 0; color: var(--tat-muted); font-size: 11px; line-height: 1.4; }
+.recognition-data-checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin: 2px 0 0; }
+.recognition-data-checks div { display: flex; justify-content: space-between; gap: 6px; padding: 6px; border-radius: 7px; background: var(--tat-surface-2); }
+.recognition-data-checks dt, .recognition-data-checks dd { margin: 0; font-size: 11px; }
+.recognition-data-checks dt { color: var(--tat-muted); }
+.recognition-data-checks dd { color: var(--tat-text); font-weight: 800; }
+@media (max-width: 360px) {
+  .recognition-header { grid-template-columns: 124px minmax(0, 1fr); }
+  .recognition-header > div { grid-column: 1 / -1; }
+  .recognition-period input[type="month"] { width: 124px; }
+  .recognition-updated { grid-column: 2; align-self: end; padding-bottom: 2px; text-align: right; }
+  .recognition-result-metrics small { white-space: normal; }
+  .recognition-row { grid-template-columns: 44px minmax(0, 1fr) 42px; gap: 5px; padding-inline: 7px; }
+  .recognition-rank { width: 38px; height: 38px; }
+}
 .task-inbox-card {
   width: 100%;
   min-height: 52px;

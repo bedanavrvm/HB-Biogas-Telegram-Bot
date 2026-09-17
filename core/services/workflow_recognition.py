@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date
 from calendar import monthrange
+from hashlib import sha256
 from math import sqrt
 from statistics import median
 
@@ -229,18 +230,16 @@ def tat_recognition_payload(user, *, period: str = '', include_people: bool = Fa
         person_key = assigned[0] if assigned else str(sample.get('person_user_id') or f'label:{sample.get("person") or "Unassigned"}')
         person_label = assigned[1] if assigned else str(sample.get('person') or 'Unassigned')
         role = str(sample.get('role') or 'Unassigned')
-        cohort = ' · '.join(filter(None, [
-            role,
-            str(sample.get('branch') or 'Unassigned'),
-            str(sample.get('product') or sample.get('product_key') or 'Unassigned'),
-        ]))
+        branch = str(sample.get('branch') or 'Unassigned')
+        product = str(sample.get('product') or sample.get('product_key') or 'Unassigned')
+        cohort = ' · '.join((role, branch, product))
         cohort_key = '|'.join([
             str(sample.get('group_id') or ''), str(sample.get('branch') or ''),
             str(sample.get('product_key') or ''), role,
         ])
         for target in (
-            people[(person_key, person_label, cohort, cohort_key)],
-            roles[(cohort_key, cohort)],
+            people[(person_key, person_label, cohort, role, branch, product)],
+            roles[(cohort_key, role, branch, product)],
         ):
             _accumulate_tat_sample(target, sample, attribution_fallback=not bool(assigned))
 
@@ -248,35 +247,56 @@ def tat_recognition_payload(user, *, period: str = '', include_people: bool = Fa
         result = []
         for key, counts in source.items():
             if names:
-                identity, display, cohort, _cohort_key = key
+                identity, display, rank_group, role, branch, product = key
             else:
-                identity, display = key
-                cohort = display
+                raw_cohort_key, role, branch, product = key
+                identity = f'cohort-{sha256(raw_cohort_key.encode("utf-8")).hexdigest()[:12]}'
+                display = role
+                rank_group = ''
+            cohort = ' · '.join((role, branch, product))
             completed = counts['completed']
             durations = counts.get('_durations') or []
             public_counts = {key: value for key, value in counts.items() if not key.startswith('_')}
             result.append({
                 'key': str(identity), 'label': display, 'cohort': str(cohort), **public_counts,
+                'role': role, 'branch': branch, 'product': product,
+                '_rank_group': rank_group,
                 'on_time_rate': round(counts['on_time'] * 100 / completed, 1) if completed else 0,
                 'median_minutes': round(median(durations), 1) if durations else None,
             })
-        return _score_rows(
+        scored = _score_rows(
             result, quality_key='on_time_rate', volume_key='completed', success_key='on_time',
-            rank_group_key='cohort' if names else '',
+            rank_group_key='_rank_group' if names else '',
         )
+        for row in scored:
+            row.pop('_rank_group', None)
+        return scored
 
+    team_rows = rows(roles)
     person_rows = rows(people, names=True)
     personal_rows = [row for row in person_rows if row['key'] == str(user.pk)]
     personal = personal_rows[0] if len(personal_rows) == 1 else None
+    methodology = None
+    if include_people:
+        methodology = {
+            'score_method': 'The performance score is the 95% Wilson lower bound for on-time completion. It rewards consistent results without overstating small samples.',
+            'cohort_basis': 'Role standings are grouped by workflow group, branch, product, and role. Individual comparisons use the same role, branch, and product.',
+            'correction_policy': 'Audited timestamp corrections update live results retrospectively. These results are not permanent awards.',
+            'late_work_policy': 'Recovered overdue work remains visible in data checks but does not count as on time.',
+            'completed_total': sum(int(row.get('completed_total') or 0) for row in team_rows),
+            'counted_total': sum(int(row.get('completed') or 0) for row in team_rows),
+            'excluded_target_unavailable': sum(int(row.get('excluded_target_unavailable') or 0) for row in team_rows),
+            'corrected': sum(int(row.get('corrected') or 0) for row in team_rows),
+            'attribution_fallback': sum(int(row.get('attribution_fallback') or 0) for row in team_rows),
+            'overdue_recovered': sum(int(row.get('overdue_recovered') or 0) for row in team_rows),
+        }
     return {
         'period': label, 'minimum_ranked_sample': MINIMUM_RANKED_SAMPLE,
         'calculated_at': timezone.now().isoformat(),
         'result_status': 'live_provisional',
-        'formula': 'Conservative on-time quality score (95% Wilson lower bound); completed-stage volume is context only',
-        'cohort_basis': 'Like-for-like role, branch, product, and workflow-group cohorts; individual results are attributed to the task primary owner, then the recorded actor only when no routed owner exists',
-        'revision_policy': 'Live results include audited timestamp corrections and can change retrospectively. They are not permanent awards.',
-        'late_credit_policy': 'No partial credit: recovered overdue work remains visible but does not count as on time.',
-        'team_rows': rows(roles), 'personal': personal, 'personal_rows': personal_rows,
+        'team_rows': team_rows, 'personal': personal, 'personal_rows': personal_rows,
         'people_rows': person_rows if include_people else [],
         'people_visible': bool(include_people),
+        'technical_details_visible': bool(include_people),
+        'methodology': methodology,
     }
