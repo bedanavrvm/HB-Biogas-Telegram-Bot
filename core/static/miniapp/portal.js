@@ -79,6 +79,9 @@
   let caseHistoryLoadVersion = 0;
   let farmerSheetOpenVersion = 0;
   const CASE_HISTORY_WATCHDOG_MS = 22000;
+  const NOTIFICATION_FOCUS_MS = 6500;
+  let notificationQueueFocus = null;
+  let notificationQueueFocusTimer = null;
 
   async function fetchDashboardPayload({ force = false, maxAgeMs = 15000 } = {}) {
     if (!force && state.dashboard && Date.now() - dashboardFetchedAt < maxAgeMs) {
@@ -179,7 +182,41 @@
     return isCurrentScreen(page) && queueLoadVersions.get(page) === version;
   }
 
+  function clearNotificationQueueFocus() {
+    if (notificationQueueFocusTimer !== null) window.clearTimeout(notificationQueueFocusTimer);
+    notificationQueueFocusTimer = null;
+    document.querySelectorAll('.farmer-card.notification-focus').forEach(card => {
+      card.classList.remove('notification-focus');
+      if (card.dataset.notificationFocusTabindexAdded === 'true') {
+        card.removeAttribute('tabindex');
+        delete card.dataset.notificationFocusTabindexAdded;
+      }
+    });
+    notificationQueueFocus = null;
+  }
+
+  function removeNotificationFocusParams() {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('focus') && !params.has('attention')) return;
+    params.delete('focus');
+    params.delete('attention');
+    const query = params.toString();
+    window.history.replaceState(window.history.state, '', window.location.pathname + (query ? `?${query}` : '') + window.location.hash);
+  }
+
+  function hasActiveNotificationQueueFocus(qKey = '') {
+    if (!notificationQueueFocus) return false;
+    if (notificationQueueFocus.expiresAt && Date.now() >= notificationQueueFocus.expiresAt) {
+      clearNotificationQueueFocus();
+      return false;
+    }
+    return !qKey || notificationQueueFocus.qKey === qKey;
+  }
+
   function unmountPreviousScreen(nextPage) {
+    if (notificationQueueFocus && notificationQueueFocus.qKey !== nextPage) {
+      clearNotificationQueueFocus();
+    }
     // Chart.js owns canvas resources that must be released when the Reports
     // screen is actually left. Report editor steps are separate URLs, but are
     // still one live Reports workspace: tearing it down between Fields,
@@ -769,22 +806,45 @@
   }
 
   function focusRequestedQueueCard(qKey, listEl) {
-    const params = new URLSearchParams(window.location.search);
-    const farmerId = params.get('focus');
-    if (!farmerId || params.get('attention') !== '1') return;
+    if (!notificationQueueFocus) {
+      const params = new URLSearchParams(window.location.search);
+      const farmerId = params.get('focus');
+      if (!farmerId || params.get('attention') !== '1') return;
+      notificationQueueFocus = {
+        qKey,
+        farmerId,
+        expiresAt: 0,
+        announced: false,
+      };
+    }
+    if (!hasActiveNotificationQueueFocus(qKey)) return;
+    const { farmerId } = notificationQueueFocus;
     const card = [...listEl.querySelectorAll('[data-farmer-id]')].find(item => String(item.dataset.farmerId) === farmerId);
-    if (!card) return;
+    if (!card) {
+      clearNotificationQueueFocus();
+      removeNotificationFocusParams();
+      return;
+    }
+    if (!notificationQueueFocus.expiresAt) {
+      notificationQueueFocus.expiresAt = Date.now() + NOTIFICATION_FOCUS_MS;
+      removeNotificationFocusParams();
+    }
     card.classList.add('notification-focus');
-    card.setAttribute('tabindex', '-1');
-    window.requestAnimationFrame(() => {
-      card.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
-      card.focus({ preventScroll: true });
-    });
-    window.setTimeout(() => card.classList.remove('notification-focus'), 6500);
-    params.delete('focus');
-    params.delete('attention');
-    const query = params.toString();
-    window.history.replaceState(window.history.state, '', window.location.pathname + (query ? `?${query}` : '') + window.location.hash);
+    if (!card.hasAttribute('tabindex')) {
+      card.setAttribute('tabindex', '-1');
+      card.dataset.notificationFocusTabindexAdded = 'true';
+    }
+    if (!notificationQueueFocus.announced) {
+      notificationQueueFocus.announced = true;
+      window.requestAnimationFrame(() => {
+        if (!card.isConnected || !hasActiveNotificationQueueFocus(qKey)) return;
+        card.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+        card.focus({ preventScroll: true });
+      });
+    }
+    if (notificationQueueFocusTimer !== null) window.clearTimeout(notificationQueueFocusTimer);
+    const remaining = Math.max(0, notificationQueueFocus.expiresAt - Date.now());
+    notificationQueueFocusTimer = window.setTimeout(clearNotificationQueueFocus, remaining);
   }
 
   function portalPerformanceRow(item) {
@@ -1465,6 +1525,9 @@
   // the selected card against the canonical detail endpoint before rendering.
   async function openCurrentFarmerSheet(farmer, mode) {
     if (!farmer || !farmer.id) return;
+    if (notificationQueueFocus && String(notificationQueueFocus.farmerId) === String(farmer.id)) {
+      clearNotificationQueueFocus();
+    }
     const openVersion = ++farmerSheetOpenVersion;
     const sourceRoot = currentScreenRoot();
     if (queueConfig[state.activePage]) portalFilters.rememberSelection?.(state.activePage, farmer.id);
@@ -2141,7 +2204,10 @@
       runtime.createVisibleInterval(function () {
         if (!state.lastRefreshedAt || Date.now() - state.lastRefreshedAt < 30000) return;
         if (state.activePage === 'dashboard') return loadDashboard({ skipIfBusy: true });
-        if (queueConfig[state.activePage]) return loadQueue(state.activePage, state.pages[state.activePage] || 1, { preserveView: true, skipIfBusy: true });
+        if (queueConfig[state.activePage]) {
+          if (hasActiveNotificationQueueFocus(state.activePage)) return;
+          return loadQueue(state.activePage, state.pages[state.activePage] || 1, { preserveView: true, skipIfBusy: true });
+        }
       }, 60000, { immediateOnResume: true });
       runtime.createVisibleInterval(updatePortalContext, 10000, { immediateOnResume: true });
     } else {
@@ -2171,9 +2237,11 @@
       navigateTo(initialPage);
       return;
     }
-    lastShellScreen = routeSignature(shellScreen);
+    const shellSignature = routeSignature(shellScreen);
+    const alreadyActivated = lastShellScreen === shellSignature;
+    lastShellScreen = shellSignature;
     switchPage(shellScreen);
-    runScreenLoader(shellScreen);
+    if (!alreadyActivated) runScreenLoader(shellScreen);
     if (window.lucide) {
       window.lucide.createIcons();
     }

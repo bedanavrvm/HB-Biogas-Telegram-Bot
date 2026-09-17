@@ -4,7 +4,7 @@ const { test, expect } = require('playwright/test');
 const asset = name => path.resolve(__dirname, '../static/miniapp', name);
 const queueIds = { jbl: 'jbl-list', credit: 'credit-list', final: 'final-list', requisition: 'req-list', deferred: 'deferred-list', my_visits: 'my-visits-list', all: 'all-list' };
 
-async function boot(page, queue, serverCards = false, capabilities = null) {
+async function boot(page, queue, serverCards = false, capabilities = null, options = {}) {
   await page.setViewportSize({ width: 390, height: 740 });
   await page.route('http://miniapp.test/**', route => {
     const url = new URL(route.request().url());
@@ -13,18 +13,22 @@ async function boot(page, queue, serverCards = false, capabilities = null) {
     }
     return route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Portal queue</title>' });
   });
-  await page.goto(`http://miniapp.test/portal/s/${queue}/`);
+  const focusQuery = options.notificationFocus ? '?focus=case-1&attention=1' : '';
+  await page.goto(`http://miniapp.test/portal/s/${queue}/${focusQuery}`);
   await page.setContent(`<main id="content" style="height:600px;overflow:auto"><div id="portal-screen" data-screen="${queue}" data-top-level="true"><section id="page-${queue}" class="page active">
-    <input data-portal-queue-search value=""><div id="requisition-batch-panel"><span id="batch-selected-count"></span><input type="date" id="batch-req-date"><button id="btn-generate-requisition">Prepare selected batch</button><button id="batch-clear-selection">Clear selection</button></div>
+    <input data-portal-queue-search value=""><button type="button" data-queue-refresh="${queue}">Refresh</button><div id="requisition-batch-panel"><span id="batch-selected-count"></span><input type="date" id="batch-req-date"><button id="btn-generate-requisition">Prepare selected batch</button><button id="batch-clear-selection">Clear selection</button></div>
     <div style="height:450px"></div><div id="${queueIds[queue]}"></div><div style="height:700px"></div></section></div>
     <div class="sheet-overlay" id="sheet-overlay"><div id="sheet-navigation"><button id="sheet-back"><span></span></button></div><div id="sheet-avatar"></div><div id="sheet-header-state"></div><div id="sheet-header-status"></div><button id="sheet-close" class="sheet-close-button"></button><h2 id="sheet-name"></h2><p id="sheet-sub"></p><ul id="sheet-info"></ul><div class="sheet-quick-actions"><section id="sheet-client-media"></section><a id="case360-toggle"></a></div><div id="sheet-gate-warning"></div><div id="sheet-form"></div><div id="sheet-footer"></div></div>
     <div class="sheet-overlay" id="media-viewer-overlay"><button class="sheet-close-button" id="media-viewer-close">Close media</button></div></main><div id="toast"></div>`);
   await page.addStyleTag({ content: '.sheet-overlay{display:none}.sheet-overlay.open{display:block}.farmer-card{padding:12px;border:1px solid #ddd;cursor:pointer}.sheet-close-button{width:28px;height:28px}' });
   for (const name of ['utils.js', 'components.js', 'portal_helpers.js', 'portal_queues.js', 'portal_filters.js', 'portal_case_navigation.js', 'portal_farmer_sheet.js', 'portal_requisitions.js']) await page.addScriptTag({ path: asset(name) });
-  await page.evaluate(({ serverCards, capabilities }) => {
+  await page.evaluate(({ serverCards, capabilities, delayMeta }) => {
     window.__writes = [];
     window.__revision = 7;
     window.__backHandler = null;
+    window.__fragmentLoads = 0;
+    window.__notificationScrolls = 0;
+    Element.prototype.scrollIntoView = function () { window.__notificationScrolls += 1; };
     window.Telegram = { WebApp: { ready() {}, expand() {}, onEvent() {}, BackButton: {
       onClick(fn) { window.__backHandler = fn; }, offClick() {}, show() {}, hide() {},
     } } };
@@ -34,23 +38,53 @@ async function boot(page, queue, serverCards = false, capabilities = null) {
     window.PortalMiniAppApi = {
       initDataHeader: () => ({}),
       apiFetch: async url => {
-        if (url === '/meta/') return { ok: true, data: { ok: true, capabilities: capabilities || ['portal.case.read', 'portal.requisition.write', 'portal.requisition.finalize', 'portal.requisition.view', 'portal.jbl_queue.view', 'portal.jbl_followup.view', 'portal.credit_queue.view', 'portal.final_review.view', 'portal.deferred.view', 'portal.jbl_visit.write', 'portal.credit.write', 'portal.final_review.write'], access_policy_version: 1 } };
+        if (url === '/meta/') {
+          const response = { ok: true, data: { ok: true, capabilities: capabilities || ['portal.case.read', 'portal.requisition.write', 'portal.requisition.finalize', 'portal.requisition.view', 'portal.jbl_queue.view', 'portal.jbl_followup.view', 'portal.credit_queue.view', 'portal.final_review.view', 'portal.deferred.view', 'portal.jbl_visit.write', 'portal.credit.write', 'portal.final_review.write'], access_policy_version: 1 } };
+          if (!delayMeta) return response;
+          return new Promise(resolve => { window.__resolvePortalMeta = () => resolve(response); });
+        }
         if (url === '/settings/') return { ok: true, data: { ok: true, data: {} } };
         if (url.startsWith('/farmers/case-1/')) return { ok: true, data: { ok: true, farmer: farmer(), case360: { identity: { customer_name: 'Synthetic farmer' }, intake: {}, stages: {}, timeline: [], documents: {} } } };
         return { ok: true, data: { ok: true, farmers: [farmer()], pagination: { page: 1, pages: 1 } } };
       },
       fetchHtml: async url => {
+        window.__fragmentLoads += 1;
         const key = url.match(/\/queues\/(\w+)\//)[1];
         return `<div class="farmer-card htmx-farmer-card" data-farmer-id="case-1" data-qkey="${key}">${key === 'requisition' ? `<input type="checkbox" class="farmer-card-checkbox" data-id="case-1" data-revision="${window.__revision}">` : ''}Synthetic farmer</div>`;
       },
       postJson: async (url, payload) => { window.__writes.push({ url, payload }); return { ok: false, data: { ok: false, error: 'This case changed. Review it before preparing the order.' } }; },
     };
     if (serverCards) window.htmx = { config: {} };
-  }, { serverCards, capabilities });
+  }, { serverCards, capabilities, delayMeta: Boolean(options.delayMeta) });
   await page.addScriptTag({ path: asset('portal.js') });
+  if (options.activateDuringMeta) {
+    await page.evaluate(queueKey => window.PortalAppShell.activate(queueKey), queue);
+  }
+  if (options.delayMeta) {
+    await page.evaluate(() => window.__resolvePortalMeta());
+  }
   await page.addScriptTag({ path: asset('miniapp-nav.js') });
   await expect(page.locator('.farmer-card')).toHaveCount(1);
 }
+
+test('notification focus survives a fragment refresh without scrolling twice', async ({ page }) => {
+  await boot(page, 'final', true, null, { notificationFocus: true });
+  await expect(page.locator('.farmer-card')).toHaveClass(/notification-focus/);
+  await expect(page).not.toHaveURL(/focus=|attention=/);
+  expect(await page.evaluate(() => window.__notificationScrolls)).toBe(1);
+
+  await page.locator('[data-queue-refresh="final"]').click();
+  await expect(page.locator('.farmer-card')).toHaveClass(/notification-focus/);
+  expect(await page.evaluate(() => window.__notificationScrolls)).toBe(1);
+
+  await page.locator('.farmer-card').click();
+  await expect(page.locator('.farmer-card')).not.toHaveClass(/notification-focus/);
+});
+
+test('Portal bootstrap does not reload a route already activated by the navigation shell', async ({ page }) => {
+  await boot(page, 'final', true, null, { delayMeta: true, activateDuringMeta: true });
+  await expect.poll(() => page.evaluate(() => window.__fragmentLoads)).toBe(1);
+});
 
 test('Case History uses one compact mobile back control', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
