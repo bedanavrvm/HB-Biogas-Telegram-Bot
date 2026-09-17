@@ -1892,6 +1892,7 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
                 parsed = parse_iso_datetime(item.get('value'))
                 if not parsed:
                     raise ValueError(f'Enter {stage.label} correction as a valid date and time.')
+                validate_stage_correction_timestamp(case, product, stage, parsed)
                 value = parsed.isoformat()
                 new = format_datetime(parsed)
             else:
@@ -2547,7 +2548,7 @@ def stage_business_tat_minutes(case: TatTrackerCase, stage: StageConfig, now=Non
 
 
 def previous_stage_timestamp(case: TatTrackerCase, product: ProductConfig, stage: StageConfig):
-    previous = parse_iso_datetime((case.stage_values or {}).get('created'))
+    previous = parse_iso_datetime((case.stage_values or {}).get('created')) or case.created_at
     for current in product.stages:
         if current.key == stage.key:
             return previous
@@ -2555,6 +2556,77 @@ def previous_stage_timestamp(case: TatTrackerCase, product: ProductConfig, stage
         if value:
             previous = value
     return previous
+
+
+def stage_correction_bounds(
+    case: TatTrackerCase,
+    product: ProductConfig,
+    stage: StageConfig,
+    *,
+    now=None,
+) -> dict:
+    """Return the real chronological neighbours for a timestamp correction."""
+    current_time = now or timezone.now()
+    previous_at = parse_iso_datetime((case.stage_values or {}).get('created')) or case.created_at
+    previous_label = 'Case created'
+    next_at = None
+    next_label = ''
+    found_stage = False
+    for candidate in product.stages:
+        if candidate.key == stage.key:
+            found_stage = True
+            continue
+        completed_at = stage_completed_at(case, candidate)
+        if not found_stage:
+            if completed_at:
+                previous_at = completed_at
+                previous_label = candidate.label
+            continue
+        if completed_at:
+            next_at = completed_at
+            next_label = candidate.label
+            break
+    maximum_at = next_at if next_at and next_at < current_time else current_time
+    maximum_label = next_label if maximum_at == next_at else 'Current time'
+    return {
+        'minimum_at': previous_at,
+        'minimum_label': previous_label,
+        'next_at': next_at,
+        'next_label': next_label,
+        'maximum_at': maximum_at,
+        'maximum_label': maximum_label,
+    }
+
+
+def validate_stage_correction_timestamp(
+    case: TatTrackerCase,
+    product: ProductConfig,
+    stage: StageConfig,
+    corrected_at,
+    *,
+    now=None,
+) -> None:
+    bounds = stage_correction_bounds(case, product, stage, now=now)
+    minimum_at = bounds['minimum_at']
+    if minimum_at and corrected_at < minimum_at:
+        raise TatUpdateValidationError(
+            'tat_correction_before_previous_stage',
+            f"{stage.label} cannot be earlier than {bounds['minimum_label']} "
+            f"({format_datetime(minimum_at)}).",
+        )
+    next_at = bounds['next_at']
+    if next_at and corrected_at > next_at:
+        raise TatUpdateValidationError(
+            'tat_correction_after_next_stage',
+            f"{stage.label} cannot be later than {bounds['next_label']} "
+            f"({format_datetime(next_at)}).",
+        )
+    current_time = now or timezone.now()
+    if corrected_at > current_time:
+        raise TatUpdateValidationError(
+            'tat_correction_in_future',
+            f'{stage.label} cannot be later than the current time.',
+        )
 
 
 def stage_completed_at(case: TatTrackerCase, stage: StageConfig):
@@ -3256,7 +3328,16 @@ def serialize_case_detail(
         business_minutes = stage_business_tat_minutes(case, stage, now=calculated_at) if include_business_time else None
         target = stage_target_minutes_for_case(case, workflow, product, stage)
         certificate = case.approval_certificates.filter(stage_key=stage.key).first() if stage.requires_signature_certificate else None
-        field_payload = {'key': stage.key, 'label': stage.label, 'kind': stage.kind, 'value': display_stage_value(stage, value), 'raw_value': str(value or ''), 'editable': editable, 'can_correct': bool(value) and can_user_correct_stage(user, case, stage), 'options': list(effective_stage_options(stage)), 'role': stage.role, 'locked_reason': '' if editable or (value and can_user_correct_stage(user, case, stage)) else lock_reason(case, user, stage), 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'wall_clock_minutes': str(tat_minutes) if tat_minutes is not None else '', 'elapsed_seconds': tat_seconds, 'calculated_at': calculated_at.isoformat(), 'running': stage_tat_running(case, stage), 'target_seconds': int(target * 60) if target is not None else None, 'sla_minutes': str(tat_minutes) if tat_minutes is not None else '', 'target_minutes': str(target) if target is not None else '', 'sla_status': sla_status(tat_minutes, target), 'certificate_status': certificate.status if certificate else ''}
+        can_correct = bool(value) and can_user_correct_stage(user, case, stage)
+        field_payload = {'key': stage.key, 'label': stage.label, 'kind': stage.kind, 'value': display_stage_value(stage, value), 'raw_value': str(value or ''), 'editable': editable, 'can_correct': can_correct, 'options': list(effective_stage_options(stage)), 'role': stage.role, 'locked_reason': '' if editable or can_correct else lock_reason(case, user, stage), 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'wall_clock_minutes': str(tat_minutes) if tat_minutes is not None else '', 'elapsed_seconds': tat_seconds, 'calculated_at': calculated_at.isoformat(), 'running': stage_tat_running(case, stage), 'target_seconds': int(target * 60) if target is not None else None, 'sla_minutes': str(tat_minutes) if tat_minutes is not None else '', 'target_minutes': str(target) if target is not None else '', 'sla_status': sla_status(tat_minutes, target), 'certificate_status': certificate.status if certificate else ''}
+        if stage.kind == 'timestamp' and can_correct:
+            bounds = stage_correction_bounds(case, product, stage, now=calculated_at)
+            field_payload.update({
+                'correction_min': bounds['minimum_at'].isoformat() if bounds['minimum_at'] else '',
+                'correction_min_label': bounds['minimum_label'],
+                'correction_max': bounds['maximum_at'].isoformat() if bounds['maximum_at'] else '',
+                'correction_max_label': bounds['maximum_label'],
+            })
         if include_business_time:
             field_payload['business_minutes'] = str(business_minutes) if business_minutes is not None else ''
         fields.append(field_payload)

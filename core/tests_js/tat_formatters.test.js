@@ -14,7 +14,7 @@ assert.equal(formatters.formatNairobiDateTime(''), '');
 assert.equal(formatters.formatNairobiDate('2026-09-07'), '07-09-2026');
 assert.equal(formatters.formatNairobiDate('2026-09-06T22:30:00Z'), '07-09-2026');
 assert.equal(formatters.nairobiDateInputValue('2026-09-06T22:30:00Z'), '2026-09-07');
-assert.equal(formatters.nairobiDateTimeInputValue('2026-09-06T22:30:00Z'), '2026-09-07T01:30');
+assert.equal(formatters.nairobiDateTimeInputValue('2026-09-06T22:30:00Z'), '2026-09-07T01:30:00');
 assert.equal(formatters.nairobiDateTimeInputToIso('2026-09-07T01:30'), '2026-09-07T01:30:00+03:00');
 assert.equal(formatters.nairobiDateTimeInputToIso('not-a-date'), '');
 assert.equal(formatters.formatLocalizedNumber(12345.6, { maximumFractionDigits: 1 }), '12,345.6');

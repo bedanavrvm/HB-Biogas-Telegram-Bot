@@ -110,6 +110,15 @@ MESSAGE_CATALOG: dict[str, MiniAppMessage] = {
     "tat_update_stage_locked": MiniAppMessage(
         "Later loan-processing work has already started. Ask IT to correct this earlier outcome.", 400,
     ),
+    "tat_correction_before_previous_stage": MiniAppMessage(
+        "Choose a correction time on or after the previous completed stage.", 400,
+    ),
+    "tat_correction_after_next_stage": MiniAppMessage(
+        "Choose a correction time on or before the next completed stage.", 400,
+    ),
+    "tat_correction_in_future": MiniAppMessage(
+        "A stage correction cannot be later than the current time.", 400,
+    ),
     "tat_update_validation_failed": MiniAppMessage(
         "Review the case update and try again.", 400,
     ),

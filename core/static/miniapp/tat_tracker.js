@@ -1923,6 +1923,11 @@
     } else {
       input.type = field.kind === 'timestamp' ? 'datetime-local' : 'text';
       input.value = field.kind === 'timestamp' ? correctionDateTimeValue(current) : current;
+      if (field.kind === 'timestamp') {
+        input.step = '1';
+        if (field.correction_min) input.min = correctionDateTimeValue(field.correction_min);
+        if (field.correction_max) input.max = correctionDateTimeValue(field.correction_max);
+      }
     }
     input.setAttribute('aria-label', 'Correct ' + field.label);
     const save = document.createElement('button');
@@ -1935,14 +1940,31 @@
     cancel.textContent = 'Cancel';
     actionWrap.innerHTML = '';
     actionWrap.classList.add('correction-open');
-    actionWrap.append(input, save, cancel);
+    actionWrap.append(input);
+    if (field.kind === 'timestamp' && (field.correction_min || field.correction_max)) {
+      const bounds = document.createElement('small');
+      bounds.className = 'correction-date-bounds';
+      const minimum = field.correction_min
+        ? `${field.correction_min_label || 'previous stage'} (${formatTatDateTime(field.correction_min)})`
+        : '';
+      const maximum = field.correction_max
+        ? `${field.correction_max_label || 'current time'} (${formatTatDateTime(field.correction_max)})`
+        : '';
+      bounds.textContent = minimum && maximum
+        ? `Allowed: ${minimum} to ${maximum}.`
+        : `Allowed: ${minimum || maximum}.`;
+      actionWrap.append(bounds);
+    }
+    actionWrap.append(save, cancel);
     input.focus();
+    input.addEventListener('input', () => input.setCustomValidity(''));
     cancel.addEventListener('click', () => renderDetail(state.detail));
     save.addEventListener('click', async () => {
       if (!input.value.trim()) {
         setStatus('Enter a correction value first.', 'error');
         return;
       }
+      if (field.kind === 'timestamp' && !validateStageCorrectionDate(input, field)) return;
       save.disabled = true;
       try {
         const correctionValue = field.kind === 'timestamp' && tatFormatters.nairobiDateTimeInputToIso
@@ -1961,12 +1983,32 @@
     });
   }
 
+  function validateStageCorrectionDate(input, field) {
+    const correctionValue = tatFormatters.nairobiDateTimeInputToIso
+      ? tatFormatters.nairobiDateTimeInputToIso(input.value)
+      : '';
+    const correctedAt = correctionValue ? new Date(correctionValue) : null;
+    let message = '';
+    if (!correctedAt || Number.isNaN(correctedAt.getTime())) {
+      message = `Enter ${field.label} as a valid date and time.`;
+    } else if (field.correction_min && correctedAt < new Date(field.correction_min)) {
+      message = `${field.label} must be on or after ${field.correction_min_label || 'the previous stage'} (${formatTatDateTime(field.correction_min)}).`;
+    } else if (field.correction_max && correctedAt > new Date(field.correction_max)) {
+      message = `${field.label} must be on or before ${field.correction_max_label || 'the current time'} (${formatTatDateTime(field.correction_max)}).`;
+    }
+    input.setCustomValidity(message);
+    if (!message) return true;
+    input.reportValidity();
+    setStatus(message, 'error');
+    return false;
+  }
+
   function correctionDateTimeValue(value) {
     if (tatFormatters.nairobiDateTimeInputValue) return tatFormatters.nairobiDateTimeInputValue(value);
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return '';
     const pad = (number) => String(number).padStart(2, '0');
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
   }
 
   async function submitCaseCorrection(event) {

@@ -25,6 +25,7 @@ from core.api.views import _dispatch_tat_approval_certificate, _process_telegram
 from core.services.group_config import GroupConfig, GroupRegistry
 from core.services.tat_tracker import (
     _TAT_HEADER_CACHE,
+    TatUpdateValidationError,
     apply_side_effects,
     apply_update,
     bootstrap,
@@ -855,7 +856,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Ready for my role', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=95", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=96", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -893,7 +894,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-sheet-overlay', stylesheet)
         self.assertIn('class="notice-close tat-sheet-close"', template)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
-        self.assertIn("miniapp/tat_tracker.css' %}?v=63", template)
+        self.assertIn("miniapp/tat_tracker.css' %}?v=64", template)
         self.assertIn('id="tatGridZoom"', template)
         self.assertIn('id="tatGridZoomOut"', template)
         self.assertIn('id="tatGridZoomReset"', template)
@@ -902,7 +903,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn("miniapp/ag_grid_zoom.js' %}?v=3", template)
         self.assertIn('cellPadding: 4', source)
         self.assertIn('.tat-report-grid{--ag-cell-horizontal-padding:4px}', stylesheet)
-        self.assertIn("miniapp/tat_formatters.js' %}?v=2", template)
+        self.assertIn("miniapp/tat_formatters.js' %}?v=3", template)
         self.assertIn("storageKey: 'tat-report-grid-zoom'", source)
         self.assertIn('id="appHeader" class="app-top"', template)
         self.assertIn('class="refresh-label"', template)
@@ -4787,15 +4788,20 @@ class TatTrackerWorkflowTest(TestCase):
         case_id = detail['summary']['case_id']
         update_case(self.config, bro, case_id, [{'field': 'mpesa_to_admin', 'value': 'STAMP'}])
 
+        case = TatTrackerCase.objects.get(case_id=case_id)
+        created_at = parse_iso_datetime(case.stage_values['created'])
+        completed_at = parse_iso_datetime(case.stage_values['mpesa_to_admin'])
+        corrected_at = created_at + ((completed_at - created_at) / 2)
+
         update_case(self.config, it_user, case_id, [{
             'field': 'mpesa_to_admin',
-            'value': '2026-07-20T10:30',
+            'value': corrected_at.isoformat(),
             'correction': True,
         }])
 
         case = TatTrackerCase.objects.get(case_id=case_id)
         corrected = parse_iso_datetime(case.stage_values['mpesa_to_admin'])
-        self.assertEqual(corrected.strftime('%Y-%m-%d %H:%M'), '2026-07-20 10:30')
+        self.assertEqual(corrected, corrected_at)
         event = case.events.filter(stage_key='mpesa_to_admin').order_by('-created_at').first()
         self.assertEqual(event.source, 'admin_correction')
         self.assertIn('(Correction)', event.stage_label)
@@ -4818,15 +4824,80 @@ class TatTrackerWorkflowTest(TestCase):
         case_id = detail['summary']['case_id']
         update_case(self.config, bro, case_id, [{'field': 'mpesa_to_admin', 'value': 'STAMP'}])
 
+        case = TatTrackerCase.objects.get(case_id=case_id)
+        created_at = parse_iso_datetime(case.stage_values['created'])
+        completed_at = parse_iso_datetime(case.stage_values['mpesa_to_admin'])
+        corrected_at = created_at + ((completed_at - created_at) / 2)
+
         update_case(self.config, root_payload, case_id, [{
-            'field': 'mpesa_to_admin', 'value': '2026-07-21T11:45', 'correction': True,
+            'field': 'mpesa_to_admin', 'value': corrected_at.isoformat(), 'correction': True,
         }])
 
         case = TatTrackerCase.objects.get(case_id=case_id)
-        self.assertEqual(
-            parse_iso_datetime(case.stage_values['mpesa_to_admin']).strftime('%Y-%m-%d %H:%M'),
-            '2026-07-21 11:45',
+        self.assertEqual(parse_iso_datetime(case.stage_values['mpesa_to_admin']), corrected_at)
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_timestamp_corrections_enforce_adjacent_stage_chronology(self, sync_mock):
+        sync_mock.side_effect = self.mark_case_synced
+        bro = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+        it_user = staff_user_for_payload(self.config, {'id': 444, 'username': 'it_user'})
+        detail = create_case(self.config, bro, {
+            'product_key': 'business', 'branch': 'Nakuru', 'client_name': 'Chronology Client',
+            'national_id': '12345678', 'primary_phone': '0712345678',
+            'bro_name': 'BRO User', 'amount': '10000',
+        })
+        case = TatTrackerCase.objects.get(case_id=detail['summary']['case_id'])
+        now = timezone.now()
+        created_at = now - timedelta(hours=3)
+        first_at = now - timedelta(hours=2)
+        second_at = now - timedelta(hours=1)
+        case.stage_values = {
+            **case.stage_values,
+            'created': created_at.isoformat(),
+            'mpesa_to_admin': first_at.isoformat(),
+            'mpesa_verified': second_at.isoformat(),
+        }
+        case.save(update_fields=['stage_values'])
+
+        attempts = (
+            ('mpesa_verified', first_at - timedelta(minutes=1), 'tat_correction_before_previous_stage'),
+            ('mpesa_to_admin', second_at + timedelta(minutes=1), 'tat_correction_after_next_stage'),
+            ('mpesa_verified', now + timedelta(minutes=5), 'tat_correction_in_future'),
         )
+        for field, value, expected_code in attempts:
+            with self.subTest(expected_code=expected_code):
+                with self.assertRaises(TatUpdateValidationError) as error:
+                    update_case(self.config, it_user, case.case_id, [{
+                        'field': field, 'value': value.isoformat(), 'correction': True,
+                    }])
+                self.assertEqual(error.exception.code, expected_code)
+
+        case.refresh_from_db()
+        self.assertEqual(parse_iso_datetime(case.stage_values['mpesa_to_admin']), first_at)
+        self.assertEqual(parse_iso_datetime(case.stage_values['mpesa_verified']), second_at)
+        self.assertFalse(case.events.filter(stage_label__contains='(Correction)').exists())
+
+        corrected_fields = {
+            field['key']: field for field in get_case_detail(self.config, it_user, case.case_id)['fields']
+        }
+        self.assertEqual(corrected_fields['mpesa_to_admin']['correction_min_label'], 'Case created')
+        self.assertEqual(
+            corrected_fields['mpesa_to_admin']['correction_max_label'],
+            'MPESA verified by Business Admin and sent to CA',
+        )
+        self.assertEqual(
+            parse_iso_datetime(corrected_fields['mpesa_to_admin']['correction_max']), second_at,
+        )
+        self.assertEqual(corrected_fields['mpesa_verified']['correction_min_label'], 'MPESA sent to Admin')
+
+    def test_timestamp_correction_frontend_enforces_server_supplied_bounds(self):
+        source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
+
+        self.assertIn("input.min = correctionDateTimeValue(field.correction_min)", source)
+        self.assertIn("input.max = correctionDateTimeValue(field.correction_max)", source)
+        self.assertIn('function validateStageCorrectionDate(input, field)', source)
+        self.assertIn('input.setCustomValidity(message)', source)
+        self.assertIn("className = 'correction-date-bounds'", source)
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_assigned_role_can_change_a_dropdown_value_and_audit_the_change(self, sync_mock):

@@ -61,9 +61,9 @@
     if (!parsed) return '';
     const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
       timeZone: TAT_TIME_ZONE, day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
     }).formatToParts(parsed).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
-    return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+    return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`;
   }
 
   function nairobiDateTimeInputToIso(value) {

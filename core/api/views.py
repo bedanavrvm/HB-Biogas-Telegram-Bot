@@ -1225,6 +1225,7 @@ def tat_tracker_update(request):
             exc.code,
             workflow='tat_tracker',
             status=exc.status,
+            user_message=str(exc),
             developer_message=f'{type(exc).__name__}:{exc.code}',
             exception=exc,
         )
