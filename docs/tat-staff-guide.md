@@ -1,51 +1,39 @@
-# TAT Mini App Staff Guide
+# TAT Mini App Staff Quick Start
 
-The TAT Mini App tracks one loan case through its governed stages. Django is
-the source of truth; the Google Sheet is an operational copy. Open the app from
-the approved Telegram bot so Telegram can verify your identity.
+For the complete role-aware manual, including every screen, reports, Google
+Sheets synchronization, corrections, private alerts, Pilot mode, and detailed
+troubleshooting, read the
+[TAT Tracker Mini App User Guide](../TAT_TRACKER_MINI_APP_GUIDE.md).
 
-## Your queues
+## Daily workflow
 
-- **Ready for my role** contains every case your current role and scope permit
-  you to action, including cases whose first private alert went to a colleague.
-- **All cases** appears only when your permission includes the broader view.
+1. Open the Tracker from the approved Telegram `/tat` button.
+2. Confirm your name, role, and Pilot/Production mode.
+3. Start with **Ready for my role** and remove any unintended filters.
+4. Open a case and confirm that the highlighted stage describes an event that
+   actually occurred.
+5. Record the action once and read the complete success or warning message.
+6. Use **Remarks / Delays** for useful handover context.
+7. Refresh after returning from a long pause or following an old task link.
 
-Queue filters never expand your access. The count and Next/Previous controls
-apply to the selected queue and filters. If a refresh fails, the app retains
-the last confirmed queue instead of presenting an unverified empty list.
+## Essential rules
 
-## Create, find, and update a case
+- **Ready for my role** contains actionable in-scope work. **All cases** is a
+  broader viewing queue, not organization-wide access.
+- A matching ID or phone during creation is prior-loan context, not automatic
+  permission to duplicate or merge a loan.
+- If another user changed a case, refresh and review before submitting again.
+- Use an authorized correction action for errors; do not create a replacement
+  case.
+- A saved update remains saved when later Google Sheet publication is queued or
+  needs IT attention. Do not repeat a completed stage to repair the Sheet.
+- Pilot records are test data. Closed Pilot cycles are read-only.
+- Use the case reference when requesting support and keep customer personal
+  information out of ordinary support chats.
 
-1. Select **Create case**, then choose the product and branch before entering
-   the client details. Monetary amounts are whole KES.
-2. Review the confirmation and submit once. A retry after a slow connection is
-   safe and must not create a duplicate case.
-3. Use **Find** for case ID, client name, ID number, phone, branch, or BRO.
-4. Open the case and complete only the stage actions offered to your role.
-5. Review the confirmation before saving. The server validates the current
-   stage, permission, prerequisites, workflow mode, and revision.
+## Getting help
 
-If the app reports that the case or workflow changed, keep your entered note,
-refresh the case, review the newer values, and submit again only if still
-appropriate. Never create a second case to bypass a conflict.
-
-## Pilot, Production, and connectivity
-
-- A visible **Pilot** banner means the case is test data in the current Pilot
-  cycle. Do not treat it as an operational production case.
-- Production cases remain operational when the current test cycle changes.
-- A local save succeeds before Sheet publication. If the Sheet is unavailable,
-  do not recreate the case; report the synchronization warning to IT.
-- Switching apps or briefly losing connectivity should not invalidate the
-  confirmed server state. Reopen the Mini App and refresh.
-
-## Alerts and links
-
-In **Settings**, select **Connect private alerts** to let the bot send personal
-task links. A link may show expired or superseded when the case has moved to a
-new revision; the app redirects an authorized user to the current task when
-safe. Group alerts remain privacy-safe and must not contain customer details.
-
-Contact the JBL administrator when your role, branch, product, or private-alert
-status is wrong. Contact IT for repeated loading, Telegram, Sheet-sync, or stale
-link failures. Include the case reference and time, not customer PII in chat.
+Contact the JBL administrator for incorrect role, branch, product, or access.
+Contact IT for persistent loading, private-alert, report, download, or Google
+publication problems. Include the case reference, time, screen, action, exact
+message, and app release shown in Settings.

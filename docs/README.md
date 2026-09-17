@@ -1,8 +1,9 @@
 # Operational Documentation
 
-This directory contains the current, short-form documents that govern the
-running platform. Historical root-level summaries are context only; code,
-migrations, tests, settings, and these operational documents take precedence.
+This directory and the root manuals explicitly linked from this index contain
+current operational guidance. Unindexed historical root-level summaries are
+context only; code, migrations, tests, settings, and the indexed operational
+documents take precedence.
 
 | Document | Purpose |
 |---|---|
@@ -14,7 +15,7 @@ migrations, tests, settings, and these operational documents take precedence.
 | [Loan Origination Admin Guide](origination-admin-guide.md) | Superuser setup of products, fields, main/supporting PDFs, access, publication, testing, and troubleshooting. |
 | [Loan Origination Developer Guide](origination-developer-guide.md) | Origination architecture, models, APIs, security, versioning, local development, verification, and safe extension rules. |
 | [SPIN and TAT Pilot Modes](spin-tat-pilot-modes.md) | Superuser mode switches, protected Pilot cycles, Mini App behavior, verified Sheet cleanup, recovery, and developer scoping rules. |
-| [TAT Staff Guide](tat-staff-guide.md) | Day-one queue, case, conflict, connectivity, and alert instructions for TAT users. |
+| [TAT Staff Quick Start](tat-staff-guide.md) | Day-one TAT workflow and link to the complete role-aware [TAT Mini App User Guide](../TAT_TRACKER_MINI_APP_GUIDE.md). |
 | [TAT Access and Responsibilities](tat-access-and-responsibilities.md) | Canonical administrator guide for AccessGrant authorization and separate responsibility routing. |
 | [Staff Lifecycle Workspace](staff-lifecycle-workspace.md) | Guided direct-Superuser onboarding, access, transfer, leave, return, offboarding, optional approvals, and Telegram activation manual. |
 | [TAT Private Tasks](tat-private-tasks.md) | Private inbox, deep-link, delivery, retry, backup, and privacy behavior. |
