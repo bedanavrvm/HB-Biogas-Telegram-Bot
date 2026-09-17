@@ -807,15 +807,28 @@
     const rank = item.ranked ? `#${item.rank}` : 'Building sample';
     const detail = item.median_minutes == null ? '' : ` · median ${formatMinutes(item.median_minutes)}`;
     const recovered = item.overdue_recovered ? ` · ${item.overdue_recovered} overdue completed` : '';
-    return `<article class="recognition-row${item.ranked ? '' : ' unranked'}"><span class="recognition-rank">${escapeHtml(rank)}</span><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.completed ?? item.visits_completed ?? 0)} ${escapeHtml(volumeLabel)} · ${escapeHtml(item.on_time_rate ?? item.credit_conversion ?? 0)}% quality${escapeHtml(detail)}${escapeHtml(recovered)}</small></span><b>${escapeHtml(item.score)}<small>score</small></b></article>`;
+    const excluded = item.excluded_target_unavailable ? ` · ${item.excluded_target_unavailable} excluded (no target)` : '';
+    const corrected = item.corrected ? ` · ${item.corrected} corrected` : '';
+    const fallback = item.attribution_fallback ? ` · ${item.attribution_fallback} legacy actor fallback` : '';
+    const cohort = item.cohort && item.cohort !== item.label ? ` · ${item.cohort}` : '';
+    return `<article class="recognition-row${item.ranked ? '' : ' unranked'}"><span class="recognition-rank">${escapeHtml(rank)}</span><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.completed ?? item.visits_completed ?? 0)} comparable ${escapeHtml(volumeLabel)}${escapeHtml(cohort)} · ${escapeHtml(item.on_time_rate ?? item.credit_conversion ?? 0)}% quality${escapeHtml(detail)}${escapeHtml(recovered)}${escapeHtml(excluded)}${escapeHtml(corrected)}${escapeHtml(fallback)}</small></span><b>${escapeHtml(item.score)}<small>quality floor</small></b></article>`;
+  }
+
+  function personalRecognition(rows) {
+    return rows.map(item => {
+      const excluded = item.excluded_target_unavailable ? ` · ${item.excluded_target_unavailable} excluded because no target was configured` : '';
+      const fallback = item.attribution_fallback ? ` · ${item.attribution_fallback} used legacy actor attribution` : '';
+      return `<div class="recognition-personal-cohort"><span>${escapeHtml(item.cohort || 'Assigned role')}</span><strong>${item.ranked ? `#${escapeHtml(item.rank)} · ` : ''}${escapeHtml(item.score)} quality floor</strong><small>${escapeHtml(item.completed)} comparable stages · ${escapeHtml(item.on_time_rate)}% on time${item.ranked ? '' : ' · building sample'}${escapeHtml(excluded)}${escapeHtml(fallback)}</small></div>`;
+    }).join('');
   }
 
   function renderTatRecognition(data) {
     const payload = data || {};
-    $('tatRecognitionFormula').textContent = `${payload.formula || ''}. Recent or small samples stay visible but are not ranked.`;
-    const personal = payload.personal;
-    $('tatPersonalRecognition').hidden = !personal;
-    if (personal) $('tatPersonalRecognition').innerHTML = `<span>Your progress</span><strong>${personal.ranked ? `#${escapeHtml(personal.rank)} · ` : ''}${escapeHtml(personal.score)} score</strong><small>${escapeHtml(personal.completed)} completed · ${escapeHtml(personal.on_time_rate)}% on time${personal.ranked ? '' : ' · building sample'}</small>`;
+    const asOf = payload.calculated_at ? ` Calculated ${formatTatDateTime(payload.calculated_at)}.` : '';
+    $('tatRecognitionFormula').textContent = `${payload.formula || ''}. ${payload.cohort_basis || ''}. ${payload.revision_policy || ''}${asOf} ${payload.late_credit_policy || ''} Samples without a configured target are shown but excluded from both score and eligibility.`;
+    const personalRows = payload.personal_rows || (payload.personal ? [payload.personal] : []);
+    $('tatPersonalRecognition').hidden = !personalRows.length;
+    if (personalRows.length) $('tatPersonalRecognition').innerHTML = `<span>Your live provisional result</span>${personalRecognition(personalRows)}`;
     $('tatTeamRecognition').innerHTML = (payload.team_rows || []).map(item => recognitionRow(item, 'completed')).join('') || '<p class="chart-empty-static">No completed TAT stages are recorded for this month.</p>';
     $('tatPeopleRecognitionSection').hidden = !payload.people_visible;
     $('tatPeopleRecognition').innerHTML = (payload.people_rows || []).map(item => recognitionRow(item, 'completed')).join('');

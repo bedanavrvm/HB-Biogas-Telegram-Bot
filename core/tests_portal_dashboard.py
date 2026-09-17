@@ -85,3 +85,31 @@ class PortalActionDashboardTests(TestCase):
         self.assertEqual(metrics['credit_decisions']['last_7_days'], 1)
         self.assertEqual(metrics['final_decisions']['last_7_days'], 0)
         self.assertEqual(metrics['orders_finalized']['last_7_days'], 0)
+
+    def test_notifications_target_exact_cases_and_exclude_ordinary_deferrals(self):
+        actionable = self.farmer('Visit action', 'Nakuru')
+        self.farmer(
+            'Still deferred', 'Nakuru', workflow_state='deferred',
+            deferred_stage='jbl_visit', deferred_until=timezone.localdate() + timedelta(days=1),
+        )
+        due = self.farmer(
+            'Reappraisal action', 'Nakuru', workflow_state='deferred',
+            deferred_stage='jbl_visit', deferred_until=timezone.localdate(),
+        )
+
+        payload = dashboard_payload(None, access={'branches': ['Nakuru']})
+        notifications = {item['farmer_id']: item for item in payload['notification_items'] if item['kind'] == 'case'}
+
+        self.assertIn(str(actionable.pk), notifications)
+        self.assertIn(f'focus={actionable.pk}', notifications[str(actionable.pk)]['url'])
+        self.assertNotIn('Still deferred', {item['label'] for item in notifications.values()})
+        self.assertEqual(notifications[str(due.pk)]['detail'], '60-day deferral ended · reappraisal required')
+
+    def test_new_deferral_uses_sixty_day_policy(self):
+        from core.services.jawabu_pipeline import DEFERRAL_MAX_DAYS, _set_deferral
+
+        farmer = self.farmer('Deferred farmer', 'Nakuru')
+        _set_deferral(farmer, 'jbl_visit', 'Test User', 'deferral-policy-test')
+
+        self.assertEqual(DEFERRAL_MAX_DAYS, 60)
+        self.assertEqual(farmer.deferred_until, timezone.localdate(farmer.deferred_at) + timedelta(days=60))

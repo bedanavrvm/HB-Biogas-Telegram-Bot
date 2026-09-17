@@ -1466,6 +1466,11 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
 .recognition-personal > span, .recognition-personal > small { color: var(--tat-muted); font-size: 9px; }
 .recognition-personal > strong { color: var(--tat-accent); font-size: 14px; }
 .recognition-personal > small { grid-column: 1 / -1; }
+.recognition-personal-cohort { display: grid; grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; padding-top: 6px; border-top: 1px solid var(--tat-line); }
+.recognition-personal-cohort:first-of-type { padding-top: 0; border-top: 0; }
+.recognition-personal-cohort > span, .recognition-personal-cohort > small { color: var(--tat-muted); font-size: 9px; }
+.recognition-personal-cohort > strong { color: var(--tat-accent); font-size: 12px; text-align: right; }
+.recognition-personal-cohort > small { grid-column: 1 / -1; }
 .recognition-list { overflow: hidden; border: 1px solid var(--tat-line); border-radius: 10px; background: var(--tat-surface); }
 .recognition-row { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; align-items: center; gap: 7px; min-height: 50px; padding: 7px 9px; border-bottom: 1px solid var(--tat-line); }
 .recognition-row:last-child { border-bottom: 0; }

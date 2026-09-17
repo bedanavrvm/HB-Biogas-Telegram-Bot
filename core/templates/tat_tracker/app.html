@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=62">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=63">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}" data-task-token="{{ task_token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -112,10 +112,10 @@
     </section>
 
     <section id="recognitionView" class="view recognition-view" aria-label="TAT recognition">
-      <div class="report-title-row"><div class="dashboard-heading"><p class="eyebrow">Team-first recognition</p><h2>TAT contribution</h2><p>Compares equivalent roles using completed stages and on-time delivery.</p></div><input id="tatRecognitionPeriod" type="month" aria-label="Recognition month"></div>
+      <div class="report-title-row"><div class="dashboard-heading"><p class="eyebrow">Live team insight</p><h2>TAT contribution</h2><p>Provisional role comparisons using comparable completed stages and on-time delivery.</p></div><input id="tatRecognitionPeriod" type="month" aria-label="Recognition month"></div>
       <p id="tatRecognitionFormula" class="recognition-formula"></p>
       <section id="tatPersonalRecognition" class="recognition-personal" hidden></section>
-      <section><div class="stage-summary-heading"><h2>Role standings</h2><span>Minimum five completed stages to rank</span></div><div id="tatTeamRecognition" class="recognition-list"></div></section>
+      <section><div class="stage-summary-heading"><h2>Like-for-like role standings</h2><span>Minimum 20 comparable stages to rank</span></div><div id="tatTeamRecognition" class="recognition-list"></div></section>
       <section id="tatPeopleRecognitionSection" hidden><div class="stage-summary-heading"><h2>Individual breakdown</h2><span>Management and IT only</span></div><div id="tatPeopleRecognition" class="recognition-list"></div></section>
     </section>
 
@@ -441,6 +441,6 @@
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
   <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=3"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=94"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=95"></script>
 </body>
 </html>

@@ -225,16 +225,28 @@ def _wrong_stage_message(farmer: JawabuFarmerMaster, expected_state: str) -> str
     )
 
 
+DEFERRAL_MAX_DAYS = 60
+
+
+def effective_reappraisal_date(farmer: JawabuFarmerMaster):
+    stored = farmer.deferred_until
+    if not farmer.deferred_at:
+        return stored
+    policy_date = timezone.localdate(farmer.deferred_at) + timedelta(days=DEFERRAL_MAX_DAYS)
+    return min(stored, policy_date) if stored else policy_date
+
+
 def is_reappraisal_required(farmer: JawabuFarmerMaster, *, today=None) -> bool:
     today = today or timezone.localdate()
-    return bool(farmer.deferred_until and today >= farmer.deferred_until)
+    due = effective_reappraisal_date(farmer)
+    return bool(due and today >= due)
 
 
 def _set_deferral(farmer: JawabuFarmerMaster, stage: str, actor: str, request_id: str = '') -> None:
     now = timezone.now()
     farmer.deferred_at = now
     farmer.deferred_stage = stage
-    farmer.deferred_until = timezone.localdate(now) + timedelta(days=90)
+    farmer.deferred_until = timezone.localdate(now) + timedelta(days=DEFERRAL_MAX_DAYS)
     from core.services.jawabu_case360 import record_pipeline_event
     record_pipeline_event(
         farmer, action='deferral_started', stage_key=stage, actor=actor,
@@ -259,8 +271,12 @@ def _clear_deferral(farmer: JawabuFarmerMaster, actor: str = '', request_id: str
 
 
 def reappraisal_required_queue():
+    today = timezone.localdate()
     return JawabuFarmerMaster.objects.filter(
-        status='active', deferred_until__lte=timezone.localdate(),
+        status='active',
+    ).filter(
+        Q(deferred_until__lte=today)
+        | Q(deferred_at__date__lte=today - timedelta(days=DEFERRAL_MAX_DAYS)),
     ).order_by('deferred_until', 'customer_name')
 
 
@@ -357,7 +373,10 @@ def deferred_queue():
         Q(final_decision__in=['Rejected', 'Deferred / On Hold']) |
         Q(credit_decision__in=['Rejected', 'Deferred / On Hold']) |
         Q(jbl_visit_status__in=['Deferred / On Hold', 'Rejected by JBL', 'Cancelled', 'Client Withdrew', 'Opted for Cash'])
-    ).exclude(deferred_until__lte=timezone.localdate()).order_by('-updated_at')
+    ).exclude(
+        Q(deferred_until__lte=timezone.localdate())
+        | Q(deferred_at__date__lte=timezone.localdate() - timedelta(days=DEFERRAL_MAX_DAYS)),
+    ).order_by('-updated_at')
 
 def all_cases(search: str = '', county: str = '', branch: str = '', status: str = ''):
     """

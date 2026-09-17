@@ -4279,7 +4279,7 @@ class JawabuIntegrityRulesTests(TestCase):
         candidate.refresh_from_db()
         self.assertEqual(candidate.jbl_visit_status, '')
 
-    def test_reappraisal_starts_at_beginning_of_day_91(self):
+    def test_reappraisal_starts_on_the_configured_due_date(self):
         from core.services.jawabu_pipeline import is_reappraisal_required
 
         farmer = JawabuFarmerMaster(deferred_until=timezone.localdate() + timedelta(days=1))

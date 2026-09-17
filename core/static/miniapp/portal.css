@@ -204,6 +204,10 @@
 .portal-notification-row small { margin-top:2px; color:var(--text-muted); font-size:9px; text-transform:capitalize; }
 .portal-notification-row b { display:grid; min-width:26px; height:26px; place-items:center; border-radius:999px; background:var(--color-soft); color:var(--brand-primary); font-size:10px; }
 .portal-notification-row svg { width:15px; }
+.portal-notification-row.urgent { border-left:3px solid var(--color-danger); }
+.farmer-card.notification-focus { outline:3px solid var(--brand-primary); outline-offset:2px; background:color-mix(in srgb,var(--brand-primary) 10%,var(--bg-surface)); animation:portal-notification-focus 1s ease-in-out 3; }
+@keyframes portal-notification-focus { 50% { outline-width:5px; background:color-mix(in srgb,var(--brand-primary) 18%,var(--bg-surface)); } }
+@media (prefers-reduced-motion: reduce) { .farmer-card.notification-focus { animation:none; } }
 .portal-connection-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: var(--portal-status-success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--portal-status-success) 15%, transparent); }
 .portal-connection-dot.is-offline { background: var(--portal-status-danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--portal-status-danger) 15%, transparent); }
 #portal-freshness { flex: 0 0 auto; white-space: nowrap; }
@@ -4246,6 +4250,11 @@ body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-s
 .performance-personal>span,.performance-personal>small { color:var(--text-muted); font-size:10px; }
 .performance-personal>strong { color:var(--brand-primary); font-size:15px; }
 .performance-personal>small { grid-column:1/-1; }
+.performance-personal-cohort { display:grid; grid-column:1/-1; grid-template-columns:minmax(0,1fr) auto; gap:2px 8px; padding-top:6px; border-top:1px solid var(--border-color); }
+.performance-personal-cohort:first-of-type { padding-top:0; border-top:0; }
+.performance-personal-cohort>span,.performance-personal-cohort>small { color:var(--text-muted); font-size:10px; }
+.performance-personal-cohort>strong { color:var(--brand-primary); font-size:13px; text-align:right; }
+.performance-personal-cohort>small { grid-column:1/-1; }
 .performance-list { overflow:hidden; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-surface); }
 .performance-row { display:grid; grid-template-columns:58px minmax(0,1fr) auto; align-items:center; gap:7px; min-height:58px; padding:7px 9px; border-bottom:1px solid var(--border-color); }
 .performance-row:last-child { border-bottom:0; }

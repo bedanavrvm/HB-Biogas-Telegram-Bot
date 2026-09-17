@@ -855,7 +855,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Ready for my role', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=93", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=95", template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -893,7 +893,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-sheet-overlay', stylesheet)
         self.assertIn('class="notice-close tat-sheet-close"', template)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 44px', stylesheet)
-        self.assertIn("miniapp/tat_tracker.css' %}?v=61", template)
+        self.assertIn("miniapp/tat_tracker.css' %}?v=63", template)
         self.assertIn('id="tatGridZoom"', template)
         self.assertIn('id="tatGridZoomOut"', template)
         self.assertIn('id="tatGridZoomReset"', template)
@@ -918,7 +918,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('id="dashboardView"', template)
         self.assertIn('id="casesWorkspaceBtn"', template)
         self.assertIn('id="dashboardWorkspaceBtn"', template)
-        self.assertIn("classList.toggle('single-tab', !capabilities.has('tat.reports.view'))", source)
+        self.assertIn("classList.toggle('single-tab', !capabilities.has('tat.reports.view') && !capabilities.has('tat.recognition.view'))", source)
         self.assertIn('.workspace-tabs.single-tab { grid-template-columns: minmax(0, 1fr); }', stylesheet)
         self.assertIn("const displayedLoanAmount = summary.final_loan_amount || summary.requested_amount || summary.amount || '';", source)
         self.assertIn("const displayedLoanAmountLabel = summary.final_loan_amount ? 'Final loan amount' : 'Requested amount';", source)

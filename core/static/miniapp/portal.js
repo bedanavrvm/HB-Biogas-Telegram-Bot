@@ -74,9 +74,29 @@
   const queueLoadsActive = new Map();
   let dashboardLoadVersion = 0;
   let dashboardLoading = false;
+  let dashboardFetchPromise = null;
+  let dashboardFetchedAt = 0;
   let caseHistoryLoadVersion = 0;
   let farmerSheetOpenVersion = 0;
   const CASE_HISTORY_WATCHDOG_MS = 22000;
+
+  async function fetchDashboardPayload({ force = false, maxAgeMs = 15000 } = {}) {
+    if (!force && state.dashboard && Date.now() - dashboardFetchedAt < maxAgeMs) {
+      return { ok: true, status: 200, data: state.dashboard, requestId: '' };
+    }
+    if (dashboardFetchPromise) return dashboardFetchPromise;
+    dashboardFetchPromise = apiFetch('/dashboard/');
+    try {
+      const result = await dashboardFetchPromise;
+      if (result.ok) {
+        state.dashboard = result.data || {};
+        dashboardFetchedAt = Date.now();
+      }
+      return result;
+    } finally {
+      dashboardFetchPromise = null;
+    }
+  }
 
   function currentScreenRoot() {
     return document.getElementById('portal-screen');
@@ -548,7 +568,7 @@
     if (el('dash-counts')) el('dash-counts').style.display = 'none';
     if (el('dashboard-overview')) el('dashboard-overview').hidden = true;
     const loadVersion = ++dashboardLoadVersion;
-    const { ok, status, data, requestId } = await apiFetch('/dashboard/');
+    const { ok, status, data, requestId } = await fetchDashboardPayload({ force: Boolean(options.force) });
     dashboardLoading = false;
     if (!isCurrentScreen('dashboard') || loadVersion !== dashboardLoadVersion) return;
     if (refreshButton) {
@@ -576,6 +596,7 @@
     state.dashboard = data || {};
     markPortalFresh(data.calculated_at);
     renderDashboard();
+    renderPortalNotifications(data);
     if (canManagePortalWorkspace()) {
       try { await loadPortalWorkspace({ includeSummary: true }); } catch (_) { /* Workspace shortcuts are non-critical to queue work. */ }
     }
@@ -676,12 +697,12 @@
     const refresh = event.target.closest('#dashboard-refresh');
     if (refresh) {
       event.preventDefault();
-      loadDashboard();
+      loadDashboard({ force: true });
       return;
     }
     if (event.target.closest('.portal-dashboard-retry')) {
       event.preventDefault();
-      loadDashboard();
+      loadDashboard({ force: true });
       return;
     }
     const routeLink = event.target.closest('.dashboard-route-link');
@@ -730,33 +751,50 @@
   }
 
   function renderPortalNotifications(payload) {
-    const queues = (payload?.queues || []).filter(item => Number(item.count || 0) > 0);
-    const alerts = (payload?.attention || []).filter(item => Number(item.count || 0) > 0);
-    const standaloneAlertKeys = new Set(['invoice_identity', 'invoice_name_change', 'integration_failure']);
-    const count = queues.reduce((sum, item) => sum + Number(item.count || 0), 0)
-      + alerts.filter(item => standaloneAlertKeys.has(item.key)).reduce((sum, item) => sum + Number(item.count || 0), 0);
-    const rows = [
-      ...queues.map(item => ({ ...item, detail: item.urgent_count ? `${item.urgent_count} overdue` : 'Assigned workflow' })),
-      ...alerts.map(item => ({ ...item, detail: item.severity === 'urgent' ? 'Urgent follow-up' : 'Needs attention' })),
-    ];
+    const rows = payload?.notification_items || [];
+    const count = Number(payload?.notification_count || 0);
     const badge = el('portal-notification-count');
-    badge.textContent = String(count);
+    badge.textContent = count > 99 ? '99+' : String(count);
     badge.hidden = !count;
     el('portal-notification-list').innerHTML = rows.length
-      ? rows.map(item => `<a class="portal-notification-row" href="${escapeHtml(item.url || '#')}"><span><strong>${escapeHtml(item.label || 'Needs attention')}</strong><small>${escapeHtml(item.detail)}</small></span><b>${escapeHtml(item.count || 0)}</b><i data-lucide="chevron-right" aria-hidden="true"></i></a>`).join('')
+      ? rows.map(item => `<a class="portal-notification-row ${item.severity === 'urgent' ? 'urgent' : ''}" href="${escapeHtml(item.url || '#')}"><span><strong>${escapeHtml(item.label || 'Needs attention')}</strong><small>${escapeHtml([item.detail, item.context].filter(Boolean).join(' · '))}</small></span>${item.kind === 'system' ? `<b>${escapeHtml(item.count || 0)}</b>` : '<b aria-hidden="true">!</b>'}<i data-lucide="chevron-right" aria-hidden="true"></i></a>`).join('')
       : '<div class="empty-state"><div class="es-title">No assigned work</div><div class="es-sub">New cases requiring your role will appear here.</div></div>';
     if (window.lucide) window.lucide.createIcons();
   }
 
   async function loadPortalNotifications() {
     if (!hasCapability('portal.dashboard.view')) return;
-    const { ok, data } = await apiFetch('/dashboard/');
+    const { ok, data } = await fetchDashboardPayload({ maxAgeMs: 30000 });
     if (ok) renderPortalNotifications(data);
+  }
+
+  function focusRequestedQueueCard(qKey, listEl) {
+    const params = new URLSearchParams(window.location.search);
+    const farmerId = params.get('focus');
+    if (!farmerId || params.get('attention') !== '1') return;
+    const card = [...listEl.querySelectorAll('[data-farmer-id]')].find(item => String(item.dataset.farmerId) === farmerId);
+    if (!card) return;
+    card.classList.add('notification-focus');
+    card.setAttribute('tabindex', '-1');
+    window.requestAnimationFrame(() => {
+      card.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+      card.focus({ preventScroll: true });
+    });
+    window.setTimeout(() => card.classList.remove('notification-focus'), 6500);
+    params.delete('focus');
+    params.delete('attention');
+    const query = params.toString();
+    window.history.replaceState(window.history.state, '', window.location.pathname + (query ? `?${query}` : '') + window.location.hash);
   }
 
   function portalPerformanceRow(item) {
     const rank = item.ranked ? `#${item.rank}` : 'Building sample';
-    return `<article class="performance-row${item.ranked ? '' : ' unranked'}"><span class="performance-rank">${escapeHtml(rank)}</span><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.visits_completed)} visits · ${escapeHtml(item.credit_conversion)}% to credit</small><small>${escapeHtml(item.final_conversion)}% final approval · ${escapeHtml(item.payment_conversion)}% payment-finalized · ${escapeHtml(item.pending_outcome)} pending</small></span><b>${escapeHtml(item.score)}<small>score</small></b></article>`;
+    const cohort = item.cohort && item.cohort !== item.label ? ` · ${item.cohort}` : '';
+    return `<article class="performance-row${item.ranked ? '' : ' unranked'}"><span class="performance-rank">${escapeHtml(rank)}</span><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.visits_completed)} visits${escapeHtml(cohort)} · ${escapeHtml(item.credit_conversion)}% to credit</small><small>${escapeHtml(item.final_conversion)}% final approval · ${escapeHtml(item.payment_conversion)}% payment-finalized · ${escapeHtml(item.pending_outcome)} pending</small></span><b>${escapeHtml(item.score)}<small>quality floor</small></b></article>`;
+  }
+
+  function portalPersonalPerformance(rows) {
+    return rows.map(item => `<div class="performance-personal-cohort"><span>${escapeHtml(item.cohort || 'Assigned scope')}</span><strong>${item.ranked ? `#${escapeHtml(item.rank)} · ` : ''}${escapeHtml(item.score)} quality floor</strong><small>${escapeHtml(item.visits_completed)} visits · ${escapeHtml(item.credit_conversion)}% to credit${item.ranked ? '' : ' · building sample'}</small></div>`).join('');
   }
 
   async function loadPortalPerformance() {
@@ -769,10 +807,11 @@
     const { ok, data } = await apiFetch('/performance/?period=' + encodeURIComponent(periodInput.value));
     if (!ok || !data?.ok) throw new Error(data?.message || data?.error || 'Performance could not be loaded.');
     const payload = data.data || {};
-    el('portal-performance-formula').textContent = `${payload.formula || ''}. Downstream outcomes remain visible but do not penalise cases still in progress.`;
-    const personal = payload.personal;
-    el('portal-personal-performance').hidden = !personal;
-    if (personal) el('portal-personal-performance').innerHTML = `<span>Your progress</span><strong>${personal.ranked ? `#${escapeHtml(personal.rank)} · ` : ''}${escapeHtml(personal.score)} score</strong><small>${escapeHtml(personal.visits_completed)} visits · ${escapeHtml(personal.credit_conversion)}% to credit${personal.ranked ? '' : ' · building sample'}</small>`;
+    const asOf = payload.calculated_at ? ` Calculated ${fmtDateTime(payload.calculated_at)}.` : '';
+    el('portal-performance-formula').textContent = `${payload.formula || ''}. ${payload.cohort_basis || ''}. ${payload.revision_policy || ''}${asOf} Downstream outcomes remain visible but are not scored.`;
+    const personalRows = payload.personal_rows || (payload.personal ? [payload.personal] : []);
+    el('portal-personal-performance').hidden = !personalRows.length;
+    if (personalRows.length) el('portal-personal-performance').innerHTML = `<span>Your live provisional result</span>${portalPersonalPerformance(personalRows)}`;
     el('portal-team-performance').innerHTML = (payload.team_rows || []).map(portalPerformanceRow).join('') || '<div class="empty-state"><div class="es-title">No visits recorded</div><div class="es-sub">Completed visits for this month will appear here.</div></div>';
     el('portal-people-performance-section').hidden = !payload.people_visible;
     el('portal-people-performance').innerHTML = (payload.people_rows || []).map(portalPerformanceRow).join('');
@@ -821,6 +860,7 @@
         state.pages[qKey] = page;
         updateFilterOptions([]);
         markPortalFresh(listEl.querySelector('[data-calculated-at]')?.dataset.calculatedAt);
+        focusRequestedQueueCard(qKey, listEl);
         return;
       }
       const url = portalQueues.queueUrl ? portalQueues.queueUrl(qKey, page, state) : cfg.endpoint + '?page=' + page;
@@ -886,6 +926,7 @@
         renderPagination(qKey, data.pagination);
       }
       markPortalFresh(data.calculated_at || listEl.querySelector('[data-calculated-at]')?.dataset.calculatedAt);
+      focusRequestedQueueCard(qKey, listEl);
     } catch (error) {
       if (!isCurrentQueueLoad(qKey, loadVersion)) return;
       renderQueueFailure(listEl, qKey, page, 'The queue could not be loaded. Please try again.');

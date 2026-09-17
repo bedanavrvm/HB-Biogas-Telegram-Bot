@@ -69,12 +69,31 @@ def _case_payload(farmer, *, reason: str = '') -> dict:
     }
 
 
+def _focused_queue_url(queue_key: str, farmer_id) -> str:
+    return f"{reverse('portal_screen', kwargs={'screen': queue_key})}?focus={farmer_id}&attention=1"
+
+
+def _case_notification(farmer, *, queue_key: str, action: str, severity: str = 'action') -> dict:
+    return {
+        'key': f'{queue_key}:{farmer.pk}',
+        'kind': 'case',
+        'farmer_id': str(farmer.pk),
+        'queue_key': queue_key,
+        'label': farmer.customer_name or 'Unnamed customer',
+        'detail': action,
+        'context': farmer.system_branch or farmer.branch or '',
+        'severity': severity,
+        'url': _focused_queue_url(queue_key, farmer.pk),
+    }
+
+
 def dashboard_payload(user, *, access=None) -> dict:
     capabilities = effective_capability_keys(user, 'jawabu_portal', access=access) if user else {
         capability for _key, _label, capability, _queryset in QUEUE_DEFINITIONS
     } | {'portal.case.read', 'portal.invoice_identity.manage', 'portal.health.read'}
     scoped_all = _branch_scope(all_cases(), access, user=user, capability='portal.case.read')
     queues = []
+    queue_querysets = {}
     legacy_counts = {'jbl_queue': 0, 'credit_queue': 0, 'final_review_queue': 0, 'requisition_queue': 0, 'deferred': 0}
     legacy_key = {
         'jbl': 'jbl_queue', 'credit': 'credit_queue', 'final': 'final_review_queue',
@@ -84,6 +103,7 @@ def dashboard_payload(user, *, access=None) -> dict:
         if capability not in capabilities:
             continue
         queryset = _branch_scope(queryset_factory(), access, user=user, capability=capability)
+        queue_querysets[key] = queryset
         count = queryset.count()
         legacy_counts[legacy_key[key]] = count
         queues.append({
@@ -118,25 +138,27 @@ def dashboard_payload(user, *, access=None) -> dict:
             continue
     overdue_count = escalations.count()
     for queue in queues:
-        queue_queryset = next(definition[3] for definition in QUEUE_DEFINITIONS if definition[0] == queue['key'])()
-        queue_capability = next(definition[2] for definition in QUEUE_DEFINITIONS if definition[0] == queue['key'])
-        queue['urgent_count'] = _branch_scope(
-            queue_queryset, access, user=user, capability=queue_capability,
-        ).filter(id__in=escalation_ids).count()
+        queue['urgent_count'] = queue_querysets[queue['key']].filter(id__in=escalation_ids).count()
 
     attention = []
+    reappraisal_cases = JawabuFarmerMaster.objects.none()
+    due_count = 0
+    reviews = InvoiceIdentityReview.objects.none()
+    changes = InvoiceNameChangeItem.objects.none()
+    failed_operations = IntegrationOperation.objects.none()
     if overdue_count and 'portal.case.read' in capabilities:
         attention.append({'key': 'sla_overdue', 'label': 'SLA follow-up overdue', 'count': overdue_count, 'severity': 'urgent', 'url': reverse('portal_screen', kwargs={'screen': 'all'})})
     if 'portal.deferred.view' in capabilities:
-        due_count = _branch_scope(
+        reappraisal_cases = _branch_scope(
             reappraisal_required_queue(), access, user=user,
             capability='portal.deferred.view',
-        ).count()
+        )
+        due_count = reappraisal_cases.count()
         if due_count:
             attention.append({'key': 'reappraisal_due', 'label': 'Reappraisal due', 'count': due_count, 'severity': 'warning', 'url': reverse('portal_screen', kwargs={'screen': 'deferred'})})
     if 'portal.invoice_identity.manage' in capabilities:
-        reviews = InvoiceIdentityReview.objects.filter(status='pending')
-        changes = InvoiceNameChangeItem.objects.filter(status__in=['draft', 'awaiting_replacement'])
+        reviews = InvoiceIdentityReview.objects.filter(status='pending').select_related('farmer', 'invoice')
+        changes = InvoiceNameChangeItem.objects.filter(status__in=['draft', 'awaiting_replacement']).select_related('farmer', 'original_invoice')
         if user is not None:
             invoice_cases = scope_portal_case_queryset(
                 all_cases(), user, 'portal.invoice_identity.manage', access=access,
@@ -163,9 +185,80 @@ def dashboard_payload(user, *, access=None) -> dict:
         and health_scope.get('global_branch')
         and health_scope.get('global_product')
     ):
-        failed = IntegrationOperation.objects.filter(status__in=['retryable_failure', 'dead_letter']).count()
-        if failed:
-            attention.append({'key': 'integration_failure', 'label': 'External operations need attention', 'count': failed, 'severity': 'warning', 'url': reverse('portal_screen', kwargs={'screen': 'dashboard'})})
+        failed_operations = IntegrationOperation.objects.filter(status__in=['retryable_failure', 'dead_letter'])
+        integration_labels = dict(IntegrationOperation.INTEGRATION_CHOICES)
+        for item in failed_operations.values('integration', 'operation_type', 'last_error_code').annotate(count=Count('id')).order_by('integration', 'operation_type'):
+            operation = str(item['operation_type'] or 'operation').replace('_', ' ').title()
+            integration = integration_labels.get(item['integration'], str(item['integration']).replace('_', ' ').title())
+            error_code = str(item['last_error_code'] or '').replace('_', ' ').strip()
+            attention.append({
+                'key': f"integration_failure:{item['integration']}:{item['operation_type']}",
+                'label': f'{integration}: {operation}',
+                'detail': f"{item['count']} failed operation{'s' if item['count'] != 1 else ''}{f' · {error_code}' if error_code else ''}",
+                'count': item['count'], 'severity': 'warning',
+                'url': reverse('portal_screen', kwargs={'screen': 'settings'}),
+            })
+
+    notification_items = []
+    seen_case_ids = set()
+
+    def add_case_notification(farmer, *, queue_key, action, severity='action'):
+        farmer_id = str(farmer.pk)
+        if farmer_id in seen_case_ids:
+            return
+        seen_case_ids.add(farmer_id)
+        notification_items.append(_case_notification(
+            farmer, queue_key=queue_key, action=action, severity=severity,
+        ))
+
+    for farmer in scoped_all.filter(id__in=escalation_ids).order_by('updated_at')[:5]:
+        stage = current_workflow_state(farmer)
+        queue_key = {
+            'jbl_visit': 'jbl', 'credit': 'credit', 'final_review': 'final', 'order': 'requisition',
+        }.get(stage, 'all')
+        if queue_key not in queue_querysets:
+            queue_key = 'all'
+        add_case_notification(farmer, queue_key=queue_key, action='SLA follow-up overdue', severity='urgent')
+    for farmer in reappraisal_cases[:5]:
+        add_case_notification(farmer, queue_key='deferred', action='60-day deferral ended · reappraisal required', severity='urgent')
+    queue_actions = {
+        'jbl': 'JBL visit required', 'credit': 'Credit analysis required',
+        'final': 'Order approval required', 'requisition': 'Order preparation required',
+    }
+    for queue in queues:
+        key = queue['key']
+        if key == 'deferred':
+            continue
+        for farmer in queue_querysets[key][:5]:
+            add_case_notification(farmer, queue_key=key, action=queue_actions.get(key, queue['label']))
+    for review in reviews[:5]:
+        notification_items.append({
+            'key': f'invoice_identity:{review.pk}', 'kind': 'invoice',
+            'label': review.farmer.customer_name or 'Unnamed customer',
+            'detail': f'Invoice identity verification · {review.invoice.invoice_no or "invoice"}',
+            'context': review.farmer.system_branch or review.farmer.branch or '',
+            'severity': 'warning',
+            'url': reverse('portal_invoice_screen_detail', kwargs={'invoice_id': review.invoice_id}),
+        })
+    for change in changes[:5]:
+        notification_items.append({
+            'key': f'invoice_name_change:{change.pk}', 'kind': 'invoice',
+            'label': change.farmer.customer_name or 'Unnamed customer',
+            'detail': f'Invoice-name correction · {change.original_invoice.invoice_no or "invoice"}',
+            'context': change.farmer.system_branch or change.farmer.branch or '',
+            'severity': 'urgent',
+            'url': reverse('portal_invoice_screen_detail', kwargs={'invoice_id': change.original_invoice_id}),
+        })
+    for item in attention:
+        if not str(item.get('key') or '').startswith('integration_failure:'):
+            continue
+        notification_items.append({**item, 'kind': 'system', 'context': 'Open Settings for system readiness'})
+
+    actionable_queue_count = sum(int(item['count']) for item in queues if item['key'] != 'deferred')
+    notification_count = (
+        actionable_queue_count + due_count + reviews.count() + changes.count()
+        + failed_operations.count()
+    )
 
     today = timezone.localdate()
     today_start = timezone.make_aware(datetime.combine(today, time.min))
@@ -228,6 +321,8 @@ def dashboard_payload(user, *, access=None) -> dict:
         'counts': legacy_counts,
         'queues': queues,
         'attention': attention,
+        'notification_items': notification_items[:20],
+        'notification_count': notification_count,
         'activity_today': {'completed_actions': today_events},
         'activity_7d': activity_7d,
         'business_metrics': business_metrics,
