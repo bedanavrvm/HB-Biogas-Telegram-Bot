@@ -1,22 +1,35 @@
-"""Stable staff-facing references for Portal cases.
-
-The database UUID remains the canonical key.  This projection is deliberately
-display-only so existing records gain a short reference without a migration or
-another mutable identity sequence.
-"""
+"""Stable, consecutive staff-facing references for Portal cases."""
 
 from __future__ import annotations
 
-import base64
-import uuid
+from django.db import connection
+
+
+SEQUENCE_NAME = 'core_jawabu_case_reference_seq'
+
+
+def allocate_case_reference_number() -> int:
+    """Allocate atomically in PostgreSQL; SQLite is a local/test fallback."""
+    with connection.cursor() as cursor:
+        if connection.vendor == 'postgresql':
+            cursor.execute(f"SELECT nextval('{SEQUENCE_NAME}')")
+            return int(cursor.fetchone()[0])
+        cursor.execute(
+            'SELECT COALESCE(MAX(case_reference_number), 0) + 1 '
+            'FROM core_jawabufarmermaster'
+        )
+        return int(cursor.fetchone()[0])
 
 
 def display_case_reference(value) -> str:
-    text = str(value or '').strip()
-    if not text:
+    if value in (None, ''):
         return ''
-    try:
-        encoded = base64.b32encode(uuid.UUID(text).bytes).decode('ascii').rstrip('=')[:10]
-    except (ValueError, AttributeError, TypeError):
-        return text
-    return f'JBL-{encoded[:5]}-{encoded[5:]}'
+    number = getattr(value, 'case_reference_number', None)
+    if number is None and isinstance(value, int):
+        number = value
+    if number is None:
+        from core.models import JawabuFarmerMaster
+        number = JawabuFarmerMaster.objects.filter(pk=value).values_list(
+            'case_reference_number', flat=True,
+        ).first()
+    return f'JBL-{int(number)}' if number is not None else str(value).strip()

@@ -121,7 +121,7 @@ _NUMBER = ('equals', 'greater_than', 'less_than', 'between')
 # references, media, or audit/event payloads here: they are deliberately not
 # reportable even to IT through the Mini App.
 PORTAL_REPORT_FIELDS: tuple[ReportField, ...] = (
-    ReportField('case_id', 'Case ID', 'id', 'text', 'Case', ('equals', 'in')),
+    ReportField('case_id', 'Case ID', 'case_reference_number', 'text', 'Case', ('equals', 'in')),
     ReportField('customer_name', 'Customer name', 'customer_name', 'text', 'Customer', _TEXT),
     ReportField('national_id', 'National ID', 'national_id', 'text', 'Customer', _TEXT),
     ReportField('primary_phone', 'Primary phone', 'primary_phone', 'text', 'Customer', _TEXT),
@@ -377,7 +377,19 @@ def _apply_filters(queryset, filters: Iterable[dict[str, Any]]):
         expression = f'{field.expression}__date' if field.key in DATETIME_FILTER_FIELDS else field.expression
         operator = item['operator']
         value = item['value']
-        if field.value_type == 'date':
+        if field.key == 'case_id':
+            raw_values = value if isinstance(value, list) else [value]
+            try:
+                parsed_values = [
+                    int(str(part).strip().upper().removeprefix('JBL-'))
+                    for part in raw_values
+                ]
+            except (TypeError, ValueError) as exc:
+                raise PortalReportingError(
+                    'Enter the Case ID as JBL followed by its number, for example JBL-12.'
+                ) from exc
+            value = parsed_values if isinstance(value, list) else parsed_values[0]
+        elif field.value_type == 'date':
             value = [parse_date(part) for part in value] if isinstance(value, list) else parse_date(value)
         elif field.value_type == 'number':
             value = [Decimal(part) for part in value] if isinstance(value, list) else Decimal(value)

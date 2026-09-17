@@ -16,6 +16,7 @@ from core.services.payment_documents import (
     payment_readiness,
 )
 from core.services.jawabu_validation import format_repayment_day
+from core.services.jawabu_case_reference import display_case_reference
 from payments.models import (
     PaymentBatch,
     PaymentBatchCase,
@@ -679,6 +680,7 @@ def serialize_batch(batch: PaymentBatch, *, include_cases=True):
         if include_cases:
             cases.append({
                 'farmer_id': str(item.farmer_id),
+                'case_reference': display_case_reference(item.farmer),
                 'customer_name': item.farmer.customer_name,
                 'national_id': item.farmer.national_id,
                 'invoice_number': item.farmer.invoice_number,

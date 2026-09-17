@@ -1856,6 +1856,7 @@ def farmer_to_card(
     The case-detail endpoint keeps the default enriched payload and loads this
     metadata only after an officer opens a specific case.
     """
+    from core.services.jawabu_case_reference import display_case_reference
     from core.services.jawabu_validation import normalize_date_text
 
     hbg_visit_date = farmer.hbg_visit_date
@@ -1875,6 +1876,7 @@ def farmer_to_card(
 
     return {
         'id': str(farmer.id),
+        'case_reference': display_case_reference(farmer),
         'workflow_state': current_workflow_state(farmer),
         'current_pipeline_state': current_pipeline_state_label(farmer),
         'workflow_revision': int(farmer.workflow_revision or 1),

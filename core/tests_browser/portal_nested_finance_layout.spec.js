@@ -15,6 +15,36 @@ async function assertNoHorizontalOverflow(page, width) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
 }
 
+test('mobile notification bell stays fixed and payment cards retain native navigation', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.setContent(`<body class="workflow-standard portal-app"><header class="app-shell-header"><button class="shell-menu-button">Menu</button><div class="shell-title"><h1>Pipeline Portal</h1></div><button id="portal-notification-button" class="portal-notification-button"><span hidden>0</span></button><div class="shell-actor"><span>Active</span></div></header><main id="content"><div id="portal-screen" data-screen="payment_approvals" data-payment-batch-id=""><section id="page-payments" class="page active"><div id="payments-summary"></div><div id="payments-batches"></div></section></div></main></body>`);
+  await loadPortalStyles(page);
+  await page.addScriptTag({ path: asset('portal_payments.js') });
+  await page.evaluate(() => {
+    window.__paymentDestination = '';
+    window.PortalAppShell = { navigateUrl(url) { window.__paymentDestination = url; } };
+    window.PortalMiniAppPayments.init({
+      el: id => document.getElementById(id), escapeHtml: value => String(value ?? ''),
+      state: { capabilities: new Set(['portal.payment.review']) },
+      showToast() {},
+      apiFetch: async () => ({ ok: true, data: { ok: true, batches: [{
+        id: 'a63ee1b5-a446-447b-a195-d83dfcc230e3', payment_number: 12,
+        status: 'in_review', status_label: 'In review', payment_mode_summary: 'Mixed',
+        total_amount: '54000', counts: { total: 1, approved: 0, returned: 0, pending: 1 },
+      }] } }),
+    });
+    return window.PortalMiniAppPayments.load();
+  });
+
+  await expect(page.locator('#portal-notification-button')).toHaveCSS('width', '36px');
+  await expect(page.locator('#portal-notification-button')).toHaveCSS('flex-grow', '0');
+  const card = page.locator('.payment-batch-card');
+  await expect(card).toHaveAttribute('href', '/portal/s/approvals/payments/a63ee1b5-a446-447b-a195-d83dfcc230e3/');
+  await card.click();
+  expect(await page.evaluate(() => window.__paymentDestination)).toBe('/portal/s/approvals/payments/a63ee1b5-a446-447b-a195-d83dfcc230e3/');
+  await assertNoHorizontalOverflow(page, 320);
+});
+
 test('invoice filters use the shared compact sheet without overflowing a 320px phone', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="invoices" data-invoice-view="inbox"><section id="page-invoices" class="page active">

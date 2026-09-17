@@ -2390,6 +2390,14 @@ class JawabuFarmerMaster(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    case_reference_number = models.PositiveBigIntegerField(
+        unique=True,
+        editable=False,
+        db_comment=(
+            'Immutable global sequence used only for the short staff-facing JBL case reference. '
+            'The UUID primary key remains the canonical integration identity.'
+        ),
+    )
     customer = models.ForeignKey(JawabuCustomer, on_delete=models.PROTECT, null=True, blank=True, related_name='applications')
     unit_number = models.PositiveIntegerField(default=1)
     source = models.CharField(max_length=100, default='jawabu_farmers_csv', db_index=True)
@@ -2618,6 +2626,9 @@ class JawabuFarmerMaster(models.Model):
         return f"{label} ({self.status})"
 
     def save(self, *args, **kwargs):
+        if self._state.adding and not self.case_reference_number:
+            from core.services.jawabu_case_reference import allocate_case_reference_number
+            self.case_reference_number = allocate_case_reference_number()
         from core.services.product_catalog import (
             active_product_version, resolve_product, serialize_product_version,
             stage_product_mapping_issue,

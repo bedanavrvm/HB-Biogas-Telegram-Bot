@@ -10,6 +10,7 @@ from openpyxl import Workbook
 
 from core.models import GroupSheetConfiguration, JawabuFarmerMaster, PaymentDocument
 from core.services.payment_documents import _write_payment_mode
+from core.services.jawabu_case_reference import display_case_reference
 from payments.models import PaymentBatch, PaymentCaseReview, PaymentSequenceState
 from payments.services import (
     PaymentBatchError,
@@ -86,6 +87,10 @@ class PaymentBatchServiceTests(TestCase):
         payload = serialize_batch(batch)
         modes = {item['farmer_id']: item['payment_mode'] for item in payload['cases']}
         self.assertEqual(modes, {str(cash.id): 'CASH', str(loan.id): 'LOAN-JAWABU'})
+        self.assertEqual(
+            {item['farmer_id']: item['case_reference'] for item in payload['cases']},
+            {str(cash.id): display_case_reference(cash), str(loan.id): display_case_reference(loan)},
+        )
         self.assertEqual(payload['payment_mode_counts'], {'LOAN-JAWABU': 1, 'CASH': 1})
 
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)

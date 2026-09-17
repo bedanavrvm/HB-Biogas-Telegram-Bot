@@ -47,11 +47,11 @@
   function batchCard(batch) {
     const counts = batch.counts || {};
     const number = batch.payment_number ? `Payment #${escape(batch.payment_number)}` : 'Draft payment';
-    return `<button type="button" class="payment-batch-card" data-payment-batch="${escape(batch.id)}">
+    return `<a class="payment-batch-card" data-payment-batch="${escape(batch.id)}" href="${escape(detailUrl(batch.id))}">
       <span class="payment-batch-card-head"><strong>${number}</strong><span class="badge ${statusClass(batch.status)}">${escape(batch.status_label)}</span></span>
       <span class="payment-batch-card-mode">${escape(batch.payment_mode_summary)}</span>
       <span class="payment-batch-card-stats"><b>${escape(counts.total || 0)} cases</b><b>${escape(money(batch.total_amount))}</b><small>${escape(counts.approved || 0)} approved · ${escape(counts.returned || 0)} returned · ${escape(counts.pending || 0)} awaiting</small></span>
-    </button>`;
+    </a>`;
   }
 
   function renderBatches() {
@@ -165,7 +165,7 @@
     const canRemove = !approvalMode() && capability('portal.payment.prepare') && !['completed', 'cancelled'].includes(activeBatch.status);
     const warning = item.changed_since_review ? '<span class="payment-case-warning">Payment details changed</span>' : '';
     return `<article class="payment-current-case payment-review-${escape(item.decision)}${item.changed_since_review ? ' changed' : ''}" data-payment-case="${escape(item.farmer_id)}">
-      <div class="payment-case-heading"><button type="button" class="payment-case-history" data-case-url="/portal/cases/${escape(item.farmer_id)}/?from=${approvalMode() ? 'payment_approvals' : 'payments'}"><strong>${escape(item.customer_name || 'Unnamed customer')}</strong><small>${escape(item.invoice_number || 'No invoice')} · ${escape(item.order_number || 'No order')}</small></button><span class="badge ${item.decision === 'approved' ? 'badge-green' : item.decision === 'returned' ? 'badge-orange' : 'badge-blue'}">${escape(item.decision === 'pending' ? 'Awaiting review' : item.decision)}</span></div>
+      <div class="payment-case-heading"><button type="button" class="payment-case-history" data-case-url="/portal/cases/${escape(item.farmer_id)}/?from=${approvalMode() ? 'payment_approvals' : 'payments'}"><strong>${escape(item.customer_name || 'Unnamed customer')}</strong><small>${escape(item.case_reference || 'Case')} · ${escape(item.invoice_number || 'No invoice')} · ${escape(item.order_number || 'No order')}</small></button><span class="badge ${item.decision === 'approved' ? 'badge-green' : item.decision === 'returned' ? 'badge-orange' : 'badge-blue'}">${escape(item.decision === 'pending' ? 'Awaiting review' : item.decision)}</span></div>
       <div class="payment-case-values"><span>${escape(money(item.amount))}</span><span>Repayment: ${escape(item.preferred_repayment_date || 'Missing')}</span></div>
       ${canRemove ? `<label class="payment-case-mode"><span>Payment mode</span><select data-payment-case-mode="${escape(item.farmer_id)}"><option value="LOAN-JAWABU" ${item.payment_mode === 'LOAN-JAWABU' ? 'selected' : ''}>Loan - Jawabu</option><option value="CASH" ${item.payment_mode === 'CASH' ? 'selected' : ''}>Cash</option></select></label>` : `<span class="payment-case-mode-readonly">${escape(item.payment_mode_label)}</span>`}${warning}
       ${canReview ? `<textarea class="payment-review-comment" rows="2" placeholder="Approval comment">${escape(item.comment || '')}</textarea><div class="payment-case-actions"><button type="button" class="btn btn-secondary payment-return">Return</button><button type="button" class="btn btn-primary payment-approve">Approve</button></div>` : item.comment ? `<p class="payment-review-note">${escape(item.comment)}</p>` : ''}
@@ -441,7 +441,12 @@
     document.addEventListener('click', event => {
       const target = event.target;
       const batch = target.closest('[data-payment-batch]');
-      if (batch) return window.location.assign(detailUrl(batch.dataset.paymentBatch));
+      if (batch) {
+        event.preventDefault();
+        const url = batch.getAttribute('href') || detailUrl(batch.dataset.paymentBatch);
+        if (window.PortalAppShell?.navigateUrl) return window.PortalAppShell.navigateUrl(url);
+        return window.location.assign(url);
+      }
       const batchFilterButton = target.closest('[data-payment-batch-filter]');
       if (batchFilterButton) { batchFilter = batchFilterButton.dataset.paymentBatchFilter; return renderBatches(); }
       if (target.closest('#payments-refresh')) return load();

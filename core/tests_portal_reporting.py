@@ -141,6 +141,40 @@ class PortalReportingTests(TestCase):
         self.assertEqual(result['rows'][0]['case_id'], display_case_reference(self.emb_u_case.id))
         self.assertNotIn('comments', {column['key'] for column in result['columns']})
 
+    def test_case_references_are_consecutive_and_report_filters_accept_them(self):
+        nakuru_case = JawabuFarmerMaster.objects.get(national_id='10000002')
+        self.assertEqual(
+            nakuru_case.case_reference_number,
+            self.emb_u_case.case_reference_number + 1,
+        )
+        self.assertEqual(
+            display_case_reference(self.emb_u_case),
+            f'JBL-{self.emb_u_case.case_reference_number}',
+        )
+        definition, _ = create_definition(
+            payload={
+                'title': 'One case',
+                'configuration': {
+                    'fields': ['case_id', 'customer_name'],
+                    'filters': [{
+                        'field': 'case_id', 'operator': 'equals',
+                        'value': display_case_reference(self.emb_u_case),
+                    }],
+                    'ordering': {'field': 'case_id', 'direction': 'asc'},
+                },
+                'charts': [],
+            },
+            actor=self.it_user,
+            request_id='portal-case-reference-filter',
+        )
+        result = run_definition(
+            definition=definition,
+            user=self.it_user,
+            access={'roles': ['IT']},
+        )
+        self.assertEqual(result['total_rows'], 1)
+        self.assertEqual(result['rows'][0]['case_id'], display_case_reference(self.emb_u_case))
+
     def test_fixed_finance_export_uses_decimal_values_and_current_period(self):
         self.emb_u_case.requisition_date = timezone.localdate()
         self.emb_u_case.invoice_amount = Decimal('12000.50')

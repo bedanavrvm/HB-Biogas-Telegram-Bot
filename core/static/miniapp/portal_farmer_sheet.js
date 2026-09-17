@@ -412,7 +412,7 @@
     }).join('')}</ol>`;
   }
 
-  function caseHeader(sections, workflowState = '', currentPipelineState = '', canCorrect = false) {
+  function caseHeader(sections, workflowState = '', currentPipelineState = '', canCorrect = false, caseReference = '') {
     const identity = sections.identity || {};
     const intake = sections.intake || {};
     const systemName = identity.system_name && identity.system_name !== identity.customer_name
@@ -422,7 +422,7 @@
       : sections.order?.order_number ? 'Ordered'
       : sections.final_review?.decision || sections.credit?.decision || sections.jbl_visit?.status || 'Application received');
     return `<header class="case360-hero">
-      <div class="case360-identity"><span class="case360-eyebrow">Customer case</span><h2>${deps.escapeHtml(identity.customer_name || 'Unnamed customer')}</h2><p>${deps.escapeHtml([systemName, identity.national_id && `ID ${identity.national_id}`, identity.primary_phone, intake.branch].filter(Boolean).join('  |  ') || 'Identifiers not recorded')}</p></div>
+      <div class="case360-identity"><span class="case360-eyebrow">${deps.escapeHtml(caseReference || 'Customer case')}</span><h2>${deps.escapeHtml(identity.customer_name || 'Unnamed customer')}</h2><p>${deps.escapeHtml([systemName, identity.national_id && `ID ${identity.national_id}`, identity.primary_phone, intake.branch].filter(Boolean).join('  |  ') || 'Identifiers not recorded')}</p></div>
       <div class="case360-hero-actions"><span class="case360-status">${deps.escapeHtml(status)}</span>${canCorrect ? '<button type="button" class="case360-edit-toggle" aria-label="Edit case fields" title="Edit case fields"><i data-lucide="pencil" aria-hidden="true"></i><span class="sr-only">Edit case fields</span></button>' : ''}</div>
     </header>${caseStageFlow(sections, workflowState)}`;
   }
@@ -567,7 +567,7 @@
     const invoiceChangeCards = invoiceNameChanges.length ? `<details class="case360-section"><summary><div><h3>Invoice Name Changes</h3><p>Original and corrected invoice history</p></div><span class="case360-chevron" aria-hidden="true"></span></summary><div class="case360-related-cases">${invoiceNameChanges.map(item => `<div class="case360-related-case"><strong>${deps.escapeHtml(item.original_invoice || '-')} → ${deps.escapeHtml(item.replacement_invoice || 'Awaiting replacement')}</strong><span>${deps.escapeHtml(humanLabel(item.status || ''))} · ${deps.escapeHtml(item.batch_reference || '')}</span></div>`).join('')}</div></details>` : '';
     const escalationAlert = escalation ? `<div class="case360-escalation level-${deps.escapeHtml(escalation.escalation_level)}"><strong>SLA escalation: ${deps.escapeHtml(escalation.routing_role)}</strong><span>${deps.escapeHtml(formatTatMinutes(escalation.overdue_minutes))} overdue at ${deps.escapeHtml(escalation.threshold_percent)}% threshold</span></div>` : '';
     root.innerHTML = `
-      ${caseHeader(sections, data.workflow_state || '', data.current_pipeline_state || '', Boolean(data.can_correct))}
+      ${caseHeader(sections, data.workflow_state || '', data.current_pipeline_state || '', Boolean(data.can_correct), data.case_reference || '')}
       <div class="case360-tabs" role="tablist">
         ${tabs.map(([key, label, count], index) => `<button type="button" role="tab" aria-selected="${index ? 'false' : 'true'}" data-case360-tab="${key}" class="${index ? '' : 'active'}"><span>${label}</span>${count !== '' ? `<b>${count}</b>` : ''}</button>`).join('')}
       </div>

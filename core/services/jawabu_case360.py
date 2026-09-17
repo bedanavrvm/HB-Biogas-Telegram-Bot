@@ -407,6 +407,7 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
 
 def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
     from core.services.jawabu_pipeline import credit_decision_label, current_pipeline_state_label, current_workflow_state
+    from core.services.jawabu_case_reference import display_case_reference
     validation = validation_warnings(farmer)
     timeline_projection = jawabu_case_timeline(farmer)
     invoice = ParsedInvoice.objects.filter(matched_farmer=farmer, status='matched').order_by('-updated_at').first()
@@ -436,6 +437,7 @@ def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
         'batch', 'original_invoice', 'replacement_invoice',
     ).order_by('-created_at')
     return {
+        'case_reference': display_case_reference(farmer),
         # The current canonical state, rather than historical non-empty
         # fields, owns the case-progress strip. A returned JBL visit can still
         # retain an earlier credit decision for audit without appearing to be
