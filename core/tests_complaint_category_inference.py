@@ -7,6 +7,7 @@ from core.services.complaint_category_inference import (
     _call_provider,
     _gemini_generate_url,
     _provider_model,
+    _provider_error_kind,
     _provider_request,
     _provider_url,
     redact_description,
@@ -140,6 +141,13 @@ class ComplaintCategoryInferenceTests(SimpleTestCase):
         self.assertEqual(result['state'], 'unavailable')
         self.assertIsNone(result['suggestion'])
         self.assertEqual(result['inference_token'], '')
+        self.assertEqual(_guarded_read.call_args.kwargs['attempt_budget'], 2)
+        self.assertTrue(callable(_guarded_read.call_args.kwargs['sleeper']))
+
+    def test_server_failure_is_classified_as_provider_unavailable(self):
+        response = Mock(status_code=503)
+
+        self.assertEqual(_provider_error_kind(response), 'provider_unavailable')
 
     @AI_SETTINGS
     def test_provider_contract_treats_complaint_as_untrusted_and_excludes_manual_fallback(self):
@@ -231,6 +239,31 @@ class ComplaintCategoryInferenceTests(SimpleTestCase):
         self.assertEqual(generation_config['thinkingConfig'], {'thinkingLevel': 'low'})
         self.assertNotIn('temperature', generation_config)
         self.assertEqual(post.call_args.kwargs['timeout'], 15)
+
+    @override_settings(
+        COMPLAINT_CATEGORY_AI_API_URL='https://generativelanguage.googleapis.com/v1beta',
+        COMPLAINT_CATEGORY_AI_API_KEY='test-gemini-key',
+        COMPLAINT_CATEGORY_AI_MODEL='gemini-3.5-flash-lite',
+        COMPLAINT_CATEGORY_AI_TIMEOUT_SECONDS=15,
+        COMPLAINT_CATEGORY_AI_MAX_TOKENS=220,
+    )
+    @patch('core.services.complaint_category_inference.requests.post')
+    def test_gemini_flash_lite_uses_minimal_thinking(self, post):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            'candidates': [{'content': {'parts': [{'text': '{"state":"no_match","category_key":null,"alternative_keys":[],"confidence":"low","reason":"Insufficient evidence."}'}]}}],
+        }
+        post.return_value = response
+
+        _call_provider(
+            'The concern is unclear.',
+            [{'key': 'leakage', 'label': 'Leakage', 'description': 'A current leak.'}],
+        )
+
+        self.assertEqual(
+            post.call_args.kwargs['json']['generationConfig']['thinkingConfig'],
+            {'thinkingLevel': 'minimal'},
+        )
 
     @AI_SETTINGS
     @patch('core.services.complaint_category_inference.requests.post')

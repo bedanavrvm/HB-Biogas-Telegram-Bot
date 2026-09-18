@@ -10,6 +10,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from typing import Any, Iterable
 from urllib.parse import quote, urlparse, urlunparse
 
@@ -85,6 +86,8 @@ def _provider_error_kind(response) -> str:
         return 'authentication_or_permission'
     if response.status_code == 429:
         return 'rate_limited'
+    if response.status_code >= 500:
+        return 'provider_unavailable'
     return 'provider_error'
 
 
@@ -205,8 +208,9 @@ def _gemini_request(description: str, catalogue: list[dict[str, str]]) -> dict[s
     }
     if model.startswith('gemini-3'):
         # Classification is latency-sensitive and does not need the model's
-        # default medium reasoning depth. Gemini 3.8 supports low, not minimal.
-        generation_config['thinkingConfig'] = {'thinkingLevel': 'low'}
+        # default reasoning depth. Flash-Lite supports minimal; 3.8 does not.
+        thinking_level = 'minimal' if 'flash-lite' in model else 'low'
+        generation_config['thinkingConfig'] = {'thinkingLevel': thinking_level}
     else:
         generation_config['temperature'] = 0
         if model.startswith('gemini-2.5-flash'):
@@ -349,7 +353,11 @@ def suggest_category(categories: Iterable[Any], description: Any) -> dict[str, A
         raw = execute_guarded_read(
             AI_INTEGRATION,
             lambda: _call_provider(redact_description(text), catalogue),
-            attempt_budget=1,
+            attempt_budget=2,
+            # Advisory UI reads must remain bounded even when a provider sends
+            # a long Retry-After value. The shared circuit handles longer
+            # provider outages without tying up web workers.
+            sleeper=lambda delay: time.sleep(min(1.5, max(0.0, delay))),
         )
         result = _validated_result(raw, by_key)
     except Exception as exc:

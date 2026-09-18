@@ -10,7 +10,7 @@
     initData: telegram?.initData || '',
     status: 'pending', query: '', page: 1, pages: 1,
     capabilities: new Set(), currentCase: null, submitting: false,
-    debounce: null, suggestionTimer: null, suggestionSequence: 0,
+    debounce: null, suggestionTimer: null, suggestionSequence: 0, suggestionUnavailableUntil: 0,
     suggestedCategory: null, categoryInferenceToken: '', categorySuggestionCache: new Map(), latitude: '', longitude: '',
     workspace: 'queue', returnWorkspace: 'queue', globalLoaded: false,
     globalOverview: null, globalPage: 1, globalPages: 1, globalPageSize: 50,
@@ -1277,17 +1277,23 @@
   async function requestCategorySuggestion(description) {
     const sequence = ++state.suggestionSequence;
     const chip = $('categorySuggestion'); chip.hidden = false; chip.disabled = true; chip.className = 'category-suggestion checking'; chip.textContent = 'Checking category...';
+    if (Date.now() < state.suggestionUnavailableUntil) {
+      applyCategorySuggestion({ state: 'unavailable', mode: 'suggest' });
+      return;
+    }
     const cacheKey = description.toLocaleLowerCase();
     try {
       let result = state.categorySuggestionCache.get(cacheKey);
       if (!result) {
         const response = await json('categories/suggest/', { description });
         result = response.data || {};
-        state.categorySuggestionCache.set(cacheKey, result);
+        if (result.state === 'unavailable') state.suggestionUnavailableUntil = Date.now() + 30000;
+        else state.categorySuggestionCache.set(cacheKey, result);
       }
       if (sequence !== state.suggestionSequence) return;
       applyCategorySuggestion(result);
     } catch (_) {
+      state.suggestionUnavailableUntil = Date.now() + 30000;
       if (sequence === state.suggestionSequence) applyCategorySuggestion({ state: 'unavailable', mode: 'suggest' });
     }
   }
