@@ -10,7 +10,7 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 from typing import Any
@@ -697,7 +697,10 @@ def home_data(
         if case.status in TAT_COMPLETED_STATUSES:
             continue
         next_stage = next_action(case)
-        if next_stage and can_user_edit_stage(user, case, next_stage):
+        if next_stage and (
+            can_user_edit_stage(user, case, next_stage)
+            or can_user_act_on_credit_assessment(user, case)
+        ):
             actionable_cases.append((case, next_stage))
     action_total = len(actionable_cases)
     action_required = [
@@ -828,7 +831,12 @@ def get_case_detail(group_config, user: dict, case_id: str) -> dict:
     else:
         detail['credit_assessment'] = None
         roles = {str(value or '').upper() for value in (user.get('roles') or [])}
-        detail['can_start_credit_assessment'] = bool({'BRO', 'IT'} & roles)
+        current = next_action(case)
+        detail['can_start_credit_assessment'] = bool(
+            {'BRO', 'IT'} & roles
+            and current
+            and current.key == 'mpesa_to_admin'
+        )
     return detail
 
 
@@ -3211,8 +3219,50 @@ def next_action(case: TatTrackerCase) -> StageConfig | None:
         return None
     for stage in product.stages:
         if not stage_value_is_complete(stage, case.stage_values.get(stage.key)):
-            return stage
+            required_role = credit_assessment_required_role(case)
+            return replace(stage, role=required_role) if required_role else stage
     return None
+
+
+def credit_assessment_required_role(case: TatTrackerCase) -> str:
+    """Project the bounded assessment owner into canonical TAT routing."""
+    try:
+        assessment = case.credit_assessment
+    except ObjectDoesNotExist:
+        return ''
+    stage_key = str(case.current_stage or '')
+    # The assessment adds the BM authorization sub-gate before the existing
+    # Admin verification stage. It refines responsibility without marking a
+    # different role's canonical TAT milestone complete.
+    if assessment.state == assessment.STATE_DRAFT:
+        return 'BRO' if stage_key == 'mpesa_to_admin' else ''
+    if assessment.state == assessment.STATE_RETURNED_PRE_ANALYSIS:
+        return 'BRO' if stage_key == 'mpesa_verified' else ''
+    if assessment.state == assessment.STATE_PENDING_AUTHORIZATION:
+        return 'BM' if stage_key == 'mpesa_verified' else ''
+    if assessment.state == assessment.STATE_ANALYSIS:
+        # While mpesa_verified remains current, its canonical Business Admin
+        # owner must complete it. Only the following stage belongs to the CA.
+        return 'CA' if stage_key == 'ca_analysis_sent' else ''
+    if assessment.state == assessment.STATE_BRO_REVIEW:
+        return 'BRO' if stage_key in {'bro_response', 'bm_response', 'bm_tat_request'} else ''
+    if assessment.state == assessment.STATE_ANALYST_VALIDATION:
+        return 'CA' if stage_key in {'bro_response', 'bm_response', 'bm_tat_request'} else ''
+    if assessment.state == assessment.STATE_RETURNED_TO_BRO:
+        return 'BRO' if stage_key in {'bm_response', 'bm_tat_request'} else ''
+    if assessment.state == assessment.STATE_PENDING_DECISION:
+        return 'BM' if stage_key in {'bm_response', 'bm_tat_request'} else ''
+    return ''
+
+
+def can_user_act_on_credit_assessment(user: dict, case: TatTrackerCase) -> bool:
+    required_role = credit_assessment_required_role(case)
+    if not required_role:
+        return False
+    roles = {str(value or '').strip().upper() for value in (user.get('roles') or [])}
+    if 'IT' not in roles and required_role not in roles:
+        return False
+    return _tat_scope_allowed(user, 'tat.home.view', case)
 
 
 def effective_stage_options(stage: StageConfig) -> tuple[str, ...]:
@@ -3277,6 +3327,14 @@ def later_stages_started(case: TatTrackerCase, stage: StageConfig, product: Prod
 
 
 def can_user_edit_stage(user: dict, case: TatTrackerCase, stage: StageConfig) -> bool:
+    # Once the governed assessment exists, its evidence-bound actions own the
+    # corresponding TAT milestones. Do not leave a parallel raw timestamp or
+    # dropdown that can bypass its approvals and revision checks.
+    if (
+        stage.key in {'mpesa_to_admin', 'mpesa_verified', 'ca_analysis_sent', 'bro_response', 'bm_response', 'bm_tat_request'}
+        and credit_assessment_required_role(case)
+    ):
+        return False
     return _tat_scope_allowed(user, f'tat.stage.{stage.key}.update', case)
 
 
@@ -3309,7 +3367,7 @@ def serialize_case_summary(
     total_target = total_target_minutes_for_case(case, workflow, product)
     certificates = {certificate.stage_key: certificate.status for certificate in case.approval_certificates.all()}
     read_only = unresolved or not is_record_operational(case)
-    payload = {'case_id': case.case_id, 'product': case.product_label or product.label, 'product_key': case.product_key, 'client_name': case.client_name, 'national_id': case.national_id, 'primary_phone': case.primary_phone, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'requested_amount': str(case.amount or ''), 'final_loan_amount': str(case.final_loan_amount or ''), 'workflow_path': product.workflow_path, 'status': tat_reporting_status(case, workflow=workflow, now=calculated_at), 'current_stage': case.current_stage, 'workflow_revision': int(case.workflow_revision or 1), 'next_stage': next_stage.label if next_stage and not read_only else '', 'next_stage_key': next_stage.key if next_stage and not read_only else '', 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'wall_clock_minutes': str(tat_minutes) if tat_minutes is not None else '', 'elapsed_seconds': tat_seconds, 'calculated_at': calculated_at.isoformat(), 'server_now': calculated_at.isoformat(), 'running': overall_tat_running(case), 'target_seconds': int(total_target * 60) if total_target is not None else None, 'sla_minutes': str(tat_minutes) if tat_minutes is not None else '', 'tat_hours': str(tat_hours) if tat_hours is not None else '', 'tat_days': str(tat_days) if tat_days is not None else '', 'target_minutes': str(total_target) if total_target is not None else '', 'sla_status': sla_status(tat_minutes, total_target), 'certificate_statuses': certificates, 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at), 'updated_at_local': format_local_datetime(case.updated_at), 'created_at_local': format_local_datetime(case.created_at), 'updated_at_iso': case.updated_at.isoformat(), 'created_at_iso': case.created_at.isoformat(), 'data_mode': case.data_mode, 'is_pilot': case.data_mode == 'pilot', 'read_only': read_only, 'configuration_binding_status': case.configuration_binding_status, 'configuration_blocker': 'Resolve the legacy product version in TAT Control Center before editing this case.' if unresolved else '', 'pilot_cycle_id': str(case.pilot_cycle_id or '')}
+    payload = {'case_id': case.case_id, 'product': case.product_label or product.label, 'product_key': case.product_key, 'client_name': case.client_name, 'national_id': case.national_id, 'primary_phone': case.primary_phone, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'requested_amount': str(case.amount or ''), 'final_loan_amount': str(case.final_loan_amount or ''), 'workflow_path': product.workflow_path, 'status': tat_reporting_status(case, workflow=workflow, now=calculated_at), 'current_stage': case.current_stage, 'workflow_revision': int(case.workflow_revision or 1), 'next_stage': next_stage.label if next_stage and not read_only else '', 'next_stage_key': next_stage.key if next_stage and not read_only else '', 'next_stage_role': next_stage.role if next_stage and not read_only else '', 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'wall_clock_minutes': str(tat_minutes) if tat_minutes is not None else '', 'elapsed_seconds': tat_seconds, 'calculated_at': calculated_at.isoformat(), 'server_now': calculated_at.isoformat(), 'running': overall_tat_running(case), 'target_seconds': int(total_target * 60) if total_target is not None else None, 'sla_minutes': str(tat_minutes) if tat_minutes is not None else '', 'tat_hours': str(tat_hours) if tat_hours is not None else '', 'tat_days': str(tat_days) if tat_days is not None else '', 'target_minutes': str(total_target) if total_target is not None else '', 'sla_status': sla_status(tat_minutes, total_target), 'certificate_statuses': certificates, 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at), 'updated_at_local': format_local_datetime(case.updated_at), 'created_at_local': format_local_datetime(case.created_at), 'updated_at_iso': case.updated_at.isoformat(), 'created_at_iso': case.created_at.isoformat(), 'data_mode': case.data_mode, 'is_pilot': case.data_mode == 'pilot', 'read_only': read_only, 'configuration_binding_status': case.configuration_binding_status, 'configuration_blocker': 'Resolve the legacy product version in TAT Control Center before editing this case.' if unresolved else '', 'pilot_cycle_id': str(case.pilot_cycle_id or '')}
     if include_business_time:
         payload['business_minutes'] = str(business_minutes) if business_minutes is not None else ''
     return payload
@@ -3429,9 +3487,10 @@ def next_role_alert(group_config, case_data: dict | None) -> dict[str, str]:
     stage = stage_by_key(product, next_stage_key)
     if not stage:
         return {}
-    role_label = role_display_name(stage.role)
+    routed_role = str(summary.get('next_stage_role') or stage.role)
+    role_label = role_display_name(routed_role)
     return {
-        'role': stage.role,
+        'role': routed_role,
         'role_label': role_label,
         'stage': stage.label,
         'text': (

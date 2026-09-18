@@ -8,17 +8,21 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 from unittest.mock import MagicMock, patch
 
-from core.models import TatTrackerCase
+from core.models import GroupSheetConfiguration, TatTrackerCase
+from core.services.tat_tracker import update_case
 
 from .models import AssessmentDecision, CreditAssessment, StatementMailReceipt
 from .mailbox import _statement_metadata, ingest_message, poll_mailbox
 from .services import (
     AssessmentError,
+    bro_review,
     confirm_statement,
     get_or_create_assessment,
     manager_authorize,
+    manager_decide,
     masked_phone_matches,
     parse_statement_filename,
+    submit_analysis,
     submit_pre_appraisal,
 )
 
@@ -31,13 +35,28 @@ class CreditAssessmentServiceTests(TestCase):
         User = get_user_model()
         self.bro = User.objects.create_user(username='assessment-bro', email='bro@example.com')
         self.manager = User.objects.create_user(username='assessment-bm', email='bm@example.com')
+        self.admin = User.objects.create_user(username='assessment-admin', email='admin@example.com')
+        self.analyst = User.objects.create_user(username='assessment-ca', email='ca@example.com')
+        self.config = GroupSheetConfiguration.objects.create(
+            group_id='-1001', display_name='Credit assessment TAT',
+            workflow={'type': 'tat_tracker', 'products': ['business'], 'branches': ['EMBU']},
+        )
         self.case = TatTrackerCase.objects.create(
             group_id='-1001', case_id='TAT-1', product_key='business', product_label='Business',
             client_name='TEST CUSTOMER', national_id='12345678', primary_phone='254712345716',
             branch='EMBU', bro_name='BRO', stage_values={},
         )
-        self.bro_context = {'roles': ['BRO'], '_canonical_user': self.bro}
-        self.manager_context = {'roles': ['BM'], '_canonical_user': self.manager}
+        self.bro_context = {'roles': ['BRO'], '_canonical_user': self.bro, 'user_id': self.bro.pk, 'name': 'BRO'}
+        self.manager_context = {
+            'roles': ['BM'], '_canonical_user': self.manager, 'user_id': self.manager.pk,
+            'name': 'Branch Manager', 'signing_national_id': '12345678',
+            'signing_phone_number': '254700000001', 'signing_email': self.manager.email,
+        }
+        self.admin_context = {
+            'roles': ['BUSINESS_ADMIN'], '_canonical_user': self.admin,
+            'user_id': self.admin.pk, 'name': 'Business Admin',
+        }
+        self.analyst_context = {'roles': ['CA'], '_canonical_user': self.analyst, 'user_id': self.analyst.pk, 'name': 'Analyst'}
 
     def _receipt(self, *, full_year=True):
         return StatementMailReceipt.objects.create(
@@ -170,6 +189,8 @@ class CreditAssessmentServiceTests(TestCase):
                 signed_laf_reference='', signed_laf_hash='', passcode='123456',
             )
         self.assertEqual(assessment.state, CreditAssessment.STATE_PENDING_AUTHORIZATION)
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.current_stage, 'mpesa_verified')
         with self.assertRaises(AssessmentError):
             manager_authorize(
                 assessment=assessment, user=self.manager_context, expected_revision=assessment.revision,
@@ -181,6 +202,84 @@ class CreditAssessmentServiceTests(TestCase):
             comment='Request the full twelve-month statement.',
         )
         self.assertEqual(assessment.state, CreditAssessment.STATE_RETURNED_PRE_ANALYSIS)
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.current_stage, 'mpesa_verified')
+
+    def test_assessment_milestones_advance_and_route_canonical_tat(self):
+        from core.services.tat_tracker import (
+            can_user_edit_stage, next_action, next_role_alert, serialize_case_summary,
+        )
+        from .services import serialize_assessment
+
+        assessment = get_or_create_assessment(case=self.case, user=self.bro_context, request_id='start-flow')
+        receipt = self._receipt(full_year=True)
+        assessment = confirm_statement(
+            assessment=assessment, receipt_id=receipt.pk, user=self.bro_context,
+            expected_revision=assessment.revision, request_id='statement-flow',
+        )
+        with patch('core.services.order_approval.GoogleDriveMediaStorage.upload', return_value=('drive-1', '')):
+            assessment = submit_pre_appraisal(
+                assessment=assessment, user=self.bro_context, expected_revision=assessment.revision,
+                request_id='pre-flow', pre_appraisal_file=SimpleUploadedFile('pre.pdf', b'%PDF-1.4\ntest'),
+                signed_laf_reference='', signed_laf_hash='', passcode='123456',
+            )
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.current_stage, 'mpesa_verified')
+        self.assertEqual(next_action(self.case).role, 'BM')
+        self.assertFalse(can_user_edit_stage(self.admin_context, self.case, next_action(self.case)))
+        summary = serialize_case_summary(self.case, self.manager_context)
+        self.assertEqual(summary['next_stage_role'], 'BM')
+        self.assertEqual(next_role_alert(self.config, {'summary': summary})['role'], 'BM')
+
+        assessment = manager_authorize(
+            assessment=assessment, user=self.manager_context, expected_revision=assessment.revision,
+            request_id='authorize-flow', action='approved', comment='',
+        )
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.current_stage, 'mpesa_verified')
+        self.assertEqual(next_action(self.case).role, 'BUSINESS_ADMIN')
+        self.assertTrue(can_user_edit_stage(self.admin_context, self.case, next_action(self.case)))
+        admin_payload = serialize_assessment(assessment, self.admin_context)
+        self.assertEqual(admin_payload['state_label'], 'Awaiting Admin M-PESA verification')
+        self.assertFalse(admin_payload['can_act'])
+
+        update_case(
+            self.config, self.admin_context, self.case.case_id,
+            [{'field': 'mpesa_verified', 'value': ''}],
+            expected_revision=self.case.workflow_revision,
+            request_id='admin-verify-flow',
+        )
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.current_stage, 'ca_analysis_sent')
+        self.assertEqual(next_action(self.case).role, 'CA')
+
+        with patch('core.services.order_approval.GoogleDriveMediaStorage.upload', return_value=('drive-2', '')):
+            assessment = submit_analysis(
+                assessment=assessment, user=self.analyst_context, expected_revision=assessment.revision,
+                request_id='analysis-flow', analysis_file=SimpleUploadedFile('analysis.pdf', b'%PDF-1.4\nanalysis'),
+                questions=[],
+            )
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.current_stage, 'bro_response')
+        self.assertEqual(next_action(self.case).role, 'BRO')
+
+        assessment = bro_review(
+            assessment=assessment, user=self.bro_context, expected_revision=assessment.revision,
+            request_id='bro-flow', responses={},
+        )
+        self.case.refresh_from_db()
+        self.assertEqual(assessment.state, CreditAssessment.STATE_PENDING_DECISION)
+        self.assertEqual(self.case.current_stage, 'bm_response')
+        self.assertEqual(next_action(self.case).role, 'BM')
+
+        assessment = manager_decide(
+            assessment=assessment, user=self.manager_context,
+            expected_revision=assessment.revision, request_id='final-bm-flow',
+            action='approved', comment='Approved after review.',
+        )
+        self.case.refresh_from_db()
+        self.assertEqual(assessment.state, CreditAssessment.STATE_APPROVED)
+        self.assertEqual(self.case.stage_values['bm_response'], 'Approved')
 
     def test_start_is_idempotent_per_tat_case(self):
         first = get_or_create_assessment(case=self.case, user=self.bro_context, request_id='start-1')

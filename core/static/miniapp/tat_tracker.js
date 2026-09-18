@@ -1792,7 +1792,7 @@
       } else if (['approved', 'declined'].includes(data.state)) {
         action = `<p class="credit-assessment-note">This assessment is complete. The evidence and decision remain linked to this case.</p>`;
       } else {
-        action = `<p class="credit-assessment-note">This step is assigned to ${escapeHtml(data.required_role || 'another role')}.</p>`;
+        action = `<p class="credit-assessment-note">This step is assigned to ${escapeHtml(data.required_role_label || data.required_role || 'another role')}.</p>`;
       }
       content.innerHTML = `<div class="credit-assessment-content">${assessmentSummary(data)}${action}</div>`;
     }
@@ -1926,7 +1926,10 @@
   async function runCreditAssessmentAction(action, values, rerender = true) {
     try {
       const result = await api('/api/tat-tracker/credit-assessment/action/', Object.assign({ case_id: state.detail.summary.case_id, action, request_id: newRequestId() }, values || {}));
-      if (rerender) renderCreditAssessment(result.data, false);
+      if (rerender) {
+        renderCreditAssessment(result.data, false);
+        await refreshDetailBackground();
+      }
       setStatus('Credit assessment updated.', 'ok');
       return result;
     } catch (error) { setStatus(error.message, 'error'); return null; }
@@ -1946,6 +1949,7 @@
       }
       const result = await creditAssessmentUpload(data);
       renderCreditAssessment(result.data, false);
+      await refreshDetailBackground();
       setStatus('Credit assessment updated.', 'ok');
     } catch (error) { setStatus(error.message, 'error'); }
     finally { button.disabled = false; }

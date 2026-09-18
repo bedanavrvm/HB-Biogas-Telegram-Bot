@@ -152,6 +152,239 @@ def _advance(assessment: CreditAssessment, state: str) -> None:
     assessment.save(update_fields=['state', 'revision', 'updated_at'])
 
 
+def _tat_group_config(case):
+    from core.models import GroupSheetConfiguration
+
+    return GroupSheetConfiguration.objects.filter(
+        group_id=str(case.group_id), workflow__type='tat_tracker',
+    ).first()
+
+
+def _assert_current_tat_stage(assessment: CreditAssessment, expected_key: str) -> None:
+    """Prevent the evidence workflow from running ahead of canonical TAT."""
+    from core.services.tat_tracker import next_action
+
+    current = next_action(assessment.tat_case)
+    if not current or current.key != expected_key:
+        label = current.label if current else 'no remaining stage'
+        raise AssessmentError(
+            f'Complete the current TAT step first: {label}.',
+            code='credit_assessment_tat_stage_mismatch', status=409,
+        )
+
+
+def _complete_tat_stage(
+    assessment: CreditAssessment,
+    user: dict,
+    *,
+    expected_key: str,
+    request_id: str,
+    outcome: str = '',
+) -> None:
+    """Advance one canonical TAT stage from an accepted assessment action."""
+    from core.models import TatTrackerCase
+    from core.services.tat_tracker import (
+        apply_side_effects,
+        create_approval_certificate,
+        effective_stage_options,
+        next_action,
+        product_for_case,
+        record_tat_event,
+        snapshot_stage_target,
+    )
+    from core.services.workflow_transitions import next_workflow_revision
+
+    case = TatTrackerCase.objects.select_for_update().get(pk=assessment.tat_case_id)
+    stage = next_action(case)
+    if not stage or stage.key != expected_key:
+        label = stage.label if stage else 'no remaining stage'
+        raise AssessmentError(
+            f'Complete the current TAT step first: {label}.',
+            code='credit_assessment_tat_stage_mismatch', status=409,
+        )
+    product = product_for_case(case)
+    if stage.kind == 'dropdown':
+        value = str(outcome or '').strip()
+        if value not in effective_stage_options(stage):
+            raise AssessmentError(
+                f'Select a valid outcome for {stage.label}.',
+                code='credit_assessment_tat_outcome_invalid', status=409,
+            )
+        display_value = value
+    else:
+        value = timezone.now().isoformat()
+        display_value = value
+    revision_before, revision_after = next_workflow_revision(case)
+    case.stage_values = {**(case.stage_values or {}), stage.key: value}
+    apply_side_effects(case, product, stage, value)
+    following = next_action(case)
+    case.current_stage = following.key if following else ''
+    group_config = _tat_group_config(case)
+    if following:
+        snapshot_stage_target(
+            case,
+            getattr(group_config, 'workflow', None) or {},
+            product,
+            following,
+        )
+    case.last_updated_by = user.get('name', '')
+    case.save(update_fields=[
+        'stage_values', 'stage_target_snapshots', 'status', 'remarks',
+        'current_stage', 'last_updated_by', 'workflow_revision', 'updated_at',
+    ])
+    event = record_tat_event(
+        case=case,
+        group_id=case.group_id,
+        actor_name=user.get('name', ''),
+        actor_telegram_id=user.get('telegram_id', ''),
+        actor_role=','.join(user.get('roles') or []),
+        actor_user_id=user.get('user_id') or None,
+        authority_user_id=user.get('user_id') or None,
+        stage_key=stage.key,
+        stage_label=stage.label,
+        old_value='',
+        new_value=display_value,
+        source='workflow_transition',
+        request_id=f'credit:{request_id}:{stage.key}'[:128],
+        transition_code='tat.stage.advance',
+        from_state=stage.key,
+        to_state=case.current_stage,
+        revision_before=revision_before,
+        revision_after=revision_after,
+        sheet_name=case.sheet_name,
+        row_number=case.row_number,
+    )
+    if stage.requires_signature_certificate:
+        try:
+            create_approval_certificate(case, event, user, stage)
+        except ValueError as exc:
+            raise AssessmentError(
+                str(exc), code='credit_assessment_signing_identity_incomplete', status=409,
+            ) from exc
+    if group_config:
+        from core.services.tat_notifications import synchronize_case_task
+        from core.services.tat_update_dispatch import reserve_update_dispatches
+
+        synchronize_case_task(
+            group_config, case,
+            actor_user=user.get('_canonical_user'),
+            dispatch_on_commit=False,
+        )
+        reserve_update_dispatches(
+            group_config, case,
+            request_id=f'credit:{request_id}:{stage.key}'[:128],
+        )
+
+
+def _reroute_current_tat_stage(
+    assessment: CreditAssessment,
+    user: dict,
+    *,
+    request_id: str,
+) -> None:
+    """Refresh responsibility for an assessment sub-gate without completing TAT."""
+    from core.models import TatTrackerCase
+    from core.services.tat_tracker import next_action, record_tat_event
+    from core.services.workflow_transitions import next_workflow_revision
+
+    case = TatTrackerCase.objects.select_for_update().get(pk=assessment.tat_case_id)
+    stage = next_action(case)
+    if not stage:
+        raise AssessmentError(
+            'This TAT case has no remaining stage to route.',
+            code='credit_assessment_tat_stage_mismatch', status=409,
+        )
+    revision_before, revision_after = next_workflow_revision(case)
+    case.current_stage = stage.key
+    case.last_updated_by = user.get('name', '')
+    case.save(update_fields=[
+        'current_stage', 'last_updated_by', 'workflow_revision', 'updated_at',
+    ])
+    record_tat_event(
+        case=case,
+        group_id=case.group_id,
+        actor_name=user.get('name', ''),
+        actor_telegram_id=user.get('telegram_id', ''),
+        actor_role=','.join(user.get('roles') or []),
+        actor_user_id=user.get('user_id') or None,
+        authority_user_id=user.get('user_id') or None,
+        stage_key=stage.key,
+        stage_label=f'{stage.label} responsibility updated',
+        old_value='', new_value='',
+        source='workflow_transition',
+        request_id=f'credit:{request_id}:route'[:128],
+        transition_code='tat.credit_assessment.reroute',
+        from_state=stage.key, to_state=stage.key,
+        revision_before=revision_before, revision_after=revision_after,
+        sheet_name=case.sheet_name, row_number=case.row_number,
+    )
+    group_config = _tat_group_config(case)
+    if group_config:
+        from core.services.tat_notifications import synchronize_case_task
+        from core.services.tat_update_dispatch import reserve_update_dispatches
+
+        synchronize_case_task(
+            group_config, case,
+            actor_user=user.get('_canonical_user'),
+            dispatch_on_commit=False,
+        )
+        reserve_update_dispatches(
+            group_config, case,
+            request_id=f'credit:{request_id}:route'[:128],
+        )
+
+
+def _decline_tat_case(assessment: CreditAssessment, user: dict, *, request_id: str) -> None:
+    """Close a declined assessment in TAT when its current stage has no outcome."""
+    from core.models import TatTrackerCase
+    from core.services.tat_tracker import record_tat_event
+    from core.services.workflow_transitions import next_workflow_revision
+
+    case = TatTrackerCase.objects.select_for_update().get(pk=assessment.tat_case_id)
+    if case.status == 'Declined':
+        return
+    from_state = str(case.current_stage or '')
+    revision_before, revision_after = next_workflow_revision(case)
+    case.status = 'Declined'
+    case.current_stage = ''
+    case.last_updated_by = user.get('name', '')
+    case.save(update_fields=[
+        'status', 'current_stage', 'last_updated_by', 'workflow_revision', 'updated_at',
+    ])
+    record_tat_event(
+        case=case,
+        group_id=case.group_id,
+        actor_name=user.get('name', ''),
+        actor_telegram_id=user.get('telegram_id', ''),
+        actor_role=','.join(user.get('roles') or []),
+        actor_user_id=user.get('user_id') or None,
+        authority_user_id=user.get('user_id') or None,
+        stage_key='credit_assessment',
+        stage_label='Credit assessment declined',
+        old_value='', new_value='Declined',
+        source='workflow_transition',
+        request_id=f'credit:{request_id}:declined'[:128],
+        transition_code='tat.credit_assessment.declined',
+        from_state=from_state, to_state='',
+        revision_before=revision_before, revision_after=revision_after,
+        sheet_name=case.sheet_name, row_number=case.row_number,
+    )
+    group_config = _tat_group_config(case)
+    if group_config:
+        from core.services.tat_notifications import synchronize_case_task
+        from core.services.tat_update_dispatch import reserve_update_dispatches
+
+        synchronize_case_task(
+            group_config, case,
+            actor_user=user.get('_canonical_user'),
+            dispatch_on_commit=False,
+        )
+        reserve_update_dispatches(
+            group_config, case,
+            request_id=f'credit:{request_id}:declined'[:128],
+        )
+
+
 def _digest(payload: dict) -> str:
     canonical = json.dumps(payload, sort_keys=True, separators=(',', ':'), default=str)
     return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
@@ -301,6 +534,7 @@ def get_or_create_assessment(*, case, user: dict, request_id: str = '') -> Credi
         defaults={'created_by': actor},
     )
     if created:
+        _assert_current_tat_stage(assessment, 'mpesa_to_admin')
         _event(assessment, 'assessment.created', actor, request_id)
     return assessment
 
@@ -352,12 +586,18 @@ def submit_pre_appraisal(
 ) -> CreditAssessment:
     _require_role(user, 'BRO')
     actor = _actor(user)
-    locked = CreditAssessment.objects.select_for_update().select_related('tat_case', 'statement_receipt').get(pk=assessment.pk)
+    # Do not join the nullable statement receipt into a SELECT FOR UPDATE.
+    # PostgreSQL rejects row locks on the nullable side of that outer join.
+    locked = CreditAssessment.objects.select_for_update().select_related('tat_case').get(pk=assessment.pk)
     if _existing_event(locked, request_id):
         return locked
     _expect_revision(locked, expected_revision)
     if locked.state not in {locked.STATE_DRAFT, locked.STATE_RETURNED_PRE_ANALYSIS}:
         raise AssessmentError('This pre-appraisal is no longer editable.', code='pre_appraisal_locked', status=409)
+    initial_submission = locked.state == locked.STATE_DRAFT
+    _assert_current_tat_stage(
+        locked, 'mpesa_to_admin' if initial_submission else 'mpesa_verified',
+    )
     if not locked.statement_receipt_id:
         raise AssessmentError('Confirm the customer’s M-PESA statement first.', code='statement_required')
     # Signed-LAF evidence will become a governed file upload. Do not expose a
@@ -379,6 +619,12 @@ def submit_pre_appraisal(
         locked.signed_laf_hash = laf_hash
         locked.save(update_fields=['signed_laf_reference', 'signed_laf_hash', 'updated_at'])
     _advance(locked, locked.STATE_PENDING_AUTHORIZATION)
+    if initial_submission:
+        _complete_tat_stage(
+            locked, user, expected_key='mpesa_to_admin', request_id=request_id,
+        )
+    else:
+        _reroute_current_tat_stage(locked, user, request_id=request_id)
     _event(locked, 'pre_appraisal.submitted', actor, request_id, {'statement_full_year': locked.statement_full_year, 'laf_hash': laf_hash})
     return locked
 
@@ -405,6 +651,9 @@ def manager_authorize(*, assessment: CreditAssessment, user: dict, expected_revi
     _expect_revision(locked, expected_revision)
     if locked.state != locked.STATE_PENDING_AUTHORIZATION:
         raise AssessmentError('This case is not awaiting analysis authorization.', code='authorization_state_invalid', status=409)
+    # BM authorization is a sub-gate before Admin verification. It must not
+    # complete the Admin-owned mpesa_verified milestone on Admin's behalf.
+    _assert_current_tat_stage(locked, 'mpesa_verified')
     if locked.created_by_id and locked.created_by_id == actor.pk and 'IT' not in _roles(user):
         raise AssessmentError('The officer who prepared this case cannot authorize it.', code='maker_checker_conflict', status=403)
     action = str(action or '').strip().casefold()
@@ -429,10 +678,14 @@ def manager_authorize(*, assessment: CreditAssessment, user: dict, expected_revi
     }[action]
     _advance(locked, target)
     _event(locked, f'authorization.{action}', actor, '', {'decision_request_id': request_id})
-    if action == AssessmentDecision.ACTION_DECLINED:
-        locked.tat_case.status = 'Declined'
-        locked.tat_case.workflow_revision += 1
-        locked.tat_case.save(update_fields=['status', 'workflow_revision', 'updated_at'])
+    if action == AssessmentDecision.ACTION_APPROVED:
+        # Keep mpesa_verified open and hand it to Business Admin. Admin's
+        # normal TAT action then advances the case to the analyst.
+        _reroute_current_tat_stage(locked, user, request_id=request_id)
+    elif action == AssessmentDecision.ACTION_RETURNED:
+        _reroute_current_tat_stage(locked, user, request_id=request_id)
+    elif action == AssessmentDecision.ACTION_DECLINED:
+        _decline_tat_case(locked, user, request_id=request_id)
     return locked
 
 
@@ -449,6 +702,7 @@ def submit_analysis(
     _expect_revision(locked, expected_revision)
     if locked.state != locked.STATE_ANALYSIS:
         raise AssessmentError('This case is not ready for credit analysis.', code='analysis_state_invalid', status=409)
+    _assert_current_tat_stage(locked, 'ca_analysis_sent')
     if not analysis_file:
         raise AssessmentError('Upload the consolidated credit-analysis report.', code='analysis_report_required')
     analysis_document = _store_document(locked, AssessmentDocument.TYPE_ANALYSIS_REPORT, analysis_file, actor)
@@ -476,6 +730,9 @@ def submit_analysis(
         secret.destroyed_at = timezone.now()
         secret.save(update_fields=['ciphertext', 'destroyed_at', 'updated_at'])
     _advance(locked, locked.STATE_BRO_REVIEW)
+    _complete_tat_stage(
+        locked, user, expected_key='ca_analysis_sent', request_id=request_id,
+    )
     _event(locked, 'analysis.submitted', actor, request_id, {
         'package_revision': package_revision,
         'question_count': len(clean_questions),
@@ -499,8 +756,16 @@ def bro_review(*, assessment: CreditAssessment, user: dict, expected_revision: A
     if _existing_event(locked, request_id):
         return locked
     _expect_revision(locked, expected_revision)
-    if locked.state not in {locked.STATE_BRO_REVIEW, locked.STATE_RETURNED_TO_BRO}:
+    prior_state = locked.state
+    if prior_state not in {locked.STATE_BRO_REVIEW, locked.STATE_RETURNED_TO_BRO}:
         raise AssessmentError('This case is not awaiting BRO review.', code='bro_review_state_invalid', status=409)
+    from core.services.tat_tracker import next_action
+    tat_stage = next_action(locked.tat_case)
+    if prior_state == locked.STATE_BRO_REVIEW:
+        expected_tat_key = 'bro_response'
+    else:
+        expected_tat_key = 'bm_response' if tat_stage and tat_stage.key == 'bm_response' else 'bm_tat_request'
+    _assert_current_tat_stage(locked, expected_tat_key)
     package = _latest_package(locked)
     questions = list(package.questions.order_by('sequence'))
     supplied = responses or {}
@@ -511,6 +776,12 @@ def bro_review(*, assessment: CreditAssessment, user: dict, expected_revision: A
         revision = (question.responses.aggregate(value=Max('revision'))['value'] or 0) + 1
         QuestionResponse.objects.create(question=question, revision=revision, text=text, responded_by=actor)
     _advance(locked, locked.STATE_ANALYST_VALIDATION if questions else locked.STATE_PENDING_DECISION)
+    if not questions and expected_tat_key == 'bro_response':
+        _complete_tat_stage(
+            locked, user, expected_key='bro_response', request_id=request_id,
+        )
+    elif questions or expected_tat_key != 'bro_response':
+        _reroute_current_tat_stage(locked, user, request_id=request_id)
     _event(locked, 'bro.reviewed_analysis', actor, request_id, {'package_revision': package.revision, 'question_count': len(questions)})
     return locked
 
@@ -529,6 +800,14 @@ def validate_responses(*, assessment: CreditAssessment, user: dict, expected_rev
     _expect_revision(locked, expected_revision)
     if locked.state != locked.STATE_ANALYST_VALIDATION:
         raise AssessmentError('This case is not awaiting analyst validation.', code='validation_state_invalid', status=409)
+    from core.services.tat_tracker import next_action
+    tat_stage = next_action(locked.tat_case)
+    if not tat_stage or tat_stage.key not in {'bro_response', 'bm_response', 'bm_tat_request'}:
+        label = tat_stage.label if tat_stage else 'no remaining stage'
+        raise AssessmentError(
+            f'Complete the current TAT step first: {label}.',
+            code='credit_assessment_tat_stage_mismatch', status=409,
+        )
     package = _latest_package(locked)
     returned = False
     for question in package.questions.order_by('sequence'):
@@ -548,6 +827,12 @@ def validate_responses(*, assessment: CreditAssessment, user: dict, expected_rev
         )
         returned = returned or outcome == QuestionValidationEvent.OUTCOME_RETURNED
     _advance(locked, locked.STATE_BRO_REVIEW if returned else locked.STATE_PENDING_DECISION)
+    if not returned and tat_stage.key == 'bro_response':
+        _complete_tat_stage(
+            locked, user, expected_key='bro_response', request_id=request_id,
+        )
+    else:
+        _reroute_current_tat_stage(locked, user, request_id=request_id)
     _event(locked, 'responses.validated', actor, request_id, {'returned': returned, 'package_revision': package.revision})
     return locked
 
@@ -562,6 +847,10 @@ def manager_decide(*, assessment: CreditAssessment, user: dict, expected_revisio
     _expect_revision(locked, expected_revision)
     if locked.state != locked.STATE_PENDING_DECISION:
         raise AssessmentError('This case is not awaiting the final decision.', code='final_decision_state_invalid', status=409)
+    from core.services.tat_tracker import next_action
+    tat_stage = next_action(locked.tat_case)
+    expected_tat_key = 'bm_response' if tat_stage and tat_stage.key == 'bm_response' else 'bm_tat_request'
+    _assert_current_tat_stage(locked, expected_tat_key)
     action = str(action or '').strip().casefold()
     if action not in {AssessmentDecision.ACTION_APPROVED, AssessmentDecision.ACTION_RETURNED, AssessmentDecision.ACTION_DECLINED}:
         raise AssessmentError('Choose approve, return to BRO, or decline.', code='final_decision_action_invalid')
@@ -584,10 +873,21 @@ def manager_decide(*, assessment: CreditAssessment, user: dict, expected_revisio
     }[action]
     _advance(locked, target)
     _event(locked, f'final_decision.{action}', actor, '', {'decision_request_id': request_id, 'package_revision': package.revision})
-    if action == AssessmentDecision.ACTION_DECLINED:
-        locked.tat_case.status = 'Declined'
-        locked.tat_case.workflow_revision += 1
-        locked.tat_case.save(update_fields=['status', 'workflow_revision', 'updated_at'])
+    if action == AssessmentDecision.ACTION_APPROVED:
+        _complete_tat_stage(
+            locked, user, expected_key=expected_tat_key, request_id=request_id,
+            outcome='Approved' if expected_tat_key == 'bm_response' else '',
+        )
+    elif action == AssessmentDecision.ACTION_RETURNED:
+        _reroute_current_tat_stage(locked, user, request_id=request_id)
+    elif action == AssessmentDecision.ACTION_DECLINED:
+        if expected_tat_key == 'bm_response':
+            _complete_tat_stage(
+                locked, user, expected_key=expected_tat_key, request_id=request_id,
+                outcome='Declined',
+            )
+        else:
+            _decline_tat_case(locked, user, request_id=request_id)
     return locked
 
 
@@ -595,7 +895,7 @@ def serialize_assessment(assessment: CreditAssessment, user: dict) -> dict:
     package = assessment.analysis_packages.order_by('-revision').first()
     roles = _roles(user)
     documents = []
-    may_view_evidence = bool(roles.intersection({'BRO', 'BM', 'CA', 'IT'}))
+    may_view_evidence = bool(roles.intersection({'BRO', 'BM', 'BUSINESS_ADMIN', 'CA', 'IT'}))
     for item in assessment.documents.filter(is_current=True).order_by('document_type') if may_view_evidence else []:
         documents.append({
             'id': str(item.pk), 'type': item.document_type,
@@ -630,19 +930,40 @@ def serialize_assessment(assessment: CreditAssessment, user: dict) -> dict:
         if receipt.original_sent_at:
             original_to_inbox = max(0, int((receipt.inbox_received_at - receipt.original_sent_at).total_seconds()))
             total_to_case = max(0, int((linked_at - receipt.original_sent_at).total_seconds()))
+    from core.services.tat_tracker import next_action
+    tat_stage = next_action(assessment.tat_case)
+    tat_stage_key = tat_stage.key if tat_stage else ''
     action_roles = {
         assessment.STATE_DRAFT: 'BRO', assessment.STATE_RETURNED_PRE_ANALYSIS: 'BRO',
-        assessment.STATE_PENDING_AUTHORIZATION: 'BM', assessment.STATE_ANALYSIS: 'CA',
+        assessment.STATE_PENDING_AUTHORIZATION: 'BM',
         assessment.STATE_BRO_REVIEW: 'BRO', assessment.STATE_RETURNED_TO_BRO: 'BRO',
         assessment.STATE_ANALYST_VALIDATION: 'CA', assessment.STATE_PENDING_DECISION: 'BM',
     }
     required_role = action_roles.get(assessment.state, '')
-    can_act = 'IT' in roles or (required_role and required_role in roles)
+    state_label = assessment.get_state_display()
+    credit_action_available = True
+    if assessment.state == assessment.STATE_ANALYSIS:
+        if tat_stage_key == 'mpesa_verified':
+            required_role = 'BUSINESS_ADMIN'
+            state_label = 'Awaiting Admin M-PESA verification'
+            # Admin completes the normal TAT stage control, not a parallel
+            # assessment action that could stamp the same milestone twice.
+            credit_action_available = False
+        else:
+            required_role = 'CA'
+    can_act = credit_action_available and (
+        'IT' in roles or (required_role and required_role in roles)
+    )
     secret = AssessmentSecret.objects.filter(assessment=assessment).only('destroyed_at', 'ciphertext').first()
+    required_role_label = {
+        'BRO': 'BRO', 'BM': 'Branch Manager', 'BUSINESS_ADMIN': 'Business Admin',
+        'CA': 'Credit Analyst', 'IT': 'IT / Override',
+    }.get(required_role, required_role)
     return {
         'id': str(assessment.pk), 'state': assessment.state,
-        'state_label': assessment.get_state_display(), 'revision': assessment.revision,
-        'required_role': required_role, 'can_act': bool(can_act),
+        'state_label': state_label, 'revision': assessment.revision,
+        'required_role': required_role, 'required_role_label': required_role_label,
+        'can_act': bool(can_act),
         'statement': None if not receipt else {
             'id': str(receipt.pk), 'filename': receipt.attachment_name,
             'customer_name': receipt.customer_name,

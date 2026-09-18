@@ -856,7 +856,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Ready for my role', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=99", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=100", template)
 
     def test_credit_assessment_uses_staff_inputs_and_in_app_pdf_preview(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
