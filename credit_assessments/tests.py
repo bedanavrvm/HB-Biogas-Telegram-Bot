@@ -1,3 +1,5 @@
+import base64
+
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
@@ -7,7 +9,7 @@ from unittest.mock import MagicMock, patch
 from core.models import TatTrackerCase
 
 from .models import AssessmentDecision, CreditAssessment, StatementMailReceipt
-from .mailbox import poll_mailbox
+from .mailbox import _statement_metadata, ingest_message, poll_mailbox
 from .services import (
     AssessmentError,
     confirm_statement,
@@ -57,6 +59,54 @@ class CreditAssessmentServiceTests(TestCase):
         field = StatementMailReceipt._meta.get_field('gmail_attachment_id')
         self.assertEqual(field.max_length, 2048)
 
+    def test_email_body_metadata_overrides_unredacted_filename_phone(self):
+        metadata = _statement_metadata(
+            'MPESA_Statement_2026-09-18_to_2025-09-18_254712345716.pdf',
+            body=(
+                'Dear Name One Name Two,\n\nPlease find attached M-PESA Statement for '
+                'Name One Name Two, mobile number 254712***716 for period '
+                '18 Sep 2025 - 18 Sep 2026.'
+            ),
+        )
+        self.assertEqual(metadata['masked_phone'], '254712***716')
+        self.assertEqual(metadata['customer_name'], 'Name One Name Two')
+        self.assertEqual(metadata['period_start'].isoformat(), '2025-09-18')
+        self.assertEqual(metadata['period_end'].isoformat(), '2026-09-18')
+        self.assertTrue(metadata['full_year'])
+        self.assertEqual(metadata['source'], 'body')
+
+    def test_repoll_enriches_existing_filename_only_receipt(self):
+        receipt = self._receipt()
+        receipt.masked_phone_pattern = '254712345716'
+        receipt.statement_metadata_source = 'filename'
+        receipt.save(update_fields=['masked_phone_pattern', 'statement_metadata_source'])
+        body = (
+            'Please find attached M-PESA Statement for Name One Name Two, '
+            'mobile number 254712***716 for period 18 Sep 2025 - 18 Sep 2026.'
+        )
+        service = MagicMock()
+        service.users.return_value.messages.return_value.get.return_value.execute.return_value = {
+            'id': 'mail-1',
+            'threadId': 'thread-1',
+            'internalDate': str(int(timezone.now().timestamp() * 1000)),
+            'payload': {
+                'headers': [{'name': 'Subject', 'value': 'Fwd: M-PESA Statement'}],
+                'parts': [
+                    {'mimeType': 'text/plain', 'body': {'data': base64.urlsafe_b64encode(body.encode()).decode()}},
+                    {'filename': receipt.attachment_name, 'body': {'attachmentId': 'attachment-1'}},
+                ],
+            },
+        }
+
+        result = ingest_message(service, 'mail-1', commit=True)
+
+        receipt.refresh_from_db()
+        self.assertEqual(result['enriched'], 1)
+        self.assertEqual(result['skipped'], 0)
+        self.assertEqual(receipt.masked_phone_pattern, '254712***716')
+        self.assertEqual(receipt.customer_name, 'Name One Name Two')
+        self.assertEqual(receipt.statement_metadata_source, 'body')
+
     def test_short_statement_reaches_manager_and_only_return_is_available(self):
         assessment = get_or_create_assessment(case=self.case, user=self.bro_context, request_id='start-1')
         receipt = self._receipt(full_year=False)
@@ -68,7 +118,7 @@ class CreditAssessmentServiceTests(TestCase):
             assessment = submit_pre_appraisal(
                 assessment=assessment, user=self.bro_context, expected_revision=assessment.revision,
                 request_id='pre-1', pre_appraisal_file=SimpleUploadedFile('pre.pdf', b'%PDF-1.4\ntest'),
-                signed_laf_reference='LAF-1', signed_laf_hash='b' * 64, passcode='123456',
+                signed_laf_reference='', signed_laf_hash='', passcode='123456',
             )
         self.assertEqual(assessment.state, CreditAssessment.STATE_PENDING_AUTHORIZATION)
         with self.assertRaises(AssessmentError):

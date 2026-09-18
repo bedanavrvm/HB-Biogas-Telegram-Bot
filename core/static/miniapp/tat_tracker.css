@@ -1036,6 +1036,15 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
 .statement-candidate strong, .assessment-question strong { font-size: 11px; }
 .statement-candidate small { display: block; color: var(--tat-muted); font-size: 10px; }
 .credit-assessment-note { margin: 0; color: var(--tat-muted); font-size: 11px; line-height: 1.35; }
+.assessment-preview-sheet {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(100%, 720px);
+  height: min(92dvh, 820px);
+}
+.assessment-preview-body { display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 6px; min-height: 0; }
+.assessment-preview-body iframe { width: 100%; height: 100%; min-height: 52dvh; border: 1px solid var(--tat-line); border-radius: 6px; background: #fff; }
+.assessment-preview-body p { margin: 0; color: var(--tat-muted); font-size: 11px; line-height: 1.35; }
 @media (max-width: 340px) {
   .credit-assessment-summary { grid-template-columns: 1fr; }
   .statement-candidate { grid-template-columns: 1fr; }

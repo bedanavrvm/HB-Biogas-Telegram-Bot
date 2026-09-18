@@ -79,6 +79,7 @@ def _projection(assessment: CreditAssessment, user: dict) -> dict:
             {
                 'id': str(item.pk),
                 'filename': item.attachment_name,
+                'customer_name': item.customer_name,
                 'period_start': item.statement_period_start.isoformat() if item.statement_period_start else '',
                 'period_end': item.statement_period_end.isoformat() if item.statement_period_end else '',
                 'full_year': item.statement_full_year,

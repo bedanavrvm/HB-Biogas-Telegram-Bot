@@ -11,16 +11,29 @@ import uuid
 from datetime import datetime, timedelta, timezone as datetime_timezone
 from email.utils import parseaddr, parsedate_to_datetime
 
+from dateutil.relativedelta import relativedelta
+
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
 from .models import MailboxCursor, StatementMailReceipt
-from .services import MASKED_PHONE_RE, AssessmentError, parse_statement_filename
+from .services import AssessmentError, parse_statement_filename
 
 logger = logging.getLogger(__name__)
 ORIGINAL_DATE_RE = re.compile(r'^Date:\s*(.+)$', re.IGNORECASE | re.MULTILINE)
 GMAIL_READONLY_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly'
+STATEMENT_PERIOD_RE = re.compile(
+    r'(?P<phone>254[0-9xX*]+)\s+for\s+period\s+'
+    r'(?P<start>\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})\s*[-\u2013\u2014]\s*'
+    r'(?P<end>\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})',
+    re.IGNORECASE,
+)
+STATEMENT_CUSTOMER_RE = re.compile(
+    r'Please\s+find\s+attached\s+M-?PESA\s+Statement\s+for\s+'
+    r'(?P<name>.+?)\s*,\s*mobile\s+number',
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def _header(payload: dict, name: str) -> str:
@@ -61,6 +74,46 @@ def _message_text(payload: dict) -> str:
             chunks.append(_decoded_body(part))
         stack.extend(reversed(part.get('parts') or []))
     return '\n'.join(chunks)
+
+
+def _provider_date(value: str):
+    for pattern in ('%d %b %Y', '%d %B %Y'):
+        try:
+            return datetime.strptime(str(value or '').strip(), pattern).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _statement_metadata(filename: str, *, subject: str = '', body: str = '') -> dict:
+    """Prefer provider email context while retaining a strict PDF filename gate."""
+    parsed = parse_statement_filename(filename)
+    result = {
+        'period_start': parsed.period_start,
+        'period_end': parsed.period_end,
+        'masked_phone': parsed.masked_phone,
+        'full_year': parsed.full_year,
+        'customer_name': '',
+        'source': 'filename',
+    }
+    for source, text in (('subject', subject), ('body', body)):
+        period = STATEMENT_PERIOD_RE.search(str(text or ''))
+        if period:
+            first = _provider_date(period.group('start'))
+            second = _provider_date(period.group('end'))
+            if first and second:
+                start, end = sorted((first, second))
+                result.update({
+                    'period_start': start,
+                    'period_end': end,
+                    'masked_phone': period.group('phone'),
+                    'full_year': end >= start + relativedelta(months=12),
+                    'source': source,
+                })
+        customer = STATEMENT_CUSTOMER_RE.search(str(text or ''))
+        if customer:
+            result['customer_name'] = re.sub(r'\s+', ' ', customer.group('name')).strip()[:255]
+    return result
 
 
 def _original_sent_at(payload: dict) -> tuple[datetime | None, str]:
@@ -140,18 +193,41 @@ def ingest_message(service, message_id: str, *, commit: bool) -> dict:
     message = service.users().messages().get(userId='me', id=message_id, format='full').execute()
     payload = message.get('payload') or {}
     subject = _header(payload, 'Subject')
+    message_body = _message_text(payload)
     sender = _sender_email(payload)
     received_at = _received_at(message)
     original_sent_at, time_source = _original_sent_at(payload)
     ingested = 0
     skipped = 0
+    enriched = 0
     for attachment_id, filename in _pdf_attachments(payload):
         try:
-            parsed = parse_statement_filename(filename)
+            parsed = _statement_metadata(filename, subject=subject, body=message_body)
         except AssessmentError:
             skipped += 1
             continue
-        if StatementMailReceipt.objects.filter(gmail_message_id=message_id, gmail_attachment_id=attachment_id).exists():
+        existing = StatementMailReceipt.objects.filter(
+            gmail_message_id=message_id,
+            gmail_attachment_id=attachment_id,
+        ).first()
+        if existing:
+            # Deterministically enrich an earlier filename-only receipt from
+            # the same immutable Gmail evidence after parser improvements.
+            updates = {}
+            if parsed['source'] != 'filename' and existing.statement_metadata_source == 'filename':
+                updates.update({
+                    'masked_phone_pattern': parsed['masked_phone'],
+                    'statement_period_start': parsed['period_start'],
+                    'statement_period_end': parsed['period_end'],
+                    'statement_full_year': parsed['full_year'],
+                    'statement_metadata_source': parsed['source'],
+                })
+            if parsed['customer_name'] and not existing.customer_name:
+                updates['customer_name'] = parsed['customer_name']
+            if updates and commit:
+                StatementMailReceipt.objects.filter(pk=existing.pk).update(**updates)
+                enriched += 1
+                continue
             skipped += 1
             continue
         data = _attachment_bytes(service, message_id, attachment_id)
@@ -164,7 +240,7 @@ def ingest_message(service, message_id: str, *, commit: bool) -> dict:
             from core.services.order_approval import GoogleDriveMediaStorage
             storage = GoogleDriveMediaStorage()
             drive_file_id, _url = storage.upload(
-                data, filename, 'application/pdf', parsed.masked_phone, received_at,
+                data, filename, 'application/pdf', parsed['masked_phone'], received_at,
                 workflow_key='credit_assessment', record_type='mpesa_statement', record_key=content_hash,
             )
             StatementMailReceipt.objects.create(
@@ -179,14 +255,16 @@ def ingest_message(service, message_id: str, *, commit: bool) -> dict:
                 attachment_name=filename[:255],
                 attachment_hash=content_hash,
                 attachment_size=len(data),
-                masked_phone_pattern=parsed.masked_phone,
-                statement_period_start=parsed.period_start,
-                statement_period_end=parsed.period_end,
-                statement_full_year=parsed.full_year,
+                masked_phone_pattern=parsed['masked_phone'],
+                customer_name=parsed['customer_name'],
+                statement_metadata_source=parsed['source'],
+                statement_period_start=parsed['period_start'],
+                statement_period_end=parsed['period_end'],
+                statement_full_year=parsed['full_year'],
                 drive_file_id=drive_file_id,
             )
         ingested += 1
-    return {'message_id': message_id, 'ingested': ingested, 'skipped': skipped}
+    return {'message_id': message_id, 'ingested': ingested, 'enriched': enriched, 'skipped': skipped}
 
 
 @transaction.atomic
@@ -228,6 +306,7 @@ def poll_mailbox(*, commit: bool = False, limit: int = 50) -> dict:
             'commit': commit,
             'messages': len(results),
             'ingested': sum(item['ingested'] for item in results),
+            'enriched': sum(item['enriched'] for item in results),
             'skipped': sum(item['skipped'] for item in results),
         }
     except Exception as exc:

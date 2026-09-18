@@ -18,5 +18,6 @@ class Command(BaseCommand):
         mode = 'COMMIT' if result['commit'] else 'DRY RUN'
         self.stdout.write(self.style.SUCCESS(
             f"{mode}: inspected {result['messages']} message(s); "
-            f"{result['ingested']} matching statement(s), {result['skipped']} skipped."
+            f"{result['ingested']} new statement(s), {result['enriched']} enriched, "
+            f"{result['skipped']} skipped."
         ))

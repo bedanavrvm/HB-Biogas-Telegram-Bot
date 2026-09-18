@@ -428,6 +428,22 @@
         </footer>
       </section>
     </div>
+    <div id="assessmentPreviewOverlay" class="tat-sheet-overlay assessment-preview-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="assessmentPreviewTitle" hidden>
+      <section class="tat-sheet assessment-preview-sheet">
+        <header class="tat-sheet-header">
+          <div class="tat-sheet-heading"><p class="eyebrow">Credit assessment evidence</p><h2 id="assessmentPreviewTitle">Document preview</h2></div>
+          <button id="closeAssessmentPreviewBtn" type="button" class="notice-close tat-sheet-close" aria-label="Close document preview">&times;</button>
+        </header>
+        <div class="assessment-preview-body">
+          <iframe id="assessmentPreviewFrame" title="Credit assessment PDF preview"></iframe>
+          <p>Enter the statement password in the PDF viewer if requested. If this device cannot display PDFs, use Download.</p>
+        </div>
+        <footer>
+          <button id="downloadAssessmentPreviewBtn" type="button" class="secondary">Download</button>
+          <button id="doneAssessmentPreviewBtn" type="button" class="primary">Done</button>
+        </footer>
+      </section>
+    </div>
     <div id="noticeModal" class="notice-toast hidden" role="status" aria-live="polite" aria-labelledby="noticeTitle" aria-describedby="noticeMessage">
       <div class="notice-dialog">
         <span class="notice-icon" aria-hidden="true"></span>
@@ -449,6 +465,6 @@
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
   <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=3"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=97"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=98"></script>
 </body>
 </html>

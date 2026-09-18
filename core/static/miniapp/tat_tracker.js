@@ -40,6 +40,7 @@
     identityContextTimer: null,
     pendingCorrection: null,
     creditAssessmentLoadedFor: '',
+    assessmentPreview: { open: false, url: '', filename: '' },
     workflowMode: null,
     taskInbox: { items: [], unread_count: 0, total: 0 },
     recognition: { view: 'personal', role: '', product: '', page: 1, loading: false, sequence: 0 },
@@ -1724,10 +1725,11 @@
       <div class="credit-assessment-summary">
         <div><small>Current step</small><strong>${escapeHtml(data.state_label || '')}</strong></div>
         <div><small>Assigned to</small><strong>${escapeHtml(data.required_role || 'Complete')}</strong></div>
+        ${statement?.customer_name ? `<div><small>Statement holder</small><strong title="${escapeHtml(statement.customer_name)}">${escapeHtml(statement.customer_name)}</strong></div>` : ''}
         ${statement ? `<div><small>M-PESA period</small><strong>${escapeHtml(formatReportDate(statement.period_start))} – ${escapeHtml(formatReportDate(statement.period_end))}</strong></div>
           <div><small>Coverage</small><strong>${statement.full_year ? 'Full 12 months' : 'Shorter than 12 months'}</strong></div>` : ''}
       </div>
-      ${docs.length ? `<div class="credit-assessment-docs">${docs.map((item) => `<button type="button" class="ghost-btn" data-assessment-document="${escapeHtml(item.id)}" data-assessment-source="${escapeHtml(item.source || 'document')}" title="Download ${escapeHtml(item.filename)}">${escapeHtml(item.label)} v${escapeHtml(item.version)}</button>`).join('')}</div>` : ''}`;
+      ${docs.length ? `<div class="credit-assessment-docs">${docs.map((item) => `<button type="button" class="ghost-btn" data-assessment-document="${escapeHtml(item.id)}" data-assessment-source="${escapeHtml(item.source || 'document')}" title="Preview ${escapeHtml(item.label)}">Preview ${escapeHtml(item.label)}</button>`).join('')}</div>` : ''}`;
   }
 
   function assessmentDecisionForm(data, gate) {
@@ -1762,12 +1764,10 @@
       let action = '';
       const candidates = data.statement_candidates || [];
       if (['draft', 'returned_pre_analysis'].includes(data.state)) {
-        const candidateMarkup = candidates.length ? `<div class="statement-candidates">${candidates.map((item) => `
-          <div class="statement-candidate"><div><strong>${escapeHtml(item.filename)}</strong><small>${escapeHtml(formatReportDate(item.period_start))} – ${escapeHtml(formatReportDate(item.period_end))} · ${item.full_year ? '12 months' : 'Short period'}</small></div><button type="button" class="secondary compact-btn" data-receipt-id="${escapeHtml(item.id)}">Use statement</button></div>`).join('')}</div>` : '<p class="credit-assessment-note">No matching forwarded statement is available yet. Forward the original M-PESA email to the dedicated inbox, then refresh this case.</p>';
+        const candidateMarkup = data.statement ? '' : (candidates.length ? `<div class="statement-candidates">${candidates.map((item) => `
+          <div class="statement-candidate"><div><strong>${escapeHtml(item.customer_name || 'M-PESA statement')}</strong><small>${escapeHtml(formatReportDate(item.period_start))} – ${escapeHtml(formatReportDate(item.period_end))} · ${item.full_year ? '12 months' : 'Short period'}</small></div><button type="button" class="secondary compact-btn" data-receipt-id="${escapeHtml(item.id)}">Use statement</button></div>`).join('')}</div>` : '<p class="credit-assessment-note">No matching forwarded statement is available yet. Forward the original M-PESA email to the dedicated inbox, then refresh this case.</p>');
         action = `${candidateMarkup}${data.statement ? `<form class="credit-assessment-form" data-assessment-upload="submit_pre_appraisal" enctype="multipart/form-data">
           <label>Pre-appraisal form (PDF)<input type="file" name="pre_appraisal" accept="application/pdf" required></label>
-          <label>Signed LAF reference<input name="signed_laf_reference" required placeholder="Application or document reference"></label>
-          <label>Signed LAF SHA-256<input name="signed_laf_hash" minlength="64" maxlength="64" required placeholder="64-character document hash"></label>
           <label>Statement passcode<input name="passcode" type="password" autocomplete="off" required></label>
           <input type="hidden" name="revision" value="${escapeHtml(data.revision)}">
           <div class="form-actions"><button type="submit" class="primary compact-btn">Send for Branch Manager review</button></div>
@@ -1805,10 +1805,30 @@
     });
     content.querySelectorAll('[data-assessment-upload]').forEach((form) => form.addEventListener('submit', submitCreditAssessmentUpload));
     content.querySelectorAll('[data-assessment-form]').forEach((form) => form.addEventListener('submit', submitCreditAssessmentForm));
-    content.querySelectorAll('[data-assessment-document]').forEach((button) => button.addEventListener('click', () => downloadAssessmentDocument(button)));
+    content.querySelectorAll('[data-assessment-document]').forEach((button) => button.addEventListener('click', () => previewAssessmentDocument(button)));
   }
 
-  async function downloadAssessmentDocument(button) {
+  function closeAssessmentPreview() {
+    const overlay = $('assessmentPreviewOverlay');
+    const frame = $('assessmentPreviewFrame');
+    if (state.assessmentPreview.url) URL.revokeObjectURL(state.assessmentPreview.url);
+    state.assessmentPreview = { open: false, url: '', filename: '' };
+    frame?.removeAttribute('src');
+    if (overlay) {
+      overlay.hidden = true;
+      overlay.setAttribute('aria-hidden', 'true');
+    }
+  }
+
+  function downloadAssessmentPreview() {
+    if (!state.assessmentPreview.url) return;
+    const anchor = document.createElement('a');
+    anchor.href = state.assessmentPreview.url;
+    anchor.download = state.assessmentPreview.filename || 'credit-assessment.pdf';
+    anchor.click();
+  }
+
+  async function previewAssessmentDocument(button) {
     const requestId = newRequestId();
     button.disabled = true;
     try {
@@ -1823,13 +1843,16 @@
       }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
       const disposition = response.headers.get('Content-Disposition') || '';
       const nameMatch = disposition.match(/filename\*?=(?:UTF-8''|\")?([^\";]+)/i);
-      anchor.download = nameMatch ? decodeURIComponent(nameMatch[1].replace(/^\"|\"$/g, '')) : 'credit-assessment.pdf';
-      anchor.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      const filename = nameMatch ? decodeURIComponent(nameMatch[1].replace(/^\"|\"$/g, '')) : 'credit-assessment.pdf';
+      closeAssessmentPreview();
+      state.assessmentPreview = { open: true, url, filename };
+      $('assessmentPreviewTitle').textContent = button.dataset.assessmentSource === 'statement' ? 'M-PESA statement' : 'Credit assessment document';
+      $('assessmentPreviewFrame').src = url;
+      $('assessmentPreviewOverlay').hidden = false;
+      $('assessmentPreviewOverlay').setAttribute('aria-hidden', 'false');
+      $('closeAssessmentPreviewBtn').focus();
     } catch (error) { setStatus(error.message, 'error'); }
     finally { button.disabled = false; }
   }
@@ -3981,6 +4004,12 @@
   }
 
   configureHtmx();
+  $('closeAssessmentPreviewBtn')?.addEventListener('click', closeAssessmentPreview);
+  $('doneAssessmentPreviewBtn')?.addEventListener('click', closeAssessmentPreview);
+  $('downloadAssessmentPreviewBtn')?.addEventListener('click', downloadAssessmentPreview);
+  $('assessmentPreviewOverlay')?.addEventListener('click', (event) => {
+    if (event.target === event.currentTarget) closeAssessmentPreview();
+  });
   setDefaultReportDates();
   bindReportDatePickers();
   bindCollapsingHeader();
@@ -3989,11 +4018,13 @@
   utils.bindMiniAppTheme?.(tg, refreshTatVisualTheme);
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
-    if (state.report.filterSheetOpen) closeTatReportFilters();
+    if (state.assessmentPreview.open) closeAssessmentPreview();
+    else if (state.report.filterSheetOpen) closeTatReportFilters();
     else if (state.filterSheetOpen) closeQueueFilters();
   });
   if (tg && tg.BackButton && typeof tg.BackButton.onClick === 'function') {
     tg.BackButton.onClick(() => {
+      if (state.assessmentPreview.open) return closeAssessmentPreview();
       if (state.report.filterSheetOpen) return closeTatReportFilters();
       if (state.filterSheetOpen) return closeQueueFilters();
       if (state.currentView === 'detail') {

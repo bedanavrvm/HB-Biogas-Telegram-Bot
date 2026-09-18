@@ -82,6 +82,8 @@ class StatementMailReceipt(models.Model):
     attachment_hash = models.CharField(max_length=64, db_index=True, db_comment='SHA-256 of the encrypted source PDF.')
     attachment_size = models.PositiveBigIntegerField(db_comment='Encrypted source PDF size in bytes.')
     masked_phone_pattern = models.CharField(max_length=32, blank=True, default='', db_comment='Provider-supplied masked phone pattern used only for candidate matching.')
+    customer_name = models.CharField(max_length=255, blank=True, default='', db_comment='Customer name parsed from the provider email body when available.')
+    statement_metadata_source = models.CharField(max_length=32, blank=True, default='filename', db_comment='Source used to derive the statement phone and period: body, subject, or filename.')
     statement_period_start = models.DateField(null=True, blank=True, db_comment='Chronologically earlier statement date parsed without opening the PDF.')
     statement_period_end = models.DateField(null=True, blank=True, db_comment='Chronologically later statement date parsed without opening the PDF.')
     statement_full_year = models.BooleanField(null=True, blank=True, db_comment='Whether parsed dates cover at least twelve calendar months.')

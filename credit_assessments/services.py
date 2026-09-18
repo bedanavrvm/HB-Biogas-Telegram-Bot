@@ -341,17 +341,24 @@ def submit_pre_appraisal(
         raise AssessmentError('This pre-appraisal is no longer editable.', code='pre_appraisal_locked', status=409)
     if not locked.statement_receipt_id:
         raise AssessmentError('Confirm the customer’s M-PESA statement first.', code='statement_required')
+    # Signed-LAF evidence will become a governed file upload. Do not expose a
+    # storage reference or SHA-256 implementation detail as staff data entry in
+    # the interim. Retain compatibility with an older client only when it sends
+    # a complete reference/hash pair.
     reference = str(signed_laf_reference or '').strip()
     laf_hash = re.sub(r'[^0-9a-f]', '', str(signed_laf_hash or '').casefold())
-    if not reference or len(laf_hash) != 64:
-        raise AssessmentError('Link the exact signed LAF that records customer consent.', code='signed_laf_required')
+    if reference or laf_hash:
+        if not reference or len(laf_hash) != 64:
+            raise AssessmentError('The supplied signed LAF reference is incomplete.', code='signed_laf_invalid')
     if pre_appraisal_file:
         _store_document(locked, AssessmentDocument.TYPE_PRE_APPRAISAL, pre_appraisal_file, actor)
     if not current_document(locked, AssessmentDocument.TYPE_PRE_APPRAISAL):
         raise AssessmentError('Upload the completed pre-appraisal form.', code='pre_appraisal_document_required')
     set_statement_passcode(locked, passcode)
-    locked.signed_laf_reference = reference[:255]
-    locked.signed_laf_hash = laf_hash
+    if reference and laf_hash:
+        locked.signed_laf_reference = reference[:255]
+        locked.signed_laf_hash = laf_hash
+        locked.save(update_fields=['signed_laf_reference', 'signed_laf_hash', 'updated_at'])
     _advance(locked, locked.STATE_PENDING_AUTHORIZATION)
     _event(locked, 'pre_appraisal.submitted', actor, request_id, {'statement_full_year': locked.statement_full_year, 'laf_hash': laf_hash})
     return locked
@@ -619,6 +626,7 @@ def serialize_assessment(assessment: CreditAssessment, user: dict) -> dict:
         'required_role': required_role, 'can_act': bool(can_act),
         'statement': None if not receipt else {
             'id': str(receipt.pk), 'filename': receipt.attachment_name,
+            'customer_name': receipt.customer_name,
             'period_start': receipt.statement_period_start.isoformat() if receipt.statement_period_start else '',
             'period_end': receipt.statement_period_end.isoformat() if receipt.statement_period_end else '',
             'full_year': receipt.statement_full_year,
