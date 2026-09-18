@@ -1257,7 +1257,10 @@ test('Complaint voice input reviews before insertion and stays compact on small 
           actor: { name: 'Officer', role: 'OFFICER', capabilities: ['complaint.case.create'] },
           counts: { pending: 0, resolved: 0, total: 0 }, branches: [], categories: [], category_catalogue: [],
           evidence_limits: { max_files: 10, max_file_size_mb: 10, max_total_upload_mb: 30 },
-          voice_input: { enabled: true, max_seconds: 30, fields: ['complaint_description'] },
+          voice_input: {
+            enabled: true, max_seconds: 30,
+            fields: ['complaint_description', 'complaint_resolution_note', 'complaint_reopen_reason'],
+          },
         } };
         if (path === 'cases/') return { cases: [], pagination: { page: 1, pages: 1, total: 0 }, start_index: 0 };
         return { data: {} };
@@ -1282,12 +1285,60 @@ test('Complaint voice input reviews before insertion and stays compact on small 
     await page.setViewportSize(viewport);
     const bounds = await widget.evaluate(node => {
       const box = node.getBoundingClientRect();
-      return { left: box.left, right: box.right, scrollWidth: node.scrollWidth, clientWidth: node.clientWidth };
+      const textarea = document.getElementById('complaintDescription').getBoundingClientRect();
+      const record = node.querySelector('[data-voice-action="record"]').getBoundingClientRect();
+      const language = node.querySelector('[data-voice-action="language"]').getBoundingClientRect();
+      return {
+        left: box.left, right: box.right, scrollWidth: node.scrollWidth, clientWidth: node.clientWidth,
+        textareaLeft: textarea.left, textareaRight: textarea.right,
+        gapBelowTextarea: box.top - textarea.bottom,
+        recordTop: record.top, recordHeight: record.height,
+        languageTop: language.top, languageHeight: language.height,
+      };
     });
     expect(bounds.left).toBeGreaterThanOrEqual(0);
     expect(bounds.right).toBeLessThanOrEqual(viewport.width + 1);
     expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.clientWidth);
+    expect(Math.abs(bounds.left - bounds.textareaLeft)).toBeLessThanOrEqual(1);
+    expect(Math.abs(bounds.right - bounds.textareaRight)).toBeLessThanOrEqual(1);
+    expect(bounds.gapBelowTextarea).toBeGreaterThanOrEqual(4);
+    expect(bounds.gapBelowTextarea).toBeLessThanOrEqual(8);
+    expect(Math.abs(bounds.recordTop - bounds.languageTop)).toBeLessThanOrEqual(1);
+    expect(bounds.recordHeight).toBe(40);
+    expect(bounds.languageHeight).toBe(40);
   }
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.evaluate(() => {
+    document.getElementById('createView').hidden = true;
+    document.getElementById('detailView').hidden = false;
+    document.getElementById('resolveForm').hidden = false;
+    document.getElementById('reopenForm').hidden = false;
+  });
+  for (const [fieldName, inputId] of [
+    ['complaint_resolution_note', 'complaintResolutionNote'],
+    ['complaint_reopen_reason', 'complaintReopenReason'],
+  ]) {
+    const aligned = await page.locator(`[data-voice-field="${fieldName}"] .voice-input`).evaluate((node, textareaId) => {
+      const box = node.getBoundingClientRect();
+      const textarea = document.getElementById(textareaId).getBoundingClientRect();
+      const record = node.querySelector('[data-voice-action="record"]').getBoundingClientRect();
+      const language = node.querySelector('[data-voice-action="language"]').getBoundingClientRect();
+      return {
+        leftDelta: Math.abs(box.left - textarea.left), rightDelta: Math.abs(box.right - textarea.right),
+        recordTop: record.top, languageTop: language.top,
+        recordHeight: record.height, languageHeight: language.height,
+      };
+    }, inputId);
+    expect(aligned.leftDelta).toBeLessThanOrEqual(1);
+    expect(aligned.rightDelta).toBeLessThanOrEqual(1);
+    expect(Math.abs(aligned.recordTop - aligned.languageTop)).toBeLessThanOrEqual(1);
+    expect(aligned.recordHeight).toBe(40);
+    expect(aligned.languageHeight).toBe(40);
+  }
+  await page.evaluate(() => {
+    document.getElementById('detailView').hidden = true;
+    document.getElementById('createView').hidden = false;
+  });
   await widget.locator('[data-voice-action="record"]').click();
   await expect(widget).toHaveClass(/recording/);
   await widget.locator('[data-voice-action="record"]').click();

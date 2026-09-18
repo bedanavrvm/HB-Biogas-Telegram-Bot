@@ -1,10 +1,13 @@
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase, override_settings
 
 from core.services.complaint_category_inference import (
+    _call_provider,
+    _provider_model,
     _provider_request,
+    _provider_url,
     redact_description,
     suggest_category,
     verify_inference_token,
@@ -152,3 +155,33 @@ class ComplaintCategoryInferenceTests(SimpleTestCase):
         self.assertIn('Return no_match', system_prompt)
         self.assertNotIn('other-complaint', str(schema).lower())
         self.assertEqual(schema['properties']['category_key']['enum'], ['leakage', None])
+
+    @override_settings(
+        COMPLAINT_CATEGORY_AI_API_URL='https://generativelanguage.googleapis.com/v1beta/openai/',
+        COMPLAINT_CATEGORY_AI_API_KEY='test-gemini-key',
+        COMPLAINT_CATEGORY_AI_MODEL='models/gemini-2.5-flash',
+        COMPLAINT_CATEGORY_AI_TIMEOUT_SECONDS=8,
+        COMPLAINT_CATEGORY_AI_MAX_TOKENS=220,
+    )
+    @patch('core.services.complaint_category_inference.requests.post')
+    def test_gemini_openai_base_url_and_native_model_prefix_are_normalized(self, post):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            'choices': [{'message': {'content': '{"state":"matched","category_key":"leakage","alternative_keys":[],"confidence":"high","reason":"Current leak."}'}}],
+        }
+        post.return_value = response
+
+        result = _call_provider(
+            'Gas is leaking.',
+            [{'key': 'leakage', 'label': 'Leakage', 'description': 'A current leak.'}],
+        )
+
+        self.assertEqual(
+            _provider_url(),
+            'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+        )
+        self.assertEqual(_provider_model(), 'gemini-2.5-flash')
+        self.assertEqual(post.call_args.args[0], _provider_url())
+        self.assertEqual(post.call_args.kwargs['json']['model'], 'gemini-2.5-flash')
+        self.assertEqual(result['category_key'], 'leakage')
+        response.raise_for_status.assert_called_once_with()

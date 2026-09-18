@@ -95,16 +95,16 @@ button{transition:border-color .16s ease,background-color .16s ease,color .16s e
 @media(max-width:520px){.create-complaint-panel{padding:12px}.create-complaint-panel .form-grid{gap:8px}.create-complaint-panel .panel-heading h2{font-size:17px}.create-complaint-panel #createSaveBtn{min-width:0;flex:1}.create-complaint-panel .sticky-action{gap:12px}}
 
 /* Shared, review-first voice dictation for complaint notes. */
-.voice-input-slot[hidden]{display:none}.voice-input-slot{min-width:0;margin-top:-3px}
-.voice-input{display:flex;min-width:0;flex-wrap:wrap;align-items:center;gap:6px}
-.voice-record-button,.voice-language-button{display:inline-flex;min-height:38px;align-items:center;justify-content:center;gap:6px;padding:7px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--accent);box-shadow:none;font-size:11px;font-weight:800}
+.voice-enabled-field{min-width:0}.voice-input-slot[hidden]{display:none}.voice-input-slot{width:100%;min-width:0;margin-top:2px}
+.voice-input{display:grid;width:100%;min-width:0;grid-template-columns:max-content 48px minmax(0,1fr);align-items:center;gap:6px;text-align:left}
+.voice-record-button,.voice-language-button{display:inline-flex;height:40px;min-height:40px;align-items:center;justify-content:center;gap:6px;padding:7px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--accent);box-shadow:none;font-size:11px;font-weight:800;line-height:1}
 .voice-record-button svg{width:16px;height:16px;flex:0 0 16px}.voice-language-button{min-width:48px;padding-inline:8px;color:var(--text)}
 .voice-input.recording .voice-record-button{border-color:color-mix(in srgb,var(--danger) 55%,var(--line));background:color-mix(in srgb,var(--danger) 8%,var(--surface));color:var(--danger)}
-.voice-status{min-width:0;flex:1;color:var(--secondary-text);font-size:11px;line-height:1.35}.voice-status[data-state="error"]{color:var(--danger)}.voice-status[data-state="recording"]{color:var(--accent);font-weight:750}
-.voice-review{display:grid;width:100%;min-width:0;grid-template-columns:minmax(0,1fr) auto;gap:7px;padding:7px;border:1px solid var(--line);border-radius:11px;background:var(--raised)}.voice-review[hidden]{display:none}
+.voice-status{min-width:0;color:var(--secondary-text);font-size:11px;font-weight:600;line-height:1.35;text-transform:none}.voice-status[data-state="error"]{color:var(--danger)}.voice-status[data-state="recording"]{color:var(--accent);font-weight:750}
+.voice-review{display:grid;width:100%;min-width:0;grid-column:1/-1;grid-template-columns:minmax(0,1fr) auto;gap:7px;padding:7px;border:1px solid var(--line);border-radius:11px;background:var(--raised);text-transform:none}.voice-review[hidden]{display:none}
 .voice-review-text{min-width:0}.voice-transcript{max-height:92px;overflow:auto;margin:0;padding:7px;border-radius:8px;background:var(--surface);color:var(--text);font-size:12px;line-height:1.45;white-space:pre-wrap}.voice-detected-language{display:block;margin:4px 2px 0;color:var(--secondary-text);font-size:11px}
 .voice-review-actions{display:grid;grid-template-columns:repeat(2,minmax(56px,1fr));align-content:start;gap:5px}.voice-review-actions button{min-height:34px;padding:5px 7px;border-radius:8px;background:var(--surface);font-size:10px;font-weight:800}.voice-review-actions .voice-action-cancel{color:var(--danger)}
-@media(max-width:360px){.voice-review{grid-template-columns:1fr}.voice-review-actions{grid-template-columns:repeat(4,minmax(0,1fr))}.voice-review-actions button{min-width:0;padding-inline:3px}.voice-status{flex-basis:100%}}
+@media(max-width:360px){.voice-input{grid-template-columns:max-content 48px minmax(0,1fr)}.voice-status{grid-column:1/-1}.voice-review{grid-template-columns:1fr}.voice-review-actions{grid-template-columns:repeat(4,minmax(0,1fr))}.voice-review-actions button{min-width:0;padding-inline:3px}}
 
 /* Overview search, durable download guidance, and mathematically centered paging. */
 .filter-search-control{position:relative;display:block}.filter-search-control .search-icon{position:absolute;z-index:1;top:50%;left:11px;width:16px;height:16px;color:var(--muted);transform:translateY(-50%);pointer-events:none}.filter-search-control input{padding-left:36px}
