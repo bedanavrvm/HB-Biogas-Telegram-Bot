@@ -6806,13 +6806,19 @@ class OriginationSigningActionInvalidation(models.Model):
 
 
 class PortalVoiceTranscriptionAttempt(models.Model):
-    """Append-oriented audit and retry state for bounded Portal dictation."""
+    """Append-oriented audit and retry state for bounded workflow dictation."""
 
     FIELD_JBL_VISIT_COMMENT = 'jbl_visit_comment'
     FIELD_FINAL_DECISION_COMMENT = 'final_decision_comment'
+    FIELD_COMPLAINT_DESCRIPTION = 'complaint_description'
+    FIELD_COMPLAINT_RESOLUTION_NOTE = 'complaint_resolution_note'
+    FIELD_COMPLAINT_REOPEN_REASON = 'complaint_reopen_reason'
     FIELD_CHOICES = [
         (FIELD_JBL_VISIT_COMMENT, 'JBL visit comment'),
         (FIELD_FINAL_DECISION_COMMENT, 'Final decision after-call comment'),
+        (FIELD_COMPLAINT_DESCRIPTION, 'Complaint description'),
+        (FIELD_COMPLAINT_RESOLUTION_NOTE, 'Complaint resolution note'),
+        (FIELD_COMPLAINT_REOPEN_REASON, 'Complaint reopening reason'),
     ]
     STATUS_PROCESSING = 'processing'
     STATUS_TRANSCRIBED = 'transcribed'
@@ -6839,6 +6845,24 @@ class PortalVoiceTranscriptionAttempt(models.Model):
         'JawabuFarmerMaster',
         on_delete=models.CASCADE,
         related_name='voice_transcription_attempts',
+        null=True,
+        blank=True,
+    )
+    complaint_group = models.ForeignKey(
+        'GroupSheetConfiguration',
+        on_delete=models.CASCADE,
+        related_name='voice_transcription_attempts',
+        null=True,
+        blank=True,
+        db_comment='Complaint group that owns this temporary transcription attempt.',
+    )
+    complaint_case = models.ForeignKey(
+        'ParsedMessage',
+        on_delete=models.CASCADE,
+        related_name='voice_transcription_attempts',
+        null=True,
+        blank=True,
+        db_comment='Complaint case receiving this transcription; null until a new complaint is created.',
     )
     field_name = models.CharField(max_length=64, choices=FIELD_CHOICES)
     request_id = models.CharField(max_length=128)
@@ -6873,11 +6897,20 @@ class PortalVoiceTranscriptionAttempt(models.Model):
                 fields=['user', 'request_id'],
                 name='unique_portal_voice_request_per_user',
             ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(farmer__isnull=False, complaint_group__isnull=True, complaint_case__isnull=True)
+                    | models.Q(farmer__isnull=True, complaint_group__isnull=False)
+                ),
+                name='voice_attempt_has_one_workflow_subject',
+            ),
         ]
         indexes = [
             models.Index(fields=['user', 'created_at'], name='portal_voice_user_day_idx'),
             models.Index(fields=['status', 'expires_at'], name='portal_voice_status_exp_idx'),
             models.Index(fields=['farmer', 'field_name', 'created_at'], name='portal_voice_case_field_idx'),
+            models.Index(fields=['complaint_group', 'field_name', 'created_at'], name='voice_complaint_group_idx'),
+            models.Index(fields=['complaint_case', 'field_name', 'created_at'], name='voice_complaint_case_idx'),
         ]
 
 

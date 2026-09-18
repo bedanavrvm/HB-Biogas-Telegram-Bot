@@ -29,6 +29,7 @@ from core.models import (
     ComplaintCaseSequence,
     ComplaintCategory,
     ComplaintCategoryAlias,
+    GroupSheetConfiguration,
     JawabuCustomer,
     OperationalLocation,
     ParsedMessage,
@@ -46,6 +47,41 @@ logger = logging.getLogger(__name__)
 ACTIVE_STATUSES = {'Open', 'Reopened', 'In Progress', 'Review Needed', ''}
 STATUS_VALUES = {'Open', 'Reopened', 'In Progress', 'Closed'}
 MANAGER_ROLE = 'MANAGER'
+
+
+def _voice_group(group_config) -> GroupSheetConfiguration:
+    return GroupSheetConfiguration.objects.get(group_id=str(group_config.group_id))
+
+
+def _validate_complaint_voice(
+    *, fields: dict[str, Any], actor: 'ComplaintCaseActor', group_config,
+    field_name: str, case: ParsedMessage | None = None,
+):
+    attempt_id = str(fields.get('voice_transcription_id') or '').strip()
+    if not attempt_id:
+        return None
+    from core.services.portal_voice import VoiceInputError, validate_transcription_reference
+    try:
+        return validate_transcription_reference(
+            attempt_id=attempt_id, user=actor.user, field_name=field_name,
+            complaint_group=_voice_group(group_config), complaint_case=case,
+        )
+    except VoiceInputError as exc:
+        raise ComplaintCaseError(str(exc)) from exc
+
+
+def _accept_complaint_voice(
+    *, attempt_id: str, actor: 'ComplaintCaseActor', group_config,
+    field_name: str, case: ParsedMessage, accepted_text: str,
+) -> None:
+    if not attempt_id:
+        return
+    from core.services.portal_voice import resolve_transcription
+    resolve_transcription(
+        attempt_id=attempt_id, user=actor.user, field_name=field_name,
+        complaint_group=_voice_group(group_config), complaint_case=case,
+        accepted_text=accepted_text,
+    )
 class ComplaintCaseError(ValueError):
     """Staff-safe complaint Mini App validation error."""
 
@@ -259,6 +295,11 @@ def actor_can_access_case(group_config, actor: ComplaintCaseActor, capability: s
     return actor_can(group_config, actor, capability, case)
 
 
+def complaint_case_for_voice(group_config, actor: ComplaintCaseActor, case_id: str) -> ParsedMessage:
+    """Resolve one group-scoped complaint for an already-authorized voice action."""
+    return _case_for_group(group_config.group_id, case_id, actor=actor)
+
+
 def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
     cases = _case_queryset(group_config.group_id, actor=actor)
     from core.services.location_catalog import location_options
@@ -266,6 +307,16 @@ def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
     resolved = cases.filter(complaint_status='Closed').count()
     needs_details = cases.filter(complaint_status='Review Needed').count()
     total = cases.count()
+    from core.models import PortalVoiceTranscriptionAttempt
+    from core.services.portal_voice import voice_enabled
+    voice_fields = []
+    for field_name, capability in (
+        (PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_DESCRIPTION, 'complaint.case.create'),
+        (PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_NOTE, 'complaint.case.close'),
+        (PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_REOPEN_REASON, 'complaint.case.reopen'),
+    ):
+        if actor_can(group_config, actor, capability):
+            voice_fields.append(field_name)
     return {
         'actor': {
             'name': actor.name, 'role': actor.role, 'is_manager': actor.is_manager,
@@ -281,6 +332,11 @@ def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
             'max_files': int(getattr(settings, 'COMPLAINT_CASE_MAX_FILES_PER_UPDATE', 10)),
             'max_file_size_mb': int(getattr(settings, 'COMPLAINT_CASE_MAX_FILE_SIZE_MB', 10)),
             'max_total_upload_mb': int(getattr(settings, 'COMPLAINT_CASE_MAX_TOTAL_UPLOAD_MB', 30)),
+        },
+        'voice_input': {
+            'enabled': voice_enabled(),
+            'max_seconds': int(getattr(settings, 'PORTAL_VOICE_MAX_SECONDS', 30)),
+            'fields': voice_fields,
         },
         'counts': {
             'pending': total - resolved,
@@ -422,6 +478,20 @@ def update_case(
         )
     validate_uploaded_files(uploaded_files)
     values = validate_update_fields(group_config, case, actor, {**fields, 'has_evidence': bool(uploaded_files)})
+    voice_attempt = None
+    voice_field = ''
+    if fields.get('voice_transcription_id'):
+        from core.models import PortalVoiceTranscriptionAttempt
+        voice_field = {
+            'complaint.case.close': PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_NOTE,
+            'complaint.case.reopen': PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_REOPEN_REASON,
+        }.get(required_capability, '')
+        if not voice_field:
+            raise ComplaintCaseError('Voice input is not enabled for this complaint action.')
+        voice_attempt = _validate_complaint_voice(
+            fields=fields, actor=actor, group_config=group_config,
+            field_name=voice_field, case=case,
+        )
     payload_hash = mutation_payload_hash(values)
     try:
         update_record = apply_case_update(
@@ -432,6 +502,18 @@ def update_case(
         # constraint is authoritative; return the first completed update.
         return case_detail(group_config, case_id, actor)
     store_evidence(group_config, case, update_record, actor, uploaded_files)
+    if voice_attempt:
+        try:
+            _accept_complaint_voice(
+                attempt_id=str(voice_attempt.pk), actor=actor, group_config=group_config,
+                field_name=voice_field, case=case,
+                accepted_text=values['note'],
+            )
+        except Exception as exc:
+            logger.warning(
+                'Complaint voice cleanup pending: case=%s attempt=%s error=%s',
+                case.pk, voice_attempt.pk, type(exc).__name__,
+            )
     return case_detail(group_config, case_id, actor)
 
 
@@ -477,8 +559,15 @@ def create_complaint_case(
     ).first()
     created = False
     create_update = None
+    voice_attempt = None
 
     if not case:
+        if fields.get('voice_transcription_id'):
+            from core.models import PortalVoiceTranscriptionAttempt
+            voice_attempt = _validate_complaint_voice(
+                fields=fields, actor=actor, group_config=group_config,
+                field_name=PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_DESCRIPTION,
+            )
         try:
             with transaction.atomic():
                 case = ParsedMessage.objects.select_for_update().filter(
@@ -567,6 +656,19 @@ def create_complaint_case(
             logger.warning(
                 'Complaint category inference audit unavailable: case=%s error=%s',
                 case.pk, type(exc).__name__,
+            )
+
+    if created and voice_attempt:
+        try:
+            _accept_complaint_voice(
+                attempt_id=str(voice_attempt.pk), actor=actor, group_config=group_config,
+                field_name=voice_attempt.FIELD_COMPLAINT_DESCRIPTION, case=case,
+                accepted_text=values['complaint_description'],
+            )
+        except Exception as exc:
+            logger.warning(
+                'Complaint voice cleanup pending: case=%s attempt=%s error=%s',
+                case.pk, voice_attempt.pk, type(exc).__name__,
             )
 
     control = ensure_case_control(case, group_config)

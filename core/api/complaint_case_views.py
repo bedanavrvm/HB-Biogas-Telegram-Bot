@@ -12,6 +12,7 @@ from django.contrib.auth import get_user_model
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
@@ -29,6 +30,7 @@ from core.services.complaint_cases import (
     finish_created_case,
     is_complaint_workflow,
     complaint_sheet_projection_enabled,
+    complaint_case_for_voice,
     list_cases_page,
     reopen_case,
     record_evidence_preview,
@@ -44,6 +46,13 @@ from core.services.miniapp_messages import miniapp_error_response, request_refer
 
 
 logger = logging.getLogger(__name__)
+
+
+def _complaint_voice_error(exc):
+    payload = {'ok': False, 'error': str(exc), 'code': getattr(exc, 'code', 'invalid_request')}
+    if getattr(exc, 'retry_after', None):
+        payload['retry_after'] = exc.retry_after
+    return JsonResponse(payload, status=getattr(exc, 'status', 400))
 
 
 def _complaint_error(request, exc: Exception, *, status: int = 400, code: str = ''):
@@ -258,6 +267,132 @@ def complaint_cases_category_suggestion(request):
         'ok': True,
         'data': suggest_category(group_config, payload.get('description')),
     })
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+@miniapp_write_response
+def complaint_cases_voice_transcription(request):
+    """Transcribe one authorized complaint field without changing its value."""
+    from core.models import GroupSheetConfiguration, PortalVoiceTranscriptionAttempt
+    from core.services.portal_voice import (
+        VoiceInputError, cleanup_expired_transcriptions, create_transcription,
+    )
+
+    payload = _request_payload(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    field_name = str(payload.get('field_name') or '').strip()
+    capability = {
+        PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_DESCRIPTION: 'complaint.case.create',
+        PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_NOTE: 'complaint.case.close',
+        PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_REOPEN_REASON: 'complaint.case.reopen',
+    }.get(field_name)
+    if not capability:
+        return JsonResponse({'ok': False, 'error': 'Voice input is not enabled for this field.', 'code': 'unsupported_field'}, status=400)
+    complaint_case = None
+    case_id = str(payload.get('case_id') or '').strip()
+    if field_name == PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_DESCRIPTION:
+        if case_id:
+            return JsonResponse({'ok': False, 'error': 'A new complaint recording cannot reference an existing case.', 'code': 'invalid_subject'}, status=400)
+    else:
+        if not case_id:
+            return JsonResponse({'ok': False, 'error': 'Select a complaint before recording this note.', 'code': 'invalid_subject'}, status=400)
+        try:
+            complaint_case = complaint_case_for_voice(group_config, actor, case_id)
+        except ComplaintCaseError as exc:
+            return _complaint_error(request, exc, status=404)
+    capability_error = _capability_error(actor, capability, group_config, resource=complaint_case)
+    if capability_error:
+        return capability_error
+    try:
+        if PortalVoiceTranscriptionAttempt.objects.filter(
+            expires_at__lte=timezone.now(),
+        ).exclude(deletion_status='deleted').exists():
+            cleanup_expired_transcriptions(limit=5)
+    except Exception:
+        logger.exception('Request-assisted Complaint voice cleanup failed')
+    source_attempt = None
+    source_id = str(payload.get('retry_attempt_id') or '').strip()
+    if source_id:
+        source_attempt = PortalVoiceTranscriptionAttempt.objects.filter(pk=source_id).first()
+        if source_attempt is None:
+            return JsonResponse({'ok': False, 'error': 'That retry recording is no longer available.', 'code': 'not_found'}, status=404)
+    uploaded = request.FILES.get('audio')
+    if source_attempt is None and uploaded is None:
+        return JsonResponse({'ok': False, 'error': 'A recording is required.', 'code': 'empty_audio'}, status=400)
+    if uploaded is not None and uploaded.size > 5 * 1024 * 1024:
+        return JsonResponse({'ok': False, 'error': 'The recording is too large.', 'code': 'audio_too_large'}, status=413)
+    group_record = GroupSheetConfiguration.objects.get(group_id=str(group_config.group_id))
+    try:
+        attempt, replayed = create_transcription(
+            user=actor.user, complaint_group=group_record, complaint_case=complaint_case,
+            field_name=field_name, request_id=str(payload.get('client_request_id') or ''),
+            duration_ms=int(payload.get('duration_ms') or 0),
+            audio=uploaded.read() if uploaded is not None else None,
+            mime_type=getattr(uploaded, 'content_type', '') if uploaded is not None else '',
+            source_attempt=source_attempt,
+            language_mode=str(payload.get('language_mode') or ''),
+        )
+    except (TypeError, ValueError) as exc:
+        if isinstance(exc, VoiceInputError):
+            return _complaint_voice_error(exc)
+        return JsonResponse({'ok': False, 'error': 'Recording duration is invalid.', 'code': 'invalid_duration'}, status=400)
+    return JsonResponse({
+        'ok': attempt.status == attempt.STATUS_TRANSCRIBED,
+        'transcription_id': str(attempt.id), 'text': attempt.transcript,
+        'status': attempt.status, 'requested_language': attempt.requested_language,
+        'detected_language': attempt.detected_language,
+        'retry_available': bool(attempt.drive_file_id and attempt.expires_at > timezone.now()),
+        'expires_at': attempt.expires_at.isoformat(), 'idempotent_replay': replayed,
+    })
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+@miniapp_write_response
+def complaint_cases_voice_transcription_cancel(request, attempt_id: str):
+    from core.models import GroupSheetConfiguration, PortalVoiceTranscriptionAttempt
+    from core.services.portal_voice import VoiceInputError, resolve_transcription
+
+    payload = _request_payload(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    attempt = PortalVoiceTranscriptionAttempt.objects.select_related('complaint_case').filter(
+        pk=attempt_id, user=actor.user,
+    ).first()
+    group_record = GroupSheetConfiguration.objects.get(group_id=str(group_config.group_id))
+    if attempt is None or attempt.complaint_group_id != group_record.pk or attempt.field_name not in {
+        PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_DESCRIPTION,
+        PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_NOTE,
+        PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_REOPEN_REASON,
+    }:
+        return JsonResponse({'ok': False, 'error': 'Voice transcription not found.'}, status=404)
+    capability = {
+        PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_DESCRIPTION: 'complaint.case.create',
+        PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_NOTE: 'complaint.case.close',
+        PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_REOPEN_REASON: 'complaint.case.reopen',
+    }[attempt.field_name]
+    capability_error = _capability_error(actor, capability, group_config, resource=attempt.complaint_case)
+    if capability_error:
+        return capability_error
+    try:
+        resolve_transcription(
+            attempt_id=attempt.pk, user=actor.user, field_name=attempt.field_name,
+            complaint_group=group_record, complaint_case=attempt.complaint_case,
+            accepted=False,
+        )
+    except VoiceInputError as exc:
+        return _complaint_voice_error(exc)
+    return JsonResponse({'ok': True, 'status': 'cancelled'})
 
 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.

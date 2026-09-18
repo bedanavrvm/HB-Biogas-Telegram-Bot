@@ -1212,6 +1212,94 @@ test('Complaint camera stops when Telegram deactivates the Mini App', async ({ p
   await expect(page.locator('#cameraOverlay')).toBeHidden();
 });
 
+test('Complaint voice input reviews before insertion and stays compact on small phones', async ({ page }) => {
+  const template = fs.readFileSync(path.join(root, 'core', 'templates', 'complaint_cases', 'app.html'), 'utf8')
+    .replace(/{% load static %}/g, '')
+    .replace(/{% include [^%]+%}/g, '')
+    .replace(/{% static '[^']+' %}/g, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/g, '')
+    .replace(/<link[^>]*>/g, '');
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.setContent(template);
+  await page.addStyleTag({ path: asset('complaint_cases.css') });
+  await page.evaluate(() => {
+    document.body.dataset.groupId = '-100-voice-test';
+    window.__voiceRequests = [];
+    class SyntheticMediaRecorder {
+      constructor(stream) { this.stream = stream; this.state = 'inactive'; this.mimeType = 'audio/webm'; this.listeners = {}; }
+      static isTypeSupported() { return true; }
+      addEventListener(name, callback) { this.listeners[name] = callback; }
+      start() { this.state = 'recording'; }
+      stop() {
+        this.state = 'inactive';
+        this.listeners.dataavailable?.({ data: new Blob(['synthetic-audio'], { type: 'audio/webm' }) });
+        this.listeners.stop?.();
+      }
+    }
+    window.MediaRecorder = SyntheticMediaRecorder;
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { async getUserMedia() { return { getTracks: () => [{ stop() {} }] }; } },
+    });
+    const webApp = {
+      initData: 'synthetic-signed-init-data',
+      BackButton: { onClick() {}, show() {}, hide() {} }, onEvent() {},
+    };
+    window.Telegram = { WebApp: webApp };
+    window.MiniAppUtils = {
+      initTelegram: () => webApp,
+      createRequestId: prefix => `${prefix}-${Date.now()}`,
+      setCloseProtection() {}, haptic() {},
+    };
+    window.ComplaintCasesMiniAppApi = {
+      async postJson(path) {
+        if (path === 'bootstrap/') return { data: {
+          actor: { name: 'Officer', role: 'OFFICER', capabilities: ['complaint.case.create'] },
+          counts: { pending: 0, resolved: 0, total: 0 }, branches: [], categories: [], category_catalogue: [],
+          evidence_limits: { max_files: 10, max_file_size_mb: 10, max_total_upload_mb: 30 },
+          voice_input: { enabled: true, max_seconds: 30, fields: ['complaint_description'] },
+        } };
+        if (path === 'cases/') return { cases: [], pagination: { page: 1, pages: 1, total: 0 }, start_index: 0 };
+        return { data: {} };
+      },
+      async postForm(path, data) {
+        window.__voiceRequests.push({ path, field: data.get('field_name') });
+        if (path === 'voice-transcriptions/') return {
+          ok: true, transcription_id: '00000000-0000-0000-0000-000000000001',
+          text: 'The burner does not light.', requested_language: 'auto', detected_language: 'en', retry_available: true,
+        };
+        return { ok: true };
+      },
+    };
+  });
+  await page.addScriptTag({ path: asset('complaint_cases.js') });
+  await page.locator('#newCaseBtn').click();
+  const input = page.locator('#complaintDescription');
+  await input.fill('Typed note stays');
+  const widget = page.locator('[data-voice-field="complaint_description"] .voice-input');
+  await expect(widget).toBeVisible();
+  for (const viewport of [{ width: 320, height: 568 }, { width: 360, height: 800 }, { width: 430, height: 932 }]) {
+    await page.setViewportSize(viewport);
+    const bounds = await widget.evaluate(node => {
+      const box = node.getBoundingClientRect();
+      return { left: box.left, right: box.right, scrollWidth: node.scrollWidth, clientWidth: node.clientWidth };
+    });
+    expect(bounds.left).toBeGreaterThanOrEqual(0);
+    expect(bounds.right).toBeLessThanOrEqual(viewport.width + 1);
+    expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.clientWidth);
+  }
+  await widget.locator('[data-voice-action="record"]').click();
+  await expect(widget).toHaveClass(/recording/);
+  await widget.locator('[data-voice-action="record"]').click();
+  await expect(widget.locator('.voice-review')).toBeVisible();
+  await expect(input).toHaveValue('Typed note stays');
+  await widget.locator('[data-voice-action="append"]').click();
+  await expect(input).toHaveValue('Typed note stays The burner does not light.');
+  expect(await page.evaluate(() => window.__voiceRequests)).toContainEqual({
+    path: 'voice-transcriptions/', field: 'complaint_description',
+  });
+});
+
 test('Complaint camera captures multiple photos and the viewer navigates deletes and retakes', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));

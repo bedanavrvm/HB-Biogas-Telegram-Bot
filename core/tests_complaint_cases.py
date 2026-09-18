@@ -32,6 +32,7 @@ from core.models import (
     ParsedMessage,
     OperationalLocation,
     ProcessedMessage,
+    PortalVoiceTranscriptionAttempt,
     RawMessage,
     UserProfile,
     ComplianceAuditEvent,
@@ -286,6 +287,20 @@ class ComplaintCaseServiceTests(TestCase):
             'max_files': 4, 'max_file_size_mb': 7, 'max_total_upload_mb': 18,
         })
 
+    @override_settings(
+        PORTAL_VOICE_INPUT_ENABLED=True, PORTAL_VOICE_PROVIDER='groq', GROQ_API_KEY='test-key',
+        PORTAL_VOICE_MAX_SECONDS=30,
+    )
+    def test_bootstrap_exposes_only_voice_fields_allowed_for_the_actor(self):
+        officer_voice = bootstrap_data(self.config, self.actor('100'))['voice_input']
+        hb_voice = bootstrap_data(self.config, self.actor('300'))['voice_input']
+
+        self.assertTrue(officer_voice['enabled'])
+        self.assertEqual(officer_voice['max_seconds'], 30)
+        self.assertIn('complaint_description', officer_voice['fields'])
+        self.assertNotIn('complaint_resolution_note', officer_voice['fields'])
+        self.assertIn('complaint_resolution_note', hb_voice['fields'])
+
     def test_bootstrap_lists_every_current_group_role_in_policy_order(self):
         AccessGrant.objects.create(
             user=self.officer, workflow='complaint_cases', role='MANAGER',
@@ -448,6 +463,54 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(response.json()['data']['suggestion']['key'], 'system-performance')
         self.case.refresh_from_db()
         self.assertEqual(self.case.complaint_category, '')
+
+    @override_settings(
+        TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False,
+        PORTAL_VOICE_INPUT_ENABLED=True, PORTAL_VOICE_PROVIDER='groq',
+        GROQ_API_KEY='test-key', PORTAL_VOICE_MODEL='whisper-large-v3',
+        PORTAL_VOICE_MAX_SECONDS=30, PORTAL_VOICE_DAILY_REQUEST_LIMIT=1000,
+        PORTAL_VOICE_DAILY_AUDIO_SECONDS=14400,
+        PORTAL_VOICE_USER_DAILY_REQUEST_LIMIT=60,
+        PORTAL_VOICE_RETRY_RETENTION_MINUTES=60,
+    )
+    @patch('core.services.portal_voice._call_groq', return_value=('The system has no gas.', 1100, 'groq-complaint-api', 'en', -0.1))
+    @patch('core.services.portal_voice._drive_upload', return_value='drive-complaint-api')
+    def test_voice_endpoint_creates_and_cancels_a_group_bound_attempt(self, _upload, _groq):
+        response = self.client.post(
+            reverse('complaint_cases_voice_transcription'),
+            {
+                'group_id': self.group.group_id,
+                'client_request_id': 'complaint-voice-api-1',
+                'field_name': 'complaint_description',
+                'duration_ms': '1200', 'language_mode': 'auto',
+                'audio': SimpleUploadedFile('recording.webm', b'synthetic-audio', content_type='audio/webm'),
+            },
+            HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('100'),
+            HTTP_X_REQUEST_ID='complaint-voice-api-1',
+            HTTP_IDEMPOTENCY_KEY='complaint-voice-api-1',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        attempt = PortalVoiceTranscriptionAttempt.objects.get(pk=payload['transcription_id'])
+        self.assertEqual(attempt.complaint_group, self.group)
+        self.assertIsNone(attempt.farmer_id)
+        with patch('core.services.portal_voice._trash_drive_file') as trash:
+            cancelled = self.client.post(
+                reverse('complaint_cases_voice_transcription_cancel', args=[attempt.pk]),
+                {
+                    'group_id': self.group.group_id,
+                    'client_request_id': 'complaint-voice-cancel-1',
+                },
+                HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('100'),
+                HTTP_X_REQUEST_ID='complaint-voice-cancel-1',
+                HTTP_IDEMPOTENCY_KEY='complaint-voice-cancel-1',
+            )
+        self.assertEqual(cancelled.status_code, 200)
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.status, 'cancelled')
+        self.assertEqual(attempt.transcript, '')
+        trash.assert_called_once_with('drive-complaint-api')
 
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
     def test_location_options_endpoint_is_an_authenticated_read(self):
@@ -701,6 +764,49 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(first['revision'], replay['revision'])
         self.assertEqual(self.case.case_updates.filter(client_request_id='resolve-retry-1').count(), 1)
         self.assertEqual(ComplaintCaseEvent.objects.filter(case__parsed_message=self.case).count(), 1)
+
+    @patch('core.services.portal_voice._trash_drive_file')
+    def test_resolution_accepts_only_the_case_bound_voice_note(self, trash_file):
+        actor = self.actor('300')
+        attempt = PortalVoiceTranscriptionAttempt.objects.create(
+            user=actor.user, complaint_group=self.group, complaint_case=self.case,
+            field_name=PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_NOTE,
+            request_id='resolution-voice-attempt', audio_hash='e' * 64, audio_size=12,
+            audio_mime_type='audio/webm', duration_ms=1200, status='transcribed',
+            transcript='The burner was replaced.', drive_file_id='drive-resolution',
+            deletion_status='pending', expires_at=timezone.now() + timedelta(hours=1),
+        )
+
+        result = resolve_case(self.config, actor, 'CASE-1', {
+            'client_request_id': 'resolution-with-voice', 'expected_revision': 1,
+            'resolution_text': 'The burner was replaced and tested.',
+            'voice_transcription_id': str(attempt.pk),
+        }, [])
+
+        attempt.refresh_from_db()
+        self.assertEqual(result['status'], 'CLOSED')
+        self.assertEqual(attempt.status, 'accepted')
+        self.assertEqual(attempt.transcript, '')
+        trash_file.assert_called_once_with('drive-resolution')
+
+    def test_resolution_rejects_a_description_voice_attempt(self):
+        actor = self.actor('300')
+        attempt = PortalVoiceTranscriptionAttempt.objects.create(
+            user=actor.user, complaint_group=self.group,
+            field_name=PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_DESCRIPTION,
+            request_id='wrong-resolution-voice', audio_hash='f' * 64, audio_size=12,
+            audio_mime_type='audio/webm', duration_ms=1200, status='transcribed',
+            transcript='Original complaint.', expires_at=timezone.now() + timedelta(hours=1),
+        )
+
+        with self.assertRaises(ComplaintCaseError):
+            resolve_case(self.config, actor, 'CASE-1', {
+                'client_request_id': 'resolution-wrong-voice', 'expected_revision': 1,
+                'resolution_text': 'Resolved.', 'voice_transcription_id': str(attempt.pk),
+            }, [])
+
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.complaint_status, 'Open')
 
     def test_imported_case_exposes_audited_batch_attribution(self):
         batch = ComplaintCaseImportBatch.objects.create(
@@ -1650,7 +1756,15 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn("data.set('category_inference_token', state.categoryInferenceToken)", script)
         self.assertIn('if (description.length < 20)', script)
         self.assertIn('setTimeout(() => requestCategorySuggestion(description), 900)', script)
-        self.assertIn("miniapp/complaint_cases.js' %}?v=46", template)
+        self.assertIn("miniapp/complaint_cases.js' %}?v=47", template)
+        for field_name in (
+            'complaint_description', 'complaint_resolution_note', 'complaint_reopen_reason',
+        ):
+            self.assertIn(f'data-voice-field="{field_name}"', template)
+            self.assertIn(field_name, script)
+        self.assertIn('window.MediaRecorder', script)
+        self.assertIn("data.set('voice_transcription_id'", script)
+        self.assertIn('.voice-review{display:grid', styles)
         self.assertIn('id="mediaViewerOverlay"', template)
         self.assertIn('class="filter-search-control"', template)
         self.assertIn('id="downloadResult"', template)

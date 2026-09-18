@@ -1,4 +1,4 @@
-"""Bounded, auditable voice transcription for the two approved Portal fields."""
+"""Bounded, auditable voice transcription for approved Portal and Complaint fields."""
 
 from __future__ import annotations
 
@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 ALLOWED_FIELDS = {
     PortalVoiceTranscriptionAttempt.FIELD_JBL_VISIT_COMMENT: 'portal.jbl_visit.write',
     PortalVoiceTranscriptionAttempt.FIELD_FINAL_DECISION_COMMENT: 'portal.final_review.write',
+    PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_DESCRIPTION: 'complaint.case.create',
+    PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_NOTE: 'complaint.case.close',
+    PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_REOPEN_REASON: 'complaint.case.reopen',
 }
 ALLOWED_MIME_TYPES = {
     'audio/webm': '.webm',
@@ -32,11 +35,21 @@ ALLOWED_MIME_TYPES = {
 MAX_AUDIO_BYTES = 5 * 1024 * 1024
 GROQ_TRANSCRIPTION_URL = 'https://api.groq.com/openai/v1/audio/transcriptions'
 ALLOWED_LANGUAGE_MODES = {'auto', 'en', 'sw'}
-LANGUAGE_PROMPTS = {
+PORTAL_LANGUAGE_PROMPTS = {
     'auto': 'JBL, HomeBiogas, IMAB.',
-    'en': 'JBL HomeBiogas field visit comment. Terms: JBL, HomeBiogas, IMAB, farmer, installation, deposit, loan.',
-    'sw': 'Maoni ya ziara ya JBL HomeBiogas. Istilahi: JBL, HomeBiogas, IMAB, mkulima, mtambo wa biogas, amana, mkopo.',
+    'en': 'JBL HomeBiogas staff note. Terms: JBL, HomeBiogas, IMAB, farmer, installation, deposit, loan.',
+    'sw': 'Maoni ya JBL HomeBiogas. Istilahi: JBL, HomeBiogas, IMAB, mkulima, mtambo wa biogas, amana, mkopo.',
 }
+COMPLAINT_LANGUAGE_PROMPTS = {
+    'auto': 'JBL HomeBiogas customer complaint, resolution, or reopening reason. English or Kiswahili.',
+    'en': 'JBL HomeBiogas customer complaint. Terms: installation, commissioning, gas production, leakage, pipe, burner, knob, blockage, accessory, relocation, appraisal, payment, resolution.',
+    'sw': 'Malalamiko ya mteja wa JBL HomeBiogas. Istilahi: usakinishaji, biogas, gesi, kuvuja, bomba, jiko, kifundo, kuziba, vifaa, kuhamisha, malipo, suluhisho.',
+}
+COMPLAINT_FIELDS = frozenset({
+    PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_DESCRIPTION,
+    PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_RESOLUTION_NOTE,
+    PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_REOPEN_REASON,
+})
 
 
 class VoiceInputError(ValueError):
@@ -123,13 +136,16 @@ def _trash_drive_file(file_id: str) -> None:
     ).execute()
 
 
-def _call_groq(audio: bytes, mime_type: str, language_mode: str) -> tuple[str, int, str, str, float | None]:
+def _call_groq(
+    audio: bytes, mime_type: str, language_mode: str, field_name: str = '',
+) -> tuple[str, int, str, str, float | None]:
     extension = ALLOWED_MIME_TYPES[mime_type]
+    prompts = COMPLAINT_LANGUAGE_PROMPTS if field_name in COMPLAINT_FIELDS else PORTAL_LANGUAGE_PROMPTS
     request_data = {
         'model': settings.PORTAL_VOICE_MODEL,
         'response_format': 'verbose_json',
         'temperature': '0',
-        'prompt': LANGUAGE_PROMPTS[language_mode],
+        'prompt': prompts[language_mode],
     }
     if language_mode != 'auto':
         request_data['language'] = language_mode
@@ -175,11 +191,47 @@ def _call_groq(audio: bytes, mime_type: str, language_mode: str) -> tuple[str, i
     return transcript, provider_duration_ms, provider_id, detected_language, average_log_probability
 
 
-def create_transcription(*, user, farmer, field_name: str, request_id: str, duration_ms: int, audio: bytes | None = None, mime_type: str = '', source_attempt=None, language_mode: str = 'auto'):
+def _validate_subject(*, farmer=None, complaint_group=None, complaint_case=None, field_name: str) -> None:
+    if field_name in COMPLAINT_FIELDS:
+        if farmer is not None or complaint_group is None:
+            raise VoiceInputError('The complaint voice subject is invalid.', code='invalid_subject')
+        if field_name == PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_DESCRIPTION and complaint_case is not None:
+            raise VoiceInputError('A new complaint recording cannot reference an existing case.', code='invalid_subject')
+        if field_name != PortalVoiceTranscriptionAttempt.FIELD_COMPLAINT_DESCRIPTION and complaint_case is None:
+            raise VoiceInputError('Select a complaint before recording this note.', code='invalid_subject')
+        if complaint_case is not None and str(complaint_case.group_id) != str(complaint_group.group_id):
+            raise VoiceInputError('That complaint is not available in this group.', code='not_found', status=404)
+    elif farmer is None or complaint_group is not None or complaint_case is not None:
+        raise VoiceInputError('The Portal voice subject is invalid.', code='invalid_subject')
+
+
+def _attempt_matches_subject(attempt, *, farmer=None, complaint_group=None, complaint_case=None, field_name: str) -> bool:
+    return bool(
+        attempt.field_name == field_name
+        and attempt.farmer_id == getattr(farmer, 'pk', None)
+        and attempt.complaint_group_id == getattr(complaint_group, 'pk', None)
+        and (
+            attempt.complaint_case_id is None
+            if complaint_case is None
+            else attempt.complaint_case_id in {None, getattr(complaint_case, 'pk', None)}
+        )
+    )
+
+
+def create_transcription(
+    *, user, field_name: str, request_id: str, duration_ms: int,
+    farmer=None, complaint_group=None, complaint_case=None,
+    audio: bytes | None = None, mime_type: str = '', source_attempt=None,
+    language_mode: str = 'auto',
+):
     if not voice_enabled():
         raise VoiceInputError('Voice input is not available. Please type the comment.', code='disabled', status=503)
     if field_name not in ALLOWED_FIELDS:
         raise VoiceInputError('Voice input is not enabled for this field.', code='unsupported_field')
+    _validate_subject(
+        farmer=farmer, complaint_group=complaint_group,
+        complaint_case=complaint_case, field_name=field_name,
+    )
     language_mode = str(language_mode or '').strip().lower()
     if not language_mode and source_attempt is not None:
         language_mode = source_attempt.requested_language
@@ -191,9 +243,20 @@ def create_transcription(*, user, farmer, field_name: str, request_id: str, dura
         raise VoiceInputError('A retry key is required.', code='idempotency_key_required', status=428)
     existing = PortalVoiceTranscriptionAttempt.objects.filter(user=user, request_id=request_id).first()
     if existing:
+        if not _attempt_matches_subject(
+            existing, farmer=farmer, complaint_group=complaint_group,
+            complaint_case=complaint_case, field_name=field_name,
+        ):
+            raise VoiceInputError(
+                'That retry key was already used for a different recording target.',
+                code='idempotency_conflict', status=409,
+            )
         return existing, True
     if source_attempt is not None:
-        if source_attempt.user_id != user.pk or source_attempt.farmer_id != farmer.pk or source_attempt.field_name != field_name:
+        if source_attempt.user_id != user.pk or not _attempt_matches_subject(
+            source_attempt, farmer=farmer, complaint_group=complaint_group,
+            complaint_case=complaint_case, field_name=field_name,
+        ):
             raise VoiceInputError('That recording is not available for this field.', code='not_found', status=404)
         if source_attempt.expires_at <= timezone.now() or not source_attempt.drive_file_id:
             raise VoiceInputError('That retry recording has expired. Record again.', code='expired', status=410)
@@ -204,7 +267,8 @@ def create_transcription(*, user, farmer, field_name: str, request_id: str, dura
     mime, _ = _validate_audio(audio, mime_type, duration_ms)
     _enforce_quota(user, duration_ms)
     attempt = PortalVoiceTranscriptionAttempt.objects.create(
-        user=user, farmer=farmer, field_name=field_name, request_id=request_id,
+        user=user, farmer=farmer, complaint_group=complaint_group,
+        complaint_case=complaint_case, field_name=field_name, request_id=request_id,
         audio_hash=hashlib.sha256(audio).hexdigest(), audio_size=len(audio),
         audio_mime_type=mime, duration_ms=duration_ms,
         provider=settings.PORTAL_VOICE_PROVIDER, model_name=settings.PORTAL_VOICE_MODEL,
@@ -224,7 +288,7 @@ def create_transcription(*, user, farmer, field_name: str, request_id: str, dura
             attempt.deletion_status = 'not_stored'
     try:
         transcript, provider_duration_ms, provider_id, detected_language, average_log_probability = _call_groq(
-            audio, mime, language_mode,
+            audio, mime, language_mode, field_name,
         )
     except VoiceInputError as exc:
         attempt.status = PortalVoiceTranscriptionAttempt.STATUS_FAILED
@@ -251,28 +315,45 @@ def _edit_distance(left: str, right: str) -> int:
     return previous[-1]
 
 
-def validate_transcription_reference(*, attempt_id, user, farmer, field_name: str):
+def validate_transcription_reference(
+    *, attempt_id, user, field_name: str, farmer=None,
+    complaint_group=None, complaint_case=None,
+):
     try:
-        attempt = PortalVoiceTranscriptionAttempt.objects.get(
-            pk=attempt_id, user=user, farmer=farmer, field_name=field_name,
-        )
+        attempt = PortalVoiceTranscriptionAttempt.objects.get(pk=attempt_id, user=user)
     except (PortalVoiceTranscriptionAttempt.DoesNotExist, ValueError) as exc:
         raise VoiceInputError('The voice transcription could not be verified.', code='not_found', status=404) from exc
+    if not _attempt_matches_subject(
+        attempt, farmer=farmer, complaint_group=complaint_group,
+        complaint_case=complaint_case, field_name=field_name,
+    ):
+        raise VoiceInputError('The voice transcription could not be verified.', code='not_found', status=404)
     if attempt.status != attempt.STATUS_TRANSCRIBED or attempt.expires_at <= timezone.now():
         raise VoiceInputError('That voice transcription has expired or was already resolved.', code='expired', status=410)
     return attempt
 
 
-def resolve_transcription(*, attempt_id, user, farmer, field_name: str, accepted_text: str = '', accepted: bool = True):
+def resolve_transcription(
+    *, attempt_id, user, field_name: str, farmer=None,
+    complaint_group=None, complaint_case=None,
+    accepted_text: str = '', accepted: bool = True,
+):
     try:
-        attempt = PortalVoiceTranscriptionAttempt.objects.get(pk=attempt_id, user=user, farmer=farmer, field_name=field_name)
+        attempt = PortalVoiceTranscriptionAttempt.objects.get(pk=attempt_id, user=user)
     except (PortalVoiceTranscriptionAttempt.DoesNotExist, ValueError) as exc:
         raise VoiceInputError('The voice transcription could not be verified.', code='not_found', status=404) from exc
+    if not _attempt_matches_subject(
+        attempt, farmer=farmer, complaint_group=complaint_group,
+        complaint_case=complaint_case, field_name=field_name,
+    ):
+        raise VoiceInputError('The voice transcription could not be verified.', code='not_found', status=404)
     if attempt.status in {attempt.STATUS_ACCEPTED, attempt.STATUS_CANCELLED}:
         return attempt
     if accepted:
         attempt.edit_distance = _edit_distance(attempt.transcript, str(accepted_text or ''))
         attempt.status = attempt.STATUS_ACCEPTED
+        if complaint_case is not None and attempt.complaint_case_id is None:
+            attempt.complaint_case = complaint_case
     else:
         attempt.status = attempt.STATUS_CANCELLED
     attempt.transcript = ''
@@ -295,7 +376,7 @@ def resolve_transcription(*, attempt_id, user, farmer, field_name: str, accepted
             logger.exception('Temporary voice deletion failed attempt_id=%s', attempt.id)
             attempt.deletion_status = 'retry'
             attempt.deletion_error = 'Temporary audio cleanup failed.'
-    attempt.save(update_fields=['status', 'transcript', 'resolved_at', 'edit_distance', 'deletion_status', 'deletion_error', 'updated_at'])
+    attempt.save(update_fields=['status', 'transcript', 'resolved_at', 'edit_distance', 'complaint_case', 'deletion_status', 'deletion_error', 'updated_at'])
     return attempt
 
 

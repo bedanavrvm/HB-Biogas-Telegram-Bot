@@ -33,7 +33,19 @@
     errorRetry: null,
     pendingWrites: new Map(),
     errorRetryTimer: null,
+    voiceInput: { enabled: false, max_seconds: 30, fields: [] },
   };
+  let voiceRecorder = null;
+  let voiceStream = null;
+  let voiceChunks = [];
+  let voiceStartedAt = 0;
+  let voiceStopTimer = null;
+  let discardVoiceOnStop = false;
+  let activeVoiceAttempt = null;
+  const acceptedVoiceAttempts = {};
+  const VOICE_LANGUAGE_KEY = 'portal:voice-language';
+  const VOICE_LANGUAGE_ORDER = ['auto', 'en', 'sw'];
+  const VOICE_LANGUAGE_LABELS = { auto: 'Auto', en: 'ENG', sw: 'KIS' };
 
   function requestId(prefix) {
     return utils.createRequestId
@@ -154,6 +166,209 @@
     button.append(iconNode(icon), textNode('span', label));
     return button;
   }
+
+  function savedVoiceLanguage() {
+    try {
+      const value = localStorage.getItem(VOICE_LANGUAGE_KEY) || 'auto';
+      return VOICE_LANGUAGE_ORDER.includes(value) ? value : 'auto';
+    } catch (_) { return 'auto'; }
+  }
+  function detectedLanguageLabel(language) {
+    const value = String(language || '').trim().toLowerCase();
+    if (value === 'en' || value.startsWith('english')) return 'English';
+    if (value === 'sw' || value.startsWith('swahili') || value.startsWith('kiswahili')) return 'Kiswahili';
+    return value;
+  }
+  function voiceWidgetMarkup(fieldName, inputId) {
+    const language = savedVoiceLanguage();
+    return `<div class="voice-input" data-voice-field="${fieldName}" data-input-id="${inputId}" data-language-mode="${language}">
+      <button type="button" class="voice-record-button" data-voice-action="record" aria-pressed="false" aria-label="Start voice input" title="Start voice input">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg><span class="voice-record-label">Voice input</span>
+      </button>
+      <button type="button" class="voice-language-button" data-voice-action="language" aria-label="Recording language: ${VOICE_LANGUAGE_LABELS[language]}. Tap to change.">${VOICE_LANGUAGE_LABELS[language]}</button>
+      <small class="voice-status" role="status" aria-live="polite" hidden></small>
+      <div class="voice-review" hidden>
+        <div class="voice-review-text"><p class="voice-transcript" aria-label="Transcription to review"></p><small class="voice-detected-language"></small></div>
+        <div class="voice-review-actions" aria-label="Transcription actions">
+          <button type="button" data-voice-action="append" aria-label="Append transcription">Append</button>
+          <button type="button" data-voice-action="replace" aria-label="Replace text with transcription">Replace</button>
+          <button type="button" data-voice-action="retry" aria-label="Transcribe recording again">Retry</button>
+          <button type="button" class="voice-action-cancel" data-voice-action="cancel" aria-label="Cancel transcription">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  }
+  function setVoiceStatus(widget, message, statusName) {
+    const node = widget?.querySelector('.voice-status');
+    if (!node) return;
+    node.textContent = message || ''; node.dataset.state = statusName || ''; node.hidden = !message;
+  }
+  function voiceMimeType() {
+    return ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus']
+      .find(value => window.MediaRecorder?.isTypeSupported?.(value)) || '';
+  }
+  function releaseVoiceStream() {
+    clearTimeout(voiceStopTimer); voiceStopTimer = null;
+    voiceStream?.getTracks?.().forEach(track => track.stop());
+    voiceStream = null; voiceRecorder = null;
+  }
+  function caseIdForVoiceField(fieldName) {
+    return fieldName === 'complaint_description' ? '' : String(state.currentCase?.case_id || '');
+  }
+  function groupIdForVoiceField(fieldName) {
+    return fieldName === 'complaint_description'
+      ? state.groupId
+      : String(state.currentCase?.group_id || state.groupId);
+  }
+  async function transcribeVoice(widget, blob, durationMs, retryAttemptId) {
+    const data = new FormData();
+    data.set('client_request_id', requestId('complaint-voice'));
+    data.set('field_name', widget.dataset.voiceField);
+    data.set('duration_ms', String(Math.max(1, Math.round(durationMs))));
+    data.set('language_mode', widget.dataset.languageMode || 'auto');
+    const caseId = caseIdForVoiceField(widget.dataset.voiceField);
+    if (caseId) data.set('case_id', caseId);
+    if (retryAttemptId) data.set('retry_attempt_id', retryAttemptId);
+    if (blob) data.set('audio', blob, blob.type.includes('mp4') ? 'recording.m4a' : 'recording.webm');
+    const recordButton = widget.querySelector('[data-voice-action="record"]');
+    recordButton.disabled = true; setVoiceStatus(widget, 'Transcribing...', 'loading');
+    try {
+      const voiceGroupId = groupIdForVoiceField(widget.dataset.voiceField);
+      const response = await form('voice-transcriptions/', data, voiceGroupId);
+      activeVoiceAttempt = {
+        id: response.transcription_id, fieldName: widget.dataset.voiceField,
+        inputId: widget.dataset.inputId, transcript: response.text,
+        retryAvailable: Boolean(response.retry_available), durationMs,
+        groupId: voiceGroupId, caseId,
+      };
+      widget.querySelector('.voice-transcript').textContent = response.text;
+      widget.querySelector('.voice-review').hidden = false;
+      widget.querySelector('[data-voice-action="retry"]').disabled = !response.retry_available;
+      const detected = detectedLanguageLabel(response.detected_language);
+      widget.querySelector('.voice-detected-language').textContent = (response.requested_language || widget.dataset.languageMode) === 'auto'
+        ? (detected ? `Auto detected: ${detected}` : 'Auto detection used')
+        : `Recorded as ${widget.dataset.languageMode === 'sw' ? 'Kiswahili' : 'English'}`;
+      setVoiceStatus(widget, '', 'review');
+      utils.setCloseProtection?.('complaint-voice', true);
+    } catch (error) {
+      setVoiceStatus(widget, error.message || 'Transcription is unavailable. Your typed text is unchanged.', 'error');
+      if (retryAttemptId && activeVoiceAttempt?.id === retryAttemptId) widget.querySelector('.voice-review').hidden = false;
+      presentError(error, () => transcribeVoice(widget, null, durationMs, retryAttemptId || activeVoiceAttempt?.id || ''));
+    } finally { recordButton.disabled = false; }
+  }
+  function stopVoiceRecording(widget, discard) {
+    discardVoiceOnStop = Boolean(discard);
+    if (voiceRecorder?.state === 'recording') voiceRecorder.stop();
+    const button = widget?.querySelector('[data-voice-action="record"]');
+    button?.setAttribute('aria-pressed', 'false');
+    button?.setAttribute('aria-label', 'Start voice input');
+    if (button?.querySelector('.voice-record-label')) button.querySelector('.voice-record-label').textContent = 'Voice input';
+    widget?.classList.remove('recording');
+  }
+  async function startVoiceRecording(widget) {
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setVoiceStatus(widget, 'Voice recording is unavailable on this phone. Type the note instead.', 'error'); return;
+    }
+    if (activeVoiceAttempt) {
+      const previousWidget = document.querySelector(`.voice-input[data-voice-field="${activeVoiceAttempt.fieldName}"]`);
+      if (previousWidget) {
+        previousWidget.querySelector('.voice-review').hidden = true;
+        setVoiceStatus(previousWidget, 'Cancelled. Your typed text is unchanged.', '');
+      }
+      await cancelVoiceAttempt(activeVoiceAttempt);
+    }
+    try {
+      voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = voiceMimeType();
+      voiceRecorder = mimeType ? new MediaRecorder(voiceStream, { mimeType }) : new MediaRecorder(voiceStream);
+      voiceChunks = []; discardVoiceOnStop = false; voiceStartedAt = Date.now();
+      voiceRecorder.addEventListener('dataavailable', event => { if (event.data?.size) voiceChunks.push(event.data); });
+      voiceRecorder.addEventListener('stop', () => {
+        const recorderMime = voiceRecorder?.mimeType || mimeType || 'audio/webm';
+        const duration = Math.max(1, Date.now() - voiceStartedAt);
+        const blob = new Blob(voiceChunks, { type: recorderMime });
+        const discard = discardVoiceOnStop; discardVoiceOnStop = false; releaseVoiceStream();
+        if (!discard) void transcribeVoice(widget, blob, duration);
+      }, { once: true });
+      voiceRecorder.start();
+      const button = widget.querySelector('[data-voice-action="record"]');
+      button.setAttribute('aria-pressed', 'true'); button.setAttribute('aria-label', 'Stop recording');
+      button.querySelector('.voice-record-label').textContent = 'Stop';
+      widget.classList.add('recording'); setVoiceStatus(widget, 'Recording... tap Stop when finished.', 'recording');
+      utils.setCloseProtection?.('complaint-voice', true);
+      voiceStopTimer = setTimeout(() => stopVoiceRecording(widget), Number(state.voiceInput.max_seconds || 30) * 1000);
+    } catch (_) {
+      releaseVoiceStream();
+      setVoiceStatus(widget, 'Microphone unavailable. Allow Telegram microphone access, then reopen the Mini App.', 'error');
+    }
+  }
+  async function cancelVoiceAttempt(attempt) {
+    if (!attempt?.id) return;
+    if (activeVoiceAttempt?.id === attempt.id) activeVoiceAttempt = null;
+    const data = new FormData(); data.set('client_request_id', requestId('complaint-voice-cancel'));
+    try { await form(`voice-transcriptions/${encodeURIComponent(attempt.id)}/cancel/`, data, attempt.groupId || state.groupId); }
+    catch (_) { /* Expiry cleanup remains authoritative. */ }
+  }
+  function resetVoiceField(fieldName, cancel = true) {
+    const widget = document.querySelector(`.voice-input[data-voice-field="${fieldName}"]`);
+    if (activeVoiceAttempt?.fieldName === fieldName) {
+      const attempt = activeVoiceAttempt; activeVoiceAttempt = null;
+      if (cancel) void cancelVoiceAttempt(attempt);
+    }
+    if (acceptedVoiceAttempts[fieldName]) {
+      const attempt = acceptedVoiceAttempts[fieldName]; delete acceptedVoiceAttempts[fieldName];
+      if (cancel) void cancelVoiceAttempt(attempt);
+    }
+    if (widget) { widget.querySelector('.voice-review').hidden = true; setVoiceStatus(widget, '', ''); }
+  }
+  function wireVoiceWidget(slot) {
+    const fieldName = slot.dataset.voiceField;
+    if (!state.voiceInput.enabled || !state.voiceInput.fields.includes(fieldName)) return;
+    slot.innerHTML = voiceWidgetMarkup(fieldName, slot.dataset.inputId); slot.hidden = false;
+    const widget = slot.firstElementChild;
+    widget.addEventListener('click', async event => {
+      const action = event.target.closest('[data-voice-action]')?.dataset.voiceAction;
+      if (!action) return;
+      if (action === 'language') {
+        const current = widget.dataset.languageMode || 'auto';
+        const next = VOICE_LANGUAGE_ORDER[(VOICE_LANGUAGE_ORDER.indexOf(current) + 1) % VOICE_LANGUAGE_ORDER.length];
+        widget.dataset.languageMode = next; event.target.textContent = VOICE_LANGUAGE_LABELS[next];
+        event.target.setAttribute('aria-label', `Recording language: ${VOICE_LANGUAGE_LABELS[next]}. Tap to change.`);
+        try { localStorage.setItem(VOICE_LANGUAGE_KEY, next); } catch (_) {}
+        return;
+      }
+      if (action === 'record') {
+        if (voiceRecorder?.state === 'recording') stopVoiceRecording(widget); else await startVoiceRecording(widget);
+        return;
+      }
+      const attempt = activeVoiceAttempt;
+      if (!attempt || attempt.fieldName !== fieldName) return;
+      if (action === 'retry') { widget.querySelector('.voice-review').hidden = true; await transcribeVoice(widget, null, attempt.durationMs, attempt.id); return; }
+      if (action === 'cancel') {
+        widget.querySelector('.voice-review').hidden = true;
+        setVoiceStatus(widget, 'Cancelled. Your typed text is unchanged.', '');
+        await cancelVoiceAttempt(attempt); utils.setCloseProtection?.('complaint-voice', false); return;
+      }
+      const input = $(attempt.inputId); if (!input) return;
+      input.value = action === 'append' && input.value.trim() ? `${input.value.trim()} ${attempt.transcript}` : attempt.transcript;
+      const previous = acceptedVoiceAttempts[fieldName];
+      if (previous && previous.id !== attempt.id) void cancelVoiceAttempt(previous);
+      acceptedVoiceAttempts[fieldName] = attempt; activeVoiceAttempt = null;
+      widget.querySelector('.voice-review').hidden = true;
+      setVoiceStatus(widget, 'Inserted. You can edit the text before saving.', 'accepted');
+      input.dispatchEvent(new Event('input', { bubbles: true })); input.focus();
+    });
+  }
+  function initializeVoiceInput() {
+    document.querySelectorAll('.voice-input-slot').forEach(wireVoiceWidget);
+  }
+  function discardPendingVoice() {
+    const recordingWidget = document.querySelector('.voice-input.recording');
+    if (recordingWidget) stopVoiceRecording(recordingWidget, true);
+    if (activeVoiceAttempt) void cancelVoiceAttempt(activeVoiceAttempt);
+    Object.keys(acceptedVoiceAttempts).forEach(fieldName => resetVoiceField(fieldName));
+    utils.setCloseProtection?.('complaint-voice', false);
+  }
   function metaItem(icon, value) {
     const node = document.createElement('span');
     node.append(iconNode(icon), textNode('span', value));
@@ -271,6 +486,7 @@
         node.hidden = !can(node.dataset.requiredCapability);
       });
       state.evidenceLimits = Object.assign(state.evidenceLimits, data.evidence_limits || {});
+      state.voiceInput = Object.assign(state.voiceInput, data.voice_input || {});
       const actorRoles = Array.isArray(data.actor.roles) && data.actor.roles.length
         ? data.actor.roles : [data.actor.role].filter(Boolean);
       $('actorLine').textContent = [data.actor.name, ...actorRoles].join(' · ');
@@ -284,6 +500,7 @@
       selectOptions($('createCaseForm').elements.complaint_category, data.categories, 'Select complaint type');
       selectOptions($('completeDetailsForm').elements.complaint_category, data.categories, 'Select complaint type');
       state.categoryDescriptions = new Map((data.category_catalogue || []).map(item => [item.label, item.description]));
+      initializeVoiceInput();
       updateEvidenceHints();
       setView('queueView');
       await loadCases();
@@ -362,6 +579,10 @@
   }
 
   function renderDetail(item, preserveDraft) {
+    if (!preserveDraft && state.currentCase?.case_id !== item.case_id) {
+      resetVoiceField('complaint_resolution_note');
+      resetVoiceField('complaint_reopen_reason');
+    }
     state.currentCase = item;
     $('detailCaseId').textContent = item.reference_number || item.case_id;
     $('detailName').textContent = item.customer_name || 'Unnamed customer';
@@ -641,12 +862,15 @@
     data.set('expected_revision', state.currentCase.revision);
     const writeKey = `transition:${action}:${state.currentCase.case_id}`;
     data.set('client_request_id', pendingWriteId(writeKey, 'complaint-transition'));
+    const voiceField = action === 'resolve' ? 'complaint_resolution_note' : 'complaint_reopen_reason';
+    if (acceptedVoiceAttempts[voiceField]?.id) data.set('voice_transcription_id', acceptedVoiceAttempts[voiceField].id);
     if (action === 'resolve') appendEvidence(data, 'resolve');
     const button = formNode.querySelector('button[type="submit"]');
     state.submitting = true; setActionLoading(button, true, action === 'resolve' ? 'Resolving' : 'Reopening'); utils.setCloseProtection?.('complaint-operation', true);
     try {
       const response = await form(`cases/${encodeURIComponent(state.currentCase.case_id)}/${action}/`, data, targetGroup);
       settleWrite(writeKey);
+      resetVoiceField(voiceField, false);
       response.case.group_id = targetGroup; notify(response.message); clearEvidence('resolve');
       utils.setCloseProtection?.('complaint-transition-draft', false); await refreshCounts();
       if (state.returnWorkspace === 'global') { await refreshGlobal(); await openGlobalCase(response.case.id); }
@@ -694,12 +918,16 @@
     const creationRequestId = pendingWriteId(writeKey, 'complaint-create');
     const pendingEvidence = state.evidence.create.map(item => item.file);
     data.set('client_request_id', creationRequestId);
+    if (acceptedVoiceAttempts.complaint_description?.id) {
+      data.set('voice_transcription_id', acceptedVoiceAttempts.complaint_description.id);
+    }
     if (state.categoryInferenceToken) data.set('category_inference_token', state.categoryInferenceToken);
     if (state.latitude) { data.set('latitude', state.latitude); data.set('longitude', state.longitude); }
     const button = $('createSaveBtn'); state.submitting = true; setActionLoading(button, true, 'Creating');
     utils.setCloseProtection?.('complaint-operation', true); $('createSaveState').textContent = 'Saving…';
     try {
-      const response = await form('cases/create/', data); settleWrite(writeKey); formNode.reset();
+      const response = await form('cases/create/', data); settleWrite(writeKey);
+      resetVoiceField('complaint_description', false); formNode.reset();
       locationSelectOptions(formNode.elements.sub_county, [], 'Select county first');
       formNode.elements.sub_county.disabled = true;
       state.latitude = ''; state.longitude = ''; resetLocationCapture(); hideSuggestion();
@@ -1447,6 +1675,10 @@
   }
   function returnPrevious() {
     if (!$('exportConfirm').hidden) { cancelExport(); return; }
+    if (!$('createView').hidden) resetVoiceField('complaint_description');
+    if (!$('detailView').hidden) {
+      resetVoiceField('complaint_resolution_note'); resetVoiceField('complaint_reopen_reason');
+    }
     if (!$('globalView').hidden) { setView('queueView'); loadCases(); return; }
     if (state.returnWorkspace === 'global') { setView('globalView'); refreshReport(); }
     else { setView('queueView'); loadCases(); }
@@ -1487,7 +1719,7 @@
   $('exportAllBtn').addEventListener('click', prepareExport); $('cancelExportBtn').addEventListener('click', cancelExport); $('confirmExportBtn').addEventListener('click', confirmExport);
   $('openExportBtn').addEventListener('click', () => openExportNatively());
   $('downloadAgainBtn').addEventListener('click', downloadAgain);
-  $('newCaseBtn').addEventListener('click', () => { state.returnWorkspace = 'queue'; setView('createView'); });
+  $('newCaseBtn').addEventListener('click', () => { resetVoiceField('complaint_description'); state.returnWorkspace = 'queue'; setView('createView'); });
   document.querySelectorAll('[data-back]').forEach(button => button.addEventListener('click', returnPrevious));
   $('refreshBtn').addEventListener('click', () => {
     if (!$('queueView').hidden) { state.page = 1; loadCases(); refreshCounts(); }
@@ -1548,10 +1780,16 @@
     const button = event.target.closest?.('button');
     if (button && !button.disabled) utils.haptic?.('light');
   }, { capture: true });
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') closeCamera({ restoreFocus: false }); });
-  window.addEventListener('pagehide', () => { closeCamera({ restoreFocus: false }); closeMediaViewer(); releaseExportDownload(); });
-  window.addEventListener('beforeunload', () => { stopCamera(); window.SecureMediaViewer?.revoke(state.mediaViewerObjectUrl); releaseExportDownload(); });
-  telegram?.onEvent?.('deactivated', () => closeCamera({ restoreFocus: false }));
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      closeCamera({ restoreFocus: false });
+      const widget = document.querySelector('.voice-input.recording');
+      if (widget) stopVoiceRecording(widget, true);
+    }
+  });
+  window.addEventListener('pagehide', () => { discardPendingVoice(); closeCamera({ restoreFocus: false }); closeMediaViewer(); releaseExportDownload(); });
+  window.addEventListener('beforeunload', () => { releaseVoiceStream(); stopCamera(); window.SecureMediaViewer?.revoke(state.mediaViewerObjectUrl); releaseExportDownload(); });
+  telegram?.onEvent?.('deactivated', () => { discardPendingVoice(); closeCamera({ restoreFocus: false }); });
   telegram?.BackButton?.onClick(returnPrevious);
   updateReportDateControls();
   bindCollapsingHeader();

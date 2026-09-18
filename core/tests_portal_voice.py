@@ -5,8 +5,14 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from core.models import JawabuFarmerMaster, PortalVoiceTranscriptionAttempt
-from core.services.portal_voice import VoiceInputError, _call_groq, create_transcription, resolve_transcription
+from core.models import (
+    GroupSheetConfiguration, JawabuFarmerMaster, ParsedMessage,
+    PortalVoiceTranscriptionAttempt, ProcessedMessage, RawMessage,
+)
+from core.services.portal_voice import (
+    VoiceInputError, _call_groq, create_transcription,
+    resolve_transcription, validate_transcription_reference,
+)
 
 
 VOICE_SETTINGS = {
@@ -46,7 +52,7 @@ class PortalVoiceServiceTests(TestCase):
         self.assertTrue(second_replayed)
         self.assertEqual(first.pk, second.pk)
         self.assertEqual(call_groq.call_count, 1)
-        call_groq.assert_called_once_with(b'synthetic-audio', 'audio/webm', 'auto')
+        call_groq.assert_called_once_with(b'synthetic-audio', 'audio/webm', 'auto', 'jbl_visit_comment')
         self.assertEqual(drive_upload.call_count, 1)
 
     @patch('core.services.portal_voice._trash_drive_file')
@@ -83,6 +89,25 @@ class PortalVoiceServiceTests(TestCase):
             )
         self.assertEqual(caught.exception.status, 404)
 
+    def test_request_key_cannot_be_replayed_for_a_different_subject(self):
+        other_farmer = JawabuFarmerMaster.objects.create(customer_name='Other Synthetic Farmer')
+        PortalVoiceTranscriptionAttempt.objects.create(
+            user=self.user, farmer=self.farmer, field_name='jbl_visit_comment',
+            request_id='voice-subject-conflict', audio_hash='9' * 64, audio_size=10,
+            audio_mime_type='audio/webm', duration_ms=1000, status='transcribed',
+            transcript='First farmer note.', expires_at=timezone.now() + timedelta(hours=1),
+        )
+
+        with self.assertRaises(VoiceInputError) as caught:
+            create_transcription(
+                user=self.user, farmer=other_farmer, field_name='jbl_visit_comment',
+                request_id='voice-subject-conflict', duration_ms=1000,
+                audio=b'other-audio', mime_type='audio/webm',
+            )
+
+        self.assertEqual(caught.exception.code, 'idempotency_conflict')
+        self.assertEqual(caught.exception.status, 409)
+
     @override_settings(PORTAL_VOICE_USER_DAILY_REQUEST_LIMIT=1)
     @patch('core.services.portal_voice._call_groq', return_value=('First note.', 1000, 'groq-test', 'en', -0.2))
     @patch('core.services.portal_voice._drive_upload', return_value='drive-test')
@@ -109,7 +134,7 @@ class PortalVoiceServiceTests(TestCase):
             audio=b'swahili-audio', mime_type='audio/webm', language_mode='sw',
         )
         self.assertFalse(replayed)
-        call_groq.assert_called_once_with(b'swahili-audio', 'audio/webm', 'sw')
+        call_groq.assert_called_once_with(b'swahili-audio', 'audio/webm', 'sw', 'jbl_visit_comment')
         self.assertEqual(attempt.requested_language, 'sw')
         self.assertEqual(attempt.detected_language, 'sw')
         self.assertEqual(attempt.average_log_probability, -0.08)
@@ -136,7 +161,62 @@ class PortalVoiceServiceTests(TestCase):
         self.assertEqual(retried.source_attempt, source)
         self.assertEqual(retried.requested_language, 'sw')
         drive_download.assert_called_once_with('drive-retained')
-        call_groq.assert_called_once_with(b'retained-audio', 'audio/webm', 'sw')
+        call_groq.assert_called_once_with(b'retained-audio', 'audio/webm', 'sw', 'jbl_visit_comment')
+
+    @patch('core.services.portal_voice._call_groq', return_value=('The burner does not light.', 1200, 'groq-complaint', 'en', -0.05))
+    @patch('core.services.portal_voice._drive_upload', return_value='drive-complaint')
+    def test_complaint_attempt_is_group_bound_without_a_farmer(self, _upload, call_groq):
+        group = GroupSheetConfiguration.objects.create(
+            group_id='-100-voice', sheet_id='test', sheet_name='Complaints', workflow={'type': 'case'},
+        )
+
+        attempt, replayed = create_transcription(
+            user=self.user, complaint_group=group, field_name='complaint_description',
+            request_id='complaint-voice-1', duration_ms=1300,
+            audio=b'complaint-audio', mime_type='audio/webm',
+        )
+
+        self.assertFalse(replayed)
+        self.assertIsNone(attempt.farmer_id)
+        self.assertEqual(attempt.complaint_group, group)
+        call_groq.assert_called_once_with(
+            b'complaint-audio', 'audio/webm', 'auto', 'complaint_description',
+        )
+
+    @patch('core.services.portal_voice._trash_drive_file')
+    def test_accepting_new_complaint_voice_binds_the_created_case(self, trash_file):
+        group = GroupSheetConfiguration.objects.create(
+            group_id='-100-voice-bind', sheet_id='test', sheet_name='Complaints', workflow={'type': 'case'},
+        )
+        raw = RawMessage.objects.create(telegram_message_id='VOICE-CASE', content='Synthetic complaint')
+        processed = ProcessedMessage.objects.create(message_hash='voice-case-hash', raw_message=raw)
+        case = ParsedMessage.objects.create(
+            processed_message=processed, message_id='VOICE-CASE', group_id=group.group_id,
+            timestamp=timezone.now(), raw_message='Synthetic complaint',
+        )
+        attempt = PortalVoiceTranscriptionAttempt.objects.create(
+            user=self.user, complaint_group=group, field_name='complaint_description',
+            request_id='complaint-voice-bind', audio_hash='d' * 64, audio_size=10,
+            audio_mime_type='audio/webm', duration_ms=1000, status='transcribed',
+            transcript='The burner does not light.', drive_file_id='drive-bind',
+            deletion_status='pending', expires_at=timezone.now() + timedelta(hours=1),
+        )
+
+        validate_transcription_reference(
+            attempt_id=attempt.pk, user=self.user, complaint_group=group,
+            field_name='complaint_description',
+        )
+        resolve_transcription(
+            attempt_id=attempt.pk, user=self.user, complaint_group=group,
+            complaint_case=case, field_name='complaint_description',
+            accepted_text='The burner does not light.',
+        )
+
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.complaint_case, case)
+        self.assertEqual(attempt.status, 'accepted')
+        self.assertEqual(attempt.transcript, '')
+        trash_file.assert_called_once_with('drive-bind')
 
     def test_unsupported_language_is_rejected_before_provider_call(self):
         with self.assertRaises(VoiceInputError) as caught:
