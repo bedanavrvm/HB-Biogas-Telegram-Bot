@@ -237,6 +237,8 @@ def process_spin_batch_export(
     sender: str = '',
     source_filename: str = '',
 ) -> dict[str, Any]:
+    if getattr(settings, 'SPIN_HARD_CUTOVER', False):
+        return {'status': 'retired', 'reply_text': 'Legacy SPIN imports are closed. Use Credit assessment inside the customer TAT case.'}
     analysis = analyze_whatsapp_export(export_text)
     entries = analysis.get('entries') or []
     if not entries:
@@ -1589,6 +1591,8 @@ def process_spin_form_submission(
     actor=None,
     expected_mode_version: int | None = None,
 ) -> dict[str, Any]:
+    if getattr(settings, 'SPIN_HARD_CUTOVER', False):
+        return {'success': False, 'status': 'retired', 'message': 'Legacy SPIN requests are closed. Use Credit assessment inside the customer TAT case.'}
     scope = mode_snapshot(WORKFLOW_SPIN)
     if expected_mode_version is not None and expected_mode_version != scope.mode_version:
         from core.services.workflow_data_mode import WorkflowModeChanged

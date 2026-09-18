@@ -17,6 +17,7 @@ from typing import Any
 
 from django.conf import settings
 from django.core import signing
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -811,10 +812,24 @@ def get_case_detail(group_config, user: dict, case_id: str) -> dict:
     if not _tat_scope_allowed(user, 'tat.home.view', case):
         raise ValueError('This TAT case is outside your assigned access scope.')
     from core.services.tat_presentation import business_time_enabled
-    return serialize_case_detail(
+    detail = serialize_case_detail(
         case, user, workflow=getattr(group_config, 'workflow', None) or {},
         include_business_time=business_time_enabled(),
     )
+    # Credit assessment is a bounded domain. TAT exposes only its compact
+    # projection so timing and operational routing stay in one workspace.
+    try:
+        assessment = case.credit_assessment
+    except ObjectDoesNotExist:
+        assessment = None
+    if assessment is not None:
+        from credit_assessments.services import serialize_assessment
+        detail['credit_assessment'] = serialize_assessment(assessment, user)
+    else:
+        detail['credit_assessment'] = None
+        roles = {str(value or '').upper() for value in (user.get('roles') or [])}
+        detail['can_start_credit_assessment'] = bool({'BRO', 'IT'} & roles)
+    return detail
 
 
 def record_tat_event(**values) -> TatTrackerEvent:

@@ -39,7 +39,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 | jawabu | `core_invoiceidentityreview` | `core.InvoiceIdentityReview` | authoritative_record | active | Append-oriented decision about invoice identity versus the JBL applicant. |
 | jawabu | `core_invoicenamechangebatch` | `core.InvoiceNameChangeBatch` | processing_record | active | One manual/generated letter covering one or more invoice corrections. |
 | jawabu | `core_invoicenamechangeitem` | `core.InvoiceNameChangeItem` | processing_record | active | A case-level correction preserving original and replacement invoices. |
-| jawabu | `core_invoicenamechangeletterartifact` | `core.InvoiceNameChangeLetterArtifact` | authoritative_record | active | Immutable, versioned DOCX rendered from one name-change batch snapshot. |
+| jawabu | `core_invoicenamechangeletterartifact` | `core.InvoiceNameChangeLetterArtifact` | authoritative_record | active | Immutable, versioned DOCX and PDF rendered from one batch snapshot. |
 | jawabu | `core_invoicenamechangelettertemplate` | `core.InvoiceNameChangeLetterTemplate` | configuration | active | Admin-governed DOCX template for invoice-name-change letters. |
 | jawabu | `core_invoiceuploadbatch` | `core.InvoiceUploadBatch` | processing_record | active | Drive-backed invoice PDF upload batch kept before reconciliation. |
 | jawabu | `core_jawabuapprovalcondition` | `core.JawabuApprovalCondition` | authoritative_record | active | A condition that blocks a conditional approval until explicitly cleared. |
@@ -109,7 +109,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 | platform | `core_portalreportchart` | `core.PortalReportChart` | authoritative_record | active | A constrained chart attached to a Portal report definition. |
 | platform | `core_portalreportdefinition` | `core.PortalReportDefinition` | configuration | active | An IT-owned, validated definition for a read-only Portal report. The JSON configuration contains only keys from the server-owned Portal reporting catalogue. It intentionally never stores arbitrary ORM paths, SQL, source data, Drive links, or customer snapshots. |
 | platform | `core_portalsavedview` | `core.PortalSavedView` | authoritative_record | active | A private, validated Portal workspace view; never a workflow assignment. |
-| platform | `core_portalvoicetranscriptionattempt` | `core.PortalVoiceTranscriptionAttempt` | authoritative_record | active | Append-oriented audit and retry state for bounded Portal dictation. |
+| platform | `core_portalvoicetranscriptionattempt` | `core.PortalVoiceTranscriptionAttempt` | authoritative_record | active | Append-oriented audit and retry state for bounded workflow dictation. |
 | complaints | `core_processedmessage` | `core.ProcessedMessage` | authoritative_record | active | Tracks which messages have been processed to prevent duplicates. message_hash is the deduplication key. |
 | catalog | `core_product` | `core.Product` | authoritative_record | active | Stable global identity for a financial product used by every workflow. |
 | catalog | `core_productalias` | `core.ProductAlias` | business_link | active | Approved external/import spelling for one canonical product. |
@@ -171,6 +171,18 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 | tat | `core_workflowtatdailymetric` | `core.WorkflowTatDailyMetric` | derived_metric | active | Idempotent daily operational TAT trend snapshot. This is a reporting projection only. It never replaces workflow events or changes a case's current state. |
 | tat | `core_workflowtatmetricrebuildrequest` | `core.WorkflowTatMetricRebuildRequest` | authoritative_record | active | Durable, mergeable request to rebuild corrected TAT report dates. |
 | platform | `core_workflowtimelineannotation` | `core.WorkflowTimelineAnnotation` | authoritative_record | active | Append-only correction/redaction evidence for a projected timeline entry. Original workflow events remain immutable. This record carries the relationship to the original entry and, when authorised, masks sensitive display content without destroying the event shell required for audit. |
+| credit_assessment | `credit_assessment_analysis_package` | `credit_assessments.AnalysisPackage` | authoritative_record | active | Immutable analyst report and question-set revision. |
+| credit_assessment | `credit_assessment_audit_event` | `credit_assessments.AssessmentEvent` | immutable_event | active | Append-only customer-data-minimized assessment audit history. |
+| credit_assessment | `credit_assessment_case_root` | `credit_assessments.CreditAssessment` | authoritative_record | active | Authoritative evidence-and-decision lifecycle linked to one TAT case. |
+| credit_assessment | `credit_assessment_document_evidence` | `credit_assessments.AssessmentDocument` | source_evidence | active | Immutable version binding assessment decisions to exact document bytes. |
+| credit_assessment | `credit_assessment_engine_job` | `credit_assessments.EngineJob` | integration_job | dormant | Dormant versioned boundary for a future isolated analysis engine. |
+| credit_assessment | `credit_assessment_mailbox_cursor` | `credit_assessments.MailboxCursor` | configuration_state | active | Singleton Gmail polling cursor, lease, and health state. |
+| credit_assessment | `credit_assessment_manager_decision` | `credit_assessments.AssessmentDecision` | immutable_event | active | Immutable manager action bound to exact evidence and revision. |
+| credit_assessment | `credit_assessment_question_item` | `credit_assessments.AnalysisQuestion` | authoritative_record | active | Immutable analyst question in a frozen package. |
+| credit_assessment | `credit_assessment_question_response` | `credit_assessments.QuestionResponse` | immutable_event | active | Append-only BRO response revision to an analyst question. |
+| credit_assessment | `credit_assessment_response_validation` | `credit_assessments.QuestionValidationEvent` | immutable_event | active | Append-only analyst validation of an exact BRO response. |
+| credit_assessment | `credit_assessment_statement_receipt` | `credit_assessments.StatementMailReceipt` | source_evidence | active | Immutable Gmail receipt metadata and restricted statement artifact pointer. |
+| credit_assessment | `credit_assessment_statement_secret` | `credit_assessments.AssessmentSecret` | protected_secret | temporary | Short-lived authenticated ciphertext for a statement passcode. |
 | payments | `payment_batch` | `payments.PaymentBatch` | authoritative_record | active | Authoritative payment batch from editable preparation through accepted signed scan. |
 | payments | `payment_batch_case` | `payments.PaymentBatchCase` | business_assignment | active | Auditable current and removed membership of a Portal case in one payment batch. |
 | payments | `payment_batch_event` | `payments.PaymentBatchEvent` | immutable_event | active | Append-only customer-data-minimized history of payment batch mutations. |
@@ -422,7 +434,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/compliance_audit.py`, `core/services/portal_maintenance.py`
-- Used by: `core/management/commands/sample_compliance_audit.py`, `core/services/compliance_audit.py`, `core/services/database_catalog.py`, `core/services/origination_god_mode.py`, `core/services/portal_maintenance.py`, `core/services/portal_reporting.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/tat_full_reset.py`, `core/services/user_hard_delete.py`
+- Used by: `core/management/commands/sample_compliance_audit.py`, `core/services/complaint_cases.py`, `core/services/compliance_audit.py`, `core/services/database_catalog.py`, `core/services/origination_god_mode.py`, `core/services/portal_maintenance.py`, `core/services/portal_reporting.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/tat_full_reset.py`, `core/services/user_hard_delete.py`
 
 ### `core_deleteduseridentity`
 
@@ -507,10 +519,10 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Source of truth: **Yes**
 - Retention: Retain while referenced; retire or deactivate instead of deleting governed history.
 - Parents: None
-- Children: `core.AccessGrant`, `core.ComplaintCategoryAvailability`, `core.EmergencyAccessGrant`, `core.LiveSheetRecordChange`, `core.RequisitionBatch`, `core.SheetRegisterContract`, `core.StaffTelegramGroupInvitation`, `core.TatActionTask`, `core.TatConfigurationEvent`, `core.TatEscalationRule`, `core.TatGroupExceptionStatus`, `core.TatRepairJob`, `core.TatResponsibilityAssignment`, `core.WorkflowConfigurationChangeRequest`, `core.WorkflowPilotFormulaReadiness`, `payments.PaymentBatch`, `payments.PaymentSequenceState`, `requisitions.OrderSequenceState`
+- Children: `core.AccessGrant`, `core.ComplaintCategoryAvailability`, `core.EmergencyAccessGrant`, `core.LiveSheetRecordChange`, `core.PortalVoiceTranscriptionAttempt`, `core.RequisitionBatch`, `core.SheetRegisterContract`, `core.StaffTelegramGroupInvitation`, `core.TatActionTask`, `core.TatConfigurationEvent`, `core.TatEscalationRule`, `core.TatGroupExceptionStatus`, `core.TatRepairJob`, `core.TatResponsibilityAssignment`, `core.WorkflowConfigurationChangeRequest`, `core.WorkflowPilotFormulaReadiness`, `payments.PaymentBatch`, `payments.PaymentSequenceState`, `requisitions.OrderSequenceState`
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/staff_telegram_onboarding.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/workflow_pilot_purge.py`, `payments/tests.py`
-- Used by: `core/api/complaint_case_views.py`, `core/api/portal_views.py`, `core/management/commands/probe_integrations.py`, `core/management/commands/repair_tat_sheet_duplicates.py`, `core/management/commands/resync_tat_tracker_cases.py`, `core/management/commands/seed_sheet_register_contracts.py`, `core/management/commands/sync_telegram_commands.py`, `core/management/commands/sync_telegram_launchers.py`, `core/services/access_control.py`, `core/services/complaint_register.py`, `core/services/fresh_database_baseline.py`, `core/services/group_config.py`, `core/services/group_reset.py`, `core/services/jawabu.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_pipeline.py`, `core/services/miniapp_settings.py`, `core/services/portal_imports.py`, `core/services/sheet_analyzer.py`, `core/services/sheet_publication.py`, `core/services/spin_credit.py`, `core/services/staff_lifecycle.py`, `core/services/staff_telegram_onboarding.py`, `core/services/sync_governance.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_register.py`, `core/services/tat_repair_jobs.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/tat_update_dispatch.py`, `core/services/telegram_identity.py`, `core/services/telegram_launchers.py`, `core/services/user_hard_delete.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_sla.py`, `payments/models.py`, `payments/tests.py`, `requisitions/models.py`
+- Used by: `core/api/complaint_case_views.py`, `core/api/portal_views.py`, `core/management/commands/probe_integrations.py`, `core/management/commands/repair_tat_sheet_duplicates.py`, `core/management/commands/resync_tat_tracker_cases.py`, `core/management/commands/seed_sheet_register_contracts.py`, `core/management/commands/sync_telegram_commands.py`, `core/management/commands/sync_telegram_launchers.py`, `core/services/access_control.py`, `core/services/complaint_cases.py`, `core/services/complaint_register.py`, `core/services/fresh_database_baseline.py`, `core/services/group_config.py`, `core/services/group_reset.py`, `core/services/jawabu.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_pipeline.py`, `core/services/miniapp_settings.py`, `core/services/portal_imports.py`, `core/services/sheet_analyzer.py`, `core/services/sheet_publication.py`, `core/services/spin_credit.py`, `core/services/staff_lifecycle.py`, `core/services/staff_telegram_onboarding.py`, `core/services/sync_governance.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_register.py`, `core/services/tat_repair_jobs.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/tat_update_dispatch.py`, `core/services/telegram_identity.py`, `core/services/telegram_launchers.py`, `core/services/user_hard_delete.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_sla.py`, `payments/models.py`, `payments/tests.py`, `requisitions/models.py`
 
 ### `core_integrationcircuitstate`
 
@@ -598,7 +610,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.ParsedInvoice`
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/invoice_parser.py`
-- Used by: `core/api/portal_views.py`, `core/services/invoice_parser.py`
+- Used by: `core/api/portal_views.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`
 
 ### `core_jawabuapprovalcondition`
 
@@ -663,7 +675,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: None
 - Children: `core.ComplaintCaseControl`, `core.JawabuCustomerPhoneHistory`, `core.JawabuFarmerMaster`, `core.JawabuRelatedPerson`, `core.LoanOriginationApplication`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/invoice_identity.py`, `core/services/jawabu_identity.py`, `core/services/system_export.py`
+- Direct ORM writers: `core/services/jawabu_identity.py`, `core/services/system_export.py`
 - Used by: `core/services/complaint_cases.py`, `core/services/invoice_identity.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_identity.py`, `core/services/portal_imports.py`, `core/services/system_export.py`
 
 ### `core_jawabucustomerfieldprovenance`
@@ -696,8 +708,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.JawabuFarmerMaster`
 - Children: `core.JawabuDataQualityResolution`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/jawabu_validation.py`
-- Used by: `core/services/jawabu_validation.py`
+- Direct ORM writers: `core/services/invoice_identity.py`, `core/services/jawabu_validation.py`
+- Used by: `core/services/invoice_identity.py`, `core/services/jawabu_validation.py`
 
 ### `core_jawabudataqualityresolution`
 
@@ -718,8 +730,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.JawabuCustomer`, `core.OperationalLocation`, `core.Product`, `core.ProductVersion`
 - Children: `core.InvoiceIdentityReview`, `core.InvoiceNameChangeItem`, `core.JawabuApprovalRecord`, `core.JawabuCaseComment`, `core.JawabuCustomerFieldProvenance`, `core.JawabuDataQualityIssue`, `core.JawabuHouseholdRelationship`, `core.JawabuMediaAccessEvent`, `core.JawabuPipelineEvent`, `core.MediaAttachment`, `core.ParsedInvoice`, `core.PortalCaseWorkspace`, `core.PortalVoiceTranscriptionAttempt`, `payments.PaymentBatchCase`
 - Cross-domain parents: `core.OperationalLocation`, `core.Product`, `core.ProductVersion`
-- Direct ORM writers: `core/api/portal_views.py`, `core/services/fca.py`, `core/services/jawabu_master.py`, `payments/tests.py`
-- Used by: `core/api/portal_views.py`, `core/management/commands/backfill_jbl_schedule_status.py`, `core/management/commands/normalize_jawabu_dates.py`, `core/services/fca.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_identity.py`, `core/services/jawabu_master.py`, `core/services/jawabu_media_access.py`, `core/services/jawabu_pipeline.py`, `core/services/jawabu_validation.py`, `core/services/location_catalog.py`, `core/services/payment_documents.py`, `core/services/portal_dashboard.py`, `core/services/portal_imports.py`, `core/services/portal_publication.py`, `core/services/portal_reporting.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/requisition.py`, `core/services/sheet_publication.py`, `core/services/system_export.py`, `core/services/workflow_sla.py`, `core/services/workflow_timeline.py`, `payments/models.py`, `payments/services.py`, `payments/tests.py`
+- Direct ORM writers: `core/services/fca.py`, `core/services/invoice_parser.py`, `core/services/jawabu_master.py`, `payments/tests.py`
+- Used by: `core/api/portal_views.py`, `core/management/commands/backfill_jbl_schedule_status.py`, `core/management/commands/normalize_jawabu_dates.py`, `core/services/fca.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_case_reference.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_identity.py`, `core/services/jawabu_master.py`, `core/services/jawabu_media_access.py`, `core/services/jawabu_pipeline.py`, `core/services/jawabu_validation.py`, `core/services/location_catalog.py`, `core/services/payment_documents.py`, `core/services/portal_case_corrections.py`, `core/services/portal_dashboard.py`, `core/services/portal_imports.py`, `core/services/portal_publication.py`, `core/services/portal_reporting.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/requisition.py`, `core/services/sheet_publication.py`, `core/services/system_export.py`, `core/services/workflow_sla.py`, `core/services/workflow_timeline.py`, `payments/models.py`, `payments/services.py`, `payments/tests.py`
 
 ### `core_jawabufarmeruploadbatch`
 
@@ -741,7 +753,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.InvoiceNameChangeItem`
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/invoice_identity.py`
-- Used by: `core/services/invoice_identity.py`
+- Used by: `core/services/invoice_identity.py`, `core/services/jawabu_case360.py`
 
 ### `core_jawabumediaaccessevent`
 
@@ -763,7 +775,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.JawabuCaseComment`
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu_case360.py`
-- Used by: `core/api/portal_views.py`, `core/services/group_reset.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_dashboard.py`, `core/services/workflow_timeline.py`
+- Used by: `core/api/portal_views.py`, `core/services/group_reset.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_dashboard.py`, `core/services/workflow_recognition.py`, `core/services/workflow_timeline.py`
 
 ### `core_jawaburelatedperson`
 
@@ -1255,7 +1267,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
 - Parents: `core.ProcessedMessage`
-- Children: `core.CaseUpdate`, `core.ComplaintCaseControl`, `core.ComplaintCaseEvidence`, `core.ComplaintCaseImportItem`
+- Children: `core.CaseUpdate`, `core.ComplaintCaseControl`, `core.ComplaintCaseEvidence`, `core.ComplaintCaseImportItem`, `core.PortalVoiceTranscriptionAttempt`
 - Cross-domain parents: None
 - Direct ORM writers: `core/api/views.py`, `core/services/complaint_cases.py`, `core/services/group_reset.py`, `core/services/sheet_sync.py`, `core/services/sheets.py`, `core/services/storage.py`
 - Used by: `core/api/views.py`, `core/services/case_updates.py`, `core/services/commands.py`, `core/services/complaint_cases.py`, `core/services/complaint_imports.py`, `core/services/complaint_register.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/reporting_relationships.py`, `core/services/sheet_publication.py`, `core/services/sheet_sync.py`, `core/services/sheets.py`, `core/services/storage.py`, `core/services/workflow_catalog.py`
@@ -1342,11 +1354,11 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Application identity: `core.PortalVoiceTranscriptionAttempt` in **Platform**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
-- Parents: `auth.User`, `core.JawabuFarmerMaster`, `core.PortalVoiceTranscriptionAttempt`
+- Parents: `auth.User`, `core.GroupSheetConfiguration`, `core.JawabuFarmerMaster`, `core.ParsedMessage`, `core.PortalVoiceTranscriptionAttempt`
 - Children: `core.PortalVoiceTranscriptionAttempt`
-- Cross-domain parents: `core.JawabuFarmerMaster`
+- Cross-domain parents: `core.JawabuFarmerMaster`, `core.ParsedMessage`
 - Direct ORM writers: `core/services/portal_voice.py`
-- Used by: `core/api/portal_views.py`, `core/services/portal_voice.py`
+- Used by: `core/api/complaint_case_views.py`, `core/api/portal_views.py`, `core/services/complaint_cases.py`, `core/services/portal_voice.py`
 
 ### `core_processedmessage`
 
@@ -1632,7 +1644,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.TatActionTask`, `core.TatActionTaskLocator`, `core.TatActionTaskRecipient`, `core.TatTaskRerouteEvent`
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`
 - Direct ORM writers: `core/services/tat_notifications.py`
-- Used by: `core/services/staff_lifecycle.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_register.py`, `core/services/user_hard_delete.py`
+- Used by: `core/api/views.py`, `core/services/staff_lifecycle.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_register.py`, `core/services/user_hard_delete.py`, `core/services/workflow_recognition.py`
 
 ### `core_tatactiontasklocator`
 
@@ -1654,7 +1666,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/tat_notifications.py`
-- Used by: `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_register.py`, `core/services/user_hard_delete.py`
+- Used by: `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_register.py`, `core/services/user_hard_delete.py`, `core/services/workflow_recognition.py`
 
 ### `core_tatcasesequence`
 
@@ -1827,10 +1839,10 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Source of truth: **Yes**
 - Retention: Retained with the permanent TAT operational record.
 - Parents: `core.Product`, `core.ProductVersion`
-- Children: `core.TatActionTask`, `core.TatTrackerApprovalCertificate`, `core.TatTrackerEvent`, `core.TatUpdateSideEffectDispatch`, `core.WorkflowTatMetricRebuildRequest`
+- Children: `core.TatActionTask`, `core.TatTrackerApprovalCertificate`, `core.TatTrackerEvent`, `core.TatUpdateSideEffectDispatch`, `core.WorkflowTatMetricRebuildRequest`, `credit_assessments.CreditAssessment`
 - Cross-domain parents: `core.Product`, `core.ProductVersion`
-- Direct ORM writers: `core/services/group_reset.py`, `core/services/tat_tracker.py`, `core/services/workflow_pilot_purge.py`
-- Used by: `core/api/views.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/sheet_publication.py`, `core/services/sync_governance.py`, `core/services/tat_configuration.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_register.py`, `core/services/tat_repair_jobs.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/tat_update_dispatch.py`, `core/services/workflow_data_mode.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_sla.py`, `core/services/workflow_timeline.py`
+- Direct ORM writers: `core/services/group_reset.py`, `core/services/tat_tracker.py`, `core/services/workflow_pilot_purge.py`, `credit_assessments/tests.py`
+- Used by: `core/api/views.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/sheet_publication.py`, `core/services/sync_governance.py`, `core/services/tat_configuration.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_register.py`, `core/services/tat_repair_jobs.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/tat_update_dispatch.py`, `core/services/workflow_data_mode.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_recognition.py`, `core/services/workflow_sla.py`, `core/services/workflow_timeline.py`, `credit_assessments/models.py`, `credit_assessments/tests.py`, `credit_assessments/views.py`
 
 ### `core_tattrackerevent`
 
@@ -2019,6 +2031,138 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Direct ORM writers: No direct manager mutation found; inspect owning service
 - Used by: `core/services/tat_full_reset.py`, `core/services/workflow_timeline.py`
 
+### `credit_assessment_analysis_package`
+
+- Application identity: `credit_assessments.AnalysisPackage` in **Credit Assessment**
+- Source of truth: **Yes**
+- Retention: Permanent with the assessment decision.
+- Parents: `auth.User`, `credit_assessments.AssessmentDocument`, `credit_assessments.CreditAssessment`
+- Children: `credit_assessments.AnalysisQuestion`, `credit_assessments.AssessmentDecision`
+- Cross-domain parents: `auth.User`
+- Direct ORM writers: `credit_assessments/services.py`
+- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`
+
+### `credit_assessment_audit_event`
+
+- Application identity: `credit_assessments.AssessmentEvent` in **Credit Assessment**
+- Source of truth: **Yes**
+- Retention: Permanent with the assessment.
+- Parents: `auth.User`, `credit_assessments.CreditAssessment`
+- Children: None
+- Cross-domain parents: `auth.User`
+- Direct ORM writers: `credit_assessments/services.py`
+- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`
+
+### `credit_assessment_case_root`
+
+- Application identity: `credit_assessments.CreditAssessment` in **Credit Assessment**
+- Source of truth: **Yes**
+- Retention: Retain with the permanent TAT case and lending decision.
+- Parents: `auth.User`, `core.TatTrackerCase`, `credit_assessments.StatementMailReceipt`
+- Children: `credit_assessments.AnalysisPackage`, `credit_assessments.AssessmentDecision`, `credit_assessments.AssessmentDocument`, `credit_assessments.AssessmentEvent`, `credit_assessments.AssessmentSecret`, `credit_assessments.EngineJob`
+- Cross-domain parents: `auth.User`, `core.TatTrackerCase`
+- Direct ORM writers: `credit_assessments/services.py`
+- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`, `credit_assessments/tests.py`, `credit_assessments/views.py`
+
+### `credit_assessment_document_evidence`
+
+- Application identity: `credit_assessments.AssessmentDocument` in **Credit Assessment**
+- Source of truth: **Yes**
+- Retention: Permanent with the assessment; Drive holds bytes and Django holds hashes and versions.
+- Parents: `auth.User`, `credit_assessments.CreditAssessment`
+- Children: `credit_assessments.AnalysisPackage`
+- Cross-domain parents: `auth.User`
+- Direct ORM writers: `credit_assessments/services.py`
+- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`
+
+### `credit_assessment_engine_job`
+
+- Application identity: `credit_assessments.EngineJob` in **Credit Assessment**
+- Source of truth: **No**
+- Retention: Retain with the assessment when the engine is enabled; no jobs are created in this release.
+- Parents: `credit_assessments.CreditAssessment`
+- Children: None
+- Cross-domain parents: None
+- Direct ORM writers: No direct manager mutation found; inspect owning service
+- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`
+
+### `credit_assessment_mailbox_cursor`
+
+- Application identity: `credit_assessments.MailboxCursor` in **Credit Assessment**
+- Source of truth: **Yes**
+- Retention: Retain while mailbox ingestion is configured.
+- Parents: None
+- Children: None
+- Cross-domain parents: None
+- Direct ORM writers: `credit_assessments/mailbox.py`
+- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/mailbox.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`
+
+### `credit_assessment_manager_decision`
+
+- Application identity: `credit_assessments.AssessmentDecision` in **Credit Assessment**
+- Source of truth: **Yes**
+- Retention: Permanent lending-decision evidence.
+- Parents: `auth.User`, `credit_assessments.AnalysisPackage`, `credit_assessments.CreditAssessment`
+- Children: None
+- Cross-domain parents: `auth.User`
+- Direct ORM writers: `credit_assessments/services.py`
+- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`, `credit_assessments/tests.py`
+
+### `credit_assessment_question_item`
+
+- Application identity: `credit_assessments.AnalysisQuestion` in **Credit Assessment**
+- Source of truth: **Yes**
+- Retention: Permanent with the package and responses.
+- Parents: `auth.User`, `credit_assessments.AnalysisPackage`
+- Children: `credit_assessments.QuestionResponse`
+- Cross-domain parents: `auth.User`
+- Direct ORM writers: `credit_assessments/services.py`
+- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`
+
+### `credit_assessment_question_response`
+
+- Application identity: `credit_assessments.QuestionResponse` in **Credit Assessment**
+- Source of truth: **Yes**
+- Retention: Permanent with the lending decision.
+- Parents: `auth.User`, `credit_assessments.AnalysisQuestion`
+- Children: `credit_assessments.QuestionValidationEvent`
+- Cross-domain parents: `auth.User`
+- Direct ORM writers: `credit_assessments/services.py`
+- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`
+
+### `credit_assessment_response_validation`
+
+- Application identity: `credit_assessments.QuestionValidationEvent` in **Credit Assessment**
+- Source of truth: **Yes**
+- Retention: Permanent with the lending decision.
+- Parents: `auth.User`, `credit_assessments.QuestionResponse`
+- Children: None
+- Cross-domain parents: `auth.User`
+- Direct ORM writers: `credit_assessments/services.py`
+- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`
+
+### `credit_assessment_statement_receipt`
+
+- Application identity: `credit_assessments.StatementMailReceipt` in **Credit Assessment**
+- Source of truth: **Yes**
+- Retention: Retain with linked assessment evidence; unlinked receipts follow the controlled inbox retention policy.
+- Parents: None
+- Children: `credit_assessments.CreditAssessment`
+- Cross-domain parents: None
+- Direct ORM writers: `credit_assessments/mailbox.py`, `credit_assessments/tests.py`
+- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/mailbox.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`, `credit_assessments/tests.py`
+
+### `credit_assessment_statement_secret`
+
+- Application identity: `credit_assessments.AssessmentSecret` in **Credit Assessment**
+- Source of truth: **Yes**
+- Retention: Destroy ciphertext immediately after analyst use; retain reveal and destruction metadata.
+- Parents: `credit_assessments.CreditAssessment`
+- Children: None
+- Cross-domain parents: None
+- Direct ORM writers: `credit_assessments/services.py`
+- Used by: `core/services/database_catalog.py`, `credit_assessments/admin.py`, `credit_assessments/migrations/0001_initial.py`, `credit_assessments/models.py`, `credit_assessments/services.py`
+
 ### `payment_batch`
 
 - Application identity: `payments.PaymentBatch` in **Payments**
@@ -2039,7 +2183,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `payments.PaymentCaseReview`
 - Cross-domain parents: `auth.User`, `core.JawabuFarmerMaster`
 - Direct ORM writers: `payments/services.py`
-- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/services.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `payments/migrations/0001_initial.py`, `payments/migrations/0002_case_specific_payment_mode.py`, `payments/models.py`, `payments/services.py`
 
 ### `payment_batch_event`
 

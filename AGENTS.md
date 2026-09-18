@@ -57,6 +57,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **TAT Control Center** | The Superuser-only guided setup, stage-design, routing-maintenance, and built-in-register workspace. It projects durable Django configuration and never grants workflow access by itself. |
 | **TAT loan-cycle path** | The immutable Standard, Standard + Valuation, HOCC, or HOCC + Valuation path selected from the product version and original requested amount when a case is created. A later BRO-entered final loan amount may be lower but never changes the frozen path. |
 | **SPIN** | Credit/CRB-report-linked request workflow handled by `spin_credit.py`, completed by credit analysts. |
+| **TAT credit assessment** | The governed appraisal evidence and decision workflow linked one-to-one to a TAT case. It matches a forwarded M-PESA statement, retains the pre-appraisal and signed-LAF consent reference, freezes analyst reports/questions, records BRO responses and analyst validation, and binds Branch Manager decisions to exact evidence revisions. TAT owns timing/routing; `credit_assessments` owns evidence and decisions. |
 | **Workflow data mode** | The immutable Pilot or Production classification captured when a SPIN/TAT operational record is created. Production records remain operational; while a workflow is in Pilot mode, normal reads also include only its currently active Pilot cycle. |
 | **Pilot cycle** | A versioned SPIN or TAT test-data scope. Rotating a cycle closes the old scope, makes it read-only and purge-eligible, and starts a new active scope that cannot be purged. |
 | **Global product** | The stable `Product` identity shared across workflows. Commercial terms and product-specific configuration belong to immutable, effective-dated `ProductVersion` records; workflow cases retain their selected version and snapshots. |
@@ -168,6 +169,7 @@ Key modules:
 - `sheet_sync.py` — synchronization orchestration
 - `sheets.py` — low-level Google Sheets gateway
 - `spin_credit.py` — SPIN request parsing and workflow logic
+- `credit_assessments/` — bounded TAT credit-assessment domain, Gmail statement intake, evidence versions, questions/responses, decisions, and dormant future engine boundary
 - `storage.py` — media/file storage abstraction
 - `tat_tracker.py` — TAT workflow configuration and transitions
 - `tat_reporting.py` — capability-scoped TAT workload/performance reports, server-filtered paging, audited XLSX export, and bounded historical-metric rebuilds

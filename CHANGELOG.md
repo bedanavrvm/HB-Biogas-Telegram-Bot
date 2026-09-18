@@ -1,5 +1,22 @@
 # Changelog
 
+## Governed credit assessment inside TAT - 18-September-2026
+
+- Added a bounded, revision-controlled credit-assessment workflow linked to a
+  TAT case: statement matching, pre-appraisal evidence, manager authorization,
+  analyst report/questions, BRO responses, analyst validation, and final Branch
+  Manager decision.
+- Added idempotent Gmail attachment intake, restricted Drive archival, encrypted
+  short-lived statement passcodes, exact evidence hashes, maker-checker guards,
+  append-only decisions/events, and a dormant future analysis-engine contract.
+- Added a compact mobile TAT detail panel and an optional hard cutover that
+  redirects/rejects legacy SPIN UI, API, and WhatsApp-import writes while
+  retaining historical SPIN records.
+- Requires migration `credit_assessments.0001_initial`, the pinned
+  `cryptography` package, the dedicated Gmail address, existing Google service
+  account delegation, and the existing restricted media Drive folder.
+
+
 ## Portal order validation, finalization control and workbook download - 14-September-2026
 
 - Order validation guidance survives the safe-message boundary and lists the

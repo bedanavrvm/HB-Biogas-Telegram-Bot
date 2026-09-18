@@ -1007,6 +1007,41 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
 
 .detail-shell { display: grid; gap: 8px; padding: 0; background: transparent; border: none; box-shadow: none; }
 
+.credit-assessment-panel {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--tat-line);
+  border-radius: var(--radius-sm);
+  background: var(--tat-surface);
+  box-shadow: var(--shadow);
+}
+.credit-assessment-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.credit-assessment-head h2 { font-size: 14px; }
+.credit-assessment-head .eyebrow { margin: 0 0 1px; font-size: 9px; }
+.credit-assessment-content, .credit-assessment-form { display: grid; gap: 8px; }
+.credit-assessment-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+.credit-assessment-summary > div { min-width: 0; padding: 6px 8px; border-radius: 6px; background: var(--tat-surface-2); }
+.credit-assessment-summary small { display: block; color: var(--tat-muted); font-size: 9px; font-weight: 700; text-transform: uppercase; }
+.credit-assessment-summary strong { display: block; margin-top: 1px; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.credit-assessment-docs { display: flex; flex-wrap: wrap; gap: 4px; }
+.credit-assessment-docs button { min-height: 28px; padding: 4px 7px; border: 1px solid var(--tat-line); border-radius: 999px; font-size: 10px; }
+.credit-assessment-form label { display: grid; gap: 3px; color: var(--tat-muted); font-size: 10px; font-weight: 700; }
+.credit-assessment-form input, .credit-assessment-form select, .credit-assessment-form textarea { width: 100%; min-width: 0; }
+.credit-assessment-form textarea { min-height: 64px; resize: vertical; }
+.credit-assessment-form .form-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.statement-candidates, .assessment-questions { display: grid; gap: 5px; }
+.statement-candidate, .assessment-question { display: grid; gap: 4px; padding: 7px; border: 1px solid var(--tat-line); border-radius: 6px; }
+.statement-candidate { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.statement-candidate strong, .assessment-question strong { font-size: 11px; }
+.statement-candidate small { display: block; color: var(--tat-muted); font-size: 10px; }
+.credit-assessment-note { margin: 0; color: var(--tat-muted); font-size: 11px; line-height: 1.35; }
+@media (max-width: 340px) {
+  .credit-assessment-summary { grid-template-columns: 1fr; }
+  .statement-candidate { grid-template-columns: 1fr; }
+  .statement-candidate button { width: 100%; }
+}
+
 .detail-actions {
   display: flex;
   justify-content: flex-end;

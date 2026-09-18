@@ -55,6 +55,7 @@ from .views import (
     resend_unsynced,
     sync_from_sheets,
 )
+from credit_assessments.views import credit_assessment_action, credit_assessment_detail, credit_assessment_document
 from .portal_views import (
     portal_navigation,
     portal_settings,
@@ -355,6 +356,9 @@ urlpatterns = [
     path('tat-tracker/private-alerts/connect/', tat_tracker_connect_private_alerts, name='tat_tracker_connect_private_alerts'),
     path('tat-tracker/private-alerts/disconnect/', tat_tracker_disconnect_private_alerts, name='tat_tracker_disconnect_private_alerts'),
     path('tat-tracker/detail/', tat_tracker_detail, name='tat_tracker_detail'),
+    path('tat-tracker/credit-assessment/detail/', credit_assessment_detail, name='credit_assessment_detail'),
+    path('tat-tracker/credit-assessment/action/', credit_assessment_action, name='credit_assessment_action'),
+    path('tat-tracker/credit-assessment/document/', credit_assessment_document, name='credit_assessment_document'),
     path('tat-tracker/update/', tat_tracker_update, name='tat_tracker_update'),
     path('tat-tracker/reports/summary/', tat_tracker_reports_summary, name='tat_tracker_reports_summary'),
     path('tat-tracker/reports/cases/', tat_tracker_reports_cases, name='tat_tracker_reports_cases'),

@@ -17,10 +17,10 @@ from django.db import connection
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CATALOGUE_APP_LABELS = ('core', 'requisitions', 'payments')
+CATALOGUE_APP_LABELS = ('core', 'requisitions', 'payments', 'credit_assessments')
 USAGE_ROOTS = (
     ROOT / 'core' / 'api', ROOT / 'core' / 'services', ROOT / 'core' / 'management',
-    ROOT / 'requisitions', ROOT / 'payments',
+    ROOT / 'requisitions', ROOT / 'payments', ROOT / 'credit_assessments',
 )
 
 DOMAIN_RULES = (
@@ -40,6 +40,66 @@ DOMAIN_RULES = (
 # New models must be explicitly declared here. Existing models are covered by
 # scripts/database_catalog_existing_models.json and deterministic inference.
 MODEL_OVERRIDES: dict[str, dict[str, Any]] = {
+    'credit_assessments.CreditAssessment': {
+        'domain': 'credit_assessment', 'purpose': 'Authoritative evidence-and-decision lifecycle linked to one TAT case.',
+        'classification': 'authoritative_record', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Retain with the permanent TAT case and lending decision.',
+    },
+    'credit_assessments.StatementMailReceipt': {
+        'domain': 'credit_assessment', 'purpose': 'Immutable Gmail receipt metadata and restricted statement artifact pointer.',
+        'classification': 'source_evidence', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Retain with linked assessment evidence; unlinked receipts follow the controlled inbox retention policy.',
+    },
+    'credit_assessments.MailboxCursor': {
+        'domain': 'credit_assessment', 'purpose': 'Singleton Gmail polling cursor, lease, and health state.',
+        'classification': 'configuration_state', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Retain while mailbox ingestion is configured.',
+    },
+    'credit_assessments.AssessmentDocument': {
+        'domain': 'credit_assessment', 'purpose': 'Immutable version binding assessment decisions to exact document bytes.',
+        'classification': 'source_evidence', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Permanent with the assessment; Drive holds bytes and Django holds hashes and versions.',
+    },
+    'credit_assessments.AssessmentSecret': {
+        'domain': 'credit_assessment', 'purpose': 'Short-lived authenticated ciphertext for a statement passcode.',
+        'classification': 'protected_secret', 'source_of_truth': True, 'lifecycle': 'temporary',
+        'retention': 'Destroy ciphertext immediately after analyst use; retain reveal and destruction metadata.',
+    },
+    'credit_assessments.AnalysisPackage': {
+        'domain': 'credit_assessment', 'purpose': 'Immutable analyst report and question-set revision.',
+        'classification': 'authoritative_record', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Permanent with the assessment decision.',
+    },
+    'credit_assessments.AnalysisQuestion': {
+        'domain': 'credit_assessment', 'purpose': 'Immutable analyst question in a frozen package.',
+        'classification': 'authoritative_record', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Permanent with the package and responses.',
+    },
+    'credit_assessments.QuestionResponse': {
+        'domain': 'credit_assessment', 'purpose': 'Append-only BRO response revision to an analyst question.',
+        'classification': 'immutable_event', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Permanent with the lending decision.',
+    },
+    'credit_assessments.QuestionValidationEvent': {
+        'domain': 'credit_assessment', 'purpose': 'Append-only analyst validation of an exact BRO response.',
+        'classification': 'immutable_event', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Permanent with the lending decision.',
+    },
+    'credit_assessments.AssessmentDecision': {
+        'domain': 'credit_assessment', 'purpose': 'Immutable manager action bound to exact evidence and revision.',
+        'classification': 'immutable_event', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Permanent lending-decision evidence.',
+    },
+    'credit_assessments.AssessmentEvent': {
+        'domain': 'credit_assessment', 'purpose': 'Append-only customer-data-minimized assessment audit history.',
+        'classification': 'immutable_event', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Permanent with the assessment.',
+    },
+    'credit_assessments.EngineJob': {
+        'domain': 'credit_assessment', 'purpose': 'Dormant versioned boundary for a future isolated analysis engine.',
+        'classification': 'integration_job', 'source_of_truth': False, 'lifecycle': 'dormant',
+        'retention': 'Retain with the assessment when the engine is enabled; no jobs are created in this release.',
+    },
     'requisitions.OrderSequenceState': {
         'domain': 'requisitions',
         'purpose': 'Group-scoped source of truth for the next official requisition order number.',

@@ -39,6 +39,7 @@
     identityContextRequestNumber: 0,
     identityContextTimer: null,
     pendingCorrection: null,
+    creditAssessmentLoadedFor: '',
     workflowMode: null,
     taskInbox: { items: [], unread_count: 0, total: 0 },
     recognition: { view: 'personal', role: '', product: '', page: 1, loading: false, sequence: 0 },
@@ -802,6 +803,23 @@
       });
       list.appendChild(button);
     });
+  }
+
+  async function creditAssessmentUpload(formData) {
+    const requestId = newRequestId();
+    formData.set('group_id', state.groupId);
+    formData.set('token', state.token);
+    formData.set('init_data', state.initData);
+    formData.set('case_id', state.detail?.summary?.case_id || '');
+    formData.set('request_id', requestId);
+    const response = await fetch('/api/tat-tracker/credit-assessment/action/', {
+      method: 'POST',
+      headers: { 'X-Request-ID': requestId, 'Idempotency-Key': requestId, 'X-MiniApp-Message-Contract': '2' },
+      body: formData,
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.ok) throw new Error(result.message || result.error || 'Credit assessment action failed.');
+    return result;
   }
 
   function recognitionContext(item, primaryLabel = '') {
@@ -1699,6 +1717,181 @@
     }
   }
 
+  function assessmentSummary(data) {
+    const statement = data.statement || null;
+    const docs = data.documents || [];
+    return `
+      <div class="credit-assessment-summary">
+        <div><small>Current step</small><strong>${escapeHtml(data.state_label || '')}</strong></div>
+        <div><small>Assigned to</small><strong>${escapeHtml(data.required_role || 'Complete')}</strong></div>
+        ${statement ? `<div><small>M-PESA period</small><strong>${escapeHtml(formatReportDate(statement.period_start))} – ${escapeHtml(formatReportDate(statement.period_end))}</strong></div>
+          <div><small>Coverage</small><strong>${statement.full_year ? 'Full 12 months' : 'Shorter than 12 months'}</strong></div>` : ''}
+      </div>
+      ${docs.length ? `<div class="credit-assessment-docs">${docs.map((item) => `<button type="button" class="ghost-btn" data-assessment-document="${escapeHtml(item.id)}" data-assessment-source="${escapeHtml(item.source || 'document')}" title="Download ${escapeHtml(item.filename)}">${escapeHtml(item.label)} v${escapeHtml(item.version)}</button>`).join('')}</div>` : ''}`;
+  }
+
+  function assessmentDecisionForm(data, gate) {
+    const isFinal = gate === 'final';
+    const options = isFinal
+      ? '<option value="approved">Approve</option><option value="returned">Return to BRO</option><option value="declined">Decline</option>'
+      : (data.statement?.full_year
+        ? '<option value="approved">Authorize analysis</option><option value="declined">Decline</option>'
+        : '<option value="returned">Return for full statement</option><option value="declined">Decline</option>');
+    return `<form class="credit-assessment-form" data-assessment-form="${isFinal ? 'decide' : 'authorize'}">
+      <label>Decision<select name="decision" required>
+        <option value="">Select decision</option>${options}
+      </select></label>
+      <label>Comment<textarea name="comment" ${isFinal ? 'required' : ''} placeholder="Record the reason and any instructions"></textarea></label>
+      <input type="hidden" name="revision" value="${escapeHtml(data.revision)}">
+      <div class="form-actions"><button class="primary compact-btn" type="submit">Save decision</button></div>
+    </form>`;
+  }
+
+  function renderCreditAssessment(data, canStart) {
+    const panel = $('creditAssessmentPanel');
+    const content = $('creditAssessmentContent');
+    const chip = $('creditAssessmentState');
+    if (!panel || !content || !chip) return;
+    panel.hidden = false;
+    chip.textContent = data?.state_label || 'Not started';
+    if (!data) {
+      content.innerHTML = canStart
+        ? '<p class="credit-assessment-note">Keep the pre-appraisal, statement, analyst questions, responses, and decision together with this TAT case.</p><button type="button" class="primary compact-btn" data-assessment-action="start">Start credit assessment</button>'
+        : '<p class="credit-assessment-note">The credit assessment has not been started by the assigned BRO.</p>';
+    } else {
+      let action = '';
+      const candidates = data.statement_candidates || [];
+      if (['draft', 'returned_pre_analysis'].includes(data.state)) {
+        const candidateMarkup = candidates.length ? `<div class="statement-candidates">${candidates.map((item) => `
+          <div class="statement-candidate"><div><strong>${escapeHtml(item.filename)}</strong><small>${escapeHtml(formatReportDate(item.period_start))} – ${escapeHtml(formatReportDate(item.period_end))} · ${item.full_year ? '12 months' : 'Short period'}</small></div><button type="button" class="secondary compact-btn" data-receipt-id="${escapeHtml(item.id)}">Use statement</button></div>`).join('')}</div>` : '<p class="credit-assessment-note">No matching forwarded statement is available yet. Forward the original M-PESA email to the dedicated inbox, then refresh this case.</p>';
+        action = `${candidateMarkup}${data.statement ? `<form class="credit-assessment-form" data-assessment-upload="submit_pre_appraisal" enctype="multipart/form-data">
+          <label>Pre-appraisal form (PDF)<input type="file" name="pre_appraisal" accept="application/pdf" required></label>
+          <label>Signed LAF reference<input name="signed_laf_reference" required placeholder="Application or document reference"></label>
+          <label>Signed LAF SHA-256<input name="signed_laf_hash" minlength="64" maxlength="64" required placeholder="64-character document hash"></label>
+          <label>Statement passcode<input name="passcode" type="password" autocomplete="off" required></label>
+          <input type="hidden" name="revision" value="${escapeHtml(data.revision)}">
+          <div class="form-actions"><button type="submit" class="primary compact-btn">Send for Branch Manager review</button></div>
+        </form>` : ''}`;
+      } else if (data.state === 'pending_authorization' && data.can_act) {
+        action = assessmentDecisionForm(data, 'authorization');
+      } else if (data.state === 'analysis' && data.can_act) {
+        action = `<form class="credit-assessment-form" data-assessment-upload="submit_analysis" enctype="multipart/form-data">
+          <label>Consolidated credit analysis (PDF)<input type="file" name="analysis_report" accept="application/pdf" required></label>
+          <label>SPIN analysis (optional)<input type="file" name="spin_report" accept="application/pdf"></label>
+          <label>Metropol CRB report (optional)<input type="file" name="crb_report" accept="application/pdf"></label>
+          <label>Questions for BRO<textarea name="question_lines" placeholder="One question per line. Leave blank if there are no questions."></textarea></label>
+          <input type="hidden" name="revision" value="${escapeHtml(data.revision)}">
+          <div class="form-actions">${data.has_passcode ? '<button type="button" class="secondary compact-btn" data-assessment-action="reveal_passcode">Show passcode</button>' : ''}<button type="submit" class="primary compact-btn">Send to BRO</button></div>
+        </form>`;
+      } else if (['bro_review', 'returned_to_bro'].includes(data.state) && data.can_act) {
+        action = `<form class="credit-assessment-form" data-assessment-form="bro_review"><div class="assessment-questions">${data.questions.length ? data.questions.map((item, index) => `<label class="assessment-question"><strong>${index + 1}. ${escapeHtml(item.text)}</strong><textarea name="response_${escapeHtml(item.id)}" required>${escapeHtml(item.response || '')}</textarea>${item.validation_comment ? `<small>${escapeHtml(item.validation_comment)}</small>` : ''}</label>`).join('') : '<p class="credit-assessment-note">The analyst raised no questions. Confirm that you reviewed the report.</p>'}</div><input type="hidden" name="revision" value="${escapeHtml(data.revision)}"><div class="form-actions"><button type="submit" class="primary compact-btn">${data.questions.length ? 'Submit responses' : 'Confirm review'}</button></div></form>`;
+      } else if (data.state === 'analyst_validation' && data.can_act) {
+        action = `<form class="credit-assessment-form" data-assessment-form="validate_responses"><div class="assessment-questions">${data.questions.map((item, index) => `<div class="assessment-question"><strong>${index + 1}. ${escapeHtml(item.text)}</strong><p class="credit-assessment-note">${escapeHtml(item.response)}</p><label>Review<select name="outcome_${escapeHtml(item.id)}" required><option value="">Select</option><option value="accepted">Accept</option><option value="returned">Return</option></select></label><label>Correction note<textarea name="comment_${escapeHtml(item.id)}"></textarea></label></div>`).join('')}</div><input type="hidden" name="revision" value="${escapeHtml(data.revision)}"><div class="form-actions"><button type="submit" class="primary compact-btn">Complete validation</button></div></form>`;
+      } else if (data.state === 'pending_decision' && data.can_act) {
+        action = assessmentDecisionForm(data, 'final');
+      } else if (['approved', 'declined'].includes(data.state)) {
+        action = `<p class="credit-assessment-note">This assessment is complete. The evidence and decision remain linked to this case.</p>`;
+      } else {
+        action = `<p class="credit-assessment-note">This step is assigned to ${escapeHtml(data.required_role || 'another role')}.</p>`;
+      }
+      content.innerHTML = `<div class="credit-assessment-content">${assessmentSummary(data)}${action}</div>`;
+    }
+
+    content.querySelector('[data-assessment-action="start"]')?.addEventListener('click', () => runCreditAssessmentAction('start', {}));
+    content.querySelectorAll('[data-receipt-id]').forEach((button) => button.addEventListener('click', () => runCreditAssessmentAction('confirm_statement', { receipt_id: button.dataset.receiptId, revision: data.revision })));
+    content.querySelector('[data-assessment-action="reveal_passcode"]')?.addEventListener('click', async () => {
+      const result = await runCreditAssessmentAction('reveal_passcode', { revision: data.revision }, false);
+      if (result?.passcode) window.alert(`Statement passcode: ${result.passcode}\n\nUse it only for this analysis. It is not copied to the case screen.`);
+    });
+    content.querySelectorAll('[data-assessment-upload]').forEach((form) => form.addEventListener('submit', submitCreditAssessmentUpload));
+    content.querySelectorAll('[data-assessment-form]').forEach((form) => form.addEventListener('submit', submitCreditAssessmentForm));
+    content.querySelectorAll('[data-assessment-document]').forEach((button) => button.addEventListener('click', () => downloadAssessmentDocument(button)));
+  }
+
+  async function downloadAssessmentDocument(button) {
+    const requestId = newRequestId();
+    button.disabled = true;
+    try {
+      const response = await fetch('/api/tat-tracker/credit-assessment/document/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Request-ID': requestId },
+        body: JSON.stringify(basePayload({ case_id: state.detail.summary.case_id, document_id: button.dataset.assessmentDocument, source: button.dataset.assessmentSource })),
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.message || 'The evidence file could not be opened.');
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      const disposition = response.headers.get('Content-Disposition') || '';
+      const nameMatch = disposition.match(/filename\*?=(?:UTF-8''|\")?([^\";]+)/i);
+      anchor.download = nameMatch ? decodeURIComponent(nameMatch[1].replace(/^\"|\"$/g, '')) : 'credit-assessment.pdf';
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) { setStatus(error.message, 'error'); }
+    finally { button.disabled = false; }
+  }
+
+  async function loadCreditAssessment(caseId) {
+    try {
+      const result = await api('/api/tat-tracker/credit-assessment/detail/', { case_id: caseId });
+      if (state.detail?.summary?.case_id !== caseId) return;
+      renderCreditAssessment(result.data, state.detail.can_start_credit_assessment);
+    } catch (error) {
+      setStatus(error.message, 'error');
+    }
+  }
+
+  async function runCreditAssessmentAction(action, values, rerender = true) {
+    try {
+      const result = await api('/api/tat-tracker/credit-assessment/action/', Object.assign({ case_id: state.detail.summary.case_id, action, request_id: newRequestId() }, values || {}));
+      if (rerender) renderCreditAssessment(result.data, false);
+      setStatus('Credit assessment updated.', 'ok');
+      return result;
+    } catch (error) { setStatus(error.message, 'error'); return null; }
+  }
+
+  async function submitCreditAssessmentUpload(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector('[type="submit"]');
+    button.disabled = true;
+    try {
+      const data = new FormData(form);
+      data.set('action', form.dataset.assessmentUpload);
+      if (form.dataset.assessmentUpload === 'submit_analysis') {
+        data.set('questions', JSON.stringify(String(data.get('question_lines') || '').split(/\r?\n/).map((value) => value.trim()).filter(Boolean)));
+        data.delete('question_lines');
+      }
+      const result = await creditAssessmentUpload(data);
+      renderCreditAssessment(result.data, false);
+      setStatus('Credit assessment updated.', 'ok');
+    } catch (error) { setStatus(error.message, 'error'); }
+    finally { button.disabled = false; }
+  }
+
+  async function submitCreditAssessmentForm(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const action = form.dataset.assessmentForm;
+    const values = { revision: data.get('revision') };
+    if (['authorize', 'decide'].includes(action)) {
+      values.decision = data.get('decision'); values.comment = data.get('comment');
+    } else if (action === 'bro_review') {
+      values.responses = {};
+      data.forEach((value, key) => { if (key.startsWith('response_')) values.responses[key.slice(9)] = value; });
+    } else if (action === 'validate_responses') {
+      values.outcomes = {};
+      data.forEach((value, key) => {
+        if (key.startsWith('outcome_')) values.outcomes[key.slice(8)] = { outcome: value, comment: data.get(`comment_${key.slice(8)}`) || '' };
+      });
+    }
+    await runCreditAssessmentAction(action, values);
+  }
+
   function renderDetail(detail) {
     const summary = detail.summary;
     const escalation = detail.escalation || null;
@@ -1754,6 +1947,12 @@
         </div>
       </div>
       ${escalation ? `<div class="tat-escalation level-${escapeHtml(escalation.escalation_level)}"><strong>SLA escalation: ${escapeHtml(escalation.routing_role)}</strong><span>${escapeHtml(formatMinutes(escalation.overdue_minutes))} overdue at ${escapeHtml(escalation.threshold_percent)}% threshold</span></div>` : ''}`;
+
+    renderCreditAssessment(detail.credit_assessment, detail.can_start_credit_assessment);
+    if (state.creditAssessmentLoadedFor !== summary.case_id) {
+      state.creditAssessmentLoadedFor = summary.case_id;
+      loadCreditAssessment(summary.case_id);
+    }
 
     $('remarksInput').value = detail.remarks || '';
     const fields = $('stageFields');

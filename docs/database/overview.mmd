@@ -3,6 +3,7 @@ flowchart LR
   audit["Audit"]
   catalog["Catalog"]
   complaints["Complaints"]
+  credit_assessment["Credit Assessment"]
   integration["Integration"]
   jawabu["Jawabu"]
   order_approval["Order Approval"]
@@ -17,6 +18,7 @@ flowchart LR
   complaints --> catalog
   complaints --> jawabu
   complaints --> platform
+  credit_assessment --> tat
   integration --> platform
   jawabu --> catalog
   jawabu --> order_approval
@@ -27,6 +29,7 @@ flowchart LR
   origination --> jawabu
   payments --> jawabu
   payments --> platform
+  platform --> complaints
   platform --> jawabu
   requisitions --> platform
   spin --> catalog

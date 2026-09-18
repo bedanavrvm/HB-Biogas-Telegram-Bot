@@ -22,7 +22,7 @@ import io
 from datetime import datetime, timezone as dt_timezone
 from django.utils import timezone
 from django.http import HttpResponse, JsonResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
@@ -1895,9 +1895,21 @@ def fca_review_commit(request):
     return JsonResponse(result, status=200 if result.get('success') else 400)
 
 
+def _spin_cutover_response():
+    return JsonResponse({
+        'success': False,
+        'ok': False,
+        'code': 'spin_workflow_retired',
+        'message': 'SPIN requests now run inside the TAT case credit-assessment step. Existing SPIN records remain available to administrators for audit.',
+        'tat_url': '/tat-tracker/',
+    }, status=410)
+
+
 @require_http_methods(["GET"])
 def spin_form(request):
     """Render the SPIN/CRB request Mini App form."""
+    if getattr(settings, 'SPIN_HARD_CUTOVER', False):
+        return redirect('tat_tracker_app')
     from django.utils.safestring import mark_safe
     from core.services.group_config import GroupRegistry
     from core.services.spin_credit import decode_spin_start_param, is_spin_workflow, spin_branch_choices, spin_default_branch
@@ -1961,6 +1973,8 @@ def spin_form(request):
 @miniapp_write_response
 def spin_form_submit(request):
     """Accept a SPIN/CRB Mini App form submission."""
+    if getattr(settings, 'SPIN_HARD_CUTOVER', False):
+        return _spin_cutover_response()
     uploaded_files = []
     content_type = str(request.META.get('CONTENT_TYPE', ''))
     if content_type.startswith('application/json'):
@@ -2077,6 +2091,8 @@ def _spin_webapp_context_get(request, *, allow_form_token: bool = True):
 @miniapp_write_response
 def spin_form_requests(request):
     """List SPIN/CRB requests for dashboard."""
+    if getattr(settings, 'SPIN_HARD_CUTOVER', False):
+        return _spin_cutover_response()
     group_id, group_config, auth_payload, error_response = _spin_webapp_context_get(
         request,
         allow_form_token=False,
@@ -2188,6 +2204,8 @@ def spin_form_requests(request):
 @miniapp_write_response
 def spin_form_settings(request):
     """Return settings for the verified SPIN staff member only."""
+    if getattr(settings, 'SPIN_HARD_CUTOVER', False):
+        return _spin_cutover_response()
     try:
         payload = json.loads(request.body.decode('utf-8') or '{}')
     except json.JSONDecodeError:
@@ -2224,6 +2242,8 @@ def spin_form_settings(request):
 @miniapp_write_response
 def spin_form_settings_personal(request):
     """Persist only the verified user's SPIN preferences."""
+    if getattr(settings, 'SPIN_HARD_CUTOVER', False):
+        return _spin_cutover_response()
     try:
         payload = json.loads(request.body.decode('utf-8') or '{}')
     except json.JSONDecodeError:
@@ -2251,6 +2271,8 @@ def spin_form_settings_personal(request):
 @miniapp_write_response
 def spin_form_complete(request):
     """Accept analyst completing a SPIN/CRB request and uploading reports."""
+    if getattr(settings, 'SPIN_HARD_CUTOVER', False):
+        return _spin_cutover_response()
     payload = request.POST.dict()
     key_error = _bind_miniapp_write_request(request, payload)
     if key_error:
@@ -2385,6 +2407,8 @@ def spin_form_complete(request):
 @miniapp_write_response
 def spin_form_review_update(request):
     """Apply corrections for a SPIN/CRB request that needs import review."""
+    if getattr(settings, 'SPIN_HARD_CUTOVER', False):
+        return _spin_cutover_response()
     try:
         payload = json.loads(request.body.decode('utf-8') or '{}')
     except json.JSONDecodeError:
@@ -2452,6 +2476,8 @@ def spin_form_review_update(request):
 @miniapp_write_response
 def spin_batch_review_resolve(request):
     """Resolve or reject an uncertain SPIN message retained from a WhatsApp batch."""
+    if getattr(settings, 'SPIN_HARD_CUTOVER', False):
+        return _spin_cutover_response()
     try:
         payload = json.loads(request.body.decode('utf-8') or '{}')
     except json.JSONDecodeError:
@@ -3651,6 +3677,14 @@ def _process_spin_form_command(
     sender: str,
     telegram_message_id: str,
 ) -> dict:
+    if getattr(settings, 'SPIN_HARD_CUTOVER', False):
+        from core.services.tat_tracker import build_tat_tracker_mini_app_url, build_tat_tracker_url
+        launch_url = build_tat_tracker_mini_app_url(group_config.group_id) or build_tat_tracker_url(group_config.group_id)
+        return {
+            'status': 'command',
+            'reply_text': 'Credit assessment now runs inside the customer TAT case. Open TAT Tracker and use the Credit assessment section.',
+            'reply_markup': {'inline_keyboard': [[{'text': 'Open TAT Tracker', 'url': launch_url}]]} if launch_url else None,
+        }
     from core.services.spin_credit import build_spin_form_url, build_spin_mini_app_url
 
     form_url = build_spin_form_url(group_config.group_id)
@@ -3686,6 +3720,11 @@ def _process_spin_batch_command(
     sender: str,
     telegram_message_id: str,
 ) -> dict:
+    if getattr(settings, 'SPIN_HARD_CUTOVER', False):
+        return {
+            'status': 'command',
+            'reply_text': 'Legacy SPIN WhatsApp imports are closed. Start or open the customer TAT case and use Credit assessment.',
+        }
     payload = _batch_command_payload(command_content)
     if message_data.get('document') and not _looks_like_whatsapp_export_payload(payload):
         payload, document_error = _download_telegram_text_document(message_data)

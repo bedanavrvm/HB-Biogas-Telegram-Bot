@@ -1,0 +1,49 @@
+erDiagram
+  credit_assessment_analysis_package {
+    string id
+  }
+  credit_assessment_audit_event {
+    string id
+  }
+  credit_assessment_case_root {
+    string id
+  }
+  credit_assessment_document_evidence {
+    string id
+  }
+  credit_assessment_engine_job {
+    string id
+  }
+  credit_assessment_mailbox_cursor {
+    string id
+  }
+  credit_assessment_manager_decision {
+    string id
+  }
+  credit_assessment_question_item {
+    string id
+  }
+  credit_assessment_question_response {
+    string id
+  }
+  credit_assessment_response_validation {
+    string id
+  }
+  credit_assessment_statement_receipt {
+    string id
+  }
+  credit_assessment_statement_secret {
+    string id
+  }
+  credit_assessment_document_evidence ||--o{ credit_assessment_analysis_package : contains
+  credit_assessment_case_root ||--o{ credit_assessment_analysis_package : contains
+  credit_assessment_case_root ||--o{ credit_assessment_audit_event : contains
+  credit_assessment_statement_receipt ||--o{ credit_assessment_case_root : contains
+  credit_assessment_case_root ||--o{ credit_assessment_document_evidence : contains
+  credit_assessment_case_root ||--o{ credit_assessment_engine_job : contains
+  credit_assessment_analysis_package ||--o{ credit_assessment_manager_decision : contains
+  credit_assessment_case_root ||--o{ credit_assessment_manager_decision : contains
+  credit_assessment_analysis_package ||--o{ credit_assessment_question_item : contains
+  credit_assessment_question_item ||--o{ credit_assessment_question_response : contains
+  credit_assessment_question_response ||--o{ credit_assessment_response_validation : contains
+  credit_assessment_case_root ||--o{ credit_assessment_statement_secret : contains

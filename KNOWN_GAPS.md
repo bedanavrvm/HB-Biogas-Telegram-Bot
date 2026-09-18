@@ -1,5 +1,15 @@
 # Known Gaps and Verified Workarounds
 
+## TAT credit assessment first release - 18-September-2026
+
+SPIN and Metropol reports are still produced manually outside this platform;
+the platform governs their evidence, questions, responses, and decisions after
+upload. The future engine job boundary is deliberately dormant. Gmail polling
+uses scheduled command execution rather than push notifications. Enable
+`SPIN_HARD_CUTOVER` only after the new migration, Gmail delegation, existing
+restricted media Drive folder, staff roles, and live-device smoke test pass.
+
+
 ## JBL Visit document capture - 14-September-2026
 
 Client ID currently uses existing protected Portal media-view scope, not a new

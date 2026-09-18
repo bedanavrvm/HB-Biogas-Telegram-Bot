@@ -28,6 +28,7 @@ coverage==7.4.4
 
 # Utilities
 requests==2.33.0
+cryptography==46.0.3  # Encrypt short-lived statement passcodes at rest.
 africastalking==2.0.3
 openpyxl==3.1.5
 Pillow==12.3.0

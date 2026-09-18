@@ -12,7 +12,7 @@ class DatabaseCatalogueTests(SimpleTestCase):
         entries = database_catalog(include_usage=False)
         models = [
             model
-            for app_label in ('core', 'requisitions', 'payments')
+            for app_label in ('core', 'requisitions', 'payments', 'credit_assessments')
             for model in apps.get_app_config(app_label).get_models()
         ]
 
