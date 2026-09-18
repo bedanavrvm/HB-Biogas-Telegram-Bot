@@ -594,7 +594,7 @@ def tat_tracker_tasks(request):
 @miniapp_write_response
 def tat_tracker_recognition(request):
     payload = _tat_json_body(request)
-    _group_id, group_config, _user_payload, user, error = _tat_context(payload)
+    group_id, group_config, _user_payload, user, error = _tat_context(payload)
     if error:
         return error
     capability_error = _tat_capability_error(user, 'tat.recognition.view', group_config)
@@ -606,6 +606,11 @@ def tat_tracker_recognition(request):
         user.get('_canonical_user'),
         period=str(payload.get('period') or ''),
         include_people='tat.recognition.people.view' in capabilities,
+        group_id=group_id,
+        role=str(payload.get('role') or ''),
+        product=str(payload.get('product') or ''),
+        view=str(payload.get('view') or 'personal'),
+        page=payload.get('page') or 1,
     )})
 
 

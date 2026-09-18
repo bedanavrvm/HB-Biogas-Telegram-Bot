@@ -954,7 +954,10 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Monthly recognition', template)
         self.assertIn('Your result this month', source)
         self.assertIn('No counted stages for this month', source)
-        self.assertIn("$('tatRecognitionPeriod').addEventListener('change', () => loadTatRecognition().catch(presentTatError))", source)
+        self.assertIn("$('tatRecognitionPeriod').addEventListener('change', () => {", source)
+        self.assertIn("state.recognition.page = 1;", source)
+        self.assertIn("document.querySelectorAll('[data-recognition-view]')", source)
+        self.assertIn("page_size = 5", Path('core/services/workflow_recognition.py').read_text(encoding='utf-8'))
         self.assertIn('role="progressbar" aria-label="Ranking eligibility"', source)
         self.assertIn('Calculation and data checks', template)
 

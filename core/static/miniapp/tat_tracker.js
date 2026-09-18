@@ -41,6 +41,7 @@
     pendingCorrection: null,
     workflowMode: null,
     taskInbox: { items: [], unread_count: 0, total: 0 },
+    recognition: { view: 'personal', role: '', product: '', page: 1, loading: false, sequence: 0 },
     pendingStageUpdate: null,
     directTask: null,
     filterSheetOpen: false,
@@ -803,41 +804,52 @@
     });
   }
 
-  function recognitionContext(item) {
-    return [item.branch, item.product].filter(Boolean).map(value => `<span title="${escapeHtml(value)}">${escapeHtml(value)}</span>`).join('');
+  function recognitionContext(item, primaryLabel = '') {
+    const branch = Number(item.branch_count || 0) > 1 ? `${item.branch_count} branches` : item.branch;
+    return [branch, item.product]
+      .filter(value => value && String(value).trim().toLowerCase() !== String(primaryLabel).trim().toLowerCase())
+      .map(value => `<span title="${escapeHtml(value)}">${escapeHtml(value)}</span>`).join('');
   }
 
   function recognitionRank(item) {
     if (!item.ranked) return '<span class="recognition-rank unranked" aria-label="Not ranked yet"><b aria-hidden="true">—</b><small>Not ranked</small></span>';
+    if (!item.rank) return '<span class="recognition-rank unranked" aria-label="Eligible; no peer ranking"><b aria-hidden="true">✓</b><small>Eligible</small></span>';
     const rank = Number(item.rank || 0);
     const podium = rank >= 1 && rank <= 3 ? ` podium-${rank}` : '';
     return `<span class="recognition-rank${podium}" aria-label="Rank ${escapeHtml(rank)}"><b>#${escapeHtml(rank)}</b><small>Rank</small></span>`;
   }
 
-  function recognitionRow(item, named = false) {
-    const label = named ? (item.label || 'Unnamed staff member') : (item.role || item.label || 'Unassigned role');
-    return `<article class="recognition-row${item.ranked ? '' : ' unranked'}">
+  function recognitionRow(item) {
+    const label = item.label || item.branch || 'Unnamed result';
+    return `<article class="recognition-row${item.ranked ? '' : ' unranked'}${item.is_current_user ? ' current-user' : ''}">
       ${recognitionRank(item)}
-      <div class="recognition-row-main"><strong title="${escapeHtml(label)}">${escapeHtml(label)}</strong><div class="recognition-context">${recognitionContext(item)}</div><div class="recognition-row-metrics"><span><b>${escapeHtml(item.on_time_rate || 0)}%</b> On time</span><span><b>${escapeHtml(item.completed || 0)}</b> Stages</span></div></div>
+      <div class="recognition-row-main"><strong title="${escapeHtml(label)}">${escapeHtml(label)}</strong><div class="recognition-context">${recognitionContext(item, label)}</div><div class="recognition-row-metrics"><span><b>${escapeHtml(item.on_time_rate || 0)}%</b> On time</span><span><b>${escapeHtml(item.completed || 0)}</b> Stages</span></div></div>
       <span class="recognition-score" aria-label="Performance score ${escapeHtml(item.score || 0)}"><b>${escapeHtml(item.score || 0)}</b><small>Score</small></span>
     </article>`;
   }
 
-  function personalRecognition(rows, minimumSample) {
-    return rows.map(item => {
-      const completed = Number(item.completed || 0);
-      const counted = Math.min(completed, minimumSample);
-      const remaining = Math.max(0, minimumSample - completed);
-      const guidance = item.ranked
-        ? 'Included in this month’s ranking'
-        : `Complete ${remaining} more counted stage${remaining === 1 ? '' : 's'} to join this month’s ranking`;
-      return `<article class="recognition-result-card">
-        <header><div><strong>${escapeHtml(item.role || 'Assigned role')}</strong><div class="recognition-context">${recognitionContext(item)}</div></div><span class="recognition-result-rank">${item.ranked ? `#${escapeHtml(item.rank)}` : 'Not ranked yet'}</span></header>
-        <div class="recognition-result-metrics"><span><small>On time</small><b>${escapeHtml(item.on_time_rate || 0)}%</b></span><span><small>Completed stages</small><b>${escapeHtml(completed)}</b></span><span><small>Performance score</small><b>${escapeHtml(item.score || 0)}</b></span></div>
-        <div class="recognition-progress-label"><span>${escapeHtml(counted)} of ${escapeHtml(minimumSample)} counted stages</span><strong>${escapeHtml(guidance)}</strong></div>
-        <div class="recognition-progress" role="progressbar" aria-label="Ranking eligibility" aria-valuemin="0" aria-valuemax="${escapeHtml(minimumSample)}" aria-valuenow="${escapeHtml(counted)}"><span style="width:${minimumSample ? Math.round(counted * 100 / minimumSample) : 0}%"></span></div>
-      </article>`;
-    }).join('');
+  function personalRecognition(item, minimumSample, selected) {
+    const completed = Number(item.completed || 0);
+    const counted = Math.min(completed, minimumSample);
+    const remaining = Math.max(0, minimumSample - completed);
+    const rankText = item.rank ? `#${escapeHtml(item.rank)}` : (item.ranked ? 'No peer ranking' : 'Not ranked yet');
+    const guidance = item.ranked
+      ? (item.rank ? 'Included in this month’s ranking' : 'Eligible; another eligible result is needed for a ranking')
+      : `Complete ${remaining} more counted stage${remaining === 1 ? '' : 's'} to join this month’s ranking`;
+    return `<article class="recognition-result-card">
+      <header><div><strong>${escapeHtml(selected.role_label || item.role || 'Assigned role')}</strong><div class="recognition-context"><span>${escapeHtml(selected.product_label || item.product || '')}</span></div></div><span class="recognition-result-rank">${rankText}</span></header>
+      <div class="recognition-result-metrics"><span><small>On time</small><b>${escapeHtml(item.on_time_rate || 0)}%</b></span><span><small>Completed</small><b>${escapeHtml(completed)}</b></span><span><small>Score</small><b>${escapeHtml(item.score || 0)}</b></span></div>
+      <div class="recognition-progress-label"><span>${escapeHtml(counted)} of ${escapeHtml(minimumSample)} counted stages</span><strong>${escapeHtml(guidance)}</strong></div>
+      <div class="recognition-progress" role="progressbar" aria-label="Ranking eligibility" aria-valuemin="0" aria-valuemax="${escapeHtml(minimumSample)}" aria-valuenow="${escapeHtml(counted)}"><span style="width:${minimumSample ? Math.round(counted * 100 / minimumSample) : 0}%"></span></div>
+    </article>`;
+  }
+
+  function recognitionRoleSummary(summary, selected) {
+    if (!Number(summary?.completed || 0)) return '<div class="recognition-empty"><strong>No counted stages for this month.</strong><span>Your result will appear after you complete a stage.</span></div>';
+    return `<article class="recognition-result-card role-summary">
+      <header><div><strong>${escapeHtml(selected.role_label || 'Role summary')}</strong><div class="recognition-context"><span>${escapeHtml(selected.product_label || '')}</span></div></div><span class="recognition-result-rank">Role summary</span></header>
+      <div class="recognition-result-metrics"><span><small>On time</small><b>${escapeHtml(summary.on_time_rate || 0)}%</b></span><span><small>Completed</small><b>${escapeHtml(summary.completed || 0)}</b></span><span><small>Score</small><b>${escapeHtml(summary.score || 0)}</b></span></div>
+    </article>`;
   }
 
   function recognitionMethodology(methodology) {
@@ -848,24 +860,71 @@
   function renderTatRecognition(data) {
     const payload = data || {};
     const minimumSample = Math.max(1, Number(payload.minimum_ranked_sample || 20));
+    const selected = payload.selected || {};
+    state.recognition.view = payload.view || state.recognition.view;
+    state.recognition.role = selected.role || '';
+    state.recognition.product = selected.product || '';
     $('tatRecognitionUpdated').textContent = payload.calculated_at ? `Updated at ${formatTatDateTime(payload.calculated_at)}` : '';
-    const personalRows = payload.personal_rows || (payload.personal ? [payload.personal] : []);
-    $('tatPersonalRecognition').innerHTML = personalRows.length
-      ? `<div class="recognition-section-heading"><h3>Your result this month</h3></div>${personalRecognition(personalRows, minimumSample)}`
-      : '<div class="recognition-empty"><strong>Your result will appear after you complete a stage.</strong></div>';
+    const optionMarkup = (items, value) => (items || []).map(item => `<option value="${escapeHtml(item.key)}"${item.key === value ? ' selected' : ''}>${escapeHtml(item.label)}</option>`).join('');
+    $('tatRecognitionRole').innerHTML = optionMarkup(payload.role_options, state.recognition.role);
+    $('tatRecognitionProduct').innerHTML = optionMarkup(payload.product_options, state.recognition.product);
+    $('tatRecognitionRole').disabled = !(payload.role_options || []).length;
+    $('tatRecognitionProduct').disabled = !(payload.product_options || []).length;
+    const roleControl = $('tatRecognitionRole').closest('label');
+    const productControl = $('tatRecognitionProduct').closest('label');
+    roleControl.hidden = (payload.role_options || []).length <= 1;
+    productControl.hidden = (payload.product_options || []).length <= 1;
+    $('tatRecognitionContextControls').hidden = roleControl.hidden && productControl.hidden;
+    $('tatRecognitionContextControls').classList.toggle('single-control', roleControl.hidden !== productControl.hidden);
+    document.querySelectorAll('[data-recognition-view]').forEach(button => {
+      const active = button.dataset.recognitionView === state.recognition.view;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+    $('tatPersonalRecognition').hidden = state.recognition.view !== 'personal';
+    $('tatRecognitionStandings').hidden = state.recognition.view === 'personal';
+    if (state.recognition.view === 'personal') {
+      $('tatPersonalRecognition').innerHTML = payload.personal_result
+        ? `<div class="recognition-section-heading"><h3>Your result this month</h3></div>${personalRecognition(payload.personal_result, minimumSample, selected)}`
+        : `<div class="recognition-section-heading"><h3>Monthly role result</h3></div>${recognitionRoleSummary(payload.role_summary, selected)}`;
+    }
     $('tatRecognitionMinimum').textContent = `${minimumSample} counted stages required`;
-    $('tatTeamRecognition').innerHTML = (payload.team_rows || []).map(item => recognitionRow(item)).join('') || '<div class="recognition-empty"><strong>No counted stages for this month</strong></div>';
-    $('tatPeopleRecognitionSection').hidden = !payload.people_visible;
-    $('tatPeopleRecognition').innerHTML = (payload.people_rows || []).map(item => recognitionRow(item, true)).join('') || '<div class="recognition-empty"><strong>No individual results for this month</strong></div>';
+    const standings = payload.standings || {};
+    if (state.recognition.view !== 'personal') {
+      const people = state.recognition.view === 'people';
+      $('tatRecognitionStandingsTitle').textContent = people ? 'People standings' : 'Branch standings';
+      const contextLabel = [selected.role_label, selected.product_label].filter(Boolean).join(' Â· ');
+      const basis = people
+        ? (standings.has_competition ? 'Same role and product.' : 'A ranking appears when at least two people are eligible.')
+        : (standings.has_competition ? 'Cases grouped by originating branch.' : 'A ranking appears when at least two branches are eligible.');
+      $('tatRecognitionStandingsBasis').textContent = [contextLabel, basis].filter(Boolean).join(' â€” ');
+      $('tatRecognitionRows').innerHTML = (standings.rows || []).map(recognitionRow).join('') || `<div class="recognition-empty"><strong>${people ? 'No people have counted stages for this selection.' : 'No branches have counted stages for this selection.'}</strong></div>`;
+      const pinned = standings.current_user_row;
+      $('tatRecognitionPinned').hidden = !pinned;
+      $('tatRecognitionPinned').innerHTML = pinned ? `<span>Your position</span>${recognitionRow(pinned)}` : '';
+      const pages = Math.max(1, Number(standings.pages || 1));
+      const page = Math.max(1, Number(standings.page || 1));
+      state.recognition.page = page;
+      $('tatRecognitionPagination').hidden = pages <= 1;
+      $('tatRecognitionPage').textContent = `Page ${page} of ${pages}`;
+      $('tatRecognitionPrevious').disabled = page <= 1;
+      $('tatRecognitionNext').disabled = page >= pages;
+    }
     const technical = $('tatRecognitionTechnical');
     technical.hidden = !payload.technical_details_visible;
-    technical.open = false;
     $('tatRecognitionTechnicalContent').innerHTML = payload.technical_details_visible ? recognitionMethodology(payload.methodology) : '';
   }
 
   async function loadTatRecognition() {
-    const period = $('tatRecognitionPeriod').value;
-    const result = await api('/api/tat-tracker/recognition/', { period });
+    const sequence = ++state.recognition.sequence;
+    const result = await api('/api/tat-tracker/recognition/', {
+      period: $('tatRecognitionPeriod').value,
+      role: state.recognition.role,
+      product: state.recognition.product,
+      view: state.recognition.view,
+      page: state.recognition.page,
+    });
+    if (sequence !== state.recognition.sequence) return;
     renderTatRecognition(result.data || {});
   }
 
@@ -3396,7 +3455,35 @@
     show('recognition');
     loadTatRecognition().catch(presentTatError);
   });
-  $('tatRecognitionPeriod').addEventListener('change', () => loadTatRecognition().catch(presentTatError));
+  $('tatRecognitionPeriod').addEventListener('change', () => {
+    state.recognition.page = 1;
+    loadTatRecognition().catch(presentTatError);
+  });
+  $('tatRecognitionRole').addEventListener('change', event => {
+    state.recognition.role = event.target.value;
+    state.recognition.product = '';
+    state.recognition.page = 1;
+    loadTatRecognition().catch(presentTatError);
+  });
+  $('tatRecognitionProduct').addEventListener('change', event => {
+    state.recognition.product = event.target.value;
+    state.recognition.page = 1;
+    loadTatRecognition().catch(presentTatError);
+  });
+  document.querySelectorAll('[data-recognition-view]').forEach(button => button.addEventListener('click', () => {
+    state.recognition.view = button.dataset.recognitionView;
+    state.recognition.page = 1;
+    loadTatRecognition().catch(presentTatError);
+  }));
+  $('tatRecognitionPrevious').addEventListener('click', () => {
+    if (state.recognition.page <= 1) return;
+    state.recognition.page -= 1;
+    loadTatRecognition().catch(presentTatError);
+  });
+  $('tatRecognitionNext').addEventListener('click', () => {
+    state.recognition.page += 1;
+    loadTatRecognition().catch(presentTatError);
+  });
   $('privateTaskButton').addEventListener('click', () => {
     const section = $('privateTaskSection');
     const opening = section.hidden;

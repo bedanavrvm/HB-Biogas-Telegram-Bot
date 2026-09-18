@@ -128,12 +128,17 @@ class TatRecognitionPresentationTests(TestCase):
             username='tat-recognition-user', first_name='Mary', last_name='Wanjiku',
         )
 
-    def _sample(self, *, role='BRO', branch='Embu', product='Standard', sla_state='within_target'):
+    def _sample(
+        self, *, role='BRO', branch='Embu', product='Standard',
+        sla_state='within_target', person_user_id=None, person='Mary Wanjiku', case_suffix='',
+        person_roles='',
+    ):
         return {
-            'group_id': '-100tat', 'case_id': f'case-{role}-{branch}-{product}',
+            'group_id': '-100tat', 'case_id': f'case-{role}-{branch}-{product}{case_suffix}',
             'stage_key': 'bro_review', 'role': role, 'branch': branch,
             'product': product, 'product_key': product.lower(),
-            'person_user_id': str(self.user.pk), 'person': 'Mary Wanjiku',
+            'person_user_id': str(person_user_id or self.user.pk), 'person': person,
+            'person_roles': person_roles,
             'sla_state': sla_state, 'elapsed_minutes': 60, 'corrected': False,
         }
 
@@ -142,18 +147,28 @@ class TatRecognitionPresentationTests(TestCase):
     def test_ordinary_payload_is_structured_without_technical_methodology(self, stage_samples, _scope):
         stage_samples.return_value = [self._sample() for _ in range(20)]
 
-        payload = tat_recognition_payload(self.user, period='2026-09', include_people=False)
+        payload = tat_recognition_payload(
+            self.user, period='2026-09', include_people=False, view='personal',
+        )
 
-        row = payload['team_rows'][0]
+        row = payload['personal_result']
+        self.assertEqual(payload['contract_version'], 2)
+        self.assertEqual(payload['selected'], {
+            'role': 'BRO', 'role_label': 'BRO',
+            'product': 'standard', 'product_label': 'Standard',
+        })
         self.assertEqual((row['role'], row['branch'], row['product']), ('BRO', 'Embu', 'Standard'))
         self.assertTrue(row['ranked'])
-        self.assertEqual(row['rank'], 1)
+        self.assertIsNone(row['rank'])
+        self.assertEqual(row['label'], 'You')
         self.assertEqual(row['on_time_rate'], 100.0)
-        self.assertTrue(row['key'].startswith('cohort-'))
-        self.assertNotIn('-100tat', row['key'])
+        self.assertNotIn('key', row)
         self.assertFalse(payload['technical_details_visible'])
         self.assertIsNone(payload['methodology'])
-        self.assertEqual(payload['people_rows'], [])
+        self.assertEqual(payload['standings']['rows'], [])
+        self.assertEqual(payload['role_options'], [
+            {'key': 'BRO', 'label': 'BRO'},
+        ])
         self.assertNotIn('formula', payload)
 
     @patch('core.services.tat_reporting._metric_scope_q', return_value=Q())
@@ -165,15 +180,80 @@ class TatRecognitionPresentationTests(TestCase):
             + [self._sample(role='CA', branch='Nakuru', product='HOCC', sla_state='target_unavailable')]
         )
 
-        payload = tat_recognition_payload(self.user, period='2026-09', include_people=True)
+        payload = tat_recognition_payload(
+            self.user, period='2026-09', include_people=True,
+            role='CA', product='hocc', view='personal',
+        )
 
-        self.assertEqual(len(payload['personal_rows']), 2)
-        by_role = {row['role']: row for row in payload['personal_rows']}
-        self.assertTrue(by_role['BRO']['ranked'])
-        self.assertFalse(by_role['CA']['ranked'])
-        self.assertEqual(by_role['CA']['completed'], 19)
-        self.assertEqual(by_role['CA']['excluded_target_unavailable'], 1)
+        self.assertEqual({item['key'] for item in payload['role_options']}, {'BRO', 'CA'})
+        self.assertEqual(payload['selected']['role'], 'CA')
+        self.assertEqual(payload['selected']['product'], 'hocc')
+        self.assertFalse(payload['personal_result']['ranked'])
+        self.assertEqual(payload['personal_result']['completed'], 19)
+        self.assertNotIn('excluded_target_unavailable', payload['personal_result'])
         self.assertTrue(payload['technical_details_visible'])
         self.assertTrue(payload['people_visible'])
         self.assertIn('Wilson', payload['methodology']['score_method'])
         self.assertEqual(payload['methodology']['excluded_target_unavailable'], 1)
+
+    @patch('core.services.tat_reporting._metric_scope_q', return_value=Q())
+    @patch('core.services.tat_reporting._stage_samples')
+    def test_ordinary_people_are_anonymous_and_limited_to_five_per_page(self, stage_samples, _scope):
+        peers = []
+        for peer_number in range(1, 8):
+            peers.extend(self._sample(
+                person_user_id=1000 + peer_number, person=f'Private Person {peer_number}',
+                case_suffix=f'-peer-{peer_number}-{sample_number}',
+            ) for sample_number in range(20))
+        stage_samples.return_value = [
+            self._sample(case_suffix=f'-self-{sample_number}') for sample_number in range(20)
+        ] + peers
+
+        payload = tat_recognition_payload(
+            self.user, period='2026-09', include_people=False, view='people', page=2,
+        )
+
+        self.assertEqual(payload['standings']['page_size'], 5)
+        self.assertEqual(payload['standings']['page'], 2)
+        self.assertEqual(payload['standings']['pages'], 2)
+        self.assertEqual(payload['standings']['total'], 8)
+        self.assertLessEqual(len(payload['standings']['rows']), 5)
+        labels = [row['label'] for row in payload['standings']['rows']]
+        self.assertFalse(any(label.startswith('Private Person') for label in labels))
+        self.assertTrue(all(label == 'You' or label.startswith('Peer ') for label in labels))
+        if payload['standings']['current_user_row']:
+            self.assertEqual(payload['standings']['current_user_row']['label'], 'You')
+
+    @patch('core.services.tat_reporting._metric_scope_q', return_value=Q())
+    @patch('core.services.tat_reporting._stage_samples')
+    def test_singleton_role_is_eligible_without_number_one_ranking(self, stage_samples, _scope):
+        stage_samples.return_value = [
+            self._sample(case_suffix=f'-{sample_number}') for sample_number in range(20)
+        ]
+
+        payload = tat_recognition_payload(
+            self.user, period='2026-09', include_people=False, view='people',
+        )
+
+        self.assertFalse(payload['standings']['has_competition'])
+        self.assertEqual(payload['standings']['eligible_count'], 1)
+        self.assertIsNone(payload['standings']['rows'][0]['rank'])
+        self.assertTrue(payload['standings']['rows'][0]['ranked'])
+
+    @patch('core.services.tat_reporting._metric_scope_q', return_value=Q())
+    @patch('core.services.tat_reporting._stage_samples')
+    def test_unassigned_it_override_counts_for_process_but_not_personal_ranking(self, stage_samples, _scope):
+        stage_samples.return_value = [
+            self._sample(person_roles='IT', case_suffix=f'-{sample_number}')
+            for sample_number in range(20)
+        ]
+
+        payload = tat_recognition_payload(
+            self.user, period='2026-09', include_people=True,
+            role='BRO', product='standard', view='people',
+        )
+
+        self.assertIsNone(payload['personal_result'])
+        self.assertEqual(payload['role_summary']['completed'], 20)
+        self.assertEqual(payload['standings']['rows'], [])
+        self.assertEqual(payload['methodology']['attribution_fallback'], 20)

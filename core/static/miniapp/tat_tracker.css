@@ -1468,7 +1468,16 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
 .recognition-period { display: grid; gap: 2px; color: var(--tat-muted); font-size: 11px; font-weight: 700; }
 .recognition-period input[type="month"] { width: 132px; min-height: 36px; padding: 5px 7px; border: 1px solid var(--tat-line); border-radius: 8px; background: var(--tat-surface); color: var(--tat-text); font-size: 12px; }
 .recognition-updated { grid-column: 1 / -1; min-height: 15px; color: var(--tat-muted); font-size: 11px; }
+.recognition-context-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.recognition-context-controls.single-control { grid-template-columns: minmax(0, 1fr); }
+.recognition-context-controls[hidden], .recognition-context-controls label[hidden] { display: none; }
+.recognition-context-controls label { display: grid; min-width: 0; gap: 2px; color: var(--tat-muted); font-size: 11px; font-weight: 700; }
+.recognition-context-controls select { width: 100%; min-height: 36px; padding: 5px 28px 5px 8px; border: 1px solid var(--tat-line); border-radius: 8px; background: var(--tat-surface); color: var(--tat-text); font-size: 12px; }
+.recognition-view-toggle { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 3px; border: 1px solid var(--tat-line); border-radius: 10px; background: var(--tat-surface-2); }
+.recognition-view-toggle button { min-width: 0; min-height: 34px; padding: 5px 6px; border: 0; border-radius: 7px; background: transparent; color: var(--tat-muted); font-size: 12px; font-weight: 750; }
+.recognition-view-toggle button.active { background: var(--tat-surface); color: var(--tat-accent); box-shadow: 0 1px 2px color-mix(in srgb, var(--tat-text) 12%, transparent); }
 .recognition-personal { display: grid; gap: 7px; }
+.recognition-personal[hidden], .recognition-standings[hidden] { display: none; }
 .recognition-section-heading h3 { margin: 0; color: var(--tat-text); font-size: 13px; }
 .recognition-result-card { display: grid; gap: 8px; padding: 10px; border: 1px solid color-mix(in srgb, var(--tat-accent) 35%, var(--tat-line)); border-radius: 10px; background: color-mix(in srgb, var(--tat-accent) 6%, var(--tat-surface)); }
 .recognition-result-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
@@ -1490,13 +1499,16 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
 .recognition-standings { display: grid; gap: 6px; }
 .recognition-standings[hidden], .recognition-technical[hidden] { display: none; }
 .recognition-standings .stage-summary-heading { align-items: end; }
+.recognition-standings .stage-summary-heading > div { min-width: 0; }
 .recognition-standings .stage-summary-heading h2 { font-size: 14px; }
 .recognition-standings .stage-summary-heading span { font-size: 11px; }
+.recognition-standings .stage-summary-heading p { margin: 2px 0 0; color: var(--tat-muted); font-size: 11px; line-height: 1.25; }
 .recognition-list { overflow: hidden; border: 1px solid var(--tat-line); border-radius: 10px; background: var(--tat-surface); }
-.recognition-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) 48px; align-items: center; gap: 7px; min-height: 68px; padding: 7px 9px; border-bottom: 1px solid var(--tat-line); }
+.recognition-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 6px; min-height: 62px; padding: 6px 8px; border-bottom: 1px solid var(--tat-line); }
 .recognition-row:last-child { border-bottom: 0; }
 .recognition-row.unranked { background: color-mix(in srgb, var(--tat-surface-2) 55%, transparent); }
-.recognition-rank { display: grid; width: 42px; height: 42px; place-content: center; border: 1px solid var(--tat-line); border-radius: 50%; color: var(--tat-accent); text-align: center; }
+.recognition-row.current-user { border-left: 3px solid var(--tat-accent); background: color-mix(in srgb, var(--tat-accent) 7%, var(--tat-surface)); }
+.recognition-rank { display: grid; width: 38px; height: 38px; place-content: center; border: 1px solid var(--tat-line); border-radius: 50%; color: var(--tat-accent); text-align: center; }
 .recognition-rank b, .recognition-rank small { display: block; }
 .recognition-rank b { font-size: 13px; }
 .recognition-rank small { color: var(--tat-muted); font-size: 11px; line-height: 1; }
@@ -1514,6 +1526,15 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
 .recognition-score small { color: var(--tat-muted); font-size: 11px; }
 .recognition-empty { padding: 14px 10px; color: var(--tat-muted); font-size: 12px; text-align: center; }
 .recognition-empty strong { font-weight: 600; }
+.recognition-empty span { display: block; margin-top: 3px; }
+.recognition-pinned { display: grid; gap: 3px; }
+.recognition-pinned[hidden] { display: none; }
+.recognition-pinned > span { color: var(--tat-muted); font-size: 11px; font-weight: 750; }
+.recognition-pinned .recognition-row { border: 1px solid color-mix(in srgb, var(--tat-accent) 35%, var(--tat-line)); border-radius: 10px; }
+.recognition-pagination { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 7px; }
+.recognition-pagination[hidden] { display: none; }
+.recognition-pagination button { min-height: 34px; padding: 5px 8px; font-size: 11px; }
+.recognition-pagination span { color: var(--tat-muted); font-size: 11px; text-align: center; white-space: nowrap; }
 .recognition-technical { border: 1px solid var(--tat-line); border-radius: 10px; background: var(--tat-surface); }
 .recognition-technical summary { padding: 10px; color: var(--tat-text); font-size: 12px; font-weight: 750; cursor: pointer; }
 .recognition-technical > div { display: grid; gap: 7px; padding: 0 10px 10px; border-top: 1px solid var(--tat-line); }
@@ -1529,8 +1550,8 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
   .recognition-period input[type="month"] { width: 124px; }
   .recognition-updated { grid-column: 2; align-self: end; padding-bottom: 2px; text-align: right; }
   .recognition-result-metrics small { white-space: normal; }
-  .recognition-row { grid-template-columns: 44px minmax(0, 1fr) 42px; gap: 5px; padding-inline: 7px; }
-  .recognition-rank { width: 38px; height: 38px; }
+  .recognition-row { grid-template-columns: 40px minmax(0, 1fr) 40px; gap: 4px; padding-inline: 6px; }
+  .recognition-rank { width: 36px; height: 36px; }
 }
 .task-inbox-card {
   width: 100%;
