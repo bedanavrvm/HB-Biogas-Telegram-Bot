@@ -856,7 +856,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Ready for my role', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=98", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=99", template)
 
     def test_credit_assessment_uses_staff_inputs_and_in_app_pdf_preview(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -870,6 +870,9 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('id="assessmentPreviewOverlay"', template)
         self.assertIn('id="assessmentPreviewFrame"', template)
         self.assertIn('function previewAssessmentDocument(button)', source)
+        self.assertIn('function downloadAssessmentDocument(button)', source)
+        self.assertIn("mode: 'preview'", source)
+        self.assertIn("mode: 'download'", source)
         self.assertIn('.assessment-preview-sheet', stylesheet)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):

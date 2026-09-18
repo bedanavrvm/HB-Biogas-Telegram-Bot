@@ -40,7 +40,7 @@
     identityContextTimer: null,
     pendingCorrection: null,
     creditAssessmentLoadedFor: '',
-    assessmentPreview: { open: false, url: '', filename: '' },
+    assessmentPreview: { open: false, url: '', filename: '', documentId: '', source: '' },
     workflowMode: null,
     taskInbox: { items: [], unread_count: 0, total: 0 },
     recognition: { view: 'personal', role: '', product: '', page: 1, loading: false, sequence: 0 },
@@ -1729,7 +1729,7 @@
         ${statement ? `<div><small>M-PESA period</small><strong>${escapeHtml(formatReportDate(statement.period_start))} – ${escapeHtml(formatReportDate(statement.period_end))}</strong></div>
           <div><small>Coverage</small><strong>${statement.full_year ? 'Full 12 months' : 'Shorter than 12 months'}</strong></div>` : ''}
       </div>
-      ${docs.length ? `<div class="credit-assessment-docs">${docs.map((item) => `<button type="button" class="ghost-btn" data-assessment-document="${escapeHtml(item.id)}" data-assessment-source="${escapeHtml(item.source || 'document')}" title="Preview ${escapeHtml(item.label)}">Preview ${escapeHtml(item.label)}</button>`).join('')}</div>` : ''}`;
+      ${docs.length ? `<div class="credit-assessment-docs">${docs.map((item) => `<div class="credit-assessment-doc-actions"><button type="button" class="ghost-btn" data-assessment-document="${escapeHtml(item.id)}" data-assessment-source="${escapeHtml(item.source || 'document')}" data-assessment-filename="${escapeHtml(item.filename || 'credit-assessment.pdf')}" title="Preview ${escapeHtml(item.label)}">Preview ${escapeHtml(item.label)}</button><button type="button" class="ghost-btn" data-assessment-download="${escapeHtml(item.id)}" data-assessment-source="${escapeHtml(item.source || 'document')}" data-assessment-filename="${escapeHtml(item.filename || 'credit-assessment.pdf')}" title="Download ${escapeHtml(item.label)}">Download</button></div>`).join('')}</div>` : ''}`;
   }
 
   function assessmentDecisionForm(data, gate) {
@@ -1806,13 +1806,14 @@
     content.querySelectorAll('[data-assessment-upload]').forEach((form) => form.addEventListener('submit', submitCreditAssessmentUpload));
     content.querySelectorAll('[data-assessment-form]').forEach((form) => form.addEventListener('submit', submitCreditAssessmentForm));
     content.querySelectorAll('[data-assessment-document]').forEach((button) => button.addEventListener('click', () => previewAssessmentDocument(button)));
+    content.querySelectorAll('[data-assessment-download]').forEach((button) => button.addEventListener('click', () => downloadAssessmentDocument(button)));
   }
 
   function closeAssessmentPreview() {
     const overlay = $('assessmentPreviewOverlay');
     const frame = $('assessmentPreviewFrame');
     if (state.assessmentPreview.url) URL.revokeObjectURL(state.assessmentPreview.url);
-    state.assessmentPreview = { open: false, url: '', filename: '' };
+    state.assessmentPreview = { open: false, url: '', filename: '', documentId: '', source: '' };
     frame?.removeAttribute('src');
     if (overlay) {
       overlay.hidden = true;
@@ -1820,12 +1821,55 @@
     }
   }
 
+  async function downloadAssessmentItem(item, triggerButton) {
+    if (!item.documentId) return;
+    const filename = item.filename || 'credit-assessment.pdf';
+    if (!window.confirm(`Allow download of ${filename}?`)) return;
+    const button = triggerButton || $('downloadAssessmentPreviewBtn');
+    if (button) button.disabled = true;
+    try {
+      const response = await fetch('/api/tat-tracker/credit-assessment/document/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Request-ID': newRequestId() },
+        body: JSON.stringify(basePayload({
+          case_id: state.detail.summary.case_id,
+          document_id: item.documentId,
+          source: item.source,
+          mode: 'download',
+        })),
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.message || 'The evidence file could not be downloaded.');
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.hidden = true;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+      setStatus(`${filename} downloaded.`, 'ok');
+    } catch (error) {
+      setStatus(error.message, 'error');
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
   function downloadAssessmentPreview() {
-    if (!state.assessmentPreview.url) return;
-    const anchor = document.createElement('a');
-    anchor.href = state.assessmentPreview.url;
-    anchor.download = state.assessmentPreview.filename || 'credit-assessment.pdf';
-    anchor.click();
+    return downloadAssessmentItem(state.assessmentPreview);
+  }
+
+  function downloadAssessmentDocument(button) {
+    return downloadAssessmentItem({
+      documentId: button.dataset.assessmentDownload,
+      source: button.dataset.assessmentSource,
+      filename: button.dataset.assessmentFilename,
+    }, button);
   }
 
   async function previewAssessmentDocument(button) {
@@ -1835,7 +1879,15 @@
       const response = await fetch('/api/tat-tracker/credit-assessment/document/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Request-ID': requestId },
-        body: JSON.stringify(basePayload({ case_id: state.detail.summary.case_id, document_id: button.dataset.assessmentDocument, source: button.dataset.assessmentSource })),
+        body: JSON.stringify(basePayload({
+          case_id: state.detail.summary.case_id,
+          document_id: button.dataset.assessmentDocument,
+          source: button.dataset.assessmentSource,
+          mode: 'preview',
+          passcode: button.dataset.assessmentSource === 'statement'
+            ? (document.querySelector('[data-assessment-upload="submit_pre_appraisal"] [name="passcode"]')?.value || '')
+            : '',
+        })),
       });
       if (!response.ok) {
         const result = await response.json().catch(() => ({}));
@@ -1843,11 +1895,15 @@
       }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
-      const disposition = response.headers.get('Content-Disposition') || '';
-      const nameMatch = disposition.match(/filename\*?=(?:UTF-8''|\")?([^\";]+)/i);
-      const filename = nameMatch ? decodeURIComponent(nameMatch[1].replace(/^\"|\"$/g, '')) : 'credit-assessment.pdf';
+      const filename = button.dataset.assessmentFilename || 'credit-assessment.pdf';
       closeAssessmentPreview();
-      state.assessmentPreview = { open: true, url, filename };
+      state.assessmentPreview = {
+        open: true,
+        url,
+        filename,
+        documentId: button.dataset.assessmentDocument,
+        source: button.dataset.assessmentSource,
+      };
       $('assessmentPreviewTitle').textContent = button.dataset.assessmentSource === 'statement' ? 'M-PESA statement' : 'Credit assessment document';
       $('assessmentPreviewFrame').src = url;
       $('assessmentPreviewOverlay').hidden = false;

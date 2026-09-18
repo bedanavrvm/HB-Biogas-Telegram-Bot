@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import io
+import logging
 
-from django.http import FileResponse, JsonResponse
+from django.http import FileResponse, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
@@ -34,6 +35,9 @@ from .services import (
     submit_pre_appraisal,
     validate_responses,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def _json_value(payload: dict, key: str, default):
@@ -186,6 +190,9 @@ def credit_assessment_document(request):
     if not roles.intersection({'BRO', 'BM', 'CA', 'CREDIT_ANALYST', 'IT'}):
         return JsonResponse({'ok': False, 'message': 'Your assigned role cannot open credit-assessment evidence.'}, status=403)
     source = str(payload.get('source') or 'document')
+    mode = str(payload.get('mode') or 'preview').strip().casefold()
+    if mode not in {'preview', 'download'}:
+        return JsonResponse({'ok': False, 'message': 'Choose preview or download.'}, status=400)
     item_id = str(payload.get('document_id') or '')
     if source == 'statement':
         item = StatementMailReceipt.objects.filter(pk=item_id, linked_assessments=assessment).first()
@@ -198,26 +205,56 @@ def credit_assessment_document(request):
     if not item or not drive_file_id:
         return JsonResponse({'ok': False, 'message': 'This evidence file is unavailable.'}, status=404)
     try:
-        from googleapiclient.http import MediaIoBaseDownload
         from core.services.order_approval import GoogleDriveMediaStorage
-        storage = GoogleDriveMediaStorage()
-        stream = io.BytesIO()
-        downloader = MediaIoBaseDownload(stream, storage.service.files().get_media(fileId=drive_file_id))
-        done = False
-        while not done:
-            _status, done = downloader.next_chunk()
-        stream.seek(0)
-    except Exception:
+        storage = GoogleDriveMediaStorage(request_timeout=60)
+        content = storage.download(drive_file_id)
+    except Exception as exc:
+        logger.warning(
+            'Credit assessment evidence read failed: source=%s code=%s',
+            source, type(exc).__name__,
+        )
         return JsonResponse({'ok': False, 'message': 'The evidence file could not be opened. Try again or contact IT.'}, status=502)
+    if mode == 'preview':
+        try:
+            from core.services.secure_media_preview import pdf_preview_html
+            password = str(payload.get('passcode') or '').strip()
+            if source == 'statement' and not password:
+                from .services import statement_passcode_for_preview
+                password = statement_passcode_for_preview(assessment, user)
+            preview = pdf_preview_html(
+                content,
+                filename or 'Credit assessment evidence',
+                password=password or None,
+                show_filename=False,
+            )
+        except AssessmentError as exc:
+            return JsonResponse({'ok': False, 'code': exc.code, 'message': str(exc)}, status=exc.status)
+        except Exception:
+            message = (
+                'Enter the M-PESA statement passcode, then try Preview again.'
+                if source == 'statement' else
+                'This PDF could not be previewed. Download it to open it on your device.'
+            )
+            return JsonResponse({'ok': False, 'message': message}, status=422)
+        response = HttpResponse(preview, content_type='text/html; charset=utf-8')
+        response['Content-Disposition'] = 'inline'
+    else:
+        response = FileResponse(
+            io.BytesIO(content), content_type='application/pdf',
+            as_attachment=True, filename=filename,
+        )
     request_id = str(request.headers.get('X-Request-ID') or '').strip()
     if request_id:
         AssessmentEvent.objects.get_or_create(
             assessment=assessment, request_id=request_id,
             defaults={
-                'action': 'evidence.downloaded', 'revision': assessment.revision,
-                'actor': user.get('_canonical_user'), 'metadata': {'document_type': item.document_type if source != 'statement' else 'mpesa_statement'},
+                'action': f'evidence.{"previewed" if mode == "preview" else "downloaded"}',
+                'revision': assessment.revision,
+                'actor': user.get('_canonical_user'),
+                'metadata': {
+                    'document_type': item.document_type if source != 'statement' else 'mpesa_statement',
+                },
             },
         )
-    response = FileResponse(stream, content_type='application/pdf', as_attachment=True, filename=filename)
     response['Cache-Control'] = 'private, no-store'
     return response

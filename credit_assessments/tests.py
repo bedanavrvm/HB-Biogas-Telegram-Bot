@@ -1,4 +1,6 @@
 import base64
+import hashlib
+import io
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -106,6 +108,53 @@ class CreditAssessmentServiceTests(TestCase):
         self.assertEqual(receipt.masked_phone_pattern, '254712***716')
         self.assertEqual(receipt.customer_name, 'Name One Name Two')
         self.assertEqual(receipt.statement_metadata_source, 'body')
+
+    def test_repoll_uses_message_and_content_hash_when_attachment_id_changes(self):
+        data = b'%PDF-1.4\nsame encrypted statement bytes'
+        receipt = self._receipt()
+        receipt.attachment_hash = hashlib.sha256(data).hexdigest()
+        receipt.save(update_fields=['attachment_hash'])
+        service = MagicMock()
+        messages = service.users.return_value.messages.return_value
+        messages.get.return_value.execute.return_value = {
+            'id': 'mail-1',
+            'threadId': 'thread-1',
+            'internalDate': str(int(timezone.now().timestamp() * 1000)),
+            'payload': {
+                'headers': [{'name': 'Subject', 'value': 'Fwd: M-PESA Statement'}],
+                'parts': [{
+                    'filename': receipt.attachment_name,
+                    'body': {'attachmentId': 'replacement-provider-id'},
+                }],
+            },
+        }
+        messages.attachments.return_value.get.return_value.execute.return_value = {
+            'data': base64.urlsafe_b64encode(data).decode('ascii'),
+        }
+
+        with patch('core.services.order_approval.GoogleDriveMediaStorage.upload') as upload:
+            result = ingest_message(service, 'mail-1', commit=True)
+
+        self.assertEqual(result['ingested'], 0)
+        self.assertEqual(result['skipped'], 1)
+        self.assertEqual(StatementMailReceipt.objects.count(), 1)
+        upload.assert_not_called()
+
+    def test_mobile_pdf_preview_accepts_statement_password(self):
+        from pypdf import PdfWriter
+        from core.services.secure_media_preview import pdf_preview_html
+
+        writer = PdfWriter()
+        writer.add_blank_page(width=200, height=300)
+        writer.encrypt('123456')
+        encrypted = io.BytesIO()
+        writer.write(encrypted)
+
+        preview = pdf_preview_html(
+            encrypted.getvalue(), 'statement.pdf', password='123456',
+        )
+
+        self.assertIn(b'data:image/jpeg;base64,', preview)
 
     def test_short_statement_reaches_manager_and_only_return_is_available(self):
         assessment = get_or_create_assessment(case=self.case, user=self.bro_context, request_id='start-1')

@@ -182,6 +182,31 @@ def set_statement_passcode(assessment: CreditAssessment, passcode: str) -> None:
     )
 
 
+def statement_passcode_for_preview(assessment: CreditAssessment, user: dict) -> str:
+    """Decrypt a statement passcode for an authorized in-memory preview.
+
+    This never returns the value to the browser. The evidence endpoint records
+    the preview itself; it must not incorrectly count this as a passcode reveal.
+    """
+    _require_role(user, 'BRO', 'BM', 'CA')
+    secret = AssessmentSecret.objects.filter(assessment=assessment).first()
+    if not secret or secret.destroyed_at or not secret.ciphertext:
+        return ''
+    version, key = _keyring()
+    if secret.key_version != version:
+        raise AssessmentError(
+            'The statement passcode key requires rotation support.',
+            code='statement_passcode_key_mismatch', status=503,
+        )
+    try:
+        return Fernet(key).decrypt(secret.ciphertext.encode('ascii')).decode('utf-8')
+    except InvalidToken as exc:
+        raise AssessmentError(
+            'The statement passcode could not be decrypted.',
+            code='statement_passcode_unavailable', status=503,
+        ) from exc
+
+
 @transaction.atomic
 def reveal_statement_passcode(assessment: CreditAssessment, user: dict, request_id: str) -> str:
     _require_role(user, 'CA')
@@ -193,13 +218,7 @@ def reveal_statement_passcode(assessment: CreditAssessment, user: dict, request_
         raise AssessmentError('No statement passcode is available.', code='statement_passcode_missing', status=404) from exc
     if secret.destroyed_at or not secret.ciphertext:
         raise AssessmentError('The statement passcode has already been destroyed.', code='statement_passcode_destroyed', status=410)
-    _version, key = _keyring()
-    if secret.key_version != _version:
-        raise AssessmentError('The statement passcode key requires rotation support.', code='statement_passcode_key_mismatch', status=503)
-    try:
-        value = Fernet(key).decrypt(secret.ciphertext.encode('ascii')).decode('utf-8')
-    except InvalidToken as exc:
-        raise AssessmentError('The statement passcode could not be decrypted.', code='statement_passcode_unavailable', status=503) from exc
+    value = statement_passcode_for_preview(locked, user)
     if not _existing_event(locked, request_id):
         secret.reveal_count += 1
         secret.last_revealed_at = timezone.now()

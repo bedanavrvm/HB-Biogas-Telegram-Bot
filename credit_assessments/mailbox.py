@@ -174,23 +174,32 @@ def _gmail_credentials():
 
 def _gmail_service():
     from googleapiclient.discovery import build
+    from google_auth_httplib2 import AuthorizedHttp
+    import httplib2
 
     mailbox_user = str(getattr(settings, 'CREDIT_ASSESSMENT_GMAIL_USER', '') or '').strip()
     if not mailbox_user:
         raise RuntimeError('credit_mailbox_user_missing')
-    return build('gmail', 'v1', credentials=_gmail_credentials(), cache_discovery=False)
+    timeout = max(60, int(getattr(settings, 'API_REQUEST_TIMEOUT', 10) or 10))
+    return build(
+        'gmail', 'v1',
+        http=AuthorizedHttp(_gmail_credentials(), http=httplib2.Http(timeout=timeout)),
+        cache_discovery=False,
+    )
 
 
 def _attachment_bytes(service, message_id: str, attachment_id: str) -> bytes:
     response = service.users().messages().attachments().get(
         userId='me', messageId=message_id, id=attachment_id,
-    ).execute()
+    ).execute(num_retries=2)
     encoded = str(response.get('data') or '')
     return base64.urlsafe_b64decode(encoded + '=' * (-len(encoded) % 4))
 
 
 def ingest_message(service, message_id: str, *, commit: bool) -> dict:
-    message = service.users().messages().get(userId='me', id=message_id, format='full').execute()
+    message = service.users().messages().get(
+        userId='me', id=message_id, format='full',
+    ).execute(num_retries=2)
     payload = message.get('payload') or {}
     subject = _header(payload, 'Subject')
     message_body = _message_text(payload)
@@ -235,10 +244,37 @@ def ingest_message(service, message_id: str, *, commit: bool) -> dict:
             skipped += 1
             continue
         content_hash = hashlib.sha256(data).hexdigest()
+        # Gmail attachment IDs are provider-owned opaque values. In practice
+        # the same immutable attachment can be returned with a different ID
+        # after a forwarded message is re-expanded. Message + source-byte hash
+        # is the stable fallback that prevents a repoll from uploading and
+        # creating the same statement again.
+        existing = StatementMailReceipt.objects.filter(
+            gmail_message_id=message_id,
+            attachment_hash=content_hash,
+        ).first()
+        if existing:
+            updates = {}
+            if parsed['source'] != 'filename' and existing.statement_metadata_source == 'filename':
+                updates.update({
+                    'masked_phone_pattern': parsed['masked_phone'],
+                    'statement_period_start': parsed['period_start'],
+                    'statement_period_end': parsed['period_end'],
+                    'statement_full_year': parsed['full_year'],
+                    'statement_metadata_source': parsed['source'],
+                })
+            if parsed['customer_name'] and not existing.customer_name:
+                updates['customer_name'] = parsed['customer_name']
+            if updates and commit:
+                StatementMailReceipt.objects.filter(pk=existing.pk).update(**updates)
+                enriched += 1
+            else:
+                skipped += 1
+            continue
         drive_file_id = ''
         if commit:
             from core.services.order_approval import GoogleDriveMediaStorage
-            storage = GoogleDriveMediaStorage()
+            storage = GoogleDriveMediaStorage(request_timeout=60)
             drive_file_id, _url = storage.upload(
                 data, filename, 'application/pdf', parsed['masked_phone'], received_at,
                 workflow_key='credit_assessment', record_type='mpesa_statement', record_key=content_hash,

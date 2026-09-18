@@ -1026,6 +1026,7 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
 .credit-assessment-summary strong { display: block; margin-top: 1px; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .credit-assessment-docs { display: flex; flex-wrap: wrap; gap: 4px; }
 .credit-assessment-docs button { min-height: 28px; padding: 4px 7px; border: 1px solid var(--tat-line); border-radius: 999px; font-size: 10px; }
+.credit-assessment-doc-actions { display: inline-flex; gap: 2px; }
 .credit-assessment-form label { display: grid; gap: 3px; color: var(--tat-muted); font-size: 10px; font-weight: 700; }
 .credit-assessment-form input, .credit-assessment-form select, .credit-assessment-form textarea { width: 100%; min-width: 0; }
 .credit-assessment-form textarea { min-height: 64px; resize: vertical; }

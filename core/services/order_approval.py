@@ -2174,7 +2174,7 @@ class GoogleDriveMediaStorage:
 
     SCOPES = ['https://www.googleapis.com/auth/drive']
 
-    def __init__(self, *, parent_folder_id: str = ''):
+    def __init__(self, *, parent_folder_id: str = '', request_timeout: int | None = None):
         # Workflow archives occasionally need a stricter parent than ordinary
         # field media.  Accepting an explicit configured parent avoids making
         # those archives share a folder merely because they reuse the safe
@@ -2183,6 +2183,10 @@ class GoogleDriveMediaStorage:
         if not parent_folder_id:
             raise ValueError('GOOGLE_DRIVE_MEDIA_FOLDER_ID is not configured')
         self.parent_folder_id = parent_folder_id
+        self.request_timeout = max(
+            1,
+            int(request_timeout or getattr(settings, 'API_REQUEST_TIMEOUT', 10) or 10),
+        )
         self._service = None
 
     @property
@@ -2197,10 +2201,9 @@ class GoogleDriveMediaStorage:
                 getattr(settings, 'GOOGLE_SERVICE_ACCOUNT_FILE', 'credentials.json'),
                 scopes=self.SCOPES,
             )
-            timeout = max(1, int(getattr(settings, 'API_REQUEST_TIMEOUT', 10) or 10))
             self._service = build(
                 'drive', 'v3',
-                http=AuthorizedHttp(creds, http=httplib2.Http(timeout=timeout)),
+                http=AuthorizedHttp(creds, http=httplib2.Http(timeout=self.request_timeout)),
                 cache_discovery=False,
             )
         return self._service
@@ -2301,10 +2304,11 @@ class GoogleDriveMediaStorage:
                 fileId=normalized_file_id,
                 supportsAllDrives=True,
             ),
+            chunksize=256 * 1024,
         )
         done = False
         while not done:
-            _, done = downloader.next_chunk()
+            _, done = downloader.next_chunk(num_retries=2)
         return stream.getvalue()
 
     def ensure_workflow_folder_path(self, workflow_key: str, record_type: str, record_key: str, received_at: datetime) -> str:

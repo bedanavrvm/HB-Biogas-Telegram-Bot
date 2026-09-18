@@ -16,6 +16,7 @@ def pdf_preview_html(
     content: bytes,
     filename: str,
     *,
+    password: str | None = None,
     show_filename: bool = True,
     show_single_page_caption: bool = True,
 ) -> bytes:
@@ -25,7 +26,7 @@ def pdf_preview_html(
 
     import pypdfium2 as pdfium
 
-    document = pdfium.PdfDocument(content)
+    document = pdfium.PdfDocument(content, password=password or None)
     total_pages = len(document)
     if not total_pages:
         raise ValueError('This PDF has no pages to preview.')
