@@ -1295,7 +1295,9 @@
     clearTimeout(state.suggestionTimer); const description = event.target.value.trim();
     state.categoryInferenceToken = '';
     if (description.length < 20) { hideSuggestion(); return; }
-    state.suggestionTimer = setTimeout(() => requestCategorySuggestion(description), 900);
+    // Wait for a meaningful pause in typing so slow mobile input does not
+    // start several provider calls for successive partial descriptions.
+    state.suggestionTimer = setTimeout(() => requestCategorySuggestion(description), 1500);
   }
   function updateCategoryGuidance() {
     const label = $('createCaseForm').elements.complaint_category.value.trim();

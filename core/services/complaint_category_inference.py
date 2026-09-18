@@ -197,6 +197,20 @@ def _gemini_response_schema(keys: list[str]) -> dict[str, Any]:
 
 def _gemini_request(description: str, catalogue: list[dict[str, str]]) -> dict[str, Any]:
     keys = [item['key'] for item in catalogue]
+    model = _provider_model().lower()
+    generation_config = {
+        'maxOutputTokens': max(80, min(500, int(settings.COMPLAINT_CATEGORY_AI_MAX_TOKENS))),
+        'responseMimeType': 'application/json',
+        'responseSchema': _gemini_response_schema(keys),
+    }
+    if model.startswith('gemini-3'):
+        # Classification is latency-sensitive and does not need the model's
+        # default medium reasoning depth. Gemini 3.8 supports low, not minimal.
+        generation_config['thinkingConfig'] = {'thinkingLevel': 'low'}
+    else:
+        generation_config['temperature'] = 0
+        if model.startswith('gemini-2.5-flash'):
+            generation_config['thinkingConfig'] = {'thinkingBudget': 0}
     return {
         'systemInstruction': {'parts': [{'text': _system_prompt()}]},
         'contents': [{
@@ -208,12 +222,7 @@ def _gemini_request(description: str, catalogue: list[dict[str, str]]) -> dict[s
                 ),
             }],
         }],
-        'generationConfig': {
-            'temperature': 0,
-            'maxOutputTokens': max(80, min(500, int(settings.COMPLAINT_CATEGORY_AI_MAX_TOKENS))),
-            'responseMimeType': 'application/json',
-            'responseSchema': _gemini_response_schema(keys),
-        },
+        'generationConfig': generation_config,
     }
 
 

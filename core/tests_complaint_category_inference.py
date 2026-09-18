@@ -197,11 +197,40 @@ class ComplaintCategoryInferenceTests(SimpleTestCase):
             'application/json',
         )
         self.assertEqual(
+            request_payload['generationConfig']['thinkingConfig'],
+            {'thinkingBudget': 0},
+        )
+        self.assertEqual(
             request_payload['generationConfig']['responseSchema']['properties']['category_key']['enum'],
             ['leakage'],
         )
         self.assertEqual(result['category_key'], 'leakage')
         response.raise_for_status.assert_called_once_with()
+
+    @override_settings(
+        COMPLAINT_CATEGORY_AI_API_URL='https://generativelanguage.googleapis.com/v1beta',
+        COMPLAINT_CATEGORY_AI_API_KEY='test-gemini-key',
+        COMPLAINT_CATEGORY_AI_MODEL='gemini-3.8-flash',
+        COMPLAINT_CATEGORY_AI_TIMEOUT_SECONDS=15,
+        COMPLAINT_CATEGORY_AI_MAX_TOKENS=220,
+    )
+    @patch('core.services.complaint_category_inference.requests.post')
+    def test_gemini_3_uses_low_thinking_for_latency_sensitive_classification(self, post):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            'candidates': [{'content': {'parts': [{'text': '{"state":"matched","category_key":"leakage","alternative_keys":[],"confidence":"high","reason":"Current leak."}'}]}}],
+        }
+        post.return_value = response
+
+        _call_provider(
+            'Gas is leaking.',
+            [{'key': 'leakage', 'label': 'Leakage', 'description': 'A current leak.'}],
+        )
+
+        generation_config = post.call_args.kwargs['json']['generationConfig']
+        self.assertEqual(generation_config['thinkingConfig'], {'thinkingLevel': 'low'})
+        self.assertNotIn('temperature', generation_config)
+        self.assertEqual(post.call_args.kwargs['timeout'], 15)
 
     @AI_SETTINGS
     @patch('core.services.complaint_category_inference.requests.post')
