@@ -46,54 +46,6 @@ logger = logging.getLogger(__name__)
 ACTIVE_STATUSES = {'Open', 'Reopened', 'In Progress', 'Review Needed', ''}
 STATUS_VALUES = {'Open', 'Reopened', 'In Progress', 'Closed'}
 MANAGER_ROLE = 'MANAGER'
-CATEGORY_SUGGESTION_RULES = (
-    ('relocation-request', (
-        r'\brelocat(?:e|ed|ing|ion)\b', r'\b(?:move|moving|shift)\b.{0,30}\b(?:system|digester|unit)\b',
-    )),
-    ('installation-delay', (
-        r'\binstall(?:ation|ed|ing)?\b',
-    )),
-    ('commissioning-delay', (
-        r'\b(?:commission(?:ing|ed)?|start[ -]?up)\b',
-    )),
-    ('accessories-delay', (
-        r'\baccessor(?:y|ies)\b',
-        r'\b(?:request(?:ing)?|need(?:s|ed)?|deliver(?:y|ed)?|missing|replacement)\b.{0,30}\b(?:filter|volcano|cover|stand|grill|extra burner|spare part)\b',
-        r'\b(?:extra|spare|replacement)\s+(?:burner|knob|filter|cover|stand|grill|post|part)\b',
-    )),
-    ('payments-accounts', (
-        r'\b(?:payment|paid|mpesa|m-pesa|receipt|balance|statement|account)\b',
-    )),
-    ('appraisal', (
-        r'\b(?:appraisal|valuation|site assessment)\b',
-    )),
-    ('technical-support', (
-        r'\btechnical support\b', r'\b(?:troubleshoot|diagnos(?:e|is|tic))\b',
-    )),
-    ('system-damage', (
-        r'\b(?:system|digester|appliance|unit)\b.{0,35}\b(?:damage(?:d)?|broken|crack(?:ed)?)\b',
-        r'\b(?:damage(?:d)?|broken|crack(?:ed)?)\b.{0,35}\b(?:system|digester|appliance|unit)\b',
-    )),
-    ('leakage', (
-        r'\bleak(?:age|ing|s|ed)?\b', r'\bgas\s+(?:is\s+)?escap(?:e|ing)\b', r'\b(?:smell|odou?r)\s+of\s+gas\b', r'\bgas\s+smell\b',
-    )),
-    ('blockage', (
-        r'\bblock(?:age|ed|ing)?\b', r'\bclog(?:ged|ging)?\b', r'\b(?:inlet|outlet)\b.{0,25}\b(?:stuck|blocked|clogged)\b',
-    )),
-    ('burner-knob-fault', (
-        r'\bburner\b', r'\bknob\b', r'\bignit(?:e|ion|ing)\b', r'\bflame\b', r'\bstove\b',
-    )),
-    ('system-performance', (
-        r'\b(?:no|low|little|poor)\s+gas\b', r'\b(?:gas\s+)?production\b', r'\blow\s+pressure\b',
-        r'\bpoor\s+(?:system\s+)?performance\b', r'\bsystem\b.{0,25}\bnot\s+work(?:ing)?\b',
-    )),
-    ('pipe-connection-fault', (
-        r'\b(?:pipe|hose|connection|joint|valve)\b.{0,35}\b(?:fault|broken|damage(?:d)?|disconnect(?:ed)?|crack(?:ed)?|loose)\b',
-        r'\b(?:broken|damage(?:d)?|disconnect(?:ed)?|crack(?:ed)?|loose)\b.{0,35}\b(?:pipe|hose|connection|joint|valve)\b',
-    )),
-)
-
-
 class ComplaintCaseError(ValueError):
     """Staff-safe complaint Mini App validation error."""
 
@@ -156,39 +108,10 @@ def resolve_category(group_config, value: Any) -> ComplaintCategory:
 
 
 def suggest_category(group_config, description: Any) -> dict[str, Any]:
-    """Suggest, but never assign, one active category from complaint text."""
-    text = ' '.join(str(description or '').casefold().split())
-    matched_keys = [
-        key for key, patterns in CATEGORY_SUGGESTION_RULES
-        if any(re.search(pattern, text) for pattern in patterns)
-    ]
-    # A leak in a pipe or connection is still primarily Leakage. A supply-only
-    # burner or knob request is Accessories, while a faulty component remains
-    # Burner/Knob Fault. Unrelated collisions stay ambiguous.
-    if 'leakage' in matched_keys and 'pipe-connection-fault' in matched_keys:
-        matched_keys.remove('pipe-connection-fault')
-    if 'accessories-delay' in matched_keys and 'burner-knob-fault' in matched_keys:
-        matched_keys.remove('burner-knob-fault')
-    categories = {category.key: category for category in available_categories(group_config)}
-    matched = [categories[key] for key in matched_keys if key in categories]
-    if len(matched) == 1:
-        category = matched[0]
-        return {
-            'state': 'matched',
-            'suggestion': {'key': category.key, 'label': category.label},
-            'candidates': [],
-        }
-    if len(matched) > 1:
-        return {
-            'state': 'ambiguous', 'suggestion': None,
-            'candidates': [{'key': item.key, 'label': item.label} for item in matched],
-        }
-    fallback = categories.get('other-complaint')
-    return {
-        'state': 'fallback',
-        'suggestion': ({'key': fallback.key, 'label': fallback.label} if fallback else None),
-        'candidates': [],
-    }
+    """Return an allowlisted AI suggestion without assigning workflow state."""
+    from core.services.complaint_category_inference import suggest_category as infer_category
+
+    return infer_category(available_categories(group_config), description)
 
 
 def resolve_branch(value: Any) -> OperationalLocation | None:
@@ -542,6 +465,10 @@ def create_complaint_case(
     request_id = create_request_id(fields.get('client_request_id'))
     validate_uploaded_files(uploaded_files)
     values = validate_new_case_fields(group_config, actor, request_id, fields)
+    from core.services.complaint_category_inference import verify_inference_token
+    inference_evidence = verify_inference_token(
+        fields.get('category_inference_token'), values['complaint_description'],
+    )
     payload_hash = mutation_payload_hash(values)
     request_hash = complaint_case_hash(group_config.group_id, request_id)
     case = ParsedMessage.objects.filter(
@@ -628,6 +555,19 @@ def create_complaint_case(
             ).first()
             if not case:
                 raise
+
+    if created and inference_evidence:
+        try:
+            record_category_inference_review(
+                case, actor, request_id=request_id,
+                final_category_key=values['category'].key,
+                evidence=inference_evidence,
+            )
+        except Exception as exc:
+            logger.warning(
+                'Complaint category inference audit unavailable: case=%s error=%s',
+                case.pk, type(exc).__name__,
+            )
 
     control = ensure_case_control(case, group_config)
     existing_event = control.events.filter(request_id=request_id).first()
@@ -1225,6 +1165,54 @@ def record_complaint_update(update: CaseUpdate, case: ParsedMessage, actor: Comp
         },
         sensitive=True,
         occurred_at=update.created_at,
+    )
+
+
+def record_category_inference_review(
+    case: ParsedMessage,
+    actor: ComplaintCaseActor,
+    *,
+    request_id: str,
+    final_category_key: str,
+    evidence: dict[str, Any],
+) -> None:
+    """Audit suggestion-versus-selection without retaining complaint prose."""
+    from core.models import ComplianceAuditEvent
+    from core.services.compliance_audit import record_event
+
+    suggested = str(evidence.get('category_key') or '')
+    alternatives = [str(value) for value in (evidence.get('alternative_keys') or [])[:2]]
+    record_event(
+        workflow='complaint_cases',
+        action='complaint.category_suggestion_reviewed',
+        category='workflow',
+        origin=ComplianceAuditEvent.ORIGIN_SYSTEM,
+        subject_type='complaint_case',
+        subject_id=str(case.pk),
+        customer_reference=str(case.message_id),
+        actor=actor.user,
+        authority_user=actor.user,
+        actor_label=actor.name,
+        authority_label=actor.name,
+        request_id=request_id,
+        source_model='ParsedMessage',
+        source_event_id=f'{case.pk}:category-inference',
+        deduplication_key=f'complaint:category-inference:{case.pk}',
+        after_values={
+            'suggested_category_key': suggested,
+            'alternative_category_keys': alternatives,
+            'final_category_key': str(final_category_key or ''),
+            'accepted': bool(suggested and suggested == str(final_category_key or '')),
+        },
+        metadata={
+            'state': str(evidence.get('state') or ''),
+            'confidence': str(evidence.get('confidence') or ''),
+            'model': str(evidence.get('model') or ''),
+            'prompt_version': str(evidence.get('prompt_version') or ''),
+            'catalogue_digest': str(evidence.get('catalogue_digest') or ''),
+            'mode': str(evidence.get('mode') or ''),
+        },
+        sensitive=False,
     )
 
 

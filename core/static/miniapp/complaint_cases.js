@@ -11,7 +11,7 @@
     status: 'pending', query: '', page: 1, pages: 1,
     capabilities: new Set(), currentCase: null, submitting: false,
     debounce: null, suggestionTimer: null, suggestionSequence: 0,
-    suggestedCategory: null, latitude: '', longitude: '',
+    suggestedCategory: null, categoryInferenceToken: '', categorySuggestionCache: new Map(), latitude: '', longitude: '',
     workspace: 'queue', returnWorkspace: 'queue', globalLoaded: false,
     globalOverview: null, globalPage: 1, globalPages: 1, globalPageSize: 50,
     globalSort: '-date_reported', reportGridApi: null, reportGridZoom: null, reportGridLoading: false,
@@ -694,6 +694,7 @@
     const creationRequestId = pendingWriteId(writeKey, 'complaint-create');
     const pendingEvidence = state.evidence.create.map(item => item.file);
     data.set('client_request_id', creationRequestId);
+    if (state.categoryInferenceToken) data.set('category_inference_token', state.categoryInferenceToken);
     if (state.latitude) { data.set('latitude', state.latitude); data.set('longitude', state.longitude); }
     const button = $('createSaveBtn'); state.submitting = true; setActionLoading(button, true, 'Creating');
     utils.setCloseProtection?.('complaint-operation', true); $('createSaveState').textContent = 'Saving…';
@@ -1011,26 +1012,62 @@
     closeMediaViewer(); openCamera(target, { replaceId: itemId });
   }
 
-  function hideSuggestion() { state.suggestedCategory = null; $('categorySuggestion').hidden = true; $('categorySuggestion').classList.remove('checking', 'ambiguous'); }
+  function hideSuggestion({ clearToken = true } = {}) {
+    state.suggestedCategory = null;
+    if (clearToken) state.categoryInferenceToken = '';
+    $('categorySuggestion').hidden = true;
+    $('categorySuggestion').classList.remove('checking', 'ambiguous');
+  }
+  function applyCategorySuggestion(result) {
+    const chip = $('categorySuggestion');
+    state.categoryInferenceToken = String(result?.inference_token || '');
+    state.suggestedCategory = result?.suggestion || null;
+    chip.disabled = true;
+    chip.className = 'category-suggestion';
+    if (result?.mode === 'shadow' || result?.mode === 'off') {
+      chip.hidden = true;
+      return;
+    }
+    if (result?.state === 'ambiguous') {
+      const labels = (result.candidates || []).map(item => item.label).filter(Boolean).slice(0, 2);
+      chip.hidden = false;
+      chip.classList.add('ambiguous');
+      chip.textContent = labels.length ? `Possible: ${labels.join(' / ')} — choose one` : 'More than one type may apply — choose one';
+      return;
+    }
+    if (result?.suggestion) {
+      chip.hidden = false;
+      chip.disabled = false;
+      chip.textContent = `Suggested: ${result.suggestion.label} — tap to use`;
+      return;
+    }
+    chip.hidden = false;
+    chip.textContent = result?.state === 'unavailable'
+      ? 'Suggestion unavailable — choose complaint type'
+      : 'No clear suggestion — choose complaint type';
+  }
   async function requestCategorySuggestion(description) {
     const sequence = ++state.suggestionSequence;
     const chip = $('categorySuggestion'); chip.hidden = false; chip.disabled = true; chip.className = 'category-suggestion checking'; chip.textContent = 'Checking category...';
+    const cacheKey = description.toLocaleLowerCase();
     try {
-      const response = await json('categories/suggest/', { description });
+      let result = state.categorySuggestionCache.get(cacheKey);
+      if (!result) {
+        const response = await json('categories/suggest/', { description });
+        result = response.data || {};
+        state.categorySuggestionCache.set(cacheKey, result);
+      }
       if (sequence !== state.suggestionSequence) return;
-      const result = response.data || {}; state.suggestedCategory = result.suggestion || null;
-      chip.disabled = !result.suggestion; chip.className = 'category-suggestion';
-      if (result.state === 'ambiguous') {
-        chip.hidden = false; chip.disabled = true; chip.classList.add('ambiguous'); chip.textContent = 'Choose category';
-      } else if (result.suggestion) {
-        chip.hidden = false; chip.textContent = `Suggested: ${result.suggestion.label}`;
-      } else hideSuggestion();
-    } catch (_) { if (sequence === state.suggestionSequence) hideSuggestion(); }
+      applyCategorySuggestion(result);
+    } catch (_) {
+      if (sequence === state.suggestionSequence) applyCategorySuggestion({ state: 'unavailable', mode: 'suggest' });
+    }
   }
   function scheduleCategorySuggestion(event) {
     clearTimeout(state.suggestionTimer); const description = event.target.value.trim();
-    if (description.length < 3) { hideSuggestion(); return; }
-    state.suggestionTimer = setTimeout(() => requestCategorySuggestion(description), 450);
+    state.categoryInferenceToken = '';
+    if (description.length < 20) { hideSuggestion(); return; }
+    state.suggestionTimer = setTimeout(() => requestCategorySuggestion(description), 900);
   }
   function updateCategoryGuidance() {
     const label = $('createCaseForm').elements.complaint_category.value.trim();

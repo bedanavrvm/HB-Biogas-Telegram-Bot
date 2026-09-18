@@ -32,7 +32,7 @@ def _expected():
     locations = _migration('0112_branchservicearea_locationconfigurationevent_and_more')
     branches = _migration('0059_seed_default_branches')
     products = _migration('0108_product_productalias_productavailability_and_more')
-    descriptions = _migration('0166_compact_complaint_category_descriptions')
+    descriptions = _migration('0182_contextual_complaint_category_descriptions')
     return branches.DEFAULT_BRANCHES, locations.KENYA_COUNTY_SUB_COUNTIES, products, descriptions.CATEGORY_DESCRIPTIONS
 
 
@@ -155,7 +155,7 @@ def apply_baseline(*, actor=None) -> dict:
     ).delete()
     _migration('0154_complaint_category_catalogue').seed_complaint_categories(apps, None)
     _migration('0163_it_override_tat_roles_complaint_categories').apply_policy_and_catalogue(apps, None)
-    _migration('0166_compact_complaint_category_descriptions').update_descriptions(apps, None)
+    _migration('0182_contextual_complaint_category_descriptions').update_descriptions(apps, None)
 
     from core.models import AccessControlPolicyState, LocationPolicyState, TatPresentationSettings
     AccessControlPolicyState.current()

@@ -293,6 +293,41 @@ def execute_operation(
     raise ExternalOperationError('The external integration could not complete. Retry from the workflow when it is available.') from last_error
 
 
+def execute_guarded_read(
+    integration: str,
+    action: Callable[[], T],
+    *,
+    attempt_budget: int = 1,
+    sleeper: Callable[[float], None] = time.sleep,
+    random_value: Callable[[], float] = random.random,
+) -> T:
+    """Run a non-durable, read-only external call behind the shared circuit.
+
+    Suggestions and similar advisory reads must not create a durable operation
+    row for every keystroke. They still need the same persisted circuit state,
+    bounded retry policy, and transient-failure classification as write-side
+    integrations. The caller owns its staff-safe fallback.
+    """
+    attempts = max(1, min(2, int(attempt_budget or 1)))
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        _claim_circuit(str(integration), now=timezone.now())
+        try:
+            result = action()
+        except Exception as error:
+            last_error = error
+            transient = is_transient_external_error(error)
+            if transient:
+                _record_circuit_failure(str(integration), error, now=timezone.now())
+            if transient and attempt < attempts:
+                sleeper(retry_after_seconds(error, attempt=attempt, random_value=random_value))
+                continue
+            raise
+        _record_circuit_success(str(integration), now=timezone.now())
+        return result
+    raise ExternalOperationError('The external read could not complete.') from last_error
+
+
 def integration_readiness() -> dict[str, Any]:
     """Return stored state only. This must never make an outbound request."""
     circuits = {

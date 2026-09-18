@@ -56,6 +56,7 @@ from core.services.complaint_cases import (
     staff_actor_for_user,
     suggest_category,
 )
+from core.services.complaint_category_inference import _signed_evidence
 from core.services.complaint_register import register_overview
 from core.services.complaint_imports import (
     ComplaintImportAuthorizationError,
@@ -412,7 +413,12 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(reopened.status_code, 200)
         self.assertEqual(reopened.json()['case']['status'], 'REOPENED')
 
-    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    @override_settings(
+        TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False,
+        COMPLAINT_CATEGORY_AI_MODE='suggest',
+        COMPLAINT_CATEGORY_AI_API_URL='https://ai.example.test/v1/chat/completions',
+        COMPLAINT_CATEGORY_AI_API_KEY='test-key', COMPLAINT_CATEGORY_AI_MODEL='test-model',
+    )
     def test_category_suggestion_endpoint_is_authenticated_and_read_only(self):
         ComplaintCategory.objects.update_or_create(
             key='system-performance', defaults={'label': 'System Performance', 'active': True},
@@ -421,14 +427,22 @@ class ComplaintCaseServiceTests(TestCase):
             key='other-complaint', defaults={'label': 'Other Complaint', 'active': True},
         )
 
-        response = self.client.post(
-            reverse('complaint_cases_category_suggestion'),
-            data=json.dumps({'group_id': self.group.group_id, 'description': 'There is no gas production.'}),
-            content_type='application/json',
-            HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('100'),
-            HTTP_X_REQUEST_ID='complaint-category-suggestion-1',
-            HTTP_IDEMPOTENCY_KEY='complaint-category-suggestion-1',
-        )
+        with patch(
+            'core.services.complaint_category_inference.execute_guarded_read',
+            return_value={
+                'state': 'matched', 'category_key': 'system-performance',
+                'alternative_keys': [], 'confidence': 'high',
+                'reason': 'The complaint reports a lack of gas production.',
+            },
+        ):
+            response = self.client.post(
+                reverse('complaint_cases_category_suggestion'),
+                data=json.dumps({'group_id': self.group.group_id, 'description': 'There is no gas production.'}),
+                content_type='application/json',
+                HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('100'),
+                HTTP_X_REQUEST_ID='complaint-category-suggestion-1',
+                HTTP_IDEMPOTENCY_KEY='complaint-category-suggestion-1',
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['data']['suggestion']['key'], 'system-performance')
@@ -574,28 +588,12 @@ class ComplaintCaseServiceTests(TestCase):
                 'customer_id': '100101', 'complaint_category': self.category.label,
             })
 
-    def test_category_suggestion_is_deterministic_and_never_assigns(self):
-        categories = (
-            ('leakage', 'Leakage'), ('pipe-connection-fault', 'Pipe/Connection Fault'),
-            ('burner-knob-fault', 'Burner/Knob Fault'), ('installation-delay', 'Installation Delay'),
-            ('accessories-delay', 'Accessories'),
-            ('other-complaint', 'Other Complaint'),
-        )
-        for key, label in categories:
-            ComplaintCategory.objects.update_or_create(
-                key=key, defaults={'label': label, 'active': True},
-            )
+    @override_settings(COMPLAINT_CATEGORY_AI_MODE='off')
+    def test_disabled_category_inference_never_assigns(self):
+        result = suggest_category(self.config, 'The broken pipe is leaking gas at the connection.')
 
-        leakage = suggest_category(self.config, 'The broken pipe is leaking gas at the connection.')
-        ambiguous = suggest_category(self.config, 'Installation is delayed and the burner will not ignite.')
-        accessory = suggest_category(self.config, 'The customer is requesting an extra burner.')
-        fallback = suggest_category(self.config, 'Customer has an unusual concern.')
-
-        self.assertEqual(leakage['suggestion']['key'], 'leakage')
-        self.assertEqual(ambiguous['state'], 'ambiguous')
-        self.assertEqual({item['key'] for item in ambiguous['candidates']}, {'installation-delay', 'burner-knob-fault'})
-        self.assertEqual(accessory['suggestion']['key'], 'accessories-delay')
-        self.assertEqual(fallback['suggestion']['key'], 'other-complaint')
+        self.assertEqual(result['state'], 'unavailable')
+        self.assertIsNone(result['suggestion'])
         self.assertEqual(self.case.complaint_category, '')
 
     def test_failed_drive_upload_is_recorded_without_losing_case_update(self):
@@ -852,6 +850,75 @@ class ComplaintCaseServiceTests(TestCase):
         append_to_sheet.assert_not_called()
         self.assertEqual(case.complaint_control.sync_status, 'pending')
 
+    @override_settings(
+        COMPLAINT_CATEGORY_AI_MODE='shadow', COMPLAINT_CATEGORY_AI_MODEL='test-model',
+        COMPLAINT_CATEGORY_AI_PROMPT_VERSION='test-v1',
+    )
+    def test_create_audits_ai_suggestion_against_final_choice_without_prose(self):
+        description = 'The unit requires a field visit because the burner does not ignite.'
+        token = _signed_evidence(
+            {
+                'state': 'matched', 'category_key': 'product-issue',
+                'alternative_keys': [], 'confidence': 'high',
+            },
+            description=description,
+            catalogue_digest='test-catalogue-digest',
+        )
+        fields = {
+            'client_request_id': 'create-complaint-ai-audit-001',
+            'client_name': 'Inference Audit Client',
+            'customer_phone': '0712345678',
+            'customer_id': '00123456',
+            'branch_region': 'Nakuru',
+            'complaint_category': 'Product issue',
+            'complaint_description': description,
+            'category_inference_token': token,
+            **self.location_fields,
+        }
+
+        result = create_complaint_case(self.config, self.actor('100'), fields, [])
+
+        event = ComplianceAuditEvent.objects.get(
+            subject_id=str(result['case']['id']),
+            action='complaint.category_suggestion_reviewed',
+        )
+        self.assertEqual(event.after_values['suggested_category_key'], 'product-issue')
+        self.assertEqual(event.after_values['final_category_key'], 'product-issue')
+        self.assertTrue(event.after_values['accepted'])
+        serialized_event = json.dumps({'after': event.after_values, 'metadata': event.metadata})
+        self.assertNotIn(description, serialized_event)
+
+    @override_settings(
+        COMPLAINT_CATEGORY_AI_MODE='shadow', COMPLAINT_CATEGORY_AI_MODEL='test-model',
+        COMPLAINT_CATEGORY_AI_PROMPT_VERSION='test-v1',
+    )
+    @patch(
+        'core.services.complaint_cases.record_category_inference_review',
+        side_effect=RuntimeError('audit unavailable'),
+    )
+    def test_ai_audit_failure_does_not_block_complaint_creation(self, _record_review):
+        description = 'The unit requires a field visit because the burner does not ignite.'
+        token = _signed_evidence(
+            {
+                'state': 'matched', 'category_key': 'product-issue',
+                'alternative_keys': [], 'confidence': 'high',
+            },
+            description=description,
+            catalogue_digest='test-catalogue-digest',
+        )
+
+        result = create_complaint_case(self.config, self.actor('100'), {
+            'client_request_id': 'create-complaint-ai-audit-failure-001',
+            'client_name': 'Inference Audit Failure Client',
+            'customer_phone': '0712345678', 'customer_id': '00123457',
+            'branch_region': 'Nakuru', 'complaint_category': 'Product issue',
+            'complaint_description': description, 'category_inference_token': token,
+            **self.location_fields,
+        }, [])
+
+        self.assertTrue(result['created'])
+        self.assertTrue(ParsedMessage.objects.filter(pk=result['case']['id']).exists())
+
     def test_case_reference_sequence_resets_for_each_calendar_year(self):
         first_2026 = next_complaint_case_id(
             self.config,
@@ -944,7 +1011,10 @@ class ComplaintCaseServiceTests(TestCase):
             )
         self.assertEqual(ParsedMessage.objects.get(pk=result['case']['id']).customer_id, '00123456')
 
-    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    @override_settings(
+        TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False,
+        GOOGLE_DRIVE_MEDIA_FOLDER_ID='test-complaint-evidence-folder',
+    )
     def test_evidence_is_streamed_in_app_without_exposing_drive_url(self):
         update = CaseUpdate.objects.create(
             parsed_message=self.case, group_id=self.group.group_id,
@@ -1577,6 +1647,10 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('name="customer_id" type="text" maxlength="255" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="ID number" required', template)
         self.assertIn('Customer National ID is required.', script)
         self.assertIn('Primary Phone Number is required.', script)
+        self.assertIn("data.set('category_inference_token', state.categoryInferenceToken)", script)
+        self.assertIn('if (description.length < 20)', script)
+        self.assertIn('setTimeout(() => requestCategorySuggestion(description), 900)', script)
+        self.assertIn("miniapp/complaint_cases.js' %}?v=46", template)
         self.assertIn('id="mediaViewerOverlay"', template)
         self.assertIn('class="filter-search-control"', template)
         self.assertIn('id="downloadResult"', template)
@@ -1711,20 +1785,20 @@ class ComplaintCategoryCatalogueTests(TestCase):
         active = dict(ComplaintCategory.objects.filter(active=True).values_list('label', 'description'))
 
         self.assertEqual(active, {
-            'Installation': 'Installation dates/scheduling, delays, readiness, holds, incomplete work, requirements, follow-up.',
-            'Commissioning': 'Commissioning dates/scheduling, delays, readiness, incomplete work, multi-unit commissioning, follow-up.',
-            'System Performance': 'No/low gas, short cooking time, no inflation, gas not reaching stove, weak/unstable performance, unexpected stopping.',
-            'Leakage': 'Gas escape/smell at stove, kitchen, pipe, joint, connection, digester, bag, burner, cap.',
-            'Pipe/Connection Fault': 'Broken/cracked/loose/disconnected/sagging/burnt/blocked/misaligned pipes, joints, inlets, outlets, supports, connections.',
-            'Burner/Knob Fault': 'Burner/stove not working/lighting/staying on, weak flame, blockage, looseness, broken/stuck knob.',
-            'System Damage': 'Tears, punctures, cracks, holes, bursts, fire/weather/animal/falling-object damage to system/components.',
-            'Blockage': 'Blocked inlet/outlet/pipe/system, backflow, scum, feeding difficulty, contamination.',
-            'Accessories': 'Accessory/spare-part requests, non-delivery, delays, damage, incompatibility, replacement.',
-            'Relocation Request': 'System/stove/burner/pipe relocation, rerouting, cooking-point/position/direction changes, decommissioning, scheduling.',
-            'Technical Support': 'Diagnosis, troubleshooting, technical visits, follow-up, phone support, usage/feeding guidance, training, reinoculation.',
-            'Appraisal': 'Appraisal readiness, scheduling, delays, pending assessments, valuation questions, outcomes, follow-up.',
-            'Payments & Accounts': 'Balances, repayments, payment status/confirmation, paybill, receipts/statements, outstanding amounts, related payments.',
-            'Other Complaint': 'Complaints/enquiries outside the listed types.',
+            'Installation': 'Problems or enquiries about installing a system, including scheduling, delays, readiness, incomplete work, or installation requirements.',
+            'Commissioning': 'Problems or enquiries about getting an installed system ready for use, including scheduling, delays, readiness, incomplete work, or follow-up.',
+            'System Performance': 'The system is producing little or no gas, not inflating, giving short cooking time, not supplying gas properly, or stopping unexpectedly.',
+            'Leakage': 'Gas is escaping or there is a gas smell from the stove, kitchen, pipes, joints, connections, digester, bag, burner, or cap.',
+            'Pipe/Connection Fault': 'A pipe, joint, inlet, outlet, support, or connection is broken, cracked, loose, disconnected, blocked, burnt, sagging, or incorrectly positioned.',
+            'Burner/Knob Fault': 'A burner or stove is not working, not lighting, going off, has a weak flame, or a knob is broken, stuck, or difficult to use.',
+            'System Damage': 'The system or its components are physically damaged, for example by tearing, punctures, cracks, holes, fire, weather, animals, falling objects, or other damage.',
+            'Blockage': 'There is a blockage or feeding problem, including blocked inlets/outlets, backflow, scum, contaminated material, or difficulty feeding the system.',
+            'Accessories': 'A customer needs, has not received, or has a damaged or unsuitable accessory or spare part, such as a filter, volcano, cover, stand, grill, burner, knob, or post.',
+            'Relocation Request': 'A customer wants to move or modify the system, stove, burner, or pipes, including changing the cooking point, pipe direction, or installation position.',
+            'Technical Support': 'Help is needed to diagnose, troubleshoot, operate, feed, or maintain the system, including technical visits, training, reinoculation, or follow-up.',
+            'Appraisal': 'Questions or problems related to system appraisal, including readiness, scheduling, delays, assessment results, or follow-up.',
+            'Payments & Accounts': 'Questions about balances, repayments, payment status, confirmations, paybill, receipts, statements, or payments for repairs, replacements, accessories, or relocation.',
+            'Other Complaint': 'A complaint or enquiry that does not clearly fit any of the other complaint types.',
         })
         self.assertEqual(ComplaintCategory.objects.get(key='other-complaint').default_sla_hours, 72)
         self.assertEqual(

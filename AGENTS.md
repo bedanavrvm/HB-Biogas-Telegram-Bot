@@ -391,6 +391,10 @@ This is a template of variables this class of system typically needs. Treat it a
 | `PORTAL_VOICE_INPUT_ENABLED` / `PORTAL_VOICE_PROVIDER` / `PORTAL_VOICE_MODEL` | Disabled-by-default Portal dictation pilot and approved transcription provider/model | No |
 | `GROQ_API_KEY` | Server-only Groq transcription credential; enable Zero Data Retention before operational use | Yes |
 | `PORTAL_VOICE_MAX_SECONDS` / `PORTAL_VOICE_DAILY_REQUEST_LIMIT` / `PORTAL_VOICE_DAILY_AUDIO_SECONDS` / `PORTAL_VOICE_USER_DAILY_REQUEST_LIMIT` / `PORTAL_VOICE_RETRY_RETENTION_MINUTES` | Recording, free-tier quota, and temporary Drive retry limits | No |
+| `COMPLAINT_CATEGORY_AI_MODE` | Complaint-category inference mode (`off`, `shadow`, or `suggest`); start in `shadow` before staff-visible rollout | No |
+| `COMPLAINT_CATEGORY_AI_API_URL` / `COMPLAINT_CATEGORY_AI_MODEL` | Full OpenAI-compatible chat-completions route and configured model for advisory complaint-category inference | Treat as deployment configuration |
+| `COMPLAINT_CATEGORY_AI_API_KEY` | Server-only credential for advisory complaint-category inference | Yes |
+| `COMPLAINT_CATEGORY_AI_TIMEOUT_SECONDS` / `COMPLAINT_CATEGORY_AI_MAX_TOKENS` / `COMPLAINT_CATEGORY_AI_PROMPT_VERSION` / `COMPLAINT_CATEGORY_AI_TOKEN_MAX_AGE_SECONDS` | Bounded provider-call and signed-evidence settings for complaint-category inference | No |
 
 When adding a new configuration value, add it to `.env.example` with a placeholder (never a real value) in the same change, and add it to this table.
 
