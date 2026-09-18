@@ -1266,7 +1266,7 @@
     if (result?.suggestion) {
       chip.hidden = false;
       chip.disabled = false;
-      chip.textContent = `Suggested: ${result.suggestion.label} — tap to use`;
+      chip.textContent = result.suggestion.label;
       return;
     }
     chip.hidden = false;
