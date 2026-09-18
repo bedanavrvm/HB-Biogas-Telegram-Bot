@@ -5,6 +5,7 @@ from django.test import SimpleTestCase, override_settings
 
 from core.services.complaint_category_inference import (
     _call_provider,
+    _gemini_generate_url,
     _provider_model,
     _provider_request,
     _provider_url,
@@ -164,10 +165,10 @@ class ComplaintCategoryInferenceTests(SimpleTestCase):
         COMPLAINT_CATEGORY_AI_MAX_TOKENS=220,
     )
     @patch('core.services.complaint_category_inference.requests.post')
-    def test_gemini_openai_base_url_and_native_model_prefix_are_normalized(self, post):
+    def test_gemini_url_is_normalized_to_native_generate_content_contract(self, post):
         response = Mock(status_code=200)
         response.json.return_value = {
-            'choices': [{'message': {'content': '{"state":"matched","category_key":"leakage","alternative_keys":[],"confidence":"high","reason":"Current leak."}'}}],
+            'candidates': [{'content': {'parts': [{'text': '{"state":"matched","category_key":"leakage","alternative_keys":[],"confidence":"high","reason":"Current leak."}'}]}}],
         }
         post.return_value = response
 
@@ -181,7 +182,42 @@ class ComplaintCategoryInferenceTests(SimpleTestCase):
             'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
         )
         self.assertEqual(_provider_model(), 'gemini-2.5-flash')
-        self.assertEqual(post.call_args.args[0], _provider_url())
-        self.assertEqual(post.call_args.kwargs['json']['model'], 'gemini-2.5-flash')
+        self.assertEqual(
+            _gemini_generate_url(),
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+        )
+        self.assertEqual(post.call_args.args[0], _gemini_generate_url())
+        headers = post.call_args.kwargs['headers']
+        self.assertEqual(headers['x-goog-api-key'], 'test-gemini-key')
+        self.assertNotIn('Authorization', headers)
+        request_payload = post.call_args.kwargs['json']
+        self.assertIn('systemInstruction', request_payload)
+        self.assertEqual(
+            request_payload['generationConfig']['responseMimeType'],
+            'application/json',
+        )
+        self.assertEqual(
+            request_payload['generationConfig']['responseSchema']['properties']['category_key']['enum'],
+            ['leakage'],
+        )
         self.assertEqual(result['category_key'], 'leakage')
         response.raise_for_status.assert_called_once_with()
+
+    @AI_SETTINGS
+    @patch('core.services.complaint_category_inference.requests.post')
+    def test_non_google_provider_keeps_openai_compatible_contract(self, post):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            'choices': [{'message': {'content': '{"state":"no_match","category_key":null,"alternative_keys":[],"confidence":"low","reason":"Insufficient evidence."}'}}],
+        }
+        post.return_value = response
+
+        result = _call_provider(
+            'The issue is unclear.',
+            [{'key': 'leakage', 'label': 'Leakage', 'description': 'A current leak.'}],
+        )
+
+        self.assertEqual(post.call_args.args[0], 'https://ai.example.test/v1/chat/completions')
+        self.assertEqual(post.call_args.kwargs['headers']['Authorization'], 'Bearer test-key')
+        self.assertEqual(post.call_args.kwargs['json']['model'], 'test-model')
+        self.assertEqual(result['state'], 'no_match')
