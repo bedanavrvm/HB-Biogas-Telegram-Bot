@@ -347,9 +347,10 @@ ORDER_APPROVAL_IMAGE_PREVIEW_LIMIT = config(
 )
 GOOGLE_DRIVE_MEDIA_FOLDER_ID = config('GOOGLE_DRIVE_MEDIA_FOLDER_ID', default='')
 # Governed credit-assessment intake. Supplying the dedicated mailbox enables
-# polling. Existing Google credentials and the restricted media Drive folder
-# are reused; other integration policy stays as code-owned safe defaults.
+# polling. Personal Gmail uses one authorized-user OAuth JSON secret. Existing
+# Google service-account credentials remain responsible only for Drive.
 CREDIT_ASSESSMENT_GMAIL_USER = config('CREDIT_ASSESSMENT_GMAIL_USER', default='').strip()
+CREDIT_ASSESSMENT_GMAIL_OAUTH_JSON = config('CREDIT_ASSESSMENT_GMAIL_OAUTH_JSON', default='').strip()
 SPIN_HARD_CUTOVER = config('SPIN_HARD_CUTOVER', default=False, cast=bool)
 # Order Approval is archived. Tests may override this setting to exercise the
 # retained historical implementation, but deployments cannot re-enable it via

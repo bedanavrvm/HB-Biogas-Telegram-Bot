@@ -13,8 +13,8 @@
   redirects/rejects legacy SPIN UI, API, and WhatsApp-import writes while
   retaining historical SPIN records.
 - Requires migration `credit_assessments.0001_initial`, the pinned
-  `cryptography` package, the dedicated Gmail address, existing Google service
-  account delegation, and the existing restricted media Drive folder.
+  `cryptography` package, the dedicated personal Gmail address and authorized-
+  user OAuth JSON, plus the existing service-account-backed media Drive folder.
 
 
 ## Portal order validation, finalization control and workbook download - 14-September-2026

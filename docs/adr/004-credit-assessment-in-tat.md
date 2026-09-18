@@ -29,8 +29,9 @@ files are retained without migration.
   are optional evidence.
 - BRO review is mandatory even when the analyst raises no questions.
 - New persistent state lives outside the legacy `core` app.
-- Gmail delegation for the configured mailbox and the existing restricted
-  Drive media folder are prerequisites before mailbox intake is enabled.
+- Authorized-user OAuth for the configured personal Gmail mailbox and the
+  existing restricted Drive media folder are prerequisites before mailbox
+  intake is enabled. The Google service account remains Drive-only.
   Passcode encryption uses a domain-separated key derived from the existing
   stable Django secret, so it needs no additional deployment secret.
 

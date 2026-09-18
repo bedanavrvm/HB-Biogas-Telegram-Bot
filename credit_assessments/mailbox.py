@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import logging
 import re
 import uuid
@@ -19,6 +20,7 @@ from .services import MASKED_PHONE_RE, AssessmentError, parse_statement_filename
 
 logger = logging.getLogger(__name__)
 ORIGINAL_DATE_RE = re.compile(r'^Date:\s*(.+)$', re.IGNORECASE | re.MULTILINE)
+GMAIL_READONLY_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly'
 
 
 def _header(payload: dict, name: str) -> str:
@@ -92,18 +94,38 @@ def _pdf_attachments(payload: dict):
         stack.extend(reversed(part.get('parts') or []))
 
 
+def _gmail_credentials():
+    """Build refreshable credentials for one consented personal Gmail inbox."""
+    from google.oauth2.credentials import Credentials
+
+    raw = str(getattr(settings, 'CREDIT_ASSESSMENT_GMAIL_OAUTH_JSON', '') or '').strip()
+    if not raw:
+        raise RuntimeError('credit_mailbox_oauth_missing')
+    try:
+        info = json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise RuntimeError('credit_mailbox_oauth_invalid') from exc
+    if not isinstance(info, dict):
+        raise RuntimeError('credit_mailbox_oauth_invalid')
+    required = ('client_id', 'client_secret', 'refresh_token')
+    if any(not str(info.get(key) or '').strip() for key in required):
+        raise RuntimeError('credit_mailbox_oauth_incomplete')
+    normalized = {
+        'client_id': str(info['client_id']).strip(),
+        'client_secret': str(info['client_secret']).strip(),
+        'refresh_token': str(info['refresh_token']).strip(),
+        'type': 'authorized_user',
+    }
+    return Credentials.from_authorized_user_info(normalized, scopes=[GMAIL_READONLY_SCOPE])
+
+
 def _gmail_service():
-    from google.oauth2.service_account import Credentials
     from googleapiclient.discovery import build
 
-    delegated_user = str(getattr(settings, 'CREDIT_ASSESSMENT_GMAIL_USER', '') or '').strip()
-    if not delegated_user:
+    mailbox_user = str(getattr(settings, 'CREDIT_ASSESSMENT_GMAIL_USER', '') or '').strip()
+    if not mailbox_user:
         raise RuntimeError('credit_mailbox_user_missing')
-    credentials = Credentials.from_service_account_file(
-        getattr(settings, 'GOOGLE_SERVICE_ACCOUNT_FILE', 'credentials.json'),
-        scopes=['https://www.googleapis.com/auth/gmail.readonly'],
-    ).with_subject(delegated_user)
-    return build('gmail', 'v1', credentials=credentials, cache_discovery=False)
+    return build('gmail', 'v1', credentials=_gmail_credentials(), cache_discovery=False)
 
 
 def _attachment_bytes(service, message_id: str, attachment_id: str) -> bytes:
@@ -189,6 +211,10 @@ def poll_mailbox(*, commit: bool = False, limit: int = 50) -> dict:
 
     try:
         service = _gmail_service()
+        profile = service.users().getProfile(userId='me').execute()
+        configured_user = str(getattr(settings, 'CREDIT_ASSESSMENT_GMAIL_USER', '') or '').strip().casefold()
+        if str(profile.get('emailAddress') or '').strip().casefold() != configured_user:
+            raise RuntimeError('credit_mailbox_account_mismatch')
         query = 'has:attachment filename:MPESA_Statement_ newer_than:180d'
         response = service.users().messages().list(userId='me', q=query, maxResults=max(1, min(limit, 500))).execute()
         results = [ingest_message(service, str(item['id']), commit=commit) for item in response.get('messages') or []]
