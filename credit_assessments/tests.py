@@ -2,11 +2,12 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from core.models import TatTrackerCase
 
 from .models import AssessmentDecision, CreditAssessment, StatementMailReceipt
+from .mailbox import poll_mailbox
 from .services import (
     AssessmentError,
     confirm_statement,
@@ -83,3 +84,21 @@ class CreditAssessmentServiceTests(TestCase):
         second = get_or_create_assessment(case=self.case, user=self.bro_context, request_id='start-1')
         self.assertEqual(first.pk, second.pk)
         self.assertEqual(first.events.count(), 1)
+
+    @override_settings(CREDIT_ASSESSMENT_GMAIL_USER='pool@example.com')
+    @patch('credit_assessments.mailbox._gmail_service')
+    def test_mailbox_searches_for_recent_pdfs_before_strict_filename_validation(self, service_factory):
+        service = MagicMock()
+        service_factory.return_value = service
+        users = service.users.return_value
+        users.getProfile.return_value.execute.return_value = {'emailAddress': 'pool@example.com'}
+        users.messages.return_value.list.return_value.execute.return_value = {'messages': []}
+
+        result = poll_mailbox(commit=False, limit=50)
+
+        self.assertEqual(result['messages'], 0)
+        users.messages.return_value.list.assert_called_once_with(
+            userId='me',
+            q='has:attachment filename:pdf newer_than:180d',
+            maxResults=50,
+        )

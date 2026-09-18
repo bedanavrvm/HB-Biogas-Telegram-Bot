@@ -215,7 +215,11 @@ def poll_mailbox(*, commit: bool = False, limit: int = 50) -> dict:
         configured_user = str(getattr(settings, 'CREDIT_ASSESSMENT_GMAIL_USER', '') or '').strip().casefold()
         if str(profile.get('emailAddress') or '').strip().casefold() != configured_user:
             raise RuntimeError('credit_mailbox_account_mismatch')
-        query = 'has:attachment filename:MPESA_Statement_ newer_than:180d'
+        # Gmail does not reliably treat the provider's underscore-delimited
+        # filename prefix as a searchable filename token. Retrieve recent PDF
+        # attachments broadly, then rely on ``parse_statement_filename`` below
+        # for the strict, provider-specific allowlist.
+        query = 'has:attachment filename:pdf newer_than:180d'
         response = service.users().messages().list(userId='me', q=query, maxResults=max(1, min(limit, 500))).execute()
         results = [ingest_message(service, str(item['id']), commit=commit) for item in response.get('messages') or []]
         cursor.history_id = str(response.get('historyId') or cursor.history_id)
