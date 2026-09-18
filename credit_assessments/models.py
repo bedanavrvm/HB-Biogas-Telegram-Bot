@@ -71,7 +71,7 @@ class StatementMailReceipt(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_comment='Immutable mailbox-receipt identifier.')
     gmail_message_id = models.CharField(max_length=255, db_comment='Gmail message identifier used with the attachment identifier for idempotent ingestion.')
-    gmail_attachment_id = models.CharField(max_length=255, db_comment='Gmail attachment identifier used with the message identifier for idempotent ingestion.')
+    gmail_attachment_id = models.CharField(max_length=2048, db_comment='Gmail attachment identifier used with the message identifier for idempotent ingestion.')
     gmail_thread_id = models.CharField(max_length=255, blank=True, default='', db_comment='Gmail thread identifier retained for operational traceability.')
     forwarding_sender = models.EmailField(blank=True, default='', db_index=True, db_comment='Normalized staff email that forwarded the statement.')
     subject = models.CharField(max_length=998, blank=True, default='', db_comment='Forwarded subject containing only the provider supplied masked phone and period.')

@@ -53,6 +53,10 @@ class CreditAssessmentServiceTests(TestCase):
         self.assertTrue(parsed.full_year)
         self.assertTrue(masked_phone_matches(parsed.masked_phone, self.case.primary_phone))
 
+    def test_gmail_attachment_identifier_allows_provider_opaque_values(self):
+        field = StatementMailReceipt._meta.get_field('gmail_attachment_id')
+        self.assertEqual(field.max_length, 2048)
+
     def test_short_statement_reaches_manager_and_only_return_is_available(self):
         assessment = get_or_create_assessment(case=self.case, user=self.bro_context, request_id='start-1')
         receipt = self._receipt(full_year=False)
