@@ -56,6 +56,7 @@ from .views import (
     sync_from_sheets,
 )
 from credit_assessments.views import credit_assessment_action, credit_assessment_detail, credit_assessment_document
+from hb_operations.views import hb_action_correct, hb_action_detail, hb_action_list, hb_action_transition
 from .portal_views import (
     portal_navigation,
     portal_settings,
@@ -528,6 +529,11 @@ urlpatterns = [
     path('portal/requisition-batches/<str:order_number>/download/', portal_auth_required(portal_requisition_batch_download), name='portal_requisition_batch_download'),
     path('portal/requisition-batches/<str:order_number>/retry-sync/', portal_auth_required(portal_requisition_batch_retry_sync), name='portal_requisition_batch_retry_sync'),
     path('portal/requisition-batches/<str:order_number>/', portal_auth_required(portal_requisition_batch_detail), name='portal_requisition_batch_detail'),
+    # Post-order HomeBiogas installation and commissioning workspace.
+    path('portal/hb-actions/', hb_action_list, name='portal_hb_action_list'),
+    path('portal/hb-actions/<uuid:farmer_id>/', hb_action_detail, name='portal_hb_action_api_detail'),
+    path('portal/hb-actions/<uuid:farmer_id>/transition/', hb_action_transition, name='portal_hb_action_transition'),
+    path('portal/hb-actions/<uuid:farmer_id>/correct/', hb_action_correct, name='portal_hb_action_correct'),
     path('portal/invoice-pool/', portal_auth_required(portal_invoice_pool), name='portal_invoice_pool'),
     path('portal/invoice-pool/farmers/', portal_auth_required(portal_invoice_farmer_candidates), name='portal_invoice_farmer_candidates'),
     path('portal/invoice-pool/upload/', portal_auth_required(portal_invoice_pool_upload), name='portal_invoice_pool_upload'),

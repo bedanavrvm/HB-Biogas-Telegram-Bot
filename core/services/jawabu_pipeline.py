@@ -2278,6 +2278,23 @@ def sync_farmer_to_master_sheet(
             'balance_due': (candidates('balance_due'), _sheet_number(farmer.balance_due)),
         }
 
+        # Post-order HB fields are one-way projections from the bounded
+        # HomeBiogas domain. Absence means pre-cutover/historical data and must
+        # not blank or reinterpret existing Sheet cells.
+        from hb_operations.models import HomeBiogasAction
+        hb_action = HomeBiogasAction.objects.filter(farmer=farmer).first()
+        if hb_action is not None:
+            pipeline_fields.update({
+                'installation_date': (candidates('installation_date'), _date_text(hb_action.installation_date)),
+                'serial_number': (candidates('serial_number'), hb_action.serial_number),
+                'readiness_status': (candidates('readiness_status'), hb_action.get_readiness_status_display() if hb_action.readiness_status else ''),
+                'pending_installation_comment': (candidates('pending_installation_comment'), hb_action.pending_installation_comment),
+                'installation_report_status': (candidates('installation_report_status'), hb_action.get_installation_report_status_display() if hb_action.installation_report_status else ''),
+                'commissioning_status': (candidates('commissioning_status'), hb_action.get_commissioning_status_display() if hb_action.commissioning_status else ''),
+                'commissioning_date': (candidates('commissioning_date'), _date_text(hb_action.commissioning_date)),
+                'pending_commissioning_comment': (candidates('pending_commissioning_comment'), hb_action.pending_commissioning_comment),
+            })
+
         for field_name, (candidates, new_val) in pipeline_fields.items():
             if field_name in MASTER_UPPERCASE_TEXT_FIELDS:
                 new_val = _smart_sheet_label(new_val)
@@ -2285,7 +2302,7 @@ def sync_farmer_to_master_sheet(
             if header:
                 idx = header_lookup[normalize_header(header)] - 1
                 current_val = row_values[idx] if idx < len(row_values) else ''
-                is_date_field = field_name in {'hbg_visit_date', 'jbl_visit_date'}
+                is_date_field = field_name in {'hbg_visit_date', 'jbl_visit_date', 'installation_date', 'commissioning_date'}
                 if force_date_columns and is_date_field and new_val:
                     # A text-looking date may already compare equal while still
                     # being stored as text in Sheets.  Force a USER_ENTERED

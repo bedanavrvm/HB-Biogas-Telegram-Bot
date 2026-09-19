@@ -17,6 +17,7 @@ PORTAL_NAV_ITEMS = (
     ('deferred', 'Deferred & Reappraisal', 'clock', 'portal.deferred.view'),
     ('all', 'All Cases', 'database', 'portal.case.read'),
     ('batches', 'Finalized Orders', 'layers', 'portal.batches.view'),
+    ('hb_actions', 'HB Action', 'wrench', 'portal.hb_action.view'),
     ('invoices', 'Invoice Review', 'receipt-text', 'portal.invoice.view'),
     ('payments', 'Payment Preparation', 'banknote', 'portal.payment.view'),
     ('history', 'Document Archive', 'archive', 'portal.documents.view'),
@@ -34,6 +35,7 @@ PIPELINE_STAGES = (
     ('approval', 'Approval', 'badge-check', ('final', 'payment_approvals')),
     ('fulfilment', 'Fulfilment', 'package-check', ('requisition', 'batches')),
     ('finance', 'Finance', 'banknote', ('invoices', 'payments', 'history')),
+    ('homebiogas', 'HB Action', 'wrench', ('hb_actions',)),
 )
 
 PORTAL_SCREEN_PRESENTATION = {
@@ -48,6 +50,7 @@ PORTAL_SCREEN_PRESENTATION = {
     'payment_approvals': {'hub': 'pipeline', 'stage': 'approval', 'group': 'Pipeline · Approval', 'order': 1},
     'requisition': {'hub': 'pipeline', 'stage': 'fulfilment', 'group': 'Pipeline · Fulfilment', 'order': 0},
     'batches': {'hub': 'pipeline', 'stage': 'fulfilment', 'group': 'Pipeline · Fulfilment', 'order': 1},
+    'hb_actions': {'hub': 'pipeline', 'stage': 'homebiogas', 'group': 'Pipeline · HB Action', 'order': 0},
     'invoices': {'hub': 'pipeline', 'stage': 'finance', 'group': 'Pipeline · Finance', 'order': 0},
     'payments': {'hub': 'pipeline', 'stage': 'finance', 'group': 'Pipeline · Finance', 'order': 1},
     'history': {'hub': 'pipeline', 'stage': 'finance', 'group': 'Pipeline · Finance', 'order': 2},
@@ -60,7 +63,7 @@ PORTAL_SCREEN_PRESENTATION = {
 
 PORTAL_NAV_GROUP_ORDER = (
     'Home', 'Pipeline · Intake', 'Pipeline · Field Visit', 'Pipeline · Credit',
-    'Pipeline · Approval', 'Pipeline · Fulfilment', 'Pipeline · Finance', 'Cases', 'More',
+    'Pipeline · Approval', 'Pipeline · Fulfilment', 'Pipeline · Finance', 'Pipeline · HB Action', 'Cases', 'More',
 )
 
 PORTAL_HUBS = (
@@ -96,6 +99,8 @@ def get_portal_nav_items(user, *, access=None) -> list[dict]:
             url = reverse('portal_payments_screen')
         elif key == 'payment_approvals':
             url = reverse('portal_payment_approvals_screen')
+        elif key == 'hb_actions':
+            url = reverse('portal_hb_actions_screen')
         else:
             url = reverse('portal_screen', kwargs={'screen': key})
         items.append({

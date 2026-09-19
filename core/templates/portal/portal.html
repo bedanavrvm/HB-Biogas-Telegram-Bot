@@ -3,7 +3,7 @@
   <div id="portal-offline-banner">Offline. You can view already loaded data, but uploads and updates need a connection.</div>
 {% endif %}
 
-<div id="portal-screen" data-screen="{{ active_screen }}" data-case-farmer-id="{{ case_history_farmer_id|default:'' }}" data-report-view="{{ report_view|default:'' }}" data-report-id="{{ report_id|default:'' }}" data-report-step="{{ report_step|default:'' }}" data-invoice-view="{{ invoice_view|default:'' }}" data-invoice-id="{{ invoice_id|default:'' }}" data-payment-view="{{ payment_view|default:'' }}" data-payment-batch-id="{{ payment_batch_id|default:'' }}" data-farmup-batch-id="{{ farmup_batch_id|default:'' }}" data-top-level="{% if case_history_farmer_id or farmup_batch_id or payment_batch_id %}false{% elif report_view and report_view != 'catalogue' %}false{% elif invoice_view and invoice_view != 'inbox' %}false{% else %}true{% endif %}">
+<div id="portal-screen" data-screen="{{ active_screen }}" data-case-farmer-id="{{ case_history_farmer_id|default:'' }}" data-report-view="{{ report_view|default:'' }}" data-report-id="{{ report_id|default:'' }}" data-report-step="{{ report_step|default:'' }}" data-invoice-view="{{ invoice_view|default:'' }}" data-invoice-id="{{ invoice_id|default:'' }}" data-payment-view="{{ payment_view|default:'' }}" data-payment-batch-id="{{ payment_batch_id|default:'' }}" data-farmup-batch-id="{{ farmup_batch_id|default:'' }}" data-hb-action-view="{{ hb_action_view|default:'' }}" data-hb-action-farmer-id="{{ hb_action_farmer_id|default:'' }}" data-top-level="{% if case_history_farmer_id or farmup_batch_id or payment_batch_id or hb_action_farmer_id %}false{% elif report_view and report_view != 'catalogue' %}false{% elif invoice_view and invoice_view != 'inbox' %}false{% else %}true{% endif %}">
 
   <!-- Dashboard -->
   {% if active_screen == 'dashboard' %}
@@ -53,6 +53,14 @@
         <span class="queue-card-body">
           <span class="count-num" id="cnt-requisition">-</span>
           <span class="count-label">Ready for order</span>
+        </span>
+        <span class="queue-card-action">Open <i data-lucide="arrow-up-right"></i></span>
+      </a>
+      <a class="count-card" data-page="hb_actions" id="card-hb-actions" data-required-capability="portal.hb_action.view" href="{% url 'portal_hb_actions_screen' %}">
+        <span class="queue-card-icon"><i data-lucide="wrench"></i></span>
+        <span class="queue-card-body">
+          <span class="count-num" id="cnt-hb-actions">-</span>
+          <span class="count-label">HB installation action</span>
         </span>
         <span class="queue-card-action">Open <i data-lucide="arrow-up-right"></i></span>
       </a>
@@ -113,6 +121,57 @@
     <section id="portal-personal-performance" class="performance-personal" hidden></section>
     <section class="dashboard-action-section"><div class="stage-summary-heading"><h2>Branch and product standings</h2><span>Minimum 20 completed visits to rank</span></div><div id="portal-team-performance" class="performance-list"></div></section>
     <section id="portal-people-performance-section" class="dashboard-action-section" hidden><div class="stage-summary-heading"><h2>Officer breakdown by cohort</h2><span>Head of Rural and IT only</span></div><div id="portal-people-performance" class="performance-list"></div></section>
+  </section>
+  {% endif %}
+
+  {% if active_screen == 'hb_actions' %}
+  <section id="page-hb-actions" class="page active" data-required-capability="portal.hb_action.view">
+    {% if hb_action_farmer_id %}
+    <header class="hb-action-detail-header">
+      <a class="portal-back-icon" href="{% url 'portal_hb_actions_screen' %}" aria-label="Back to HB Action"><i data-lucide="arrow-left" aria-hidden="true"></i></a>
+      <div><p class="eyebrow">HB Action</p><h1 id="hb-action-detail-title">Installation record</h1><p class="meta" id="hb-action-detail-meta">Loading current details</p></div>
+      <button type="button" class="hb-action-edit-toggle" id="hb-action-edit-toggle" aria-label="Toggle correction mode" title="Correct this record" hidden><i data-lucide="pencil" aria-hidden="true"></i></button>
+    </header>
+    <div id="hb-action-detail-loading" class="empty-state"><div class="spinner-inline"></div></div>
+    <div id="hb-action-detail" hidden>
+      <section class="hb-action-summary" id="hb-action-summary"></section>
+      <a id="hb-action-invoice" class="hb-action-invoice" href="#" hidden><span><i data-lucide="receipt-text" aria-hidden="true"></i><strong>Invoice received</strong><small id="hb-action-invoice-copy"></small></span><i data-lucide="chevron-right" aria-hidden="true"></i></a>
+      <form id="hb-action-form" class="hb-action-form" novalidate>
+        <section class="hb-action-form-card">
+          <div class="hb-action-card-heading"><div><h2>Installation</h2><p>Record the current installation outcome.</p></div></div>
+          <label>Installation status<select id="hb-installation-status" name="installation_status" required></select></label>
+          <div id="hb-readiness-fields" class="hb-action-two-column">
+            <label>Readiness<select id="hb-readiness-status" name="readiness_status"></select></label>
+            <label id="hb-installation-date-wrap"><span id="hb-installation-date-label">Scheduled installation date</span><input id="hb-installation-date" name="installation_date" type="date"></label>
+          </div>
+          <label id="hb-pending-installation-wrap">Pending installation comment<textarea id="hb-pending-installation-comment" name="pending_installation_comment" rows="3" maxlength="2000"></textarea></label>
+          <div id="hb-installed-fields" class="hb-action-installed-fields" hidden>
+            <div class="hb-action-two-column">
+              <label>Serial number <small>Optional</small><input id="hb-serial-number" name="serial_number" type="text" maxlength="128"></label>
+              <label>Installation report<select id="hb-installation-report-status" name="installation_report_status"></select></label>
+            </div>
+          </div>
+        </section>
+        <section class="hb-action-form-card" id="hb-commissioning-card" hidden>
+          <div class="hb-action-card-heading"><div><h2>Commissioning</h2><p>Record whether the installed unit is ready for use.</p></div></div>
+          <div class="hb-action-two-column">
+            <label>Commissioning status<select id="hb-commissioning-status" name="commissioning_status"></select></label>
+            <label><span id="hb-commissioning-date-label">Scheduled commissioning date</span><input id="hb-commissioning-date" name="commissioning_date" type="date"></label>
+          </div>
+          <label id="hb-pending-commissioning-wrap">Pending commissioning comment<textarea id="hb-pending-commissioning-comment" name="pending_commissioning_comment" rows="3" maxlength="2000"></textarea></label>
+        </section>
+        <label id="hb-correction-reason-wrap" class="hb-action-correction-reason" hidden>Correction reason<textarea id="hb-correction-reason" name="reason" rows="2" maxlength="1000" placeholder="Explain a change to a completed milestone"></textarea></label>
+        <div class="hb-action-form-actions"><button type="submit" class="btn btn-primary" id="hb-action-save">Save progress</button></div>
+      </form>
+      <details class="hb-action-history"><summary>Activity history <span id="hb-action-history-count"></span></summary><div id="hb-action-history-list"></div></details>
+    </div>
+    {% else %}
+    <header class="portal-queue-header"><div><p class="eyebrow">Post-order work</p><h1>HB Action</h1><p class="meta">Installation and commissioning after an accepted signed order</p></div><button type="button" class="queue-refresh-button" id="hb-actions-refresh" aria-label="Refresh HB Action" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button></header>
+    <div class="hb-action-toolbar"><label class="hb-action-search"><i data-lucide="search" aria-hidden="true"></i><input id="hb-actions-search" type="search" placeholder="Name, ID, phone or order" aria-label="Search HB Action"></label></div>
+    <div id="hb-action-counts" class="hb-action-counts" aria-label="Installation status filters"></div>
+    <div id="hb-action-list" class="hb-action-list"><div class="empty-state"><div class="spinner-inline"></div></div></div>
+    <div id="hb-action-pagination" class="pagination"></div>
+    {% endif %}
   </section>
   {% endif %}
 

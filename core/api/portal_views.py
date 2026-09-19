@@ -1496,6 +1496,19 @@ def portal_payment_approvals_screen(request, batch_id=None):
 
 
 @require_http_methods(["GET", "HEAD"])
+def portal_hb_actions_screen(request, farmer_id=None):
+    """Render the mobile-first HomeBiogas action queue or one case record."""
+    context = _portal_screen_context(
+        'hb_actions',
+        hb_action_view='detail' if farmer_id else 'inbox',
+        hb_action_farmer_id=str(farmer_id or ''),
+    )
+    if request.htmx:
+        return _portal_screen_fragment(request, 'hb_actions', context=context)
+    return render(request, 'portal/portal_screen_full.html', context)
+
+
+@require_http_methods(["GET", "HEAD"])
 def portal_case_history_detail(request, farmer_id: str):
     """Render one customer's Case 360 as a dedicated navigable screen."""
     context = _portal_screen_context('case_history', case_history_farmer_id=farmer_id)
@@ -1511,6 +1524,7 @@ def portal_case_history_detail(request, farmer_id: str):
         'all': 'All Cases',
         'payments': 'Payment Preparation',
         'payment_approvals': 'Payment Approval',
+        'hb_actions': 'HB Action',
     }
     if source not in source_labels:
         source = 'all'
@@ -1519,6 +1533,7 @@ def portal_case_history_detail(request, farmer_id: str):
     context['case_history_back_url'] = (
         reverse('portal_payments_screen') if source == 'payments'
         else reverse('portal_payment_approvals_screen') if source == 'payment_approvals'
+        else reverse('portal_hb_actions_screen') if source == 'hb_actions'
         else reverse('portal_screen', kwargs={'screen': source})
     )
     if request.htmx:

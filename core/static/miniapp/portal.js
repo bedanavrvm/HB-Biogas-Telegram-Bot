@@ -12,6 +12,7 @@
   const portalRequisitions = window.PortalMiniAppRequisitions || {};
   const portalInvoices = window.PortalMiniAppInvoices || {};
   const portalPayments = window.PortalMiniAppPayments || {};
+  const portalHbActions = window.PortalMiniAppHbActions || {};
   const portalImports = window.PortalMiniAppImports || {};
   const portalFarmUp = window.PortalMiniAppFarmUp || {};
   const portalReports = window.PortalMiniAppReports || {};
@@ -645,6 +646,7 @@
     if (el('cnt-credit')) el('cnt-credit').textContent = c.credit_queue ?? '-';
     if (el('cnt-final')) el('cnt-final').textContent = c.final_review_queue ?? '-';
     if (el('cnt-requisition')) el('cnt-requisition').textContent = c.requisition_queue ?? '-';
+    if (el('cnt-hb-actions')) el('cnt-hb-actions').textContent = c.hb_actions ?? '-';
     if (el('cnt-deferred')) el('cnt-deferred').textContent = c.deferred ?? '-';
     if (el('cnt-total')) el('cnt-total').textContent = c.total ?? '-';
     // Update tab badges
@@ -1812,6 +1814,7 @@
   function loadPage(page) {
     if (page === 'dashboard') return loadDashboard();
     if (page === 'performance') return loadPortalPerformance();
+    if (page === 'hb_actions' && portalHbActions.load) return portalHbActions.load();
     if (page === 'invoices' && portalInvoices.load) return portalInvoices.load(1);
     if (page === 'history') return loadHistory();
     if (page === 'case_history') return loadCaseHistory();
@@ -2758,6 +2761,12 @@
       showToast,
       state,
       tg,
+    });
+  }
+  if (portalHbActions.init) {
+    portalHbActions.init({
+      escapeHtml, fmtDate, openPortalLink, portalApi, setButtonLoading,
+      showToast, state, tg,
     });
   }
 

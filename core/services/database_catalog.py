@@ -17,10 +17,10 @@ from django.db import connection
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CATALOGUE_APP_LABELS = ('core', 'requisitions', 'payments', 'credit_assessments')
+CATALOGUE_APP_LABELS = ('core', 'requisitions', 'payments', 'credit_assessments', 'hb_operations')
 USAGE_ROOTS = (
     ROOT / 'core' / 'api', ROOT / 'core' / 'services', ROOT / 'core' / 'management',
-    ROOT / 'requisitions', ROOT / 'payments', ROOT / 'credit_assessments',
+    ROOT / 'requisitions', ROOT / 'payments', ROOT / 'credit_assessments', ROOT / 'hb_operations',
 )
 
 DOMAIN_RULES = (
@@ -40,6 +40,18 @@ DOMAIN_RULES = (
 # New models must be explicitly declared here. Existing models are covered by
 # scripts/database_catalog_existing_models.json and deterministic inference.
 MODEL_OVERRIDES: dict[str, dict[str, Any]] = {
+    'hb_operations.HomeBiogasAction': {
+        'domain': 'homebiogas_operations',
+        'purpose': 'Authoritative post-order installation and commissioning state for one Portal case.',
+        'classification': 'authoritative_record', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Retain permanently with the accepted requisition, case, and installation evidence.',
+    },
+    'hb_operations.HomeBiogasActionEvent': {
+        'domain': 'homebiogas_operations',
+        'purpose': 'Append-only evidence for release, progress, and audited milestone corrections.',
+        'classification': 'immutable_event', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Permanent; retained with the HomeBiogas action and never edited or deleted.',
+    },
     'credit_assessments.CreditAssessment': {
         'domain': 'credit_assessment', 'purpose': 'Authoritative evidence-and-decision lifecycle linked to one TAT case.',
         'classification': 'authoritative_record', 'source_of_truth': True, 'lifecycle': 'active',

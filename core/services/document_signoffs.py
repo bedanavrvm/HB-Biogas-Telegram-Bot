@@ -270,6 +270,11 @@ def _upload_to_drive(signoff: DocumentPhysicalSignoff, *, actor) -> DocumentPhys
                     signoff.payment_document, actor=actor,
                     request_id=f'payment-scan:{signoff.id}',
                 )
+            elif signoff.document_type == DocumentSignoffPolicy.DOCUMENT_REQUISITION:
+                # This accepted signed/stamped scan is the hard-cutover release
+                # event. Existing approved scans return above and are not backfilled.
+                from hb_operations.services import release_requisition_signoff
+                release_requisition_signoff(signoff, actor=actor)
             _record_event(signoff, DocumentPhysicalSignoffEvent.ACTION_APPROVED, actor=actor, metadata={
                 'source_checksum': signoff.source_checksum,
                 'scan_checksum': signoff.scan_checksum,

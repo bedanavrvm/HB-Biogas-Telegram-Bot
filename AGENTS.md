@@ -69,6 +69,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **Portal report** | An IT-only, catalogue-constrained live report over canonical Portal cases. It is not a generic SQL/ORM builder and has no cross-workflow identity join. |
 | **FarmUp monthly worklist** | The group-scoped, month-labelled Portal intake workspace whose immutable CSV versions are reconciled cumulatively. Committed unchanged rows are recognized, unselected rows remain held, and Google publication is tracked separately from canonical Django commits. |
 | **Official requisition order** | An Operations-finalized, immutable requisition workbook whose plain numeric order number is allocated transactionally from the IT-aligned, group-scoped Django sequence. Drive is publication only and does not define finality. |
+| **HB Action** | The hard-cutover, post-order HomeBiogas installation and commissioning workspace. A case enters only when the exact official requisition version receives an accepted signed/stamped scan; Django owns the state and audit history while the existing Master Data columns are a one-way projection. |
 | **Payment batch** | A group-scoped payment workspace where every case independently selects `LOAN-JAWABU` or `CASH`. Its official consecutive number is allocated on first submission, Head of Rural reviews each case and its mode, membership remains editable until an exact signed scan is accepted, and every change invalidates any superseded workbook. |
 | **Jawabu Case ID** | The immutable Django UUID projected into the visible Master Data `Case ID` column and hidden metadata. Sheet publication uses it before mutable customer identifiers so retries and later corrections update one row instead of creating duplicates. |
 | **Complaint case import batch** | The auditable record of one Superuser-authorized WhatsApp complaint export import. It attributes imported cases to the uploader and source message without making the spreadsheet or Telegram message a second workflow database. |
@@ -123,6 +124,7 @@ Many root-level Markdown documents describe earlier versions of the project. The
 - `core/api/browser_urls.py` — intentional root browser/Mini App entry points
 - `core/api/legacy_urls.py` — individually declared, logged root compatibility aliases
 - `requisitions/` — bounded order-number governance domain; owns the group-scoped official requisition sequence
+- `hb_operations/` — bounded post-order HomeBiogas installation/commissioning state and append-only audit history
 - `core/api/views.py` — Telegram webhook and several Mini App/API endpoints
 - `core/api/portal_views.py` — Jawabu pipeline portal endpoints
 - `core/models.py` — database models for all workflows
@@ -216,6 +218,7 @@ Key modules:
 - `database_catalog.py` — customer-data-free database dictionary, bounded-domain classification, relationship maps, PostgreSQL comments, and code-usage discovery
 - `portal_publication.py` — durable, request-assisted Portal register publication for free Render; local workflow commits never wait for Google Sheets
 - `payments/services.py` — governed payment batches, consecutive numbering, per-case Head of Rural review, workbook invalidation, and signed-scan finality
+- `hb_operations/services.py` — accepted-requisition release, scoped HB queues, validated progression/corrections, and one-way publication reservations
 - `access_control.py` — maker-checker access changes, emergency grants, notifications, and policy versioning
 - `staff_lifecycle.py` — atomic idempotent Superuser staff lifecycle execution, optional checker review, access, routing, leave, return, offboarding, and Telegram activation controls
 - `user_hard_delete.py` — unilateral Superuser account hard deletion, immutable identity manifests, audit preservation, force-unassignment, and coverage-gap evidence

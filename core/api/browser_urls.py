@@ -8,6 +8,7 @@ from .portal_views import (
     portal_case_history_detail,
     portal_farmup_review_screen,
     portal_home,
+    portal_hb_actions_screen,
     portal_invoices_screen,
     portal_payment_approvals_screen,
     portal_payments_screen,
@@ -58,5 +59,7 @@ urlpatterns = [
     path('portal/s/payments/<uuid:batch_id>/', portal_payments_screen, name='portal_payment_batch_screen_detail'),
     path('portal/s/approvals/payments/', portal_payment_approvals_screen, name='portal_payment_approvals_screen'),
     path('portal/s/approvals/payments/<uuid:batch_id>/', portal_payment_approvals_screen, name='portal_payment_approval_detail'),
+    path('portal/s/hb-actions/', portal_hb_actions_screen, name='portal_hb_actions_screen'),
+    path('portal/s/hb-actions/<uuid:farmer_id>/', portal_hb_actions_screen, name='portal_hb_action_detail'),
     path('portal/s/<str:screen>/', portal_screen, name='portal_screen'),
 ]

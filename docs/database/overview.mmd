@@ -4,6 +4,7 @@ flowchart LR
   catalog["Catalog"]
   complaints["Complaints"]
   credit_assessment["Credit Assessment"]
+  homebiogas_operations["Homebiogas Operations"]
   integration["Integration"]
   jawabu["Jawabu"]
   order_approval["Order Approval"]
@@ -19,6 +20,8 @@ flowchart LR
   complaints --> jawabu
   complaints --> platform
   credit_assessment --> tat
+  homebiogas_operations --> jawabu
+  homebiogas_operations --> platform
   integration --> platform
   jawabu --> catalog
   jawabu --> order_approval
