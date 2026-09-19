@@ -242,6 +242,11 @@ def release_requisition_signoff(signoff, *, actor=None) -> dict:
                 'source_signoff': signoff,
                 'source_order_number': batch.order_number,
                 'source_requisition_version': batch.version,
+                # Do not rely on model defaults for a business hand-off. An
+                # accepted signed order always starts an actionable, open
+                # installation and a not-yet-commissioned unit.
+                'installation_status': HomeBiogasAction.INSTALLATION_OPEN,
+                'commissioning_status': HomeBiogasAction.COMMISSIONING_NOT_COMMISSIONED,
                 'created_by': actor,
                 'updated_by': actor,
             },
@@ -252,7 +257,22 @@ def release_requisition_signoff(signoff, *, actor=None) -> dict:
                 action=action, event_type='order.released_to_hb', revision=action.revision,
                 actor=actor, actor_label=_actor_label(actor),
                 request_id=f'hb-release:{signoff.pk}:{farmer.pk}',
-                new_values={'order_number': batch.order_number, 'requisition_version': batch.version},
+                new_values={
+                    'order_number': batch.order_number,
+                    'requisition_version': batch.version,
+                    'installation_status': HomeBiogasAction.INSTALLATION_OPEN,
+                    'commissioning_status': HomeBiogasAction.COMMISSIONING_NOT_COMMISSIONED,
+                },
+            )
+            # The farmer record is the one-way Master Data projection source.
+            # Update it at the same hard-cutover hand-off, so the Sheet shows
+            # Open without waiting for an HB user to make an unrelated edit.
+            _sync_farmer(
+                action,
+                actor=actor,
+                request_id=f'hb-release:{signoff.pk}:{farmer.pk}',
+                required_capability='portal.documents.sign',
+                deduplication_namespace='hb-release',
             )
         else:
             existing += 1
@@ -311,12 +331,23 @@ def _validate_installation(action: HomeBiogasAction, payload: dict, *, correctio
         raise HomeBiogasActionError('The actual installation date cannot be in the future.')
     if report not in dict(HomeBiogasAction.REPORT_CHOICES):
         raise HomeBiogasActionError('Choose whether the installation report was submitted.')
-    return {
+    values = {
         'installation_status': target, 'planned_installation_date': planned_installation_date,
         'installation_date': installation_date,
         'readiness_status': '', 'pending_installation_comment': '',
         'serial_number': serial, 'installation_report_status': report,
     }
+    # Completing installation is the only route into commissioning. Make that
+    # state transition explicit instead of depending on an earlier default.
+    # A correction to an already commissioned record deliberately preserves
+    # its completed commissioning evidence.
+    if action.installation_status != HomeBiogasAction.INSTALLATION_INSTALLED:
+        values.update({
+            'commissioning_status': HomeBiogasAction.COMMISSIONING_NOT_COMMISSIONED,
+            'commissioning_date': None,
+            'pending_commissioning_comment': '',
+        })
+    return values
 
 
 def _validate_commissioning(action: HomeBiogasAction, payload: dict, *, correction: bool = False) -> tuple[dict, dict]:
@@ -352,7 +383,14 @@ def _validate_commissioning(action: HomeBiogasAction, payload: dict, *, correcti
     return values, policy
 
 
-def _sync_farmer(action: HomeBiogasAction, *, actor, request_id: str):
+def _sync_farmer(
+    action: HomeBiogasAction,
+    *,
+    actor,
+    request_id: str,
+    required_capability: str = WRITE_CAPABILITY,
+    deduplication_namespace: str = 'hb-action',
+):
     farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=action.farmer_id)
     labels = {
         HomeBiogasAction.INSTALLATION_OPEN: 'Open',
@@ -364,8 +402,8 @@ def _sync_farmer(action: HomeBiogasAction, *, actor, request_id: str):
     farmer.save(update_fields=['installation_status', 'workflow_revision', 'updated_at'])
     return reserve_farmer_publication(
         farmer, request_id=request_id, requested_by=actor,
-        requested_by_label=_actor_label(actor), required_capability=WRITE_CAPABILITY,
-        deduplication_namespace='hb-action',
+        requested_by_label=_actor_label(actor), required_capability=required_capability,
+        deduplication_namespace=deduplication_namespace,
     )
 
 

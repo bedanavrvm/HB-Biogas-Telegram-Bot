@@ -71,6 +71,9 @@ class HomeBiogasActionServiceTests(TestCase):
         self.assertEqual(action.commissioning_status, 'not_commissioned')
         self.assertEqual(action.source_order_number, '1201')
         self.assertEqual(action.events.filter(event_type='order.released_to_hb').count(), 1)
+        self.farmer.refresh_from_db()
+        self.assertEqual(self.farmer.installation_status, 'Open')
+        self.assertEqual(self.farmer.workflow_revision, 2)
 
     def test_simplification_migration_preserves_planned_dates_and_completed_commissioning(self):
         action = self.release()

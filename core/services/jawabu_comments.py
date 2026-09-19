@@ -15,8 +15,8 @@ STAGE_ROLE = {
     'credit': ('CREDIT_ANALYST', 'Credit Analyst'),
     'final_review': ('BUSINESS_ADMIN', 'Head of Rural'),
     'payment': ('BUSINESS_ADMIN', 'Head of Rural'),
-    'order': ('HB_STAFF', 'Operations Staff'),
-    'invoice': ('HB_STAFF', 'Operations Staff'),
+    'order': ('HB_STAFF', 'HomeBiogas Staff'),
+    'invoice': ('HB_STAFF', 'HomeBiogas Staff'),
     'correction': ('IT', 'IT'),
 }
 

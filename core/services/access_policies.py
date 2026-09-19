@@ -23,7 +23,7 @@ WORKFLOW_ROLES = {
         ('BM', 'Branch Manager'),
         ('MANAGEMENT', 'Management'),
         ('CREDIT_ANALYST', 'Credit Analyst'),
-        ('HB_STAFF', 'HomeBiogas / Operations Staff'),
+        ('HB_STAFF', 'HomeBiogas Staff'),
         (OPERATIONS_ADMIN_ROLE, 'Operations Administrator'),
         ('IT', 'IT / Platform Support'),
         # The stable code is retained so existing grants and audit evidence do
@@ -60,7 +60,7 @@ ROLE_ALIASES = {
     'jawabu_portal': {
         'admin': BUSINESS_ADMIN_ROLE, 'business_admin': BUSINESS_ADMIN_ROLE,
         'jbl_officer': 'JBL_OFFICER',
-        'credit_analyst': 'CREDIT_ANALYST', 'operations': 'HB_STAFF',
+        'credit_analyst': 'CREDIT_ANALYST', 'operations': OPERATIONS_ADMIN_ROLE,
         'hb_staff': 'HB_STAFF', 'head_rural': BUSINESS_ADMIN_ROLE,
         'operations_admin': OPERATIONS_ADMIN_ROLE, 'ops_admin': OPERATIONS_ADMIN_ROLE,
         'branch_manager': 'BM', 'bm': 'BM', 'management': 'MANAGEMENT',
