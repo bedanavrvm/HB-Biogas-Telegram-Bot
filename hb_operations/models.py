@@ -7,15 +7,11 @@ from django.db import models
 class HomeBiogasAction(models.Model):
     """Current HomeBiogas fulfilment state for one canonical Portal case."""
 
-    INSTALLATION_NEEDS_PLANNING = 'needs_planning'
-    INSTALLATION_PENDING = 'pending_installation'
-    INSTALLATION_SCHEDULED = 'scheduled'
+    INSTALLATION_OPEN = 'open'
     INSTALLATION_INSTALLED = 'installed'
     INSTALLATION_CLOSED = 'closed'
     INSTALLATION_CHOICES = [
-        (INSTALLATION_NEEDS_PLANNING, 'Needs planning'),
-        (INSTALLATION_PENDING, 'Pending installation'),
-        (INSTALLATION_SCHEDULED, 'Scheduled'),
+        (INSTALLATION_OPEN, 'Open'),
         (INSTALLATION_INSTALLED, 'Installed'),
         (INSTALLATION_CLOSED, 'Closed'),
     ]
@@ -38,11 +34,11 @@ class HomeBiogasAction(models.Model):
         (REPORT_NOT_APPLICABLE, 'Not applicable'),
     ]
 
-    COMMISSIONING_PENDING = 'pending'
-    COMMISSIONING_DONE = 'done'
+    COMMISSIONING_NOT_COMMISSIONED = 'not_commissioned'
+    COMMISSIONING_COMMISSIONED = 'commissioned'
     COMMISSIONING_CHOICES = [
-        (COMMISSIONING_PENDING, 'Pending'),
-        (COMMISSIONING_DONE, 'Done'),
+        (COMMISSIONING_NOT_COMMISSIONED, 'Not commissioned'),
+        (COMMISSIONING_COMMISSIONED, 'Commissioned'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_comment='Immutable HomeBiogas action identifier.')
@@ -61,20 +57,24 @@ class HomeBiogasAction(models.Model):
     source_order_number = models.CharField(max_length=128, db_comment='Immutable staff-facing order number captured at release.')
     source_requisition_version = models.PositiveIntegerField(db_comment='Exact finalized requisition version captured at release.')
     installation_status = models.CharField(
-        max_length=32, choices=INSTALLATION_CHOICES, default=INSTALLATION_NEEDS_PLANNING,
+        max_length=32, choices=INSTALLATION_CHOICES, default=INSTALLATION_OPEN,
         db_comment='Current server-validated installation state.',
+    )
+    planned_installation_date = models.DateField(
+        null=True, blank=True,
+        db_comment='Optional planned installation date while the installation remains open.',
     )
     installation_date = models.DateField(
         null=True, blank=True,
-        db_comment='Scheduled date while scheduled, or actual completion date while installed.',
+        db_comment='Actual installation completion date; required only when installation is installed.',
     )
     serial_number = models.CharField(max_length=128, blank=True, default='', db_comment='Optional manufacturer serial number retained as text.')
-    readiness_status = models.CharField(max_length=24, choices=READINESS_CHOICES, blank=True, default='', db_comment='Structured readiness state for pending or scheduled installation.')
-    pending_installation_comment = models.TextField(blank=True, default='', db_comment='Operational explanation while installation is pending or scheduled.')
+    readiness_status = models.CharField(max_length=24, choices=READINESS_CHOICES, blank=True, default='', db_comment='Optional structured readiness state while installation remains open.')
+    pending_installation_comment = models.TextField(blank=True, default='', db_comment='Optional installation note; required for a closed case or a known readiness blocker.')
     installation_report_status = models.CharField(max_length=24, choices=REPORT_CHOICES, blank=True, default='', db_comment='Whether the installation report was submitted to Jawabu.')
-    commissioning_status = models.CharField(max_length=16, choices=COMMISSIONING_CHOICES, blank=True, default='', db_comment='Current commissioning state after installation.')
-    commissioning_date = models.DateField(null=True, blank=True, db_comment='Scheduled date while pending, or actual completion date when commissioning is done.')
-    pending_commissioning_comment = models.TextField(blank=True, default='', db_comment='Operational explanation while commissioning is pending.')
+    commissioning_status = models.CharField(max_length=24, choices=COMMISSIONING_CHOICES, default=COMMISSIONING_NOT_COMMISSIONED, db_comment='Whether the installed unit has actually been commissioned.')
+    commissioning_date = models.DateField(null=True, blank=True, db_comment='Actual commissioning completion date; required only when commissioned.')
+    pending_commissioning_comment = models.TextField(blank=True, default='', db_comment='Legacy operational note retained only for historical audit context.')
     revision = models.PositiveBigIntegerField(default=1, db_comment='Optimistic concurrency revision incremented by every accepted mutation.')
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+', db_comment='Staff actor whose accepted signoff released this record.')
     updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+', db_comment='Staff actor responsible for the latest accepted change.')
@@ -113,4 +113,3 @@ class HomeBiogasActionEvent(models.Model):
                 name='unique_hb_action_request',
             ),
         ]
-

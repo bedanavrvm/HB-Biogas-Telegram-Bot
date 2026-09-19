@@ -117,32 +117,23 @@ def hb_action_list(request):
         if report in dict(HomeBiogasAction.REPORT_CHOICES):
             queryset = queryset.filter(installation_report_status=report)
         if date_from:
-            queryset = queryset.filter(installation_date__gte=date_from)
+            queryset = queryset.filter(planned_installation_date__gte=date_from)
         if date_to:
-            queryset = queryset.filter(installation_date__lte=date_to)
+            queryset = queryset.filter(planned_installation_date__lte=date_to)
         if str(request.GET.get('overdue') or '').lower() in {'1', 'true', 'yes'}:
             queryset = queryset.filter(
-                installation_status=HomeBiogasAction.INSTALLATION_SCHEDULED,
-                installation_date__lt=today,
+                installation_status=HomeBiogasAction.INSTALLATION_OPEN,
+                planned_installation_date__lt=today,
             )
         counts_queryset = queryset
         counts = {
-            'open': counts_queryset.filter(installation_status__in=[
-                HomeBiogasAction.INSTALLATION_NEEDS_PLANNING,
-                HomeBiogasAction.INSTALLATION_PENDING,
-                HomeBiogasAction.INSTALLATION_SCHEDULED,
-            ]).distinct().count(),
-            **{
-                key: counts_queryset.filter(installation_status=key).distinct().count()
-                for key, _label in HomeBiogasAction.INSTALLATION_CHOICES
-            },
+            key: counts_queryset.filter(installation_status=key).distinct().count()
+            for key, _label in HomeBiogasAction.INSTALLATION_CHOICES
         }
-        if not state or state == 'open':
-            queryset = queryset.filter(installation_status__in=[
-                HomeBiogasAction.INSTALLATION_NEEDS_PLANNING,
-                HomeBiogasAction.INSTALLATION_PENDING,
-                HomeBiogasAction.INSTALLATION_SCHEDULED,
-            ])
+        if not state:
+            state = HomeBiogasAction.INSTALLATION_OPEN
+        if state == HomeBiogasAction.INSTALLATION_OPEN:
+            queryset = queryset.filter(installation_status=HomeBiogasAction.INSTALLATION_OPEN)
         elif state in dict(HomeBiogasAction.INSTALLATION_CHOICES):
             queryset = queryset.filter(installation_status=state)
     else:
@@ -155,27 +146,23 @@ def hb_action_list(request):
         if date_to:
             queryset = queryset.filter(installation_date__lte=date_to - timedelta(days=COMMISSIONING_WAIT_DAYS))
         threshold = today - timedelta(days=COMMISSIONING_WAIT_DAYS)
-        unfinished = ~Q(commissioning_status=HomeBiogasAction.COMMISSIONING_DONE)
+        unfinished = Q(commissioning_status=HomeBiogasAction.COMMISSIONING_NOT_COMMISSIONED)
         counts_queryset = queryset
         counts = {
-            'open': counts_queryset.filter(unfinished).distinct().count(),
-            'waiting': counts_queryset.filter(unfinished, installation_date__gt=threshold).distinct().count(),
-            'due_today': counts_queryset.filter(unfinished, installation_date=threshold).distinct().count(),
-            'delayed': counts_queryset.filter(unfinished, installation_date__lt=threshold).distinct().count(),
-            'done': counts_queryset.filter(commissioning_status=HomeBiogasAction.COMMISSIONING_DONE).distinct().count(),
+            'not_commissioned': counts_queryset.filter(unfinished).distinct().count(),
+            'commissioned': counts_queryset.filter(
+                commissioning_status=HomeBiogasAction.COMMISSIONING_COMMISSIONED,
+            ).distinct().count(),
         }
-        if str(request.GET.get('overdue') or '').lower() in {'1', 'true', 'yes'}:
-            state = 'delayed'
-        if not state or state == 'open':
-            queryset = queryset.filter(unfinished)
-        elif state == 'waiting':
-            queryset = queryset.filter(unfinished, installation_date__gt=threshold)
-        elif state == 'due_today':
-            queryset = queryset.filter(unfinished, installation_date=threshold)
-        elif state == 'delayed':
+        overdue_only = str(request.GET.get('overdue') or '').lower() in {'1', 'true', 'yes'}
+        if overdue_only:
             queryset = queryset.filter(unfinished, installation_date__lt=threshold)
-        elif state == 'done':
-            queryset = queryset.filter(commissioning_status=HomeBiogasAction.COMMISSIONING_DONE)
+        if not state:
+            state = 'not_commissioned'
+        if state == 'not_commissioned':
+            queryset = queryset.filter(unfinished)
+        elif state == 'commissioned':
+            queryset = queryset.filter(commissioning_status=HomeBiogasAction.COMMISSIONING_COMMISSIONED)
     queryset = queryset.distinct()
     try:
         page = max(1, int(request.GET.get('page') or 1))
@@ -228,7 +215,7 @@ def hb_action_detail(request, farmer_id):
             'correct': access is None or has_capability(actor, 'jawabu_portal', CORRECT_CAPABILITY, access=access),
         },
         'options': {
-            'installation_statuses': [{'value': key, 'label': label} for key, label in HomeBiogasAction.INSTALLATION_CHOICES if key != HomeBiogasAction.INSTALLATION_NEEDS_PLANNING],
+            'installation_statuses': [{'value': key, 'label': label} for key, label in HomeBiogasAction.INSTALLATION_CHOICES],
             'readiness_statuses': [{'value': key, 'label': label} for key, label in HomeBiogasAction.READINESS_CHOICES],
             'installation_report_statuses': [{'value': key, 'label': label} for key, label in HomeBiogasAction.REPORT_CHOICES],
         },

@@ -21,7 +21,7 @@ WRITE_CAPABILITY = 'portal.hb_action.write'
 CORRECT_CAPABILITY = 'portal.hb_action.correct'
 
 STATE_FIELDS = (
-    'installation_status', 'installation_date', 'serial_number', 'readiness_status',
+    'installation_status', 'planned_installation_date', 'installation_date', 'serial_number', 'readiness_status',
     'pending_installation_comment', 'installation_report_status',
     'commissioning_status', 'commissioning_date', 'pending_commissioning_comment',
 )
@@ -62,9 +62,9 @@ def commissioning_readiness(action: HomeBiogasAction, *, today: date | None = No
         }
     ready_on = installed_on + timedelta(days=COMMISSIONING_WAIT_DAYS)
     current = today or timezone.localdate()
-    if action.commissioning_status == HomeBiogasAction.COMMISSIONING_DONE:
+    if action.commissioning_status == HomeBiogasAction.COMMISSIONING_COMMISSIONED:
         state = 'done'
-        label = 'Done'
+        label = 'Commissioned'
         days_until = 0
         overdue_days = 0
     else:
@@ -143,13 +143,16 @@ def serialize_action(action: HomeBiogasAction, *, include_history: bool = False)
         'order_number': action.source_order_number,
         'installation_status': action.installation_status,
         'installation_status_label': action.get_installation_status_display(),
+        'planned_installation_date': action.planned_installation_date.isoformat() if action.planned_installation_date else '',
+        'planned_installation_date_display': _display_date(action.planned_installation_date),
         'installation_date': action.installation_date.isoformat() if action.installation_date else '',
         'installation_date_display': _display_date(action.installation_date),
-        'installation_date_label': 'Actual installation date' if action.installation_status == HomeBiogasAction.INSTALLATION_INSTALLED else 'Scheduled installation date',
+        'installation_date_label': 'Actual installation date',
         'serial_number': action.serial_number,
         'readiness_status': action.readiness_status,
         'readiness_status_label': action.get_readiness_status_display() if action.readiness_status else '',
         'pending_installation_comment': action.pending_installation_comment,
+        'installation_note': action.pending_installation_comment,
         'installation_report_status': action.installation_report_status,
         'installation_report_status_label': action.get_installation_report_status_display() if action.installation_report_status else '',
         'commissioning_status': action.commissioning_status,
@@ -259,9 +262,7 @@ def release_requisition_signoff(signoff, *, actor=None) -> dict:
 def _validate_installation(action: HomeBiogasAction, payload: dict, *, correction: bool = False) -> dict:
     target = _text(payload, 'installation_status', max_length=32)
     allowed_targets = {
-        HomeBiogasAction.INSTALLATION_NEEDS_PLANNING: {HomeBiogasAction.INSTALLATION_PENDING, HomeBiogasAction.INSTALLATION_SCHEDULED, HomeBiogasAction.INSTALLATION_INSTALLED, HomeBiogasAction.INSTALLATION_CLOSED},
-        HomeBiogasAction.INSTALLATION_PENDING: {HomeBiogasAction.INSTALLATION_PENDING, HomeBiogasAction.INSTALLATION_SCHEDULED, HomeBiogasAction.INSTALLATION_INSTALLED, HomeBiogasAction.INSTALLATION_CLOSED},
-        HomeBiogasAction.INSTALLATION_SCHEDULED: {HomeBiogasAction.INSTALLATION_SCHEDULED, HomeBiogasAction.INSTALLATION_PENDING, HomeBiogasAction.INSTALLATION_INSTALLED, HomeBiogasAction.INSTALLATION_CLOSED},
+        HomeBiogasAction.INSTALLATION_OPEN: {HomeBiogasAction.INSTALLATION_OPEN, HomeBiogasAction.INSTALLATION_INSTALLED, HomeBiogasAction.INSTALLATION_CLOSED},
         HomeBiogasAction.INSTALLATION_INSTALLED: {HomeBiogasAction.INSTALLATION_INSTALLED},
         HomeBiogasAction.INSTALLATION_CLOSED: set(),
     }
@@ -269,27 +270,28 @@ def _validate_installation(action: HomeBiogasAction, payload: dict, *, correctio
         raise HomeBiogasActionError('That installation change is not available from the current status.')
     if (
         correction
-        and action.commissioning_status == HomeBiogasAction.COMMISSIONING_DONE
+        and action.commissioning_status == HomeBiogasAction.COMMISSIONING_COMMISSIONED
         and target != HomeBiogasAction.INSTALLATION_INSTALLED
     ):
         raise HomeBiogasActionError(
             'Installation must remain Installed because commissioning is already complete.'
         )
     readiness = _text(payload, 'readiness_status', max_length=24)
-    comment = _text(payload, 'pending_installation_comment')
+    comment = _text(payload, 'installation_note') or _text(payload, 'pending_installation_comment')
+    planned_installation_date = _date_value(payload, 'planned_installation_date')
     installation_date = _date_value(payload, 'installation_date')
     serial = _text(payload, 'serial_number', max_length=128)
     report = _text(payload, 'installation_report_status', max_length=24)
 
-    if target in {HomeBiogasAction.INSTALLATION_PENDING, HomeBiogasAction.INSTALLATION_SCHEDULED}:
-        if readiness not in dict(HomeBiogasAction.READINESS_CHOICES):
-            raise HomeBiogasActionError('Choose the customer readiness status.')
-        if target == HomeBiogasAction.INSTALLATION_SCHEDULED and not installation_date:
-            raise HomeBiogasActionError('Choose the scheduled installation date.')
-        if (readiness != HomeBiogasAction.READINESS_READY or not installation_date) and not comment:
-            raise HomeBiogasActionError('Add a short pending installation comment.')
+    if target == HomeBiogasAction.INSTALLATION_OPEN:
+        if readiness and readiness not in dict(HomeBiogasAction.READINESS_CHOICES):
+            raise HomeBiogasActionError('Choose a valid readiness status.')
+        if readiness == HomeBiogasAction.READINESS_NOT_READY and not comment:
+            raise HomeBiogasActionError('Add a short installation note for a known readiness blocker.')
         return {
-            'installation_status': target, 'installation_date': installation_date,
+            'installation_status': target,
+            'planned_installation_date': planned_installation_date,
+            'installation_date': None,
             'readiness_status': readiness, 'pending_installation_comment': comment,
             'serial_number': '', 'installation_report_status': '',
         }
@@ -298,6 +300,7 @@ def _validate_installation(action: HomeBiogasAction, payload: dict, *, correctio
             raise HomeBiogasActionError('Add a closure reason.')
         return {
             'installation_status': target, 'installation_date': None,
+            'planned_installation_date': None,
             'readiness_status': readiness or HomeBiogasAction.READINESS_NOT_CONFIRMED,
             'pending_installation_comment': comment, 'serial_number': '',
             'installation_report_status': '',
@@ -309,7 +312,8 @@ def _validate_installation(action: HomeBiogasAction, payload: dict, *, correctio
     if report not in dict(HomeBiogasAction.REPORT_CHOICES):
         raise HomeBiogasActionError('Choose whether the installation report was submitted.')
     return {
-        'installation_status': target, 'installation_date': installation_date,
+        'installation_status': target, 'planned_installation_date': planned_installation_date,
+        'installation_date': installation_date,
         'readiness_status': '', 'pending_installation_comment': '',
         'serial_number': serial, 'installation_report_status': report,
     }
@@ -318,10 +322,10 @@ def _validate_installation(action: HomeBiogasAction, payload: dict, *, correctio
 def _validate_commissioning(action: HomeBiogasAction, payload: dict, *, correction: bool = False) -> tuple[dict, dict]:
     if action.installation_status != HomeBiogasAction.INSTALLATION_INSTALLED or not action.installation_date:
         raise HomeBiogasActionError('Complete installation before recording commissioning.')
-    target = _text(payload, 'commissioning_status', max_length=16) or HomeBiogasAction.COMMISSIONING_DONE
-    if target != HomeBiogasAction.COMMISSIONING_DONE:
-        raise HomeBiogasActionError('Commissioning can only be marked done from this screen.')
-    if action.commissioning_status == HomeBiogasAction.COMMISSIONING_DONE and not correction:
+    target = _text(payload, 'commissioning_status', max_length=24) or HomeBiogasAction.COMMISSIONING_COMMISSIONED
+    if target != HomeBiogasAction.COMMISSIONING_COMMISSIONED:
+        raise HomeBiogasActionError('Commissioning can only be marked commissioned from this screen.')
+    if action.commissioning_status == HomeBiogasAction.COMMISSIONING_COMMISSIONED and not correction:
         raise HomeBiogasActionError('Commissioning is already complete. Use correction mode to amend it.')
     commissioned_on = _date_value(payload, 'commissioning_date')
     if not commissioned_on:
@@ -336,7 +340,7 @@ def _validate_commissioning(action: HomeBiogasAction, payload: dict, *, correcti
             f'This date is {early_by_days} day{"s" if early_by_days != 1 else ""} before the standard commissioning readiness date. Confirm the early commissioning to continue.'
         )
     values = {
-        'commissioning_status': HomeBiogasAction.COMMISSIONING_DONE,
+        'commissioning_status': HomeBiogasAction.COMMISSIONING_COMMISSIONED,
         'commissioning_date': commissioned_on,
         'pending_commissioning_comment': '',
     }
@@ -351,9 +355,7 @@ def _validate_commissioning(action: HomeBiogasAction, payload: dict, *, correcti
 def _sync_farmer(action: HomeBiogasAction, *, actor, request_id: str):
     farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=action.farmer_id)
     labels = {
-        HomeBiogasAction.INSTALLATION_NEEDS_PLANNING: 'Needs Planning',
-        HomeBiogasAction.INSTALLATION_PENDING: 'Pending Installation',
-        HomeBiogasAction.INSTALLATION_SCHEDULED: 'Scheduled',
+        HomeBiogasAction.INSTALLATION_OPEN: 'Open',
         HomeBiogasAction.INSTALLATION_INSTALLED: 'Installed',
         HomeBiogasAction.INSTALLATION_CLOSED: 'Closed',
     }
@@ -420,7 +422,7 @@ def correct_action(action_id, *, payload: dict, actor, request_id: str, expected
         )
         corrected_installation_date = corrected.get('installation_date')
         if (
-            action.commissioning_status == HomeBiogasAction.COMMISSIONING_DONE
+            action.commissioning_status == HomeBiogasAction.COMMISSIONING_COMMISSIONED
             and action.commissioning_date and corrected_installation_date
         ):
             ready_on = corrected_installation_date + timedelta(days=COMMISSIONING_WAIT_DAYS)
@@ -443,7 +445,7 @@ def correct_action(action_id, *, payload: dict, actor, request_id: str, expected
         if key in {'installation_status', 'installation_date', 'commissioning_status', 'commissioning_date'}
     ) and (
         action.installation_status == HomeBiogasAction.INSTALLATION_INSTALLED
-        or action.commissioning_status == HomeBiogasAction.COMMISSIONING_DONE
+        or action.commissioning_status == HomeBiogasAction.COMMISSIONING_COMMISSIONED
     )
     if milestone_changed and not reason:
         raise HomeBiogasActionError('Give a reason for changing a completed milestone.')

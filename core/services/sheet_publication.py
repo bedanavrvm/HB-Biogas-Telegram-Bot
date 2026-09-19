@@ -65,7 +65,7 @@ OPERATIONAL_FIELDS: dict[str, tuple[PublicationField, ...]] = {
         _field("hbg_contract_name", "JawabuFarmerMaster.hbg_contract_name", ("HBG Contract Name", "Contract Name"), "workflow"),
         _field("contract_type", "JawabuFarmerMaster.contract_type", ("Contract Type",), "workflow"),
         _field("installation_status", "JawabuFarmerMaster.installation_status", ("Installation Status",), "workflow"),
-        _field("installation_date", "HomeBiogasAction.installation_date", ("Installation Date", "Installation Date / Scheduled / Estimated Date"), "workflow"),
+        _field("installation_date", "HomeBiogasAction actual installation date, otherwise planned installation date", ("Installation Date", "Installation Date / Scheduled / Estimated Date"), "workflow"),
         _field("serial_number", "HomeBiogasAction.serial_number", ("Serial No.", "Serial No", "Serial Number"), "workflow"),
         _field("readiness_status", "HomeBiogasAction.readiness_status", ("Readiness Status",), "workflow"),
         _field("pending_installation_comment", "HomeBiogasAction.pending_installation_comment", ("Pending Installation Comment",), "workflow"),

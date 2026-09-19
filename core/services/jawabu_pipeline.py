@@ -2285,7 +2285,12 @@ def sync_farmer_to_master_sheet(
         hb_action = HomeBiogasAction.objects.filter(farmer=farmer).first()
         if hb_action is not None:
             pipeline_fields.update({
-                'installation_date': (candidates('installation_date'), _date_text(hb_action.installation_date)),
+                # The legacy Master Data column combines planned and actual
+                # installation dates. Django retains them separately; retain
+                # the operationally useful date in that legacy projection.
+                'installation_date': (candidates('installation_date'), _date_text(
+                    hb_action.installation_date or hb_action.planned_installation_date,
+                )),
                 'serial_number': (candidates('serial_number'), hb_action.serial_number),
                 'readiness_status': (candidates('readiness_status'), hb_action.get_readiness_status_display() if hb_action.readiness_status else ''),
                 'pending_installation_comment': (candidates('pending_installation_comment'), hb_action.pending_installation_comment),

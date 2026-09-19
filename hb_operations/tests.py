@@ -1,8 +1,10 @@
 import json
+from importlib import import_module
 from datetime import date, timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.apps import apps as django_apps
 from django.db import connection
 from django.test import TestCase, override_settings
 from django.test import RequestFactory
@@ -65,9 +67,27 @@ class HomeBiogasActionServiceTests(TestCase):
         self.assertEqual(second['existing'], 1)
         self.assertEqual(HomeBiogasAction.objects.count(), 1)
         action = HomeBiogasAction.objects.get()
-        self.assertEqual(action.installation_status, 'needs_planning')
+        self.assertEqual(action.installation_status, 'open')
+        self.assertEqual(action.commissioning_status, 'not_commissioned')
         self.assertEqual(action.source_order_number, '1201')
         self.assertEqual(action.events.filter(event_type='order.released_to_hb').count(), 1)
+
+    def test_simplification_migration_preserves_planned_dates_and_completed_commissioning(self):
+        action = self.release()
+        planned = timezone.localdate() + timedelta(days=3)
+        action.installation_status = 'scheduled'
+        action.installation_date = planned
+        action.commissioning_status = 'done'
+        action.save(update_fields=['installation_status', 'installation_date', 'commissioning_status'])
+
+        migration = import_module('hb_operations.migrations.0002_simplify_fulfilment_states')
+        migration.simplify_existing_actions(django_apps, None)
+
+        action.refresh_from_db()
+        self.assertEqual(action.installation_status, 'open')
+        self.assertEqual(action.planned_installation_date, planned)
+        self.assertIsNone(action.installation_date)
+        self.assertEqual(action.commissioning_status, 'commissioned')
 
     def test_release_locks_signoff_without_joining_nullable_document_sources(self):
         with CaptureQueriesContext(connection) as captured:
@@ -124,25 +144,26 @@ class HomeBiogasActionServiceTests(TestCase):
         self.assertNotEqual(accepted.source_checksum, accepted.scan_checksum)
         self.assertTrue(HomeBiogasAction.objects.filter(farmer=self.farmer).exists())
 
-    def test_scheduled_requires_date_and_pending_context(self):
+    def test_open_installation_keeps_readiness_and_an_optional_planned_date_as_details(self):
         action = self.release()
-        with self.assertRaisesMessage(HomeBiogasActionError, 'scheduled installation date'):
+        with self.assertRaisesMessage(HomeBiogasActionError, 'known readiness blocker'):
             transition_action(
-                action.pk, actor=self.user, request_id='schedule-1', expected_revision=1,
-                payload={'workstream': 'installation', 'installation_status': 'scheduled', 'readiness_status': 'ready'},
+                action.pk, actor=self.user, request_id='open-1', expected_revision=1,
+                payload={'workstream': 'installation', 'installation_status': 'open', 'readiness_status': 'not_ready'},
             )
         updated, _operations, replayed = transition_action(
-            action.pk, actor=self.user, request_id='schedule-2', expected_revision=1,
+            action.pk, actor=self.user, request_id='open-2', expected_revision=1,
             payload={
                 'workstream': 'installation',
-                'installation_status': 'scheduled', 'readiness_status': 'ready',
-                'installation_date': '2026-09-25',
+                'installation_status': 'open', 'readiness_status': 'ready',
+                'planned_installation_date': '2026-09-25',
             },
         )
         self.assertFalse(replayed)
-        self.assertEqual(updated.installation_date, date(2026, 9, 25))
+        self.assertEqual(updated.planned_installation_date, date(2026, 9, 25))
+        self.assertIsNone(updated.installation_date)
         self.farmer.refresh_from_db()
-        self.assertEqual(self.farmer.installation_status, 'Scheduled')
+        self.assertEqual(self.farmer.installation_status, 'Open')
 
     def test_installed_record_enters_automatic_commissioning_wait_without_extra_input(self):
         action = self.release()
@@ -155,7 +176,7 @@ class HomeBiogasActionServiceTests(TestCase):
             },
         )
         self.assertEqual(updated.serial_number, '')
-        self.assertEqual(updated.commissioning_status, '')
+        self.assertEqual(updated.commissioning_status, 'not_commissioned')
 
     def test_completed_milestone_correction_requires_reason_and_is_audited(self):
         action = self.release()
@@ -170,7 +191,7 @@ class HomeBiogasActionServiceTests(TestCase):
         action, _operations, _replayed = transition_action(
             action.pk, actor=self.user, request_id='commissioned-2', expected_revision=2,
             payload={
-                'workstream': 'commissioning', 'commissioning_status': 'done',
+                'workstream': 'commissioning', 'commissioning_status': 'commissioned',
                 'commissioning_date': (installed_on + timedelta(days=21)).isoformat(),
             },
         )
@@ -204,19 +225,19 @@ class HomeBiogasActionServiceTests(TestCase):
             transition_action(
                 action.pk, actor=self.user, request_id='commission-early-rejected', expected_revision=2,
                 payload={
-                    'workstream': 'commissioning', 'commissioning_status': 'done',
+                    'workstream': 'commissioning', 'commissioning_status': 'commissioned',
                     'commissioning_date': timezone.localdate().isoformat(),
                 },
             )
         completed, _operations, _replayed = transition_action(
             action.pk, actor=self.user, request_id='commission-early-accepted', expected_revision=2,
             payload={
-                'workstream': 'commissioning', 'commissioning_status': 'done',
+                'workstream': 'commissioning', 'commissioning_status': 'commissioned',
                 'commissioning_date': timezone.localdate().isoformat(),
                 'early_commissioning_acknowledged': True,
             },
         )
-        self.assertEqual(completed.commissioning_status, 'done')
+        self.assertEqual(completed.commissioning_status, 'commissioned')
         event = HomeBiogasActionEvent.objects.get(request_id='commission-early-accepted')
         self.assertTrue(event.new_values['early_commissioning_acknowledged'])
 
@@ -254,16 +275,16 @@ class HomeBiogasActionApiTests(HomeBiogasActionServiceTests):
 
         waiting = self.client.get(reverse('portal_hb_action_list'), {'queue': 'commissioning'})
         self.assertEqual(waiting.status_code, 200)
-        self.assertEqual(waiting.json()['counts']['waiting'], 1)
+        self.assertEqual(waiting.json()['counts']['not_commissioned'], 1)
         self.assertEqual(waiting.json()['items'][0]['commissioning_state'], 'waiting')
         self.assertEqual(waiting.json()['items'][0]['days_until_ready'], 21)
 
         action.installation_date = timezone.localdate() - timedelta(days=22)
         action.save(update_fields=['installation_date', 'updated_at'])
         delayed = self.client.get(reverse('portal_hb_action_list'), {
-            'queue': 'commissioning', 'state': 'delayed',
+            'queue': 'commissioning', 'overdue': '1',
         })
-        self.assertEqual(delayed.json()['counts']['delayed'], 1)
+        self.assertEqual(delayed.json()['counts']['not_commissioned'], 1)
         self.assertEqual(delayed.json()['items'][0]['commissioning_overdue_days'], 1)
 
     def test_invoice_card_is_preview_for_hb_and_record_for_operations(self):

@@ -138,25 +138,26 @@
       <a id="hb-action-invoice" class="hb-action-invoice" href="#" hidden><span><i data-lucide="receipt-text" aria-hidden="true"></i><strong id="hb-action-invoice-label">Invoice</strong><small id="hb-action-invoice-copy"></small></span><i data-lucide="chevron-right" aria-hidden="true"></i></a>
       <form id="hb-action-form" class="hb-action-form" novalidate>
         <section class="hb-action-form-card" id="hb-installation-card">
-          <div class="hb-action-card-heading"><div><h2>Installation</h2><p>Record the current installation outcome.</p></div></div>
+          <div class="hb-action-card-heading"><div><h2>Installation</h2><p>Keep the case open until the unit is actually installed.</p></div></div>
           <label>Installation status<select id="hb-installation-status" name="installation_status" required></select></label>
-          <div id="hb-readiness-fields" class="hb-action-two-column">
+          <div id="hb-open-installation-fields" class="hb-action-two-column">
             <label>Readiness<select id="hb-readiness-status" name="readiness_status"></select></label>
-            <label id="hb-installation-date-wrap"><span id="hb-installation-date-label">Scheduled installation date</span><input id="hb-installation-date" name="installation_date" type="date"></label>
+            <label>Planned installation date <small>Optional</small><input id="hb-planned-installation-date" name="planned_installation_date" type="date"></label>
           </div>
-          <label id="hb-pending-installation-wrap">Pending installation comment<textarea id="hb-pending-installation-comment" name="pending_installation_comment" rows="3" maxlength="2000"></textarea></label>
+          <label id="hb-installation-note-wrap">Installation note <small>Required when the customer is not ready or the case is closed.</small><textarea id="hb-installation-note" name="installation_note" rows="3" maxlength="2000"></textarea></label>
           <div id="hb-installed-fields" class="hb-action-installed-fields" hidden>
             <div class="hb-action-two-column">
+              <label>Actual installation date<input id="hb-installation-date" name="installation_date" type="date"></label>
               <label>Serial number <small>Optional</small><input id="hb-serial-number" name="serial_number" type="text" maxlength="128"></label>
-              <label>Installation report<select id="hb-installation-report-status" name="installation_report_status"></select></label>
             </div>
+            <label>Installation report<select id="hb-installation-report-status" name="installation_report_status"></select></label>
           </div>
         </section>
         <section class="hb-action-form-card" id="hb-commissioning-card" hidden>
           <div class="hb-action-card-heading"><div><h2>Commissioning</h2><p>Commissioning is normally ready 21 days after installation.</p></div></div>
           <div class="hb-commissioning-readiness" id="hb-commissioning-readiness" role="status"></div>
           <label>Actual commissioning date<input id="hb-commissioning-date" name="commissioning_date" type="date"></label>
-          <input id="hb-commissioning-status" name="commissioning_status" type="hidden" value="done">
+          <input id="hb-commissioning-status" name="commissioning_status" type="hidden" value="commissioned">
         </section>
         <label id="hb-correction-reason-wrap" class="hb-action-correction-reason" hidden>Correction reason<textarea id="hb-correction-reason" name="reason" rows="2" maxlength="1000" placeholder="Explain a change to a completed milestone"></textarea></label>
         <div class="hb-action-form-actions"><button type="submit" class="btn btn-primary" id="hb-action-save">Save progress</button></div>

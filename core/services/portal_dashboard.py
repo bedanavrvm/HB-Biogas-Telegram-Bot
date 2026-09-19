@@ -256,19 +256,19 @@ def dashboard_payload(user, *, access=None) -> dict:
         from hb_operations.services import COMMISSIONING_WAIT_DAYS, scoped_actions
 
         hb_scoped = scoped_actions(user, access, 'portal.hb_action.view')
-        hb_installations = hb_scoped.exclude(
-            installation_status__in=['installed', 'closed'],
+        hb_installations = hb_scoped.filter(
+            installation_status='open',
         )
         commissioning_threshold = timezone.localdate() - timedelta(days=COMMISSIONING_WAIT_DAYS)
         hb_commissioning = hb_scoped.filter(
             installation_status='installed', installation_date__isnull=False,
-        ).exclude(commissioning_status='done')
+        ).filter(commissioning_status='not_commissioned')
         hb_commissioning_due = hb_commissioning.filter(installation_date__lte=commissioning_threshold)
         hb_action_count = hb_installations.count() + hb_commissioning.count()
         hb_actionable_count = hb_installations.count() + hb_commissioning_due.count()
         hb_action_urgent_count = (
             hb_installations.filter(
-                installation_status='scheduled', installation_date__lt=timezone.localdate(),
+                planned_installation_date__lt=timezone.localdate(),
             ).count()
             + hb_commissioning.filter(installation_date__lt=commissioning_threshold).count()
         )

@@ -4331,10 +4331,9 @@ body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-s
 .hb-status-waiting { background:var(--status-info-bg, #eff6ff); color:var(--status-info, #1d4ed8); }
 .hb-status-due-today { background:var(--status-warning-bg, #fffbeb); color:var(--status-warning, #92400e); }
 .hb-status-delayed { background:var(--status-danger-bg, #fef2f2); color:var(--status-danger, #b42318); }
-.hb-status-done { background:var(--status-success-bg, #ecfdf3); color:var(--status-success, #067647); }
-.hb-status-installed { background:var(--status-success-bg); color:var(--status-success); }
-.hb-status-scheduled { background:var(--status-info-bg); color:var(--status-info); }
-.hb-status-pending-installation, .hb-status-needs-planning { background:var(--status-warning-bg); color:var(--status-warning); }
+.hb-status-commissioned, .hb-status-installed { background:var(--status-success-bg, #ecfdf3); color:var(--status-success, #067647); }
+.hb-status-open, .hb-status-not-commissioned { background:var(--status-info-bg, #eff6ff); color:var(--status-info, #1d4ed8); }
+.hb-status-closed { background:var(--surface-muted, #f1f5f9); color:var(--text-muted, #475569); }
 .hb-action-detail-header { display:grid; grid-template-columns:40px minmax(0,1fr) 40px; align-items:start; gap:8px; margin-bottom:10px; }
 .hb-action-detail-header h1 { margin:1px 0 2px; font-size:19px; }
 .portal-back-icon, .hb-action-edit-toggle { width:40px; height:40px; display:grid; place-items:center; padding:0; border:1px solid var(--border, var(--border-color)); border-radius:10px; background:var(--surface, var(--bg-surface)); color:var(--text, var(--text-primary)); }
