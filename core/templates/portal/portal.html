@@ -128,16 +128,16 @@
   <section id="page-hb-actions" class="page active" data-required-capability="portal.hb_action.view">
     {% if hb_action_farmer_id %}
     <header class="hb-action-detail-header">
-      <a class="portal-back-icon" href="{% url 'portal_hb_actions_screen' %}" aria-label="Back to HB Action"><i data-lucide="arrow-left" aria-hidden="true"></i></a>
+      <a class="portal-back-icon" id="hb-action-back" href="{% url 'portal_hb_actions_screen' %}" aria-label="Back to HB Action"><i data-lucide="arrow-left" aria-hidden="true"></i></a>
       <div><p class="eyebrow">HB Action</p><h1 id="hb-action-detail-title">Installation record</h1><p class="meta" id="hb-action-detail-meta">Loading current details</p></div>
       <button type="button" class="hb-action-edit-toggle" id="hb-action-edit-toggle" aria-label="Toggle correction mode" title="Correct this record" hidden><i data-lucide="pencil" aria-hidden="true"></i></button>
     </header>
     <div id="hb-action-detail-loading" class="empty-state"><div class="spinner-inline"></div></div>
     <div id="hb-action-detail" hidden>
       <section class="hb-action-summary" id="hb-action-summary"></section>
-      <a id="hb-action-invoice" class="hb-action-invoice" href="#" hidden><span><i data-lucide="receipt-text" aria-hidden="true"></i><strong>Invoice received</strong><small id="hb-action-invoice-copy"></small></span><i data-lucide="chevron-right" aria-hidden="true"></i></a>
+      <a id="hb-action-invoice" class="hb-action-invoice" href="#" hidden><span><i data-lucide="receipt-text" aria-hidden="true"></i><strong id="hb-action-invoice-label">Invoice</strong><small id="hb-action-invoice-copy"></small></span><i data-lucide="chevron-right" aria-hidden="true"></i></a>
       <form id="hb-action-form" class="hb-action-form" novalidate>
-        <section class="hb-action-form-card">
+        <section class="hb-action-form-card" id="hb-installation-card">
           <div class="hb-action-card-heading"><div><h2>Installation</h2><p>Record the current installation outcome.</p></div></div>
           <label>Installation status<select id="hb-installation-status" name="installation_status" required></select></label>
           <div id="hb-readiness-fields" class="hb-action-two-column">
@@ -153,12 +153,10 @@
           </div>
         </section>
         <section class="hb-action-form-card" id="hb-commissioning-card" hidden>
-          <div class="hb-action-card-heading"><div><h2>Commissioning</h2><p>Record whether the installed unit is ready for use.</p></div></div>
-          <div class="hb-action-two-column">
-            <label>Commissioning status<select id="hb-commissioning-status" name="commissioning_status"></select></label>
-            <label><span id="hb-commissioning-date-label">Scheduled commissioning date</span><input id="hb-commissioning-date" name="commissioning_date" type="date"></label>
-          </div>
-          <label id="hb-pending-commissioning-wrap">Pending commissioning comment<textarea id="hb-pending-commissioning-comment" name="pending_commissioning_comment" rows="3" maxlength="2000"></textarea></label>
+          <div class="hb-action-card-heading"><div><h2>Commissioning</h2><p>Commissioning is normally ready 21 days after installation.</p></div></div>
+          <div class="hb-commissioning-readiness" id="hb-commissioning-readiness" role="status"></div>
+          <label>Actual commissioning date<input id="hb-commissioning-date" name="commissioning_date" type="date"></label>
+          <input id="hb-commissioning-status" name="commissioning_status" type="hidden" value="done">
         </section>
         <label id="hb-correction-reason-wrap" class="hb-action-correction-reason" hidden>Correction reason<textarea id="hb-correction-reason" name="reason" rows="2" maxlength="1000" placeholder="Explain a change to a completed milestone"></textarea></label>
         <div class="hb-action-form-actions"><button type="submit" class="btn btn-primary" id="hb-action-save">Save progress</button></div>
@@ -167,10 +165,26 @@
     </div>
     {% else %}
     <header class="portal-queue-header"><div><p class="eyebrow">Post-order work</p><h1>HB Action</h1><p class="meta">Installation and commissioning after an accepted signed order</p></div><button type="button" class="queue-refresh-button" id="hb-actions-refresh" aria-label="Refresh HB Action" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button></header>
-    <div class="hb-action-toolbar"><label class="hb-action-search"><i data-lucide="search" aria-hidden="true"></i><input id="hb-actions-search" type="search" placeholder="Name, ID, phone or order" aria-label="Search HB Action"></label></div>
+    <nav class="hb-action-tabs" role="tablist" aria-label="HomeBiogas work queue"><button type="button" role="tab" data-hb-queue="installation" aria-selected="true" class="active">Installation</button><button type="button" role="tab" data-hb-queue="commissioning" aria-selected="false">Commissioning</button></nav>
+    <div class="hb-action-toolbar"><label class="hb-action-search"><i data-lucide="search" aria-hidden="true"></i><input id="hb-actions-search" type="search" placeholder="Name, case, phone or order" aria-label="Search HB Action"></label><button type="button" class="miniapp-filter-trigger" id="hb-action-filter-trigger" aria-label="Filter HB Action"><i data-lucide="sliders-horizontal" aria-hidden="true"></i><span class="miniapp-filter-count" id="hb-action-filter-count" hidden>0</span></button></div>
     <div id="hb-action-counts" class="hb-action-counts" aria-label="Installation status filters"></div>
+    <div class="miniapp-filter-chips" id="hb-action-filter-chips" aria-live="polite"></div>
     <div id="hb-action-list" class="hb-action-list"><div class="empty-state"><div class="spinner-inline"></div></div></div>
     <div id="hb-action-pagination" class="pagination"></div>
+    <div class="miniapp-sheet-overlay" id="hb-action-filter-overlay" aria-hidden="true" hidden>
+      <aside class="miniapp-sheet" role="dialog" aria-modal="true" aria-label="Filter HB Action">
+        <header class="miniapp-sheet-header"><div><strong id="hb-action-filter-title">Filter installation</strong><p>Limit this queue without changing its workflow state.</p></div><button type="button" id="hb-action-filter-close" aria-label="Close filters"><i data-lucide="x" aria-hidden="true"></i></button></header>
+        <form class="miniapp-sheet-body" id="hb-action-filter-form">
+          <label>Branch<select id="hb-filter-branch"><option value="">All authorized branches</option></select></label>
+          <label id="hb-filter-readiness-wrap">Readiness<select id="hb-filter-readiness"><option value="">All readiness states</option></select></label>
+          <label id="hb-filter-report-wrap">Installation report<select id="hb-filter-report"><option value="">All report states</option></select></label>
+          <label>Invoice<select id="hb-filter-invoice"><option value="">With or without invoice</option><option value="present">Invoice linked</option><option value="absent">No linked invoice</option></select></label>
+          <div class="hb-action-two-column"><label><span id="hb-filter-date-from-label">Date from</span><input id="hb-filter-date-from" type="date"></label><label><span id="hb-filter-date-to-label">Date to</span><input id="hb-filter-date-to" type="date"></label></div>
+          <label class="portal-settings-check"><input id="hb-filter-overdue" type="checkbox"><span id="hb-filter-overdue-label">Overdue only</span></label>
+          <footer class="miniapp-sheet-actions"><button class="btn btn-secondary" id="hb-action-filter-reset" type="button">Reset</button><button class="btn btn-primary" type="submit">Done</button></footer>
+        </form>
+      </aside>
+    </div>
     {% endif %}
   </section>
   {% endif %}

@@ -1,24 +1,28 @@
 import json
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.db import connection
 from django.test import TestCase, override_settings
+from django.test import RequestFactory
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 
 from core.models import (
     AccessGrant,
     DocumentPhysicalSignoff,
     GroupSheetConfiguration,
+    InvoiceUploadBatch,
     JawabuFarmerMaster,
+    ParsedInvoice,
     RequisitionBatch,
 )
 from core.services.telegram_identity import user_access
 
 from .models import HomeBiogasAction, HomeBiogasActionEvent
-from .services import HomeBiogasActionError, correct_action, release_requisition_signoff, scoped_actions, transition_action
+from .services import HomeBiogasActionError, correct_action, release_requisition_signoff, scoped_actions, serialize_action, transition_action
 
 
 class HomeBiogasActionServiceTests(TestCase):
@@ -125,11 +129,12 @@ class HomeBiogasActionServiceTests(TestCase):
         with self.assertRaisesMessage(HomeBiogasActionError, 'scheduled installation date'):
             transition_action(
                 action.pk, actor=self.user, request_id='schedule-1', expected_revision=1,
-                payload={'installation_status': 'scheduled', 'readiness_status': 'ready'},
+                payload={'workstream': 'installation', 'installation_status': 'scheduled', 'readiness_status': 'ready'},
             )
         updated, _operations, replayed = transition_action(
             action.pk, actor=self.user, request_id='schedule-2', expected_revision=1,
             payload={
+                'workstream': 'installation',
                 'installation_status': 'scheduled', 'readiness_status': 'ready',
                 'installation_date': '2026-09-25',
             },
@@ -139,41 +144,81 @@ class HomeBiogasActionServiceTests(TestCase):
         self.farmer.refresh_from_db()
         self.assertEqual(self.farmer.installation_status, 'Scheduled')
 
-    def test_installed_record_keeps_serial_optional_and_commissioning_contextual(self):
+    def test_installed_record_enters_automatic_commissioning_wait_without_extra_input(self):
         action = self.release()
+        installed_on = timezone.localdate()
         updated, _operations, _replayed = transition_action(
             action.pk, actor=self.user, request_id='installed-1', expected_revision=1,
             payload={
-                'installation_status': 'installed', 'installation_date': '2026-09-19',
-                'installation_report_status': 'yes', 'commissioning_status': 'pending',
-                'pending_commissioning_comment': 'Customer training booked.',
+                'workstream': 'installation', 'installation_status': 'installed',
+                'installation_date': installed_on.isoformat(), 'installation_report_status': 'yes',
             },
         )
         self.assertEqual(updated.serial_number, '')
-        self.assertEqual(updated.commissioning_status, 'pending')
+        self.assertEqual(updated.commissioning_status, '')
 
     def test_completed_milestone_correction_requires_reason_and_is_audited(self):
         action = self.release()
+        installed_on = timezone.localdate() - timedelta(days=30)
         action, _operations, _replayed = transition_action(
             action.pk, actor=self.user, request_id='installed-2', expected_revision=1,
             payload={
-                'installation_status': 'installed', 'installation_date': '2026-09-18',
-                'installation_report_status': 'yes', 'commissioning_status': 'done',
-                'commissioning_date': '2026-09-18',
+                'workstream': 'installation', 'installation_status': 'installed',
+                'installation_date': installed_on.isoformat(), 'installation_report_status': 'yes',
+            },
+        )
+        action, _operations, _replayed = transition_action(
+            action.pk, actor=self.user, request_id='commissioned-2', expected_revision=2,
+            payload={
+                'workstream': 'commissioning', 'commissioning_status': 'done',
+                'commissioning_date': (installed_on + timedelta(days=21)).isoformat(),
             },
         )
         with self.assertRaisesMessage(HomeBiogasActionError, 'Give a reason'):
             correct_action(
-                action.pk, actor=self.user, request_id='correct-1', expected_revision=2,
-                payload={'installation_date': '2026-09-19'},
+                action.pk, actor=self.user, request_id='correct-1', expected_revision=3,
+                payload={'workstream': 'installation', 'installation_date': (installed_on - timedelta(days=1)).isoformat()},
             )
         corrected, _operations, _replayed = correct_action(
-            action.pk, actor=self.user, request_id='correct-2', expected_revision=2,
-            payload={'installation_date': '2026-09-19', 'reason': 'Corrected from installation report.'},
+            action.pk, actor=self.user, request_id='correct-2', expected_revision=3,
+            payload={
+                'workstream': 'installation', 'installation_date': (installed_on - timedelta(days=1)).isoformat(),
+                'reason': 'Corrected from installation report.',
+            },
         )
-        self.assertEqual(corrected.installation_date, date(2026, 9, 19))
+        self.assertEqual(corrected.installation_date, installed_on - timedelta(days=1))
         event = HomeBiogasActionEvent.objects.get(request_id='correct-2')
         self.assertEqual(event.reason, 'Corrected from installation report.')
+
+    def test_early_commissioning_requires_explicit_acknowledgement(self):
+        action = self.release()
+        installed_on = timezone.localdate() - timedelta(days=10)
+        action, _operations, _replayed = transition_action(
+            action.pk, actor=self.user, request_id='install-early', expected_revision=1,
+            payload={
+                'workstream': 'installation', 'installation_status': 'installed',
+                'installation_date': installed_on.isoformat(), 'installation_report_status': 'yes',
+            },
+        )
+        with self.assertRaisesMessage(HomeBiogasActionError, 'before the standard commissioning readiness date'):
+            transition_action(
+                action.pk, actor=self.user, request_id='commission-early-rejected', expected_revision=2,
+                payload={
+                    'workstream': 'commissioning', 'commissioning_status': 'done',
+                    'commissioning_date': timezone.localdate().isoformat(),
+                },
+            )
+        completed, _operations, _replayed = transition_action(
+            action.pk, actor=self.user, request_id='commission-early-accepted', expected_revision=2,
+            payload={
+                'workstream': 'commissioning', 'commissioning_status': 'done',
+                'commissioning_date': timezone.localdate().isoformat(),
+                'early_commissioning_acknowledged': True,
+            },
+        )
+        self.assertEqual(completed.commissioning_status, 'done')
+        event = HomeBiogasActionEvent.objects.get(request_id='commission-early-accepted')
+        self.assertTrue(event.new_values['early_commissioning_acknowledged'])
 
 
 @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, SECURE_SSL_REDIRECT=False)
@@ -194,8 +239,62 @@ class HomeBiogasActionApiTests(HomeBiogasActionServiceTests):
         self.release()
         response = self.client.post(
             reverse('portal_hb_action_transition', kwargs={'farmer_id': self.farmer.pk}),
-            data=json.dumps({'revision': 1, 'installation_status': 'installed'}),
+            data=json.dumps({'revision': 1, 'workstream': 'installation', 'installation_status': 'installed'}),
             content_type='application/json', HTTP_X_REQUEST_ID='hb-api-transition-1',
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn('actual installation date', response.json()['error'])
+
+    def test_commissioning_queue_derives_waiting_due_and_delayed_from_installation_date(self):
+        action = self.release()
+        action.installation_status = HomeBiogasAction.INSTALLATION_INSTALLED
+        action.installation_date = timezone.localdate()
+        action.installation_report_status = HomeBiogasAction.REPORT_YES
+        action.save(update_fields=['installation_status', 'installation_date', 'installation_report_status', 'updated_at'])
+
+        waiting = self.client.get(reverse('portal_hb_action_list'), {'queue': 'commissioning'})
+        self.assertEqual(waiting.status_code, 200)
+        self.assertEqual(waiting.json()['counts']['waiting'], 1)
+        self.assertEqual(waiting.json()['items'][0]['commissioning_state'], 'waiting')
+        self.assertEqual(waiting.json()['items'][0]['days_until_ready'], 21)
+
+        action.installation_date = timezone.localdate() - timedelta(days=22)
+        action.save(update_fields=['installation_date', 'updated_at'])
+        delayed = self.client.get(reverse('portal_hb_action_list'), {
+            'queue': 'commissioning', 'state': 'delayed',
+        })
+        self.assertEqual(delayed.json()['counts']['delayed'], 1)
+        self.assertEqual(delayed.json()['items'][0]['commissioning_overdue_days'], 1)
+
+    def test_invoice_card_is_preview_for_hb_and_record_for_operations(self):
+        action = self.release()
+        batch = InvoiceUploadBatch.objects.create(
+            original_filename='invoice.pdf', drive_file_id='drive-invoice',
+            drive_url='https://drive.example/invoice', status='matched',
+        )
+        ParsedInvoice.objects.create(
+            batch=batch, invoice_no='INV-20', status='matched', matched_farmer=self.farmer,
+        )
+        from hb_operations.views import _invoice_presentation
+
+        request = RequestFactory().get('/')
+        AccessGrant.objects.create(
+            user=self.user, workflow='jawabu_portal', role='HB_STAFF',
+            branch='Ruiru', group_configuration=self.group,
+        )
+        request.portal_user = self.user
+        request.portal_access = user_access(self.user, 'jawabu_portal')
+        hb_invoice = _invoice_presentation(request, action, serialize_action(action))['invoice']
+        self.assertEqual(hb_invoice['mode'], 'preview')
+        self.assertEqual(hb_invoice['label'], 'Invoice sent')
+
+        operations = get_user_model().objects.create_user(username='operations')
+        AccessGrant.objects.create(
+            user=operations, workflow='jawabu_portal', role='OPERATIONS_ADMIN',
+            branch='Ruiru', group_configuration=self.group,
+        )
+        request.portal_user = operations
+        request.portal_access = user_access(operations, 'jawabu_portal')
+        operations_invoice = _invoice_presentation(request, action, serialize_action(action))['invoice']
+        self.assertEqual(operations_invoice['mode'], 'record')
+        self.assertEqual(operations_invoice['label'], 'Invoice received')

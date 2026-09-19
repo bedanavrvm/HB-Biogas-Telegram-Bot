@@ -250,14 +250,29 @@ def dashboard_payload(user, *, access=None) -> dict:
             'url': reverse('portal_invoice_screen_detail', kwargs={'invoice_id': change.original_invoice_id}),
         })
     hb_action_count = 0
+    hb_actionable_count = 0
+    hb_action_urgent_count = 0
     if 'portal.hb_action.view' in capabilities:
-        from hb_operations.services import scoped_actions
+        from hb_operations.services import COMMISSIONING_WAIT_DAYS, scoped_actions
 
-        hb_actions = scoped_actions(user, access, 'portal.hb_action.view').exclude(
+        hb_scoped = scoped_actions(user, access, 'portal.hb_action.view')
+        hb_installations = hb_scoped.exclude(
             installation_status__in=['installed', 'closed'],
         )
-        hb_action_count = hb_actions.count()
-        for action in hb_actions[:5]:
+        commissioning_threshold = timezone.localdate() - timedelta(days=COMMISSIONING_WAIT_DAYS)
+        hb_commissioning = hb_scoped.filter(
+            installation_status='installed', installation_date__isnull=False,
+        ).exclude(commissioning_status='done')
+        hb_commissioning_due = hb_commissioning.filter(installation_date__lte=commissioning_threshold)
+        hb_action_count = hb_installations.count() + hb_commissioning.count()
+        hb_actionable_count = hb_installations.count() + hb_commissioning_due.count()
+        hb_action_urgent_count = (
+            hb_installations.filter(
+                installation_status='scheduled', installation_date__lt=timezone.localdate(),
+            ).count()
+            + hb_commissioning.filter(installation_date__lt=commissioning_threshold).count()
+        )
+        for action in hb_installations[:5]:
             notification_items.append({
                 'key': f'hb_action:{action.pk}', 'kind': 'case',
                 'farmer_id': str(action.farmer_id), 'queue_key': 'hb_actions',
@@ -265,14 +280,28 @@ def dashboard_payload(user, *, access=None) -> dict:
                 'detail': 'Installation action required',
                 'context': action.farmer.system_branch or action.farmer.branch or '',
                 'severity': 'action',
-                'url': reverse('portal_hb_action_detail', kwargs={'farmer_id': action.farmer_id}),
+                'url': f"{reverse('portal_hb_action_detail', kwargs={'farmer_id': action.farmer_id})}?workstream=installation",
+            })
+        for action in hb_commissioning_due[:5]:
+            overdue_days = max(0, (
+                timezone.localdate()
+                - (action.installation_date + timedelta(days=COMMISSIONING_WAIT_DAYS))
+            ).days)
+            notification_items.append({
+                'key': f'hb_commissioning:{action.pk}', 'kind': 'case',
+                'farmer_id': str(action.farmer_id), 'queue_key': 'hb_actions',
+                'label': action.farmer.customer_name or 'Unnamed customer',
+                'detail': ('Commissioning due today' if overdue_days == 0 else f'Commissioning delayed by {overdue_days} day{"s" if overdue_days != 1 else ""}'),
+                'context': action.farmer.system_branch or action.farmer.branch or '',
+                'severity': 'action' if overdue_days == 0 else 'urgent',
+                'url': f"{reverse('portal_hb_action_detail', kwargs={'farmer_id': action.farmer_id})}?workstream=commissioning",
             })
     for item in attention:
         if not str(item.get('key') or '').startswith('integration_failure:'):
             continue
         notification_items.append({**item, 'kind': 'system', 'context': 'Open Settings for system readiness'})
 
-    actionable_queue_count = sum(int(item['count']) for item in queues if item['key'] != 'deferred') + hb_action_count
+    actionable_queue_count = sum(int(item['count']) for item in queues if item['key'] != 'deferred') + hb_actionable_count
     notification_count = (
         actionable_queue_count + due_count + reviews.count() + changes.count()
         + failed_operations.count()
@@ -319,8 +348,8 @@ def dashboard_payload(user, *, access=None) -> dict:
     ]
     if 'portal.hb_action.view' in capabilities:
         hb_queue = {
-            'key': 'hb_actions', 'label': 'HB installation action',
-            'count': hb_action_count, 'urgent_count': 0,
+            'key': 'hb_actions', 'label': 'HB installation and commissioning',
+            'count': hb_action_count, 'urgent_count': hb_action_urgent_count,
             'url': reverse('portal_hb_actions_screen'),
         }
         queues.append(hb_queue)

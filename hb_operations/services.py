@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 import uuid
 
 from django.db import transaction
@@ -26,6 +26,8 @@ STATE_FIELDS = (
     'commissioning_status', 'commissioning_date', 'pending_commissioning_comment',
 )
 
+COMMISSIONING_WAIT_DAYS = 21
+
 
 class HomeBiogasActionError(ValueError):
     pass
@@ -50,6 +52,44 @@ def _display_date(value) -> str:
     return value.strftime('%d-%m-%Y') if value else ''
 
 
+def commissioning_readiness(action: HomeBiogasAction, *, today: date | None = None) -> dict:
+    """Return the policy-derived commissioning state; never persist a stale countdown."""
+    installed_on = action.installation_date if action.installation_status == HomeBiogasAction.INSTALLATION_INSTALLED else None
+    if not installed_on:
+        return {
+            'ready_on': None, 'state': '', 'label': '',
+            'days_until_ready': None, 'overdue_days': 0,
+        }
+    ready_on = installed_on + timedelta(days=COMMISSIONING_WAIT_DAYS)
+    current = today or timezone.localdate()
+    if action.commissioning_status == HomeBiogasAction.COMMISSIONING_DONE:
+        state = 'done'
+        label = 'Done'
+        days_until = 0
+        overdue_days = 0
+    else:
+        difference = (ready_on - current).days
+        if difference > 0:
+            state = 'waiting'
+            label = 'Waiting period'
+            days_until = difference
+            overdue_days = 0
+        elif difference == 0:
+            state = 'due_today'
+            label = 'Due today'
+            days_until = 0
+            overdue_days = 0
+        else:
+            state = 'delayed'
+            label = 'Delayed'
+            days_until = 0
+            overdue_days = abs(difference)
+    return {
+        'ready_on': ready_on, 'state': state, 'label': label,
+        'days_until_ready': days_until, 'overdue_days': overdue_days,
+    }
+
+
 def _date_value(payload: dict, key: str):
     raw = str(payload.get(key) or '').strip()
     if not raw:
@@ -70,7 +110,9 @@ def _text(payload: dict, key: str, *, max_length: int | None = None) -> str:
 def scoped_actions(user, access, capability: str = VIEW_CAPABILITY):
     return scope_workflow_queryset(
         HomeBiogasAction.objects.select_related(
-            'farmer', 'source_requisition_batch', 'source_signoff', 'updated_by',
+            'farmer', 'source_requisition_batch',
+            'source_requisition_batch__group_configuration',
+            'source_signoff', 'updated_by',
         ),
         user, WORKFLOW, capability, access=access,
         branch_field='farmer__branch', product_field='farmer__payment_product',
@@ -89,6 +131,7 @@ def serialize_action(action: HomeBiogasAction, *, include_history: bool = False)
     from core.services.jawabu_case_reference import display_case_reference
 
     invoice = _invoice_for(action)
+    readiness = commissioning_readiness(action)
     data = {
         'id': str(action.id),
         'farmer_id': str(farmer.id),
@@ -113,8 +156,14 @@ def serialize_action(action: HomeBiogasAction, *, include_history: bool = False)
         'commissioning_status_label': action.get_commissioning_status_display() if action.commissioning_status else '',
         'commissioning_date': action.commissioning_date.isoformat() if action.commissioning_date else '',
         'commissioning_date_display': _display_date(action.commissioning_date),
-        'commissioning_date_label': 'Actual commissioning date' if action.commissioning_status == HomeBiogasAction.COMMISSIONING_DONE else 'Scheduled commissioning date',
+        'commissioning_date_label': 'Actual commissioning date',
         'pending_commissioning_comment': action.pending_commissioning_comment,
+        'commissioning_ready_on': readiness['ready_on'].isoformat() if readiness['ready_on'] else '',
+        'commissioning_ready_on_display': _display_date(readiness['ready_on']),
+        'commissioning_state': readiness['state'],
+        'commissioning_state_label': readiness['label'],
+        'days_until_ready': readiness['days_until_ready'],
+        'commissioning_overdue_days': readiness['overdue_days'],
         'revision': action.revision,
         'released_at': action.created_at.isoformat(),
         'updated_at': action.updated_at.isoformat(),
@@ -123,7 +172,11 @@ def serialize_action(action: HomeBiogasAction, *, include_history: bool = False)
         'invoice': ({
             'id': str(invoice.id), 'number': invoice.invoice_no,
             'date': _display_date(invoice.invoice_date),
-            'url': reverse('portal_invoice_screen_detail', kwargs={'invoice_id': invoice.id}),
+            'batch_id': str(invoice.batch_id),
+            'record_url': reverse('portal_invoice_screen_detail', kwargs={'invoice_id': invoice.id}),
+            'preview_url': reverse('portal_preview_case_invoice', kwargs={
+                'farmer_id': farmer.id, 'batch_id': invoice.batch_id,
+            }),
         } if invoice else None),
         'publication': publication_payload(farmer),
     }
@@ -203,7 +256,7 @@ def release_requisition_signoff(signoff, *, actor=None) -> dict:
     return {'created': created, 'existing': existing, 'missing_farmer_ids': missing}
 
 
-def _validate_progression(action: HomeBiogasAction, payload: dict, *, correction: bool = False) -> dict:
+def _validate_installation(action: HomeBiogasAction, payload: dict, *, correction: bool = False) -> dict:
     target = _text(payload, 'installation_status', max_length=32)
     allowed_targets = {
         HomeBiogasAction.INSTALLATION_NEEDS_PLANNING: {HomeBiogasAction.INSTALLATION_PENDING, HomeBiogasAction.INSTALLATION_SCHEDULED, HomeBiogasAction.INSTALLATION_INSTALLED, HomeBiogasAction.INSTALLATION_CLOSED},
@@ -214,14 +267,19 @@ def _validate_progression(action: HomeBiogasAction, payload: dict, *, correction
     }
     if not (correction and target == action.installation_status) and target not in allowed_targets.get(action.installation_status, set()):
         raise HomeBiogasActionError('That installation change is not available from the current status.')
+    if (
+        correction
+        and action.commissioning_status == HomeBiogasAction.COMMISSIONING_DONE
+        and target != HomeBiogasAction.INSTALLATION_INSTALLED
+    ):
+        raise HomeBiogasActionError(
+            'Installation must remain Installed because commissioning is already complete.'
+        )
     readiness = _text(payload, 'readiness_status', max_length=24)
     comment = _text(payload, 'pending_installation_comment')
     installation_date = _date_value(payload, 'installation_date')
     serial = _text(payload, 'serial_number', max_length=128)
     report = _text(payload, 'installation_report_status', max_length=24)
-    commissioning = _text(payload, 'commissioning_status', max_length=16)
-    commissioning_date = _date_value(payload, 'commissioning_date')
-    commissioning_comment = _text(payload, 'pending_commissioning_comment')
 
     if target in {HomeBiogasAction.INSTALLATION_PENDING, HomeBiogasAction.INSTALLATION_SCHEDULED}:
         if readiness not in dict(HomeBiogasAction.READINESS_CHOICES):
@@ -233,8 +291,7 @@ def _validate_progression(action: HomeBiogasAction, payload: dict, *, correction
         return {
             'installation_status': target, 'installation_date': installation_date,
             'readiness_status': readiness, 'pending_installation_comment': comment,
-            'serial_number': '', 'installation_report_status': '', 'commissioning_status': '',
-            'commissioning_date': None, 'pending_commissioning_comment': '',
+            'serial_number': '', 'installation_report_status': '',
         }
     if target == HomeBiogasAction.INSTALLATION_CLOSED:
         if not comment:
@@ -243,26 +300,52 @@ def _validate_progression(action: HomeBiogasAction, payload: dict, *, correction
             'installation_status': target, 'installation_date': None,
             'readiness_status': readiness or HomeBiogasAction.READINESS_NOT_CONFIRMED,
             'pending_installation_comment': comment, 'serial_number': '',
-            'installation_report_status': '', 'commissioning_status': '',
-            'commissioning_date': None, 'pending_commissioning_comment': '',
+            'installation_report_status': '',
         }
     if not installation_date:
         raise HomeBiogasActionError('Choose the actual installation date.')
+    if installation_date > timezone.localdate():
+        raise HomeBiogasActionError('The actual installation date cannot be in the future.')
     if report not in dict(HomeBiogasAction.REPORT_CHOICES):
         raise HomeBiogasActionError('Choose whether the installation report was submitted.')
-    if commissioning not in dict(HomeBiogasAction.COMMISSIONING_CHOICES):
-        raise HomeBiogasActionError('Choose the commissioning status.')
-    if commissioning == HomeBiogasAction.COMMISSIONING_DONE and not commissioning_date:
-        raise HomeBiogasActionError('Choose the actual commissioning date.')
-    if commissioning == HomeBiogasAction.COMMISSIONING_PENDING and not commissioning_date and not commissioning_comment:
-        raise HomeBiogasActionError('Add a commissioning date or a pending commissioning comment.')
     return {
         'installation_status': target, 'installation_date': installation_date,
         'readiness_status': '', 'pending_installation_comment': '',
         'serial_number': serial, 'installation_report_status': report,
-        'commissioning_status': commissioning, 'commissioning_date': commissioning_date,
-        'pending_commissioning_comment': commissioning_comment if commissioning == HomeBiogasAction.COMMISSIONING_PENDING else '',
     }
+
+
+def _validate_commissioning(action: HomeBiogasAction, payload: dict, *, correction: bool = False) -> tuple[dict, dict]:
+    if action.installation_status != HomeBiogasAction.INSTALLATION_INSTALLED or not action.installation_date:
+        raise HomeBiogasActionError('Complete installation before recording commissioning.')
+    target = _text(payload, 'commissioning_status', max_length=16) or HomeBiogasAction.COMMISSIONING_DONE
+    if target != HomeBiogasAction.COMMISSIONING_DONE:
+        raise HomeBiogasActionError('Commissioning can only be marked done from this screen.')
+    if action.commissioning_status == HomeBiogasAction.COMMISSIONING_DONE and not correction:
+        raise HomeBiogasActionError('Commissioning is already complete. Use correction mode to amend it.')
+    commissioned_on = _date_value(payload, 'commissioning_date')
+    if not commissioned_on:
+        raise HomeBiogasActionError('Choose the actual commissioning date.')
+    if commissioned_on > timezone.localdate():
+        raise HomeBiogasActionError('The actual commissioning date cannot be in the future.')
+    ready_on = action.installation_date + timedelta(days=COMMISSIONING_WAIT_DAYS)
+    early_by_days = max(0, (ready_on - commissioned_on).days)
+    acknowledged = str(payload.get('early_commissioning_acknowledged') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
+    if early_by_days and not acknowledged:
+        raise HomeBiogasActionError(
+            f'This date is {early_by_days} day{"s" if early_by_days != 1 else ""} before the standard commissioning readiness date. Confirm the early commissioning to continue.'
+        )
+    values = {
+        'commissioning_status': HomeBiogasAction.COMMISSIONING_DONE,
+        'commissioning_date': commissioned_on,
+        'pending_commissioning_comment': '',
+    }
+    policy = {
+        'commissioning_ready_on': ready_on.isoformat(),
+        'early_commissioning_acknowledged': bool(early_by_days and acknowledged),
+        'early_by_days': early_by_days,
+    }
+    return values, policy
 
 
 def _sync_farmer(action: HomeBiogasAction, *, actor, request_id: str):
@@ -292,17 +375,24 @@ def transition_action(action_id, *, payload: dict, actor, request_id: str, expec
         return action, [], True
     if int(expected_revision) != int(action.revision):
         raise HomeBiogasActionError('This record changed after you opened it. Refresh and try again.')
+    workstream = _text(payload, 'workstream', max_length=24)
+    if workstream not in {'installation', 'commissioning'}:
+        raise HomeBiogasActionError('Refresh this screen before saving this HB action.')
     before = _snapshot(action)
-    values = _validate_progression(action, payload)
+    policy = {}
+    if workstream == 'installation':
+        values = _validate_installation(action, payload)
+    else:
+        values, policy = _validate_commissioning(action, payload)
     for key, value in values.items():
         setattr(action, key, value)
     action.revision += 1
     action.updated_by = actor
     action.save(update_fields=[*values.keys(), 'revision', 'updated_by', 'updated_at'])
     HomeBiogasActionEvent.objects.create(
-        action=action, event_type='workflow.progressed', revision=action.revision,
+        action=action, event_type=f'{workstream}.{"completed" if workstream == "commissioning" else "progressed"}', revision=action.revision,
         actor=actor, actor_label=_actor_label(actor), request_id=request_id,
-        previous_values=before, new_values=_snapshot(action),
+        previous_values=before, new_values={**_snapshot(action), **policy},
     )
     operations = _sync_farmer(action, actor=actor, request_id=request_id)
     return action, operations, False
@@ -316,13 +406,37 @@ def correct_action(action_id, *, payload: dict, actor, request_id: str, expected
         return action, [], True
     if int(expected_revision) != int(action.revision):
         raise HomeBiogasActionError('This record changed after you opened it. Refresh and try again.')
+    workstream = _text(payload, 'workstream', max_length=24)
+    if workstream not in {'installation', 'commissioning'}:
+        raise HomeBiogasActionError('Refresh this screen before saving this HB correction.')
     reason = _text(payload, 'reason')
     before = _snapshot(action)
-    corrected = _validate_progression(
-        action,
-        {**before, **payload, 'installation_status': payload.get('installation_status', action.installation_status)},
-        correction=True,
-    )
+    policy = {}
+    if workstream == 'installation':
+        corrected = _validate_installation(
+            action,
+            {**before, **payload, 'installation_status': payload.get('installation_status', action.installation_status)},
+            correction=True,
+        )
+        corrected_installation_date = corrected.get('installation_date')
+        if (
+            action.commissioning_status == HomeBiogasAction.COMMISSIONING_DONE
+            and action.commissioning_date and corrected_installation_date
+        ):
+            ready_on = corrected_installation_date + timedelta(days=COMMISSIONING_WAIT_DAYS)
+            early_by_days = max(0, (ready_on - action.commissioning_date).days)
+            acknowledged = str(payload.get('early_commissioning_acknowledged') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
+            if early_by_days and not acknowledged:
+                raise HomeBiogasActionError(
+                    f'The corrected installation date makes commissioning {early_by_days} day{"s" if early_by_days != 1 else ""} earlier than the standard readiness date. Confirm this exception to continue.'
+                )
+            policy = {
+                'commissioning_ready_on': ready_on.isoformat(),
+                'early_commissioning_acknowledged': bool(early_by_days and acknowledged),
+                'early_by_days': early_by_days,
+            }
+    else:
+        corrected, policy = _validate_commissioning(action, {**before, **payload}, correction=True)
     milestone_changed = any(
         before.get(key) != (value.isoformat() if isinstance(value, date) else value)
         for key, value in corrected.items()
@@ -339,9 +453,9 @@ def correct_action(action_id, *, payload: dict, actor, request_id: str, expected
     action.updated_by = actor
     action.save(update_fields=[*corrected.keys(), 'revision', 'updated_by', 'updated_at'])
     HomeBiogasActionEvent.objects.create(
-        action=action, event_type='record.corrected', revision=action.revision,
+        action=action, event_type=f'{workstream}.corrected', revision=action.revision,
         actor=actor, actor_label=_actor_label(actor), request_id=request_id,
-        previous_values=before, new_values=_snapshot(action), reason=reason,
+        previous_values=before, new_values={**_snapshot(action), **policy}, reason=reason,
     )
     operations = _sync_farmer(action, actor=actor, request_id=request_id)
     return action, operations, False
