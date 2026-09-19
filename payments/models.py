@@ -46,7 +46,7 @@ class PaymentBatch(models.Model):
         'core.GroupSheetConfiguration', on_delete=models.PROTECT, related_name='payment_batches',
         db_comment='Jawabu workflow configuration owning this batch.',
     )
-    payment_number = models.PositiveBigIntegerField(null=True, blank=True, db_comment='Official immutable number allocated at first submission.')
+    payment_number = models.PositiveBigIntegerField(null=True, blank=True, db_comment='Official immutable number allocated only when a fully reviewed workbook is generated.')
     status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_DRAFT, db_index=True, db_comment='Current server-controlled payment batch lifecycle state.')
     revision = models.PositiveBigIntegerField(default=1, db_comment='Optimistic concurrency revision for all batch mutations.')
     batch_digest = models.CharField(max_length=64, blank=True, default='', db_comment='SHA-256 binding of case modes, number, membership, and case payment data.')
@@ -58,7 +58,7 @@ class PaymentBatch(models.Model):
     submitted_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+', db_comment='Staff user who first submitted the batch for review.')
     confirmed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+', db_comment='Staff user who generated the current reviewed workbook.')
     completed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+', db_comment='Staff user whose accepted scan completed the batch.')
-    submitted_at = models.DateTimeField(null=True, blank=True, db_comment='When the official number was allocated and review began.')
+    submitted_at = models.DateTimeField(null=True, blank=True, db_comment='When the batch was first submitted for Head of Rural review.')
     confirmed_at = models.DateTimeField(null=True, blank=True, db_comment='When the current workbook was generated from approved cases.')
     completed_at = models.DateTimeField(null=True, blank=True, db_comment='When the exact signed scan was accepted and the batch locked.')
     cancellation_reason = models.TextField(blank=True, default='', db_comment='Required operational reason when an unfinished batch is cancelled.')

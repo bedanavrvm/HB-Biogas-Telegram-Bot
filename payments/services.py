@@ -136,6 +136,39 @@ def _refresh_batch_digest(batch):
     })
 
 
+def _status_after_edit(batch: PaymentBatch) -> str:
+    """Keep a previously submitted batch in review after an editable change."""
+    return PaymentBatch.STATUS_IN_REVIEW if batch.submitted_at else PaymentBatch.STATUS_DRAFT
+
+
+def _allocate_payment_number_for_generation(batch: PaymentBatch, *, actor=None, request_id='') -> int:
+    """Allocate once, immediately before a fully reviewed workbook is made."""
+    if batch.payment_number is not None:
+        return int(batch.payment_number)
+    sequence, _ = PaymentSequenceState.objects.select_for_update().get_or_create(
+        group_configuration=batch.group_configuration,
+        defaults={'next_number': 1, 'updated_by': actor},
+    )
+    number = sequence.next_number
+    sequence.next_number += 1
+    sequence.revision += 1
+    sequence.updated_by = actor
+    sequence.save()
+    PaymentSequenceEvent.objects.create(
+        sequence=sequence,
+        batch=batch,
+        action='allocated',
+        number_before=number,
+        number_after=sequence.next_number,
+        revision_after=sequence.revision,
+        actor=actor,
+        reason='Allocated when a fully reviewed payment workbook was generated.',
+        request_id=f'{request_id}:sequence' if request_id else '',
+    )
+    batch.payment_number = number
+    return number
+
+
 def _supersede_document(batch):
     if not batch.current_document_id:
         return
@@ -250,7 +283,7 @@ def update_case_mode(batch_id, farmer_id, *, payment_mode: str, expected_revisio
     membership.payment_mode = mode
     membership.case_digest = case_payment_digest(membership.farmer, mode)
     membership.save(update_fields=['payment_mode', 'case_digest', 'updated_at'])
-    batch.status = PaymentBatch.STATUS_IN_REVIEW if batch.payment_number else PaymentBatch.STATUS_DRAFT
+    batch.status = _status_after_edit(batch)
     batch.revision += 1
     _refresh_batch_digest(batch)
     batch.save()
@@ -339,7 +372,7 @@ def add_cases(batch_id, *, farmer_ids, payment_modes, expected_revision, actor=N
             required_capability='portal.payment.prepare',
             deduplication_namespace='payment-batch',
         )
-    batch.status = PaymentBatch.STATUS_IN_REVIEW if batch.payment_number else PaymentBatch.STATUS_DRAFT
+    batch.status = _status_after_edit(batch)
     batch.revision += 1
     _refresh_batch_digest(batch)
     batch.save()
@@ -379,7 +412,7 @@ def remove_case(batch_id, farmer_id, *, reason: str, expected_revision, actor=No
     membership.removed_reason = reason
     membership.save()
     invalidated = _invalidate_current_reviews(batch)
-    batch.status = PaymentBatch.STATUS_IN_REVIEW if batch.payment_number else PaymentBatch.STATUS_DRAFT
+    batch.status = _status_after_edit(batch)
     batch.revision += 1
     _refresh_batch_digest(batch)
     batch.save()
@@ -404,22 +437,6 @@ def submit_for_review(batch_id, *, expected_revision, actor=None, request_id='')
         raise PaymentBatchError('This payment batch cannot be submitted for review.')
     if not batch.case_memberships.filter(is_active=True).exists():
         raise PaymentBatchError('Add at least one ready case before submitting this payment batch.')
-    if batch.payment_number is None:
-        sequence, _ = PaymentSequenceState.objects.select_for_update().get_or_create(
-            group_configuration=batch.group_configuration, defaults={'next_number': 1, 'updated_by': actor},
-        )
-        number = sequence.next_number
-        sequence.next_number += 1
-        sequence.revision += 1
-        sequence.updated_by = actor
-        sequence.save()
-        PaymentSequenceEvent.objects.create(
-            sequence=sequence, batch=batch, action='allocated', number_before=number,
-            number_after=sequence.next_number, revision_after=sequence.revision,
-            actor=actor, reason='Allocated on first Head of Rural review submission.',
-            request_id=f'{request_id}:sequence' if request_id else '',
-        )
-        batch.payment_number = number
     batch.status = PaymentBatch.STATUS_IN_REVIEW
     batch.submitted_by = actor
     batch.submitted_at = batch.submitted_at or timezone.now()
@@ -493,7 +510,7 @@ def generate_reviewed_workbook(batch_id, *, expected_revision, actor=None, actor
     # operation.
     stale_case_ids = []
     with transaction.atomic():
-        batch = PaymentBatch.objects.select_for_update().get(pk=batch_id)
+        batch = PaymentBatch.objects.select_for_update().select_related('group_configuration').get(pk=batch_id)
         _require_revision(batch, expected_revision)
         if batch.status != PaymentBatch.STATUS_REVIEW_COMPLETE:
             raise PaymentBatchError('Every current case must be approved before generating the payment workbook.')
@@ -521,6 +538,13 @@ def generate_reviewed_workbook(batch_id, *, expected_revision, actor=None, actor
             comments = {str(item.farmer_id): item.review.comment for item in memberships}
             case_payment_modes = {str(item.farmer_id): item.payment_mode for item in memberships}
             farmer_ids = list(comments)
+            _allocate_payment_number_for_generation(batch, actor=actor, request_id=request_id)
+            # Reserving the number changes the immutable workbook context and
+            # must therefore advance the optimistic revision before the
+            # external Drive operation begins.
+            batch.revision += 1
+            _refresh_batch_digest(batch)
+            batch.save()
             generation_revision = batch.revision
             generation_digest = batch.batch_digest
             payment_number = batch.payment_number
@@ -548,7 +572,7 @@ def generate_reviewed_workbook(batch_id, *, expected_revision, actor=None, actor
             batch_id, payment_number,
         )
         raise PaymentBatchError(
-            'The payment workbook could not be published. The batch is unchanged; retry shortly. '
+            'The payment workbook could not be published. Retry shortly; the reserved official payment number remains with this batch. '
             'If it continues, share the error reference with IT.',
             code='payment_workbook_publication_failed', status=503,
         ) from exc
@@ -757,14 +781,29 @@ def complete_batch_for_document(document, *, actor=None, request_id=''):
     batch.revision += 1
     batch.save()
     from core.services.jawabu_case360 import record_pipeline_event
+    from core.services.portal_publication import reserve_farmer_publication
+    from core.services.workflow_transitions import next_workflow_revision
     for item in _active_memberships(batch):
+        farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=item.farmer_id)
+        revision_before, revision_after = next_workflow_revision(farmer)
+        farmer.save(update_fields=['workflow_revision', 'updated_at'])
         record_pipeline_event(
-            item.farmer, action='payment_finalized', stage_key='payment',
+            farmer, action='payment_finalized', stage_key='payment',
             actor=document.finalized_by, request_id=f'payment-batch:{batch.id}:{item.farmer_id}',
             source='payment_batch',
             new_values={'payment_number': str(batch.payment_number), 'payment_mode': item.payment_mode},
             metadata={'payment_batch_id': str(batch.id), 'payment_document_id': str(document.id)},
             actor_user=actor,
+            revision_before=revision_before,
+            revision_after=revision_after,
+        )
+        reserve_farmer_publication(
+            farmer,
+            request_id=f'payment-batch:{batch.id}:{farmer.id}:completed',
+            requested_by=actor,
+            requested_by_label=document.finalized_by,
+            required_capability='portal.payment.prepare',
+            deduplication_namespace='payment-batch-complete',
         )
     _record(batch, 'signed_scan_accepted', actor=actor, request_id=request_id, metadata={'document_id': str(document.id)})
     return batch

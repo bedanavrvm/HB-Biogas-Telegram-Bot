@@ -46,7 +46,7 @@
 
   function batchCard(batch) {
     const counts = batch.counts || {};
-    const number = batch.payment_number ? `Payment #${escape(batch.payment_number)}` : 'Draft payment';
+    const number = batch.payment_number ? `Payment #${escape(batch.payment_number)}` : 'Payment batch';
     return `<a class="payment-batch-card" data-payment-batch="${escape(batch.id)}" href="${escape(detailUrl(batch.id))}">
       <span class="payment-batch-card-head"><strong>${number}</strong><span class="badge ${statusClass(batch.status)}">${escape(batch.status_label)}</span></span>
       <span class="payment-batch-card-mode">${escape(batch.payment_mode_summary)}</span>
@@ -201,7 +201,7 @@
     const counts = activeBatch.counts || {};
     const emptyDraft = activeBatch.status === 'draft' && Number(counts.total || 0) === 0;
     detailRoot.classList.toggle('payment-detail-empty', emptyDraft);
-    required.title.textContent = activeBatch.payment_number ? `Payment #${activeBatch.payment_number}` : 'Draft payment';
+    required.title.textContent = activeBatch.payment_number ? `Payment #${activeBatch.payment_number}` : 'Payment batch';
     required.meta.textContent = `${activeBatch.payment_mode_summary} · ${activeBatch.status_label}`;
     required.progress.innerHTML = `<span><strong>${escape(counts.total || 0)}</strong><small>Cases</small></span><span><strong>${escape(counts.approved || 0)}</strong><small>Approved</small></span><span><strong>${escape(counts.returned || 0)}</strong><small>Returned</small></span><span><strong>${escape(counts.pending || 0)}</strong><small>Awaiting</small></span><span class="payment-progress-total"><strong>${escape(money(activeBatch.total_amount))}</strong><small>Total</small></span>`;
     required.progress.hidden = emptyDraft;
@@ -309,6 +309,10 @@
       deps.showToast(message, 'error');
       if (path.endsWith('/generate/')) {
         const requestId = response?.data?.support_reference || window.MiniAppUtils?.displaySupportReference?.(response?.data?.request_id || response?.requestId) || '';
+        // Number allocation is durable before the external workbook upload.
+        // Reload so a retry sends the current revision and retains that same
+        // number instead of failing as a stale client.
+        await openBatch(activeBatch.id, {quiet: true});
         el('payments-primary-action')?.insertAdjacentHTML(
           'beforeend',
           `<div class="batch-warning payment-generation-error" role="alert"><strong>Workbook not generated</strong><span>${escape(message)}</span>${requestId ? `<small>Reference ${escape(requestId)}</small>` : ''}</div>`,
@@ -322,9 +326,9 @@
   }
 
   function confirmFirstSubmission() {
-    if (activeBatch?.payment_number) return Promise.resolve(true);
+    if (activeBatch?.submitted_at) return Promise.resolve(true);
     const counts = activeBatch?.counts || {};
-    const copy = `Submit ${counts.total || 0} case${Number(counts.total || 0) === 1 ? '' : 's'} for payment approval? This permanently allocates the next official payment number.`;
+    const copy = `Submit ${counts.total || 0} case${Number(counts.total || 0) === 1 ? '' : 's'} for payment approval? The official payment number is allocated only after every case is approved and the workbook is generated.`;
     const dialog = el('payment-submit-confirm');
     if (!dialog?.showModal) {
       return Promise.resolve(window.confirm(`${copy}\n\nThe number remains used even if this batch is later cancelled.`));

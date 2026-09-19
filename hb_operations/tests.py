@@ -22,6 +22,7 @@ from core.models import (
     RequisitionBatch,
 )
 from core.services.telegram_identity import user_access
+from core.services.jawabu_pipeline import _pipeline_stage, current_pipeline_state_label
 
 from .models import HomeBiogasAction, HomeBiogasActionEvent
 from .services import HomeBiogasActionError, correct_action, release_requisition_signoff, scoped_actions, serialize_action, transition_action
@@ -180,6 +181,39 @@ class HomeBiogasActionServiceTests(TestCase):
         )
         self.assertEqual(updated.serial_number, '')
         self.assertEqual(updated.commissioning_status, 'not_commissioned')
+
+    def test_delivery_pipeline_stages_follow_signed_order_installation_and_commissioning(self):
+        action = self.release()
+        self.assertEqual(current_pipeline_state_label(self.farmer), 'Installation in Progress')
+        self.assertEqual(_pipeline_stage(self.farmer), 6)
+
+        # Invoice and payment activity are parallel financial controls. They
+        # must not replace the HomeBiogas delivery stage.
+        self.farmer.invoice_number = 'HB-INV-100'
+        self.farmer.save(update_fields=['invoice_number', 'updated_at'])
+        self.assertEqual(current_pipeline_state_label(self.farmer), 'Installation in Progress')
+        self.assertEqual(_pipeline_stage(self.farmer), 6)
+
+        installed_on = timezone.localdate() - timedelta(days=21)
+        action, _operations, _replayed = transition_action(
+            action.pk, actor=self.user, request_id='delivery-stage-installed', expected_revision=1,
+            payload={
+                'workstream': 'installation', 'installation_status': 'installed',
+                'installation_date': installed_on.isoformat(), 'installation_report_status': 'yes',
+            },
+        )
+        self.assertEqual(current_pipeline_state_label(self.farmer), 'Installed — Awaiting Commissioning')
+        self.assertEqual(_pipeline_stage(self.farmer), 7)
+
+        transition_action(
+            action.pk, actor=self.user, request_id='delivery-stage-commissioned', expected_revision=2,
+            payload={
+                'workstream': 'commissioning', 'commissioning_status': 'commissioned',
+                'commissioning_date': timezone.localdate().isoformat(),
+            },
+        )
+        self.assertEqual(current_pipeline_state_label(self.farmer), 'Commissioned')
+        self.assertEqual(_pipeline_stage(self.farmer), 8)
 
     def test_completed_milestone_correction_requires_reason_and_is_audited(self):
         action = self.release()

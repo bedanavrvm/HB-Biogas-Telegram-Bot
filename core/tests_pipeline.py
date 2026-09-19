@@ -1797,7 +1797,7 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertEqual(current_pipeline_state_label(self.farmer_stage2), 'Awaiting Credit Analysis')
         self.assertEqual(current_pipeline_state_label(self.farmer_stage_review), 'Awaiting Head of Rural Review')
         self.assertEqual(current_pipeline_state_label(self.farmer_stage3), 'Ready for Order')
-        self.assertEqual(current_pipeline_state_label(self.farmer_stage4), 'Ordered — Awaiting Invoice')
+        self.assertEqual(current_pipeline_state_label(self.farmer_stage4), 'Order Awaiting Signed Confirmation')
 
         self.farmer_stage1.jbl_visit_status = 'Rescheduled'
         self.farmer_stage1.save(update_fields=['jbl_visit_status'])
@@ -1818,9 +1818,9 @@ class PortalMiniAppAuthTestCase(TestCase):
             batch=batch, status='matched', matched_farmer=self.farmer_stage4,
             invoice_no='STATE-INV-1', balance_due=Decimal('5000.00'),
         )
-        self.assertEqual(current_pipeline_state_label(self.farmer_stage4), 'Payment Processing')
+        self.assertEqual(current_pipeline_state_label(self.farmer_stage4), 'Order Awaiting Signed Confirmation')
         JawabuPipelineEvent.objects.create(farmer=self.farmer_stage4, action='payment_finalized', stage_key='payment')
-        self.assertEqual(current_pipeline_state_label(self.farmer_stage4), 'Payment Finalized')
+        self.assertEqual(current_pipeline_state_label(self.farmer_stage4), 'Order Awaiting Signed Confirmation')
 
 @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, SECURE_SSL_REDIRECT=False)
 class JblPipelineApiTestCase(TestCase):

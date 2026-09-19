@@ -116,6 +116,45 @@ def credit_decision_label(farmer: JawabuFarmerMaster) -> str:
     return farmer.credit_decision or 'Pending'
 
 
+class PaymentNumberProjectionConflict(ValueError):
+    """A case cannot expose more than one accepted payment number."""
+
+
+def completed_payment_number_for_farmer(farmer: JawabuFarmerMaster) -> str:
+    """Return the one payment number safe to publish to Master Data.
+
+    A number is operationally meaningful only after the exact signed payment
+    scan has been accepted. Draft, review and awaiting-scan batches must never
+    leak a number into the shared register. More than one completed batch is a
+    data-reconciliation problem, not something a projection may guess about.
+    """
+    from payments.models import PaymentBatch
+
+    numbers = list(
+        PaymentBatch.objects.filter(
+            status=PaymentBatch.STATUS_COMPLETED,
+            current_document__status='completed',
+            case_memberships__farmer=farmer,
+            case_memberships__is_active=True,
+            payment_number__isnull=False,
+        ).order_by('payment_number').values_list('payment_number', flat=True).distinct()
+    )
+    if len(numbers) > 1:
+        raise PaymentNumberProjectionConflict(
+            'This case has more than one accepted payment number. Reconcile the completed payment batches before publishing Master Data.'
+        )
+    return str(numbers[0]) if numbers else ''
+
+
+def _homebiogas_action_for_pipeline(farmer: JawabuFarmerMaster):
+    """Read the hard-cutover fulfilment state without changing pre-cutover rows."""
+    from hb_operations.models import HomeBiogasAction
+
+    return HomeBiogasAction.objects.filter(farmer=farmer).only(
+        'installation_status', 'commissioning_status',
+    ).first()
+
+
 def current_pipeline_state_label(farmer: JawabuFarmerMaster) -> str:
     """Return the concise, staff-facing owner/status for Master Data.
 
@@ -153,15 +192,20 @@ def current_pipeline_state_label(farmer: JawabuFarmerMaster) -> str:
     if state == JawabuWorkflowState.WITHDRAWN:
         return 'Withdrawn'
 
-    if farmer.pipeline_events.filter(action='payment_finalized').exists():
-        return 'Payment Finalized'
+    # Payment is deliberately a separate governed workspace. A completed
+    # payment changes the payment register, never the delivery stage.
+    hb_action = _homebiogas_action_for_pipeline(farmer)
+    if hb_action:
+        if hb_action.commissioning_status == 'commissioned':
+            return 'Commissioned'
+        if hb_action.installation_status == 'installed':
+            return 'Installed — Awaiting Commissioning'
+        if hb_action.installation_status == 'closed':
+            return 'Installation Closed'
+        return 'Installation in Progress'
+
     if farmer.order_number:
-        invoice_matched = farmer.parsed_invoices.filter(
-            status='matched', matched_farmer=farmer,
-        ).exists()
-        if invoice_matched:
-            return 'Payment Processing'
-        return 'Ordered — Awaiting Invoice'
+        return 'Order Awaiting Signed Confirmation'
 
     if state == JawabuWorkflowState.ORDER:
         return 'Ready for Order'
@@ -1962,13 +2006,21 @@ def farmer_to_card(
 
 def _pipeline_stage(farmer: JawabuFarmerMaster) -> int:
     """
-    Returns the current pipeline stage number (1-7).
-    Stage 7 means an invoice has been uploaded for this farmer.
+    Returns the current delivery-aware pipeline stage number (1-8).
+
+    Financial payment and invoice work are parallel governed controls, not
+    delivery stages. Stages 6-8 begin only after an accepted signed order has
+    released the case to the HomeBiogas fulfilment workspace.
     """
     if is_reappraisal_required(farmer):
         return 1
-    if farmer.invoice_number:
-        return 7
+    hb_action = _homebiogas_action_for_pipeline(farmer)
+    if hb_action:
+        if hb_action.commissioning_status == 'commissioned':
+            return 8
+        if hb_action.installation_status == 'installed':
+            return 7
+        return 6
     if farmer.order_number:
         return 5
     if farmer.final_decision == FINAL_DECISION_APPROVED:
@@ -2267,6 +2319,7 @@ def sync_farmer_to_master_sheet(
             'final_decided_at': (candidates('final_decided_at'), _datetime_text(farmer.final_decided_at)),
             'requisition_date': (candidates('requisition_date'), _date_text(farmer.requisition_date)),
             'order_number': (candidates('order_number'), farmer.order_number),
+            'payment_number': (candidates('payment_number'), completed_payment_number_for_farmer(farmer)),
             'latitude': (candidates('latitude'), str(farmer.latitude) if farmer.latitude is not None else ''),
             'longitude': (candidates('longitude'), str(farmer.longitude) if farmer.longitude is not None else ''),
             'gps_link': (candidates('gps_link'), farmer.gps_link or ''),

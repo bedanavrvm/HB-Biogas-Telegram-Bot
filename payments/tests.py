@@ -11,6 +11,7 @@ from openpyxl import Workbook
 from core.models import GroupSheetConfiguration, JawabuFarmerMaster, PaymentDocument
 from core.services.payment_documents import _write_payment_mode
 from core.services.jawabu_case_reference import display_case_reference
+from core.services.jawabu_pipeline import completed_payment_number_for_farmer
 from payments.models import PaymentBatch, PaymentCaseReview, PaymentSequenceState
 from payments.services import (
     PaymentBatchError,
@@ -143,9 +144,41 @@ class PaymentBatchServiceTests(TestCase):
         prior_revision = first.revision
         first = submit_for_review(first.id, expected_revision=prior_revision, actor=self.user, request_id='submit-1')
         replay = submit_for_review(first.id, expected_revision=prior_revision, actor=self.user, request_id='submit-1')
+        self.assertIsNone(first.payment_number)
+        self.assertIsNone(replay.payment_number)
+        first = review_case(
+            first.id, first_farmer.id, decision='approved', comment='Ready.',
+            expected_revision=first.revision, actor=self.user,
+        )
+        first_generation_revision = first.revision
+
+        def generated_document(order_number, payment_number, **_kwargs):
+            return PaymentDocument.objects.create(
+                order_number=order_number, payment_number=payment_number,
+                status='awaiting_scan', version=1,
+            )
+
+        with patch('payments.services.create_payment_document', side_effect=generated_document):
+            first = generate_reviewed_workbook(
+                first.id, expected_revision=first_generation_revision,
+                actor=self.user, request_id='generate-1',
+            )
+            replay = generate_reviewed_workbook(
+                first.id, expected_revision=first_generation_revision,
+                actor=self.user, request_id='generate-1',
+            )
         second = self.batch()
         second = self.add(second, second_farmer)
         second = submit_for_review(second.id, expected_revision=second.revision, actor=self.user, request_id='submit-2')
+        second = review_case(
+            second.id, second_farmer.id, decision='approved', comment='Ready.',
+            expected_revision=second.revision, actor=self.user,
+        )
+        with patch('payments.services.create_payment_document', side_effect=generated_document):
+            second = generate_reviewed_workbook(
+                second.id, expected_revision=second.revision,
+                actor=self.user, request_id='generate-2',
+            )
         self.assertEqual((first.payment_number, replay.payment_number, second.payment_number), (1, 1, 2))
         self.assertEqual(PaymentSequenceState.objects.get(group_configuration=self.group).next_number, 3)
 
@@ -205,6 +238,9 @@ class PaymentBatchServiceTests(TestCase):
         self.assertEqual(batch.status, PaymentBatch.STATUS_COMPLETED)
         document.refresh_from_db()
         self.assertEqual(document.status, 'completed')
+        self.assertEqual(completed_payment_number_for_farmer(farmer), '1')
+        farmer.refresh_from_db()
+        self.assertEqual(farmer.workflow_revision, 2)
         with self.assertRaisesMessage(PaymentBatchError, 'cannot be removed'):
             remove_case(batch.id, farmer.id, reason='Too late', expected_revision=batch.revision)
 
@@ -237,6 +273,16 @@ class PaymentBatchServiceTests(TestCase):
         batch = self.batch()
         batch = self.add(batch, farmer)
         batch = submit_for_review(batch.id, expected_revision=batch.revision)
+        batch = review_case(
+            batch.id, farmer.id, decision='approved', comment='Ready.',
+            expected_revision=batch.revision, actor=self.user,
+        )
+        document = PaymentDocument.objects.create(
+            order_number='PAYMENT-1', payment_number='1', status='awaiting_scan', version=1,
+        )
+        with patch('payments.services.create_payment_document', return_value=document):
+            batch = generate_reviewed_workbook(batch.id, expected_revision=batch.revision, actor=self.user)
+        self.assertEqual(batch.payment_number, 1)
         with self.assertRaisesMessage(PaymentBatchError, 'higher than the allocated number 1'):
             adjust_sequence(group_configuration=self.group, next_number=1, reason='Unsafe rollback', actor=self.user)
         state = adjust_sequence(
@@ -317,7 +363,8 @@ class PaymentBatchServiceTests(TestCase):
         )
 
         def mutate_during_generation(*args, **kwargs):
-            PaymentBatch.objects.filter(pk=batch.pk).update(revision=batch.revision + 1)
+            current = PaymentBatch.objects.get(pk=batch.pk)
+            PaymentBatch.objects.filter(pk=batch.pk).update(revision=current.revision + 1)
             return document
 
         with patch('payments.services.create_payment_document', side_effect=mutate_during_generation):
