@@ -54,11 +54,6 @@
         <span class="hb-action-row-side"><span class="hb-action-status ${statusClass(item.installation_status)}">${esc(item.installation_status_label)}</span><small>Order ${esc(item.order_number)}</small></span>
         <i data-lucide="chevron-right" aria-hidden="true"></i>
       </a>`).join('') : '<div class="empty-state compact"><strong>No HB work here</strong><div class="es-sub">Cases appear after a signed and stamped order is accepted.</div></div>';
-    target.querySelectorAll('[data-hb-action-link]').forEach(link => link.addEventListener('click', event => {
-      event.preventDefault();
-      if (deps.openPortalLink) deps.openPortalLink(link.href);
-      else window.location.assign(link.href);
-    }));
     renderPagination(response.data.page, response.data.pages);
     window.lucide?.createIcons?.();
   }

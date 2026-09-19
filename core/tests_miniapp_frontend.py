@@ -875,6 +875,13 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('data-payment-case-card', requisitions_source)
         self.assertIn('bindPaymentReviewAccordion', requisitions_source)
 
+    def test_hb_action_cards_remain_inside_the_mini_app(self):
+        source = Path('core/static/miniapp/portal_hb_actions.js').read_text(encoding='utf-8')
+
+        self.assertIn('class="hb-action-row" href="${esc(item.detail_url)}"', source)
+        self.assertNotIn("querySelectorAll('[data-hb-action-link]')", source)
+        self.assertNotIn('deps.openPortalLink(link.href)', source)
+
     def test_head_of_rural_screen_exposes_only_final_decisions(self):
         response = self.client.get(reverse('portal_screen', kwargs={'screen': 'final'}))
         self.assertContains(response, 'Make final case decisions before order preparation.')
