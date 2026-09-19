@@ -819,6 +819,14 @@ def get_case_detail(group_config, user: dict, case_id: str) -> dict:
         case, user, workflow=getattr(group_config, 'workflow', None) or {},
         include_business_time=business_time_enabled(),
     )
+    credit_assessment_enabled = bool(
+        getattr(settings, 'CREDIT_ASSESSMENT_GMAIL_ENABLED', False)
+    )
+    detail['credit_assessment_enabled'] = credit_assessment_enabled
+    if not credit_assessment_enabled:
+        detail['credit_assessment'] = None
+        detail['can_start_credit_assessment'] = False
+        return detail
     # Credit assessment is a bounded domain. TAT exposes only its compact
     # projection so timing and operational routing stay in one workspace.
     try:
@@ -3226,6 +3234,8 @@ def next_action(case: TatTrackerCase) -> StageConfig | None:
 
 def credit_assessment_required_role(case: TatTrackerCase) -> str:
     """Project the bounded assessment owner into canonical TAT routing."""
+    if not bool(getattr(settings, 'CREDIT_ASSESSMENT_GMAIL_ENABLED', False)):
+        return ''
     try:
         assessment = case.credit_assessment
     except ObjectDoesNotExist:

@@ -6,6 +6,7 @@ import json
 import io
 import logging
 
+from django.conf import settings
 from django.http import FileResponse, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -38,6 +39,14 @@ from .services import (
 
 
 logger = logging.getLogger(__name__)
+
+
+def _disabled_response():
+    return JsonResponse({
+        'ok': False,
+        'code': 'credit_assessment_disabled',
+        'message': 'Credit assessment is not enabled.',
+    }, status=404)
 
 
 def _json_value(payload: dict, key: str, default):
@@ -98,6 +107,8 @@ def _projection(assessment: CreditAssessment, user: dict) -> dict:
 @require_http_methods(['POST'])
 @miniapp_write_response
 def credit_assessment_detail(request):
+    if not bool(getattr(settings, 'CREDIT_ASSESSMENT_GMAIL_ENABLED', False)):
+        return _disabled_response()
     payload = _tat_payload(request)
     case, user, _group_config, error = _context(payload)
     if error:
@@ -110,6 +121,8 @@ def credit_assessment_detail(request):
 @require_http_methods(['POST'])
 @miniapp_write_response
 def credit_assessment_action(request):
+    if not bool(getattr(settings, 'CREDIT_ASSESSMENT_GMAIL_ENABLED', False)):
+        return _disabled_response()
     payload = _tat_payload(request)
     key_error = _bind_miniapp_write_request(request, payload)
     if key_error:
@@ -179,6 +192,8 @@ def credit_assessment_action(request):
 @require_http_methods(['POST'])
 def credit_assessment_document(request):
     """Stream protected evidence only after current TAT scope authorization."""
+    if not bool(getattr(settings, 'CREDIT_ASSESSMENT_GMAIL_ENABLED', False)):
+        return _disabled_response()
     payload = _tat_payload(request)
     case, user, _group_config, error = _context(payload)
     if error:

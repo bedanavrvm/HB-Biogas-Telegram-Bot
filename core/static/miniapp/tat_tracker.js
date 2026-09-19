@@ -1749,11 +1749,17 @@
     </form>`;
   }
 
-  function renderCreditAssessment(data, canStart) {
+  function renderCreditAssessment(data, canStart, enabled = true) {
     const panel = $('creditAssessmentPanel');
     const content = $('creditAssessmentContent');
     const chip = $('creditAssessmentState');
     if (!panel || !content || !chip) return;
+    if (!enabled) {
+      panel.hidden = true;
+      content.replaceChildren();
+      chip.textContent = 'Not started';
+      return;
+    }
     panel.hidden = false;
     chip.textContent = data?.state_label || 'Not started';
     if (!data) {
@@ -2031,10 +2037,17 @@
       </div>
       ${escalation ? `<div class="tat-escalation level-${escapeHtml(escalation.escalation_level)}"><strong>SLA escalation: ${escapeHtml(escalation.routing_role)}</strong><span>${escapeHtml(formatMinutes(escalation.overdue_minutes))} overdue at ${escapeHtml(escalation.threshold_percent)}% threshold</span></div>` : ''}`;
 
-    renderCreditAssessment(detail.credit_assessment, detail.can_start_credit_assessment);
-    if (state.creditAssessmentLoadedFor !== summary.case_id) {
+    const creditAssessmentEnabled = detail.credit_assessment_enabled === true;
+    renderCreditAssessment(
+      detail.credit_assessment,
+      detail.can_start_credit_assessment,
+      creditAssessmentEnabled,
+    );
+    if (creditAssessmentEnabled && state.creditAssessmentLoadedFor !== summary.case_id) {
       state.creditAssessmentLoadedFor = summary.case_id;
       loadCreditAssessment(summary.case_id);
+    } else if (!creditAssessmentEnabled) {
+      state.creditAssessmentLoadedFor = '';
     }
 
     $('remarksInput').value = detail.remarks || '';

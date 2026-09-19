@@ -350,6 +350,11 @@ GOOGLE_DRIVE_MEDIA_FOLDER_ID = config('GOOGLE_DRIVE_MEDIA_FOLDER_ID', default=''
 # Governed credit-assessment intake. Supplying the dedicated mailbox enables
 # polling. Personal Gmail uses one authorized-user OAuth JSON secret. Existing
 # Google service-account credentials remain responsible only for Drive.
+CREDIT_ASSESSMENT_GMAIL_ENABLED = config(
+    'CREDIT_ASSESSMENT_GMAIL_ENABLED',
+    default=False,
+    cast=bool,
+)
 CREDIT_ASSESSMENT_GMAIL_USER = config('CREDIT_ASSESSMENT_GMAIL_USER', default='').strip()
 CREDIT_ASSESSMENT_GMAIL_OAUTH_JSON = config('CREDIT_ASSESSMENT_GMAIL_OAUTH_JSON', default='').strip()
 SPIN_HARD_CUTOVER = config('SPIN_HARD_CUTOVER', default=False, cast=bool)

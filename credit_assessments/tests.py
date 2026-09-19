@@ -5,6 +5,7 @@ import io
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 from unittest.mock import MagicMock, patch
 
@@ -29,6 +30,7 @@ from .services import (
 
 @override_settings(
     GOOGLE_DRIVE_MEDIA_FOLDER_ID='test-folder',
+    CREDIT_ASSESSMENT_GMAIL_ENABLED=True,
 )
 class CreditAssessmentServiceTests(TestCase):
     def setUp(self):
@@ -287,7 +289,17 @@ class CreditAssessmentServiceTests(TestCase):
         self.assertEqual(first.pk, second.pk)
         self.assertEqual(first.events.count(), 1)
 
-    @override_settings(CREDIT_ASSESSMENT_GMAIL_USER='pool@example.com')
+    @override_settings(CREDIT_ASSESSMENT_GMAIL_ENABLED=False)
+    def test_disabled_flag_removes_assessment_routing_override(self):
+        get_or_create_assessment(case=self.case, user=self.bro_context, request_id='start-disabled')
+        from core.services.tat_tracker import credit_assessment_required_role
+
+        self.assertEqual(credit_assessment_required_role(self.case), '')
+
+    @override_settings(
+        CREDIT_ASSESSMENT_GMAIL_ENABLED=True,
+        CREDIT_ASSESSMENT_GMAIL_USER='pool@example.com',
+    )
     @patch('credit_assessments.mailbox._gmail_service')
     def test_mailbox_searches_for_recent_pdfs_before_strict_filename_validation(self, service_factory):
         service = MagicMock()
@@ -304,3 +316,22 @@ class CreditAssessmentServiceTests(TestCase):
             q='has:attachment filename:pdf newer_than:180d',
             maxResults=50,
         )
+
+    @override_settings(
+        CREDIT_ASSESSMENT_GMAIL_ENABLED=False,
+        CREDIT_ASSESSMENT_GMAIL_USER='pool@example.com',
+    )
+    def test_disabled_flag_prevents_mailbox_polling(self):
+        with self.assertRaisesRegex(RuntimeError, 'credit_mailbox_disabled'):
+            poll_mailbox(commit=False, limit=50)
+
+    @override_settings(CREDIT_ASSESSMENT_GMAIL_ENABLED=False)
+    def test_disabled_flag_closes_credit_assessment_http_boundaries(self):
+        for route_name in (
+            'credit_assessment_detail',
+            'credit_assessment_action',
+            'credit_assessment_document',
+        ):
+            response = self.client.post(reverse(route_name), data={})
+            self.assertEqual(response.status_code, 404)
+            self.assertEqual(response.json()['code'], 'credit_assessment_disabled')

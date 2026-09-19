@@ -317,6 +317,8 @@ def _claim_cursor(now, owner):
 
 
 def poll_mailbox(*, commit: bool = False, limit: int = 50) -> dict:
+    if not bool(getattr(settings, 'CREDIT_ASSESSMENT_GMAIL_ENABLED', False)):
+        raise RuntimeError('credit_mailbox_disabled')
     if not str(getattr(settings, 'CREDIT_ASSESSMENT_GMAIL_USER', '') or '').strip():
         raise RuntimeError('credit_mailbox_disabled')
     now = timezone.now()

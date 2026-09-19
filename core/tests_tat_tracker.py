@@ -874,6 +874,8 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn("mode: 'preview'", source)
         self.assertIn("mode: 'download'", source)
         self.assertIn('.assessment-preview-sheet', stylesheet)
+        self.assertIn('detail.credit_assessment_enabled === true', source)
+        self.assertIn('creditAssessmentPanel" class="credit-assessment-panel" aria-labelledby="creditAssessmentTitle" hidden', template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
