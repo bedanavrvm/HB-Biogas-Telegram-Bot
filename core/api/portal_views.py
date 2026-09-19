@@ -8582,18 +8582,19 @@ def portal_document_physical_signoff_upload(request, document_type: str, documen
         source_available=True,
         can_upload=True,
     )
+    retryable = signoff.status in {'upload_pending', 'upload_failed'}
     return JsonResponse({
-        'ok': signoff.status != 'upload_failed',
-        'pending_retry': signoff.status == 'upload_failed',
+        'ok': signoff.status == 'signed_approved',
+        'pending_retry': retryable,
         'idempotent_replay': replayed,
         'signoff': payload,
-    }, status=202 if signoff.status == 'upload_failed' else 200)
+    }, status=202 if retryable else 200)
 
 
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_document_physical_signoff_retry(request, signoff_id: str):
-    """Retry a failed Drive upload without accepting a second scan."""
+    """Finish a pending/failed Drive upload without accepting a second scan."""
     from core.models import DocumentPhysicalSignoff
     from core.services.document_signoffs import (
         PhysicalSignoffError,
@@ -8624,11 +8625,12 @@ def portal_document_physical_signoff_retry(request, signoff_id: str):
     except Exception:
         logger.exception('Physical sign-off retry failed: signoff=%s', signoff_id)
         return JsonResponse({'ok': False, 'error': 'The signed-scan upload could not be retried.'}, status=502)
+    retryable = signoff.status in {'upload_pending', 'upload_failed'}
     return JsonResponse({
-        'ok': signoff.status != 'upload_failed',
-        'pending_retry': signoff.status == 'upload_failed',
+        'ok': signoff.status == 'signed_approved',
+        'pending_retry': retryable,
         'signoff': serialize_physical_signoff(signoff, document_type=signoff.document_type, source_available=True, can_upload=True),
-    }, status=202 if signoff.status == 'upload_failed' else 200)
+    }, status=202 if retryable else 200)
 
 
 @require_http_methods(["GET"])

@@ -1637,8 +1637,11 @@
     if (status === 'legacy_not_signable') {
       return `<section class="physical-signoff physical-signoff-muted"><div><strong>Legacy workbook</strong><span>Its source bytes were not retained. Regenerate this document before attaching a signed scan.</span></div></section>`;
     }
-    if (status === 'upload_failed') {
-      return `<section class="physical-signoff physical-signoff-warning"><div><strong>Signed scan retained locally; Drive retry needed</strong><span>${escapeHtml(signoff.drive_error || 'The scan has not reached Drive yet.')}</span></div>${signoff.id ? `<button type="button" class="btn btn-secondary history-retry-signed-scan" data-signoff-id="${escapeHtml(signoff.id)}">Retry upload</button>` : ''}</section>`;
+    if (status === 'upload_pending' || status === 'upload_failed') {
+      const pendingCopy = status === 'upload_pending'
+        ? 'The earlier request stopped before approval was recorded. Finish it using the retained scan.'
+        : (signoff.drive_error || 'The scan has not reached Drive yet.');
+      return `<section class="physical-signoff physical-signoff-warning"><div><strong>Signed scan retained; upload needs finishing</strong><span>${escapeHtml(pendingCopy)}</span></div>${signoff.id ? `<button type="button" class="btn btn-secondary history-retry-signed-scan" data-signoff-id="${escapeHtml(signoff.id)}">Finish upload</button>` : ''}</section>`;
     }
     if (status === 'rejected') {
       return `<section class="physical-signoff physical-signoff-warning"><div><strong>Signed scan rejected</strong><span>${escapeHtml(signoff.rejection_reason || 'Attach a new signed scan after correcting it.')}</span></div></section>`;

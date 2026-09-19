@@ -307,7 +307,11 @@ def submit_physical_signoff(*, document_type: str, document_id: str, uploaded_fi
 
     The boolean is true when a retry/double submit resolves to the same stored
     sign-off.  Database locks plus the scan checksum protect against a mobile
-    double tap even when the client did not retain a request identifier.
+    double tap even when the client did not retain a request identifier. The
+    source and scan checksums identify their own different files; they are
+    never compared for equality because printing, signing, stamping, and
+    rescanning necessarily changes the file bytes. The staff attestation binds
+    the uploaded scan to the retained source version.
     """
     if not can_approve_physical_signoff(actor, access, document_type):
         raise PhysicalSignoffError('Your Portal role is not configured to attest this document type.')
@@ -365,8 +369,11 @@ def retry_physical_signoff(*, signoff_id: str, actor, access: dict | None) -> Do
         raise PhysicalSignoffError('Your Portal role is not configured to retry this signed-scan upload.')
     if signoff.status == DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED:
         return signoff
-    if signoff.status != DocumentPhysicalSignoff.STATUS_UPLOAD_FAILED:
-        raise PhysicalSignoffError('Only a failed signed-scan upload can be retried.')
+    if signoff.status not in {
+        DocumentPhysicalSignoff.STATUS_UPLOAD_PENDING,
+        DocumentPhysicalSignoff.STATUS_UPLOAD_FAILED,
+    }:
+        raise PhysicalSignoffError('Only an unfinished signed-scan upload can be retried.')
     return _upload_to_drive(signoff, actor=actor)
 
 

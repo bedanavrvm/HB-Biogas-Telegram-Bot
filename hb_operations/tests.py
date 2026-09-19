@@ -3,7 +3,9 @@ from datetime import date
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from core.models import (
@@ -63,6 +65,18 @@ class HomeBiogasActionServiceTests(TestCase):
         self.assertEqual(action.source_order_number, '1201')
         self.assertEqual(action.events.filter(event_type='order.released_to_hb').count(), 1)
 
+    def test_release_locks_signoff_without_joining_nullable_document_sources(self):
+        with CaptureQueriesContext(connection) as captured:
+            release_requisition_signoff(self.signoff, actor=self.user)
+
+        signoff_queries = [
+            query['sql'] for query in captured.captured_queries
+            if 'core_documentphysicalsignoff' in query['sql'].casefold()
+            and 'WHERE' in query['sql'].upper()
+        ]
+        self.assertTrue(signoff_queries)
+        self.assertNotIn(' JOIN ', signoff_queries[0].upper())
+
     def test_hb_queue_respects_the_complete_grant_scope(self):
         self.release()
         AccessGrant.objects.create(
@@ -103,6 +117,7 @@ class HomeBiogasActionServiceTests(TestCase):
         accepted = _upload_to_drive(self.signoff, actor=self.user)
 
         self.assertEqual(accepted.status, DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED)
+        self.assertNotEqual(accepted.source_checksum, accepted.scan_checksum)
         self.assertTrue(HomeBiogasAction.objects.filter(farmer=self.farmer).exists())
 
     def test_scheduled_requires_date_and_pending_context(self):

@@ -21,6 +21,7 @@ from core.models import (
 from core.services.document_signoffs import (
     PhysicalSignoffError,
     document_signoff_summary,
+    retry_physical_signoff,
     submit_physical_signoff,
 )
 from core.services.access_control import (
@@ -81,6 +82,7 @@ class PhysicalDocumentSignoffTests(TestCase):
         self.assertEqual(signoff.status, DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED)
         self.assertEqual(signoff.source_version, 2)
         self.assertEqual(signoff.source_file_content, self.batch.file_content)
+        self.assertNotEqual(signoff.source_checksum, signoff.scan_checksum)
         self.assertTrue(signoff.drive_url)
         self.assertEqual(signoff.approved_by, self.admin_user)
         self.assertTrue(DocumentPhysicalSignoffEvent.objects.filter(
@@ -199,6 +201,31 @@ class PhysicalDocumentSignoffTests(TestCase):
         self.assertEqual(signoff.status, DocumentPhysicalSignoff.STATUS_UPLOAD_FAILED)
         self.assertEqual(signoff.scan_file_content, b'%PDF-physical-signed-scan')
         self.assertTrue(signoff.drive_next_retry_at)
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_pending_attempt_can_finish_after_post_upload_database_interruption(self, storage):
+        storage.return_value.upload.return_value = ('drive-first', 'https://drive.test/first')
+        access = user_access(self.admin_user, 'jawabu_portal')
+        with patch(
+            'hb_operations.services.release_requisition_signoff',
+            side_effect=RuntimeError('Simulated post-upload database interruption'),
+        ):
+            with self.assertRaisesRegex(RuntimeError, 'post-upload database interruption'):
+                submit_physical_signoff(
+                    document_type='requisition', document_id=str(self.batch.id),
+                    uploaded_file=self._scan(), actor=self.admin_user, access=access,
+                    request_id='interrupted-after-drive',
+                )
+
+        retained = DocumentPhysicalSignoff.objects.get(request_id='interrupted-after-drive')
+        self.assertEqual(retained.status, DocumentPhysicalSignoff.STATUS_UPLOAD_PENDING)
+        self.assertEqual(retained.scan_file_content, b'%PDF-physical-signed-scan')
+
+        storage.return_value.upload.return_value = ('drive-retry', 'https://drive.test/retry')
+        completed = retry_physical_signoff(
+            signoff_id=str(retained.pk), actor=self.admin_user, access=access,
+        )
+        self.assertEqual(completed.status, DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED)
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_upload_endpoint_requires_attestation_then_uses_authorised_actor(self, storage):

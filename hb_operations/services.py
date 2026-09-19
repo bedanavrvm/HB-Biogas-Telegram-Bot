@@ -8,7 +8,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
-from core.models import JawabuFarmerMaster, ParsedInvoice
+from core.models import JawabuFarmerMaster, ParsedInvoice, RequisitionBatch
 from core.services.portal_publication import publication_payload, reserve_farmer_publication
 from core.services.workflow_access import scope_workflow_queryset
 
@@ -146,12 +146,18 @@ def release_requisition_signoff(signoff, *, actor=None) -> dict:
     """Release only a newly accepted requisition signoff; never backfill history."""
     from core.models import DocumentPhysicalSignoff, DocumentSignoffPolicy
 
-    signoff = DocumentPhysicalSignoff.objects.select_for_update().select_related('requisition_batch').get(pk=signoff.pk)
+    # Lock only the sign-off row. DocumentPhysicalSignoff has nullable foreign
+    # keys for the mutually exclusive requisition/payment sources, so joining
+    # either relation into SELECT FOR UPDATE makes PostgreSQL try to lock the
+    # nullable side of an outer join (which PostgreSQL rejects).
+    signoff = DocumentPhysicalSignoff.objects.select_for_update().get(pk=signoff.pk)
     if signoff.document_type != DocumentSignoffPolicy.DOCUMENT_REQUISITION:
         raise HomeBiogasActionError('Only an accepted requisition can release HomeBiogas work.')
     if signoff.status != DocumentPhysicalSignoff.STATUS_SIGNED_APPROVED:
         raise HomeBiogasActionError('The signed and stamped requisition has not been accepted.')
-    batch = signoff.requisition_batch
+    # Lock the concrete requisition separately so the version cannot change
+    # between validation and release, without introducing an outer join.
+    batch = RequisitionBatch.objects.select_for_update().get(pk=signoff.requisition_batch_id)
     if int(signoff.source_version or 0) != int(batch.version or 0):
         raise HomeBiogasActionError('The accepted scan is not for the current requisition version.')
     ids = []
