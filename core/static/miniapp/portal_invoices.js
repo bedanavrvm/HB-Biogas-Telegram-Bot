@@ -790,10 +790,13 @@
     const matched = (receipt.items || []).filter(function (item) { return item.status === 'matched' && item.farmer_id; });
     if (!matched.length) return deps.showToast('This invoice delivery has no matched invoices ready for payment.', 'error');
     const paymentModes = {};
-    const selectors = container?.querySelectorAll?.('[data-invoice-receipt-mode]') || [];
-    selectors.forEach(function (select) { paymentModes[select.dataset.invoiceReceiptMode] = select.value; });
-    const incomplete = matched.some(function (item) { return !paymentModes[item.farmer_id]; });
-    if (incomplete) return deps.showToast('Choose a payment mode for every matched invoice first.', 'error');
+    // Loan - Jawabu is the normal route.  Cash is an explicit per-invoice
+    // exception, not a required choice repeated for every row.
+    matched.forEach(function (item) { paymentModes[item.farmer_id] = 'LOAN-JAWABU'; });
+    const cashToggles = container?.querySelectorAll?.('[data-invoice-receipt-cash]') || [];
+    cashToggles.forEach(function (toggle) {
+      if (toggle.getAttribute('aria-pressed') === 'true') paymentModes[toggle.dataset.invoiceReceiptCash] = 'CASH';
+    });
     if (!window.confirm('Create one payment batch from this invoice delivery? Held invoice rows will stay visible but will not be payable.')) return;
     if (deps.setButtonLoading) deps.setButtonLoading(button, true, 'Creating...');
     try {
@@ -812,6 +815,18 @@
     } finally {
       if (deps.setButtonLoading) deps.setButtonLoading(button, false);
     }
+  }
+
+  function toggleReceiptCash(button) {
+    const cash = button.getAttribute('aria-pressed') !== 'true';
+    button.setAttribute('aria-pressed', cash ? 'true' : 'false');
+    button.classList.toggle('is-cash', cash);
+    button.title = cash ? 'Cash selected. Switch back to Loan - Jawabu' : 'Switch this invoice to Cash';
+    button.setAttribute('aria-label', button.title);
+    button.innerHTML = cash
+      ? '<i data-lucide="banknote" aria-hidden="true"></i><span>Cash</span>'
+      : '<i data-lucide="landmark" aria-hidden="true"></i><span>Loan</span>';
+    window.lucide?.createIcons?.();
   }
 
   async function openInvoiceDetail(invoiceId) {
@@ -1363,7 +1378,7 @@
           const receiptHeld = Array.isArray(receipt.items) ? receipt.items.filter(function (item) { return item.status !== 'matched'; }) : [];
           const modeRows = receiptMatched.map(function (item) {
             const label = item.applicant_name || item.invoice_holder_name || item.invoice_no || 'Matched invoice';
-            return '<label class="invoice-receipt-mode"><span>' + escapeHtml(label) + '</span><select data-invoice-receipt-mode="' + escapeHtml(item.farmer_id) + '" aria-label="Payment mode for ' + escapeHtml(label) + '"><option value="">Payment mode</option><option value="LOAN-JAWABU">Loan - Jawabu</option><option value="CASH">Cash</option></select></label>';
+            return '<div class="invoice-receipt-mode"><span><strong>' + escapeHtml(label) + '</strong><small>Loan - Jawabu</small></span><button type="button" class="invoice-receipt-cash-toggle" data-invoice-receipt-cash="' + escapeHtml(item.farmer_id) + '" aria-pressed="false" aria-label="Switch ' + escapeHtml(label) + ' to Cash" title="Switch this invoice to Cash"><i data-lucide="landmark" aria-hidden="true"></i><span>Loan</span></button></div>';
           }).join('');
           resultBox.innerHTML = '<div class="invoice-upload-outcome" role="status">'
             + '<strong>Successfully uploaded ' + escapeHtml(uploaded) + ' invoice file' + (uploaded === 1 ? '' : 's') + '.</strong>'
@@ -1378,6 +1393,10 @@
               + '</div>' : '')
             + '</div>';
           resultBox.querySelector('.invoice-receipt-create-payment')?.addEventListener('click', function () { createPaymentFromReceipt(receipt, this, resultBox); });
+          resultBox.querySelectorAll('.invoice-receipt-cash-toggle').forEach(function (toggle) {
+            toggle.addEventListener('click', function () { toggleReceiptCash(toggle); });
+          });
+          window.lucide?.createIcons?.();
         }
         deps.showToast('Uploaded ' + (data.total_uploaded || 0) + ' invoice file(s): ' + (data.auto_matched_count || 0) + ' auto-matched, ' + (data.manual_review_count || data.unmatched_count || 0) + ' need review.', data.total_failed ? 'warning' : 'success');
         load(1);

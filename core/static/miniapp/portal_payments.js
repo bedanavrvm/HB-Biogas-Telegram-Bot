@@ -216,10 +216,11 @@
     if (title) title.textContent = activeReceipt.payment_batch_id ? 'Payment created from this delivery' : 'Prepare payment from invoice delivery';
     if (copy) copy.textContent = activeReceipt.payment_batch_id
       ? 'This delivery already has a governed payment batch.'
-      : 'Choose a payment mode for every matched invoice. Held invoices remain visible but are not included.';
+      : 'Matched invoices default to Loan - Jawabu. Switch only a Cash exception. Held invoices are not included.';
     target.innerHTML = [
       ...payable.map(function (item) {
-        return `<label class="payment-receipt-dialog-row"><span><strong>${escape(item.applicant_name || item.invoice_holder_name || item.invoice_no || 'Matched invoice')}</strong><small>${escape(item.invoice_no || 'Invoice')} · matched</small></span><select data-payment-receipt-dialog-mode="${escape(item.farmer_id)}"><option value="">Payment mode</option><option value="LOAN-JAWABU">Loan - Jawabu</option><option value="CASH">Cash</option></select></label>`;
+        const label = item.applicant_name || item.invoice_holder_name || item.invoice_no || 'Matched invoice';
+        return `<div class="payment-receipt-dialog-row"><span><strong>${escape(label)}</strong><small>${escape(item.invoice_no || 'Invoice')} · Loan - Jawabu</small></span><button type="button" class="payment-receipt-cash-toggle" data-payment-receipt-dialog-cash="${escape(item.farmer_id)}" aria-pressed="false" aria-label="Switch ${escape(label)} to Cash" title="Switch this invoice to Cash"><i data-lucide="landmark" aria-hidden="true"></i><span>Loan</span></button></div>`;
       }),
       ...held.map(function (item) {
         return `<div class="payment-receipt-dialog-row held"><span><strong>${escape(item.invoice_no || item.source_filename || 'Invoice')}</strong><small>${escape(item.reason || item.status_label || 'Needs review')}</small></span><span class="badge badge-orange">${escape(item.status_label || 'Held')}</span></div>`;
@@ -242,10 +243,13 @@
   async function createPaymentFromReceipt(button) {
     if (!activeReceipt?.id) return;
     const modes = {};
-    el('payment-receipt-dialog-items')?.querySelectorAll('[data-payment-receipt-dialog-mode]').forEach(function (select) {
-      modes[select.dataset.paymentReceiptDialogMode] = select.value;
+    (activeReceipt.items || []).filter(function (item) { return item.status === 'matched' && item.farmer_id; }).forEach(function (item) {
+      modes[item.farmer_id] = 'LOAN-JAWABU';
     });
-    if (Object.values(modes).some(function (mode) { return !mode; })) return deps.showToast('Choose a payment mode for every matched invoice.', 'error');
+    el('payment-receipt-dialog-items')?.querySelectorAll('[data-payment-receipt-dialog-cash]').forEach(function (toggle) {
+      if (toggle.getAttribute('aria-pressed') === 'true') modes[toggle.dataset.paymentReceiptDialogCash] = 'CASH';
+    });
+    if (!Object.keys(modes).length) return deps.showToast('There are no matched invoices to add to payment.', 'error');
     deps.setButtonLoading(button, true, 'Creating...');
     try {
       const response = await request(`/invoice-receipts/${activeReceipt.id}/payment/`, 'POST', {
@@ -351,7 +355,7 @@
     if (heldTarget) {
       heldTarget.innerHTML = heldItems.map(function (item) {
         const add = item.can_add_to_payment && !approvalMode() && capability('portal.payment.prepare') && !['completed', 'cancelled'].includes(activeBatch.status)
-          ? `<div class="payment-receipt-add"><select data-payment-receipt-mode="${escape(item.farmer_id)}" aria-label="Payment mode for ${escape(item.applicant_name || item.invoice_no || 'invoice')}"><option value="">Payment mode</option><option value="LOAN-JAWABU">Loan - Jawabu</option><option value="CASH">Cash</option></select><button type="button" class="btn btn-secondary payment-add-receipt-item" data-payment-receipt-farmer="${escape(item.farmer_id)}">Add to payment</button></div>`
+          ? `<div class="payment-receipt-add"><button type="button" class="payment-receipt-cash-toggle" data-payment-receipt-cash="${escape(item.farmer_id)}" aria-pressed="false" aria-label="Switch ${escape(item.applicant_name || item.invoice_no || 'invoice')} to Cash" title="Switch this invoice to Cash"><i data-lucide="landmark" aria-hidden="true"></i><span>Loan</span></button><button type="button" class="btn btn-secondary payment-add-receipt-item" data-payment-receipt-farmer="${escape(item.farmer_id)}">Add to payment</button></div>`
           : '';
         const label = item.can_add_to_payment ? 'Corrected - ready to add' : (item.status_label || 'Held');
         return `<article class="payment-current-case payment-held-item${item.can_add_to_payment ? ' payment-receipt-ready' : ''}"><div class="payment-case-heading"><strong>${escape(item.invoice_no || 'Unparsed invoice')}</strong><span class="badge ${item.can_add_to_payment ? 'badge-green' : 'badge-orange'}">${escape(label)}</span></div><div class="payment-case-values"><span>Invoice: ${escape(item.invoice_holder_name || 'Unknown holder')}</span><span>Applicant: ${escape(item.applicant_name || 'Not matched')}</span></div>${item.reason ? `<p class="payment-review-note">${escape(item.reason)}</p>` : ''}${add}</article>`;
@@ -531,13 +535,25 @@
 
   async function addReceiptItem(button) {
     const farmerId = String(button.dataset.paymentReceiptFarmer || '');
-    // Keep this compatible with older Telegram Android WebViews, where
-    // ``CSS.escape`` is not consistently available.
-    const select = button.parentElement?.querySelector('[data-payment-receipt-mode]');
-    if (!farmerId || !select?.value) return deps.showToast('Choose a payment mode before adding this corrected invoice.', 'error');
-    if (await mutate(`/payments/batches/${activeBatch.id}/cases/`, {farmer_ids: [farmerId], payment_modes: {[farmerId]: select.value}}, button, 'Adding...')) {
+    const cashToggle = button.parentElement?.querySelector('[data-payment-receipt-cash]');
+    if (!farmerId) return deps.showToast('This corrected invoice cannot be added yet.', 'error');
+    const paymentMode = cashToggle?.getAttribute('aria-pressed') === 'true' ? 'CASH' : 'LOAN-JAWABU';
+    if (await mutate(`/payments/batches/${activeBatch.id}/cases/`, {farmer_ids: [farmerId], payment_modes: {[farmerId]: paymentMode}}, button, 'Adding...')) {
       deps.showToast('Corrected invoice added to the payment batch.', 'success');
     }
+  }
+
+  function toggleReceiptCash(button) {
+    const cash = button.getAttribute('aria-pressed') !== 'true';
+    button.setAttribute('aria-pressed', cash ? 'true' : 'false');
+    button.classList.toggle('is-cash', cash);
+    const title = cash ? 'Cash selected. Switch back to Loan - Jawabu' : 'Switch this invoice to Cash';
+    button.title = title;
+    button.setAttribute('aria-label', title);
+    button.innerHTML = cash
+      ? '<i data-lucide="banknote" aria-hidden="true"></i><span>Cash</span>'
+      : '<i data-lucide="landmark" aria-hidden="true"></i><span>Loan</span>';
+    window.lucide?.createIcons?.();
   }
 
   async function reviewCase(card, decision, button) {
@@ -625,6 +641,7 @@
       if (filter) { candidateFilter = filter.dataset.paymentFilter; return renderCandidates(); }
       if (target.closest('#payments-clear-selection')) { selected.clear(); return renderCandidates(); }
       if (target.closest('#payments-add-selected')) return addSelected(target.closest('#payments-add-selected'));
+      if (target.closest('.payment-receipt-cash-toggle')) return toggleReceiptCash(target.closest('.payment-receipt-cash-toggle'));
       if (target.closest('.payment-add-receipt-item')) return addReceiptItem(target.closest('.payment-add-receipt-item'));
       if (target.closest('#payments-submit-review')) return submitForReview(target.closest('#payments-submit-review'));
       if (target.closest('#payments-generate')) return mutate(`/payments/batches/${activeBatch.id}/generate/`, {}, target.closest('#payments-generate'), 'Generating...');
