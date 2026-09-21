@@ -131,14 +131,19 @@ test('an empty payment detail route exposes one compact build step at 320px', as
         if (url === '/payments/batches/' && options.method === 'POST') return { ok: true, data: { ok: true, batch: emptyBatch } };
         if (url === '/payments/batches/') return { ok: true, data: { ok: true, batches: [emptyBatch] } };
         if (url.startsWith('/payments/batches/batch-1/')) return { ok: true, data: { ok: true, batch: emptyBatch } };
-        if (url.startsWith('/payments/candidates/')) return { ok: true, data: { ok: true, ready: [], blocked: [], pending_review: [] } };
+        if (url.startsWith('/payments/candidates/')) return { ok: true, data: { ok: true, ready: [{farmer_id: 'farmer-1', customer_name: 'Jane Wanjiku', national_id: '12345678', row: {hb_invoice_amount: '1000', repayment_dates: '10TH'}}], blocked: [], pending_review: [] } };
         return { ok: false, data: { ok: false, error: 'Unexpected test request' } };
       },
     });
     return window.PortalMiniAppPayments.load();
   });
-  await expect(page.locator('#payments-add-title')).toHaveText('Build the payment batch');
-  await expect(page.locator('#payments-add-step')).toHaveText('Step 1');
+  await expect(page.locator('#payments-add-panel')).toBeVisible();
+  await expect(page.locator('#payments-search')).toBeVisible();
+  await expect(page.locator('.payment-candidate-cash-toggle')).toHaveAttribute('aria-label', 'Switch this case to Cash');
+  await expect(page.locator('.payment-candidate-cash-toggle .sr-only')).toHaveText('Loan - Jawabu');
+  await page.locator('.payment-candidate-cash-toggle').click();
+  await expect(page.locator('.payment-candidate-cash-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.payment-candidate-cash-toggle .sr-only')).toHaveText('Cash');
   await expect(page.locator('#payments-current-section')).toBeHidden();
   await expect(page.locator('#payments-progress')).toBeHidden();
   await expect(page.locator('.payment-activity')).toBeHidden();
@@ -159,7 +164,7 @@ test('payment detail keeps approved case facts compact and available at 320px', 
   await page.setViewportSize({ width: 320, height: 568 });
   await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="payment_approvals" data-payment-batch-id="batch-2"><section id="page-payments" class="page active">
     <section id="payments-detail" class="payment-detail"><header class="payment-detail-header"><button id="payments-detail-back">Back</button><div class="payment-detail-heading"><h2 id="payments-detail-title"></h2><p id="payments-detail-meta"></p></div><strong id="payments-detail-total"></strong></header><div id="payments-detail-feedback"></div><div id="payments-progress" class="payment-progress"></div>
-      <section id="payments-current-section" class="payment-detail-section"><header><h3>Cases</h3><span id="payments-current-count"></span></header><div id="payments-current-cases" class="payment-current-cases"></div></section>
+      <section id="payments-current-section" class="payment-detail-section"><header id="payments-current-heading"><h3>Needs attention</h3></header><div id="payments-current-cases" class="payment-current-cases"></div></section>
       <details class="payment-activity"><summary>Batch activity</summary><div id="payments-activity"></div></details><div id="payments-primary-action"></div>
     </section></section></div></main></body>`);
   await loadPortalStyles(page);
@@ -179,9 +184,10 @@ test('payment detail keeps approved case facts compact and available at 320px', 
   });
   await expect(page.locator('#payments-detail-title')).toHaveText('Payment #24');
   await expect(page.locator('#payments-detail-total')).toHaveText('KES 54,000');
-  await expect(page.locator('#payments-current-count')).toHaveText('1 case');
+  await expect(page.locator('#payments-current-section header')).toBeHidden();
   await expect(page.locator('.payment-progress .payment-progress-total')).toHaveCount(0);
   await expect(page.locator('.payment-approved-summary')).toHaveCount(0);
+  await expect(page.locator('.payment-approved-cases summary')).toContainText('Approved');
   await page.locator('.payment-approved-cases summary').click();
   await expect(page.locator('.payment-approved-case-list')).toContainText('Jane Wanjiku');
   await expect(page.locator('.payment-approved-case-list')).toContainText('ID 12345678');
@@ -189,6 +195,11 @@ test('payment detail keeps approved case facts compact and available at 320px', 
   await expect(page.locator('.payment-approved-case-list')).toContainText('Embu Central');
   await expect(page.locator('.payment-approved-case-list')).toContainText('Mary Officer');
   await assertNoHorizontalOverflow(page, 320);
+  for (const viewport of [{width: 360, height: 800}, {width: 430, height: 932}]) {
+    await page.setViewportSize(viewport);
+    await assertNoHorizontalOverflow(page, viewport.width);
+    await expect(page.locator('#payments-detail-total')).toBeVisible();
+  }
 });
 
 test('a payment detail load failure keeps Back available with a specific retry message', async ({ page }) => {

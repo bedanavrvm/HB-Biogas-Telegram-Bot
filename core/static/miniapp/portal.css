@@ -4120,7 +4120,8 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 /* Payment detail: keep the batch summary compact so the customer cases carry
    the visual weight.  Approved rows remain one semantic, expandable group. */
 .payment-detail { gap:7px; }
-.payment-detail-header { min-height:44px; margin:0; }
+.payment-detail-header { display:grid; grid-template-columns:40px minmax(0,1fr) auto; min-height:44px; margin:0; gap:5px; }
+.payment-detail-header .icon-button { width:40px; min-width:40px; height:40px; }
 .payment-detail-header .payment-detail-heading { display:grid; min-width:0; gap:1px; }
 .payment-detail-header .payment-detail-heading h2 { overflow:hidden; font-size:15px; text-overflow:ellipsis; white-space:nowrap; }
 .payment-detail-header .payment-detail-heading p { overflow:hidden; display:block; color:var(--text-muted); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
@@ -4133,6 +4134,7 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 .payment-progress .payment-progress-total { display:none; }
 #payments-current-section { border:0; border-radius:0; background:transparent; padding:0; }
 #payments-current-section > header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:1px 0 5px; }
+#payments-current-section > header[hidden] { display:none; }
 #payments-current-section > header h3 { margin:0; font-size:12px; }
 .payment-section-count { color:var(--text-muted); font-size:10px; font-weight:700; }
 #payments-current-section .payment-current-cases { grid-template-columns:1fr; gap:7px; margin:0; }
@@ -4155,6 +4157,24 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 .payment-approved-cases summary { min-height:38px; padding:7px 9px; }
 .payment-approved-case-list { max-height:min(58vh,560px); }
 .payment-primary-action { margin:2px 0 0; border:1px solid var(--border-color); border-radius:10px; }
+.payment-primary-action.payment-primary-action-quiet { align-items:center; min-height:34px; margin:0; padding:3px 0; border:0; border-radius:0; background:transparent; backdrop-filter:none; }
+.payment-primary-action-quiet .payment-state-note { display:flex; align-items:center; gap:5px; min-width:0; }
+.payment-primary-action-quiet .payment-state-note small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.payment-primary-action-quiet .payment-cancel-link { margin-left:auto; }
+
+/* Add cases begins with the search control; the payment context and selected
+   rows already explain the task without a duplicate heading or helper copy. */
+#payments-add-panel { padding:9px; }
+#payments-add-panel .payment-search-row { display:block; margin:0; }
+#payments-add-panel .payment-search-row label { display:block; }
+#payments-add-panel .payment-filter-chips { gap:4px; margin-top:6px; padding:0; }
+#payments-add-panel .payment-filter-chips button { min-height:30px; padding:5px 8px; font-size:10px; }
+#payments-add-panel .payment-selection-bar { margin:7px 0 6px; }
+.payment-candidate { position:relative; }
+.payment-candidate.has-mode-toggle { padding-right:50px; }
+.payment-candidate.has-mode-toggle .payment-candidate-cash-toggle { position:absolute; top:8px; right:8px; width:32px; min-width:32px; height:32px; min-height:32px; padding:0; border-radius:9px; }
+.payment-candidate.has-mode-toggle .payment-candidate-cash-toggle svg { width:16px; height:16px; }
+.payment-case-details .payment-candidate-cash-toggle { width:28px; min-width:28px; height:28px; min-height:28px; margin:0; padding:0; border-radius:8px; }
 @media (min-width:760px) {
   #payments-current-section .payment-current-cases { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }

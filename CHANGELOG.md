@@ -10,6 +10,9 @@
   approvals, return comments, cash switch and removal controls are unchanged.
 - Approved cases remain behind one compact expandable section; redundant
   all-approved copy and a nested summary card were removed.
+- Payment preparation now starts directly with search and compact candidate
+  filters; repeated introductory copy, result-count chrome and the full-width
+  Loan/Cash control were removed in favour of the accessible mode icon toggle.
 - No migrations, access-policy changes, or external writes are required.
 
 ## Portal FarmUp review and navigation refinement - 21-September-2026
