@@ -113,9 +113,9 @@ test('an empty payment detail route exposes one compact build step at 320px', as
   await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="payments" data-payment-batch-id="batch-1"><section id="page-payments" class="page active">
     <header class="portal-queue-header"><div><h1>Payments</h1><p class="meta">Prepare, review and complete payment batches</p></div><div class="payment-header-actions"><button id="payments-refresh">↻</button><button class="btn btn-primary" id="payments-new">New batch</button></div></header>
     <nav class="portal-invoice-tabs payment-batch-filters"><button class="active" data-payment-batch-filter="open"><span>Open</span><span class="count-pill" data-payment-batch-count="open">0</span></button><button data-payment-batch-filter="completed"><span>Completed</span><span class="count-pill" data-payment-batch-count="completed">0</span></button><button data-payment-batch-filter="cancelled"><span>Cancelled</span><span class="count-pill" data-payment-batch-count="cancelled">0</span></button><button data-payment-batch-filter="all"><span>All</span><span class="count-pill" data-payment-batch-count="all">0</span></button></nav><div id="payments-batches" class="payment-batch-list"></div>
-    <section id="payments-detail" class="payment-detail" hidden><header class="payment-detail-header"><button id="payments-detail-back">←</button><div><h2 id="payments-detail-title"></h2><p id="payments-detail-meta"></p></div></header><div id="payments-progress" class="payment-progress"></div>
+    <section id="payments-detail" class="payment-detail" hidden><header class="payment-detail-header"><button class="case-history-back" id="payments-detail-back">←</button><div><h2 id="payments-detail-title"></h2><p id="payments-detail-meta"></p></div><strong id="payments-detail-total"></strong></header><div id="payments-progress" class="payment-progress"></div>
       <section id="payments-current-section" class="payment-detail-section"><header><span class="payment-step">Batch cases</span><h3>Cases in this batch</h3></header><div id="payments-current-cases" class="payment-current-cases"></div></section>
-      <section id="payments-add-panel" class="payment-detail-section payment-add-section"><header><span class="payment-step" id="payments-add-step">Add cases</span><h3 id="payments-add-title">Choose cases and payment modes</h3><p id="payments-add-help"></p></header><div class="payment-search-row"><label><span>Add cases</span><input id="payments-search" type="search" placeholder="Search customer, ID, phone, invoice or order"></label><strong id="payments-result-count">0 found</strong></div><div class="payment-filter-chips" id="payments-filter-chips"><button class="active" data-payment-filter="ready">Ready</button><button data-payment-filter="blocked">Needs attention</button><button data-payment-filter="pending">In another batch</button></div><div class="payment-selection-bar"><strong id="payments-selected-count">0 selected</strong><button id="payments-clear-selection">Clear</button><button class="btn btn-primary" id="payments-add-selected">Add selected</button></div><div id="payments-list" class="payment-candidate-list"></div></section>
+      <section id="payments-add-panel" class="payment-detail-section payment-add-section"><header><span class="payment-step" id="payments-add-step">Add cases</span><h3 id="payments-add-title">Choose cases and payment modes</h3><p id="payments-add-help"></p></header><div class="payment-search-row"><label><span>Add cases</span><input id="payments-search" type="search" placeholder="Search customer, ID, phone, invoice or order"></label><strong id="payments-result-count">0 found</strong></div><div class="payment-filter-chips" id="payments-filter-chips" role="group"><button class="active" data-payment-filter="ready" aria-pressed="true"><span>Ready</span><b data-payment-filter-count="ready">0</b></button><button data-payment-filter="blocked" aria-pressed="false"><span>Needs review</span><b data-payment-filter-count="blocked">0</b></button><button data-payment-filter="pending" aria-pressed="false"><span>Other batch</span><b data-payment-filter-count="pending">0</b></button></div><div class="payment-selection-bar"><strong id="payments-selected-count">0 selected</strong><button id="payments-clear-selection">Clear</button><button class="btn btn-primary" id="payments-add-selected">Add selected</button></div><div id="payments-list" class="payment-candidate-list"></div></section>
       <div id="payments-detail-feedback" class="payment-detail-feedback"></div><details class="payment-activity"><summary>Batch activity</summary><div id="payments-activity"></div></details><div id="payments-primary-action" class="payment-primary-action"></div>
     </section>
   </section></div></main><div id="toast"></div></body>`);
@@ -139,6 +139,11 @@ test('an empty payment detail route exposes one compact build step at 320px', as
   });
   await expect(page.locator('#payments-add-panel')).toBeVisible();
   await expect(page.locator('#payments-search')).toBeVisible();
+  await expect(page.locator('[data-payment-filter="ready"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-payment-filter-count="ready"]')).toHaveText('1');
+  await page.locator('[data-payment-filter="blocked"]').click();
+  await expect(page.locator('[data-payment-filter="blocked"]')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('[data-payment-filter="ready"]').click();
   await expect(page.locator('.payment-candidate-cash-toggle')).toHaveAttribute('aria-label', 'Switch this case to Cash');
   await expect(page.locator('.payment-candidate-cash-toggle .sr-only')).toHaveText('Loan - Jawabu');
   await page.locator('.payment-candidate-cash-toggle').click();
@@ -163,7 +168,7 @@ test('an empty payment detail route exposes one compact build step at 320px', as
 test('payment detail keeps approved case facts compact and available at 320px', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="payment_approvals" data-payment-batch-id="batch-2"><section id="page-payments" class="page active">
-    <section id="payments-detail" class="payment-detail"><header class="payment-detail-header"><button id="payments-detail-back">Back</button><div class="payment-detail-heading"><h2 id="payments-detail-title"></h2><p id="payments-detail-meta"></p></div><strong id="payments-detail-total"></strong></header><div id="payments-detail-feedback"></div><div id="payments-progress" class="payment-progress"></div>
+    <section id="payments-detail" class="payment-detail"><header class="payment-detail-header"><button class="case-history-back" id="payments-detail-back">Back</button><div class="payment-detail-heading"><h2 id="payments-detail-title"></h2><p id="payments-detail-meta"></p></div><strong id="payments-detail-total"></strong></header><div id="payments-detail-feedback"></div><div id="payments-progress" class="payment-progress"></div>
       <section id="payments-current-section" class="payment-detail-section"><header id="payments-current-heading"><h3>Needs attention</h3></header><div id="payments-current-cases" class="payment-current-cases"></div></section>
       <details class="payment-activity"><summary>Batch activity</summary><div id="payments-activity"></div></details><div id="payments-primary-action"></div>
     </section></section></div></main></body>`);
@@ -194,6 +199,19 @@ test('payment detail keeps approved case facts compact and available at 320px', 
   await expect(page.locator('.payment-approved-case-list')).toContainText('254712345678');
   await expect(page.locator('.payment-approved-case-list')).toContainText('Embu Central');
   await expect(page.locator('.payment-approved-case-list')).toContainText('Mary Officer');
+  await expect(page.locator('.payment-approved-case-list .payment-case-open')).toHaveText('View case');
+  const headerBounds = await page.evaluate(() => {
+    const header = document.querySelector('.payment-detail-header').getBoundingClientRect();
+    const items = ['payments-detail-back', 'payments-detail-title', 'payments-detail-total'].map((id) => document.getElementById(id).getBoundingClientRect());
+    return { header: {y: header.y, bottom: header.bottom, height: header.height}, items: items.map(({y, bottom}) => ({y, bottom})) };
+  });
+  // The title and status use a deliberate two-line block; the return control
+  // and total must still be contained in that same header, not a second row.
+  expect(headerBounds.header.height).toBeLessThanOrEqual(64);
+  headerBounds.items.forEach((item) => {
+    expect(item.y).toBeGreaterThanOrEqual(headerBounds.header.y);
+    expect(item.bottom).toBeLessThanOrEqual(headerBounds.header.bottom);
+  });
   await assertNoHorizontalOverflow(page, 320);
   for (const viewport of [{width: 360, height: 800}, {width: 430, height: 932}]) {
     await page.setViewportSize(viewport);

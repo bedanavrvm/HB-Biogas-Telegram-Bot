@@ -323,15 +323,17 @@
     const canRemove = !approvalMode() && capability('portal.payment.prepare') && !['completed', 'cancelled'].includes(activeBatch.status);
     const warning = item.changed_since_review ? '<span class="payment-case-warning">Payment details changed</span>' : '';
     const badge = `<span class="badge ${item.decision === 'approved' ? 'badge-green' : item.decision === 'returned' ? 'badge-orange' : 'badge-blue'}">${escape(item.decision === 'pending' ? 'Awaiting review' : item.decision)}</span>`;
-    const history = `<button type="button" class="payment-case-history" data-case-url="/portal/cases/${escape(item.farmer_id)}/?from=${approvalMode() ? 'payment_approvals' : 'payments'}"><strong>${escape(item.customer_name || 'Unnamed customer')}</strong><small>Open case details</small></button>`;
+    const customerName = escape(item.customer_name || 'Unnamed customer');
+    const caseUrl = `/portal/cases/${escape(item.farmer_id)}/?from=${approvalMode() ? 'payment_approvals' : 'payments'}`;
+    const history = `<div class="payment-case-title"><strong>${customerName}</strong>${badge}</div><button type="button" class="payment-case-open" data-case-url="${caseUrl}" aria-label="View case details for ${customerName}"><span>View case</span><i data-lucide="chevron-right" aria-hidden="true"></i></button>`;
     if (compact) {
       return `<article class="payment-case-row payment-review-approved" data-payment-case="${escape(item.farmer_id)}">
-        <div class="payment-case-heading">${history}${badge}</div>
+        <div class="payment-case-heading">${history}</div>
         ${caseDetails(item)}
       </article>`;
     }
     return `<article class="payment-current-case payment-review-${escape(item.decision)}${item.changed_since_review ? ' changed' : ''}" data-payment-case="${escape(item.farmer_id)}">
-      <div class="payment-case-heading">${history}${badge}</div>
+      <div class="payment-case-heading">${history}</div>
       ${caseDetails(item, {editableMode: canRemove})}${warning}
       ${canReview ? `<textarea class="payment-review-comment" rows="2" placeholder="Approval comment">${escape(item.comment || '')}</textarea><div class="payment-case-actions"><button type="button" class="btn btn-secondary payment-return">Return</button><button type="button" class="btn btn-primary payment-approve">Approve</button></div>` : item.comment ? `<p class="payment-review-note">${escape(item.comment)}</p>` : ''}
       ${canRemove ? '<button type="button" class="payment-remove-case">Remove</button>' : ''}
@@ -450,7 +452,14 @@
   }
 
   function renderCandidates() {
-    document.querySelectorAll('[data-payment-filter]').forEach(button => button.classList.toggle('active', button.dataset.paymentFilter === candidateFilter));
+    document.querySelectorAll('[data-payment-filter]').forEach(button => {
+      const isActive = button.dataset.paymentFilter === candidateFilter;
+      button.classList.toggle('active', isActive);
+      button.setAttribute('aria-pressed', String(isActive));
+    });
+    document.querySelectorAll('[data-payment-filter-count]').forEach(count => {
+      count.textContent = String((candidateGroups[count.dataset.paymentFilterCount] || []).length);
+    });
     const visible = candidateGroups[candidateFilter] || [];
     const html = visible.map(item => candidateCard(item, candidateFilter)).filter(Boolean);
     const resultCount = el('payments-result-count');
@@ -683,7 +692,7 @@
       if (card && target.closest('.payment-approve')) return reviewCase(card, 'approved', target.closest('.payment-approve'));
       if (card && target.closest('.payment-return')) return reviewCase(card, 'returned', target.closest('.payment-return'));
       if (card && target.closest('.payment-remove-case')) return removeCase(card, target.closest('.payment-remove-case'));
-      const history = target.closest('.payment-case-history');
+      const history = target.closest('.payment-case-open');
       if (history) {
         const url = history.dataset.caseUrl;
         if (window.PortalCaseNavigation?.open?.(url)) return;

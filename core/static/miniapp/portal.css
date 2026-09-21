@@ -4120,8 +4120,12 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 /* Payment detail: keep the batch summary compact so the customer cases carry
    the visual weight.  Approved rows remain one semantic, expandable group. */
 .payment-detail { gap:7px; }
-.payment-detail-header { display:grid; grid-template-columns:40px minmax(0,1fr) auto; min-height:44px; margin:0; gap:5px; }
-.payment-detail-header .icon-button { width:40px; min-width:40px; height:40px; }
+/* Same compact return control as the approved case-history and invoice routes.
+   The total is deliberately the third fixed grid item, never a wrapped row. */
+.payment-detail-header { display:grid !important; grid-template-columns:44px minmax(0,1fr) max-content !important; grid-auto-flow:column; align-items:center; min-height:44px; margin:0; gap:4px; }
+.payment-detail-header .case-history-back { display:grid; width:44px; min-width:44px; height:44px; place-items:center; border:0; border-radius:999px; background:transparent; color:var(--color-primary); padding:0; }
+.payment-detail-header .case-history-back svg { width:20px; height:20px; stroke-width:2.25; }
+.payment-detail-header .case-history-back:active { background:color-mix(in srgb,var(--color-primary) 10%,transparent); }
 .payment-detail-header .payment-detail-heading { display:grid; min-width:0; gap:1px; }
 .payment-detail-header .payment-detail-heading h2 { overflow:hidden; font-size:15px; text-overflow:ellipsis; white-space:nowrap; }
 .payment-detail-header .payment-detail-heading p { overflow:hidden; display:block; color:var(--text-muted); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
@@ -4139,10 +4143,14 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 .payment-section-count { color:var(--text-muted); font-size:10px; font-weight:700; }
 #payments-current-section .payment-current-cases { grid-template-columns:1fr; gap:7px; margin:0; }
 .payment-current-case,.payment-case-row { padding:9px; border-radius:9px; }
-.payment-case-row { gap:7px; }
-.payment-case-heading { gap:8px; }
-.payment-case-history strong { overflow:hidden; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
-.payment-case-history small { margin-top:1px; font-size:9px; }
+.payment-case-row { gap:7px; border-left:0; }
+.payment-case-heading { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; }
+.payment-case-title { display:flex; align-items:center; min-width:0; flex-wrap:wrap; gap:4px; }
+.payment-case-title strong { min-width:0; overflow:hidden; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
+.payment-case-title .badge { flex:0 0 auto; }
+.payment-case-open { display:inline-flex; align-items:center; justify-content:center; gap:1px; min-height:30px; border:1px solid color-mix(in srgb,var(--color-primary) 35%,var(--border-color)); border-radius:8px; background:color-mix(in srgb,var(--color-primary) 6%,var(--bg-surface)); color:var(--color-primary); padding:4px 7px; font-size:10px; font-weight:750; line-height:1; white-space:nowrap; }
+.payment-case-open svg { width:13px; height:13px; stroke-width:2.4; }
+.payment-case-open:active { background:color-mix(in srgb,var(--color-primary) 15%,var(--bg-surface)); }
 .payment-case-identifiers { display:flex; flex-wrap:wrap; gap:3px 8px; margin-top:5px; color:var(--text-muted); font-size:10px; line-height:1.25; }
 .payment-case-identifiers span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .payment-case-details { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px 9px; margin:7px 0 0; padding-top:7px; border-top:1px solid var(--border-color); }
@@ -4167,8 +4175,13 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 #payments-add-panel { padding:9px; }
 #payments-add-panel .payment-search-row { display:block; margin:0; }
 #payments-add-panel .payment-search-row label { display:block; }
-#payments-add-panel .payment-filter-chips { gap:4px; margin-top:6px; padding:0; }
-#payments-add-panel .payment-filter-chips button { min-height:30px; padding:5px 8px; font-size:10px; }
+#payments-add-panel .payment-filter-chips { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:3px; margin-top:6px; padding:3px; overflow:visible; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-muted); }
+#payments-add-panel .payment-filter-chips button { display:flex; align-items:center; justify-content:center; min-width:0; min-height:32px; gap:3px; border:0; border-radius:7px; background:transparent; color:var(--text-muted); padding:4px 3px; font-size:9px; font-weight:750; line-height:1.1; }
+#payments-add-panel .payment-filter-chips button svg { flex:0 0 auto; width:12px; height:12px; stroke-width:2.25; }
+#payments-add-panel .payment-filter-chips button span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#payments-add-panel .payment-filter-chips button b { display:inline-grid; flex:0 0 auto; place-items:center; min-width:15px; height:15px; padding:0 3px; border-radius:999px; background:color-mix(in srgb,var(--text-muted) 12%,transparent); color:inherit; font-size:8px; }
+#payments-add-panel .payment-filter-chips button.active { background:var(--bg-surface); box-shadow:0 1px 2px color-mix(in srgb,#000 12%,transparent); color:var(--color-primary); }
+#payments-add-panel .payment-filter-chips button.active b { background:color-mix(in srgb,var(--color-primary) 14%,transparent); }
 #payments-add-panel .payment-selection-bar { margin:7px 0 6px; }
 .payment-candidate { position:relative; }
 .payment-candidate.has-mode-toggle { padding-right:50px; }
