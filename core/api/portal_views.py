@@ -2560,8 +2560,10 @@ def portal_import_commit(request, batch_id: str):
         if submitted_row.get('Matched Farmer ID'):
             merged['Matched Farmer ID'] = str(submitted_row.get('Matched Farmer ID'))
         current.append(merged)
-    if not any(row.get('approved') for row in current):
-        return JsonResponse({'ok': False, 'error': 'Select at least one ready SysUp row to commit.'}, status=400)
+    selected = any(row.get('approved') for row in current)
+    only_current = bool(current) and all(row.get('Import Status') == 'already_current' for row in current)
+    if not selected and not only_current:
+        return JsonResponse({'ok': False, 'error': 'Select at least one matched SysUp row to commit.'}, status=400)
     try:
         from core.services.system_export import commit_system_export_review_batch
         result = commit_system_export_review_batch(

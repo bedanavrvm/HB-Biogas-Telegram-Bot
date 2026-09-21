@@ -98,16 +98,17 @@ def hb_action_list(request):
         if readiness in dict(HomeBiogasAction.READINESS_CHOICES):
             queryset = queryset.filter(readiness_status=readiness)
         counts_queryset = queryset
+        active_installation_states = (
+            HomeBiogasAction.INSTALLATION_OPEN,
+            HomeBiogasAction.INSTALLATION_INSTALLED,
+        )
         counts = {
             key: counts_queryset.filter(installation_status=key).distinct().count()
-            for key, _label in HomeBiogasAction.INSTALLATION_CHOICES
+            for key in active_installation_states
         }
-        if not state:
+        if state not in active_installation_states:
             state = HomeBiogasAction.INSTALLATION_OPEN
-        if state == HomeBiogasAction.INSTALLATION_OPEN:
-            queryset = queryset.filter(installation_status=HomeBiogasAction.INSTALLATION_OPEN)
-        elif state in dict(HomeBiogasAction.INSTALLATION_CHOICES):
-            queryset = queryset.filter(installation_status=state)
+        queryset = queryset.filter(installation_status=state)
     else:
         queryset = queryset.filter(
             installation_status=HomeBiogasAction.INSTALLATION_INSTALLED,
@@ -177,7 +178,10 @@ def hb_action_detail(request, farmer_id):
             'correct': access is None or has_capability(actor, 'jawabu_portal', CORRECT_CAPABILITY, access=access),
         },
         'options': {
-            'installation_statuses': [{'value': key, 'label': label} for key, label in HomeBiogasAction.INSTALLATION_CHOICES],
+            'installation_statuses': [
+                {'value': HomeBiogasAction.INSTALLATION_OPEN, 'label': 'Not installed'},
+                {'value': HomeBiogasAction.INSTALLATION_INSTALLED, 'label': 'Installed'},
+            ],
             'readiness_statuses': [{'value': key, 'label': label} for key, label in HomeBiogasAction.READINESS_CHOICES],
             'installation_report_statuses': [{'value': key, 'label': label} for key, label in HomeBiogasAction.REPORT_CHOICES],
         },

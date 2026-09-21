@@ -1,5 +1,22 @@
 # Changelog
 
+## HB action, payment and SysUp review simplification - 21-September-2026
+
+- HB Action installation now exposes only Not installed and Installed work.
+  Historical Closed records are retained for audit but are hidden from active
+  queues and cannot be edited.
+- Commissioning search now occupies the released toolbar space when its
+  installation-only filter is hidden. Completed payment cases collapse into a
+  compact expandable list while pending and returned cases remain actionable.
+- SysUp now lets a reviewer commit each selected matched row independently:
+  safe nonblank source values update the selected case, missing or invalid
+  values preserve existing data, unknown product names no longer block SysUp,
+  duplicate source rows show as already current, and raw source rows are
+  collapsed below the review grid.
+- No migrations, capability changes, or external writes are required. Deploy
+  frontend and backend together because the review presentation relies on the
+  new server-side safe-update preview.
+
 ## Governed credit assessment inside TAT - 18-September-2026
 
 - Added a bounded, revision-controlled credit-assessment workflow linked to a

@@ -142,7 +142,11 @@ def serialize_action(action: HomeBiogasAction, *, include_history: bool = False)
         'primary_phone': farmer.primary_phone,
         'order_number': action.source_order_number,
         'installation_status': action.installation_status,
-        'installation_status_label': action.get_installation_status_display(),
+        'installation_status_label': (
+            'Not installed' if action.installation_status == HomeBiogasAction.INSTALLATION_OPEN
+            else 'Legacy closed' if action.installation_status == HomeBiogasAction.INSTALLATION_CLOSED
+            else action.get_installation_status_display()
+        ),
         'planned_installation_date': action.planned_installation_date.isoformat() if action.planned_installation_date else '',
         'planned_installation_date_display': _display_date(action.planned_installation_date),
         'installation_date': action.installation_date.isoformat() if action.installation_date else '',
@@ -280,11 +284,12 @@ def release_requisition_signoff(signoff, *, actor=None) -> dict:
 
 
 def _validate_installation(action: HomeBiogasAction, payload: dict, *, correction: bool = False) -> dict:
+    if action.installation_status == HomeBiogasAction.INSTALLATION_CLOSED:
+        raise HomeBiogasActionError('This legacy closed installation record is read-only.')
     target = _text(payload, 'installation_status', max_length=32)
     allowed_targets = {
-        HomeBiogasAction.INSTALLATION_OPEN: {HomeBiogasAction.INSTALLATION_OPEN, HomeBiogasAction.INSTALLATION_INSTALLED, HomeBiogasAction.INSTALLATION_CLOSED},
+        HomeBiogasAction.INSTALLATION_OPEN: {HomeBiogasAction.INSTALLATION_OPEN, HomeBiogasAction.INSTALLATION_INSTALLED},
         HomeBiogasAction.INSTALLATION_INSTALLED: {HomeBiogasAction.INSTALLATION_INSTALLED},
-        HomeBiogasAction.INSTALLATION_CLOSED: set(),
     }
     if not (correction and target == action.installation_status) and target not in allowed_targets.get(action.installation_status, set()):
         raise HomeBiogasActionError('That installation change is not available from the current status.')
@@ -314,16 +319,6 @@ def _validate_installation(action: HomeBiogasAction, payload: dict, *, correctio
             'installation_date': None,
             'readiness_status': readiness, 'pending_installation_comment': comment,
             'serial_number': '', 'installation_report_status': '',
-        }
-    if target == HomeBiogasAction.INSTALLATION_CLOSED:
-        if not comment:
-            raise HomeBiogasActionError('Add a closure reason.')
-        return {
-            'installation_status': target, 'installation_date': None,
-            'planned_installation_date': None,
-            'readiness_status': readiness or HomeBiogasAction.READINESS_NOT_CONFIRMED,
-            'pending_installation_comment': comment, 'serial_number': '',
-            'installation_report_status': '',
         }
     if not installation_date:
         raise HomeBiogasActionError('Choose the actual installation date.')

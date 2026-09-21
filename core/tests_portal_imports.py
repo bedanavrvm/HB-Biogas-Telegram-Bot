@@ -28,6 +28,7 @@ from core.services.portal_imports import (
     stage_portal_farmup_version,
     validate_portal_farmup,
 )
+from core.services.system_export import create_system_export_review_batch, commit_system_export_review_batch
 
 
 FARMUP_CSV = (
@@ -827,6 +828,36 @@ class PortalImportStagingTests(TestCase):
         listing = self.client.get('/api/portal/imports/')
         self.assertEqual(listing.status_code, 200)
         self.assertEqual(listing.json()['batches'][0]['id'], str(batch.pk))
+
+    def test_sysup_commits_a_selected_safe_match_without_blocking_an_unselected_review_row(self):
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='MWANGI JANE', imab_customer_name='MWANGI JANE',
+            national_id='23215888', primary_phone='254721997481', customer_no='12345',
+            branch='EMBU', system_branch='EMBU', payment_product='Legacy product',
+        )
+        content = (
+            'Customer ID,Name,Mobile No,ID NO,Branch,Loan Officer,Product Name,LGF Balance\n'
+            '12345,MWANGI JANE,+254721997481,23215888,EMBU,Jane Officer,External system product,"5,000"\n'
+            ',NO MATCH,, ,EMBU,Jane Officer,External system product,\n'
+        ).encode('utf-8')
+        batch, _stats = create_system_export_review_batch(
+            group_id=self.group.group_id, telegram_message_id='sysup-safe-1',
+            sender='tester', source_filename='customers.csv', content=content,
+        )
+        selected = dict(batch.parsed_rows[0])
+        selected['approved'] = True
+        held = dict(batch.parsed_rows[1])
+        held['approved'] = False
+
+        result = commit_system_export_review_batch(batch, [selected, held], actor='tester')
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['committed'], 1)
+        self.assertEqual(result['review_needed'], 1)
+        farmer.refresh_from_db()
+        self.assertEqual(farmer.payment_product, 'External system product')
+        batch.refresh_from_db()
+        self.assertEqual(len(batch.parsed_rows), 1)
 
     @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='test-shared-drive-root')
     @patch('core.services.order_approval.GoogleDriveMediaStorage.upload', return_value=('drive-file-1', 'https://drive.example/file-1'))

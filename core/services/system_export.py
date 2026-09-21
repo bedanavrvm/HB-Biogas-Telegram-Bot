@@ -21,12 +21,7 @@ from django.utils import timezone
 
 from core.models import JawabuCustomer, JawabuFarmerMaster, JawabuFarmerUploadBatch
 from core.services.jawabu import is_valid_phone, normalise_phone
-from core.services.jawabu_customer_quality import (
-    product_quality_message,
-    record_customer_phone,
-    record_field_provenance,
-    resolve_farmer_match,
-)
+from core.services.jawabu_customer_quality import record_customer_phone, record_field_provenance, resolve_farmer_match
 from core.services.jawabu_master import clean_text, row_fingerprint
 
 logger = logging.getLogger(__name__)
@@ -88,9 +83,6 @@ def _normalise_system_row(raw: dict[str, Any], source_row: int) -> dict[str, Any
         notes.append('Missing Customer ID')
     if not name:
         notes.append('Missing Name')
-    product_note = product_quality_message(product)
-    if product_note:
-        notes.append(product_note)
     lgf_balance = None
     if lgf_raw:
         try:
@@ -190,14 +182,17 @@ def _read_xlsx(
         workbook.close()
 
 
-def _candidate_snapshot(farmer: JawabuFarmerMaster) -> dict[str, str]:
-    return {
+def _candidate_snapshot(farmer: JawabuFarmerMaster, *, row: dict[str, Any] | None = None) -> dict[str, Any]:
+    snapshot = {
         'id': str(farmer.id),
         'customer_name': farmer.customer_name,
         'customer_no': farmer.customer_no,
         'national_id': farmer.national_id,
         'primary_phone': farmer.primary_phone,
     }
+    if row is not None:
+        snapshot['sync'] = _sync_preview(row, farmer)
+    return snapshot
 
 
 def resolve_system_export_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -212,7 +207,7 @@ def resolve_system_export_row(row: dict[str, Any]) -> dict[str, Any]:
     )
     candidate_ids = list(match.farmer_ids or match.name_candidates)
     candidates = [
-        _candidate_snapshot(farmer)
+        _candidate_snapshot(farmer, row=row)
         for farmer in JawabuFarmerMaster.objects.filter(pk__in=candidate_ids)
     ]
     farmer = JawabuFarmerMaster.objects.filter(pk=match.exact_farmer_id).first() if match.exact_farmer_id else None
@@ -223,8 +218,15 @@ def resolve_system_export_row(row: dict[str, Any]) -> dict[str, Any]:
     elif farmer:
         row['Matched Farmer ID'] = str(farmer.id)
         row['Matched Customer'] = farmer.customer_name
+        sync = _sync_preview(row, farmer)
+        row['Sync State'] = sync['state']
+        row['Sync Changed Fields'] = sync['changed_fields']
+        row['Sync Ignored Fields'] = sync['ignored_fields']
         if row.get('Cleaning Notes'):
             row['Import Status'] = 'review_needed'
+            row['approved'] = False
+        elif sync['state'] == 'already_current':
+            row['Import Status'] = 'already_current'
             row['approved'] = False
         else:
             row['Import Status'] = 'ready'
@@ -286,31 +288,28 @@ def _mark_review(row: dict[str, Any], message: str) -> None:
 
 
 def _commit_values(row: dict[str, Any]) -> tuple[dict[str, str | Decimal], list[str]]:
-    """Normalize editable review values again before any database write."""
+    """Return only safe, non-empty source values; unsafe values are held, not fatal.
+
+    A reviewer may commit a correctly matched row even when the export omitted
+    another field.  Existing canonical values are then retained rather than
+    asking staff to invent data just to make an import pass.
+    """
     national_id = _normalise_id(row.get('ID NO'))
     customer_no = _normalise_id(row.get('Customer ID'))
-    phone = normalise_phone(_cell_text(row.get('Mobile No')))
+    phone_raw = _cell_text(row.get('Mobile No'))
+    phone = normalise_phone(phone_raw)
     name = clean_text(row.get('Name'))
     branch = clean_text(row.get('Branch'))
     loan_officer = clean_text(row.get('Loan Officer'))
     product = clean_text(row.get('Product Name'))
     lgf_raw = _cell_text(row.get('LGF Balance'))
-    errors = []
-    if not national_id:
-        errors.append('Missing ID NO')
-    # A numeric historical/exceptional ID is review-only.  A staff member
-    # must make the row approved in the staged review before it reaches this
-    # method; preserving it lets the canonical data-quality queue retain the
-    # exception instead of encouraging a made-up replacement ID.
-    if phone and not is_valid_phone(phone):
-        errors.append('Mobile No could not be normalized to a valid 254 phone')
-    if not customer_no:
-        errors.append('Missing Customer ID')
-    if not name:
-        errors.append('Missing Name')
-    product_error = product_quality_message(product)
-    if product_error:
-        errors.append(product_error)
+    ignored = []
+    if national_id and not re.fullmatch(r'\d{7,9}', national_id):
+        ignored.append('ID NO was not updated because it is not 7-9 digits')
+        national_id = ''
+    if phone_raw and not is_valid_phone(phone):
+        ignored.append('Mobile No was not updated because it is not a valid 254 number')
+        phone = ''
     lgf: Decimal | str = ''
     if lgf_raw:
         try:
@@ -318,7 +317,7 @@ def _commit_values(row: dict[str, Any]) -> tuple[dict[str, str | Decimal], list[
             if not lgf.is_finite() or lgf < 0:
                 raise InvalidOperation
         except (InvalidOperation, ValueError):
-            errors.append('LGF Balance must be numeric and non-negative')
+            ignored.append('LGF Balance was not updated because it is not a non-negative number')
             lgf = ''
     return {
         'national_id': national_id,
@@ -329,16 +328,56 @@ def _commit_values(row: dict[str, Any]) -> tuple[dict[str, str | Decimal], list[
         'loan_officer': loan_officer,
         'product': product,
         'lgf': lgf,
-    }, errors
+    }, ignored
+
+
+def _sync_preview(row: dict[str, Any], farmer: JawabuFarmerMaster) -> dict[str, Any]:
+    """Describe the selected row's safe effect without writing anything."""
+    values, ignored = _commit_values(row)
+    existing = {
+        'national_id': farmer.national_id,
+        'customer_no': farmer.customer_no,
+        'phone': farmer.primary_phone,
+        'name': farmer.imab_customer_name or farmer.customer_name,
+        'branch': farmer.system_branch or farmer.branch,
+        'loan_officer': farmer.system_loan_officer,
+        'product': farmer.payment_product,
+        'lgf': farmer.system_deposit_paid_jbl,
+    }
+    labels = {
+        'national_id': 'ID NO', 'customer_no': 'Customer ID', 'phone': 'Mobile No',
+        'name': 'Name', 'branch': 'Branch', 'loan_officer': 'Loan Officer',
+        'product': 'Product Name', 'lgf': 'LGF Balance',
+    }
+    changed = []
+    for key, value in values.items():
+        if value in {'', None}:
+            continue
+        if key == 'lgf':
+            try:
+                same = Decimal(str(existing[key])) == value
+            except (InvalidOperation, ValueError, TypeError):
+                same = False
+        else:
+            same = clean_text(existing[key]) == clean_text(value)
+        if not same:
+            changed.append(labels[key])
+    if farmer.customer_id is None and any(values[key] for key in ('national_id', 'customer_no', 'phone')):
+        changed.append('Customer identity link')
+    return {
+        'state': 'will_update' if changed else 'already_current',
+        'changed_fields': changed,
+        'ignored_fields': ignored,
+    }
 
 
 def _bind_customer_identity(
     farmer: JawabuFarmerMaster, *, national_id: str, phone: str,
-    customer_no: str, allow_rebind: bool = False,
+    customer_no: str, update_existing: bool = False,
 ) -> None:
     """Keep the canonical JawabuCustomer identity aligned with the farmer row."""
     customer = farmer.customer
-    if customer is None or allow_rebind:
+    if customer is None:
         identity_matches = []
         # Stable system identifiers take precedence. Phone remains a final
         # compatibility lookup and is never used by household reconciliation.
@@ -358,14 +397,15 @@ def _bind_customer_identity(
                 identity_enforced=True,
             )
         farmer.customer = customer
-    if national_id and (allow_rebind or not customer.national_id):
+    if national_id and (update_existing or not customer.national_id):
         customer.national_id = national_id
-    if phone and (allow_rebind or not customer.primary_phone):
+    if phone and (update_existing or not customer.primary_phone):
         customer.primary_phone = phone
     if customer_no:
         customer.customer_no = customer_no
     customer.save(update_fields=['national_id', 'primary_phone', 'customer_no', 'updated_at'])
-    record_customer_phone(customer, phone, source='system_export')
+    if phone:
+        record_customer_phone(customer, phone, source='system_export')
 
 
 def _identifier_belongs_to_a_different_customer(
@@ -389,7 +429,7 @@ def _identifier_belongs_to_a_different_customer(
 def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict[str, Any]], *, actor: str = '') -> dict[str, Any]:
     if batch.status == 'committed':
         return {'success': True, 'message': 'This batch has already been committed. No duplicate write was made.', 'committed': 0, 'skipped': 0, 'review_needed': 0, 'errors': []}
-    committed = skipped = deferred = 0
+    committed = skipped = deferred = unchanged = 0
     commit_budget = max(1, int(getattr(settings, 'SYSUP_COMMIT_MAX_ROWS_PER_REQUEST', 20) or 20))
     attempted_approved_rows = 0
     errors = []
@@ -397,6 +437,9 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
     for index, row in enumerate(rows, start=1):
         row = dict(row or {})
         if not row.get('approved'):
+            if row.get('Import Status') == 'already_current':
+                unchanged += 1
+                continue
             skipped += 1
             remaining.append(row)
             continue
@@ -405,12 +448,7 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
             remaining.append(row)
             continue
         attempted_approved_rows += 1
-        values, validation_errors = _commit_values(row)
-        if validation_errors:
-            _mark_review(row, '; '.join(validation_errors))
-            errors.append(f"Row {index}: {'; '.join(validation_errors)}")
-            remaining.append(row)
-            continue
+        values, ignored_fields = _commit_values(row)
         farmer_id = str(row.get('Matched Farmer ID') or '').strip()
         farmer = JawabuFarmerMaster.objects.select_for_update().filter(pk=farmer_id).first()
         if not farmer:
@@ -421,56 +459,41 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
         national_id = str(values['national_id'])
         phone = str(values['phone'])
         customer_no = str(values['customer_no'])
-        initial_system_binding = not str(farmer.customer_no or '').strip() and not str(farmer.imab_customer_name or '').strip()
+        preview = _sync_preview(row, farmer)
+        if preview['state'] == 'already_current':
+            unchanged += 1
+            continue
+        conflicts = []
+        if _identifier_belongs_to_a_different_customer(
+            farmer, field_name='customer_no', value=customer_no,
+        ):
+            conflicts.append('Customer ID already belongs to another case')
+        if _identifier_belongs_to_a_different_customer(
+            farmer, field_name='national_id', value=national_id,
+        ):
+            conflicts.append('ID NO already belongs to another case')
+        if _identifier_belongs_to_a_different_customer(
+            farmer, field_name='primary_phone', value=phone,
+        ):
+            conflicts.append('Mobile No already belongs to another case')
+        customer_scope = JawabuCustomer.objects.exclude(pk=farmer.customer_id) if farmer.customer_id else JawabuCustomer.objects.all()
+        if customer_no and customer_scope.filter(customer_no=customer_no).exists():
+            conflicts.append('Customer ID already belongs to another canonical customer')
+        if national_id and customer_scope.filter(national_id=national_id).exists():
+            conflicts.append('ID NO already belongs to another canonical customer')
+        if phone and customer_scope.filter(primary_phone=phone).exists():
+            conflicts.append('Mobile No already belongs to another canonical customer')
+        if conflicts:
+            _mark_review(row, '; '.join(conflicts))
+            errors.append(f'Row {index}: ' + '; '.join(conflicts))
+            remaining.append(row)
+            continue
         if not farmer.lead_name:
             farmer.lead_name = farmer.customer_name or ''
             farmer.lead_national_id = farmer.national_id or ''
             farmer.lead_primary_phone = farmer.primary_phone or ''
             farmer.lead_secondary_phone = farmer.secondary_phone or ''
             farmer.lead_source_reference = farmer.source_name or farmer.external_id or farmer.source or ''
-        conflicts = []
-        for label, field, value in (
-            ('ID NO', 'national_id', national_id),
-            ('Mobile No', 'primary_phone', phone),
-            ('Customer ID', 'customer_no', customer_no),
-        ):
-            existing = str(getattr(farmer, field) or '').strip()
-            if not initial_system_binding and value and existing and value != existing:
-                conflicts.append(f'{label} differs from the selected customer')
-        if not initial_system_binding and _identifier_belongs_to_a_different_customer(
-            farmer, field_name='customer_no', value=customer_no,
-        ):
-            conflicts.append('Customer ID already belongs to another case')
-        if not initial_system_binding and _identifier_belongs_to_a_different_customer(
-            farmer, field_name='national_id', value=national_id,
-        ):
-            conflicts.append('ID NO already belongs to another case')
-        if not initial_system_binding and _identifier_belongs_to_a_different_customer(
-            farmer, field_name='primary_phone', value=phone,
-        ):
-            conflicts.append('Mobile No already belongs to another case')
-        customer_scope = JawabuCustomer.objects.exclude(pk=farmer.customer_id) if farmer.customer_id else JawabuCustomer.objects.all()
-        if not initial_system_binding and customer_no and customer_scope.filter(customer_no=customer_no).exists():
-            conflicts.append('Customer ID already belongs to another canonical customer')
-        if not initial_system_binding and national_id and customer_scope.filter(national_id=national_id).exists():
-            conflicts.append('ID NO already belongs to another canonical customer')
-        if not initial_system_binding and phone and customer_scope.filter(primary_phone=phone).exists():
-            conflicts.append('Mobile No already belongs to another canonical customer')
-        if farmer.customer_id and not initial_system_binding:
-            customer = farmer.customer
-            for label, field, value in (
-                ('ID NO', 'national_id', national_id),
-                ('Mobile No', 'primary_phone', phone),
-                ('Customer ID', 'customer_no', customer_no),
-            ):
-                existing = str(getattr(customer, field) or '').strip()
-                if value and existing and value != existing:
-                    conflicts.append(f'{label} differs from the selected canonical customer')
-        if conflicts:
-            _mark_review(row, '; '.join(conflicts))
-            errors.append(f'Row {index}: ' + '; '.join(conflicts))
-            remaining.append(row)
-            continue
         old_values = {
             'national_id': farmer.national_id,
             'primary_phone': farmer.primary_phone,
@@ -481,6 +504,7 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
             'system_loan_officer': farmer.system_loan_officer,
             'payment_product': farmer.payment_product,
             'system_deposit_paid_jbl': str(farmer.system_deposit_paid_jbl) if farmer.system_deposit_paid_jbl is not None else '',
+            'customer_id': str(farmer.customer_id or ''),
         }
         if national_id:
             farmer.national_id = national_id
@@ -488,19 +512,20 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
             farmer.primary_phone = phone
         if customer_no:
             farmer.customer_no = customer_no
-        try:
-            _bind_customer_identity(
-                farmer,
-                national_id=national_id,
-                phone=phone,
-                customer_no=customer_no,
-                allow_rebind=initial_system_binding,
-            )
-        except ValueError as exc:
-            _mark_review(row, str(exc))
-            errors.append(f'Row {index}: {exc}')
-            remaining.append(row)
-            continue
+        if farmer.customer_id or national_id or phone or customer_no:
+            try:
+                _bind_customer_identity(
+                    farmer,
+                    national_id=national_id,
+                    phone=phone,
+                    customer_no=customer_no,
+                    update_existing=True,
+                )
+            except ValueError as exc:
+                _mark_review(row, str(exc))
+                errors.append(f'Row {index}: {exc}')
+                remaining.append(row)
+                continue
         exported_name = str(values['name'])
         if exported_name:
             farmer.imab_customer_name = exported_name
@@ -534,6 +559,7 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
             'system_loan_officer': farmer.system_loan_officer,
             'payment_product': farmer.payment_product,
             'system_deposit_paid_jbl': str(farmer.system_deposit_paid_jbl) if farmer.system_deposit_paid_jbl is not None else '',
+            'customer_id': str(farmer.customer_id or ''),
         }
         material_changes = {
             field for field, old_value in old_values.items()
@@ -557,7 +583,12 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
             stage_key='intake',
             actor=actor,
             source='system_export',
-            metadata={'source_filename': batch.source_filename, 'source_row': row.get('Source Row'), 'match_basis': row.get('Match Basis', '')},
+            metadata={
+                'source_filename': batch.source_filename,
+                'source_row': row.get('Source Row'),
+                'match_basis': row.get('Match Basis', ''),
+                'ignored_source_fields': ignored_fields,
+            },
             old_values=old_values,
             new_values=new_values,
             revision_before=revision_before,
@@ -588,16 +619,23 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
     if batch.status == 'committed':
         batch.committed_at = timezone.now()
     batch.save()
-    if errors:
-        message = 'Some rows still need review.'
+    if errors and (committed or unchanged):
+        message = f'{committed} row(s) updated safely; {unchanged} already matched the current record. Some selected rows still need review.'
+    elif errors:
+        message = 'The selected rows still need review before they can be committed.'
     elif deferred:
-        message = f'{committed} row(s) committed safely. {deferred} approved row(s) remain; commit again to continue.'
+        message = f'{committed} row(s) updated safely. {deferred} selected row(s) remain; commit again to continue.'
+    elif committed:
+        message = f'{committed} row(s) updated safely.'
+    elif unchanged:
+        message = 'Selected rows already match the current records. No duplicate write was made.'
     else:
-        message = 'System export committed.'
+        message = 'No selected rows needed an update.'
     return {
-        'success': not errors,
+        'success': bool(committed or unchanged) or not errors,
         'message': message,
         'committed': committed,
+        'unchanged': unchanged,
         'skipped': skipped,
         'deferred': deferred,
         'review_needed': len(remaining),

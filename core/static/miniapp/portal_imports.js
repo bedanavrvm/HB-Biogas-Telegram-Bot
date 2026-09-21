@@ -161,17 +161,37 @@
       const totalRows = Number(pagination.total_rows || batch.total_rows || rows.length);
       const table = !rows.length
         ? '<div class="empty-state"><div class="es-title">No source rows</div><div class="es-sub">This staged file has no non-blank source rows to display.</div></div>'
-        : `<div class="portal-import-table-wrap"><table class="portal-import-table"><thead><tr>${columns.map(column => `<th>${escapeHtml(column)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${columns.map((column, index) => `<td>${escapeHtml(displayCell(row?.[index]))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+        : `<details class="portal-import-source"><summary>Source rows <span>${escapeHtml(totalRows)}</span></summary><div class="portal-import-table-wrap"><table class="portal-import-table"><thead><tr>${columns.map(column => `<th>${escapeHtml(column)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${columns.map((column, index) => `<td>${escapeHtml(displayCell(row?.[index]))}</td>`).join('')}</tr>`).join('')}</tbody></table></div></details>`;
       target.innerHTML = `<div class="portal-import-review-heading"><div><h2>${escapeHtml(batch.source_filename || 'Staged import')}</h2><p>${escapeHtml(batch.total_rows || 0)} source rows · ${escapeHtml(batch.review_needed || 0)} validation flags</p></div><button type="button" class="btn btn-secondary" id="portal-import-review-close">Close review</button></div>${table}`;
       if (activeReviewRows.length) {
+        const allRowsAlreadyCurrent = activeReviewRows.every(row => row['Import Status'] === 'already_current');
+        const commitLabel = allRowsAlreadyCurrent ? 'Close unchanged batch' : 'Commit selected';
         const reviewRows = activeReviewRows.map((row, index) => {
           const candidates = Array.isArray(row['Match Candidates']) ? row['Match Candidates'] : [];
           const current = String(row['Matched Farmer ID'] || '');
           const options = ['<option value="">Choose case</option>'].concat(candidates.map(candidate => `<option value="${escapeHtml(candidate.id)}" ${String(candidate.id) === current ? 'selected' : ''}>${escapeHtml(candidate.customer_name || candidate.national_id || 'Case')}</option>`)).join('');
-          const ready = row['Import Status'] === 'ready' && current;
+          const selectable = Boolean(current) && row['Import Status'] !== 'already_current';
+          const autoSelected = row['Import Status'] === 'ready' && selectable;
+          const sync = row['Sync State'] === 'already_current'
+            ? 'Already matches this case'
+            : (row['Sync Changed Fields'] || []).length ? `Will update: ${(row['Sync Changed Fields'] || []).join(', ')}` : '';
+          const held = (row['Sync Ignored Fields'] || []).join('; ');
+          const note = [sync, row['Cleaning Notes'], held].filter(Boolean).join('; ') || 'Check the match, then select to commit.';
+          const ready = autoSelected;
+          row['Cleaning Notes'] = note;
           return `<tr data-sysup-index="${index}"><td><input type="checkbox" class="portal-sysup-approve" ${ready ? 'checked' : ''} aria-label="Commit SysUp row ${escapeHtml(row['Source Row'] || index + 1)}"></td><td>${escapeHtml(row.Name || '—')}</td><td>${escapeHtml(row['ID NO'] || '—')}</td><td><select class="portal-sysup-match">${options}</select></td><td>${escapeHtml(row['Match Basis'] || 'Manual review')}</td><td>${escapeHtml(row['Cleaning Notes'] || 'Ready')}</td></tr>`;
         }).join('');
-        target.insertAdjacentHTML('afterbegin', `<div class="portal-import-review-heading"><div><h3>Review and commit</h3><p>Commit only rows with the correct borrower and source values.</p></div><button type="button" class="btn btn-primary" id="portal-import-commit">Commit selected</button></div><div class="portal-import-table-wrap"><table class="portal-import-table portal-import-review-grid"><thead><tr><th>Commit</th><th>System borrower</th><th>ID</th><th>Matched case</th><th>Match</th><th>Review note</th></tr></thead><tbody>${reviewRows}</tbody></table></div>`);
+        target.insertAdjacentHTML('afterbegin', `<div class="portal-import-review-heading"><div><h3>Review and commit</h3><p>${allRowsAlreadyCurrent ? 'Every row already matches the selected case. No update will be made.' : 'Select each correctly matched row you want to update. Unselected rows stay held.'}</p></div><button type="button" class="btn btn-primary" id="portal-import-commit">${commitLabel}</button></div><div class="portal-import-table-wrap"><table class="portal-import-table portal-import-review-grid"><thead><tr><th>Commit</th><th>System borrower</th><th>ID</th><th>Matched case</th><th>Match</th><th>Review note</th></tr></thead><tbody>${reviewRows}</tbody></table></div>`);
+        activeReviewRows.forEach((row, index) => {
+          const reviewRow = target.querySelector(`[data-sysup-index="${index}"]`);
+          const checkbox = reviewRow?.querySelector('.portal-sysup-approve');
+          const matchSelect = reviewRow?.querySelector('.portal-sysup-match');
+          if (!checkbox || !matchSelect) return;
+          if (row['Import Status'] === 'already_current') checkbox.disabled = true;
+          matchSelect.addEventListener('change', () => {
+            if (row['Import Status'] !== 'already_current') checkbox.disabled = !matchSelect.value;
+          });
+        });
       }
       if (pageCount > 1) {
         target.insertAdjacentHTML('beforeend', `<div class="portal-import-pager"><span>Showing page ${escapeHtml(currentPage)} of ${escapeHtml(pageCount)} (${escapeHtml(totalRows)} rows)</span><div><button type="button" class="btn btn-secondary portal-import-review-page" data-batch-id="${escapeHtml(batch.id)}" data-page="${escapeHtml(currentPage - 1)}" ${currentPage <= 1 ? 'disabled' : ''}>Previous</button><button type="button" class="btn btn-secondary portal-import-review-page" data-batch-id="${escapeHtml(batch.id)}" data-page="${escapeHtml(currentPage + 1)}" ${currentPage >= pageCount ? 'disabled' : ''}>Next</button></div></div>`);

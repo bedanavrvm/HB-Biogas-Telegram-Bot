@@ -16,11 +16,11 @@
 
   const byId = id => document.getElementById(id);
   const esc = value => deps.escapeHtml ? deps.escapeHtml(value == null ? '' : String(value)) : String(value || '');
-  const installationLabels = {open: 'Open', installed: 'Installed', closed: 'Closed'};
+  const installationLabels = {open: 'Not installed', installed: 'Installed'};
   const commissioningLabels = {not_commissioned: 'Not commissioned', delayed: 'Delayed', commissioned: 'Commissioned'};
   const allowedStatusTargets = {
-    open: ['open', 'installed', 'closed'],
-    installed: ['installed'], closed: ['closed'],
+    open: ['open', 'installed'],
+    installed: ['installed'],
   };
 
   function field(id) { return byId(id); }
@@ -91,7 +91,6 @@
 
   function installationSecondary(item) {
     if (item.installation_status === 'installed') return item.installation_date_display ? `Installed ${item.installation_date_display}` : 'Installed';
-    if (item.installation_status === 'closed') return 'Closed';
     if (item.planned_installation_date_display) return `Planned ${item.planned_installation_date_display}`;
     if (item.readiness_status_label) return item.readiness_status_label;
     return 'Needs an installation update';
@@ -192,6 +191,8 @@
     field('hb-installation-report-status').value = action.installation_report_status || '';
     field('hb-commissioning-date').value = action.commissioning_status === 'commissioned' ? (action.commissioning_date || '') : '';
     field('hb-correction-reason').value = '';
+    const legacyClosed = action.installation_status === 'closed';
+    byId('hb-action-form').hidden = legacyClosed;
     byId('hb-installation-card').hidden = workstream !== 'installation';
     byId('hb-commissioning-card').hidden = workstream !== 'commissioning';
     byId('hb-action-save').textContent = workstream === 'commissioning' ? 'Mark commissioned' : 'Save installation';
@@ -200,7 +201,7 @@
   function renderFormState() {
     const status = field('hb-installation-status')?.value || '';
     const installed = status === 'installed';
-    byId('hb-open-installation-fields').hidden = installed || status === 'closed';
+    byId('hb-open-installation-fields').hidden = installed;
     byId('hb-installation-note-wrap').hidden = installed;
     byId('hb-installed-fields').hidden = !installed;
   }
@@ -213,7 +214,7 @@
     const editable = Boolean(permissions.write) && (!completedMilestone || correctionMode);
     form.querySelectorAll('input,select,textarea').forEach(control => { if (control.id !== 'hb-correction-reason') control.disabled = !editable; });
     byId('hb-action-save').hidden = !editable;
-    byId('hb-action-edit-toggle').hidden = !permissions.correct || !completedMilestone;
+    byId('hb-action-edit-toggle').hidden = !permissions.correct || !completedMilestone || detail?.installation_status === 'closed';
   }
 
   function applyVisualDetailHierarchy(action) {
@@ -256,7 +257,6 @@
     }
     if (!payload.installation_status) return 'Choose the installation status.';
     if (payload.installation_status === 'open' && payload.readiness_status === 'not_ready' && !payload.installation_note) return 'Add a short installation note for a known readiness blocker.';
-    if (payload.installation_status === 'closed' && !payload.installation_note) return 'Add a closure reason.';
     if (payload.installation_status === 'installed') {
       if (!payload.installation_date) return 'Choose the actual installation date.';
       if (payload.installation_date > today) return 'The actual installation date cannot be in the future.';

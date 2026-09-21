@@ -301,14 +301,22 @@
     }
   }
 
-  function caseRow(item) {
-    const canReview = approvalMode() && capability('portal.payment.review') && ['in_review', 'review_complete'].includes(activeBatch.status);
+  function caseRow(item, {compact = false} = {}) {
+    const canReview = approvalMode() && item.decision === 'pending' && capability('portal.payment.review') && ['in_review', 'review_complete'].includes(activeBatch.status);
     const canRemove = !approvalMode() && capability('portal.payment.prepare') && !['completed', 'cancelled'].includes(activeBatch.status);
     const warning = item.changed_since_review ? '<span class="payment-case-warning">Payment details changed</span>' : '';
+    const badge = `<span class="badge ${item.decision === 'approved' ? 'badge-green' : item.decision === 'returned' ? 'badge-orange' : 'badge-blue'}">${escape(item.decision === 'pending' ? 'Awaiting review' : item.decision)}</span>`;
+    const history = `<button type="button" class="payment-case-history" data-case-url="/portal/cases/${escape(item.farmer_id)}/?from=${approvalMode() ? 'payment_approvals' : 'payments'}"><strong>${escape(item.customer_name || 'Unnamed customer')}</strong><small>${escape(item.case_reference || 'Case')} · ${escape(item.invoice_number || 'No invoice')} · ${escape(item.order_number || 'No order')}</small></button>`;
+    if (compact) {
+      return `<article class="payment-case-row payment-review-approved" data-payment-case="${escape(item.farmer_id)}">
+        <div class="payment-case-heading">${history}${badge}</div>
+        <div class="payment-case-row-facts"><span><small>Amount</small><strong>${escape(money(item.amount))}</strong></span><span><small>Repayment</small><strong>${escape(item.preferred_repayment_date || 'Missing')}</strong></span><span class="payment-case-mode-readonly">${escape(item.payment_mode_label)}</span></div>
+      </article>`;
+    }
     return `<article class="payment-current-case payment-review-${escape(item.decision)}${item.changed_since_review ? ' changed' : ''}" data-payment-case="${escape(item.farmer_id)}">
-      <div class="payment-case-heading"><button type="button" class="payment-case-history" data-case-url="/portal/cases/${escape(item.farmer_id)}/?from=${approvalMode() ? 'payment_approvals' : 'payments'}"><strong>${escape(item.customer_name || 'Unnamed customer')}</strong><small>${escape(item.case_reference || 'Case')} · ${escape(item.invoice_number || 'No invoice')} · ${escape(item.order_number || 'No order')}</small></button><span class="badge ${item.decision === 'approved' ? 'badge-green' : item.decision === 'returned' ? 'badge-orange' : 'badge-blue'}">${escape(item.decision === 'pending' ? 'Awaiting review' : item.decision)}</span></div>
+      <div class="payment-case-heading">${history}${badge}</div>
       <div class="payment-case-values"><span>${escape(money(item.amount))}</span><span>Repayment: ${escape(item.preferred_repayment_date || 'Missing')}</span></div>
-      ${canRemove ? `<label class="payment-case-mode"><span>Payment mode</span><select data-payment-case-mode="${escape(item.farmer_id)}"><option value="LOAN-JAWABU" ${item.payment_mode === 'LOAN-JAWABU' ? 'selected' : ''}>Loan - Jawabu</option><option value="CASH" ${item.payment_mode === 'CASH' ? 'selected' : ''}>Cash</option></select></label>` : `<span class="payment-case-mode-readonly">${escape(item.payment_mode_label)}</span>`}${warning}
+      ${canRemove ? `<button type="button" class="payment-candidate-cash-toggle${item.payment_mode === 'CASH' ? ' is-cash' : ''}" data-payment-case-cash="${escape(item.farmer_id)}" aria-pressed="${item.payment_mode === 'CASH'}" aria-label="${item.payment_mode === 'CASH' ? 'Cash selected. Switch back to Loan - Jawabu' : 'Switch this case to Cash'}" title="${item.payment_mode === 'CASH' ? 'Cash selected. Switch back to Loan - Jawabu' : 'Switch this case to Cash'}"><i data-lucide="${item.payment_mode === 'CASH' ? 'banknote' : 'landmark'}" aria-hidden="true"></i><span>${item.payment_mode === 'CASH' ? 'Cash' : 'Loan'}</span></button>` : `<span class="payment-case-mode-readonly">${escape(item.payment_mode_label)}</span>`}${warning}
       ${canReview ? `<textarea class="payment-review-comment" rows="2" placeholder="Approval comment">${escape(item.comment || '')}</textarea><div class="payment-case-actions"><button type="button" class="btn btn-secondary payment-return">Return</button><button type="button" class="btn btn-primary payment-approve">Approve</button></div>` : item.comment ? `<p class="payment-review-note">${escape(item.comment)}</p>` : ''}
       ${canRemove ? '<button type="button" class="payment-remove-case">Remove</button>' : ''}
     </article>`;
@@ -347,7 +355,12 @@
     required.progress.innerHTML = `<span><strong>${escape(counts.total || 0)}</strong><small>Cases</small></span><span><strong>${escape(counts.approved || 0)}</strong><small>Approved</small></span><span><strong>${escape(counts.returned || 0)}</strong><small>Returned</small></span><span><strong>${escape(counts.pending || 0)}</strong><small>Awaiting</small></span><span class="payment-progress-total"><strong>${escape(money(activeBatch.total_amount))}</strong><small>Total</small></span>`;
     required.progress.hidden = emptyDraft;
     const cases = activeBatch.cases || [];
-    required.cases.innerHTML = cases.length ? cases.map(caseRow).join('') : '<div class="empty-state compact"><div class="es-title">No cases added</div></div>';
+    const approvedCases = cases.filter(item => item.decision === 'approved');
+    const actionableCases = cases.filter(item => item.decision !== 'approved');
+    required.cases.innerHTML = cases.length ? [
+      actionableCases.length ? actionableCases.map(caseRow).join('') : '<div class="payment-approved-summary">All cases in this batch are approved.</div>',
+      approvedCases.length ? `<details class="payment-approved-cases"><summary><span>Approved cases</span><b>${escape(approvedCases.length)}</b></summary><div class="payment-approved-case-list">${approvedCases.map(item => caseRow(item, {compact: true})).join('')}</div></details>` : '',
+    ].join('') : '<div class="empty-state compact"><div class="es-title">No cases added</div></div>';
     if (el('payments-current-section')) el('payments-current-section').hidden = emptyDraft;
     const heldItems = activeBatch.held_items || [];
     const heldTarget = el('payments-held-items');
@@ -408,12 +421,12 @@
     const current = new Set((activeBatch?.cases || []).map(entry => String(entry.farmer_id)));
     if (current.has(id)) return '';
     const blocked = kind !== 'ready';
-    const mode = selectedModes.get(id) || '';
+    const mode = selectedModes.get(id) || 'LOAN-JAWABU';
     const reasons = kind === 'pending' ? `Already in Payment #${item.payment_review_payment_number || '-'}` : (item.missing || []).join(', ');
     return `<article class="payment-candidate ${blocked ? 'blocked' : ''}${selected.has(id) ? ' selected' : ''}">
-      <span class="payment-candidate-main">${kind === 'ready' ? `<input class="payment-candidate-checkbox" type="checkbox" value="${escape(id)}" aria-label="Select ${escape(item.customer_name || row.name || 'case')}" ${selected.has(id) ? 'checked' : ''} ${mode ? '' : 'disabled'}>` : '<i data-lucide="circle-alert"></i>'}<span><strong>${escape(item.customer_name || row.name || 'Unnamed customer')}</strong><small>${escape([item.national_id, item.invoice_number].filter(Boolean).join(' · '))}</small></span></span>
+      <span class="payment-candidate-main">${kind === 'ready' ? `<input class="payment-candidate-checkbox" type="checkbox" value="${escape(id)}" aria-label="Select ${escape(item.customer_name || row.name || 'case')}" ${selected.has(id) ? 'checked' : ''}>` : '<i data-lucide="circle-alert"></i>'}<span><strong>${escape(item.customer_name || row.name || 'Unnamed customer')}</strong><small>${escape([item.national_id, item.invoice_number].filter(Boolean).join(' · '))}</small></span></span>
       <span class="payment-candidate-meta"><span>Amount<strong>${escape(money(row.hb_invoice_amount))}</strong></span><span>Repayment<strong>${escape(row.repayment_dates || 'Missing')}</strong></span></span>
-      ${kind === 'ready' ? `<select class="payment-candidate-mode" data-payment-candidate-mode="${escape(id)}" aria-label="Payment mode for ${escape(item.customer_name || row.name || 'case')}"><option value="">Choose payment mode</option><option value="LOAN-JAWABU" ${mode === 'LOAN-JAWABU' ? 'selected' : ''}>Loan - Jawabu</option><option value="CASH" ${mode === 'CASH' ? 'selected' : ''}>Cash</option></select>` : ''}
+      ${kind === 'ready' ? `<button type="button" class="payment-candidate-cash-toggle${mode === 'CASH' ? ' is-cash' : ''}" data-payment-candidate-cash="${escape(id)}" aria-pressed="${mode === 'CASH'}" aria-label="${mode === 'CASH' ? 'Cash selected. Switch back to Loan - Jawabu' : 'Switch this case to Cash'}" title="${mode === 'CASH' ? 'Cash selected. Switch back to Loan - Jawabu' : 'Switch this case to Cash'}"><i data-lucide="${mode === 'CASH' ? 'banknote' : 'landmark'}" aria-hidden="true"></i><span>${mode === 'CASH' ? 'Cash' : 'Loan'}</span></button>` : ''}
       ${blocked ? `<span class="payment-candidate-warning">${escape(reasons || 'Payment details need attention')}</span>` : ''}
     </article>`;
   }
@@ -506,31 +519,30 @@
     await mutate(`/payments/batches/${activeBatch.id}/submit/`, {}, button, 'Submitting...');
   }
 
-  async function changeCaseMode(select) {
-    const farmerId = select.dataset.paymentCaseMode;
-    const prior = activeBatch.cases.find(item => item.farmer_id === farmerId)?.payment_mode;
-    select.disabled = true;
+  async function addSelected(button) {
+    if (!selected.size) return;
+    const paymentModes = Object.fromEntries([...selected].map(id => [id, selectedModes.get(id) || 'LOAN-JAWABU']));
+    if (await mutate(`/payments/batches/${activeBatch.id}/cases/`, {farmer_ids: [...selected], payment_modes: paymentModes}, button, 'Adding...')) {
+      selected.clear(); selectedModes.clear(); renderCandidates(); deps.showToast('Cases added to payment batch.', 'success');
+    }
+  }
+
+  async function toggleCaseMode(button) {
+    const farmerId = button.dataset.paymentCaseCash;
+    const mode = button.getAttribute('aria-pressed') === 'true' ? 'LOAN-JAWABU' : 'CASH';
+    button.disabled = true;
     try {
       const response = await request(
         `/payments/batches/${activeBatch.id}/cases/${farmerId}/mode/`, 'POST',
-        {payment_mode: select.value, revision: activeBatch.revision}
+        {payment_mode: mode, revision: activeBatch.revision}
       );
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not change this case payment mode.');
       activeBatch = response.data.batch;
       renderDetail();
-      deps.showToast('Case payment mode updated.', 'success');
+      deps.showToast(mode === 'CASH' ? 'Case changed to Cash.' : 'Case changed to Loan - Jawabu.', 'success');
     } catch (error) {
-      select.value = prior || '';
       deps.showToast(error.message || 'Could not change this case payment mode.', 'error');
-    } finally { select.disabled = false; }
-  }
-
-  async function addSelected(button) {
-    if (!selected.size) return;
-    const paymentModes = Object.fromEntries([...selected].map(id => [id, selectedModes.get(id)]));
-    if (await mutate(`/payments/batches/${activeBatch.id}/cases/`, {farmer_ids: [...selected], payment_modes: paymentModes}, button, 'Adding...')) {
-      selected.clear(); selectedModes.clear(); renderCandidates(); deps.showToast('Cases added to payment batch.', 'success');
-    }
+    } finally { button.disabled = false; }
   }
 
   async function addReceiptItem(button) {
@@ -601,16 +613,6 @@
     document.addEventListener('change', event => {
       const checkbox = event.target.closest('.payment-candidate-checkbox');
       if (checkbox) { checkbox.checked ? selected.add(checkbox.value) : selected.delete(checkbox.value); renderCandidates(); return; }
-      const candidateMode = event.target.closest('[data-payment-candidate-mode]');
-      if (candidateMode) {
-        const id = candidateMode.dataset.paymentCandidateMode;
-        candidateMode.value ? selectedModes.set(id, candidateMode.value) : selectedModes.delete(id);
-        if (!candidateMode.value) selected.delete(id);
-        renderCandidates();
-        return;
-      }
-      const caseMode = event.target.closest('[data-payment-case-mode]');
-      if (caseMode) { changeCaseMode(caseMode); return; }
       if (event.target.id === 'payments-scan-file') {
         const file = event.target.files?.[0]; el('payments-scan-label').textContent = file ? file.name : 'Select signed scan';
       }
@@ -639,8 +641,17 @@
       if (target.closest('#payments-detail-retry')) return openBatch(detailBatchId(), {});
       const filter = target.closest('[data-payment-filter]');
       if (filter) { candidateFilter = filter.dataset.paymentFilter; return renderCandidates(); }
-      if (target.closest('#payments-clear-selection')) { selected.clear(); return renderCandidates(); }
+      if (target.closest('#payments-clear-selection')) { selected.clear(); selectedModes.clear(); return renderCandidates(); }
       if (target.closest('#payments-add-selected')) return addSelected(target.closest('#payments-add-selected'));
+      const candidateCashToggle = target.closest('[data-payment-candidate-cash]');
+      if (candidateCashToggle) {
+        const id = candidateCashToggle.dataset.paymentCandidateCash;
+        selectedModes.set(id, candidateCashToggle.getAttribute('aria-pressed') === 'true' ? 'LOAN-JAWABU' : 'CASH');
+        renderCandidates();
+        return;
+      }
+      const caseCashToggle = target.closest('[data-payment-case-cash]');
+      if (caseCashToggle) return toggleCaseMode(caseCashToggle);
       if (target.closest('.payment-receipt-cash-toggle')) return toggleReceiptCash(target.closest('.payment-receipt-cash-toggle'));
       if (target.closest('.payment-add-receipt-item')) return addReceiptItem(target.closest('.payment-add-receipt-item'));
       if (target.closest('#payments-submit-review')) return submitForReview(target.closest('#payments-submit-review'));

@@ -169,6 +169,17 @@ class HomeBiogasActionServiceTests(TestCase):
         self.farmer.refresh_from_db()
         self.assertEqual(self.farmer.installation_status, 'Open')
 
+    def test_legacy_closed_installation_is_preserved_but_cannot_be_changed(self):
+        action = self.release()
+        action.installation_status = HomeBiogasAction.INSTALLATION_CLOSED
+        action.save(update_fields=['installation_status', 'updated_at'])
+
+        with self.assertRaisesMessage(HomeBiogasActionError, 'legacy closed installation record is read-only'):
+            transition_action(
+                action.pk, actor=self.user, request_id='legacy-closed-1', expected_revision=1,
+                payload={'workstream': 'installation', 'installation_status': 'open'},
+            )
+
     def test_installed_record_enters_automatic_commissioning_wait_without_extra_input(self):
         action = self.release()
         installed_on = timezone.localdate()
@@ -307,6 +318,19 @@ class HomeBiogasActionApiTests(HomeBiogasActionServiceTests):
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn('actual installation date', response.json()['error'])
+
+    def test_installation_list_hides_legacy_closed_records_and_only_counts_active_states(self):
+        action = self.release()
+        action.installation_status = HomeBiogasAction.INSTALLATION_CLOSED
+        action.save(update_fields=['installation_status', 'updated_at'])
+
+        listing = self.client.get(reverse('portal_hb_action_list'))
+        detail = self.client.get(reverse('portal_hb_action_api_detail', kwargs={'farmer_id': self.farmer.pk}))
+
+        self.assertEqual(listing.status_code, 200)
+        self.assertEqual(listing.json()['items'], [])
+        self.assertEqual(set(listing.json()['counts']), {'open', 'installed'})
+        self.assertEqual(detail.json()['action']['installation_status_label'], 'Legacy closed')
 
     def test_commissioning_queue_derives_waiting_due_and_delayed_from_installation_date(self):
         action = self.release()
