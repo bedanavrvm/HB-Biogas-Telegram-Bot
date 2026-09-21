@@ -5,6 +5,7 @@ from datetime import timedelta
 from django.db.models import Q
 from django.http import JsonResponse
 from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from core.api.portal_views import (
@@ -225,12 +226,14 @@ def _mutation(request, farmer_id, *, correction: bool):
 
 
 @portal_auth_required
+@csrf_exempt  # Portal writes authenticate through verified Telegram initData, not a browser cookie.
 @require_http_methods(['POST'])
 def hb_action_transition(request, farmer_id):
     return _mutation(request, farmer_id, correction=False)
 
 
 @portal_auth_required
+@csrf_exempt  # Keep correction writes on the same verified Mini App auth contract.
 @require_http_methods(['POST'])
 def hb_action_correct(request, farmer_id):
     return _mutation(request, farmer_id, correction=True)

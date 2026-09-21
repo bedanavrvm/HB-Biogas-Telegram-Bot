@@ -443,11 +443,13 @@
     const blocked = kind !== 'ready';
     const mode = selectedModes.get(id) || 'LOAN-JAWABU';
     const reasons = kind === 'pending' ? `Already in Payment #${item.payment_review_payment_number || '-'}` : (item.missing || []).join(', ');
+    const advisory = kind === 'ready' ? (item.warnings || []).join(', ') : '';
     return `<article class="payment-candidate${kind === 'ready' ? ' has-mode-toggle' : ''}${blocked ? ' blocked' : ''}${selected.has(id) ? ' selected' : ''}">
       <span class="payment-candidate-main">${kind === 'ready' ? `<input class="payment-candidate-checkbox" type="checkbox" value="${escape(id)}" aria-label="Select ${escape(item.customer_name || row.name || 'case')}" ${selected.has(id) ? 'checked' : ''}>` : '<i data-lucide="circle-alert"></i>'}<span><strong>${escape(item.customer_name || row.name || 'Unnamed customer')}</strong><small>${escape([item.national_id, item.invoice_number].filter(Boolean).join(' · '))}</small></span></span>
       <span class="payment-candidate-meta"><span>Amount<strong>${escape(money(row.hb_invoice_amount))}</strong></span><span>Repayment<strong>${escape(row.repayment_dates || 'Missing')}</strong></span></span>
       ${kind === 'ready' ? `<button type="button" class="payment-candidate-cash-toggle${mode === 'CASH' ? ' is-cash' : ''}" data-payment-candidate-cash="${escape(id)}" aria-pressed="${mode === 'CASH'}" aria-label="${mode === 'CASH' ? 'Cash selected. Switch back to Loan - Jawabu' : 'Switch this case to Cash'}" title="${mode === 'CASH' ? 'Cash selected. Switch back to Loan - Jawabu' : 'Switch this case to Cash'}"><i data-lucide="${mode === 'CASH' ? 'banknote' : 'landmark'}" aria-hidden="true"></i><span class="sr-only">${mode === 'CASH' ? 'Cash' : 'Loan - Jawabu'}</span></button>` : ''}
       ${blocked ? `<span class="payment-candidate-warning">${escape(reasons || 'Payment details need attention')}</span>` : ''}
+      ${advisory ? `<span class="payment-candidate-warning payment-candidate-advisory">${escape(advisory)}</span>` : ''}
     </article>`;
   }
 

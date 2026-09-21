@@ -169,9 +169,10 @@ def serialize_receipt_batch(receipt: PaymentReceiptBatch, *, include_items: bool
 def create_payment_batch_from_receipt(*, receipt_id, payment_modes, expected_revision, actor=None, request_id=''):
     """Build the governed payable membership from one invoice delivery.
 
-    Held receipt items deliberately remain attached to the source batch but do
-    not create a ``PaymentBatchCase`` and therefore cannot affect money,
-    Head-of-Rural decisions, numbering or signed-scan finality.
+    Unmatched and ignored items remain held. A matched applicant whose
+    invoice-holder name is awaiting correction remains traceable to this
+    delivery and is included with a visible advisory; signed-scan acceptance
+    still defines finality.
     """
     from payments.services import PaymentBatchError, add_cases, create_batch
 
@@ -181,18 +182,32 @@ def create_payment_batch_from_receipt(*, receipt_id, payment_modes, expected_rev
     existing_batch = _linked_batch(receipt)
     if existing_batch:
         return existing_batch, True
-    payable = list(receipt.items.select_for_update().filter(status=PaymentReceiptItem.STATUS_MATCHED, farmer__isnull=False))
+    payable = list(receipt.items.select_for_update().filter(
+        status__in=(
+            PaymentReceiptItem.STATUS_MATCHED,
+            PaymentReceiptItem.STATUS_NAME_CHANGE,
+        ),
+        farmer__isnull=False,
+    ))
     if not payable:
-        raise PaymentReceiptError('This invoice batch has no matched invoices ready for payment.')
+        raise PaymentReceiptError('This invoice batch has no reconciled invoices ready for payment.')
     farmer_ids = [str(item.farmer_id) for item in payable]
     if len(set(farmer_ids)) != len(farmer_ids):
         raise PaymentReceiptError('More than one invoice in this delivery is matched to the same case. Resolve the duplicate first.')
     batch = create_batch(group_configuration=receipt.group_configuration, actor=actor, request_id=f'{request_id}:batch' if request_id else '')
     batch.receipt_batch = receipt
     batch.save(update_fields=['receipt_batch', 'updated_at'])
+    # Loan - Jawabu is the operational default. The payment workspace exposes
+    # Cash as an explicit per-case switch, so an invoice delivery must not
+    # fail merely because the caller omitted the default for one row.
+    supplied_modes = payment_modes if isinstance(payment_modes, dict) else {}
+    effective_payment_modes = {
+        str(item.farmer_id): supplied_modes.get(str(item.farmer_id), 'LOAN-JAWABU')
+        for item in payable
+    }
     try:
         add_cases(
-            batch.pk, farmer_ids=farmer_ids, payment_modes=payment_modes,
+            batch.pk, farmer_ids=farmer_ids, payment_modes=effective_payment_modes,
             expected_revision=batch.revision, actor=actor, request_id=f'{request_id}:cases' if request_id else '',
         )
     except PaymentBatchError as exc:

@@ -6,7 +6,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.apps import apps as django_apps
 from django.db import connection
-from django.test import TestCase, override_settings
+from django.test import Client, TestCase, override_settings
 from django.test import RequestFactory
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
@@ -316,6 +316,19 @@ class HomeBiogasActionApiTests(HomeBiogasActionServiceTests):
             data=json.dumps({'revision': 1, 'workstream': 'installation', 'installation_status': 'installed'}),
             content_type='application/json', HTTP_X_REQUEST_ID='hb-api-transition-1',
         )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('actual installation date', response.json()['error'])
+
+    def test_api_transition_uses_verified_miniapp_auth_not_a_cookie_csrf_token(self):
+        self.release()
+        csrf_enforcing_client = Client(enforce_csrf_checks=True)
+
+        response = csrf_enforcing_client.post(
+            reverse('portal_hb_action_transition', kwargs={'farmer_id': self.farmer.pk}),
+            data=json.dumps({'revision': 1, 'workstream': 'installation', 'installation_status': 'installed'}),
+            content_type='application/json', HTTP_X_REQUEST_ID='hb-api-transition-csrf-contract',
+        )
+
         self.assertEqual(response.status_code, 400)
         self.assertIn('actual installation date', response.json()['error'])
 

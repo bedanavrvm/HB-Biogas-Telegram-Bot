@@ -349,9 +349,10 @@ def _row_payload(
     call_up_comments: str | None = None,
     case_call_up_comments: dict[str, str] | None = None,
     case_payment_modes: dict[str, str] | None = None,
-) -> tuple[dict[str, Any], list[str], ParsedInvoice | None]:
+) -> tuple[dict[str, Any], list[str], list[str], ParsedInvoice | None]:
     invoice = _invoice_for_farmer(farmer)
     missing = []
+    warnings = []
     if not farmer.customer_no:
         missing.append('Cust No')
     if not invoice:
@@ -364,9 +365,9 @@ def _row_payload(
         elif identity.get('blocker') == 'invoice_requisition_mismatch':
             missing.append('Invoice match does not belong to this finalized order')
         elif identity.get('blocker') == 'invoice_name_change_pending':
-            missing.append('Waiting for corrected invoice')
+            warnings.append('Waiting for corrected invoice')
         elif identity.get('blocker') == 'invoice_name_change_required':
-            missing.append('Request a corrected invoice')
+            warnings.append('Corrected invoice requested')
         elif 'national_id_missing' in identity.get('discrepancy_codes', []):
             missing.append('Invoice holder or applicant national ID')
         elif identity.get('blocker'):
@@ -387,7 +388,10 @@ def _row_payload(
         missing.append('Current final approval')
 
     if farmer.payment_product and not farmer.product_version_id:
-        missing.append('Global product mapping')
+        # Product mapping is catalogue governance work, not a reason to hold
+        # an already reviewed payment draft. The signed scan is the point at
+        # which the physical payment document becomes final.
+        warnings.append('Global product mapping is pending')
     elif farmer.product_version_id:
         from core.services.product_catalog import missing_product_requirements
 
@@ -437,7 +441,7 @@ def _row_payload(
         'farmer_id': str(farmer.id),
         'order_call_up_comments': str(farmer.final_decision_comment or '').strip().upper(),
     }
-    return row, missing, invoice
+    return row, missing, warnings, invoice
 
 
 def payment_readiness(
@@ -458,7 +462,7 @@ def payment_readiness(
     blocked = []
     invoice_batch_ids = set()
     for farmer in farmers:
-        row, missing, invoice = _row_payload(
+        row, missing, warnings, invoice = _row_payload(
             farmer,
             call_up_comments=call_up_comments,
             case_call_up_comments=case_call_up_comments,
@@ -470,6 +474,7 @@ def payment_readiness(
             'national_id': farmer.national_id,
             'primary_phone': farmer.primary_phone,
             'missing': missing,
+            'warnings': warnings,
             'row': row,
             # Kept beside (not in) the payment COL so reviewers can compare
             # the earlier order decision without confusing the two comments.

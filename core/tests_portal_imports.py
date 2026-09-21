@@ -332,7 +332,7 @@ class PortalImportStagingTests(TestCase):
             headers={'X-Request-ID': request_key, 'Idempotency-Key': request_key},
         )
         self.assertEqual(response.status_code, 200)
-        self.assertIn('Customer Name', response.json()['batch']['editable_fields'])
+        self.assertNotIn('Customer Name', response.json()['batch']['editable_fields'])
         self.assertFalse(response.json()['replayed'])
 
         # This is the production failure mode: the mutation succeeded but the
@@ -344,7 +344,7 @@ class PortalImportStagingTests(TestCase):
         )
         self.assertEqual(replay.status_code, 200)
         self.assertTrue(replay.json()['replayed'])
-        self.assertIn('Customer Name', replay.json()['batch']['editable_fields'])
+        self.assertNotIn('Customer Name', replay.json()['batch']['editable_fields'])
 
     def test_portal_farmup_commit_is_revision_bound_and_exactly_replayable(self):
         batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})
@@ -378,7 +378,7 @@ class PortalImportStagingTests(TestCase):
         self.assertEqual(JawabuFarmerMaster.objects.count(), 1)
         self.assertEqual(ComplianceAuditEvent.objects.filter(action='portal.farmup.committed').count(), 1)
 
-        changed_rows = [dict(rows[0], **{'Customer Name': 'Changed payload'})]
+        changed_rows = [dict(rows[0], **{'County': 'Changed payload'})]
         with self.assertRaisesMessage(PortalImportConflict, 'different FarmUp rows'):
             commit_portal_farmup(
                 batch_id=str(batch.pk), rows=changed_rows, revision_token=token,
@@ -529,7 +529,7 @@ class PortalImportStagingTests(TestCase):
             batch_id=str(batch.pk), rows=list(batch.parsed_rows), revision_token=farmup_revision_token(batch),
             request_id='update-v1-commit', actor=self.user, allowed_group_ids={self.group.group_id},
         )
-        changed_csv = FARMUP_CSV.replace(b'David Mugambi', b'David M. Mugambi')
+        changed_csv = FARMUP_CSV.replace(b'Embu', b'Meru')
         version, _operation, _ = stage_portal_farmup_version(
             batch_id=str(batch.pk), filename='august-latest.csv', content=changed_csv,
             request_id='update-v2', actor=self.user, allowed_group_ids={self.group.group_id},
@@ -540,7 +540,7 @@ class PortalImportStagingTests(TestCase):
             allowed_group_ids={self.group.group_id},
         )
         self.assertEqual(validation[0]['match']['kind'], 'update')
-        self.assertIn('Customer Name', validation[0]['match']['changed_fields'])
+        self.assertIn('County', validation[0]['match']['changed_fields'])
         self.assertEqual(counts['unresolved'], 1)
         with self.assertRaisesMessage(PortalImportError, 'acknowledge'):
             commit_portal_farmup(
@@ -554,7 +554,9 @@ class PortalImportStagingTests(TestCase):
             request_id='update-v2-commit-ack', actor=self.user, allowed_group_ids={self.group.group_id},
         )
         self.assertEqual(result['updated'], 1)
-        self.assertEqual(JawabuFarmerMaster.objects.get().customer_name, 'DAVID M. MUGAMBI')
+        farmer = JawabuFarmerMaster.objects.get()
+        self.assertEqual(farmer.customer_name, 'DAVID MUGAMBI')
+        self.assertEqual(farmer.county, 'MERU')
 
     def test_portal_commit_queues_master_publication_without_google_call(self):
         self.group.workflow = {'type': 'jawabu_homebiogas', 'master_sync_enabled': True}

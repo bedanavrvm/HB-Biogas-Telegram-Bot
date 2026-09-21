@@ -4,7 +4,7 @@
   const api = window.PortalMiniAppApi || {};
   const utils = window.MiniAppUtils || {};
   const tg = window.Telegram?.WebApp;
-  const editableFields = ['Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone', 'Application Action', 'Additional Unit Reason', 'County', 'HBG Visit Date', 'Deposit Paid to HB', 'HB Sales Person'];
+  const editableFields = ['National ID', 'Primary Phone', 'Secondary Phone', 'Application Action', 'Additional Unit Reason', 'County', 'HBG Visit Date', 'Deposit Paid to HB', 'HB Sales Person'];
   const requiredFields = ['Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone', 'County', 'HBG Visit Date', 'Deposit Paid to HB', 'HB Sales Person'];
   let batches = [], active = null, gridApi = null, gridAssetPromise = null;
   let search = '', needsReviewOnly = false, mappingOpen = false, commitRequestKey = '';
@@ -197,7 +197,10 @@
       }
       const top = grid.getBoundingClientRect().top;
       const commitHeight = node('farmup-commit')?.closest('.farmup-commit-bar')?.getBoundingClientRect().height || 0;
-      grid.style.height = `${Math.max(192, Math.min(680, Math.floor(viewportBottom - top - commitHeight - 12)))}px`;
+      // Header (32px), eight 32px data rows, and the horizontal scrollbar.
+      // Keep that minimum even on a short phone viewport; the page can scroll
+      // but the review table must remain useful without one-row-at-a-time work.
+      grid.style.height = `${Math.max(320, Math.min(680, Math.floor(viewportBottom - top - commitHeight - 12)))}px`;
       grid.style.scrollMarginBottom = `${commitHeight + 18}px`;
       try {
         gridApi?.setColumnsPinned?.(['state'], window.innerWidth > 700 ? 'left' : null);
@@ -225,7 +228,7 @@
         {headerName:'#', colId:'row_number', width:48, minWidth:48, maxWidth:48, pinned:'left', lockPinned:true, sortable:false, resizable:false, valueGetter:p => p.node.rowIndex + 1},
         {headerName:'', colId:'selected', width:40, minWidth:40, maxWidth:40, pinned:'left', sortable:false, resizable:false, checkboxSelection:p => rowSelectable(p.data), cellClass:'farmup-selection-cell'},
         {headerName:'State', colId:'state', width:142, pinned:window.innerWidth > 700 ? 'left' : null, sortable:false, cellRenderer:statusRenderer, tooltipValueGetter:statusTooltip},
-        {field:'Source Row', headerName:'Row', width:62, editable:false}, textColumn('Customer Name',180), textColumn('National ID',120), textColumn('Primary Phone',135), textColumn('Secondary Phone',135),
+        {field:'Source Row', headerName:'Row', width:62, editable:false}, {field:'Customer Name', headerName:'FarmUp name', width:180, editable:false, tooltipValueGetter:p => String(p.value || '')}, textColumn('National ID',120), textColumn('Primary Phone',135), textColumn('Secondary Phone',135),
         {field:'Application Action', headerName:'Unit decision', width:190, editable:can('portal.farmup.commit'), cellEditor:'agSelectCellEditor', cellEditorParams:{values:['update_existing','create_additional_unit']}, valueFormatter:p => applicationActionLabel(p.value, p.data), cellClassRules:{'farmup-cell-edited':p => fieldEdited(p.data, 'Application Action'),'farmup-cell-invalid':p => fieldInvalid(p.data, 'Application Action')}},
         textColumn('Additional Unit Reason',190), textColumn('County',120), textColumn('HBG Visit Date',135), textColumn('Deposit Paid to HB',140), textColumn('HB Sales Person',150),
         {colId:'validation_notes', headerName:'Validation notes', width:280, editable:false, valueGetter:p => (p.data._issues || []).map(i => i.message).join('; '), tooltipValueGetter:statusTooltip},

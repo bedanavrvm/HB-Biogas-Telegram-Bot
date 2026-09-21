@@ -174,6 +174,29 @@ class PaymentBatchServiceTests(TestCase):
                 order_number=order_number, payment_number=payment_number,
                 status='awaiting_scan', version=1,
             )
+        with patch('payments.services.create_payment_document', side_effect=generated_document):
+            first = generate_reviewed_workbook(
+                first.id, expected_revision=first_generation_revision,
+                actor=self.user, request_id='generate-1',
+            )
+            replay = generate_reviewed_workbook(
+                first.id, expected_revision=first_generation_revision,
+                actor=self.user, request_id='generate-1',
+            )
+        second = self.batch()
+        second = self.add(second, second_farmer)
+        second = submit_for_review(second.id, expected_revision=second.revision, actor=self.user, request_id='submit-2')
+        second = review_case(
+            second.id, second_farmer.id, decision='approved', comment='Ready.',
+            expected_revision=second.revision, actor=self.user,
+        )
+        with patch('payments.services.create_payment_document', side_effect=generated_document):
+            second = generate_reviewed_workbook(
+                second.id, expected_revision=second.revision,
+                actor=self.user, request_id='generate-2',
+            )
+        self.assertEqual((first.payment_number, replay.payment_number, second.payment_number), (1, 1, 2))
+        self.assertEqual(PaymentSequenceState.objects.get(group_configuration=self.group).next_number, 3)
 
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
     @patch('payments.receipt_batches._item_disposition')
@@ -210,10 +233,17 @@ class PaymentBatchServiceTests(TestCase):
             payment_modes={str(payable.id): 'LOAN-JAWABU'}, actor=self.user, request_id='receipt-payment-1',
         )
         self.assertFalse(replayed)
-        self.assertEqual(list(batch.case_memberships.filter(is_active=True).values_list('farmer_id', flat=True)), [payable.id])
+        self.assertEqual(
+            set(batch.case_memberships.filter(is_active=True).values_list('farmer_id', flat=True)),
+            {payable.id, held.id},
+        )
+        self.assertEqual(
+            batch.case_memberships.get(farmer=held, is_active=True).payment_mode,
+            'LOAN-JAWABU',
+        )
         payload = serialize_batch(batch)
         self.assertEqual(payload['receipt_batch_id'], str(receipt.id))
-        self.assertEqual(payload['held_items'][0]['farmer_id'], str(held.id))
+        self.assertFalse(payload['held_items'])
 
         unrelated = self.farmer('receipt-unrelated')
         with self.assertRaisesMessage(PaymentBatchError, 'only cases reconciled in that delivery'):
@@ -221,30 +251,6 @@ class PaymentBatchServiceTests(TestCase):
                 batch.id, farmer_ids=[unrelated.id], payment_modes={str(unrelated.id): 'CASH'},
                 expected_revision=batch.revision,
             )
-
-        with patch('payments.services.create_payment_document', side_effect=generated_document):
-            first = generate_reviewed_workbook(
-                first.id, expected_revision=first_generation_revision,
-                actor=self.user, request_id='generate-1',
-            )
-            replay = generate_reviewed_workbook(
-                first.id, expected_revision=first_generation_revision,
-                actor=self.user, request_id='generate-1',
-            )
-        second = self.batch()
-        second = self.add(second, second_farmer)
-        second = submit_for_review(second.id, expected_revision=second.revision, actor=self.user, request_id='submit-2')
-        second = review_case(
-            second.id, second_farmer.id, decision='approved', comment='Ready.',
-            expected_revision=second.revision, actor=self.user,
-        )
-        with patch('payments.services.create_payment_document', side_effect=generated_document):
-            second = generate_reviewed_workbook(
-                second.id, expected_revision=second.revision,
-                actor=self.user, request_id='generate-2',
-            )
-        self.assertEqual((first.payment_number, replay.payment_number, second.payment_number), (1, 1, 2))
-        self.assertEqual(PaymentSequenceState.objects.get(group_configuration=self.group).next_number, 3)
 
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
     def test_review_progress_is_durable_and_changed_values_invalidate_only_that_case(self, _readiness):

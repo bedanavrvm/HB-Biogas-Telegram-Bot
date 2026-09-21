@@ -196,6 +196,16 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         )
         return batch
 
+    def test_payment_readiness_keeps_catalogue_mapping_as_an_advisory(self):
+        farmer = self.farmer(payment_product='Legacy Biogas Package')
+        self.invoice_batch(farmer)
+
+        readiness = payment_readiness('ORDER-001')
+
+        self.assertEqual(readiness['ready_count'], 1)
+        self.assertEqual(readiness['blocked_count'], 0)
+        self.assertIn('Global product mapping is pending', readiness['ready'][0]['warnings'])
+
     @patch('core.services.invoice_parser.parse_invoice_pdf_bytes')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_invoice_pool_upload_stores_drive_batch_and_parsed_rows(self, storage, parse_pdf):

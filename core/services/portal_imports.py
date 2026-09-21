@@ -45,7 +45,10 @@ class PortalImportConflict(PortalImportError):
 
 
 FARMUP_EDITABLE_FIELDS = (
-    'Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone',
+    # The FarmUp name is retained as source identity.  SysUp establishes the
+    # contractual applicant name later, so a FarmUp reviewer must not rewrite
+    # either source through this review surface.
+    'National ID', 'Primary Phone', 'Secondary Phone',
     'Application Action', 'Additional Unit Reason', 'County',
     'HBG Visit Date', 'Deposit Paid to HB', 'HB Sales Person',
 )

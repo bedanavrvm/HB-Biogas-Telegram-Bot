@@ -502,6 +502,7 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
             'system_branch': farmer.system_branch,
             'branch': farmer.branch,
             'system_loan_officer': farmer.system_loan_officer,
+            'jbl_officer': farmer.jbl_officer,
             'payment_product': farmer.payment_product,
             'system_deposit_paid_jbl': str(farmer.system_deposit_paid_jbl) if farmer.system_deposit_paid_jbl is not None else '',
             'customer_id': str(farmer.customer_id or ''),
@@ -537,6 +538,10 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
         loan_officer = str(values['loan_officer'])
         if loan_officer:
             farmer.system_loan_officer = loan_officer
+            # SysUp is the authoritative loan-officer assignment once the
+            # system record exists.  Keep the JBL BRO projection aligned with
+            # it rather than leaving a stale FarmUp/visit value behind.
+            farmer.jbl_officer = loan_officer
         product = str(values['product'])
         if product:
             farmer.payment_product = product
@@ -557,6 +562,7 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
             'system_branch': farmer.system_branch,
             'branch': farmer.branch,
             'system_loan_officer': farmer.system_loan_officer,
+            'jbl_officer': farmer.jbl_officer,
             'payment_product': farmer.payment_product,
             'system_deposit_paid_jbl': str(farmer.system_deposit_paid_jbl) if farmer.system_deposit_paid_jbl is not None else '',
             'customer_id': str(farmer.customer_id or ''),

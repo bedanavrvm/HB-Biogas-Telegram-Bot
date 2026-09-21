@@ -2789,6 +2789,7 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .payment-candidate-meta span { color: var(--text-muted); font-size: 10px; }
 .payment-candidate-meta strong { display: inline; margin-left: 3px; overflow-wrap: anywhere; color: var(--text-primary); font-size: 10px; }
 .payment-candidate-warning { border-radius: 7px; background: color-mix(in srgb, var(--portal-status-warning) 11%, var(--bg-surface)); color: var(--portal-status-warning); padding: 7px; font-size: 10px; }
+.payment-candidate-advisory { grid-column: 1 / -1; color: var(--text-muted); font-weight: 600; }
 .payment-selection-preview { margin-top: 12px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-surface); padding: 10px; }
 .payment-selection-preview > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .payment-selection-preview h2, .payment-selection-preview p { margin: 0; }
@@ -2975,7 +2976,7 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .farmup-selection-summary .warning, .farmup-selection-summary .warning strong { color: var(--portal-status-warning); }
 .farmup-selection-summary .danger, .farmup-selection-summary .danger strong { color: var(--portal-status-danger); }
 .farmup-grid-wrap { width: 100%; min-width: 0; overflow: hidden; overscroll-behavior-x: contain; border: 1px solid var(--border-color); border-radius: 9px; background: var(--bg-surface); }
-.farmup-grid { width: 100%; min-width: 0; height: 460px; --ag-background-color: var(--bg-surface); --ag-foreground-color: var(--text-primary); --ag-header-background-color: var(--bg-muted); --ag-header-text-color: var(--text-muted); --ag-border-color: var(--border-color); --ag-row-border-color: var(--border-color); --ag-odd-row-background-color: color-mix(in srgb, var(--text-primary) 2%, var(--bg-surface)); --ag-selected-row-background-color: color-mix(in srgb, var(--color-primary) 10%, var(--bg-surface)); --ag-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --ag-font-size: 10px; --ag-grid-size: 3px; --ag-cell-horizontal-padding: 5px; --ag-row-hover-color: color-mix(in srgb, var(--color-primary) 7%, transparent); }
+.farmup-grid { width: 100%; min-width: 0; height: 460px; min-height: 320px; --ag-background-color: var(--bg-surface); --ag-foreground-color: var(--text-primary); --ag-header-background-color: var(--bg-muted); --ag-header-text-color: var(--text-muted); --ag-border-color: var(--border-color); --ag-row-border-color: var(--border-color); --ag-odd-row-background-color: color-mix(in srgb, var(--text-primary) 2%, var(--bg-surface)); --ag-selected-row-background-color: color-mix(in srgb, var(--color-primary) 10%, var(--bg-surface)); --ag-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --ag-font-size: 10px; --ag-grid-size: 3px; --ag-cell-horizontal-padding: 5px; --ag-row-hover-color: color-mix(in srgb, var(--color-primary) 7%, transparent); }
 .farmup-grid .ag-center-cols-viewport, .farmup-grid .ag-body-horizontal-scroll-viewport { scroll-behavior: auto; scroll-snap-type: none; overscroll-behavior-x: contain; }
 .farmup-grid .ag-root-wrapper { border: 0; }
 .farmup-grid .ag-body-horizontal-scroll.ag-scrollbar-invisible { position:relative; flex:none; }

@@ -88,11 +88,10 @@ def ensure_identity_review(
 ) -> InvoiceIdentityReview | None:
     """Create the single pending review required by a material identity variance."""
     codes = discrepancy_codes(invoice, farmer)
-    # A received payment bundle is paid against the contractual SysUp borrower.
-    # A different (present) name must therefore be corrected just like a
-    # different ID; it is not safe to silently pay an invoice in the lead's
-    # name merely because the ID happened to be extracted correctly.
-    if not any(code in {'national_id_missing', 'national_id_mismatch', 'name_variance'} for code in codes):
+    # FarmUp, SysUp, and invoices can legitimately arrange the same person's
+    # names differently.  A verified matching national ID is decisive; only
+    # a missing or different ID needs a governed identity review.
+    if not any(code in {'national_id_missing', 'national_id_mismatch'} for code in codes):
         return None
     client_request_id = str(client_request_id or '').strip()
     if client_request_id:
@@ -131,7 +130,7 @@ def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
 
     match_eligibility = official_requisition_eligibility(farmer)
     codes = discrepancy_codes(invoice, farmer)
-    material_codes = [code for code in codes if code in {'national_id_missing', 'national_id_mismatch', 'name_variance'}]
+    material_codes = [code for code in codes if code in {'national_id_missing', 'national_id_mismatch'}]
     reviews = invoice.identity_reviews.filter(farmer=farmer).order_by('-created_at')
     latest = reviews.first()
     open_change = invoice.name_change_requests.filter(
@@ -146,11 +145,7 @@ def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
         blocker = 'invoice_name_change_pending'
     elif not material_codes:
         blocker = ''
-    # A name or national-ID variance is not a harmless legacy invoice match.
-    # It must follow the explicit corrected-invoice path.  ``same_person`` is
-    # still meaningful for a missing identifier, but must not clear a visible
-    # difference from the contractual applicant.
-    elif {'national_id_mismatch', 'name_variance'} & set(material_codes):
+    elif 'national_id_mismatch' in material_codes:
         blocker = 'invoice_name_change_required'
     elif latest and latest.status == InvoiceIdentityReview.STATUS_SAME_PERSON:
         blocker = ''
@@ -173,7 +168,7 @@ def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
             presentation_status = 'Letter ready'
         else:
             presentation_status = 'Correction required'
-    elif 'national_id_mismatch' in material_codes or 'name_variance' in material_codes:
+    elif 'national_id_mismatch' in material_codes:
         presentation_status = 'Correction required'
     elif 'national_id_missing' in material_codes:
         presentation_status = 'Correction required'

@@ -160,6 +160,7 @@ class SystemExportImportTests(TestCase):
         self.assertEqual(self.farmer.branch, 'Embu')
         self.assertEqual(self.farmer.system_branch, 'Embu')
         self.assertEqual(self.farmer.system_loan_officer, 'Officer A')
+        self.assertEqual(self.farmer.jbl_officer, 'Officer A')
         self.assertEqual(self.farmer.payment_product, 'Biogas')
         self.assertEqual(self.farmer.system_deposit_paid_jbl, Decimal('5000'))
         self.assertEqual(batch.status, 'committed')

@@ -319,14 +319,18 @@ def add_cases(batch_id, *, farmer_ids, payment_modes, expected_revision, actor=N
         raise PaymentBatchError('Cases cannot be added to a completed or cancelled payment batch.')
     if batch.receipt_batch_id:
         # A payment built from an invoice delivery is deliberately not a
-        # general-purpose case picker.  Its payable rows must be traceable to
-        # a reconciled invoice in that delivery.  A later corrected invoice
-        # becomes eligible only after it is attached to its held receipt item.
+        # general-purpose case picker. Its cases must be traceable to that
+        # delivery. A known applicant with a different invoice-holder name is
+        # still traceable and can be included with an advisory; the signed
+        # scan remains the point at which the payment document becomes final.
         source_farmer_ids = {
             str(value)
             for value in PaymentReceiptItem.objects.filter(
                 receipt_batch_id=batch.receipt_batch_id,
-                status=PaymentReceiptItem.STATUS_MATCHED,
+                status__in=(
+                    PaymentReceiptItem.STATUS_MATCHED,
+                    PaymentReceiptItem.STATUS_NAME_CHANGE,
+                ),
                 farmer__isnull=False,
             ).values_list('farmer_id', flat=True)
         }
@@ -570,7 +574,12 @@ def generate_reviewed_workbook(batch_id, *, expected_revision, actor=None, actor
     # workflow ownership now lives exclusively on PaymentBatch.
     held_invoice_rows = []
     if batch.receipt_batch_id:
-        for item in batch.receipt_batch.items.exclude(status=PaymentReceiptItem.STATUS_MATCHED).select_related('invoice', 'farmer'):
+        for item in batch.receipt_batch.items.exclude(
+            status__in=(
+                PaymentReceiptItem.STATUS_MATCHED,
+                PaymentReceiptItem.STATUS_NAME_CHANGE,
+            ),
+        ).select_related('invoice', 'farmer'):
             held_invoice_rows.append({
                 'invoice_no': item.invoice.invoice_no if item.invoice_id else '',
                 'invoice_holder_name': item.invoice.customer_name if item.invoice_id else '',
@@ -782,11 +791,17 @@ def serialize_batch(batch: PaymentBatch, *, include_cases=True):
         included_farmer_ids = {str(membership.farmer_id) for membership in memberships}
         for item in batch.receipt_batch.items.select_related('invoice', 'farmer').order_by('created_at'):
             payable_not_added = (
-                item.status == PaymentReceiptItem.STATUS_MATCHED
+                item.status in {
+                    PaymentReceiptItem.STATUS_MATCHED,
+                    PaymentReceiptItem.STATUS_NAME_CHANGE,
+                }
                 and item.farmer_id
                 and str(item.farmer_id) not in included_farmer_ids
             )
-            if item.status == PaymentReceiptItem.STATUS_MATCHED and not payable_not_added:
+            if item.status in {
+                PaymentReceiptItem.STATUS_MATCHED,
+                PaymentReceiptItem.STATUS_NAME_CHANGE,
+            } and not payable_not_added:
                 continue
             held_items.append({
                 'id': str(item.id), 'status': item.status, 'status_label': item.get_status_display(),
