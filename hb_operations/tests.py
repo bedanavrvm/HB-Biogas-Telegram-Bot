@@ -286,12 +286,17 @@ class HomeBiogasActionApiTests(HomeBiogasActionServiceTests):
         listing = self.client.get(reverse('portal_hb_action_list'))
         detail = self.client.get(reverse('portal_hb_action_api_detail', kwargs={'farmer_id': self.farmer.pk}))
         screen = self.client.get(reverse('portal_hb_action_detail', kwargs={'farmer_id': self.farmer.pk}))
+        list_screen = self.client.get(reverse('portal_hb_actions_screen'))
 
         self.assertEqual(listing.status_code, 200)
         self.assertEqual(listing.json()['items'][0]['case_reference'].startswith('JBL-'), True)
+        self.assertEqual(set(listing.json()['filters']), {'readiness'})
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()['action']['id'], str(action.pk))
         self.assertContains(screen, 'id="hb-action-form"')
+        self.assertContains(list_screen, 'id="hb-filter-readiness"')
+        self.assertNotContains(list_screen, 'All authorized branches')
+        self.assertNotContains(list_screen, 'Installation report<select')
 
     def test_api_transition_rejects_incomplete_installed_state(self):
         self.release()
@@ -319,9 +324,10 @@ class HomeBiogasActionApiTests(HomeBiogasActionServiceTests):
         action.installation_date = timezone.localdate() - timedelta(days=22)
         action.save(update_fields=['installation_date', 'updated_at'])
         delayed = self.client.get(reverse('portal_hb_action_list'), {
-            'queue': 'commissioning', 'overdue': '1',
+            'queue': 'commissioning', 'state': 'delayed',
         })
         self.assertEqual(delayed.json()['counts']['not_commissioned'], 1)
+        self.assertEqual(delayed.json()['counts']['delayed'], 1)
         self.assertEqual(delayed.json()['items'][0]['commissioning_overdue_days'], 1)
 
     def test_invoice_card_is_preview_for_hb_and_record_for_operations(self):

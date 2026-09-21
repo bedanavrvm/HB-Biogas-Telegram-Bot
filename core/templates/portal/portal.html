@@ -170,19 +170,14 @@
     <section class="portal-queue-tools hb-action-list-toolbar" aria-label="HB Action search and filters">
       <div class="portal-queue-tools-primary">
         <label class="portal-queue-search" for="hb-actions-search"><i data-lucide="search" aria-hidden="true"></i><input id="hb-actions-search" type="search" placeholder="Search name, case, phone or order" aria-label="Search HB Action" autocomplete="off" enterkeyhint="search"></label>
-        <button type="button" class="miniapp-filter-trigger" id="hb-action-filter-trigger" aria-label="Filter HB Action"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16l-6 7v7l-4 2v-9z"></path></svg><span>Filters</span><span class="miniapp-filter-count" id="hb-action-filter-count" hidden>0</span></button>
+        <button type="button" class="miniapp-filter-trigger" id="hb-action-filter-trigger" aria-label="Filter installation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16l-6 7v7l-4 2v-9z"></path></svg><span>Filters</span><span class="miniapp-filter-count" id="hb-action-filter-count" hidden>0</span></button>
       </div>
       <div class="miniapp-filter-chips" id="hb-action-filter-chips" aria-live="polite"></div>
       <div class="miniapp-sheet-overlay" id="hb-action-filter-overlay" aria-hidden="true" hidden>
         <aside class="miniapp-sheet" id="hb-action-filter-sheet" role="dialog" aria-modal="true" aria-label="Filter HB Action">
-          <header class="miniapp-sheet-header"><div><strong id="hb-action-filter-title">Filter installation</strong><p>Show work that needs a specific kind of follow-up.</p></div><button type="button" id="hb-action-filter-close" aria-label="Close filters"><i data-lucide="x" aria-hidden="true"></i></button></header>
+          <header class="miniapp-sheet-header"><div><strong id="hb-action-filter-title">Filter installation</strong><p>Show installation work by readiness.</p></div><button type="button" id="hb-action-filter-close" data-miniapp-sheet-close aria-label="Close filters"><i data-lucide="x" aria-hidden="true"></i></button></header>
           <form class="miniapp-sheet-body" id="hb-action-filter-form">
-            <label>Branch<select id="hb-filter-branch"><option value="">All authorized branches</option></select></label>
-            <label id="hb-filter-readiness-wrap">Readiness<select id="hb-filter-readiness"><option value="">All readiness states</option></select></label>
-            <label id="hb-filter-report-wrap">Installation report<select id="hb-filter-report"><option value="">All report states</option></select></label>
-            <label>Invoice<select id="hb-filter-invoice"><option value="">With or without invoice</option><option value="present">Invoice linked</option><option value="absent">No linked invoice</option></select></label>
-            <div class="hb-action-two-column"><label><span id="hb-filter-date-from-label">Date from</span><input id="hb-filter-date-from" type="date"></label><label><span id="hb-filter-date-to-label">Date to</span><input id="hb-filter-date-to" type="date"></label></div>
-            <label class="portal-settings-check"><input id="hb-filter-overdue" type="checkbox"><span id="hb-filter-overdue-label">Overdue only</span></label>
+            <label>Readiness<select id="hb-filter-readiness"><option value="">All readiness states</option></select></label>
             <footer class="miniapp-sheet-actions"><button class="btn btn-secondary" id="hb-action-filter-reset" type="button">Reset</button><button class="btn btn-primary" type="submit">Done</button></footer>
           </form>
         </aside>

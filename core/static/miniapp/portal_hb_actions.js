@@ -11,12 +11,13 @@
   let page = 1;
   let searchTimer = null;
   let invoiceObjectUrl = '';
-  const filters = {branch: '', readiness: '', installation_report: '', invoice: '', date_from: '', date_to: '', overdue: false};
+  let filterSheet = null;
+  const filters = {readiness: ''};
 
   const byId = id => document.getElementById(id);
   const esc = value => deps.escapeHtml ? deps.escapeHtml(value == null ? '' : String(value)) : String(value || '');
   const installationLabels = {open: 'Open', installed: 'Installed', closed: 'Closed'};
-  const commissioningLabels = {not_commissioned: 'Not commissioned', commissioned: 'Commissioned'};
+  const commissioningLabels = {not_commissioned: 'Not commissioned', delayed: 'Delayed', commissioned: 'Commissioned'};
   const allowedStatusTargets = {
     open: ['open', 'installed', 'closed'],
     installed: ['installed'], closed: ['closed'],
@@ -44,7 +45,7 @@
   }
 
   function filterCount() {
-    return Object.entries(filters).filter(([key, value]) => key !== 'overdue' ? Boolean(value) : value).length;
+    return activeQueue === 'installation' && filters.readiness ? 1 : 0;
   }
   function renderFilterSummary() {
     const count = filterCount();
@@ -53,51 +54,27 @@
     const chips = byId('hb-action-filter-chips');
     if (!chips) return;
     const labels = [];
-    if (filters.branch) labels.push(filters.branch);
     if (filters.readiness) labels.push(field('hb-filter-readiness')?.selectedOptions[0]?.textContent || filters.readiness);
-    if (filters.installation_report) labels.push(field('hb-filter-report')?.selectedOptions[0]?.textContent || filters.installation_report);
-    if (filters.invoice) labels.push(filters.invoice === 'present' ? 'Invoice linked' : 'No invoice');
-    if (filters.date_from || filters.date_to) labels.push(`${filters.date_from || 'Any date'} – ${filters.date_to || 'Any date'}`);
-    if (filters.overdue) labels.push(activeQueue === 'commissioning' ? 'Delayed only' : 'Overdue only');
-    chips.innerHTML = labels.map(label => `<span class="miniapp-filter-chip">${esc(label)}</span>`).join('');
+    chips.hidden = activeQueue !== 'installation';
+    chips.innerHTML = activeQueue === 'installation' ? labels.map(label => `<span class="miniapp-filter-chip">${esc(label)}</span>`).join('') : '';
   }
   function populateFilterOptions(payload) {
-    setOptions(field('hb-filter-branch'), (payload.branches || []).map(value => ({value, label: value})), 'All authorized branches');
     setOptions(field('hb-filter-readiness'), payload.readiness || [], 'All readiness states');
-    setOptions(field('hb-filter-report'), payload.installation_reports || [], 'All report states');
   }
   function updateFilterMode() {
     const commissioning = activeQueue === 'commissioning';
-    byId('hb-action-filter-title').textContent = commissioning ? 'Filter commissioning' : 'Filter installation';
-    byId('hb-filter-readiness-wrap').hidden = commissioning;
-    byId('hb-filter-report-wrap').hidden = commissioning;
-    byId('hb-filter-date-from-label').textContent = commissioning ? 'Ready date from' : 'Planned date from';
-    byId('hb-filter-date-to-label').textContent = commissioning ? 'Ready date to' : 'Planned date to';
-    byId('hb-filter-overdue-label').textContent = commissioning ? 'Delayed only' : 'Planned date passed';
-  }
-  function openFilters() {
-    updateFilterMode();
-    const overlay = byId('hb-action-filter-overlay');
-    overlay.hidden = false; overlay.classList.add('open'); overlay.setAttribute('aria-hidden', 'false');
-  }
-  function closeFilters() {
-    const overlay = byId('hb-action-filter-overlay');
-    overlay?.classList.remove('open'); overlay?.setAttribute('aria-hidden', 'true');
-    if (overlay) overlay.hidden = true;
+    const toolbar = document.querySelector('.hb-action-list-toolbar');
+    const trigger = byId('hb-action-filter-trigger');
+    toolbar?.classList.toggle('hb-action-no-filter', commissioning);
+    if (trigger) trigger.hidden = commissioning;
+    if (commissioning && filterSheet?.isOpen?.()) filterSheet.close();
   }
   function readFilters() {
-    filters.branch = field('hb-filter-branch').value;
-    filters.readiness = activeQueue === 'installation' ? field('hb-filter-readiness').value : '';
-    filters.installation_report = activeQueue === 'installation' ? field('hb-filter-report').value : '';
-    filters.invoice = field('hb-filter-invoice').value;
-    filters.date_from = field('hb-filter-date-from').value;
-    filters.date_to = field('hb-filter-date-to').value;
-    filters.overdue = field('hb-filter-overdue').checked;
+    if (activeQueue === 'installation') filters.readiness = field('hb-filter-readiness').value;
   }
   function clearFilters() {
-    Object.assign(filters, {branch: '', readiness: '', installation_report: '', invoice: '', date_from: '', date_to: '', overdue: false});
-    ['hb-filter-branch', 'hb-filter-readiness', 'hb-filter-report', 'hb-filter-invoice', 'hb-filter-date-from', 'hb-filter-date-to'].forEach(id => { if (field(id)) field(id).value = ''; });
-    if (field('hb-filter-overdue')) field('hb-filter-overdue').checked = false;
+    filters.readiness = '';
+    if (field('hb-filter-readiness')) field('hb-filter-readiness').value = '';
     page = 1; renderFilterSummary(); loadList();
   }
 
@@ -127,7 +104,7 @@
     const params = new URLSearchParams({page: String(page), queue: activeQueue, state: activeState});
     const search = byId('hb-actions-search')?.value.trim() || '';
     if (search) params.set('search', search);
-    Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, value === true ? '1' : String(value)); });
+    if (activeQueue === 'installation' && filters.readiness) params.set('readiness', filters.readiness);
     const response = await deps.portalApi.apiFetch(`/hb-actions/?${params.toString()}`, {}, deps.tg);
     if (!response.ok || !response.data?.ok) {
       target.innerHTML = `<div class="empty-state"><strong>HB Action could not load</strong><div class="es-sub">${esc(response.data?.error || 'Check your connection and try again.')}</div><button type="button" class="btn btn-secondary" data-hb-retry>Retry</button></div>`;
@@ -387,10 +364,11 @@
     document.querySelectorAll('[data-hb-queue]').forEach(button => { const active = button.dataset.hbQueue === activeQueue; button.classList.toggle('active', active); button.setAttribute('aria-selected', String(active)); });
     byId('hb-actions-refresh')?.addEventListener('click', loadList);
     byId('hb-actions-search')?.addEventListener('input', () => { window.clearTimeout(searchTimer); searchTimer = window.setTimeout(() => { page = 1; loadList(); }, 250); });
-    byId('hb-action-filter-trigger')?.addEventListener('click', openFilters);
-    byId('hb-action-filter-close')?.addEventListener('click', closeFilters);
-    byId('hb-action-filter-overlay')?.addEventListener('click', event => { if (event.target === event.currentTarget) closeFilters(); });
-    byId('hb-action-filter-form')?.addEventListener('submit', event => { event.preventDefault(); readFilters(); page = 1; closeFilters(); renderFilterSummary(); loadList(); });
+    filterSheet = window.MiniAppComponents?.bindFilterSheet?.({
+      trigger: byId('hb-action-filter-trigger'), overlay: byId('hb-action-filter-overlay'),
+      sheet: byId('hb-action-filter-sheet'), form: byId('hb-action-filter-form'),
+      onApply: () => { readFilters(); page = 1; renderFilterSummary(); loadList(); },
+    });
     byId('hb-action-filter-reset')?.addEventListener('click', clearFilters);
     updateFilterMode();
   }
