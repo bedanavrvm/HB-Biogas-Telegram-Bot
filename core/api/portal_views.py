@@ -2424,7 +2424,7 @@ def portal_imports(request):
             serialize_import_batch(batch, archive_operation_id=archive_operations.get(str(batch.pk), ''))
             for batch in batches
         ],
-        'review_only': True,
+        'review_only': False,
     })
 
 
@@ -2518,12 +2518,64 @@ def portal_import_detail(request, batch_id: str):
         'pages': review_pages,
         'total_rows': total_rows,
     }
+    # The raw source remains available for evidence.  The separately exposed
+    # review rows are the normalized, server-matched records that Operations
+    # can approve or hold in the SysUp grid.
+    payload['review_rows'] = list(batch.parsed_rows or [])
 
     return JsonResponse({
         'ok': True,
         'batch': payload,
-        'review_only': True,
+        'review_only': False,
     })
+
+
+@portal_auth_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_import_commit(request, batch_id: str):
+    """Commit only the current, explicitly approved SysUp review rows."""
+    access_error = _portal_read_access_error(request, capability='portal.imports.commit')
+    if access_error:
+        return access_error
+    batch = _portal_import_in_scope(request, batch_id)
+    if batch is None or batch.import_kind != 'system_export':
+        return JsonResponse({'ok': False, 'error': 'This SysUp import is unavailable in your scope.'}, status=404)
+    body = _portal_request_data(request)
+    submitted = body.get('rows') or []
+    if not isinstance(submitted, list):
+        return JsonResponse({'ok': False, 'error': 'SysUp review rows are invalid. Reload and try again.'}, status=400)
+    by_fingerprint = {
+        str(row.get('row_fingerprint') or ''): dict(row)
+        for row in submitted if isinstance(row, dict) and str(row.get('row_fingerprint') or '')
+    }
+    current = []
+    for row in list(batch.parsed_rows or []):
+        fingerprint = str(row.get('row_fingerprint') or '')
+        submitted_row = by_fingerprint.get(fingerprint, {})
+        merged = dict(row)
+        # Never trust source-system values from the browser. Reviewers may
+        # select the intended existing case and choose whether to commit it.
+        merged['approved'] = bool(submitted_row.get('approved'))
+        if submitted_row.get('Matched Farmer ID'):
+            merged['Matched Farmer ID'] = str(submitted_row.get('Matched Farmer ID'))
+        current.append(merged)
+    if not any(row.get('approved') for row in current):
+        return JsonResponse({'ok': False, 'error': 'Select at least one ready SysUp row to commit.'}, status=400)
+    try:
+        from core.services.system_export import commit_system_export_review_batch
+        result = commit_system_export_review_batch(
+            batch, current, actor=_portal_sender_from_request(request),
+        )
+    except Exception:
+        logger.exception('Could not commit SysUp import batch=%s', batch_id)
+        return JsonResponse({'ok': False, 'error': 'SysUp could not be committed. No uncommitted rows were changed; reload the review and try again.'}, status=502)
+    from core.services.portal_imports import serialize_import_batch
+    batch.refresh_from_db()
+    return JsonResponse({
+        'ok': bool(result.get('success')), 'result': result,
+        'batch': serialize_import_batch(batch), 'review_rows': list(batch.parsed_rows or []),
+    }, status=200 if result.get('success') else 409)
 
 
 @portal_auth_required
@@ -6393,6 +6445,12 @@ def portal_invoice_pool_upload(request):
     role_error = _portal_role_error(request, 'invoice.write')
     if role_error:
         return role_error
+    # Invoice deliveries become one governed payment source.  Resolve the
+    # group before uploading so a successful file parse cannot be left outside
+    # the actor's payment scope.
+    receipt_group = _portal_payment_group(request)
+    if receipt_group is None:
+        return JsonResponse({'ok': False, 'error': 'No scoped Jawabu group is available for this invoice delivery.'}, status=403)
     getlist = getattr(request.FILES, 'getlist', None)
     pdf_files = getlist('file') if getlist else []
     if not pdf_files:
@@ -6486,10 +6544,18 @@ def portal_invoice_pool_upload(request):
     unmatched_count = sum(batch.unmatched_count for batch in batches)
     first_batch = batches[0]
 
+    from payments.receipt_batches import create_receipt_batch, serialize_receipt_batch
+    receipt, receipt_replayed = create_receipt_batch(
+        group_configuration=receipt_group, uploads=batches,
+        actor=getattr(request, 'portal_user', None), request_id=request_id,
+    )
+
     return JsonResponse({
         'ok': bool(batches),
         'invoice_batch_id': str(first_batch.id),
         'invoice_batch_ids': [str(batch.id) for batch in batches],
+        'receipt_batch': serialize_receipt_batch(receipt, include_items=True),
+        'receipt_replayed': receipt_replayed,
         'drive_url': first_batch.drive_url,
         'status': 'partial' if failures else 'parsed',
         'order_number': order_number,
@@ -6506,6 +6572,100 @@ def portal_invoice_pool_upload(request):
         'failures': failures,
         'max_file_size_mb': max_mb,
     }, status=207 if failures else 200)
+
+
+@csrf_exempt
+@require_http_methods(['GET'])
+def portal_invoice_receipt_batches(request):
+    """List invoice deliveries—the only normal starting point for payments."""
+    access_error = _portal_capability_error(request, 'portal.payment.prepare')
+    if access_error:
+        return access_error
+    from payments.models import PaymentReceiptBatch
+    from payments.receipt_batches import serialize_receipt_batch
+
+    queryset = PaymentReceiptBatch.objects.select_related('group_configuration').prefetch_related('items')
+    allowed = _portal_import_group_ids(request)
+    if allowed is not None:
+        queryset = queryset.filter(group_configuration__group_id__in=allowed)
+    return JsonResponse({'ok': True, 'batches': [
+        serialize_receipt_batch(batch) for batch in queryset.order_by('-created_at')[:100]
+    ]})
+
+
+@csrf_exempt
+@require_http_methods(['GET'])
+def portal_invoice_receipt_batch_detail(request, receipt_id):
+    access_error = _portal_capability_error(request, 'portal.payment.prepare')
+    if access_error:
+        return access_error
+    from payments.models import PaymentReceiptBatch
+    from payments.receipt_batches import serialize_receipt_batch
+
+    receipt = PaymentReceiptBatch.objects.select_related('group_configuration').filter(pk=receipt_id).first()
+    if receipt is None:
+        return JsonResponse({'ok': False, 'error': 'Invoice delivery not found.'}, status=404)
+    allowed = _portal_import_group_ids(request)
+    if allowed is not None and str(receipt.group_configuration.group_id) not in allowed:
+        return JsonResponse({'ok': False, 'error': 'This invoice delivery is unavailable in your scope.'}, status=404)
+    return JsonResponse({'ok': True, 'receipt_batch': serialize_receipt_batch(receipt, include_items=True)})
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_invoice_receipt_batch_payment(request, receipt_id):
+    """Create the payable membership from all matched items in one delivery."""
+    access_error = _portal_capability_error(request, 'portal.payment.prepare')
+    if access_error:
+        return access_error
+    # A receipt is group-scoped before it becomes a payment batch.  Do this
+    # lookup here (rather than relying on the later payment-case scope check)
+    # so a user cannot create a batch from another group's uploaded invoices.
+    from payments.models import PaymentReceiptBatch
+    receipt = PaymentReceiptBatch.objects.select_related('group_configuration').filter(pk=receipt_id).first()
+    allowed = _portal_import_group_ids(request)
+    if receipt is None or (allowed is not None and str(receipt.group_configuration.group_id) not in allowed):
+        return JsonResponse({'ok': False, 'error': 'This invoice delivery is unavailable in your scope.'}, status=404)
+    body = _portal_request_data(request)
+    from payments.receipt_batches import PaymentReceiptError, create_payment_batch_from_receipt
+    try:
+        batch, replayed = create_payment_batch_from_receipt(
+            receipt_id=receipt_id, payment_modes=body.get('payment_modes') or {},
+            expected_revision=body.get('revision'), actor=getattr(request, 'portal_user', None),
+            request_id=_portal_request_id(request, body),
+        )
+    except (PaymentReceiptError, ValueError) as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=409 if 'changed while' in str(exc) else 400)
+    return JsonResponse({
+        'ok': True, 'replayed': replayed,
+        'batch': _serialize_portal_payment_batch(request, batch),
+    }, status=200 if replayed else 201)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_invoice_receipt_item_replacement(request, item_id):
+    """Attach a later corrected invoice to its original held delivery item."""
+    access_error = _portal_capability_error(request, 'portal.invoice_identity.manage')
+    if access_error:
+        return access_error
+    from payments.models import PaymentReceiptItem
+    item_in_scope = PaymentReceiptItem.objects.select_related('receipt_batch__group_configuration').filter(pk=item_id).first()
+    allowed = _portal_import_group_ids(request)
+    if item_in_scope is None or (
+        allowed is not None and str(item_in_scope.receipt_batch.group_configuration.group_id) not in allowed
+    ):
+        return JsonResponse({'ok': False, 'error': 'This invoice delivery item is unavailable in your scope.'}, status=404)
+    body = _portal_request_data(request)
+    from payments.receipt_batches import PaymentReceiptError, attach_replacement, serialize_receipt_batch
+    try:
+        item = attach_replacement(
+            item_id=item_id, invoice_id=body.get('invoice_id'), expected_revision=body.get('revision'),
+            actor=getattr(request, 'portal_user', None),
+        )
+        return JsonResponse({'ok': True, 'receipt_batch': serialize_receipt_batch(item.receipt_batch, include_items=True)})
+    except (PaymentReceiptError, ValueError) as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=409 if 'changed while' in str(exc) else 400)
 
 
 def _serialize_invoice_batch(batch) -> dict:

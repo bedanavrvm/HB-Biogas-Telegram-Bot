@@ -88,10 +88,11 @@ def ensure_identity_review(
 ) -> InvoiceIdentityReview | None:
     """Create the single pending review required by a material identity variance."""
     codes = discrepancy_codes(invoice, farmer)
-    # Name spelling and phone differences are useful context, but a matching
-    # national ID is sufficient to continue. Only missing/different IDs create
-    # a workflow gate.
-    if not any(code in {'national_id_missing', 'national_id_mismatch'} for code in codes):
+    # A received payment bundle is paid against the contractual SysUp borrower.
+    # A different (present) name must therefore be corrected just like a
+    # different ID; it is not safe to silently pay an invoice in the lead's
+    # name merely because the ID happened to be extracted correctly.
+    if not any(code in {'national_id_missing', 'national_id_mismatch', 'name_variance'} for code in codes):
         return None
     client_request_id = str(client_request_id or '').strip()
     if client_request_id:
@@ -130,7 +131,7 @@ def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
 
     match_eligibility = official_requisition_eligibility(farmer)
     codes = discrepancy_codes(invoice, farmer)
-    material_codes = [code for code in codes if code in {'national_id_missing', 'national_id_mismatch'}]
+    material_codes = [code for code in codes if code in {'national_id_missing', 'national_id_mismatch', 'name_variance'}]
     reviews = invoice.identity_reviews.filter(farmer=farmer).order_by('-created_at')
     latest = reviews.first()
     open_change = invoice.name_change_requests.filter(
@@ -145,6 +146,12 @@ def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
         blocker = 'invoice_name_change_pending'
     elif not material_codes:
         blocker = ''
+    # A name or national-ID variance is not a harmless legacy invoice match.
+    # It must follow the explicit corrected-invoice path.  ``same_person`` is
+    # still meaningful for a missing identifier, but must not clear a visible
+    # difference from the contractual applicant.
+    elif {'national_id_mismatch', 'name_variance'} & set(material_codes):
+        blocker = 'invoice_name_change_required'
     elif latest and latest.status == InvoiceIdentityReview.STATUS_SAME_PERSON:
         blocker = ''
     elif latest and latest.status == InvoiceIdentityReview.STATUS_DIFFERENT_PERSON:
@@ -166,7 +173,7 @@ def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
             presentation_status = 'Letter ready'
         else:
             presentation_status = 'Correction required'
-    elif 'national_id_mismatch' in material_codes:
+    elif 'national_id_mismatch' in material_codes or 'name_variance' in material_codes:
         presentation_status = 'Correction required'
     elif 'national_id_missing' in material_codes:
         presentation_status = 'Correction required'
@@ -1025,6 +1032,26 @@ def confirm_replacement(
     refresh_invoice_batch_counts(original.batch)
     if replacement.batch_id != original.batch_id:
         refresh_invoice_batch_counts(replacement.batch)
+    # When the original invoice came from an HB delivery already being used
+    # for payment preparation, carry the confirmed replacement back to that
+    # exact delivery.  This is intentionally automatic only after the
+    # existing strict name/ID replacement checks above have passed; it never
+    # pulls an unrelated invoice into a payment batch.
+    from payments.models import PaymentBatch, PaymentReceiptItem
+    receipt_item = PaymentReceiptItem.objects.select_related('receipt_batch').filter(invoice=original).first()
+    completed_receipt_payment = receipt_item and PaymentBatch.objects.filter(
+        receipt_batch=receipt_item.receipt_batch,
+        status=PaymentBatch.STATUS_COMPLETED,
+    ).exists()
+    if receipt_item and not completed_receipt_payment:
+        from payments.receipt_batches import attach_replacement
+
+        attach_replacement(
+            item_id=receipt_item.id,
+            invoice_id=replacement.id,
+            expected_revision=receipt_item.receipt_batch.revision,
+            actor=actor,
+        )
     if not batch.items.filter(status__in=['draft', 'awaiting_replacement']).exists():
         batch.status = 'completed'
         batch.save(update_fields=['status', 'updated_at'])

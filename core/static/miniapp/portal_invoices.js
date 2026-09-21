@@ -785,6 +785,35 @@
     if (change?.id) openReplacementSelector(change.id);
   }
 
+  async function createPaymentFromReceipt(receipt, button, container) {
+    if (!receipt?.id) return;
+    const matched = (receipt.items || []).filter(function (item) { return item.status === 'matched' && item.farmer_id; });
+    if (!matched.length) return deps.showToast('This invoice delivery has no matched invoices ready for payment.', 'error');
+    const paymentModes = {};
+    const selectors = container?.querySelectorAll?.('[data-invoice-receipt-mode]') || [];
+    selectors.forEach(function (select) { paymentModes[select.dataset.invoiceReceiptMode] = select.value; });
+    const incomplete = matched.some(function (item) { return !paymentModes[item.farmer_id]; });
+    if (incomplete) return deps.showToast('Choose a payment mode for every matched invoice first.', 'error');
+    if (!window.confirm('Create one payment batch from this invoice delivery? Held invoice rows will stay visible but will not be payable.')) return;
+    if (deps.setButtonLoading) deps.setButtonLoading(button, true, 'Creating...');
+    try {
+      const response = await deps.apiFetch('/invoice-receipts/' + encodeURIComponent(receipt.id) + '/payment/', {
+        method: 'POST', headers: {'Content-Type': 'application/json', ...csrfHeader()},
+        body: JSON.stringify({revision: receipt.revision, payment_modes: paymentModes, client_request_id: requestId()}),
+      });
+      if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not create the payment batch.');
+      const id = response.data.batch?.id;
+      if (!id) throw new Error('The payment batch was created but could not be opened.');
+      deps.showToast('Payment batch created from the invoice delivery.', 'success');
+      if (window.PortalAppShell?.navigateUrl) window.PortalAppShell.navigateUrl('/portal/s/payments/' + encodeURIComponent(id) + '/');
+      else window.location.assign('/portal/s/payments/' + encodeURIComponent(id) + '/');
+    } catch (error) {
+      deps.showToast(error.message || 'Could not create the payment batch.', 'error');
+    } finally {
+      if (deps.setButtonLoading) deps.setButtonLoading(button, false);
+    }
+  }
+
   async function openInvoiceDetail(invoiceId) {
     if (!invoiceId) return;
     navigate('detail', invoiceId);
@@ -1326,16 +1355,29 @@
           const failures = Array.isArray(data.failures) ? data.failures : [];
           const reviewRows = Array.isArray(data.manual_review) ? data.manual_review : [];
           const matchedRows = Array.isArray(data.auto_matched) ? data.auto_matched : [];
+          const receipt = data.receipt_batch || {};
           const list = function (items, value) {
             return items.length ? '<ul class="mini-list">' + items.map(function (item) { return '<li>' + escapeHtml(value(item)) + '</li>'; }).join('') + '</ul>' : '';
           };
+          const receiptMatched = Array.isArray(receipt.items) ? receipt.items.filter(function (item) { return item.status === 'matched' && item.farmer_id; }) : [];
+          const receiptHeld = Array.isArray(receipt.items) ? receipt.items.filter(function (item) { return item.status !== 'matched'; }) : [];
+          const modeRows = receiptMatched.map(function (item) {
+            const label = item.applicant_name || item.invoice_holder_name || item.invoice_no || 'Matched invoice';
+            return '<label class="invoice-receipt-mode"><span>' + escapeHtml(label) + '</span><select data-invoice-receipt-mode="' + escapeHtml(item.farmer_id) + '" aria-label="Payment mode for ' + escapeHtml(label) + '"><option value="">Payment mode</option><option value="LOAN-JAWABU">Loan - Jawabu</option><option value="CASH">Cash</option></select></label>';
+          }).join('');
           resultBox.innerHTML = '<div class="invoice-upload-outcome" role="status">'
             + '<strong>Successfully uploaded ' + escapeHtml(uploaded) + ' invoice file' + (uploaded === 1 ? '' : 's') + '.</strong>'
             + '<div class="invoice-upload-counts"><span>' + escapeHtml(matched) + ' auto-matched</span><span>' + escapeHtml(review) + ' need manual review</span><span>' + escapeHtml(failed) + ' failed</span></div>'
             + (matchedRows.length ? '<h4>Auto-matched</h4>' + list(matchedRows, function (item) { return (item.filename || 'PDF') + ': Invoice ' + (item.invoice_no || '-') + ' — ' + (item.customer_name || 'Unknown customer'); }) : '')
             + (reviewRows.length ? '<h4>Manual review</h4>' + list(reviewRows, function (item) { return (item.filename || 'PDF') + ': Invoice ' + (item.invoice_no || '-') + ' — ' + (item.reason || 'Review required'); }) : '')
             + (failures.length ? '<h4>Failed files</h4>' + list(failures, function (item) { return (item.filename || 'PDF') + ': ' + (item.error || 'Upload failed'); }) : '')
+            + (receipt.id ? '<div class="invoice-receipt-next"><strong>Invoice delivery recorded</strong><span>' + escapeHtml(receipt.total_count || 0) + ' invoice row(s) stay together for payment.</span>'
+              + (receiptMatched.length ? '<div class="invoice-receipt-modes">' + modeRows + '</div><button type="button" class="btn btn-primary invoice-receipt-create-payment">Create payment batch</button>' : '')
+              + (receiptHeld.length ? '<span class="badge badge-orange">' + escapeHtml(receiptHeld.length) + ' held for correction or review</span>' : '')
+              + (!receiptMatched.length ? '<span class="invoice-receipt-hint">Resolve a held invoice before it can be added to payment.</span>' : '')
+              + '</div>' : '')
             + '</div>';
+          resultBox.querySelector('.invoice-receipt-create-payment')?.addEventListener('click', function () { createPaymentFromReceipt(receipt, this, resultBox); });
         }
         deps.showToast('Uploaded ' + (data.total_uploaded || 0) + ' invoice file(s): ' + (data.auto_matched_count || 0) + ' auto-matched, ' + (data.manual_review_count || data.unmatched_count || 0) + ' need review.', data.total_failed ? 'warning' : 'success');
         load(1);

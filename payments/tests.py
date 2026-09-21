@@ -8,11 +8,12 @@ from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from openpyxl import Workbook
 
-from core.models import GroupSheetConfiguration, JawabuFarmerMaster, PaymentDocument
+from core.models import GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, ParsedInvoice, PaymentDocument
 from core.services.payment_documents import _write_payment_mode
 from core.services.jawabu_case_reference import display_case_reference
 from core.services.jawabu_pipeline import completed_payment_number_for_farmer
-from payments.models import PaymentBatch, PaymentCaseReview, PaymentSequenceState
+from payments.models import PaymentBatch, PaymentCaseReview, PaymentReceiptItem, PaymentSequenceState
+from payments.receipt_batches import create_payment_batch_from_receipt, create_receipt_batch
 from payments.services import (
     PaymentBatchError,
     add_cases,
@@ -156,6 +157,53 @@ class PaymentBatchServiceTests(TestCase):
             return PaymentDocument.objects.create(
                 order_number=order_number, payment_number=payment_number,
                 status='awaiting_scan', version=1,
+            )
+
+    @patch('payments.services.payment_readiness', side_effect=ready.__func__)
+    @patch('payments.receipt_batches._item_disposition')
+    def test_invoice_delivery_creates_only_its_reconciled_payment_rows(self, disposition, _readiness):
+        payable = self.farmer('receipt-payable')
+        held = self.farmer('receipt-held')
+        upload = InvoiceUploadBatch.objects.create(
+            original_filename='HB invoices.pdf', status='matched', total_pages=2, total_parsed=2,
+        )
+        parsed_payable = ParsedInvoice.objects.create(
+            batch=upload, page=1, invoice_no='INV-R1', customer_name=payable.customer_name,
+            customer_id=payable.national_id, status='matched', matched_farmer=payable,
+        )
+        parsed_held = ParsedInvoice.objects.create(
+            batch=upload, page=2, invoice_no='INV-R2', customer_name=held.customer_name,
+            customer_id='different-id', status='matched', matched_farmer=held,
+        )
+
+        disposition.side_effect = [
+            (PaymentReceiptItem.STATUS_MATCHED, payable, ''),
+            (PaymentReceiptItem.STATUS_NAME_CHANGE, held, 'Invoice holder differs from the committed loan applicant.'),
+        ]
+        receipt, replayed = create_receipt_batch(
+            group_configuration=self.group, uploads=[upload], actor=self.user, request_id='receipt-delivery-1',
+        )
+        self.assertFalse(replayed)
+        self.assertEqual(
+            set(receipt.items.values_list('invoice_id', 'status')),
+            {(parsed_payable.id, PaymentReceiptItem.STATUS_MATCHED), (parsed_held.id, PaymentReceiptItem.STATUS_NAME_CHANGE)},
+        )
+
+        batch, replayed = create_payment_batch_from_receipt(
+            receipt_id=receipt.id, expected_revision=receipt.revision,
+            payment_modes={str(payable.id): 'LOAN-JAWABU'}, actor=self.user, request_id='receipt-payment-1',
+        )
+        self.assertFalse(replayed)
+        self.assertEqual(list(batch.case_memberships.filter(is_active=True).values_list('farmer_id', flat=True)), [payable.id])
+        payload = serialize_batch(batch)
+        self.assertEqual(payload['receipt_batch_id'], str(receipt.id))
+        self.assertEqual(payload['held_items'][0]['farmer_id'], str(held.id))
+
+        unrelated = self.farmer('receipt-unrelated')
+        with self.assertRaisesMessage(PaymentBatchError, 'only cases reconciled in that delivery'):
+            add_cases(
+                batch.id, farmer_ids=[unrelated.id], payment_modes={str(unrelated.id): 'CASH'},
+                expected_revision=batch.revision,
             )
 
         with patch('payments.services.create_payment_document', side_effect=generated_document):

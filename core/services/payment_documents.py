@@ -663,6 +663,34 @@ def _upload_payment_workbook(data: bytes, filename: str, actor: str, order_numbe
     )
 
 
+def _append_held_invoice_sheet(data: bytes, held_rows: list[dict] | None) -> bytes:
+    """Keep unresolved delivery rows visible without making them payable.
+
+    The governed template's payment sheet remains untouched: held rows live in
+    a plainly named companion sheet with no totals or payment fields.
+    """
+    if not held_rows:
+        return data
+    workbook = openpyxl.load_workbook(io.BytesIO(data))
+    if 'Held invoices' in workbook.sheetnames:
+        del workbook['Held invoices']
+    sheet = workbook.create_sheet('Held invoices')
+    headers = ('Invoice no.', 'Invoice holder', 'Loan applicant', 'Status', 'Reason')
+    sheet.append(headers)
+    for row in held_rows:
+        sheet.append([
+            str(row.get('invoice_no') or ''), str(row.get('invoice_holder_name') or ''),
+            str(row.get('applicant_name') or ''), str(row.get('status_label') or row.get('status') or ''),
+            str(row.get('reason') or ''),
+        ])
+    sheet.freeze_panes = 'A2'
+    for column, width in {'A': 18, 'B': 28, 'C': 28, 'D': 28, 'E': 60}.items():
+        sheet.column_dimensions[column].width = width
+    out = io.BytesIO()
+    workbook.save(out)
+    return out.getvalue()
+
+
 def create_payment_document(
     order_number: str,
     payment_number: str,
@@ -674,6 +702,7 @@ def create_payment_document(
     case_call_up_comments: dict[str, str] | None = None,
     payment_mode: str = '',
     case_payment_modes: dict[str, str] | None = None,
+    held_invoice_rows: list[dict] | None = None,
 ) -> PaymentDocument:
     """Create a preview or Head-of-Rural review artifact.
 
@@ -697,6 +726,7 @@ def create_payment_document(
         payment_mode=payment_mode,
         case_payment_modes=case_payment_modes,
     )
+    xlsx = _append_held_invoice_sheet(xlsx, held_invoice_rows)
     readiness_snapshot = payment_readiness(
         order_number,
         farmer_ids=farmer_ids,
@@ -747,6 +777,7 @@ def create_payment_document(
             'invoice_batch_ids': summary.get('invoice_batch_ids', []),
             'validation_summary': {
                 **summary,
+                'held_invoice_rows': held_invoice_rows or [],
                 'preview_rows': printable_rows,
                 'artifact_status': artifact_status,
             },

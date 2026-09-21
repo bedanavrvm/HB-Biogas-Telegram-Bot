@@ -22,6 +22,7 @@ from payments.models import (
     PaymentBatchCase,
     PaymentBatchEvent,
     PaymentCaseReview,
+    PaymentReceiptItem,
     PaymentSequenceEvent,
     PaymentSequenceState,
 )
@@ -316,6 +317,21 @@ def add_cases(batch_id, *, farmer_ids, payment_modes, expected_revision, actor=N
     _require_revision(batch, expected_revision)
     if batch.status not in EDITABLE_STATUSES:
         raise PaymentBatchError('Cases cannot be added to a completed or cancelled payment batch.')
+    if batch.receipt_batch_id:
+        # A payment built from an invoice delivery is deliberately not a
+        # general-purpose case picker.  Its payable rows must be traceable to
+        # a reconciled invoice in that delivery.  A later corrected invoice
+        # becomes eligible only after it is attached to its held receipt item.
+        source_farmer_ids = {
+            str(value)
+            for value in PaymentReceiptItem.objects.filter(
+                receipt_batch_id=batch.receipt_batch_id,
+                status=PaymentReceiptItem.STATUS_MATCHED,
+                farmer__isnull=False,
+            ).values_list('farmer_id', flat=True)
+        }
+        if not set(ids).issubset(source_farmer_ids):
+            raise PaymentBatchError('This payment was created from an invoice delivery. Add only cases reconciled in that delivery.')
     farmers = list(JawabuFarmerMaster.objects.select_for_update().filter(pk__in=ids))
     if len(farmers) != len(ids):
         raise PaymentBatchError('One or more selected cases could not be found.')
@@ -552,11 +568,21 @@ def generate_reviewed_workbook(batch_id, *, expected_revision, actor=None, actor
         raise PaymentBatchError('Payment details changed after review. Head of Rural must review the changed cases again.')
     # The legacy document model remains the immutable binary artifact store;
     # workflow ownership now lives exclusively on PaymentBatch.
+    held_invoice_rows = []
+    if batch.receipt_batch_id:
+        for item in batch.receipt_batch.items.exclude(status=PaymentReceiptItem.STATUS_MATCHED).select_related('invoice', 'farmer'):
+            held_invoice_rows.append({
+                'invoice_no': item.invoice.invoice_no if item.invoice_id else '',
+                'invoice_holder_name': item.invoice.customer_name if item.invoice_id else '',
+                'applicant_name': (item.farmer.imab_customer_name or item.farmer.customer_name) if item.farmer_id else '',
+                'status': item.status, 'status_label': item.get_status_display(), 'reason': item.reason,
+            })
     try:
         document = create_payment_document(
             f'PAYMENT-{payment_number}', str(payment_number),
             actor=actor_label, status='awaiting_scan', farmer_ids=farmer_ids,
             case_call_up_comments=comments, case_payment_modes=case_payment_modes,
+            held_invoice_rows=held_invoice_rows,
         )
     except PaymentTemplateError as exc:
         logger.warning(
@@ -747,8 +773,30 @@ def serialize_batch(batch: PaymentBatch, *, include_cases=True):
     payment_mode_summary = ' · '.join(
         f'{count} {mode_labels[mode]}' for mode, count in mode_counts.items() if count
     ) or 'No cases'
+    held_items = []
+    receipt_id = str(batch.receipt_batch_id or '')
+    if receipt_id and include_cases:
+        included_farmer_ids = {str(membership.farmer_id) for membership in memberships}
+        for item in batch.receipt_batch.items.select_related('invoice', 'farmer').order_by('created_at'):
+            payable_not_added = (
+                item.status == PaymentReceiptItem.STATUS_MATCHED
+                and item.farmer_id
+                and str(item.farmer_id) not in included_farmer_ids
+            )
+            if item.status == PaymentReceiptItem.STATUS_MATCHED and not payable_not_added:
+                continue
+            held_items.append({
+                'id': str(item.id), 'status': item.status, 'status_label': item.get_status_display(),
+                'reason': item.reason,
+                'invoice_no': item.invoice.invoice_no if item.invoice_id else '',
+                'invoice_holder_name': item.invoice.customer_name if item.invoice_id else '',
+                'applicant_name': (item.farmer.imab_customer_name or item.farmer.customer_name) if item.farmer_id else '',
+                'farmer_id': str(item.farmer_id or ''),
+                'can_add_to_payment': bool(payable_not_added),
+            })
     return {
         'id': str(batch.pk), 'payment_number': batch.payment_number,
+        'receipt_batch_id': receipt_id, 'held_items': held_items,
         'payment_mode_summary': payment_mode_summary, 'payment_mode_counts': mode_counts,
         'status': batch.status, 'status_label': batch.get_status_display(),
         'revision': batch.revision, 'counts': counts, 'total_amount': str(total),

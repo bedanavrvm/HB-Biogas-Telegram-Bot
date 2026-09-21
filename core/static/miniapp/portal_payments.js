@@ -4,6 +4,8 @@
   let deps = null;
   let activeBatch = null;
   let batches = [];
+  let receiptBatches = [];
+  let activeReceipt = null;
   let candidateGroups = { ready: [], blocked: [], pending: [] };
   let candidateFilter = 'ready';
   let batchFilter = 'open';
@@ -104,6 +106,7 @@
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not load payment batches.');
       batches = response.data.batches || [];
       if (el('payments-batches')) renderBatches();
+      if (!approvalMode()) await loadReceiptBatches({quiet: options?.quiet});
     } catch (error) {
       if (target) target.innerHTML = `<div class="batch-warning">${escape(error.message || 'Could not load payment batches.')}</div>`;
     }
@@ -163,6 +166,99 @@
     renderDetail();
   }
 
+  function receiptCount(receipt, status) {
+    return Number(receipt?.counts?.[status] || 0);
+  }
+
+  function renderReceiptBatches() {
+    const target = el('payments-receipts-list');
+    if (!target) return;
+    const visible = receiptBatches.filter(function (receipt) {
+      return receipt.status !== 'payment_created' || receipt.payment_batch_id;
+    });
+    if (!visible.length) {
+      target.innerHTML = '<div class="empty-state compact"><div class="es-title">No invoice deliveries waiting</div><div class="es-sub">Receive an HB invoice delivery to start payment preparation.</div></div>';
+      return;
+    }
+    target.innerHTML = visible.map(function (receipt) {
+      const matched = receiptCount(receipt, 'matched');
+      const held = receiptCount(receipt, 'name_change') + receiptCount(receipt, 'review') + receiptCount(receipt, 'parse_failed');
+      const action = receipt.payment_batch_id
+        ? `<button type="button" class="btn btn-secondary payment-open-receipt-batch" data-payment-receipt-batch="${escape(receipt.payment_batch_id)}">Open payment</button>`
+        : `<button type="button" class="btn btn-secondary payment-open-receipt" data-payment-receipt="${escape(receipt.id)}">Review delivery</button>`;
+      return `<article class="payment-receipt-row"><div><strong>${escape(receipt.status_label || 'Invoice delivery')}</strong><small>${escape(matched)} matched${held ? ` · ${escape(held)} held` : ''}</small></div><div class="payment-receipt-row-action">${held ? '<span class="badge badge-orange">Held</span>' : '<span class="badge badge-green">Ready</span>'}${action}</div></article>`;
+    }).join('');
+  }
+
+  async function loadReceiptBatches(options) {
+    const target = el('payments-receipts-list');
+    if (target && !options?.quiet) target.innerHTML = '<div class="empty-state compact"><div class="spinner-inline"></div></div>';
+    try {
+      const response = await deps.apiFetch('/invoice-receipts/');
+      if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not load invoice deliveries.');
+      receiptBatches = response.data.batches || [];
+      renderReceiptBatches();
+    } catch (error) {
+      if (target) target.innerHTML = `<div class="batch-warning">${escape(error.message || 'Could not load invoice deliveries.')}</div>`;
+    }
+  }
+
+  function renderReceiptDialog() {
+    const dialog = el('payment-receipt-dialog');
+    const title = el('payment-receipt-dialog-title');
+    const copy = el('payment-receipt-dialog-copy');
+    const target = el('payment-receipt-dialog-items');
+    const submit = el('payment-receipt-create');
+    if (!dialog || !target || !activeReceipt) return;
+    const items = activeReceipt.items || [];
+    const payable = items.filter(function (item) { return item.status === 'matched' && item.farmer_id; });
+    const held = items.filter(function (item) { return item.status !== 'matched'; });
+    if (title) title.textContent = activeReceipt.payment_batch_id ? 'Payment created from this delivery' : 'Prepare payment from invoice delivery';
+    if (copy) copy.textContent = activeReceipt.payment_batch_id
+      ? 'This delivery already has a governed payment batch.'
+      : 'Choose a payment mode for every matched invoice. Held invoices remain visible but are not included.';
+    target.innerHTML = [
+      ...payable.map(function (item) {
+        return `<label class="payment-receipt-dialog-row"><span><strong>${escape(item.applicant_name || item.invoice_holder_name || item.invoice_no || 'Matched invoice')}</strong><small>${escape(item.invoice_no || 'Invoice')} · matched</small></span><select data-payment-receipt-dialog-mode="${escape(item.farmer_id)}"><option value="">Payment mode</option><option value="LOAN-JAWABU">Loan - Jawabu</option><option value="CASH">Cash</option></select></label>`;
+      }),
+      ...held.map(function (item) {
+        return `<div class="payment-receipt-dialog-row held"><span><strong>${escape(item.invoice_no || item.source_filename || 'Invoice')}</strong><small>${escape(item.reason || item.status_label || 'Needs review')}</small></span><span class="badge badge-orange">${escape(item.status_label || 'Held')}</span></div>`;
+      }),
+    ].join('') || '<div class="empty-state compact"><div class="es-title">No invoices in this delivery</div></div>';
+    if (submit) submit.hidden = Boolean(activeReceipt.payment_batch_id) || !payable.length;
+    if (dialog.showModal && !dialog.open) dialog.showModal();
+    window.lucide?.createIcons?.();
+  }
+
+  async function openReceipt(receiptId) {
+    try {
+      const response = await deps.apiFetch(`/invoice-receipts/${encodeURIComponent(receiptId)}/`);
+      if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not open invoice delivery.');
+      activeReceipt = response.data.receipt_batch;
+      renderReceiptDialog();
+    } catch (error) { deps.showToast(error.message || 'Could not open invoice delivery.', 'error'); }
+  }
+
+  async function createPaymentFromReceipt(button) {
+    if (!activeReceipt?.id) return;
+    const modes = {};
+    el('payment-receipt-dialog-items')?.querySelectorAll('[data-payment-receipt-dialog-mode]').forEach(function (select) {
+      modes[select.dataset.paymentReceiptDialogMode] = select.value;
+    });
+    if (Object.values(modes).some(function (mode) { return !mode; })) return deps.showToast('Choose a payment mode for every matched invoice.', 'error');
+    deps.setButtonLoading(button, true, 'Creating...');
+    try {
+      const response = await request(`/invoice-receipts/${activeReceipt.id}/payment/`, 'POST', {
+        revision: activeReceipt.revision, payment_modes: modes,
+      });
+      if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not create payment batch.');
+      el('payment-receipt-dialog')?.close();
+      deps.showToast('Payment batch created from the invoice delivery.', 'success');
+      navigatePayment(detailUrl(response.data.batch.id));
+    } catch (error) { deps.showToast(error.message || 'Could not create payment batch.', 'error'); }
+    finally { deps.setButtonLoading(button, false); }
+  }
+
   function closeDetail() {
     navigatePayment(inboxUrl());
   }
@@ -193,7 +289,7 @@
       activeBatch = response.data.batch;
       setDetailFeedback('');
       showDetail();
-      if (!approvalMode() && capability('portal.payment.prepare') && ['draft', 'in_review', 'review_complete', 'awaiting_scan'].includes(activeBatch.status)) await loadCandidates(options);
+      if (!approvalMode() && !activeBatch.receipt_batch_id && capability('portal.payment.prepare') && ['draft', 'in_review', 'review_complete', 'awaiting_scan'].includes(activeBatch.status)) await loadCandidates(options);
     } catch (error) {
       const message = error.message || 'Could not open payment batch.';
       setDetailFeedback(message, {error: true, retry: true});
@@ -249,6 +345,19 @@
     const cases = activeBatch.cases || [];
     required.cases.innerHTML = cases.length ? cases.map(caseRow).join('') : '<div class="empty-state compact"><div class="es-title">No cases added</div></div>';
     if (el('payments-current-section')) el('payments-current-section').hidden = emptyDraft;
+    const heldItems = activeBatch.held_items || [];
+    const heldTarget = el('payments-held-items');
+    const heldSection = el('payments-held-section');
+    if (heldTarget) {
+      heldTarget.innerHTML = heldItems.map(function (item) {
+        const add = item.can_add_to_payment && !approvalMode() && capability('portal.payment.prepare') && !['completed', 'cancelled'].includes(activeBatch.status)
+          ? `<div class="payment-receipt-add"><select data-payment-receipt-mode="${escape(item.farmer_id)}" aria-label="Payment mode for ${escape(item.applicant_name || item.invoice_no || 'invoice')}"><option value="">Payment mode</option><option value="LOAN-JAWABU">Loan - Jawabu</option><option value="CASH">Cash</option></select><button type="button" class="btn btn-secondary payment-add-receipt-item" data-payment-receipt-farmer="${escape(item.farmer_id)}">Add to payment</button></div>`
+          : '';
+        const label = item.can_add_to_payment ? 'Corrected - ready to add' : (item.status_label || 'Held');
+        return `<article class="payment-current-case payment-held-item${item.can_add_to_payment ? ' payment-receipt-ready' : ''}"><div class="payment-case-heading"><strong>${escape(item.invoice_no || 'Unparsed invoice')}</strong><span class="badge ${item.can_add_to_payment ? 'badge-green' : 'badge-orange'}">${escape(label)}</span></div><div class="payment-case-values"><span>Invoice: ${escape(item.invoice_holder_name || 'Unknown holder')}</span><span>Applicant: ${escape(item.applicant_name || 'Not matched')}</span></div>${item.reason ? `<p class="payment-review-note">${escape(item.reason)}</p>` : ''}${add}</article>`;
+      }).join('');
+    }
+    if (heldSection) heldSection.hidden = !heldItems.length;
     const activity = activeBatch.activity || [];
     required.activity.innerHTML = activity.length ? activity.map(item => `<div><strong>${escape(activityLabel(item.action))}</strong><small>${escape(item.actor)} &middot; ${escape(formatDateTime(item.created_at))}</small></div>`).join('') : '<small>No batch changes recorded.</small>';
     const activityPanel = required.activity.closest('.payment-activity');
@@ -257,7 +366,7 @@
     if (el('payments-add-title')) el('payments-add-title').textContent = emptyDraft ? 'Build the payment batch' : 'Choose cases and payment modes';
     if (el('payments-add-help')) el('payments-add-help').textContent = emptyDraft ? 'Choose a payment mode, select the cases, then add them to this draft.' : 'Select a payment mode for each case before adding it.';
     const addPanel = el('payments-add-panel');
-    if (addPanel) addPanel.hidden = approvalMode() || !capability('portal.payment.prepare') || ['completed', 'cancelled'].includes(activeBatch.status);
+    if (addPanel) addPanel.hidden = approvalMode() || Boolean(activeBatch.receipt_batch_id) || !capability('portal.payment.prepare') || ['completed', 'cancelled'].includes(activeBatch.status);
     renderPrimaryAction();
     window.lucide?.createIcons?.();
   }
@@ -341,7 +450,7 @@
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'The payment batch could not be updated.');
       activeBatch = response.data.batch;
       renderDetail();
-      if (!approvalMode()) await loadCandidates({quiet: true});
+      if (!approvalMode() && !activeBatch.receipt_batch_id) await loadCandidates({quiet: true});
       const list = await deps.apiFetch('/payments/batches/');
       if (list.ok && list.data?.ok) { batches = list.data.batches || []; renderBatchTabCounts(); }
       return true;
@@ -420,6 +529,17 @@
     }
   }
 
+  async function addReceiptItem(button) {
+    const farmerId = String(button.dataset.paymentReceiptFarmer || '');
+    // Keep this compatible with older Telegram Android WebViews, where
+    // ``CSS.escape`` is not consistently available.
+    const select = button.parentElement?.querySelector('[data-payment-receipt-mode]');
+    if (!farmerId || !select?.value) return deps.showToast('Choose a payment mode before adding this corrected invoice.', 'error');
+    if (await mutate(`/payments/batches/${activeBatch.id}/cases/`, {farmer_ids: [farmerId], payment_modes: {[farmerId]: select.value}}, button, 'Adding...')) {
+      deps.showToast('Corrected invoice added to the payment batch.', 'success');
+    }
+  }
+
   async function reviewCase(card, decision, button) {
     const comment = String(card.querySelector('.payment-review-comment')?.value || '').trim();
     if (!comment) return deps.showToast('Enter an approval comment for this case.', 'error');
@@ -494,7 +614,10 @@
       const batchFilterButton = target.closest('[data-payment-batch-filter]');
       if (batchFilterButton) { batchFilter = batchFilterButton.dataset.paymentBatchFilter; return renderBatches(); }
       if (target.closest('#payments-refresh')) return load();
-      if (target.closest('#payments-new')) return createBatch(target.closest('#payments-new'));
+      if (target.closest('#payments-receive-invoices')) return navigatePayment('/portal/s/invoices/upload/');
+      if (target.closest('.payment-open-receipt')) return openReceipt(target.closest('.payment-open-receipt').dataset.paymentReceipt);
+      if (target.closest('.payment-open-receipt-batch')) return navigatePayment(detailUrl(target.closest('.payment-open-receipt-batch').dataset.paymentReceiptBatch));
+      if (target.closest('#payment-receipt-create')) return createPaymentFromReceipt(target.closest('#payment-receipt-create'));
       if (target.closest('#payments-sequence-save')) return saveSequence(target.closest('#payments-sequence-save'));
       if (target.closest('#payments-detail-back')) return closeDetail();
       if (target.closest('#payments-detail-retry')) return openBatch(detailBatchId(), {});
@@ -502,6 +625,7 @@
       if (filter) { candidateFilter = filter.dataset.paymentFilter; return renderCandidates(); }
       if (target.closest('#payments-clear-selection')) { selected.clear(); return renderCandidates(); }
       if (target.closest('#payments-add-selected')) return addSelected(target.closest('#payments-add-selected'));
+      if (target.closest('.payment-add-receipt-item')) return addReceiptItem(target.closest('.payment-add-receipt-item'));
       if (target.closest('#payments-submit-review')) return submitForReview(target.closest('#payments-submit-review'));
       if (target.closest('#payments-generate')) return mutate(`/payments/batches/${activeBatch.id}/generate/`, {}, target.closest('#payments-generate'), 'Generating...');
       if (target.closest('#payments-open-workbook')) return deps.downloadPortalFile({url: activeBatch.workbook_download_url, filename: activeBatch.workbook_filename || `Payment-${activeBatch.payment_number || 'workbook'}.xlsx`});
