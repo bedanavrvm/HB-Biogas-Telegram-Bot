@@ -4117,6 +4117,48 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 .payment-add-section .payment-search-row { margin-top:2px; }
 .payment-detail-empty .payment-add-section { border-color:color-mix(in srgb,var(--color-primary) 35%,var(--border-color)); }
 
+/* Payment detail: keep the batch summary compact so the customer cases carry
+   the visual weight.  Approved rows remain one semantic, expandable group. */
+.payment-detail { gap:7px; }
+.payment-detail-header { min-height:44px; margin:0; }
+.payment-detail-header .payment-detail-heading { display:grid; min-width:0; gap:1px; }
+.payment-detail-header .payment-detail-heading h2 { overflow:hidden; font-size:15px; text-overflow:ellipsis; white-space:nowrap; }
+.payment-detail-header .payment-detail-heading p { overflow:hidden; display:block; color:var(--text-muted); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+.payment-detail-total { margin-left:auto; padding:6px 8px; border:1px solid var(--border-color); border-radius:8px; background:var(--bg-surface); color:var(--text-primary); font-size:12px; line-height:1; white-space:nowrap; }
+.payment-progress { gap:0; overflow:hidden; margin:0; border:1px solid var(--border-color); border-radius:9px; background:var(--bg-surface); }
+.payment-progress > span { min-height:44px; padding:5px 3px; border:0; border-right:1px solid var(--border-color); border-radius:0; background:transparent; }
+.payment-progress > span:last-child { border-right:0; }
+.payment-progress strong { font-size:12px; }
+.payment-progress small { font-size:9px; }
+.payment-progress .payment-progress-total { display:none; }
+#payments-current-section { border:0; border-radius:0; background:transparent; padding:0; }
+#payments-current-section > header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:1px 0 5px; }
+#payments-current-section > header h3 { margin:0; font-size:12px; }
+.payment-section-count { color:var(--text-muted); font-size:10px; font-weight:700; }
+#payments-current-section .payment-current-cases { grid-template-columns:1fr; gap:7px; margin:0; }
+.payment-current-case,.payment-case-row { padding:9px; border-radius:9px; }
+.payment-case-row { gap:7px; }
+.payment-case-heading { gap:8px; }
+.payment-case-history strong { overflow:hidden; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
+.payment-case-history small { margin-top:1px; font-size:9px; }
+.payment-case-identifiers { display:flex; flex-wrap:wrap; gap:3px 8px; margin-top:5px; color:var(--text-muted); font-size:10px; line-height:1.25; }
+.payment-case-identifiers span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.payment-case-details { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px 9px; margin:7px 0 0; padding-top:7px; border-top:1px solid var(--border-color); }
+.payment-case-details > div { min-width:0; }
+.payment-case-details dt { overflow:hidden; color:var(--text-muted); font-size:9px; font-weight:700; line-height:1.15; text-overflow:ellipsis; text-transform:uppercase; white-space:nowrap; }
+.payment-case-details dd { min-width:0; overflow:hidden; margin:2px 0 0; color:var(--text-primary); font-size:11px; font-weight:650; line-height:1.2; text-overflow:ellipsis; white-space:nowrap; }
+.payment-case-details .payment-case-mode dd { overflow:visible; }
+.payment-case-details .payment-candidate-cash-toggle { min-height:26px; margin-top:-2px; padding:4px 6px; font-size:10px; }
+.payment-case-details .payment-candidate-cash-toggle svg { width:13px; height:13px; }
+.payment-case-details .payment-case-mode-readonly { padding:3px 6px; font-size:9px; }
+.payment-approved-cases { border-radius:9px; }
+.payment-approved-cases summary { min-height:38px; padding:7px 9px; }
+.payment-approved-case-list { max-height:min(58vh,560px); }
+.payment-primary-action { margin:2px 0 0; border:1px solid var(--border-color); border-radius:10px; }
+@media (min-width:760px) {
+  #payments-current-section .payment-current-cases { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+
 .portal-settings-action-row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:10px; }
 .portal-settings-action-row small { color:var(--text-muted); font-size:10px; }
 .portal-settings-action-row .btn { flex:0 0 auto; }

@@ -392,10 +392,10 @@
     <div id="payments-batches" class="payment-batch-list"><div class="empty-state"><div class="spinner-inline"></div></div></div>
     {% else %}
     <section id="payments-detail" class="payment-detail" aria-busy="true">
-      <header class="payment-detail-header"><button type="button" class="icon-button" id="payments-detail-back" aria-label="Back to payment batches" title="Back"><i data-lucide="arrow-left"></i></button><div><h2 id="payments-detail-title">Payment batch</h2><p id="payments-detail-meta"></p></div></header>
+      <header class="payment-detail-header"><button type="button" class="icon-button" id="payments-detail-back" aria-label="Back to payment batches" title="Back"><i data-lucide="arrow-left"></i></button><div class="payment-detail-heading"><h2 id="payments-detail-title">Payment batch</h2><p id="payments-detail-meta"></p></div><strong id="payments-detail-total" class="payment-detail-total" aria-label="Payment total"></strong></header>
       <div id="payments-detail-feedback" class="payment-detail-feedback" role="status" aria-live="polite"><div class="spinner-inline"></div><span>Loading payment batch…</span></div>
       <div id="payments-progress" class="payment-progress"></div>
-      <section id="payments-current-section" class="payment-detail-section"><header><div><span class="payment-step">Batch cases</span><h3>Cases in this batch</h3></div></header><div id="payments-current-cases" class="payment-current-cases"></div></section>
+      <section id="payments-current-section" class="payment-detail-section"><header><h3>Cases</h3><span id="payments-current-count" class="payment-section-count"></span></header><div id="payments-current-cases" class="payment-current-cases"></div></section>
       <section id="payments-held-section" class="payment-detail-section" hidden><header><div><span class="payment-step">Invoice delivery</span><h3>Not included in payment</h3><p>These invoices came in the same HB delivery. Held rows need correction or review; a corrected row can be added with its own payment mode.</p></div></header><div id="payments-held-items" class="payment-current-cases"></div></section>
       {% if active_screen == 'payments' %}<section id="payments-add-panel" class="payment-detail-section payment-add-section" data-required-capability="portal.payment.prepare">
         <header><div><span class="payment-step" id="payments-add-step">Add cases</span><h3 id="payments-add-title">Choose cases and payment modes</h3><p id="payments-add-help">Select a payment mode for each case before adding it.</p></div></header>

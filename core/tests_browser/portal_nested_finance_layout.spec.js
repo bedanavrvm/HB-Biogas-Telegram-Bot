@@ -155,6 +155,42 @@ test('an empty payment detail route exposes one compact build step at 320px', as
   await assertNoHorizontalOverflow(page, 320);
 });
 
+test('payment detail keeps approved case facts compact and available at 320px', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="payment_approvals" data-payment-batch-id="batch-2"><section id="page-payments" class="page active">
+    <section id="payments-detail" class="payment-detail"><header class="payment-detail-header"><button id="payments-detail-back">Back</button><div class="payment-detail-heading"><h2 id="payments-detail-title"></h2><p id="payments-detail-meta"></p></div><strong id="payments-detail-total"></strong></header><div id="payments-detail-feedback"></div><div id="payments-progress" class="payment-progress"></div>
+      <section id="payments-current-section" class="payment-detail-section"><header><h3>Cases</h3><span id="payments-current-count"></span></header><div id="payments-current-cases" class="payment-current-cases"></div></section>
+      <details class="payment-activity"><summary>Batch activity</summary><div id="payments-activity"></div></details><div id="payments-primary-action"></div>
+    </section></section></div></main></body>`);
+  await loadPortalStyles(page);
+  await page.addScriptTag({ path: asset('portal_payments.js') });
+  await page.evaluate(() => {
+    const batch = {
+      id: 'batch-2', payment_number: 24, status: 'completed', status_label: 'Completed', payment_mode_summary: 'Loan - Jawabu', total_amount: '54000', revision: 2,
+      counts: { total: 1, approved: 1, returned: 0, pending: 0 }, activity: [],
+      cases: [{ farmer_id: 'case-2', case_reference: 'JBL-24', customer_name: 'Jane Wanjiku', national_id: '12345678', primary_phone: '254712345678', branch: 'Embu Central', loan_officer: 'Mary Officer', invoice_number: 'INV-24', order_number: 'ORD-24', amount: '54000', preferred_repayment_date: '10TH', payment_mode: 'LOAN-JAWABU', payment_mode_label: 'Loan - Jawabu', decision: 'approved', comment: '', changed_since_review: false }],
+    };
+    window.PortalMiniAppPayments.init({
+      el: id => document.getElementById(id), escapeHtml: value => String(value ?? ''),
+      state: { capabilities: new Set(['portal.payment.review']) }, showToast() {}, openPortalLink() {},
+      apiFetch: async () => ({ ok: true, data: { ok: true, batch } }),
+    });
+    return window.PortalMiniAppPayments.load();
+  });
+  await expect(page.locator('#payments-detail-title')).toHaveText('Payment #24');
+  await expect(page.locator('#payments-detail-total')).toHaveText('KES 54,000');
+  await expect(page.locator('#payments-current-count')).toHaveText('1 case');
+  await expect(page.locator('.payment-progress .payment-progress-total')).toHaveCount(0);
+  await expect(page.locator('.payment-approved-summary')).toHaveCount(0);
+  await page.locator('.payment-approved-cases summary').click();
+  await expect(page.locator('.payment-approved-case-list')).toContainText('Jane Wanjiku');
+  await expect(page.locator('.payment-approved-case-list')).toContainText('ID 12345678');
+  await expect(page.locator('.payment-approved-case-list')).toContainText('254712345678');
+  await expect(page.locator('.payment-approved-case-list')).toContainText('Embu Central');
+  await expect(page.locator('.payment-approved-case-list')).toContainText('Mary Officer');
+  await assertNoHorizontalOverflow(page, 320);
+});
+
 test('a payment detail load failure keeps Back available with a specific retry message', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="payments" data-payment-batch-id="missing-batch"><section id="page-payments" class="page active"><section id="payments-detail" class="payment-detail"><header class="payment-detail-header"><button id="payments-detail-back">Back</button><div><h2 id="payments-detail-title">Payment batch</h2><p id="payments-detail-meta"></p></div></header><div id="payments-detail-feedback" class="payment-detail-feedback"></div><div id="payments-progress"></div><section id="payments-current-section"><div id="payments-current-cases"></div></section><details class="payment-activity"><div id="payments-activity"></div></details><div id="payments-primary-action"></div></section></section></div></main></body>`);

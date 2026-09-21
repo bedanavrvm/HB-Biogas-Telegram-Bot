@@ -1,5 +1,17 @@
 # Changelog
 
+## Portal payment detail density and case context - 21-September-2026
+
+- Rebuilt the payment-detail header and count strip to keep the batch total
+  beside the payment identity and remove the separate full-width total tile.
+- Payment rows now show the reviewed case context directly: case reference,
+  customer national ID and phone, branch, loan officer, invoice, order,
+  amount, repayment day, and payment mode. The existing case-detail link,
+  approvals, return comments, cash switch and removal controls are unchanged.
+- Approved cases remain behind one compact expandable section; redundant
+  all-approved copy and a nested summary card were removed.
+- No migrations, access-policy changes, or external writes are required.
+
 ## Portal FarmUp review and navigation refinement - 21-September-2026
 
 - Reworked the FarmUp review presentation into a compact, table-first mobile

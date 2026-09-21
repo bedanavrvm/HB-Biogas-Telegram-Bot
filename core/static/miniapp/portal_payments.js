@@ -301,22 +301,38 @@
     }
   }
 
+  function caseDetails(item, {editableMode = false} = {}) {
+    const cashSelected = item.payment_mode === 'CASH';
+    const paymentMode = editableMode
+      ? `<button type="button" class="payment-candidate-cash-toggle${cashSelected ? ' is-cash' : ''}" data-payment-case-cash="${escape(item.farmer_id)}" aria-pressed="${cashSelected}" aria-label="${cashSelected ? 'Cash selected. Switch back to Loan - Jawabu' : 'Switch this case to Cash'}" title="${cashSelected ? 'Cash selected. Switch back to Loan - Jawabu' : 'Switch this case to Cash'}"><i data-lucide="${cashSelected ? 'banknote' : 'landmark'}" aria-hidden="true"></i><span>${cashSelected ? 'Cash' : 'Loan'}</span></button>`
+      : `<span class="payment-case-mode-readonly">${escape(item.payment_mode_label || 'Not recorded')}</span>`;
+    const value = (itemValue, fallback = 'Not recorded') => escape(itemValue || fallback);
+    return `<div class="payment-case-identifiers"><span>${value(item.case_reference, 'Case reference unavailable')}</span><span>ID ${value(item.national_id)}</span><span>${value(item.primary_phone, 'Phone not recorded')}</span></div>
+      <dl class="payment-case-details">
+        <div><dt>Branch</dt><dd>${value(item.branch)}</dd></div>
+        <div><dt>Loan officer</dt><dd>${value(item.loan_officer, 'Unassigned')}</dd></div>
+        <div><dt>Invoice / order</dt><dd>${value(item.invoice_number)} / ${value(item.order_number)}</dd></div>
+        <div><dt>Amount</dt><dd>${escape(money(item.amount))}</dd></div>
+        <div><dt>Repayment</dt><dd>${value(item.preferred_repayment_date, 'Missing')}</dd></div>
+        <div class="payment-case-mode"><dt>Payment</dt><dd>${paymentMode}</dd></div>
+      </dl>`;
+  }
+
   function caseRow(item, {compact = false} = {}) {
     const canReview = approvalMode() && item.decision === 'pending' && capability('portal.payment.review') && ['in_review', 'review_complete'].includes(activeBatch.status);
     const canRemove = !approvalMode() && capability('portal.payment.prepare') && !['completed', 'cancelled'].includes(activeBatch.status);
     const warning = item.changed_since_review ? '<span class="payment-case-warning">Payment details changed</span>' : '';
     const badge = `<span class="badge ${item.decision === 'approved' ? 'badge-green' : item.decision === 'returned' ? 'badge-orange' : 'badge-blue'}">${escape(item.decision === 'pending' ? 'Awaiting review' : item.decision)}</span>`;
-    const history = `<button type="button" class="payment-case-history" data-case-url="/portal/cases/${escape(item.farmer_id)}/?from=${approvalMode() ? 'payment_approvals' : 'payments'}"><strong>${escape(item.customer_name || 'Unnamed customer')}</strong><small>${escape(item.case_reference || 'Case')} · ${escape(item.invoice_number || 'No invoice')} · ${escape(item.order_number || 'No order')}</small></button>`;
+    const history = `<button type="button" class="payment-case-history" data-case-url="/portal/cases/${escape(item.farmer_id)}/?from=${approvalMode() ? 'payment_approvals' : 'payments'}"><strong>${escape(item.customer_name || 'Unnamed customer')}</strong><small>Open case details</small></button>`;
     if (compact) {
       return `<article class="payment-case-row payment-review-approved" data-payment-case="${escape(item.farmer_id)}">
         <div class="payment-case-heading">${history}${badge}</div>
-        <div class="payment-case-row-facts"><span><small>Amount</small><strong>${escape(money(item.amount))}</strong></span><span><small>Repayment</small><strong>${escape(item.preferred_repayment_date || 'Missing')}</strong></span><span class="payment-case-mode-readonly">${escape(item.payment_mode_label)}</span></div>
+        ${caseDetails(item)}
       </article>`;
     }
     return `<article class="payment-current-case payment-review-${escape(item.decision)}${item.changed_since_review ? ' changed' : ''}" data-payment-case="${escape(item.farmer_id)}">
       <div class="payment-case-heading">${history}${badge}</div>
-      <div class="payment-case-values"><span>${escape(money(item.amount))}</span><span>Repayment: ${escape(item.preferred_repayment_date || 'Missing')}</span></div>
-      ${canRemove ? `<button type="button" class="payment-candidate-cash-toggle${item.payment_mode === 'CASH' ? ' is-cash' : ''}" data-payment-case-cash="${escape(item.farmer_id)}" aria-pressed="${item.payment_mode === 'CASH'}" aria-label="${item.payment_mode === 'CASH' ? 'Cash selected. Switch back to Loan - Jawabu' : 'Switch this case to Cash'}" title="${item.payment_mode === 'CASH' ? 'Cash selected. Switch back to Loan - Jawabu' : 'Switch this case to Cash'}"><i data-lucide="${item.payment_mode === 'CASH' ? 'banknote' : 'landmark'}" aria-hidden="true"></i><span>${item.payment_mode === 'CASH' ? 'Cash' : 'Loan'}</span></button>` : `<span class="payment-case-mode-readonly">${escape(item.payment_mode_label)}</span>`}${warning}
+      ${caseDetails(item, {editableMode: canRemove})}${warning}
       ${canReview ? `<textarea class="payment-review-comment" rows="2" placeholder="Approval comment">${escape(item.comment || '')}</textarea><div class="payment-case-actions"><button type="button" class="btn btn-secondary payment-return">Return</button><button type="button" class="btn btn-primary payment-approve">Approve</button></div>` : item.comment ? `<p class="payment-review-note">${escape(item.comment)}</p>` : ''}
       ${canRemove ? '<button type="button" class="payment-remove-case">Remove</button>' : ''}
     </article>`;
@@ -338,11 +354,12 @@
     const required = {
       title: detailRoot?.querySelector('#payments-detail-title'),
       meta: detailRoot?.querySelector('#payments-detail-meta'),
+      total: detailRoot?.querySelector('#payments-detail-total'),
       progress: detailRoot?.querySelector('#payments-progress'),
       cases: detailRoot?.querySelector('#payments-current-cases'),
       activity: detailRoot?.querySelector('#payments-activity'),
     };
-    if (!detailRoot || Object.values(required).some(node => !node)) {
+    if (!detailRoot || [required.title, required.meta, required.progress, required.cases, required.activity].some(node => !node)) {
       setDetailFeedback('Payment details could not be displayed. Retry this page or return to payment batches.', {error: true, retry: true});
       window.dispatchEvent(new CustomEvent('portal:render-error', {detail: {screen: screen(), component: 'payment-detail'}}));
       return;
@@ -351,14 +368,17 @@
     const emptyDraft = activeBatch.status === 'draft' && Number(counts.total || 0) === 0;
     detailRoot.classList.toggle('payment-detail-empty', emptyDraft);
     required.title.textContent = activeBatch.payment_number ? `Payment #${activeBatch.payment_number}` : 'Payment batch';
-    required.meta.textContent = `${activeBatch.payment_mode_summary} · ${activeBatch.status_label}`;
-    required.progress.innerHTML = `<span><strong>${escape(counts.total || 0)}</strong><small>Cases</small></span><span><strong>${escape(counts.approved || 0)}</strong><small>Approved</small></span><span><strong>${escape(counts.returned || 0)}</strong><small>Returned</small></span><span><strong>${escape(counts.pending || 0)}</strong><small>Awaiting</small></span><span class="payment-progress-total"><strong>${escape(money(activeBatch.total_amount))}</strong><small>Total</small></span>`;
+    required.meta.textContent = activeBatch.status_label || activeBatch.payment_mode_summary || '';
+    if (required.total) required.total.textContent = money(activeBatch.total_amount);
+    required.progress.innerHTML = `<span><strong>${escape(counts.total || 0)}</strong><small>Cases</small></span><span><strong>${escape(counts.approved || 0)}</strong><small>Approved</small></span><span><strong>${escape(counts.returned || 0)}</strong><small>Returned</small></span><span><strong>${escape(counts.pending || 0)}</strong><small>Awaiting</small></span>`;
     required.progress.hidden = emptyDraft;
     const cases = activeBatch.cases || [];
     const approvedCases = cases.filter(item => item.decision === 'approved');
     const actionableCases = cases.filter(item => item.decision !== 'approved');
+    const currentCount = el('payments-current-count');
+    if (currentCount) currentCount.textContent = `${cases.length} ${cases.length === 1 ? 'case' : 'cases'}`;
     required.cases.innerHTML = cases.length ? [
-      actionableCases.length ? actionableCases.map(caseRow).join('') : '<div class="payment-approved-summary">All cases in this batch are approved.</div>',
+      actionableCases.length ? actionableCases.map(caseRow).join('') : '',
       approvedCases.length ? `<details class="payment-approved-cases"><summary><span>Approved cases</span><b>${escape(approvedCases.length)}</b></summary><div class="payment-approved-case-list">${approvedCases.map(item => caseRow(item, {compact: true})).join('')}</div></details>` : '',
     ].join('') : '<div class="empty-state compact"><div class="es-title">No cases added</div></div>';
     if (el('payments-current-section')) el('payments-current-section').hidden = emptyDraft;

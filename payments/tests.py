@@ -96,6 +96,22 @@ class PaymentBatchServiceTests(TestCase):
         self.assertEqual(payload['payment_mode_counts'], {'LOAN-JAWABU': 1, 'CASH': 1})
 
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
+    def test_batch_payload_exposes_the_case_facts_needed_for_payment_review(self, _readiness):
+        farmer = self.farmer('identity')
+        farmer.branch = 'Embu'
+        farmer.system_branch = 'Embu Central'
+        farmer.jbl_officer = 'Legacy BRO'
+        farmer.system_loan_officer = 'Current BRO'
+        farmer.save(update_fields=['branch', 'system_branch', 'jbl_officer', 'system_loan_officer', 'updated_at'])
+
+        payload = serialize_batch(self.add(self.batch(), farmer))
+        case = payload['cases'][0]
+
+        self.assertEqual(case['primary_phone'], farmer.primary_phone)
+        self.assertEqual(case['branch'], 'Embu Central')
+        self.assertEqual(case['loan_officer'], 'Current BRO')
+
+    @patch('payments.services.payment_readiness', side_effect=ready.__func__)
     def test_batch_payload_exposes_ordinal_repayment_day(self, _readiness):
         farmer = self.farmer('18')
         farmer.repayment_date = '2026-09-02'
