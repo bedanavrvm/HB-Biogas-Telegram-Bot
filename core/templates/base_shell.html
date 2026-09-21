@@ -25,24 +25,29 @@
   <script src="{% static 'miniapp/vendor-lucide-1.44.0.min.js' %}?v=1.44.0"></script>
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=8">
   <link rel="stylesheet" href="{% static 'miniapp/components.css' %}?v=2">
-  <link rel="stylesheet" href="{% static 'miniapp/portal.css' %}?v=123">
+  <link rel="stylesheet" href="{% static 'miniapp/portal.css' %}?v=124">
   <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=17">
   <link rel="stylesheet" href="{% static 'miniapp/theme.css' %}?v=10">
   <script defer src="{% static 'miniapp/miniapp-nav.js' %}?v=25"></script>
 </head>
 <body class="workflow-standard portal-app">
   <header class="app-shell-header">
-    <button id="shell-menu-button" class="shell-menu-button" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">
-      <i data-lucide="menu"></i>
-    </button>
-    <div class="shell-title"><h1>Pipeline Portal</h1><p>JBL HomeBiogas</p></div>
-    <button id="portal-notification-button" class="portal-notification-button" type="button" aria-label="Work needing attention" aria-controls="portal-notification-panel" aria-expanded="false">
-      <i data-lucide="bell" aria-hidden="true"></i><span id="portal-notification-count" hidden>0</span>
-    </button>
-    <div class="shell-actor" role="status" aria-live="polite">
-      <span class="portal-connection-dot" aria-hidden="true"></span>
-      <span class="shell-actor-copy"><strong id="portal-actor-name">Connecting</strong><span id="portal-actor-role" hidden></span></span>
-      <span id="portal-freshness" hidden></span>
+    <div class="portal-header-brand">
+      <button id="shell-menu-button" class="shell-menu-button" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">
+        <i data-lucide="menu"></i>
+      </button>
+      <div class="shell-title"><h1>Pipeline Portal</h1><p>JBL HomeBiogas</p></div>
+    </div>
+    <div class="portal-header-actions">
+      <button id="portal-notification-button" class="portal-notification-button" type="button" aria-label="Work needing attention" aria-controls="portal-notification-panel" aria-expanded="false">
+        <i data-lucide="bell" aria-hidden="true"></i><span id="portal-notification-count" hidden>0</span>
+      </button>
+      <div class="shell-actor" role="status" aria-live="polite">
+        <span class="portal-connection-dot" aria-hidden="true"></span>
+        <span class="portal-connection-label">Active</span>
+        <span class="shell-actor-copy"><strong id="portal-actor-name">Connecting</strong><span id="portal-actor-role" hidden></span></span>
+        <span id="portal-freshness" hidden></span>
+      </div>
     </div>
   </header>
   <section id="portal-notification-panel" class="portal-notification-panel" aria-labelledby="portal-notification-title" hidden>
@@ -84,8 +89,8 @@
   <script src="{% static 'miniapp/portal_payments.js' %}?v=18"></script>
 <script src="{% static 'miniapp/portal_hb_actions.js' %}?v=6"></script>
   <script src="{% static 'miniapp/portal_imports.js' %}?v=10"></script>
-  <script src="{% static 'miniapp/portal_farmup.js' %}?v=8"></script>
+  <script src="{% static 'miniapp/portal_farmup.js' %}?v=9"></script>
   <script src="{% static 'miniapp/portal_curated_reports.js' %}?v=4"></script>
-  <script src="{% static 'miniapp/portal.js' %}?v=97"></script>
+  <script src="{% static 'miniapp/portal.js' %}?v=98"></script>
 </body>
 </html>

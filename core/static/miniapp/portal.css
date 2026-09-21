@@ -4139,6 +4139,7 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 .farmup-review-setup { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; padding:8px 0; }
 #page-farmup .farmup-review-setup .farmup-version-upload,
 #page-farmup .farmup-review-setup .farmup-mapping-panel { min-width:0; margin:0; }
+#page-farmup .farmup-review-setup > :only-child { grid-column:1 / -1; }
 #page-farmup .farmup-review-setup .farmup-version-upload { align-items:center; padding:8px; }
 #page-farmup .farmup-review-setup .farmup-mapping-summary { height:100%; box-sizing:border-box; padding:8px; }
 #page-farmup.farmup-review-page .farmup-toolbar { grid-template-columns:minmax(0,1fr) auto auto repeat(4,32px); padding:7px 0; border-bottom:0; }
@@ -4181,6 +4182,85 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 .payment-batch-card-head { justify-content:space-between; flex-wrap:wrap; }
 .payment-batch-card-stats { width:100%; grid-template-columns:auto auto; justify-content:space-between; text-align:left; }
 .payment-batch-card-mode { text-align:left; }
+
+/* Portal header: a compact, stable navigation bar.  Keep the actual actor
+   data in the DOM for live updates, but reserve the narrow header for the
+   brand, work bell and connection state rather than letting a role label
+   crowd the navigation controls. */
+.portal-app.workflow-standard .app-shell-header { position:sticky; z-index:70; display:flex; height:48px; min-height:48px; align-items:center; justify-content:space-between; gap:10px; padding:4px 13px 3px; border-bottom:1px solid var(--border-color); background:var(--bg-surface); box-shadow:inset 0 3px 0 var(--brand-primary),0 1px 3px rgba(15,23,42,.04); }
+.portal-header-brand, .portal-header-actions { display:flex; min-width:0; align-items:center; }
+.portal-header-brand { flex:1 1 auto; gap:9px; }
+.portal-header-actions { flex:0 0 auto; gap:8px; }
+.portal-app.workflow-standard .shell-menu-button { width:34px; min-width:34px; min-height:34px; flex:0 0 34px; border-radius:8px; }
+.portal-app .shell-menu-button svg { width:20px; height:20px; }
+.portal-app .shell-title { min-width:0; }
+.portal-app .app-shell-header h1 { overflow:hidden; color:var(--text-primary); font-size:17px; font-weight:800; line-height:1.05; letter-spacing:-.015em; text-overflow:ellipsis; white-space:nowrap; }
+.portal-app .app-shell-header p { margin-top:2px; color:var(--text-muted); font-size:11px; font-weight:500; line-height:1; }
+.portal-app .portal-notification-button { width:32px; min-width:32px; max-width:32px; height:32px; flex-basis:32px; border:0; border-radius:8px; background:transparent; color:var(--text-primary); }
+.portal-app .portal-notification-button:hover { background:var(--bg-muted); }
+.portal-app .portal-notification-button svg { width:19px; height:19px; }
+.portal-app .portal-notification-button > span { top:0; right:0; min-width:16px; height:16px; padding:0 2px; border-color:var(--bg-surface); background:var(--portal-status-danger); font-size:8px; box-shadow:0 1px 2px rgba(15,23,42,.16); }
+.portal-app .shell-actor { flex:0 0 auto; gap:6px; margin-left:0; padding-left:8px; border-left:1px solid var(--border-color); color:var(--portal-status-success); }
+.portal-app .shell-actor-copy, .portal-app .shell-actor #portal-freshness { display:none !important; }
+.portal-connection-label { color:var(--portal-status-success); font-size:11px; font-weight:750; letter-spacing:-.01em; }
+.portal-app .portal-connection-dot { width:9px; height:9px; box-shadow:0 0 0 3px color-mix(in srgb,var(--portal-status-success) 14%,transparent); }
+
+/* FarmUp review: compact file/mapping context, then one clear review surface.
+   The buttons and table keep their existing governed behaviours. */
+#page-farmup.farmup-review-page .portal-import-review-heading { min-height:54px; padding:5px 0 8px; }
+#page-farmup.farmup-review-page .portal-import-review-heading .settings-eyebrow { color:var(--brand-primary); font-size:10px; font-weight:800; letter-spacing:.07em; }
+#page-farmup.farmup-review-page .portal-import-review-heading h2 { font-size:13px; font-weight:800; }
+#page-farmup.farmup-review-page .farmup-review-setup { gap:7px; padding:7px 0; }
+#page-farmup .farmup-review-setup .farmup-version-upload { display:flex; min-height:64px; align-items:center; justify-content:space-between; gap:8px; padding:8px 9px; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-surface); }
+.farmup-version-upload > div { display:grid; min-width:0; gap:4px; }
+.farmup-setup-label { color:var(--text-muted); font-size:10px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; }
+.farmup-file-picker { display:flex; min-width:0; align-items:center; gap:6px; color:var(--text-primary); cursor:pointer; }
+.farmup-file-picker input { position:absolute; width:1px; height:1px; overflow:hidden; opacity:0; }
+.farmup-file-picker i { display:grid; width:16px; height:16px; flex:0 0 16px; place-items:center; color:var(--brand-primary); }
+.farmup-file-picker i svg { width:15px; height:15px; }
+.farmup-file-picker span { overflow:hidden; font-size:11px; font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
+#page-farmup .farmup-review-setup .farmup-version-upload .btn { min-height:34px; padding:6px 9px; font-size:11px; }
+#page-farmup .farmup-review-setup .farmup-mapping-summary { display:flex; min-height:64px; justify-content:space-between; padding:8px 9px; border-radius:10px; background:var(--bg-muted); }
+#page-farmup .farmup-mapping-summary strong { font-size:11px; }
+#page-farmup .farmup-mapping-summary span { font-size:10px; }
+#page-farmup.farmup-review-page .farmup-toolbar { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:7px; padding:7px 0; }
+.farmup-search-field { position:relative; display:flex; min-width:0; align-items:center; }
+.farmup-search-field > i { position:absolute; left:10px; display:grid; width:15px; height:15px; place-items:center; color:var(--text-muted); pointer-events:none; }
+.farmup-search-field > i svg { width:15px; height:15px; }
+#page-farmup.farmup-review-page .farmup-toolbar .farmup-search-field input { width:100%; min-height:36px; padding:7px 9px 7px 31px; border-radius:10px; font-size:12px; }
+.farmup-toolbar-actions { display:flex; align-items:center; gap:5px; }
+#page-farmup .farmup-mode-toggle { padding:2px; border-radius:8px; }
+#page-farmup .farmup-mode-toggle button { width:28px; height:28px; min-height:28px; }
+#page-farmup #farmup-review-filter { min-height:32px; padding:5px 8px; font-size:10px; white-space:nowrap; }
+.farmup-bulk-actions { position:relative; flex:0 0 auto; }
+.farmup-bulk-actions summary { display:grid; width:32px; height:32px; place-items:center; border:1px solid var(--border-color); border-radius:8px; background:var(--bg-surface); color:var(--text-muted); cursor:pointer; list-style:none; }
+.farmup-bulk-actions summary::-webkit-details-marker { display:none; }
+.farmup-bulk-actions summary svg { width:16px; height:16px; }
+.farmup-bulk-actions[open] summary { border-color:var(--brand-primary); color:var(--brand-primary); }
+.farmup-bulk-actions > div { position:absolute; z-index:8; top:calc(100% + 5px); right:0; display:grid; width:170px; padding:4px; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-surface); box-shadow:0 10px 25px rgba(15,23,42,.16); }
+.farmup-bulk-actions button { display:flex; min-height:34px; align-items:center; gap:7px; padding:6px 7px; border:0; border-radius:7px; background:transparent; color:var(--text-primary); font-size:11px; font-weight:650; text-align:left; }
+.farmup-bulk-actions button:hover { background:var(--bg-muted); }
+.farmup-bulk-actions button svg { width:15px; height:15px; color:var(--text-muted); }
+#page-farmup.farmup-review-page .farmup-selection-summary { grid-template-columns:repeat(4,minmax(0,1fr)); border-radius:10px 10px 0 0; }
+#page-farmup.farmup-review-page .farmup-selection-summary span { min-height:43px; align-content:center; justify-items:center; padding:5px 3px; }
+#page-farmup.farmup-review-page .farmup-selection-summary strong { font-size:14px; line-height:1; }
+#page-farmup.farmup-review-page .farmup-selection-summary small { color:inherit; font-size:9px; font-weight:650; line-height:1.1; }
+#page-farmup.farmup-review-page .farmup-grid-wrap { border-radius:0 0 10px 10px; }
+#page-farmup.farmup-review-page .farmup-commit-bar { position:sticky; bottom:calc(env(safe-area-inset-bottom,0px) + 4px); margin-top:8px; padding:8px 10px; border:1px solid var(--border-color); border-radius:10px; background:color-mix(in srgb,var(--bg-surface) 96%,transparent); backdrop-filter:blur(10px); }
+#page-farmup.farmup-review-page .farmup-commit-bar .btn { min-height:40px; padding-inline:12px; }
+
+@media (max-width:430px) {
+  .portal-app.workflow-standard .app-shell-header { height:48px; min-height:48px; padding-inline:10px; }
+  .portal-app .app-shell-header h1 { font-size:16px; }
+  .portal-app .shell-title p, .portal-connection-label { display:none; }
+  .portal-app .shell-actor { padding-left:6px; }
+  #page-farmup.farmup-review-page .farmup-review-setup { grid-template-columns:1fr; }
+  #page-farmup.farmup-review-page .farmup-toolbar { grid-template-columns:1fr; }
+  .farmup-toolbar-actions { justify-content:space-between; }
+  #page-farmup #farmup-review-filter { margin-left:auto; }
+  #page-farmup.farmup-review-page .farmup-commit-bar { align-items:center; }
+  #page-farmup.farmup-review-page .farmup-commit-bar > span { max-width:46%; font-size:10px; line-height:1.3; }
+}
 
 /* Compact invoice record composition. Uses the Portal tokens and local
    components; no runtime CSS framework is required. */

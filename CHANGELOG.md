@@ -1,5 +1,18 @@
 # Changelog
 
+## Portal FarmUp review and navigation refinement - 21-September-2026
+
+- Reworked the FarmUp review presentation into a compact, table-first mobile
+  workspace: one search field, a compact review filter, grouped secondary row
+  actions, a concise selected-row summary and a bottom commit dock.
+- The current-file/mapping area now uses a small, readable setup strip rather
+  than competing with the review table. Mapping, reconciliation, selected-row
+  commit, and separate Sheet publication rules are unchanged.
+- Updated the Portal header with a compact JBL HomeBiogas brand treatment, a
+  thin primary accent, a stable notification bell and an unobtrusive connection
+  state that stays usable on narrow phones.
+- No migrations, access-policy changes, or external writes are required.
+
 ## HB action, payment and SysUp review simplification - 21-September-2026
 
 - HB Action installation now exposes only Not installed and Installed work.

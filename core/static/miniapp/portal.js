@@ -448,8 +448,12 @@
 
   function updateConnectionBanner() {
     const banner = el('portal-offline-banner');
-    if (!banner) return;
-    banner.style.display = navigator.onLine === false ? 'block' : 'none';
+    const offline = navigator.onLine === false;
+    if (banner) banner.style.display = offline ? 'block' : 'none';
+    const dot = document.querySelector('.portal-connection-dot');
+    if (dot) dot.classList.toggle('is-offline', offline);
+    const label = document.querySelector('.portal-connection-label');
+    if (label) label.textContent = offline ? 'Offline' : 'Active';
   }
 
   window.addEventListener('online', () => {
