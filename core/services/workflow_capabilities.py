@@ -82,7 +82,8 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     # Portal case model. They never grant case, document, or media access.
     CapabilityDefinition('portal.reports.view', 'jawabu_portal', 'View controlled Portal reports', 'Reporting', _roles('IT')),
     CapabilityDefinition('portal.reports.manage', 'jawabu_portal', 'Create and manage controlled Portal reports', 'Reporting', _roles('IT'), ('portal.reports.view',)),
-    CapabilityDefinition('portal.health.read', 'jawabu_portal', 'View workflow health', 'Operations', _roles('HB_STAFF', OPERATIONS_ADMIN_ROLE, 'IT', BUSINESS_ADMIN_ROLE)),
+    CapabilityDefinition('portal.settings.operations.view', 'jawabu_portal', 'View Portal operational settings', 'Operations', _roles(OPERATIONS_ADMIN_ROLE, 'IT')),
+    CapabilityDefinition('portal.health.read', 'jawabu_portal', 'View workflow health', 'Operations', _roles(OPERATIONS_ADMIN_ROLE, 'IT')),
     CapabilityDefinition('portal.health.maintenance.manage', 'jawabu_portal', 'Set Portal maintenance mode', 'Operations', _roles('IT'), ('portal.health.read',)),
     CapabilityDefinition('portal.publication.retry', 'jawabu_portal', 'Retry durable Portal register publication', 'Operations', _roles(OPERATIONS_ADMIN_ROLE, 'IT'), ('portal.case.read',)),
     CapabilityDefinition('portal.workspace.manage', 'jawabu_portal', 'Use private saved views, pins, and recents', 'IT support', _roles('IT'), ('portal.case.read',)),

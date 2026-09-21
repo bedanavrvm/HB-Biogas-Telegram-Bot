@@ -1574,6 +1574,9 @@ def _portal_setting_options(request, actor) -> dict:
     from core.services.workflow_capabilities import has_capability
 
     access = getattr(request, 'portal_access', None)
+    operations_settings = has_capability(
+        actor, 'jawabu_portal', 'portal.settings.operations.view', access=access,
+    )
     screens = [
         item for item in get_portal_nav_items(actor, access=access)
         if item['key'] != 'settings'
@@ -1591,12 +1594,15 @@ def _portal_setting_options(request, actor) -> dict:
         'queues': [item for item in screens if item['key'] in PORTAL_QUEUE_FRAGMENT_CONFIG],
         'branches': branches,
         'review_statuses': [],
+        # Settings is personal by default. Operational controls are an
+        # IT/Operations-only surface; their own endpoints remain independently
+        # capability-guarded.
+        'operations_settings': operations_settings,
         'operations': {
-            'health': has_capability(actor, 'jawabu_portal', 'portal.health.read', access=access),
-            'maintenance': has_capability(actor, 'jawabu_portal', 'portal.health.maintenance.manage', access=access),
-            'delegation': has_capability(actor, 'jawabu_portal', 'portal.approval.delegation.authorize', access=access),
-            'payment_sequence': has_capability(actor, 'jawabu_portal', 'portal.payment.sequence.manage', access=access),
-            'requisition_sequence': has_capability(actor, 'jawabu_portal', 'portal.requisition.sequence.manage', access=access),
+            'health': operations_settings and has_capability(actor, 'jawabu_portal', 'portal.health.read', access=access),
+            'maintenance': operations_settings and has_capability(actor, 'jawabu_portal', 'portal.health.maintenance.manage', access=access),
+            'payment_sequence': operations_settings and has_capability(actor, 'jawabu_portal', 'portal.payment.sequence.manage', access=access),
+            'requisition_sequence': operations_settings and has_capability(actor, 'jawabu_portal', 'portal.requisition.sequence.manage', access=access),
         },
     }
 

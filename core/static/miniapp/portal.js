@@ -1835,13 +1835,14 @@
       });
     }
     if (page === 'settings') return loadPortalSettings(true);
-    if (queueConfig[page]) return loadQueue(page, state.pages[page] || 1).then(() => {
+    if (queueConfig[page]) return loadQueue(page, state.pages[page] || 1).then(async () => {
       const actionCase = new URLSearchParams(window.location.search).get('action_case');
       if (actionCase) {
         const cleaned = new URL(window.location.href);
         cleaned.searchParams.delete('action_case');
         window.history.replaceState(window.history.state, '', cleaned.href);
       }
+      if (page === 'final') await loadApprovalDelegations();
       if (actionCase && ['jbl', 'credit', 'final'].includes(page) && isCurrentScreen(page)) return openQueueCase({id:actionCase}, page);
     });
     throw new Error(`No loader is registered for ${page}.`);
@@ -1958,7 +1959,7 @@
     const delegates = payload.delegates || [];
     const gates = payload.gates || [];
     state.portalDelegationOptions = payload;
-    target.innerHTML = `<h2>Temporary approval delegation</h2><p>Business Admins can cover one approval gate temporarily. A reason, exact scope, and expiry are mandatory.</p>
+    target.innerHTML = `<h2>Temporary approval delegation</h2><p>Head of Rural can cover one approval gate temporarily. A reason, exact scope, and expiry are mandatory.</p>
       <form id="portal-delegation-form" class="portal-delegation-form">
         <label>Delegate<select id="portal-delegation-delegate" required><option value="">Choose staff member</option>${delegates.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.label)}</option>`).join('')}</select></label>
         <label>Approval gate<select id="portal-delegation-gate" required><option value="">Choose approval gate</option>${gates.map(item => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`).join('')}</select></label>
@@ -2002,6 +2003,19 @@
     if (!candidate.all_branches && candidate.branches?.length === 1) branchSelect.value = candidate.branches[0];
   }
 
+  async function loadApprovalDelegations() {
+    const target = el('portal-approval-delegation-content');
+    if (!target || !hasCapability('portal.approval.delegation.authorize')) return;
+    target.innerHTML = '<p class="portal-approval-controls-loading">Loading temporary approval cover…</p>';
+    try {
+      const { ok, data } = await apiFetch('/settings/delegations/');
+      if (!ok || !data?.ok) throw new Error(data?.error || 'Temporary approval cover could not be loaded.');
+      renderPortalDelegations(target, data.data || {});
+    } catch (error) {
+      target.innerHTML = `<p class="portal-approval-controls-loading">${escapeHtml(error.message || 'Temporary approval cover could not be loaded.')}</p>`;
+    }
+  }
+
   async function renderPortalOperations(operations) {
     const target = el('portal-settings-operations');
     if (!target) return;
@@ -2016,16 +2030,6 @@
         if (!ok || !data.ok) throw new Error(data.error || 'System readiness could not be loaded.');
         renderPortalHealth(healthTarget, data, Boolean(operations?.maintenance));
       }).catch(error => { healthTarget.innerHTML = `<div class="portal-readiness-heading status-down"><span class="portal-status-pulse" aria-hidden="true"></span><div><h2>System readiness</h2><p>${escapeHtml(error.message || 'Portal readiness could not be loaded.')}</p></div></div>`; }));
-    }
-    if (operations?.delegation) {
-      const delegationTarget = document.createElement('div');
-      delegationTarget.className = 'portal-operation-card';
-      delegationTarget.innerHTML = '<h2>Temporary approval delegation</h2><p>Loading current temporary authority…</p>';
-      target.appendChild(delegationTarget);
-      tasks.push(apiFetch('/settings/delegations/').then(({ ok, data }) => {
-        if (!ok || !data.ok) throw new Error(data.error || 'Delegations could not be loaded.');
-        renderPortalDelegations(delegationTarget, data.data || {});
-      }).catch(error => { delegationTarget.innerHTML = `<h2>Temporary approval delegation</h2><p>${escapeHtml(error.message)}</p>`; }));
     }
     await Promise.all(tasks);
   }
@@ -2043,9 +2047,11 @@
     if (el('portal-preference-compact-cards')) el('portal-preference-compact-cards').checked = Boolean(personal.compact_cards);
     document.body.classList.toggle('portal-compact-cards', Boolean(personal.compact_cards));
     applyWorkspaceVisibility();
-    if (loadOperations) await renderPortalOperations(data.data?.operations || {});
-    if (loadOperations && data.data?.operations?.payment_sequence) await portalPayments.loadSequence?.();
-    if (loadOperations && data.data?.operations?.requisition_sequence) await portalRequisitions.loadSequence?.();
+    if (loadOperations && data.data?.operations_settings) {
+      await renderPortalOperations(data.data?.operations || {});
+      if (data.data?.operations?.payment_sequence) await portalPayments.loadSequence?.();
+      if (data.data?.operations?.requisition_sequence) await portalRequisitions.loadSequence?.();
+    }
     return personal;
   }
 
@@ -2601,7 +2607,7 @@
         reason: el('portal-delegation-reason')?.value || '',
       }, tg).then((result) => {
         if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not grant temporary authority.');
-        return loadPortalSettings(true);
+        return loadApprovalDelegations();
       }).then(() => showToast('Temporary approval authority was granted and audit-logged.', 'success'))
         .catch((error) => showToast(error.message, 'error'))
         .finally(() => setButtonLoading(button, false));
@@ -2615,7 +2621,7 @@
       setButtonLoading(button, true, 'Revoking');
       portalApi.postJson(`/settings/delegations/${encodeURIComponent(form.dataset.delegationId || '')}/revoke/`, { reason }, tg).then((result) => {
         if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not revoke temporary authority.');
-        return loadPortalSettings(true);
+        return loadApprovalDelegations();
       }).then(() => showToast('Temporary approval authority was revoked and audit-logged.', 'success'))
         .catch((error) => showToast(error.message, 'error'))
         .finally(() => setButtonLoading(button, false));

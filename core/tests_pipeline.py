@@ -1435,8 +1435,9 @@ class PortalMiniAppAuthTestCase(TestCase):
 
         self.assertEqual(settings_response.status_code, 200)
         settings_data = settings_response.json()['data']
-        self.assertTrue(settings_data['operations']['health'])
-        self.assertTrue(settings_data['operations']['delegation'])
+        self.assertFalse(settings_data['operations_settings'])
+        self.assertFalse(settings_data['operations']['health'])
+        self.assertNotIn('delegation', settings_data['operations'])
         self.assertFalse(settings_data['operations']['payment_sequence'])
         self.assertEqual(settings_data['branches'], ['Embu'])
         # Head of Rural sees the final-review queue, not the JBL officer's
@@ -1485,7 +1486,11 @@ class PortalMiniAppAuthTestCase(TestCase):
                 headers = {'HTTP_X_TELEGRAM_INIT_DATA': self._signed_init_data(telegram_id=telegram_id)}
                 settings_response = self.client.get(reverse('portal_settings'), **headers)
                 self.assertEqual(settings_response.status_code, 200)
-                self.assertEqual(settings_response.json()['data']['operations']['payment_sequence'], allowed)
+                settings_data = settings_response.json()['data']
+                self.assertEqual(settings_data['operations_settings'], allowed)
+                self.assertEqual(settings_data['operations']['payment_sequence'], allowed)
+                health_response = self.client.get(reverse('portal_health'), **headers)
+                self.assertEqual(health_response.status_code, 200 if allowed else 403)
                 sequence_response = self.client.get(reverse('portal_payment_sequence'), **headers)
                 self.assertEqual(sequence_response.status_code, 200 if allowed else 403)
                 edit_response = self.client.patch(

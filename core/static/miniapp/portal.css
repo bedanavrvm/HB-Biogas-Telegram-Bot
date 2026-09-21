@@ -443,6 +443,13 @@ body.portal-overlay-open { overflow: hidden; }
 .portal-delegation-row span { color: var(--text-muted); font-size: 11px; line-height: 1.35; }
 .portal-delegation-row.is-history { opacity: .78; }
 .portal-delegation-empty { margin: 0; padding: 8px 0; color: var(--text-muted); font-size: 12px; }
+.portal-approval-controls { margin: 0 0 9px; overflow: hidden; border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: var(--bg-surface); }
+.portal-approval-controls summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 42px; padding: 9px 11px; cursor: pointer; color: var(--text-color); list-style: none; }
+.portal-approval-controls summary::-webkit-details-marker { display: none; }
+.portal-approval-controls summary span { font-size: 12px; font-weight: 800; }
+.portal-approval-controls summary small { color: var(--text-muted); font-size: 10px; font-weight: 600; }
+.portal-approval-controls > div { padding: 0 11px 11px; border-top: 1px solid var(--border-color); }
+.portal-approval-controls-loading { margin: 10px 0 0; color: var(--text-muted); font-size: 11px; }
 .portal-workspace-dashboard {
   display: grid;
   gap: 10px;
