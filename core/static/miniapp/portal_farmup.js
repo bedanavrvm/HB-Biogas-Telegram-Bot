@@ -34,8 +34,8 @@
     const label = form?.querySelector('[data-farmup-file-label]');
     if (!label) return;
     label.textContent = uploaded ? `Uploaded: ${filename}` : `Selected: ${filename}`;
-    const dropzone = label.closest('.invoice-upload-dropzone');
-    if (dropzone) dropzone.dataset.uploadState = uploaded ? 'uploaded' : 'selected';
+    const fileControl = label.closest('.farmup-file-control, .invoice-upload-dropzone');
+    if (fileControl) fileControl.dataset.uploadState = uploaded ? 'uploaded' : 'selected';
     const status = form.querySelector('[data-farmup-upload-status]');
     if (status) status.textContent = uploaded ? 'CSV uploaded successfully. Review the rows below, or tap to choose another file.' : 'File selected. Tap Upload CSV to continue.';
   }

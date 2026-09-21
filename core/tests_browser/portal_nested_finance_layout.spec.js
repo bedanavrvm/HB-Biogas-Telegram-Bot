@@ -36,7 +36,7 @@ test('mobile notification bell stays fixed and payment approval tabs retain nati
     return window.PortalMiniAppPayments.load();
   });
 
-  await expect(page.locator('#portal-notification-button')).toHaveCSS('width', '36px');
+  await expect(page.locator('#portal-notification-button')).toHaveCSS('width', '32px');
   await expect(page.locator('#portal-notification-button')).toHaveCSS('flex-grow', '0');
   await expect(page.locator('[data-payment-batch-count="in_review"]')).toHaveText('1');
   await expect(page.locator('[data-payment-batch-count="review_complete"]')).toHaveText('0');

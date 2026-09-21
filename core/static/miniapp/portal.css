@@ -4187,7 +4187,7 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
    data in the DOM for live updates, but reserve the narrow header for the
    brand, work bell and connection state rather than letting a role label
    crowd the navigation controls. */
-.portal-app.workflow-standard .app-shell-header { position:sticky; z-index:70; display:flex; height:48px; min-height:48px; align-items:center; justify-content:space-between; gap:10px; padding:4px 13px 3px; border-bottom:1px solid var(--border-color); background:var(--bg-surface); box-shadow:inset 0 3px 0 var(--brand-primary),0 1px 3px rgba(15,23,42,.04); }
+.portal-app.workflow-standard .app-shell-header { position:sticky; z-index:70; display:flex; height:48px; min-height:48px; align-items:center; justify-content:space-between; gap:10px; padding:4px 13px 3px; border-bottom:1px solid var(--border-color); background:var(--bg-surface); box-shadow:0 1px 3px rgba(15,23,42,.04); }
 .portal-header-brand, .portal-header-actions { display:flex; min-width:0; align-items:center; }
 .portal-header-brand { flex:1 1 auto; gap:9px; }
 .portal-header-actions { flex:0 0 auto; gap:8px; }
@@ -4249,6 +4249,37 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 #page-farmup.farmup-review-page .farmup-commit-bar { position:sticky; bottom:calc(env(safe-area-inset-bottom,0px) + 4px); margin-top:8px; padding:8px 10px; border:1px solid var(--border-color); border-radius:10px; background:color-mix(in srgb,var(--bg-surface) 96%,transparent); backdrop-filter:blur(10px); }
 #page-farmup.farmup-review-page .farmup-commit-bar .btn { min-height:40px; padding-inline:12px; }
 
+/* FarmUp landing is an upload action, not a form questionnaire.  The month,
+   source file and action stay together in one small control group at phone
+   width, leaving the pending worklist visible below it. */
+#page-farmup:not(.farmup-review-page) { max-width:620px; margin-inline:auto; }
+#page-farmup:not(.farmup-review-page) .farmup-intake-heading { margin:3px 0 10px; }
+#page-farmup:not(.farmup-review-page) .farmup-intake-heading h1 { font-size:18px; font-weight:800; letter-spacing:-.015em; }
+#page-farmup:not(.farmup-review-page) .farmup-intake-heading .meta { max-width:42rem; margin:3px 0 0; color:var(--text-muted); font-size:11px; line-height:1.35; text-transform:none; letter-spacing:0; }
+#page-farmup:not(.farmup-review-page) .portal-farmup-upload { display:grid; gap:9px; max-width:none; padding:11px; border-radius:11px; background:var(--bg-surface); box-shadow:0 1px 3px rgba(15,23,42,.04); }
+.farmup-upload-heading { display:flex; align-items:start; justify-content:space-between; gap:8px; }
+.farmup-upload-heading > div { min-width:0; }
+.farmup-upload-heading .settings-eyebrow { color:var(--brand-primary); font-size:10px; font-weight:800; letter-spacing:.07em; }
+#page-farmup .farmup-upload-heading h2 { margin:2px 0 0; color:var(--text-primary); font-size:14px; font-weight:800; }
+.farmup-upload-format { flex:0 0 auto; padding:3px 6px; border:1px solid var(--border-color); border-radius:5px; background:var(--bg-muted); color:var(--text-muted); font-size:9px; font-weight:800; letter-spacing:.06em; }
+.farmup-upload-controls { display:grid; grid-template-columns:112px minmax(0,1fr); gap:8px; align-items:end; }
+#page-farmup .farmup-month-field { gap:4px; }
+#page-farmup .farmup-month-field > span { color:var(--text-muted); font-size:10px; font-weight:750; }
+#page-farmup .portal-farmup-upload input[type="month"] { width:100%; min-height:38px; padding:6px 7px; border-radius:8px; font-size:11px; }
+.farmup-file-action { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:7px; }
+#page-farmup .farmup-file-control { position:relative; display:flex; min-width:0; min-height:38px; align-items:center; gap:7px; padding:6px 8px; border:1px dashed var(--border-color); border-radius:8px; background:var(--bg-muted); color:var(--text-primary); text-align:left; }
+#page-farmup .farmup-file-control input { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+#page-farmup .farmup-file-control svg { width:16px; height:16px; flex:0 0 16px; color:var(--brand-primary); }
+#page-farmup .farmup-file-control > span { min-width:0; overflow:hidden; color:var(--text-muted); font-size:11px; font-weight:650; text-overflow:ellipsis; text-transform:none; letter-spacing:0; white-space:nowrap; }
+#page-farmup .farmup-file-control[data-upload-state="selected"] { border-color:var(--brand-primary); background:color-mix(in srgb,var(--brand-primary) 6%,var(--bg-surface)); }
+#page-farmup .farmup-file-control[data-upload-state="uploaded"] { border-color:var(--portal-status-success); background:var(--portal-status-success-bg); }
+#page-farmup .farmup-file-control[data-upload-state="uploaded"] > span { color:var(--portal-status-success); }
+#page-farmup .farmup-file-action .btn { width:auto; min-height:38px; padding:6px 10px; border-radius:8px; font-size:11px; white-space:nowrap; }
+#page-farmup .farmup-file-action .btn svg { width:15px; height:15px; }
+#page-farmup .farmup-upload-help { display:flex; align-items:start; margin:0; color:var(--text-muted); font-size:10px; line-height:1.35; text-align:left; }
+#page-farmup .farmup-upload-help::before { width:6px; height:6px; flex:0 0 6px; margin:4px 6px 0 1px; border-radius:50%; background:var(--portal-status-success); content:""; }
+#page-farmup:not(.farmup-review-page) .portal-import-history { margin-top:16px; }
+
 @media (max-width:430px) {
   .portal-app.workflow-standard .app-shell-header { height:48px; min-height:48px; padding-inline:10px; }
   .portal-app .app-shell-header h1 { font-size:16px; }
@@ -4260,6 +4291,10 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
   #page-farmup #farmup-review-filter { margin-left:auto; }
   #page-farmup.farmup-review-page .farmup-commit-bar { align-items:center; }
   #page-farmup.farmup-review-page .farmup-commit-bar > span { max-width:46%; font-size:10px; line-height:1.3; }
+  #page-farmup:not(.farmup-review-page) { padding-inline:0; }
+  .farmup-upload-controls { grid-template-columns:1fr; gap:7px; }
+  #page-farmup .farmup-month-field { grid-template-columns:auto minmax(0,1fr); align-items:center; gap:7px; }
+  #page-farmup .farmup-month-field > span { white-space:nowrap; }
 }
 
 /* Compact invoice record composition. Uses the Portal tokens and local

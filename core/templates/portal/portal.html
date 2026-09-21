@@ -526,13 +526,17 @@
     <div id="portal-farmup-feedback" aria-live="polite"></div>
     <section id="portal-farmup-review" class="portal-import-review" aria-live="polite"><div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading FarmUp worklist…</div></div></section>
     {% else %}
-    <header class="farmup-intake-heading"><h1>FarmUp Intake</h1><p class="meta">Review and commit monthly farmer intake records.</p><div id="farmup-pending-badge" class="farmup-pending-badge" hidden aria-live="polite"></div></header>
+    <header class="farmup-intake-heading"><h1>FarmUp intake</h1><p class="meta">Reconcile the monthly farmer worklist before it enters the Portal.</p><div id="farmup-pending-badge" class="farmup-pending-badge" hidden aria-live="polite"></div></header>
     <form id="portal-farmup-upload" class="portal-import-upload portal-farmup-upload">
-      <h2>Upload CSV</h2>
-      <label class="farmup-month-field"><span>Target month</span><input type="month" name="period" required></label>
-      <label class="invoice-upload-dropzone"><input type="file" name="file" data-farmup-file required><i data-lucide="cloud-upload" aria-hidden="true"></i><span data-farmup-file-label>Tap to select CSV file</span><small>Farmers intake · UTF-8 CSV · up to {{ farmup_max_file_size_mb|default:5 }} MB</small></label>
-      <button type="submit" class="btn btn-primary"><i data-lucide="upload" aria-hidden="true"></i>Upload CSV</button>
-      <p class="farmup-upload-help">Review before committing. Sheet sync is tracked separately.</p>
+      <div class="farmup-upload-heading"><div><span class="settings-eyebrow">Monthly worklist</span><h2>Upload a fresh CSV</h2></div><span class="farmup-upload-format">CSV</span></div>
+      <div class="farmup-upload-controls">
+        <label class="farmup-month-field"><span>Target month</span><input type="month" name="period" required></label>
+        <div class="farmup-file-action">
+          <label class="farmup-file-control invoice-upload-dropzone"><input type="file" name="file" data-farmup-file required><i data-lucide="file-up" aria-hidden="true"></i><span data-farmup-file-label>Choose CSV file</span></label>
+          <button type="submit" class="btn btn-primary"><i data-lucide="upload" aria-hidden="true"></i><span>Upload</span></button>
+        </div>
+      </div>
+      <p class="farmup-upload-help">Rows are reviewed before they are committed. Sheet synchronization follows separately.</p>
       <p class="farmup-upload-status" data-farmup-upload-status role="status" aria-live="polite"></p>
     </form>
     <div id="portal-farmup-feedback" aria-live="polite"></div>

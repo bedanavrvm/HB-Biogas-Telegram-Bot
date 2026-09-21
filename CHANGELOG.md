@@ -8,9 +8,11 @@
 - The current-file/mapping area now uses a small, readable setup strip rather
   than competing with the review table. Mapping, reconciliation, selected-row
   commit, and separate Sheet publication rules are unchanged.
+- Reworked the FarmUp landing upload into a compact month, CSV-file and upload
+  control group; the full review table now begins sooner on a small phone.
 - Updated the Portal header with a compact JBL HomeBiogas brand treatment, a
-  thin primary accent, a stable notification bell and an unobtrusive connection
-  state that stays usable on narrow phones.
+  stable notification bell and an unobtrusive connection state that stays
+  usable on narrow phones.
 - No migrations, access-policy changes, or external writes are required.
 
 ## HB action, payment and SysUp review simplification - 21-September-2026
