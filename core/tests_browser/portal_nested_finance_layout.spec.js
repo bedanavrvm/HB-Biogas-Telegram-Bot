@@ -15,9 +15,9 @@ async function assertNoHorizontalOverflow(page, width) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
 }
 
-test('mobile notification bell stays fixed and payment cards retain native navigation', async ({ page }) => {
+test('mobile notification bell stays fixed and payment approval tabs retain native navigation', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
-  await page.setContent(`<body class="workflow-standard portal-app"><header class="app-shell-header"><button class="shell-menu-button">Menu</button><div class="shell-title"><h1>Pipeline Portal</h1></div><button id="portal-notification-button" class="portal-notification-button"><span hidden>0</span></button><div class="shell-actor"><span>Active</span></div></header><main id="content"><div id="portal-screen" data-screen="payment_approvals" data-payment-batch-id=""><section id="page-payments" class="page active"><div id="payments-summary"></div><div id="payments-batches"></div></section></div></main></body>`);
+  await page.setContent(`<body class="workflow-standard portal-app"><header class="app-shell-header"><button class="shell-menu-button">Menu</button><div class="shell-title"><h1>Pipeline Portal</h1></div><button id="portal-notification-button" class="portal-notification-button"><span hidden>0</span></button><div class="shell-actor"><span>Active</span></div></header><main id="content"><div id="portal-screen" data-screen="payment_approvals" data-payment-batch-id=""><section id="page-payments" class="page active"><nav class="portal-invoice-tabs payment-batch-filters"><button class="active" data-payment-batch-filter="in_review"><span>Awaiting review</span><span class="count-pill" data-payment-batch-count="in_review">0</span></button><button data-payment-batch-filter="review_complete"><span>Ready to generate</span><span class="count-pill" data-payment-batch-count="review_complete">0</span></button></nav><div id="payments-batches"></div></section></div></main></body>`);
   await loadPortalStyles(page);
   await page.addScriptTag({ path: asset('portal_payments.js') });
   await page.evaluate(() => {
@@ -38,6 +38,8 @@ test('mobile notification bell stays fixed and payment cards retain native navig
 
   await expect(page.locator('#portal-notification-button')).toHaveCSS('width', '36px');
   await expect(page.locator('#portal-notification-button')).toHaveCSS('flex-grow', '0');
+  await expect(page.locator('[data-payment-batch-count="in_review"]')).toHaveText('1');
+  await expect(page.locator('[data-payment-batch-count="review_complete"]')).toHaveText('0');
   const card = page.locator('.payment-batch-card');
   await expect(card).toHaveAttribute('href', '/portal/s/approvals/payments/a63ee1b5-a446-447b-a195-d83dfcc230e3/');
   await card.click();
@@ -110,11 +112,11 @@ test('an empty payment detail route exposes one compact build step at 320px', as
   await page.setViewportSize({ width: 320, height: 568 });
   await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="payments" data-payment-batch-id="batch-1"><section id="page-payments" class="page active">
     <header class="portal-queue-header"><div><h1>Payments</h1><p class="meta">Prepare, review and complete payment batches</p></div><div class="payment-header-actions"><button id="payments-refresh">↻</button><button class="btn btn-primary" id="payments-new">New batch</button></div></header>
-    <div id="payments-summary" class="payment-summary-strip"></div><nav class="portal-invoice-tabs payment-batch-filters"><button class="active" data-payment-batch-filter="open">Open</button><button data-payment-batch-filter="completed">Completed</button><button data-payment-batch-filter="cancelled">Cancelled</button><button data-payment-batch-filter="all">All</button></nav><div id="payments-batches" class="payment-batch-list"></div>
+    <nav class="portal-invoice-tabs payment-batch-filters"><button class="active" data-payment-batch-filter="open"><span>Open</span><span class="count-pill" data-payment-batch-count="open">0</span></button><button data-payment-batch-filter="completed"><span>Completed</span><span class="count-pill" data-payment-batch-count="completed">0</span></button><button data-payment-batch-filter="cancelled"><span>Cancelled</span><span class="count-pill" data-payment-batch-count="cancelled">0</span></button><button data-payment-batch-filter="all"><span>All</span><span class="count-pill" data-payment-batch-count="all">0</span></button></nav><div id="payments-batches" class="payment-batch-list"></div>
     <section id="payments-detail" class="payment-detail" hidden><header class="payment-detail-header"><button id="payments-detail-back">←</button><div><h2 id="payments-detail-title"></h2><p id="payments-detail-meta"></p></div></header><div id="payments-progress" class="payment-progress"></div>
       <section id="payments-current-section" class="payment-detail-section"><header><span class="payment-step">Batch cases</span><h3>Cases in this batch</h3></header><div id="payments-current-cases" class="payment-current-cases"></div></section>
       <section id="payments-add-panel" class="payment-detail-section payment-add-section"><header><span class="payment-step" id="payments-add-step">Add cases</span><h3 id="payments-add-title">Choose cases and payment modes</h3><p id="payments-add-help"></p></header><div class="payment-search-row"><label><span>Add cases</span><input id="payments-search" type="search" placeholder="Search customer, ID, phone, invoice or order"></label><strong id="payments-result-count">0 found</strong></div><div class="payment-filter-chips" id="payments-filter-chips"><button class="active" data-payment-filter="ready">Ready</button><button data-payment-filter="blocked">Needs attention</button><button data-payment-filter="pending">In another batch</button></div><div class="payment-selection-bar"><strong id="payments-selected-count">0 selected</strong><button id="payments-clear-selection">Clear</button><button class="btn btn-primary" id="payments-add-selected">Add selected</button></div><div id="payments-list" class="payment-candidate-list"></div></section>
-      <details class="payment-activity"><summary>Batch activity</summary><div id="payments-activity"></div></details><div id="payments-primary-action" class="payment-primary-action"></div>
+      <div id="payments-detail-feedback" class="payment-detail-feedback"></div><details class="payment-activity"><summary>Batch activity</summary><div id="payments-activity"></div></details><div id="payments-primary-action" class="payment-primary-action"></div>
     </section>
   </section></div></main><div id="toast"></div></body>`);
   await loadPortalStyles(page);
@@ -142,6 +144,36 @@ test('an empty payment detail route exposes one compact build step at 320px', as
   await expect(page.locator('.payment-activity')).toBeHidden();
   await expect(page.locator('#payments-primary-action')).toBeEmpty();
   await expect(page.locator('#payments-add-panel')).toBeVisible();
+  await expect(page.locator('#payments-detail-title')).toHaveText('Payment batch');
+  await expect(page.locator('#payments-detail-feedback')).toBeHidden();
+  await page.evaluate(() => {
+    window.__paymentBackDestination = '';
+    window.PortalAppShell = { navigateUrl(url) { window.__paymentBackDestination = url; } };
+  });
+  await page.locator('#payments-detail-back').click();
+  expect(await page.evaluate(() => window.__paymentBackDestination)).toBe('/portal/s/payments/');
+  await assertNoHorizontalOverflow(page, 320);
+});
+
+test('a payment detail load failure keeps Back available with a specific retry message', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="payments" data-payment-batch-id="missing-batch"><section id="page-payments" class="page active"><section id="payments-detail" class="payment-detail"><header class="payment-detail-header"><button id="payments-detail-back">Back</button><div><h2 id="payments-detail-title">Payment batch</h2><p id="payments-detail-meta"></p></div></header><div id="payments-detail-feedback" class="payment-detail-feedback"></div><div id="payments-progress"></div><section id="payments-current-section"><div id="payments-current-cases"></div></section><details class="payment-activity"><div id="payments-activity"></div></details><div id="payments-primary-action"></div></section></section></div></main></body>`);
+  await loadPortalStyles(page);
+  await page.addScriptTag({ path: asset('portal_payments.js') });
+  await page.evaluate(() => {
+    window.__paymentBackDestination = '';
+    window.PortalAppShell = { navigateUrl(url) { window.__paymentBackDestination = url; } };
+    window.PortalMiniAppPayments.init({
+      el: id => document.getElementById(id), escapeHtml: value => String(value ?? ''),
+      state: { capabilities: new Set(['portal.payment.prepare']) }, showToast() {},
+      apiFetch: async () => ({ ok: false, data: { ok: false, error: 'You do not have access to this payment batch.' } }),
+    });
+    return window.PortalMiniAppPayments.load();
+  });
+  await expect(page.locator('#payments-detail-feedback')).toContainText('You do not have access to this payment batch.');
+  await expect(page.locator('#payments-detail-retry')).toBeVisible();
+  await page.locator('#payments-detail-back').click();
+  expect(await page.evaluate(() => window.__paymentBackDestination)).toBe('/portal/s/payments/');
   await assertNoHorizontalOverflow(page, 320);
 });
 

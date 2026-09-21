@@ -34,14 +34,37 @@
     return ({completed: 'badge-green', awaiting_scan: 'badge-orange', review_complete: 'badge-blue', in_review: 'badge-blue', cancelled: 'badge-grey'})[status] || 'badge-grey';
   }
 
-  function renderSummary() {
-    const target = el('payments-summary');
-    if (!target) return;
+  function setBatchTabCount(filter, value) {
+    const badge = document.querySelector(`[data-payment-batch-count="${filter}"]`);
+    if (!badge) return;
+    const count = Number(value || 0);
+    badge.textContent = String(count);
+    badge.closest('button')?.setAttribute('aria-label', `${badge.closest('button')?.querySelector('span:first-child')?.textContent || 'Payment batches'}: ${count}`);
+  }
+
+  function renderBatchTabCounts() {
     const count = key => batches.filter(item => item.status === key).length;
-    const summary = approvalMode()
-      ? [['Awaiting review', count('in_review')], ['Ready to generate', count('review_complete')]]
-      : [['Draft', count('draft')], ['Submitted', count('in_review') + count('review_complete')], ['Awaiting scan', count('awaiting_scan')], ['Completed', count('completed')]];
-    target.innerHTML = summary.map(([label, value]) => `<span><strong>${value}</strong><small>${label}</small></span>`).join('');
+    if (approvalMode()) {
+      setBatchTabCount('in_review', count('in_review'));
+      setBatchTabCount('review_complete', count('review_complete'));
+      return;
+    }
+    setBatchTabCount('open', batches.filter(item => !['completed', 'cancelled'].includes(item.status)).length);
+    setBatchTabCount('completed', count('completed'));
+    setBatchTabCount('cancelled', count('cancelled'));
+    setBatchTabCount('all', batches.length);
+  }
+
+  function normalizeBatchFilter() {
+    const allowed = approvalMode()
+      ? ['in_review', 'review_complete']
+      : ['open', 'completed', 'cancelled', 'all'];
+    if (!allowed.includes(batchFilter)) batchFilter = approvalMode() ? 'in_review' : 'open';
+  }
+
+  function navigatePayment(url) {
+    if (window.PortalAppShell?.navigateUrl) return window.PortalAppShell.navigateUrl(url);
+    window.location.assign(url);
   }
 
   function batchCard(batch) {
@@ -55,13 +78,13 @@
   }
 
   function renderBatches() {
-    renderSummary();
+    normalizeBatchFilter();
+    renderBatchTabCounts();
     const target = el('payments-batches');
     if (!target) return;
     document.querySelectorAll('[data-payment-batch-filter]').forEach(button => button.classList.toggle('active', button.dataset.paymentBatchFilter === batchFilter));
-    const approvalStatuses = ['in_review', 'review_complete'];
     const visible = batches.filter(item => {
-      if (approvalMode()) return approvalStatuses.includes(item.status) && (batchFilter === 'all' || batchFilter === 'approval');
+      if (approvalMode()) return item.status === batchFilter;
       return batchFilter === 'all' || (batchFilter === 'open' ? !['completed', 'cancelled'].includes(item.status) : item.status === batchFilter);
     });
     target.innerHTML = visible.length
@@ -71,15 +94,12 @@
 
   async function load(options) {
     if (!active()) return;
-    batchFilter = approvalMode() ? 'approval' : batchFilter;
-    const target = el('payments-batches') || el('payments-detail');
+    normalizeBatchFilter();
+    const routeBatchId = detailBatchId();
+    if (routeBatchId) return openBatch(routeBatchId, options);
+    const target = el('payments-batches');
     if (target && !options?.quiet) target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
     try {
-      const routeBatchId = detailBatchId();
-      if (routeBatchId) {
-        await openBatch(routeBatchId, {quiet: true});
-        return;
-      }
       const response = await deps.apiFetch('/payments/batches/');
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not load payment batches.');
       batches = response.data.batches || [];
@@ -130,7 +150,7 @@
       activeBatch = response.data.batch;
       selected.clear();
       selectedModes.clear();
-      window.location.assign(detailUrl(activeBatch.id));
+      navigatePayment(detailUrl(activeBatch.id));
       deps.showToast('Payment batch created.', 'success');
     } catch (error) {
       deps.showToast(error.message || 'Could not create payment batch.', 'error');
@@ -144,20 +164,41 @@
   }
 
   function closeDetail() {
-    window.location.assign(inboxUrl());
+    navigatePayment(inboxUrl());
+  }
+
+  function setDetailFeedback(message, {error = false, loading = false, retry = false} = {}) {
+    const root = el('payments-detail');
+    const target = el('payments-detail-feedback');
+    if (!root || !target) return;
+    root.setAttribute('aria-busy', loading ? 'true' : 'false');
+    if (!message) {
+      target.hidden = true;
+      target.replaceChildren();
+      return;
+    }
+    target.hidden = false;
+    target.classList.toggle('error', error);
+    target.innerHTML = `${loading ? '<div class="spinner-inline" aria-hidden="true"></div>' : ''}<span>${escape(message)}</span>${retry ? '<button type="button" class="btn btn-secondary" id="payments-detail-retry">Retry</button>' : ''}`;
   }
 
   async function openBatch(id, options) {
     const loadVersion = ++detailLoadVersion;
     const routeSignature = `${screen()}:${detailBatchId()}`;
+    if (!options?.quiet) setDetailFeedback('Loading payment batch…', {loading: true});
     try {
       const response = await deps.apiFetch(`/payments/batches/${encodeURIComponent(id)}/`);
       if (!active() || loadVersion !== detailLoadVersion || routeSignature !== `${screen()}:${detailBatchId()}`) return;
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not open payment batch.');
       activeBatch = response.data.batch;
+      setDetailFeedback('');
       showDetail();
       if (!approvalMode() && capability('portal.payment.prepare') && ['draft', 'in_review', 'review_complete', 'awaiting_scan'].includes(activeBatch.status)) await loadCandidates(options);
-    } catch (error) { deps.showToast(error.message || 'Could not open payment batch.', 'error'); }
+    } catch (error) {
+      const message = error.message || 'Could not open payment batch.';
+      setDetailFeedback(message, {error: true, retry: true});
+      deps.showToast(message, 'error');
+    }
   }
 
   function caseRow(item) {
@@ -194,7 +235,7 @@
       activity: detailRoot?.querySelector('#payments-activity'),
     };
     if (!detailRoot || Object.values(required).some(node => !node)) {
-      deps.showToast('Payment details could not be displayed. Refresh this screen and try again.', 'error');
+      setDetailFeedback('Payment details could not be displayed. Retry this page or return to payment batches.', {error: true, retry: true});
       window.dispatchEvent(new CustomEvent('portal:render-error', {detail: {screen: screen(), component: 'payment-detail'}}));
       return;
     }
@@ -302,7 +343,7 @@
       renderDetail();
       if (!approvalMode()) await loadCandidates({quiet: true});
       const list = await deps.apiFetch('/payments/batches/');
-      if (list.ok && list.data?.ok) { batches = list.data.batches || []; renderSummary(); }
+      if (list.ok && list.data?.ok) { batches = list.data.batches || []; renderBatchTabCounts(); }
       return true;
     } catch (error) {
       const message = error.message || 'The payment batch could not be updated.';
@@ -448,8 +489,7 @@
       if (batch) {
         event.preventDefault();
         const url = batch.getAttribute('href') || detailUrl(batch.dataset.paymentBatch);
-        if (window.PortalAppShell?.navigateUrl) return window.PortalAppShell.navigateUrl(url);
-        return window.location.assign(url);
+        return navigatePayment(url);
       }
       const batchFilterButton = target.closest('[data-payment-batch-filter]');
       if (batchFilterButton) { batchFilter = batchFilterButton.dataset.paymentBatchFilter; return renderBatches(); }
@@ -457,6 +497,7 @@
       if (target.closest('#payments-new')) return createBatch(target.closest('#payments-new'));
       if (target.closest('#payments-sequence-save')) return saveSequence(target.closest('#payments-sequence-save'));
       if (target.closest('#payments-detail-back')) return closeDetail();
+      if (target.closest('#payments-detail-retry')) return openBatch(detailBatchId(), {});
       const filter = target.closest('[data-payment-filter]');
       if (filter) { candidateFilter = filter.dataset.paymentFilter; return renderCandidates(); }
       if (target.closest('#payments-clear-selection')) { selected.clear(); return renderCandidates(); }

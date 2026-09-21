@@ -2768,7 +2768,7 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .payment-builder-actions strong, .payment-builder-actions span { display: block; }
 .payment-builder-actions span { margin-top: 2px; color: var(--text-muted); font-size: 9px; }
 .payment-candidate-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.payment-candidate { min-width: 0; border: 1px solid var(--border-color); border-radius: 11px; background: var(--bg-surface); padding: 10px; }
+.payment-candidate { display: grid; gap: 7px; min-width: 0; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-surface); padding: 9px; }
 .payment-candidate.selected { border-color: var(--color-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 22%, transparent); background: color-mix(in srgb, var(--color-primary) 8%, var(--bg-surface)); }
 .payment-candidate.blocked { opacity: .72; }
 .payment-candidate.pending-review { border-color: var(--portal-status-warning); background: color-mix(in srgb, var(--portal-status-warning) 7%, var(--bg-surface)); }
@@ -2777,11 +2777,11 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .payment-candidate-main input { accent-color: var(--color-primary); }
 .payment-candidate-main strong, .payment-candidate-main small { display: block; }
 .payment-candidate-main strong { font-size: 12px; }
-.payment-candidate-main small { margin-top: 2px; color: var(--text-muted); font-size: 9px; }
-.payment-candidate-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-top: 8px; }
-.payment-candidate-meta span { border-radius: 7px; background: var(--bg-muted); padding: 6px 7px; color: var(--text-muted); font-size: 8px; }
-.payment-candidate-meta strong { display: block; margin-top: 2px; overflow-wrap: anywhere; color: var(--text-primary); font-size: 10px; }
-.payment-candidate-warning { margin-top: 7px; border-radius: 7px; background: color-mix(in srgb, var(--portal-status-warning) 11%, var(--bg-surface)); color: var(--portal-status-warning); padding: 7px; font-size: 9px; }
+.payment-candidate-main small { margin-top: 2px; color: var(--text-muted); font-size: 10px; }
+.payment-candidate-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; padding-top: 6px; border-top: 1px solid var(--border-color); }
+.payment-candidate-meta span { color: var(--text-muted); font-size: 10px; }
+.payment-candidate-meta strong { display: inline; margin-left: 3px; overflow-wrap: anywhere; color: var(--text-primary); font-size: 10px; }
+.payment-candidate-warning { border-radius: 7px; background: color-mix(in srgb, var(--portal-status-warning) 11%, var(--bg-surface)); color: var(--portal-status-warning); padding: 7px; font-size: 10px; }
 .payment-selection-preview { margin-top: 12px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-surface); padding: 10px; }
 .payment-selection-preview > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .payment-selection-preview h2, .payment-selection-preview p { margin: 0; }
@@ -2789,26 +2789,26 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .payment-selection-preview p { color: var(--text-muted); font-size: 9px; }
 @media (max-width: 700px) { .payment-candidate-list { grid-template-columns: 1fr; } .payment-builder-toolbar { grid-template-columns: 1fr; } .payment-builder-actions { flex-wrap: wrap; top: 54px; } .payment-builder-actions > div { width: 100%; } }
 
-/* Governed payment batches: dense enough for field phones without hiding state. */
-.payment-summary-strip,.payment-progress{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin:7px 0}
-.payment-summary-strip>span,.payment-progress>span{min-width:0;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-surface);padding:6px;text-align:center}
-.payment-summary-strip strong,.payment-summary-strip small,.payment-progress strong,.payment-progress small{display:block;overflow:hidden;text-overflow:ellipsis}
-.payment-summary-strip strong,.payment-progress strong{font-size:13px}.payment-summary-strip small,.payment-progress small{margin-top:1px;color:var(--text-muted);font-size:8px}
+/* Governed payment batches: compact enough for field phones without hiding state. */
+.payment-progress{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin:7px 0}
+.payment-progress>span{min-width:0;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-surface);padding:6px;text-align:center}
+.payment-progress strong,.payment-progress small{display:block;overflow:hidden;text-overflow:ellipsis}
+.payment-progress strong{font-size:13px}.payment-progress small{margin-top:1px;color:var(--text-muted);font-size:9px}
 .payment-search-row label{display:grid;gap:3px;color:var(--text-muted);font-size:9px;font-weight:700}
 .payment-search-row input{min-height:38px;border:1px solid var(--border-color);border-radius:9px;background:var(--bg-surface);color:var(--text-primary);padding:7px 9px;font-size:12px}
 .payment-batch-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
 .payment-batch-card{display:grid;gap:4px;min-width:0;border:1px solid var(--border-color);border-radius:11px;background:var(--bg-surface);padding:9px;color:var(--text-primary);text-align:left;text-decoration:none;cursor:pointer}
 .payment-batch-card:active{background:var(--bg-muted)}.payment-batch-card-head{display:flex;align-items:center;justify-content:space-between;gap:5px}.payment-batch-card-head strong{font-size:12px}.payment-batch-card-mode{color:var(--color-primary);font-size:9px;font-weight:700}.payment-batch-card-stats{display:grid;grid-template-columns:auto auto;justify-content:space-between;gap:2px 6px;font-size:10px}.payment-batch-card-stats small{grid-column:1/-1;color:var(--text-muted);font-size:8px}
-.payment-detail-header{display:flex;align-items:center;gap:7px;margin:0 0 6px}.payment-detail-header h2,.payment-detail-header p{margin:0}.payment-detail-header h2{font-size:14px}.payment-detail-header p{display:flex;align-items:center;gap:5px;color:var(--text-muted);font-size:9px}.payment-detail-header p select{min-height:26px;border:1px solid var(--border-color);border-radius:7px;background:var(--bg-surface);color:var(--text-primary);padding:3px 6px;font-size:9px}.payment-detail-header .icon-button{width:34px;height:34px;min-width:34px}
+.payment-detail-header{display:flex;align-items:center;gap:7px;margin:0 0 6px}.payment-detail-header h2,.payment-detail-header p{margin:0}.payment-detail-header h2{font-size:14px}.payment-detail-header p{display:flex;align-items:center;gap:5px;color:var(--text-muted);font-size:10px}.payment-detail-header p select{min-height:26px;border:1px solid var(--border-color);border-radius:7px;background:var(--bg-surface);color:var(--text-primary);padding:3px 6px;font-size:9px}.payment-detail-header .icon-button{width:44px;height:44px;min-width:44px;border:0;border-radius:10px;background:transparent}
 .payment-progress{grid-template-columns:repeat(4,minmax(0,1fr))}.payment-progress .payment-progress-total{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;text-align:left}.payment-progress .payment-progress-total small{margin:0}
-.payment-current-cases{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-bottom:8px}.payment-current-case{position:relative;min-width:0;border:1px solid var(--border-color);border-left:3px solid var(--portal-status-info);border-radius:9px;background:var(--bg-surface);padding:7px}.payment-current-case.payment-review-approved{border-left-color:var(--portal-status-success)}.payment-current-case.payment-review-returned,.payment-current-case.changed{border-left-color:var(--portal-status-warning);background:color-mix(in srgb,var(--portal-status-warning) 5%,var(--bg-surface))}
-.payment-case-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:5px}.payment-case-history{min-width:0;border:0;background:transparent;padding:0;color:var(--text-primary);text-align:left}.payment-case-history strong,.payment-case-history small{display:block}.payment-case-history strong{font-size:11px}.payment-case-history small{margin-top:1px;color:var(--text-muted);font-size:8px}.payment-case-values{display:flex;flex-wrap:wrap;justify-content:space-between;gap:3px;margin-top:5px;color:var(--text-muted);font-size:8px}.payment-review-comment{width:100%;min-height:46px;margin-top:5px;border:1px solid var(--border-color);border-radius:7px;background:var(--bg-muted);padding:6px;font-size:10px}.payment-case-actions{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:5px}.payment-case-actions .btn{min-height:32px;padding:5px;font-size:9px}.payment-remove-case{display:block;margin:5px 0 0 auto;border:0;background:transparent;color:var(--portal-status-danger);padding:2px;font-size:8px}.payment-case-warning{display:block;margin-top:4px;color:var(--portal-status-warning);font-size:8px;font-weight:700}.payment-review-note{margin:5px 0 0;color:var(--text-muted);font-size:9px}
+.payment-current-cases{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-bottom:8px}.payment-current-case{position:relative;min-width:0;border:1px solid var(--border-color);border-left:3px solid var(--portal-status-info);border-radius:9px;background:var(--bg-surface);padding:8px}.payment-current-case.payment-review-approved{border-left-color:var(--portal-status-success)}.payment-current-case.payment-review-returned,.payment-current-case.changed{border-left-color:var(--portal-status-warning);background:color-mix(in srgb,var(--portal-status-warning) 5%,var(--bg-surface))}
+.payment-case-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:5px}.payment-case-history{min-width:0;border:0;background:transparent;padding:0;color:var(--text-primary);text-align:left}.payment-case-history strong,.payment-case-history small{display:block}.payment-case-history strong{font-size:12px}.payment-case-history small{margin-top:2px;color:var(--text-muted);font-size:10px}.payment-case-values{display:flex;flex-wrap:wrap;justify-content:space-between;gap:3px;margin-top:6px;color:var(--text-muted);font-size:10px}.payment-review-comment{width:100%;min-height:46px;margin-top:6px;border:1px solid var(--border-color);border-radius:7px;background:var(--bg-muted);padding:6px;font-size:11px}.payment-case-actions{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:6px}.payment-case-actions .btn{min-height:36px;padding:5px;font-size:10px}.payment-remove-case{display:block;margin:5px 0 0 auto;border:0;background:transparent;color:var(--portal-status-danger);padding:2px;font-size:10px}.payment-case-warning{display:block;margin-top:4px;color:var(--portal-status-warning);font-size:10px;font-weight:700}.payment-review-note{margin:5px 0 0;color:var(--text-muted);font-size:10px}
 #payments-add-panel{border-top:1px solid var(--border-color);padding-top:8px}.payment-search-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:6px}.payment-search-row strong{padding-bottom:10px;color:var(--text-muted);font-size:9px}.payment-filter-chips{display:flex;gap:5px;overflow:auto;padding:6px 0}.payment-filter-chips button{flex:0 0 auto;border:0;border-radius:999px;background:var(--bg-muted);padding:5px 9px;color:var(--text-muted);font-size:9px;font-weight:700}.payment-filter-chips button.active{background:var(--color-primary);color:#fff}.payment-selection-bar{display:flex;align-items:center;gap:6px;margin-bottom:6px}.payment-selection-bar strong{margin-right:auto;font-size:10px}.payment-selection-bar>button:not(.btn){border:0;background:transparent;color:var(--color-primary);font-size:9px}.payment-selection-bar .btn{min-height:32px;padding:5px 9px;font-size:9px}
 .payment-primary-action{position:sticky;bottom:0;z-index:22;display:flex;gap:6px;margin:9px -10px -10px;padding:8px 10px calc(8px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--border-color);background:color-mix(in srgb,var(--bg-surface) 96%,transparent);backdrop-filter:blur(10px)}.payment-primary-action>.btn{flex:1}.payment-state-note,.payment-complete{display:grid;gap:1px;flex:1}.payment-state-note small,.payment-complete small{color:var(--text-muted);font-size:9px}.payment-scan-picker{display:flex;align-items:center;min-width:0;flex:1;border:1px dashed var(--color-primary);border-radius:8px;padding:6px;color:var(--color-primary);font-size:9px}.payment-scan-picker input{position:absolute;width:1px;height:1px;opacity:0}.payment-scan-picker span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.payment-batch-filters{padding:0 0 5px}.payment-activity{margin:6px 0 8px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-surface);font-size:9px}.payment-activity summary{cursor:pointer;padding:7px 9px;color:var(--color-primary);font-weight:750}.payment-activity>div{display:grid;border-top:1px solid var(--border-color)}.payment-activity>div>div{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 9px;border-bottom:1px solid var(--border-color)}.payment-activity>div>div:last-child{border-bottom:0}.payment-activity strong{font-size:9px}.payment-activity small{color:var(--text-muted);font-size:8px;text-align:right}.payment-cancel-link{align-self:center;border:0;background:transparent;padding:5px;color:var(--portal-status-danger);font-size:9px;font-weight:700}
+.payment-batch-filters{padding:0 0 5px}.payment-detail-feedback{display:flex;align-items:center;gap:7px;margin:0 0 7px;padding:8px 10px;border:1px solid var(--border-color);border-radius:9px;background:var(--bg-muted);color:var(--text-muted);font-size:11px}.payment-detail-feedback[hidden]{display:none}.payment-detail-feedback.error{border-color:color-mix(in srgb,var(--portal-status-danger) 35%,var(--border-color));background:color-mix(in srgb,var(--portal-status-danger) 7%,var(--bg-surface));color:var(--text-primary)}.payment-detail-feedback .btn{margin-left:auto;min-height:34px;padding:5px 9px;font-size:10px}.payment-activity{margin:6px 0 8px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-surface);font-size:10px}.payment-activity summary{cursor:pointer;padding:8px 9px;color:var(--color-primary);font-weight:750}.payment-activity>div{display:grid;border-top:1px solid var(--border-color)}.payment-activity>div>div{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 9px;border-bottom:1px solid var(--border-color)}.payment-activity>div>div:last-child{border-bottom:0}.payment-activity strong{font-size:10px}.payment-activity small{color:var(--text-muted);font-size:9px;text-align:right}.payment-cancel-link{align-self:center;border:0;background:transparent;padding:5px;color:var(--portal-status-danger);font-size:10px;font-weight:700}
 .empty-state.compact{min-height:54px;padding:12px}.payment-candidate-list{max-height:42vh;overflow:auto;padding-bottom:4px}
 .invoice-upload-dropzone.has-selection{border-color:var(--color-primary);background:color-mix(in srgb,var(--color-primary) 7%,var(--bg-surface))}.invoice-upload-dropzone.upload-complete{border-color:var(--portal-status-success);background:color-mix(in srgb,var(--portal-status-success) 8%,var(--bg-surface))}.invoice-upload-dropzone.has-selection strong,.invoice-upload-dropzone.upload-complete strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
-@media(max-width:700px){.payment-batch-list,.payment-current-cases{grid-template-columns:1fr}.payment-summary-strip{grid-template-columns:repeat(4,minmax(0,1fr))}.payment-current-case{padding:7px}.payment-candidate-list{grid-template-columns:1fr}}
+@media(max-width:700px){.payment-batch-list,.payment-current-cases{grid-template-columns:1fr}.payment-current-case{padding:8px}.payment-candidate-list{grid-template-columns:1fr}}
 
 .portal-import-group-field { display: grid; gap: 5px; margin: 10px 0; color: var(--text-muted); font-size: 11px; font-weight: 700; }
 .portal-import-group-field select { min-height: 42px; }
@@ -3936,7 +3936,7 @@ body.portal-app .requisition-print-scroll { padding-bottom:3px; }
 /* Portal compactness pass. Mobile is the base composition; wider workspaces
    add columns without changing the governed workflow components. */
 
-body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-summary) {
+body.portal-app :is(.dashboard-overview,.portal-curated-summary) {
   overflow:hidden;
   gap:0;
   border:1px solid var(--border-color);
@@ -3944,21 +3944,20 @@ body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-s
   background:var(--bg-surface);
 }
 
-body.portal-app .payment-summary-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }
 body.portal-app #dashboard-activity.is-empty .dashboard-activity-layout { grid-template-columns:64px minmax(0,1fr); gap:6px; }
 body.portal-app #dashboard-activity.is-empty .dashboard-today { min-height:54px; padding:8px; }
 body.portal-app #dashboard-activity.is-empty .dashboard-today strong { font-size:20px; }
 body.portal-app #dashboard-activity.is-empty .dashboard-today span { margin-top:2px; font-size:10px; }
 body.portal-app #dashboard-activity.is-empty .empty-state { display:grid; min-height:54px; align-content:center; padding:8px 10px; border:1px solid var(--border-color); border-radius:var(--radius-sm); background:var(--bg-surface); }
 body.portal-app #dashboard-activity.is-empty .empty-state .es-sub { font-size:11px; }
-body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-summary) > :is(div,span) {
+body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span) {
   border:0;
   border-right:1px solid var(--border-color);
   border-bottom:1px solid var(--border-color);
   border-radius:0;
 }
-body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-summary) > :is(div,span):nth-child(2n) { border-right:0; }
-body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-summary) > :is(div,span):nth-last-child(-n+2) { border-bottom:0; }
+body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span):nth-child(2n) { border-right:0; }
+body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span):nth-last-child(-n+2) { border-bottom:0; }
 
 .payment-batch-card-stats small,
 .payment-case-history small,
@@ -4026,14 +4025,10 @@ body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-s
   .jbl-visit-sheet #jbl-date-help { max-height:24px; font-size:10px; line-height:1.2; white-space:normal; text-overflow:clip; }
 }
 
-@media (min-width:700px) {
-  body.portal-app .payment-summary-strip { grid-template-columns:repeat(4,minmax(0,1fr)); }
-}
-
 @media (min-width:900px) {
-  body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-summary) > :is(div,span) { border-bottom:0; border-right:1px solid var(--border-color); }
-  body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-summary) > :is(div,span):nth-child(2n) { border-right:1px solid var(--border-color); }
-  body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-summary) > :is(div,span):last-child { border-right:0; }
+  body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span) { border-bottom:0; border-right:1px solid var(--border-color); }
+  body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span):nth-child(2n) { border-right:1px solid var(--border-color); }
+  body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span):last-child { border-right:0; }
   .dashboard-activity-layout { grid-template-columns:repeat(4,minmax(0,1fr)); }
   #dashboard-activity.is-empty .dashboard-activity-layout { grid-template-columns:64px minmax(0,1fr); }
   .dashboard-activity-layout .dashboard-metric-list { display:contents; }
@@ -4094,8 +4089,11 @@ body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-s
 .case360-correction-reason textarea { resize:vertical; }
 .case360-correction-actions { display:grid; grid-template-columns:1fr 1fr; gap:7px; position:sticky; bottom:max(0px,env(safe-area-inset-bottom)); padding-top:2px; background:var(--bg-base); }
 
-.portal-invoice-tabs.payment-batch-filters button { display:grid; min-width:0; min-height:38px; place-items:center; border:0; border-radius:7px; background:transparent; color:var(--text-muted); padding:6px; font-size:10px; font-weight:700; line-height:1.1; text-align:center; }
+.portal-invoice-tabs.payment-batch-filters { display:flex; overflow-x:auto; scrollbar-width:none; }
+.portal-invoice-tabs.payment-batch-filters::-webkit-scrollbar { display:none; }
+.portal-invoice-tabs.payment-batch-filters button { display:flex; flex:1 0 auto; align-items:center; justify-content:center; gap:4px; min-width:max-content; min-height:38px; border:0; border-radius:7px; background:transparent; color:var(--text-muted); padding:6px 8px; font-size:10px; font-weight:700; line-height:1.1; text-align:center; white-space:nowrap; }
 .portal-invoice-tabs.payment-batch-filters button.active { background:var(--bg-surface); color:var(--color-primary); box-shadow:0 1px 5px rgba(15,23,42,.12); }
+.portal-invoice-tabs.payment-batch-filters .payment-batch-tab-count { flex:0 0 auto; }
 .payment-header-actions { display:flex; align-items:center; gap:6px; }
 .payment-header-actions .btn { min-height:40px; padding:7px 11px; }
 
@@ -4171,13 +4169,12 @@ body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-s
   .operational-gps-summary .sheet-map-actions a { width:36px; min-width:36px; padding:0; justify-content:center; }
 }
 
-/* Focused payment routes: cards are summaries, while preparation and approval
-   controls live only on their respective detail screens. */
-.payment-batch-card { justify-items:center; text-align:center; }
-.payment-batch-card-head { justify-content:center; flex-wrap:wrap; }
-.payment-batch-card-stats { width:100%; grid-template-columns:repeat(2,minmax(0,1fr)); justify-content:stretch; text-align:center; }
-.payment-batch-card-mode { text-align:center; }
-#portal-screen[data-screen="payment_approvals"] .payment-summary-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }
+/* Payment batches use left-aligned operational summaries; status totals live
+   beside the tabs rather than consuming a separate summary-card row. */
+.payment-batch-card { justify-items:stretch; text-align:left; }
+.payment-batch-card-head { justify-content:space-between; flex-wrap:wrap; }
+.payment-batch-card-stats { width:100%; grid-template-columns:auto auto; justify-content:space-between; text-align:left; }
+.payment-batch-card-mode { text-align:left; }
 
 /* Compact invoice record composition. Uses the Portal tokens and local
    components; no runtime CSS framework is required. */
