@@ -4374,3 +4374,61 @@ body.portal-app :is(.dashboard-overview,.payment-summary-strip,.portal-curated-s
   .hb-action-row { grid-template-columns:minmax(0,1fr) auto 16px; padding-inline:9px; }
   .hb-action-row-side { max-width:102px; }
 }
+
+/* HB Action follows the current Portal detail language: a clear case heading,
+   left-aligned information and one compact, mobile-safe primary action. */
+.hb-action-detail-header { grid-template-columns:44px minmax(0,1fr) 44px; align-items:center; gap:4px; margin:0 0 10px; }
+.hb-action-detail-header .case-history-back { display:grid; width:44px; height:44px; place-items:center; border:0; border-radius:999px; background:transparent; color:var(--color-primary); text-decoration:none; -webkit-tap-highlight-color:transparent; }
+.hb-action-detail-header .case-history-back:active { background:color-mix(in srgb,var(--color-primary) 9%,transparent); }
+.hb-action-detail-header .case-history-back:focus-visible { outline:2px solid var(--color-primary); outline-offset:2px; }
+.hb-action-detail-header .case-history-back svg { width:20px; height:20px; stroke-width:2.25; }
+.hb-action-detail-header h1 { overflow:hidden; margin:0; font-size:18px; line-height:1.25; text-overflow:ellipsis; white-space:nowrap; }
+.hb-action-detail-header .meta { overflow:hidden; margin-top:2px; font-size:11px; line-height:1.35; text-overflow:ellipsis; white-space:nowrap; }
+.hb-action-edit-toggle { width:44px; height:44px; border:0; border-radius:999px; background:transparent; color:var(--color-primary); }
+.hb-action-edit-toggle:active, .hb-action-edit-toggle.active { border:0; background:color-mix(in srgb,var(--color-primary) 9%,transparent); color:var(--color-primary); }
+.hb-action-summary { grid-template-columns:repeat(2,minmax(0,1fr)); gap:0; margin-bottom:10px; border-radius:12px; background:var(--surface,var(--bg-surface)); }
+.hb-action-summary > div { padding:10px 12px; text-align:left; }
+.hb-action-summary > div + div { border-top:1px solid var(--border,var(--border-color)); }
+.hb-action-summary > div:nth-child(3) { border-left:1px solid var(--border,var(--border-color)); }
+.hb-action-summary > .hb-action-summary-primary { grid-column:1 / -1; display:flex; flex-direction:column; align-items:flex-start; gap:4px; }
+.hb-action-summary span:not(.hb-action-status) { margin:0; font-size:11px; letter-spacing:.03em; }
+.hb-action-summary strong { overflow:hidden; font-size:13px; line-height:1.35; text-overflow:ellipsis; white-space:nowrap; }
+.hb-action-invoice { min-height:54px; margin-bottom:10px; padding:10px 12px; border-radius:12px; }
+.hb-action-invoice strong { font-size:13px; }
+.hb-action-invoice small { font-size:11px; line-height:1.35; }
+.hb-action-list { gap:8px; }
+.hb-action-row { grid-template-columns:minmax(0,1fr) 20px; gap:5px 8px; min-height:74px; padding:11px 12px; border-radius:12px; }
+.hb-action-row-main { grid-column:1; gap:3px; }
+.hb-action-row-main strong { font-size:14px; line-height:1.3; }
+.hb-action-row small { font-size:11px; line-height:1.35; }
+.hb-action-row-side { grid-column:1; grid-row:2; display:flex; flex-direction:row; align-items:center; max-width:none; gap:7px; text-align:left; }
+.hb-action-row-side small { min-width:0; }
+.hb-action-row > svg { grid-column:2; grid-row:1 / span 2; align-self:center; }
+.hb-action-status { flex:0 0 auto; font-size:11px; }
+.hb-action-form { gap:10px; }
+.hb-action-form-card { gap:12px; padding:12px; border-radius:12px; }
+.hb-action-card-heading h2 { font-size:15px; line-height:1.3; }
+.hb-action-card-heading p { margin-top:3px; font-size:12px; line-height:1.4; }
+.hb-action-form label { gap:6px; font-size:12px; line-height:1.3; }
+.hb-action-form label small { font-size:11px; line-height:1.35; }
+.hb-action-form :is(input,select,textarea) { min-height:42px; font-size:14px; }
+.hb-action-form textarea { min-height:76px; }
+.hb-commissioning-readiness { display:flex; flex-direction:column; align-items:flex-start; gap:3px; padding:11px 12px; border-radius:10px; }
+.hb-commissioning-readiness span { font-size:11px; }
+.hb-commissioning-readiness strong { font-size:14px; text-align:left; }
+.hb-commissioning-readiness small { font-size:11px; line-height:1.35; }
+.hb-action-correction-reason { padding:12px; border-radius:12px; }
+.hb-action-history { margin-top:12px; }
+.hb-action-history summary { padding:13px 2px; font-size:13px; }
+.hb-action-history article { padding:10px 2px; }
+.hb-action-history article strong { font-size:12px; }
+.hb-action-history article span, .hb-action-history article p { font-size:11px; line-height:1.4; }
+#hb-action-filter-overlay .miniapp-sheet { display:flex; flex-direction:column; max-height:min(88dvh,720px); }
+#hb-action-filter-overlay .miniapp-sheet-body { display:grid; flex:1 1 auto; min-height:0; overflow:auto; align-content:start; gap:10px; padding:12px; }
+#hb-action-filter-overlay .miniapp-sheet-body label { gap:6px; font-size:12px; }
+#hb-action-filter-overlay .miniapp-sheet-actions { position:sticky; bottom:0; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:auto -12px -12px; padding:10px 12px max(10px,env(safe-area-inset-bottom,0px)); background:var(--bg-surface); border-top:1px solid var(--border-color); }
+#hb-action-filter-overlay .miniapp-sheet-actions .btn { width:100%; min-height:44px; }
+@media (max-width:390px) {
+  .hb-action-two-column { grid-template-columns:1fr; }
+  .hb-action-summary > div:nth-child(3) { border-left:0; }
+}

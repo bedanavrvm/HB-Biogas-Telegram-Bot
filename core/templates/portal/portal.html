@@ -128,9 +128,9 @@
   <section id="page-hb-actions" class="page active" data-required-capability="portal.hb_action.view">
     {% if hb_action_farmer_id %}
     <header class="hb-action-detail-header">
-      <a class="portal-back-icon" id="hb-action-back" href="{% url 'portal_hb_actions_screen' %}" aria-label="Back to HB Action"><i data-lucide="arrow-left" aria-hidden="true"></i></a>
+      <a class="case-history-back" id="hb-action-back" href="{% url 'portal_hb_actions_screen' %}" aria-label="Back to HB Action" title="Back to HB Action"><i data-lucide="arrow-left" aria-hidden="true"></i><span class="sr-only">Back to HB Action</span></a>
       <div><p class="eyebrow">HB Action</p><h1 id="hb-action-detail-title">Installation record</h1><p class="meta" id="hb-action-detail-meta">Loading current details</p></div>
-      <button type="button" class="hb-action-edit-toggle" id="hb-action-edit-toggle" aria-label="Toggle correction mode" title="Correct this record" hidden><i data-lucide="pencil" aria-hidden="true"></i></button>
+      <button type="button" class="hb-action-edit-toggle" id="hb-action-edit-toggle" aria-label="Edit completed record" aria-pressed="false" title="Correct this record" hidden><i data-lucide="pencil" aria-hidden="true"></i></button>
     </header>
     <div id="hb-action-detail-loading" class="empty-state"><div class="spinner-inline"></div></div>
     <div id="hb-action-detail" hidden>

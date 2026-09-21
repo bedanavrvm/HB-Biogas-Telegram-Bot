@@ -238,6 +238,23 @@
     byId('hb-action-save').hidden = !editable;
     byId('hb-action-edit-toggle').hidden = !permissions.correct || !completedMilestone;
   }
+
+  function applyVisualDetailHierarchy(action) {
+    const workstream = action.workstream || currentWorkstream() || (action.installation_status === 'installed' ? 'commissioning' : 'installation');
+    byId('hb-action-detail-title').textContent = action.customer_name || (workstream === 'commissioning' ? 'Commissioning record' : 'Installation record');
+    byId('hb-action-detail-meta').textContent = [
+      action.case_reference,
+      action.branch,
+      action.order_number ? `Order ${action.order_number}` : '',
+    ].filter(Boolean).join(' / ');
+    byId('hb-action-summary').innerHTML = workstream === 'commissioning' ? `
+      <div class="hb-action-summary-primary"><span>Commissioning</span><strong class="hb-action-status ${statusClass(action.commissioning_status)}">${esc(action.commissioning_status_label || 'Not commissioned')}</strong></div>
+      <div><span>Installed on</span><strong>${esc(action.installation_date_display || 'Not set')}</strong></div>
+      <div><span>Ready on</span><strong>${esc(action.commissioning_ready_on_display || 'Not set')}</strong></div>` : `
+      <div class="hb-action-summary-primary"><span>Installation status</span><strong class="hb-action-status ${statusClass(action.installation_status)}">${esc(action.installation_status_label)}</strong></div>
+      <div><span>Planned date</span><strong>${esc(action.planned_installation_date_display || 'Not set')}</strong></div>
+      <div><span>Order number</span><strong>${esc(action.order_number || 'Not set')}</strong></div>`;
+  }
   function renderHistory(rows) {
     byId('hb-action-history-count').textContent = `(${rows.length})`;
     byId('hb-action-history-list').innerHTML = rows.length ? rows.map(row => `<article><strong>${esc(row.label)}</strong><span>${esc([row.actor, deps.fmtDate ? deps.fmtDate(row.created_at) : row.created_at].filter(Boolean).join(' · '))}</span>${row.reason ? `<p>${esc(row.reason)}</p>` : ''}</article>`).join('') : '<p class="meta">No activity recorded.</p>';
@@ -306,6 +323,7 @@
       window.location.assign(`/portal/s/hb-actions/${encodeURIComponent(detail.farmer_id)}/?workstream=commissioning`); return;
     }
     populateDetail(response.data.action);
+    applyVisualDetailHierarchy(response.data.action);
     deps.showToast(payload.workstream === 'commissioning' ? 'Commissioning recorded.' : 'Installation saved.', 'success');
   }
 
@@ -339,7 +357,7 @@
     }
     options = response.data.options || {}; permissions = response.data.permissions || {};
     byId('hb-action-detail-loading').hidden = true; byId('hb-action-detail').hidden = false;
-    populateDetail(response.data.action); window.lucide?.createIcons?.();
+    populateDetail(response.data.action); applyVisualDetailHierarchy(response.data.action); window.lucide?.createIcons?.();
   }
   function init(injected) {
     deps = injected || {};
@@ -353,7 +371,12 @@
       byId('hb-action-edit-toggle')?.addEventListener('click', () => {
         correctionMode = !correctionMode; byId('hb-correction-reason-wrap').hidden = !correctionMode;
         byId('hb-action-save').textContent = correctionMode ? 'Save correction' : (detail?.workstream === 'commissioning' ? 'Mark commissioned' : 'Save installation');
-        byId('hb-action-edit-toggle').classList.toggle('active', correctionMode); applyReadOnlyState();
+        const toggle = byId('hb-action-edit-toggle');
+        toggle.classList.toggle('active', correctionMode);
+        toggle.setAttribute('aria-pressed', String(correctionMode));
+        toggle.setAttribute('aria-label', correctionMode ? 'Return to view mode' : 'Edit completed record');
+        toggle.title = correctionMode ? 'Return to view mode' : 'Correct this record';
+        applyReadOnlyState();
       });
       window.addEventListener('beforeunload', closeInvoicePreview); return;
     }
