@@ -330,17 +330,24 @@ def _xlsx_number(value):
 
 
 def _invoice_for_farmer(farmer: JawabuFarmerMaster) -> ParsedInvoice | None:
-    if not farmer.invoice_number:
-        return None
-    return (
-        ParsedInvoice.objects
-        .filter(invoice_no=farmer.invoice_number)
-        .filter(
-            matched_farmer=farmer,
-        )
-        .order_by('-updated_at')
-        .first()
+    """Return the canonical matched invoice for a payment case.
+
+    Current matching writes both sides of the relationship: the immutable
+    parsed invoice points to the case and the case receives its invoice
+    summary. Some valid matches made before that write-through existed retain
+    only the first link. A payment workbook must recognise that governed
+    match; otherwise an already-selected, approved case is misreported as if
+    it had no matched invoice at all.
+    """
+    invoices = ParsedInvoice.objects.filter(
+        matched_farmer=farmer,
+        status='matched',
     )
+    if farmer.invoice_number:
+        exact = invoices.filter(invoice_no=farmer.invoice_number).order_by('-updated_at').first()
+        if exact:
+            return exact
+    return invoices.order_by('-updated_at').first()
 
 
 def _row_payload(
@@ -607,10 +614,19 @@ def generate_payment_workbook(
     )
     if farmer_ids is not None and len(readiness['ready']) + len(readiness['blocked']) != len(set(farmer_ids)):
         raise PaymentTemplateError('One or more selected payment cases was not found or is inactive.')
+    if readiness['blocked_count']:
+        blocked = readiness['blocked']
+        examples = []
+        for item in blocked[:3]:
+            name = str(item.get('customer_name') or 'Selected case').strip()
+            reasons = ', '.join(str(value) for value in (item.get('missing') or []) if str(value).strip())
+            examples.append(f'{name}: {reasons or "payment details need review"}')
+        suffix = f" {'; '.join(examples)}." if examples else ''
+        raise PaymentTemplateError(
+            'Payment workbook cannot be generated until the selected case details are resolved.' + suffix
+        )
     if not readiness['ready']:
         raise PaymentTemplateError('Select at least one invoice-matched case for this payment batch.')
-    if readiness['blocked_count']:
-        raise PaymentTemplateError('Payment document has blocked rows. Resolve missing fields before generating.')
     from core.services.template_validation import template_source_bytes, validate_template_bytes, UnsafeTemplateError
     template_bytes = template_source_bytes(_template_source())
     try:

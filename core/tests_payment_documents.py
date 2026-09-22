@@ -206,6 +206,16 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(readiness['blocked_count'], 0)
         self.assertIn('Global product mapping is pending', readiness['ready'][0]['warnings'])
 
+    def test_payment_readiness_uses_canonical_invoice_match_when_legacy_case_lacks_invoice_number(self):
+        farmer = self.farmer(invoice_number='')
+        self.invoice_batch(farmer)
+
+        readiness = payment_readiness(farmer_ids=[str(farmer.id)])
+
+        self.assertEqual(readiness['ready_count'], 1)
+        self.assertEqual(readiness['blocked_count'], 0)
+        self.assertEqual(readiness['ready'][0]['invoice_number'], '9505')
+
     @patch('core.services.invoice_parser.parse_invoice_pdf_bytes')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_invoice_pool_upload_stores_drive_batch_and_parsed_rows(self, storage, parse_pdf):
