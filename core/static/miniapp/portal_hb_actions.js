@@ -204,6 +204,7 @@
     renderHistory(action.history || []); applyReadOnlyState();
   }
   function renderFormState() {
+    if (!field('hb-installation-status')) return;
     const status = field('hb-installation-status')?.value || '';
     const installed = status === 'installed';
     const hasPlanningValues = Boolean(
@@ -218,9 +219,12 @@
       planningToggle.setAttribute('aria-expanded', String(planningVisible));
       planningToggle.querySelector('span').textContent = planningVisible ? 'Planning details' : 'Add planning details';
     }
-    byId('hb-open-installation-fields').hidden = !planningVisible;
-    byId('hb-installation-note-wrap').hidden = !planningVisible || field('hb-readiness-status')?.value !== 'not_ready';
-    byId('hb-installed-fields').hidden = !installed;
+    const planningFields = byId('hb-open-installation-fields');
+    const noteWrap = byId('hb-installation-note-wrap');
+    const installedFields = byId('hb-installed-fields');
+    if (planningFields) planningFields.hidden = !planningVisible;
+    if (noteWrap) noteWrap.hidden = !planningVisible || field('hb-readiness-status')?.value !== 'not_ready';
+    if (installedFields) installedFields.hidden = !installed;
   }
   function applyReadOnlyState() {
     const form = byId('hb-action-form');

@@ -317,6 +317,18 @@ class HomeBiogasActionApiTests(HomeBiogasActionServiceTests):
         self.assertNotContains(list_screen, 'All authorized branches')
         self.assertNotContains(list_screen, 'Installation report<select')
 
+    def test_installed_case_deep_link_renders_commissioning_form_by_default(self):
+        action = self.release()
+        action.installation_status = HomeBiogasAction.INSTALLATION_INSTALLED
+        action.installation_date = timezone.localdate()
+        action.installation_report_status = HomeBiogasAction.REPORT_YES
+        action.save(update_fields=['installation_status', 'installation_date', 'installation_report_status', 'updated_at'])
+
+        screen = self.client.get(reverse('portal_hb_action_detail', kwargs={'farmer_id': self.farmer.pk}))
+
+        self.assertContains(screen, 'id="hb-commissioning-date"')
+        self.assertNotContains(screen, 'id="hb-installation-status"')
+
     def test_api_transition_rejects_incomplete_installed_state(self):
         self.release()
         response = self.client.post(

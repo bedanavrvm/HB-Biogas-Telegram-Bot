@@ -1501,6 +1501,18 @@ def portal_hb_actions_screen(request, farmer_id=None):
     requested_workstream = str(request.GET.get('workstream') or '').strip().lower()
     if requested_workstream not in {'installation', 'commissioning'}:
         requested_workstream = 'installation'
+        # Deep links without a workstream must render the same form that the
+        # HB Action API selects.  Otherwise an installed case receives the
+        # installation markup while its API payload asks the client to fill
+        # commissioning controls that are intentionally not present.
+        if farmer_id:
+            from hb_operations.models import HomeBiogasAction
+            action = HomeBiogasAction.objects.filter(
+                farmer_id=farmer_id,
+                installation_status=HomeBiogasAction.INSTALLATION_INSTALLED,
+            ).only('pk').first()
+            if action:
+                requested_workstream = 'commissioning'
     context = _portal_screen_context(
         'hb_actions',
         hb_action_view='detail' if farmer_id else 'inbox',
