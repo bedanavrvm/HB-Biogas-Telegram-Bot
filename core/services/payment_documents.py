@@ -350,6 +350,40 @@ def _invoice_for_farmer(farmer: JawabuFarmerMaster) -> ParsedInvoice | None:
     return invoices.order_by('-updated_at').first()
 
 
+def _final_approval_satisfies_payment_readiness(farmer: JawabuFarmerMaster) -> bool:
+    """Apply the final-approval rule at the payment stage without re-opening orders.
+
+    A payment case can only arrive here after membership in an immutable,
+    finalized requisition. Its payment batch then receives a separate,
+    current Head-of-Rural approval. A historical final approval which became
+    invalid or expired because later invoice/payment values were recorded
+    must therefore not reopen the already-finalized order.
+
+    A current negative final decision still blocks payment. This exception is
+    deliberately limited to an earlier *approved* record and a proven
+    finalized requisition membership.
+    """
+    from core.models import JawabuApprovalRecord
+    from core.services.invoice_parser import official_requisition_eligibility
+    from core.services.jawabu_approvals import JawabuApprovalError, current_approval, require_effective_approval
+
+    try:
+        require_effective_approval(farmer, JawabuApprovalRecord.GATE_FINAL_REVIEW)
+        return True
+    except JawabuApprovalError:
+        approval = current_approval(farmer, JawabuApprovalRecord.GATE_FINAL_REVIEW)
+        order = official_requisition_eligibility(farmer)
+        return bool(
+            order.get('eligible')
+            and approval
+            and approval.decision == JawabuApprovalRecord.DECISION_APPROVED
+            and approval.status in {
+                JawabuApprovalRecord.STATUS_INVALIDATED,
+                JawabuApprovalRecord.STATUS_EXPIRED,
+            }
+        )
+
+
 def _row_payload(
     farmer: JawabuFarmerMaster,
     *,
@@ -388,10 +422,7 @@ def _row_payload(
         missing.append('Repayment Dates')
     if not farmer.repayment_tenor:
         missing.append('Tenor')
-    from core.services.jawabu_approvals import JawabuApprovalError, require_effective_approval
-    try:
-        require_effective_approval(farmer, 'final_review')
-    except JawabuApprovalError:
+    if not _final_approval_satisfies_payment_readiness(farmer):
         missing.append('Current final approval')
 
     if farmer.payment_product and not farmer.product_version_id:

@@ -25,6 +25,7 @@ from core.models import (
 )
 from core.services.invoice_parser import ingest_invoice_upload_batch
 from core.services.invoice_identity import ensure_identity_review, identity_gate
+from core.services.jawabu_approvals import invalidate_material_approvals, record_approval
 from core.services.jawabu_validation import format_repayment_day, parse_repayment_day
 from core.services.payment_documents import (
     create_payment_document,
@@ -215,6 +216,23 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(readiness['ready_count'], 1)
         self.assertEqual(readiness['blocked_count'], 0)
         self.assertEqual(readiness['ready'][0]['invoice_number'], '9505')
+
+    def test_finalized_order_and_payment_review_do_not_reopen_an_earlier_approved_final_gate(self):
+        farmer = self.farmer()
+        self.invoice_batch(farmer)
+        approval = record_approval(
+            farmer=farmer, gate='final_review', decision='approved', actor=None, access=None,
+        )
+        invalidate_material_approvals(
+            farmer=farmer, changed_fields={'balance_due'}, reason='Invoice values were recorded after the order.',
+        )
+        approval.refresh_from_db()
+
+        readiness = payment_readiness(farmer_ids=[str(farmer.id)])
+
+        self.assertEqual(approval.status, 'invalidated')
+        self.assertEqual(readiness['ready_count'], 1)
+        self.assertEqual(readiness['blocked_count'], 0)
 
     @patch('core.services.invoice_parser.parse_invoice_pdf_bytes')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
