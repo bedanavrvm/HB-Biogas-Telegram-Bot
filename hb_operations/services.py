@@ -194,6 +194,17 @@ def serialize_action(action: HomeBiogasAction, *, include_history: bool = False)
         'updated_at': action.updated_at.isoformat(),
         'updated_by': _actor_label(action.updated_by),
         'detail_url': reverse('portal_hb_action_detail', kwargs={'farmer_id': farmer.id}),
+        # An HB Action exists only after this accepted physical sign-off.  Its
+        # scan is therefore useful case context, but the URL below is scoped
+        # to this exact HB case rather than exposing the document register.
+        'signed_order': ({
+            'label': 'Signed order',
+            'filename': action.source_signoff.scan_filename,
+            'content_type': action.source_signoff.scan_content_type,
+            'preview_url': reverse('portal_hb_action_document_preview', kwargs={
+                'farmer_id': farmer.id, 'document_kind': 'signed-order',
+            }),
+        } if action.source_signoff_id and action.source_signoff.status == 'signed_approved' else None),
         'invoice': ({
             'id': str(invoice.id), 'number': invoice.invoice_no,
             'date': _display_date(invoice.invoice_date),

@@ -446,6 +446,12 @@ class HomeBiogasActionApiTests(HomeBiogasActionServiceTests):
         self.assertNotIn('filters', listing.json())
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()['action']['id'], str(action.pk))
+        signed_order = detail.json()['action']['signed_order']
+        self.assertEqual(signed_order['label'], 'Signed order')
+        preview = self.client.get(signed_order['preview_url'])
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.content, b'scan')
+        self.assertEqual(preview['Cache-Control'], 'private, no-store, max-age=0')
         self.assertContains(screen, 'id="hb-action-form"')
         self.assertContains(screen, 'id="hb-mark-installed"')
         self.assertContains(screen, 'id="hb-report-installation-delay"')

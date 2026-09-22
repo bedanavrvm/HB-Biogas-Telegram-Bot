@@ -121,12 +121,33 @@
       <div><span>Status</span><strong class="hb-action-status ${statusClass(action.installation_status)}">${esc(action.installation_status_label)}</strong></div>
       <div><span>Planned</span><strong>${esc(action.planned_installation_date_display || 'Not set')}</strong></div>
       <div><span>Order</span><strong>${esc(action.order_number || '-')}</strong></div>`;
+    const documents = byId('hb-action-documents');
+    const signedOrder = byId('hb-action-signed-order');
+    if (action.signed_order) {
+      signedOrder.hidden = false;
+      signedOrder.href = action.signed_order.preview_url;
+      signedOrder.dataset.mode = 'preview';
+      signedOrder.dataset.previewTitle = action.signed_order.label || 'Signed order';
+      signedOrder.dataset.previewSubtitle = `Order ${action.order_number || ''}`.trim();
+      signedOrder.dataset.previewName = action.signed_order.filename || 'Signed order';
+      signedOrder.dataset.previewMimeType = action.signed_order.content_type || '';
+      byId('hb-action-signed-order-label').textContent = action.signed_order.label || 'Signed order';
+      byId('hb-action-signed-order-copy').textContent = action.signed_order.filename || `Order ${action.order_number || ''}`;
+    } else {
+      signedOrder.hidden = true;
+      signedOrder.removeAttribute('data-mode');
+    }
     const invoice = byId('hb-action-invoice');
     if (action.invoice) {
       invoice.hidden = false; invoice.href = action.invoice.url; invoice.dataset.mode = action.invoice.mode;
+      invoice.dataset.previewTitle = action.invoice.label || 'Invoice';
+      invoice.dataset.previewSubtitle = [action.invoice.number, action.invoice.date].filter(Boolean).join(' · ');
+      invoice.dataset.previewName = action.invoice.number || 'Invoice';
+      invoice.dataset.previewMimeType = 'text/html';
       byId('hb-action-invoice-label').textContent = action.invoice.label || 'Invoice';
       byId('hb-action-invoice-copy').textContent = [action.invoice.number, action.invoice.date].filter(Boolean).join(' · ');
     } else { invoice.hidden = true; invoice.removeAttribute('data-mode'); }
+    if (documents) documents.hidden = signedOrder.hidden && invoice.hidden;
 
     if (workstream === 'installation') {
       installationCompletionMode = action.installation_status === 'installed';
@@ -307,21 +328,21 @@
     byId('media-viewer-overlay')?.classList.remove('open');
     const content = byId('media-viewer-content'); if (content) content.replaceChildren();
   }
-  async function openInvoicePreview(event) {
+  async function openDocumentPreview(event) {
     const anchor = event.currentTarget;
     if (anchor.dataset.mode !== 'preview') return;
     event.preventDefault();
     const overlay = byId('media-viewer-overlay'); const content = byId('media-viewer-content');
-    if (!overlay || !content || !window.SecureMediaViewer) return deps.showToast('The secure invoice viewer is unavailable. Refresh and retry.', 'error');
+    if (!overlay || !content || !window.SecureMediaViewer) return deps.showToast('The secure document viewer is unavailable. Refresh and retry.', 'error');
     closeInvoicePreview();
-    byId('media-viewer-title').textContent = 'Invoice sent';
-    byId('media-viewer-sub').textContent = [detail?.invoice?.number, detail?.invoice?.date].filter(Boolean).join(' · ');
-    content.innerHTML = '<div class="media-viewer-loading" role="status"><span class="spinner-inline" aria-hidden="true"></span> Loading invoice…</div>';
+    byId('media-viewer-title').textContent = anchor.dataset.previewTitle || 'Document preview';
+    byId('media-viewer-sub').textContent = anchor.dataset.previewSubtitle || '';
+    content.innerHTML = '<div class="media-viewer-loading" role="status"><span class="spinner-inline" aria-hidden="true"></span> Loading document…</div>';
     overlay.classList.add('open');
     try {
       const blob = await window.SecureMediaViewer.fetchAuthorizedBlob(anchor.href, {headers: {'X-Request-ID': window.crypto?.randomUUID?.() || `hb-invoice-${Date.now()}`}});
-      invoiceObjectUrl = window.SecureMediaViewer.renderBlob(content, blob, {mimeType: 'text/html', name: 'Invoice preview'});
-    } catch (error) { content.innerHTML = `<p class="media-viewer-error">${esc(error.message || 'The invoice could not be opened in the Mini App.')}</p>`; }
+      invoiceObjectUrl = window.SecureMediaViewer.renderBlob(content, blob, {mimeType: anchor.dataset.previewMimeType || 'application/pdf', name: anchor.dataset.previewName || 'Document preview'});
+    } catch (error) { content.innerHTML = `<p class="media-viewer-error">${esc(error.message || 'The document could not be opened in the Mini App.')}</p>`; }
   }
 
   async function loadDetail(farmerId) {
@@ -355,7 +376,8 @@
         applyReadOnlyState();
         field('hb-installation-note')?.focus();
       });
-      byId('hb-action-invoice')?.addEventListener('click', openInvoicePreview);
+      byId('hb-action-invoice')?.addEventListener('click', openDocumentPreview);
+      byId('hb-action-signed-order')?.addEventListener('click', openDocumentPreview);
       byId('media-viewer-close')?.addEventListener('click', closeInvoicePreview);
       byId('hb-action-edit-toggle')?.addEventListener('click', () => {
         correctionMode = !correctionMode;

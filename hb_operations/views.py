@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from django.db.models import Q
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -175,6 +175,42 @@ def hb_action_detail(request, farmer_id):
         },
         'options': {},
     })
+
+
+@portal_auth_required
+@require_http_methods(['GET'])
+def hb_action_document_preview(request, farmer_id, document_kind):
+    """Stream only the signed order linked to one authorized HB Action."""
+    action = _action_for_request(request, farmer_id, VIEW_CAPABILITY)
+    if action is None:
+        return _error('This HomeBiogas action is unavailable or outside your authorized scope.', status=404, code='not_found')
+    denied = _portal_capability_error(request, VIEW_CAPABILITY, action.farmer)
+    if denied:
+        return denied
+    if str(document_kind or '').strip().lower() != 'signed-order':
+        return _error('This document preview is not available.', status=404, code='not_found')
+    signoff = action.source_signoff
+    if not signoff or signoff.status != 'signed_approved':
+        return _error('The accepted signed order is not available for preview.', status=404, code='not_found')
+    content = bytes(signoff.scan_file_content or b'')
+    if not content:
+        return _error('The retained signed order scan is unavailable for preview.', status=404, code='preview_unavailable')
+    try:
+        from core.services.compliance_audit import record_sensitive_access
+
+        record_sensitive_access(
+            workflow='portal', action='portal.hb_action.signed_order.preview',
+            subject_type='document_physical_signoff', subject_id=str(signoff.pk),
+            actor=_actor(request), actor_label=getattr(_actor(request), 'get_full_name', lambda: '')() or str(_actor(request) or ''),
+            request_id=_portal_request_id(request),
+            metadata={'farmer_id': str(action.farmer_id), 'order_number': action.source_order_number},
+        )
+    except Exception:
+        return _error('The signed order cannot be opened safely right now. Please retry shortly.', status=503, code='audit_unavailable')
+    response = HttpResponse(content, content_type=signoff.scan_content_type or 'application/octet-stream')
+    response['Cache-Control'] = 'private, no-store, max-age=0'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 
 def _mutation(request, farmer_id, *, correction: bool):

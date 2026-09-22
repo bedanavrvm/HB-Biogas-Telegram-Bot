@@ -135,7 +135,10 @@
     <div id="hb-action-detail-loading" class="empty-state"><div class="spinner-inline"></div></div>
     <div id="hb-action-detail" hidden>
       <section class="hb-action-summary" id="hb-action-summary"></section>
-      <a id="hb-action-invoice" class="hb-action-invoice" href="#" hidden><span><i data-lucide="receipt-text" aria-hidden="true"></i><strong id="hb-action-invoice-label">Invoice</strong><small id="hb-action-invoice-copy"></small></span><i data-lucide="chevron-right" aria-hidden="true"></i></a>
+      <section id="hb-action-documents" class="hb-action-documents" hidden aria-label="Case documents">
+        <a id="hb-action-signed-order" class="hb-action-invoice" href="#" data-mode="preview" hidden><span><i data-lucide="file-check-2" aria-hidden="true"></i><strong id="hb-action-signed-order-label">Signed order</strong><small id="hb-action-signed-order-copy"></small></span><i data-lucide="chevron-right" aria-hidden="true"></i></a>
+        <a id="hb-action-invoice" class="hb-action-invoice" href="#" hidden><span><i data-lucide="receipt-text" aria-hidden="true"></i><strong id="hb-action-invoice-label">Invoice</strong><small id="hb-action-invoice-copy"></small></span><i data-lucide="chevron-right" aria-hidden="true"></i></a>
+      </section>
       <form id="hb-action-form" class="hb-action-form" data-workstream="{{ hb_action_workstream }}" novalidate>
         {% if hb_action_workstream == 'commissioning' %}
         <section class="hb-action-form-card" id="hb-commissioning-card">

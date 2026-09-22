@@ -56,7 +56,7 @@ from .views import (
     sync_from_sheets,
 )
 from credit_assessments.views import credit_assessment_action, credit_assessment_detail, credit_assessment_document
-from hb_operations.views import hb_action_commissioning_notes, hb_action_correct, hb_action_detail, hb_action_list, hb_action_transition
+from hb_operations.views import hb_action_commissioning_notes, hb_action_correct, hb_action_detail, hb_action_document_preview, hb_action_list, hb_action_transition
 from .portal_views import (
     portal_navigation,
     portal_settings,
@@ -542,6 +542,7 @@ urlpatterns = [
     # Post-order HomeBiogas installation and commissioning workspace.
     path('portal/hb-actions/', hb_action_list, name='portal_hb_action_list'),
     path('portal/hb-actions/<uuid:farmer_id>/', hb_action_detail, name='portal_hb_action_api_detail'),
+    path('portal/hb-actions/<uuid:farmer_id>/documents/<str:document_kind>/preview/', hb_action_document_preview, name='portal_hb_action_document_preview'),
     path('portal/hb-actions/<uuid:farmer_id>/transition/', hb_action_transition, name='portal_hb_action_transition'),
     path('portal/hb-actions/<uuid:farmer_id>/correct/', hb_action_correct, name='portal_hb_action_correct'),
     path('portal/hb-actions/<uuid:farmer_id>/commissioning-notes/', hb_action_commissioning_notes, name='portal_hb_action_commissioning_notes'),

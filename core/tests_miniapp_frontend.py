@@ -53,7 +53,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/utils.js?v=18', html)
         self.assertIn('miniapp/portal_helpers.js?v=10', html)
         self.assertIn('miniapp/components.css?v=2', html)
-        self.assertIn('miniapp/portal.css?v=129', html)
+        self.assertIn('miniapp/portal.css?v=130', html)
         self.assertIn('miniapp/portal_filters.js?v=17', html)
         self.assertIn('miniapp/portal_imports.js?v=10', html)
         self.assertNotIn('portal-import-group', html)
@@ -889,6 +889,8 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('class="hb-action-row" href="${esc(item.detail_url)}"', source)
         self.assertNotIn("querySelectorAll('[data-hb-action-link]')", source)
         self.assertNotIn('deps.openPortalLink(link.href)', source)
+        self.assertIn('openDocumentPreview', source)
+        self.assertIn('hb-action-signed-order', source)
 
     def test_head_of_rural_screen_exposes_only_final_decisions(self):
         response = self.client.get(reverse('portal_screen', kwargs={'screen': 'final'}))
