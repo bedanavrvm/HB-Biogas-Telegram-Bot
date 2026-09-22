@@ -1498,10 +1498,14 @@ def portal_payment_approvals_screen(request, batch_id=None):
 @require_http_methods(["GET", "HEAD"])
 def portal_hb_actions_screen(request, farmer_id=None):
     """Render the mobile-first HomeBiogas action queue or one case record."""
+    requested_workstream = str(request.GET.get('workstream') or '').strip().lower()
+    if requested_workstream not in {'installation', 'commissioning'}:
+        requested_workstream = 'installation'
     context = _portal_screen_context(
         'hb_actions',
         hb_action_view='detail' if farmer_id else 'inbox',
         hb_action_farmer_id=str(farmer_id or ''),
+        hb_action_workstream=requested_workstream,
     )
     if request.htmx:
         return _portal_screen_fragment(request, 'hb_actions', context=context)

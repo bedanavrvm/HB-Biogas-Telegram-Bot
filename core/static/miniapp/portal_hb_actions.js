@@ -6,6 +6,7 @@
   let options = {};
   let permissions = {};
   let correctionMode = false;
+  let planningExpanded = false;
   let activeQueue = 'installation';
   let activeState = 'open';
   let page = 1;
@@ -177,32 +178,48 @@
       byId('hb-action-invoice-copy').textContent = [action.invoice.number, action.invoice.date].filter(Boolean).join(' · ');
     } else { invoice.hidden = true; invoice.removeAttribute('data-mode'); }
 
-    const allowed = allowedStatusTargets[action.installation_status] || [];
-    const statusOptions = (options.installation_statuses || []).filter(row => allowed.includes(row.value));
-    setOptions(field('hb-installation-status'), statusOptions, '');
-    setOptions(field('hb-readiness-status'), options.readiness_statuses, 'Choose readiness');
-    setOptions(field('hb-installation-report-status'), options.installation_report_statuses, 'Choose report status');
-    field('hb-installation-status').value = action.installation_status || 'open';
-    field('hb-readiness-status').value = action.readiness_status || '';
-    field('hb-planned-installation-date').value = action.planned_installation_date || '';
-    field('hb-installation-date').value = action.installation_date || '';
-    field('hb-installation-note').value = action.installation_note || '';
-    field('hb-serial-number').value = action.serial_number || '';
-    field('hb-installation-report-status').value = action.installation_report_status || '';
-    field('hb-commissioning-date').value = action.commissioning_status === 'commissioned' ? (action.commissioning_date || '') : '';
+    if (workstream === 'installation') {
+      const allowed = allowedStatusTargets[action.installation_status] || [];
+      const statusOptions = (options.installation_statuses || []).filter(row => allowed.includes(row.value));
+      setOptions(field('hb-installation-status'), statusOptions, '');
+      setOptions(field('hb-readiness-status'), options.readiness_statuses, 'Choose readiness');
+      setOptions(field('hb-installation-report-status'), options.installation_report_statuses, 'Choose report status');
+      field('hb-installation-status').value = action.installation_status || 'open';
+      field('hb-readiness-status').value = action.readiness_status || '';
+      field('hb-planned-installation-date').value = action.planned_installation_date || '';
+      field('hb-installation-date').value = action.installation_date || '';
+      field('hb-installation-note').value = action.installation_note || '';
+      field('hb-serial-number').value = action.serial_number || '';
+      field('hb-installation-report-status').value = action.installation_report_status || '';
+      planningExpanded = Boolean(action.readiness_status || action.planned_installation_date || action.installation_note);
+      renderFormState();
+    } else {
+      field('hb-commissioning-date').value = action.commissioning_status === 'commissioned' ? (action.commissioning_date || '') : '';
+      renderReadiness(action);
+    }
     field('hb-correction-reason').value = '';
     const legacyClosed = action.installation_status === 'closed';
     byId('hb-action-form').hidden = legacyClosed;
-    byId('hb-installation-card').hidden = workstream !== 'installation';
-    byId('hb-commissioning-card').hidden = workstream !== 'commissioning';
     byId('hb-action-save').textContent = workstream === 'commissioning' ? 'Mark commissioned' : 'Save installation';
-    renderReadiness(action); renderFormState(); renderHistory(action.history || []); applyReadOnlyState();
+    renderHistory(action.history || []); applyReadOnlyState();
   }
   function renderFormState() {
     const status = field('hb-installation-status')?.value || '';
     const installed = status === 'installed';
-    byId('hb-open-installation-fields').hidden = installed;
-    byId('hb-installation-note-wrap').hidden = installed;
+    const hasPlanningValues = Boolean(
+      field('hb-readiness-status')?.value
+      || field('hb-planned-installation-date')?.value
+      || field('hb-installation-note')?.value,
+    );
+    const planningVisible = !installed && (planningExpanded || hasPlanningValues);
+    const planningToggle = byId('hb-installation-planning-toggle');
+    if (planningToggle) {
+      planningToggle.hidden = installed;
+      planningToggle.setAttribute('aria-expanded', String(planningVisible));
+      planningToggle.querySelector('span').textContent = planningVisible ? 'Planning details' : 'Add planning details';
+    }
+    byId('hb-open-installation-fields').hidden = !planningVisible;
+    byId('hb-installation-note-wrap').hidden = !planningVisible || field('hb-readiness-status')?.value !== 'not_ready';
     byId('hb-installed-fields').hidden = !installed;
   }
   function applyReadOnlyState() {
@@ -240,12 +257,12 @@
 
   function payloadFromForm() {
     const workstream = detail.workstream || currentWorkstream();
-    if (workstream === 'commissioning') return {revision: detail.revision, workstream, commissioning_status: 'commissioned', commissioning_date: field('hb-commissioning-date').value, reason: field('hb-correction-reason').value.trim()};
+    if (workstream === 'commissioning') return {revision: detail.revision, workstream, commissioning_status: 'commissioned', commissioning_date: field('hb-commissioning-date')?.value || '', reason: field('hb-correction-reason')?.value.trim() || ''};
     return {
-      revision: detail.revision, workstream: 'installation', installation_status: field('hb-installation-status').value,
-      readiness_status: field('hb-readiness-status').value, planned_installation_date: field('hb-planned-installation-date').value,
-      installation_date: field('hb-installation-date').value, installation_note: field('hb-installation-note').value.trim(), serial_number: field('hb-serial-number').value.trim(),
-      installation_report_status: field('hb-installation-report-status').value, reason: field('hb-correction-reason').value.trim(),
+      revision: detail.revision, workstream: 'installation', installation_status: field('hb-installation-status')?.value || '',
+      readiness_status: field('hb-readiness-status')?.value || '', planned_installation_date: field('hb-planned-installation-date')?.value || '',
+      installation_date: field('hb-installation-date')?.value || '', installation_note: field('hb-installation-note')?.value.trim() || '', serial_number: field('hb-serial-number')?.value.trim() || '',
+      installation_report_status: field('hb-installation-report-status')?.value || '', reason: field('hb-correction-reason')?.value.trim() || '',
     };
   }
   function validate(payload) {
@@ -343,6 +360,11 @@
     if (farmerId) {
       byId('hb-action-form')?.addEventListener('submit', save);
       byId('hb-installation-status')?.addEventListener('change', renderFormState);
+      byId('hb-readiness-status')?.addEventListener('change', renderFormState);
+      byId('hb-installation-planning-toggle')?.addEventListener('click', () => {
+        planningExpanded = true;
+        renderFormState();
+      });
       byId('hb-action-invoice')?.addEventListener('click', openInvoicePreview);
       byId('media-viewer-close')?.addEventListener('click', closeInvoicePreview);
       byId('hb-action-edit-toggle')?.addEventListener('click', () => {

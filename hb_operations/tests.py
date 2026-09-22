@@ -297,6 +297,10 @@ class HomeBiogasActionApiTests(HomeBiogasActionServiceTests):
         listing = self.client.get(reverse('portal_hb_action_list'))
         detail = self.client.get(reverse('portal_hb_action_api_detail', kwargs={'farmer_id': self.farmer.pk}))
         screen = self.client.get(reverse('portal_hb_action_detail', kwargs={'farmer_id': self.farmer.pk}))
+        commissioning_screen = self.client.get(
+            reverse('portal_hb_action_detail', kwargs={'farmer_id': self.farmer.pk}),
+            {'workstream': 'commissioning'},
+        )
         list_screen = self.client.get(reverse('portal_hb_actions_screen'))
 
         self.assertEqual(listing.status_code, 200)
@@ -305,6 +309,10 @@ class HomeBiogasActionApiTests(HomeBiogasActionServiceTests):
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()['action']['id'], str(action.pk))
         self.assertContains(screen, 'id="hb-action-form"')
+        self.assertContains(screen, 'id="hb-installation-status"')
+        self.assertNotContains(screen, 'id="hb-commissioning-date"')
+        self.assertContains(commissioning_screen, 'id="hb-commissioning-date"')
+        self.assertNotContains(commissioning_screen, 'id="hb-installation-status"')
         self.assertContains(list_screen, 'id="hb-filter-readiness"')
         self.assertNotContains(list_screen, 'All authorized branches')
         self.assertNotContains(list_screen, 'Installation report<select')
