@@ -327,10 +327,15 @@ class HomeBiogasActionApiTests(HomeBiogasActionServiceTests):
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()['action']['id'], str(action.pk))
         self.assertContains(screen, 'id="hb-action-form"')
-        self.assertContains(screen, 'id="hb-installation-status"')
+        self.assertContains(screen, 'id="hb-mark-installed"')
+        self.assertContains(screen, 'id="hb-installed-fields"')
+        self.assertNotContains(screen, 'id="hb-installation-status"')
+        self.assertNotContains(screen, 'hb-installation-planning-toggle')
+        self.assertNotContains(screen, 'hb-open-installation-fields')
+        self.assertNotContains(screen, 'hb-installation-note-wrap')
         self.assertNotContains(screen, 'id="hb-commissioning-date"')
         self.assertContains(commissioning_screen, 'id="hb-commissioning-date"')
-        self.assertNotContains(commissioning_screen, 'id="hb-installation-status"')
+        self.assertNotContains(commissioning_screen, 'id="hb-mark-installed"')
         self.assertContains(list_screen, 'id="hb-filter-readiness"')
         self.assertNotContains(list_screen, 'All authorized branches')
         self.assertNotContains(list_screen, 'Installation report<select')
@@ -345,7 +350,7 @@ class HomeBiogasActionApiTests(HomeBiogasActionServiceTests):
         screen = self.client.get(reverse('portal_hb_action_detail', kwargs={'farmer_id': self.farmer.pk}))
 
         self.assertContains(screen, 'id="hb-commissioning-date"')
-        self.assertNotContains(screen, 'id="hb-installation-status"')
+        self.assertNotContains(screen, 'id="hb-mark-installed"')
 
     def test_api_transition_rejects_incomplete_installed_state(self):
         self.release()

@@ -6,7 +6,7 @@
   let options = {};
   let permissions = {};
   let correctionMode = false;
-  let planningExpanded = false;
+  let installationCompletionMode = false;
   let activeQueue = 'installation';
   let activeState = 'open';
   let page = 1;
@@ -19,10 +19,6 @@
   const esc = value => deps.escapeHtml ? deps.escapeHtml(value == null ? '' : String(value)) : String(value || '');
   const installationLabels = {open: 'Not installed', installed: 'Installed'};
   const commissioningLabels = {not_commissioned: 'Not commissioned', delayed: 'Delayed', commissioned: 'Commissioned'};
-  const allowedStatusTargets = {
-    open: ['open', 'installed'],
-    installed: ['installed'],
-  };
 
   function field(id) { return byId(id); }
   function setOptions(select, rows, placeholder) {
@@ -92,9 +88,7 @@
 
   function installationSecondary(item) {
     if (item.installation_status === 'installed') return item.installation_date_display ? `Installed ${item.installation_date_display}` : 'Installed';
-    if (item.planned_installation_date_display) return `Planned ${item.planned_installation_date_display}`;
-    if (item.readiness_status_label) return item.readiness_status_label;
-    return 'Needs an installation update';
+    return 'Awaiting installation';
   }
 
   async function loadList() {
@@ -179,61 +173,49 @@
     } else { invoice.hidden = true; invoice.removeAttribute('data-mode'); }
 
     if (workstream === 'installation') {
-      const allowed = allowedStatusTargets[action.installation_status] || [];
-      const statusOptions = (options.installation_statuses || []).filter(row => allowed.includes(row.value));
-      setOptions(field('hb-installation-status'), statusOptions, '');
-      setOptions(field('hb-readiness-status'), options.readiness_statuses, 'Choose readiness');
-      field('hb-installation-status').value = action.installation_status || 'open';
-      field('hb-readiness-status').value = action.readiness_status || '';
-      field('hb-planned-installation-date').value = action.planned_installation_date || '';
+      installationCompletionMode = action.installation_status === 'installed';
       field('hb-installation-date').value = action.installation_date || '';
-      field('hb-installation-note').value = action.installation_note || '';
       field('hb-serial-number').value = action.serial_number || '';
       field('hb-installation-report-submitted').checked = action.installation_report_status === 'yes';
-      planningExpanded = Boolean(action.readiness_status || action.planned_installation_date || action.installation_note);
-      renderFormState();
+      renderInstallationForm();
     } else {
       field('hb-commissioning-date').value = action.commissioning_status === 'commissioned' ? (action.commissioning_date || '') : '';
       renderReadiness(action);
     }
     const legacyClosed = action.installation_status === 'closed';
     byId('hb-action-form').hidden = legacyClosed;
-    byId('hb-action-save').textContent = workstream === 'commissioning' ? 'Mark commissioned' : 'Save installation';
+    if (workstream === 'commissioning') byId('hb-action-save').textContent = 'Mark commissioned';
     renderHistory(action.history || []); applyReadOnlyState();
   }
-  function renderFormState() {
-    if (!field('hb-installation-status')) return;
-    const status = field('hb-installation-status')?.value || '';
-    const installed = status === 'installed';
-    const hasPlanningValues = Boolean(
-      field('hb-readiness-status')?.value
-      || field('hb-planned-installation-date')?.value
-      || field('hb-installation-note')?.value,
-    );
-    const planningVisible = !installed && (planningExpanded || hasPlanningValues);
-    const planningToggle = byId('hb-installation-planning-toggle');
-    if (planningToggle) {
-      planningToggle.hidden = installed;
-      planningToggle.setAttribute('aria-expanded', String(planningVisible));
-      planningToggle.querySelector('span').textContent = planningVisible ? 'Planning details' : 'Add planning details';
-    }
-    const planningFields = byId('hb-open-installation-fields');
-    const noteWrap = byId('hb-installation-note-wrap');
+  function renderInstallationForm() {
+    if (detail?.workstream !== 'installation') return;
+    const completionFieldsVisible = detail.installation_status === 'installed' || installationCompletionMode;
+    const openState = byId('hb-installation-open-state');
     const installedFields = byId('hb-installed-fields');
-    if (planningFields) planningFields.hidden = !planningVisible;
-    if (noteWrap) noteWrap.hidden = !planningVisible || field('hb-readiness-status')?.value !== 'not_ready';
-    if (installedFields) installedFields.hidden = !installed;
+    if (openState) openState.hidden = completionFieldsVisible;
+    if (installedFields) installedFields.hidden = !completionFieldsVisible;
+    byId('hb-action-save').textContent = correctionMode && detail.installation_status === 'installed' ? 'Save installation correction' : 'Save installation';
   }
   function applyReadOnlyState() {
     const form = byId('hb-action-form');
+    if (!form) return;
     const completedMilestone = (
       (detail?.workstream === 'installation' && ['installed', 'closed'].includes(detail?.installation_status))
       || (detail?.workstream === 'commissioning' && detail?.commissioning_status === 'commissioned')
     );
     const editable = Boolean(permissions.write) && (!completedMilestone || correctionMode);
     form.querySelectorAll('input,select,textarea').forEach(control => { control.disabled = !editable; });
-    byId('hb-action-save').hidden = !editable;
-    byId('hb-action-edit-toggle').hidden = !permissions.correct || !completedMilestone || detail?.installation_status === 'closed';
+    const needsInstallationCompletion = detail?.workstream === 'installation'
+      && detail?.installation_status === 'open' && !installationCompletionMode;
+    const saveWrap = byId('hb-action-save-wrap');
+    if (saveWrap) saveWrap.hidden = !editable || needsInstallationCompletion;
+    const markInstalled = byId('hb-mark-installed');
+    if (markInstalled) {
+      markInstalled.hidden = detail?.workstream !== 'installation' || detail?.installation_status !== 'open' || installationCompletionMode;
+      markInstalled.disabled = !permissions.write;
+    }
+    const editToggle = byId('hb-action-edit-toggle');
+    if (editToggle) editToggle.hidden = !permissions.correct || !completedMilestone || detail?.installation_status === 'closed';
   }
 
   function applyVisualDetailHierarchy(action) {
@@ -249,8 +231,8 @@
       <div><span>Installed on</span><strong>${esc(action.installation_date_display || 'Not set')}</strong></div>
       <div><span>Ready on</span><strong>${esc(action.commissioning_ready_on_display || 'Not set')}</strong></div>` : `
       <div class="hb-action-summary-primary"><span>Installation status</span><strong class="hb-action-status ${statusClass(action.installation_status)}">${esc(action.installation_status_label)}</strong></div>
-      <div><span>Planned date</span><strong>${esc(action.planned_installation_date_display || 'Not set')}</strong></div>
-      <div><span>Order number</span><strong>${esc(action.order_number || 'Not set')}</strong></div>`;
+      <div><span>Order number</span><strong>${esc(action.order_number || 'Not set')}</strong></div>
+      <div><span>Installed on</span><strong>${esc(action.installation_date_display || 'Not set')}</strong></div>`;
   }
   function renderHistory(rows) {
     byId('hb-action-history-count').textContent = `(${rows.length})`;
@@ -260,11 +242,9 @@
   function payloadFromForm() {
     const workstream = detail.workstream || currentWorkstream();
     if (workstream === 'commissioning') return {revision: detail.revision, workstream, commissioning_status: 'commissioned', commissioning_date: field('hb-commissioning-date')?.value || ''};
-    const installed = field('hb-installation-status')?.value === 'installed';
     return {
-      revision: detail.revision, workstream: 'installation', installation_status: field('hb-installation-status')?.value || '',
-      readiness_status: installed ? '' : field('hb-readiness-status')?.value || '', planned_installation_date: installed ? '' : field('hb-planned-installation-date')?.value || '',
-      installation_date: field('hb-installation-date')?.value || '', installation_note: installed ? '' : field('hb-installation-note')?.value.trim() || '', serial_number: field('hb-serial-number')?.value.trim() || '',
+      revision: detail.revision, workstream: 'installation', installation_status: 'installed',
+      installation_date: field('hb-installation-date')?.value || '', serial_number: field('hb-serial-number')?.value.trim() || '',
       installation_report_submitted: Boolean(field('hb-installation-report-submitted')?.checked),
     };
   }
@@ -275,12 +255,8 @@
       if (payload.commissioning_date > today) return 'The actual commissioning date cannot be in the future.';
       return '';
     }
-    if (!payload.installation_status) return 'Choose the installation status.';
-    if (payload.installation_status === 'open' && payload.readiness_status === 'not_ready' && !payload.installation_note) return 'Add a short installation note for a known readiness blocker.';
-    if (payload.installation_status === 'installed') {
-      if (!payload.installation_date) return 'Choose the actual installation date.';
-      if (payload.installation_date > today) return 'The actual installation date cannot be in the future.';
-    }
+    if (!payload.installation_date) return 'Choose the actual installation date.';
+    if (payload.installation_date > today) return 'The actual installation date cannot be in the future.';
     return '';
   }
   function dateDifferenceDays(later, earlier) { return Math.round((Date.parse(`${later}T00:00:00Z`) - Date.parse(`${earlier}T00:00:00Z`)) / 86400000); }
@@ -361,17 +337,18 @@
     const farmerId = root.dataset.hbActionFarmerId || '';
     if (farmerId) {
       byId('hb-action-form')?.addEventListener('submit', save);
-      byId('hb-installation-status')?.addEventListener('change', renderFormState);
-      byId('hb-readiness-status')?.addEventListener('change', renderFormState);
-      byId('hb-installation-planning-toggle')?.addEventListener('click', () => {
-        planningExpanded = true;
-        renderFormState();
+      byId('hb-mark-installed')?.addEventListener('click', () => {
+        installationCompletionMode = true;
+        renderInstallationForm();
+        applyReadOnlyState();
+        field('hb-installation-date')?.focus();
       });
       byId('hb-action-invoice')?.addEventListener('click', openInvoicePreview);
       byId('media-viewer-close')?.addEventListener('click', closeInvoicePreview);
       byId('hb-action-edit-toggle')?.addEventListener('click', () => {
         correctionMode = !correctionMode;
-        byId('hb-action-save').textContent = correctionMode ? 'Save correction' : (detail?.workstream === 'commissioning' ? 'Mark commissioned' : 'Save installation');
+        if (detail?.workstream === 'installation') renderInstallationForm();
+        else byId('hb-action-save').textContent = correctionMode ? 'Save commissioning correction' : 'Mark commissioned';
         const toggle = byId('hb-action-edit-toggle');
         toggle.classList.toggle('active', correctionMode);
         toggle.setAttribute('aria-pressed', String(correctionMode));

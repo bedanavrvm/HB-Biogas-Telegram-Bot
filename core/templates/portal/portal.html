@@ -146,14 +146,10 @@
         </section>
         {% else %}
         <section class="hb-action-form-card" id="hb-installation-card">
-          <div class="hb-action-card-heading"><div><h2>Installation</h2><p>Keep the case open until the unit is actually installed.</p></div></div>
-          <label>Installation status<select id="hb-installation-status" name="installation_status" required></select></label>
-          <button type="button" class="hb-action-planning-toggle" id="hb-installation-planning-toggle" aria-expanded="false"><i data-lucide="calendar-plus" aria-hidden="true"></i><span>Add planning details</span></button>
-          <div id="hb-open-installation-fields" class="hb-action-planning-fields" hidden>
-            <label>Readiness<select id="hb-readiness-status" name="readiness_status"></select></label>
-            <label>Planned installation date <small>Optional</small><input id="hb-planned-installation-date" name="planned_installation_date" type="date"></label>
+          <div class="hb-action-card-heading"><div><h2>Installation</h2></div></div>
+          <div class="hb-action-open-state" id="hb-installation-open-state">
+            <button type="button" class="btn btn-primary" id="hb-mark-installed">Mark as installed</button>
           </div>
-          <label id="hb-installation-note-wrap" hidden>Installation note <small>Required when a known readiness blocker is selected.</small><textarea id="hb-installation-note" name="installation_note" rows="3" maxlength="2000"></textarea></label>
           <div id="hb-installed-fields" class="hb-action-installed-fields" hidden>
             <div class="hb-action-two-column">
               <label>Actual installation date<input id="hb-installation-date" name="installation_date" type="date"></label>
@@ -163,7 +159,7 @@
           </div>
         </section>
         {% endif %}
-        <div class="hb-action-form-actions"><button type="submit" class="btn btn-primary" id="hb-action-save">Save progress</button></div>
+        <div class="hb-action-form-actions" id="hb-action-save-wrap" hidden><button type="submit" class="btn btn-primary" id="hb-action-save">Save installation</button></div>
       </form>
       <details class="hb-action-history"><summary>Activity history <span id="hb-action-history-count"></span></summary><div id="hb-action-history-list"></div></details>
     </div>
