@@ -95,9 +95,6 @@ def hb_action_list(request):
     today = timezone.localdate()
     state = str(request.GET.get('state') or request.GET.get('status') or '').strip()
     if queue == 'installation':
-        readiness = str(request.GET.get('readiness') or '').strip()
-        if readiness in dict(HomeBiogasAction.READINESS_CHOICES):
-            queryset = queryset.filter(readiness_status=readiness)
         counts_queryset = queryset
         active_installation_states = (
             HomeBiogasAction.INSTALLATION_OPEN,
@@ -147,9 +144,6 @@ def hb_action_list(request):
         'items': [_serialized(request, item, workstream=queue) for item in rows],
         'counts': counts,
         'queue': queue,
-        'filters': {
-            'readiness': [{'value': key, 'label': label} for key, label in HomeBiogasAction.READINESS_CHOICES],
-        },
         'total': total,
         'page': page,
         'pages': max(1, (total + page_size - 1) // page_size),
@@ -178,13 +172,7 @@ def hb_action_detail(request, farmer_id):
             'write': access is None or has_capability(actor, 'jawabu_portal', WRITE_CAPABILITY, access=access),
             'correct': access is None or has_capability(actor, 'jawabu_portal', CORRECT_CAPABILITY, access=access),
         },
-        'options': {
-            'installation_statuses': [
-                {'value': HomeBiogasAction.INSTALLATION_OPEN, 'label': 'Not installed'},
-                {'value': HomeBiogasAction.INSTALLATION_INSTALLED, 'label': 'Installed'},
-            ],
-            'readiness_statuses': [{'value': key, 'label': label} for key, label in HomeBiogasAction.READINESS_CHOICES],
-        },
+        'options': {},
     })
 
 

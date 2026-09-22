@@ -149,6 +149,10 @@
           <div class="hb-action-card-heading"><div><h2>Installation</h2></div></div>
           <div class="hb-action-open-state" id="hb-installation-open-state">
             <button type="button" class="btn btn-primary" id="hb-mark-installed">Mark as installed</button>
+            <button type="button" class="btn btn-secondary" id="hb-report-installation-delay">Report installation delay</button>
+          </div>
+          <div id="hb-installation-delay-fields" class="hb-action-delay-fields" hidden>
+            <label>Pending installation comment<textarea id="hb-installation-note" name="installation_note" rows="4" maxlength="2000" placeholder="What is delaying installation?"></textarea></label>
           </div>
           <div id="hb-installed-fields" class="hb-action-installed-fields" hidden>
             <div class="hb-action-two-column">
@@ -166,20 +170,9 @@
     {% else %}
     <header class="portal-queue-header"><div><p class="eyebrow">Post-order work</p><h1>HB Action</h1><p class="meta">Installation and commissioning after an accepted signed order</p></div><button type="button" class="queue-refresh-button" id="hb-actions-refresh" aria-label="Refresh HB Action" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button></header>
     <nav class="hb-action-tabs" role="tablist" aria-label="HomeBiogas work queue"><button type="button" role="tab" data-hb-queue="installation" aria-selected="true" class="active">Installation</button><button type="button" role="tab" data-hb-queue="commissioning" aria-selected="false">Commissioning</button></nav>
-    <section class="portal-queue-tools hb-action-list-toolbar" aria-label="HB Action search and filters">
+    <section class="portal-queue-tools hb-action-list-toolbar" aria-label="HB Action search">
       <div class="portal-queue-tools-primary">
         <label class="portal-queue-search" for="hb-actions-search"><i data-lucide="search" aria-hidden="true"></i><input id="hb-actions-search" type="search" placeholder="Search name, case, phone or order" aria-label="Search HB Action" autocomplete="off" enterkeyhint="search"></label>
-        <button type="button" class="miniapp-filter-trigger" id="hb-action-filter-trigger" aria-label="Filter installation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16l-6 7v7l-4 2v-9z"></path></svg><span>Filters</span><span class="miniapp-filter-count" id="hb-action-filter-count" hidden>0</span></button>
-      </div>
-      <div class="miniapp-filter-chips" id="hb-action-filter-chips" aria-live="polite"></div>
-      <div class="miniapp-sheet-overlay" id="hb-action-filter-overlay" aria-hidden="true" hidden>
-        <aside class="miniapp-sheet" id="hb-action-filter-sheet" role="dialog" aria-modal="true" aria-label="Filter HB Action">
-          <header class="miniapp-sheet-header"><div><strong id="hb-action-filter-title">Filter installation</strong><p>Show installation work by readiness.</p></div><button type="button" id="hb-action-filter-close" data-miniapp-sheet-close aria-label="Close filters"><i data-lucide="x" aria-hidden="true"></i></button></header>
-          <form class="miniapp-sheet-body" id="hb-action-filter-form">
-            <label>Readiness<select id="hb-filter-readiness"><option value="">All readiness states</option></select></label>
-            <footer class="miniapp-sheet-actions"><button class="btn btn-secondary" id="hb-action-filter-reset" type="button">Reset</button><button class="btn btn-primary" type="submit">Done</button></footer>
-          </form>
-        </aside>
       </div>
     </section>
     <div id="hb-action-counts" class="hb-action-counts" aria-label="Installation status filters"></div>
@@ -194,7 +187,10 @@
   <section id="page-jbl" class="page{% if active_screen == 'jbl' %} active{% endif %}">
     <header class="portal-queue-header">
       <div><h1>JBL Visit Queue</h1><p class="meta">Farmers visited by HB, not yet visited by JBL</p></div>
-      <button type="button" class="queue-refresh-button" data-queue-refresh="jbl" aria-label="Refresh JBL visit queue" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
+      <div class="portal-queue-header-actions">
+        <button type="button" class="queue-refresh-button jbl-create-lead-button" id="jbl-create-lead" data-required-capability="portal.jbl_lead.create" aria-label="Create a lead and log a JBL visit" title="Create and visit"><i data-lucide="plus" aria-hidden="true"></i></button>
+        <button type="button" class="queue-refresh-button" data-queue-refresh="jbl" aria-label="Refresh JBL visit queue" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
+      </div>
     </header>
     {% include "portal/partials/queue_tools.html" with queue_key="jbl" queue_label="visit queue" %}
     <div id="jbl-list" class="farmer-list">

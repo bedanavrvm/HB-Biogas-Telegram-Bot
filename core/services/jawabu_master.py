@@ -1794,7 +1794,26 @@ def upsert_farmer(cleaned: dict, *, return_instance: bool = False):
     additional_unit_reason = clean_text(cleaned.pop('additional_unit_reason', ''))
     if action == APPLICATION_ACTION_CREATE_ADDITIONAL_UNIT and not additional_unit_reason:
         raise ValueError('Additional Unit Reason is required when creating another unit.')
-    customer, unit_number, identity_existing = resolve_application_identity(cleaned, action=action)
+    # A lead created at a JBL office is deliberately reconciled into the same
+    # case only by an exact National ID from FarmUp.  Names and phones are
+    # useful evidence but can be arranged differently or change, so neither
+    # may silently merge an office-created lead into another customer.
+    office_existing = None
+    if cleaned.get('source') == 'jawabu_farmup_review':
+        national_id = clean_text(cleaned.get('national_id', ''))
+        if national_id:
+            office_existing = (
+                JawabuFarmerMaster.objects.select_related('customer')
+                .filter(source='jawabu_office_lead', national_id=national_id)
+                .order_by('-updated_at')
+                .first()
+            )
+    if office_existing is not None:
+        customer = office_existing.customer
+        unit_number = office_existing.unit_number
+        identity_existing = office_existing
+    else:
+        customer, unit_number, identity_existing = resolve_application_identity(cleaned, action=action)
     lookup = farmer_lookup(cleaned)
     # A repeat unit deliberately shares customer identifiers and therefore
     # often shares the ordinary duplicate key. Only the explicit
@@ -1826,6 +1845,11 @@ def upsert_farmer(cleaned: dict, *, return_instance: bool = False):
             'installation_status', 'comments',
         }
         for field, value in defaults.items():
+            # County collected by JBL at office/visit intake is the canonical
+            # operational location. FarmUp enriches the case but never
+            # overwrites it (or its dependent sub-county) later.
+            if existing.source == 'jawabu_office_lead' and cleaned.get('source') == 'jawabu_farmup_review' and field in {'source', 'county', 'sub_county'}:
+                continue
             # FarmUp files often contain county but no operational branch.
             # Do not erase a previously assigned branch merely because this
             # upload omitted that separate field.
@@ -1848,6 +1872,10 @@ def upsert_farmer(cleaned: dict, *, return_instance: bool = False):
         refresh_data_quality_issues(existing)
         from core.services.jawabu_customer_quality import record_customer_phone, record_field_provenance
         if existing.customer_id:
+            # FarmUp's number is recorded as an observed current contact.
+            # The canonical customer key stays National-ID-led here: changing
+            # its unique primary phone could collide with a different customer
+            # and is SysUp's governed identity-reconciliation responsibility.
             record_customer_phone(existing.customer, existing.primary_phone, source='farmup')
         record_field_provenance(
             existing,

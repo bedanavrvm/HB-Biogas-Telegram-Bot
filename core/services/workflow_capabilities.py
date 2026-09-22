@@ -40,6 +40,7 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     CapabilityDefinition('portal.deferred.view', 'jawabu_portal', 'View deferred cases', 'Cases', _roles('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', OPERATIONS_ADMIN_ROLE, BUSINESS_ADMIN_ROLE), ('portal.case.read',)),
     CapabilityDefinition('portal.jbl_queue.view', 'jawabu_portal', 'View JBL visit queue', 'JBL visit', _roles('JBL_OFFICER', OPERATIONS_ADMIN_ROLE)),
     CapabilityDefinition('portal.jbl_followup.view', 'jawabu_portal', 'View my submitted JBL visits', 'JBL visit', _roles('JBL_OFFICER'), ('portal.case.read',)),
+    CapabilityDefinition('portal.jbl_lead.create', 'jawabu_portal', 'Create a JBL office lead and log its first visit', 'JBL visit', _roles('JBL_OFFICER'), ('portal.jbl_queue.view', 'portal.jbl_visit.write')),
     CapabilityDefinition('portal.jbl_visit.write', 'jawabu_portal', 'Log JBL visit', 'JBL visit', _roles('JBL_OFFICER'), ('portal.jbl_queue.view',)),
     CapabilityDefinition('portal.jbl_media.view', 'jawabu_portal', 'View JBL visit media', 'JBL visit', _roles('JBL_OFFICER', 'CREDIT_ANALYST', OPERATIONS_ADMIN_ROLE, BUSINESS_ADMIN_ROLE), ('portal.case.read',)),
     CapabilityDefinition('portal.jbl_media.write', 'jawabu_portal', 'Upload JBL visit media', 'JBL visit', _roles('JBL_OFFICER'), ('portal.jbl_queue.view',)),

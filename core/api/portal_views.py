@@ -24,6 +24,7 @@ from django.contrib.auth import login
 from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature, TimestampSigner
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
+from django.db import IntegrityError, transaction
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from django.shortcuts import render
@@ -7024,6 +7025,8 @@ def portal_invoice_pool(request):
         for invoice in paged_invoices
         if invoice.status == 'matched' and (invoice.matched_order_number or (invoice.matched_farmer and invoice.matched_farmer.order_number))
     })
+
+
     if order_numbers:
         from core.services.payment_documents import payment_readiness
         for order_number in order_numbers:
@@ -7084,6 +7087,109 @@ def portal_invoice_pool(request):
             'workspace': workspace,
         },
     })
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_create_and_complete_jbl_lead(request):
+    """Atomically create a JBL office lead and submit its first visit."""
+    from datetime import date as _date
+    from core.models import JawabuCustomer, JawabuFarmerMaster
+    from core.services.jawabu_pipeline import JBL_FORWARD_STATUSES, JawabuWorkflowState, complete_jbl_visit, farmer_to_card, validate_jbl_visit_upload_batch
+    from core.services.location_catalog import LocationCatalogError, validate_location_selection
+
+    if (role_error := _portal_capability_error(request, 'portal.jbl_lead.create')):
+        return role_error
+    body, request_id = request.POST.dict(), _portal_request_id(request, request.POST.dict())
+    if not request_id:
+        return JsonResponse({'ok': False, 'error': 'Refresh the app and retry. A secure submission key is required.', 'code': 'request_key_required'}, status=428)
+    name = str(body.get('customer_name') or '').strip()
+    national_id = re.sub(r'\s+', '', str(body.get('national_id') or ''))
+    phone = re.sub(r'\s+', '', str(body.get('primary_phone') or ''))
+    county_value = str(body.get('county') or '').strip()
+    errors = {}
+    if not name: errors['customer_name'] = 'Enter the customer name.'
+    if not re.fullmatch(r'\d{5,20}', national_id): errors['national_id'] = 'Enter the customer National ID using digits only.'
+    if not re.fullmatch(r'\+?\d{9,15}', phone): errors['primary_phone'] = 'Enter a valid phone number.'
+    if not county_value: errors['county'] = 'Choose the county where this visit was done.'
+    try: visit_date = _date.fromisoformat(str(body.get('visit_date') or '').strip())
+    except ValueError: errors['visit_date'], visit_date = 'Visit date must use YYYY-MM-DD.', None
+    if errors:
+        return JsonResponse({'ok': False, 'error': 'Correct the highlighted lead details.', 'field_errors': errors}, status=400)
+    try:
+        _, county_record, sub_county_record = validate_location_selection(
+            county_value=county_value, sub_county_value=str(body.get('sub_county') or '').strip(),
+            source_workflow='jawabu_portal', source_model='JawabuFarmerMaster', source_record_id='new-office-lead',
+            actor=getattr(request, 'portal_user', None), request_id=request_id,
+        )
+    except LocationCatalogError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'field_errors': {'county': str(exc)}}, status=400)
+    try:
+        latitude_raw, longitude_raw = body.get('capture_latitude') or body.get('latitude'), body.get('capture_longitude') or body.get('longitude')
+        latitude = float(latitude_raw) if str(latitude_raw or '').strip() else None
+        longitude = float(longitude_raw) if str(longitude_raw or '').strip() else None
+    except (TypeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'Capture the visit location again.', 'field_errors': {'capture_location': 'The captured GPS coordinates are invalid.'}}, status=400)
+    getlist = request.FILES.getlist
+    categorized_files = {key: getlist(field) for key, field in {
+        'CLIENT_ID_FRONT': 'client_id_front', 'CLIENT_ID_BACK': 'client_id_back',
+        'LAF_PAGE_1': 'laf_page_1', 'LAF_PAGE_2': 'laf_page_2', 'JBL_VISIT_PHOTO': 'jbl_visit_photo_files',
+    }.items()}
+    visit_status = str(body.get('visit_status') or '').strip()
+    valid, error, code = validate_jbl_visit_upload_batch(categorized_files)
+    if not valid:
+        return JsonResponse({'ok': False, 'error': error, 'code': code, 'field_errors': {'jbl_visit_photo_files': error}}, status=400)
+    if any(categorized_files.values()) or visit_status in JBL_FORWARD_STATUSES:
+        if (media_error := _portal_capability_error(request, 'portal.jbl_media.write')):
+            return media_error
+    actor = getattr(request, 'portal_user', None)
+    external_id = f'jbl-office-lead:{actor.pk if actor else "telegram"}:{request_id}'
+    created_lead = False
+    with transaction.atomic():
+        farmer = JawabuFarmerMaster.objects.select_for_update().filter(external_id=external_id).first()
+        if farmer is None:
+            if JawabuFarmerMaster.objects.filter(national_id=national_id, status='active').exists():
+                return JsonResponse({'ok': False, 'error': 'A case already exists for this National ID. Open that case to log the visit.', 'code': 'existing_national_id', 'field_errors': {'national_id': 'This customer already has a case.'}}, status=409)
+            try:
+                customer = JawabuCustomer.objects.create(national_id=national_id, primary_phone=phone)
+                farmer = JawabuFarmerMaster.objects.create(
+                    customer=customer, source='jawabu_office_lead', source_name='JBL office visit intake', external_id=external_id,
+                    customer_name=name, national_id=national_id, primary_phone=phone, lead_name=name, lead_national_id=national_id,
+                    lead_primary_phone=phone, lead_source_reference='JBL office', lead_source='JAWABU',
+                    county=county_record.name if county_record else county_value,
+                    sub_county=sub_county_record.name if sub_county_record else str(body.get('sub_county') or '').strip(),
+                    county_ref=county_record, sub_county_ref=sub_county_record, workflow_state=JawabuWorkflowState.JBL_VISIT,
+                    workflow_state_entered_at=timezone.now(),
+                )
+                created_lead = True
+            except IntegrityError:
+                return JsonResponse({'ok': False, 'error': 'A customer with this National ID or phone already exists. Search before creating a new lead.', 'code': 'existing_identity'}, status=409)
+    try:
+        ok, error, result = complete_jbl_visit(
+            farmer, categorized_files=categorized_files, visit_date=visit_date, visit_status=visit_status,
+            officer=str(body.get('officer') or '').strip() or _portal_sender_from_request(request), comment=str(body.get('comment') or '').strip(),
+            sender=_portal_sender_from_request(request), latitude=latitude, longitude=longitude,
+            location_unavailable_reason=str(body.get('location_unavailable_reason') or '').strip(),
+            county=county_record.code if county_record else county_value, sub_county=sub_county_record.code if sub_county_record else str(body.get('sub_county') or '').strip(),
+            village=str(body.get('village') or '').strip(), request_id=request_id, expected_revision=int(farmer.workflow_revision or 1), actor_user=actor,
+        )
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    if not ok:
+        # A failed local validation must not leave a half-created office lead.
+        # If Drive evidence was stored, it remains linked for an idempotent
+        # retry; otherwise both just-created identity rows are safely removed.
+        if created_lead and not result.get('evidence_saved'):
+            with transaction.atomic():
+                created = JawabuFarmerMaster.objects.select_for_update().filter(pk=farmer.pk, external_id=external_id).first()
+                if created and not created.media_attachments.exists():
+                    customer_id = created.customer_id
+                    created.delete()
+                    if customer_id:
+                        JawabuCustomer.objects.filter(pk=customer_id, applications__isnull=True).delete()
+        return JsonResponse({'ok': False, 'error': error, 'code': result.get('code') or 'jbl_visit_validation_failed', 'field_errors': _portal_jbl_visit_field_errors(error, result), **result}, status=409 if result.get('evidence_saved') else 400)
+    farmer.refresh_from_db()
+    return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer), 'publication': _portal_publication_payload(farmer), 'created_lead': True, **result})
 
 
 @require_http_methods(["GET"])

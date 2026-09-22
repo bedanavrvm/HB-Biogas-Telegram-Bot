@@ -169,6 +169,25 @@ class HomeBiogasActionServiceTests(TestCase):
         self.farmer.refresh_from_db()
         self.assertEqual(self.farmer.installation_status, 'Open')
 
+    def test_open_installation_accepts_a_pending_comment_without_planning_fields(self):
+        action = self.release()
+
+        updated, _operations, replayed = transition_action(
+            action.pk, actor=self.user, request_id='open-delay-comment', expected_revision=1,
+            payload={
+                'workstream': 'installation', 'installation_status': 'open',
+                'installation_note': 'Customer asked for installation after site preparation is complete.',
+            },
+        )
+
+        self.assertFalse(replayed)
+        self.assertEqual(updated.installation_status, HomeBiogasAction.INSTALLATION_OPEN)
+        self.assertEqual(updated.pending_installation_comment, 'Customer asked for installation after site preparation is complete.')
+        self.assertEqual(updated.readiness_status, '')
+        self.assertIsNone(updated.planned_installation_date)
+        event = HomeBiogasActionEvent.objects.get(request_id='open-delay-comment')
+        self.assertEqual(event.new_values['pending_installation_comment'], updated.pending_installation_comment)
+
     def test_legacy_closed_installation_is_preserved_but_cannot_be_changed(self):
         action = self.release()
         action.installation_status = HomeBiogasAction.INSTALLATION_CLOSED
@@ -323,11 +342,13 @@ class HomeBiogasActionApiTests(HomeBiogasActionServiceTests):
 
         self.assertEqual(listing.status_code, 200)
         self.assertEqual(listing.json()['items'][0]['case_reference'].startswith('JBL-'), True)
-        self.assertEqual(set(listing.json()['filters']), {'readiness'})
+        self.assertNotIn('filters', listing.json())
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()['action']['id'], str(action.pk))
         self.assertContains(screen, 'id="hb-action-form"')
         self.assertContains(screen, 'id="hb-mark-installed"')
+        self.assertContains(screen, 'id="hb-report-installation-delay"')
+        self.assertContains(screen, 'id="hb-installation-delay-fields"')
         self.assertContains(screen, 'id="hb-installed-fields"')
         self.assertNotContains(screen, 'id="hb-installation-status"')
         self.assertNotContains(screen, 'hb-installation-planning-toggle')
@@ -336,7 +357,8 @@ class HomeBiogasActionApiTests(HomeBiogasActionServiceTests):
         self.assertNotContains(screen, 'id="hb-commissioning-date"')
         self.assertContains(commissioning_screen, 'id="hb-commissioning-date"')
         self.assertNotContains(commissioning_screen, 'id="hb-mark-installed"')
-        self.assertContains(list_screen, 'id="hb-filter-readiness"')
+        self.assertNotContains(list_screen, 'hb-action-filter-trigger')
+        self.assertNotContains(list_screen, 'hb-filter-readiness')
         self.assertNotContains(list_screen, 'All authorized branches')
         self.assertNotContains(list_screen, 'Installation report<select')
 

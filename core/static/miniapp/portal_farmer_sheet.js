@@ -699,6 +699,7 @@
   function openFarmerSheet(farmer, mode) {
     state().selectedFarmer = farmer;
     state().activeMode = mode;
+    const isNewLead = Boolean(farmer.is_new_jbl_lead);
     activeVoiceAttempt = null;
     Object.keys(acceptedVoiceAttempts).forEach(key => delete acceptedVoiceAttempts[key]);
 
@@ -709,9 +710,9 @@
     sheetOverlay?.classList.toggle('credit-analysis-sheet', mode === 'credit');
     sheetOverlay?.classList.toggle('final-review-sheet', mode === 'final_review');
     sheetOverlay?.classList.toggle('operational-detail-sheet', isOperationalDetail);
-    el('sheet-name').textContent = farmer.customer_name || 'Unknown Farmer';
+    el('sheet-name').textContent = isNewLead ? 'Create and visit' : (farmer.customer_name || 'Unknown Farmer');
     const location = deps.locationText(farmer);
-    el('sheet-sub').textContent = location !== '-' ? location : (farmer.primary_phone || '');
+    el('sheet-sub').textContent = isNewLead ? 'Add customer details, then log the first JBL visit.' : (location !== '-' ? location : (farmer.primary_phone || ''));
     const navigation = el('sheet-navigation');
     if (navigation) navigation.hidden = !isOperationalDetail;
     const backButton = el('sheet-back');
@@ -773,7 +774,7 @@
     caseToggle.innerHTML = `<i data-lucide="history" aria-hidden="true"></i><span>${['jbl_visit', 'credit'].includes(mode) ? 'Case History' : 'Open Case History'}</span>`;
     const historySource = {jbl_visit:'jbl',credit:'credit',final_review:'final',deferred:'deferred',requisition:'requisition'}[mode] || 'all';
     caseToggle.href = `/portal/cases/${encodeURIComponent(farmer.id)}/?from=${historySource}`;
-    caseToggle.hidden = !hasCapability('portal.case.read');
+    caseToggle.hidden = isNewLead || !hasCapability('portal.case.read');
     caseToggle.onclick = event => {
       if (window.PortalCaseNavigation?.canOpen?.(caseToggle.href)) {
         event.preventDefault();
@@ -808,10 +809,10 @@
       el('btn-submit-jbl').addEventListener('click', submitJblVisit);
       wireJblDateInput();
       wireGpsButton();
-      wireJblVisitDraft(farmer);
+      if (!isNewLead) wireJblVisitDraft(farmer);
       wireJblLocationFields(farmer);
       wireVoiceWidget('jbl_visit_comment');
-      sessionStorage.setItem(JBL_ACTIVE_DRAFT_KEY, farmer.id);
+      if (!isNewLead) sessionStorage.setItem(JBL_ACTIVE_DRAFT_KEY, farmer.id);
     } else if (mode === 'credit') {
       formEl.innerHTML = buildCreditForm(farmer);
       footerEl.innerHTML = '<button class="primary" id="btn-submit-credit">Set Credit Decision</button>';
@@ -1111,10 +1112,19 @@
       </div>
       <small class="jbl-media-limit-help" id="jbl-media-budget">Up to ${maximumMediaFiles} supporting photos, plus both documents. ${Math.round(Number(state().jblVisitMediaMaxTotalBytes || 40 * 1024 * 1024) / (1024 * 1024))} MB combined.</small>
       ${farmer.jbl_media_count ? `<small class="jbl-existing-media-help">${farmer.jbl_media_count} existing media file${farmer.jbl_media_count === 1 ? '' : 's'} on this visit record.</small>` : ''}` : '';
+    const isNewLead = Boolean(farmer.is_new_jbl_lead);
+    const newLeadFields = isNewLead ? `
+      <p class="jbl-section-label">Lead details</p>
+      <div class="form-section form-grid jbl-details-grid jbl-new-lead-fields">
+        <div class="form-row" data-jbl-field="customer_name"><label>Customer name <span class="required-marker" aria-hidden="true">*</span></label><input id="jbl-new-lead-name" type="text" maxlength="255" autocomplete="name" placeholder="Full name"><small class="jbl-field-error" data-error-message-for="customer_name"></small></div>
+        <div class="form-row" data-jbl-field="national_id"><label>National ID <span class="required-marker" aria-hidden="true">*</span></label><input id="jbl-new-lead-id" type="text" inputmode="numeric" maxlength="20" autocomplete="off" placeholder="Digits only"><small class="jbl-field-error" data-error-message-for="national_id"></small></div>
+        <div class="form-row" data-jbl-field="primary_phone"><label>Phone number <span class="required-marker" aria-hidden="true">*</span></label><input id="jbl-new-lead-phone" type="tel" inputmode="tel" maxlength="16" autocomplete="tel" placeholder="e.g. 2547…"><small class="jbl-field-error" data-error-message-for="primary_phone"></small></div>
+      </div>` : '';
     return `
       <section id="jbl-form-errors" class="jbl-form-errors" role="alert" tabindex="-1" hidden><strong>Correct the following before logging the visit:</strong><ul></ul></section>
       <section id="jbl-workflow-conflict" class="jbl-workflow-conflict" role="alert" tabindex="-1" hidden><strong>This case changed since you opened it.</strong><p id="jbl-workflow-conflict-message"></p><p>Your draft and selected files are still here. Review the latest case before retrying.</p><button type="button" id="jbl-review-latest">Review latest case and keep my draft</button></section>
       <section id="jbl-draft-conflict" class="jbl-workflow-conflict" role="alert" tabindex="-1" hidden><strong>This draft changed on another device.</strong><p>Choose which field-only draft to continue with. Files are never included.</p><div class="jbl-conflict-actions"><button type="button" id="jbl-use-local-draft">Use this device</button><button type="button" id="jbl-use-server-draft">Use saved draft</button></div></section>
+      ${newLeadFields}
       <p class="jbl-section-label">Visit details</p>
       <div class="form-section form-grid jbl-details-grid">
         <div class="form-row" data-jbl-field="visit_date"><label title="JBL visits follow the HBG visit and cannot be future-dated.">Visit Date <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><div class="jbl-date-control"><input type="text" id="jbl-date-display" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="dd-mm-yy" aria-describedby="jbl-date-help" aria-required="true" value="${deps.escapeHtml(displayDateFromIso(defaultVisitDate))}"><button type="button" id="jbl-date-open" class="jbl-date-open" aria-label="Open native visit date picker" title="Choose visit date">${calendarIcon()}</button><input type="date" id="jbl-date-picker" class="native-date-proxy" min="${deps.escapeHtml(hbgVisitDate)}" max="${deps.escapeHtml(today)}" value="${deps.escapeHtml(defaultVisitDate)}" tabindex="-1" aria-hidden="true"><input type="hidden" id="jbl-date" value="${deps.escapeHtml(defaultVisitDate)}"></div><small id="jbl-date-help" class="field-help">Use dd-mm-yy. Earliest: ${deps.escapeHtml(displayDateFromIso(hbgVisitDate) || 'recorded HBG visit')}; latest: ${deps.escapeHtml(displayDateFromIso(today))}.</small><small class="jbl-field-error" data-error-message-for="visit_date"></small></div>
@@ -1975,6 +1985,11 @@
 
   function validateJblVisitFields() {
     const errors = {};
+    if (state().selectedFarmer?.is_new_jbl_lead) {
+      if (!el('jbl-new-lead-name')?.value.trim()) errors.customer_name = 'Enter the customer name.';
+      if (!/^\d{5,20}$/.test((el('jbl-new-lead-id')?.value || '').replace(/\s/g, ''))) errors.national_id = 'Enter the customer National ID using digits only.';
+      if (!/^\+?\d{9,15}$/.test((el('jbl-new-lead-phone')?.value || '').replace(/\s/g, ''))) errors.primary_phone = 'Enter a valid phone number.';
+    }
     const status = el('jbl-status')?.value || '';
     if (!status) errors.visit_status = 'Select the JBL visit outcome.';
     if (!el('jbl-date')?.value) errors.visit_date = 'Enter the JBL visit date.';
@@ -2695,12 +2710,13 @@
   async function submitJblVisit() {
     const farmer = state().selectedFarmer;
     if (!farmer) return;
+    const isNewLead = Boolean(farmer.is_new_jbl_lead);
     if (pendingJblWorkflowConflict) {
       el('jbl-workflow-conflict')?.focus();
       deps.showToast('Review the latest case before submitting this draft.', 'error');
       return;
     }
-    if (await reconcilePersistedJblSubmission(farmer)) return;
+    if (!isNewLead && await reconcilePersistedJblSubmission(farmer)) return;
     const visitStatus = el('jbl-status')?.value || '';
     if (!commitJblDisplayDate({ showError: false })) {
       showJblFieldErrors({ visit_date: 'Enter a valid visit date in dd-mm-yy format.' });
@@ -2735,6 +2751,10 @@
         side: item.side,
         type: item.file?.type || '', modified: item.file?.lastModified || 0,
       })),
+      newLead: isNewLead ? {
+        name: el('jbl-new-lead-name')?.value || '', id: el('jbl-new-lead-id')?.value || '',
+        phone: el('jbl-new-lead-phone')?.value || '',
+      } : null,
     });
     const persistedSubmission = persistedJblSubmission(farmer.id);
     const priorSubmission = pendingJblVisitSubmission?.signature === submissionSignature
@@ -2742,7 +2762,7 @@
       : persistedSubmission?.signature === submissionSignature ? persistedSubmission : null;
     const key = priorSubmission?.key || requestId();
     pendingJblVisitSubmission = { signature: submissionSignature, key };
-    sessionStorage.setItem(`portal:jbl:submission:${farmer.id}`, JSON.stringify(pendingJblVisitSubmission));
+    if (!isNewLead) sessionStorage.setItem(`portal:jbl:submission:${farmer.id}`, JSON.stringify(pendingJblVisitSubmission));
     formData.set('client_request_id', key);
     formData.set('workflow_revision', String(Number(farmer.workflow_revision || 1)));
     formData.set('visit_date', el('jbl-date')?.value || '');
@@ -2752,6 +2772,11 @@
     formData.set('sub_county', el('jbl-sub-county')?.value || '');
     formData.set('village', el('jbl-village')?.value || '');
     formData.set('comment', el('jbl-comment')?.value || '');
+    if (isNewLead) {
+      formData.set('customer_name', el('jbl-new-lead-name')?.value || '');
+      formData.set('national_id', el('jbl-new-lead-id')?.value || '');
+      formData.set('primary_phone', el('jbl-new-lead-phone')?.value || '');
+    }
     if (acceptedVoiceAttempts.jbl_visit_comment) formData.set('voice_transcription_id', acceptedVoiceAttempts.jbl_visit_comment);
     formData.set('capture_latitude', el('jbl-lat')?.value || '');
     formData.set('capture_longitude', el('jbl-lng')?.value || '');
@@ -2775,7 +2800,7 @@
     let response;
     try {
       response = await deps.portalApi.postForm(
-        '/jbl-queue/' + farmer.id + '/complete-visit/',
+        isNewLead ? '/jbl-queue/create-and-complete/' : '/jbl-queue/' + farmer.id + '/complete-visit/',
         formData,
         deps.tg,
         { 'X-CSRFToken': deps.getCookie('csrftoken') || '', 'X-Request-ID': key, 'Idempotency-Key': key },
@@ -2785,7 +2810,7 @@
       deps.showToast('The response was interrupted. Checking whether the visit was saved...', 'info');
       let check = { ok: false, data: null };
       try {
-        check = await deps.apiFetch(
+        check = isNewLead ? { ok: false, data: null } : await deps.apiFetch(
           `/jbl-queue/${encodeURIComponent(farmer.id)}/completion-status/?request_id=${encodeURIComponent(key)}`,
         );
       } catch (_) {
@@ -2824,10 +2849,10 @@
       return;
     }
     pendingJblVisitSubmission = null;
-    sessionStorage.removeItem(`portal:jbl:submission:${farmer.id}`);
+    if (!isNewLead) sessionStorage.removeItem(`portal:jbl:submission:${farmer.id}`);
     const uploaded = Number(data.stored_count || 0);
     const successMessage = data.already_completed ? 'This visit was already saved.' : `JBL visit logged${uploaded ? ` with ${uploaded} new evidence file${uploaded === 1 ? '' : 's'}` : ''}.`;
-    await clearJblVisitDraft(farmer);
+    if (!isNewLead) await clearJblVisitDraft(farmer);
     closeSheet({ saveDraft: false });
     await Promise.all([deps.reloadCurrentQueue(), deps.loadDashboard()]);
     deps.showToast(successMessage, 'success');
@@ -3027,6 +3052,16 @@
   window.PortalMiniAppFarmerSheet = {
     init,
     openFarmerSheet,
+    openNewJblLeadSheet() {
+      if (!hasCapability('portal.jbl_lead.create')) {
+        deps.showToast('Your role is not assigned to create JBL leads.', 'error');
+        return;
+      }
+      openFarmerSheet({
+        id: 'new-office-lead', is_new_jbl_lead: true, customer_name: '', primary_phone: '',
+        county: '', sub_county: '', village: '', workflow_revision: 1, visit_evidence: {},
+      }, 'jbl_visit');
+    },
     closeSheet,
     renderCase360,
   };

@@ -2776,6 +2776,13 @@
       tg,
     });
   }
+  el('jbl-create-lead')?.addEventListener('click', () => {
+    if (!hasCapability('portal.jbl_lead.create')) {
+      showToast('Your role is not assigned to create JBL leads.', 'error');
+      return;
+    }
+    portalFarmerSheet.openNewJblLeadSheet?.();
+  });
   if (portalHbActions.init) {
     portalHbActions.init({
       escapeHtml, fmtDate, openPortalLink, portalApi, setButtonLoading,

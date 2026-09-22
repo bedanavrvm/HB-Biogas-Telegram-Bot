@@ -7,13 +7,12 @@
   let permissions = {};
   let correctionMode = false;
   let installationCompletionMode = false;
+  let installationDelayMode = false;
   let activeQueue = 'installation';
   let activeState = 'open';
   let page = 1;
   let searchTimer = null;
   let invoiceObjectUrl = '';
-  let filterSheet = null;
-  const filters = {readiness: ''};
 
   const byId = id => document.getElementById(id);
   const esc = value => deps.escapeHtml ? deps.escapeHtml(value == null ? '' : String(value)) : String(value || '');
@@ -21,13 +20,6 @@
   const commissioningLabels = {not_commissioned: 'Not commissioned', delayed: 'Delayed', commissioned: 'Commissioned'};
 
   function field(id) { return byId(id); }
-  function setOptions(select, rows, placeholder) {
-    if (!select) return;
-    const current = select.value;
-    select.innerHTML = (placeholder ? `<option value="">${esc(placeholder)}</option>` : '')
-      + (rows || []).map(row => `<option value="${esc(row.value)}">${esc(row.label)}</option>`).join('');
-    if ([...select.options].some(option => option.value === current)) select.value = current;
-  }
   function statusClass(value) { return `hb-status-${String(value || '').replace(/_/g, '-')}`; }
   function currentWorkstream() {
     const root = byId('portal-screen');
@@ -41,39 +33,6 @@
     window.history.replaceState({}, '', url.pathname + url.search);
   }
 
-  function filterCount() {
-    return activeQueue === 'installation' && filters.readiness ? 1 : 0;
-  }
-  function renderFilterSummary() {
-    const count = filterCount();
-    const badge = byId('hb-action-filter-count');
-    if (badge) { badge.hidden = !count; badge.textContent = String(count); }
-    const chips = byId('hb-action-filter-chips');
-    if (!chips) return;
-    const labels = [];
-    if (filters.readiness) labels.push(field('hb-filter-readiness')?.selectedOptions[0]?.textContent || filters.readiness);
-    chips.hidden = activeQueue !== 'installation';
-    chips.innerHTML = activeQueue === 'installation' ? labels.map(label => `<span class="miniapp-filter-chip">${esc(label)}</span>`).join('') : '';
-  }
-  function populateFilterOptions(payload) {
-    setOptions(field('hb-filter-readiness'), payload.readiness || [], 'All readiness states');
-  }
-  function updateFilterMode() {
-    const commissioning = activeQueue === 'commissioning';
-    const toolbar = document.querySelector('.hb-action-list-toolbar');
-    const trigger = byId('hb-action-filter-trigger');
-    toolbar?.classList.toggle('hb-action-no-filter', commissioning);
-    if (trigger) trigger.hidden = commissioning;
-    if (commissioning && filterSheet?.isOpen?.()) filterSheet.close();
-  }
-  function readFilters() {
-    if (activeQueue === 'installation') filters.readiness = field('hb-filter-readiness').value;
-  }
-  function clearFilters() {
-    filters.readiness = '';
-    if (field('hb-filter-readiness')) field('hb-filter-readiness').value = '';
-    page = 1; renderFilterSummary(); loadList();
-  }
 
   function countdownText(item) {
     if (item.commissioning_state === 'done') return item.commissioning_date_display ? `Commissioned ${item.commissioning_date_display}` : 'Commissioned';
@@ -98,16 +57,13 @@
     const params = new URLSearchParams({page: String(page), queue: activeQueue, state: activeState});
     const search = byId('hb-actions-search')?.value.trim() || '';
     if (search) params.set('search', search);
-    if (activeQueue === 'installation' && filters.readiness) params.set('readiness', filters.readiness);
     const response = await deps.portalApi.apiFetch(`/hb-actions/?${params.toString()}`, {}, deps.tg);
     if (!response.ok || !response.data?.ok) {
       target.innerHTML = `<div class="empty-state"><strong>HB Action could not load</strong><div class="es-sub">${esc(response.data?.error || 'Check your connection and try again.')}</div><button type="button" class="btn btn-secondary" data-hb-retry>Retry</button></div>`;
       target.querySelector('[data-hb-retry]')?.addEventListener('click', loadList);
       return;
     }
-    populateFilterOptions(response.data.filters || {});
     renderCounts(response.data.counts || {});
-    renderFilterSummary();
     const items = response.data.items || [];
     target.innerHTML = items.length ? items.map(item => {
       const state = activeQueue === 'commissioning' ? item.commissioning_status : item.installation_status;
@@ -143,7 +99,7 @@
       const active = button.dataset.hbQueue === queue;
       button.classList.toggle('active', active); button.setAttribute('aria-selected', String(active));
     });
-    updateFilterMode(); setQueueUrl(); loadList();
+    setQueueUrl(); loadList();
   }
 
   function renderReadiness(action) {
@@ -174,7 +130,9 @@
 
     if (workstream === 'installation') {
       installationCompletionMode = action.installation_status === 'installed';
+      installationDelayMode = false;
       field('hb-installation-date').value = action.installation_date || '';
+      field('hb-installation-note').value = action.installation_note || '';
       field('hb-serial-number').value = action.serial_number || '';
       field('hb-installation-report-submitted').checked = action.installation_report_status === 'yes';
       renderInstallationForm();
@@ -190,11 +148,16 @@
   function renderInstallationForm() {
     if (detail?.workstream !== 'installation') return;
     const completionFieldsVisible = detail.installation_status === 'installed' || installationCompletionMode;
+    const delayFieldsVisible = detail.installation_status === 'open' && installationDelayMode;
     const openState = byId('hb-installation-open-state');
     const installedFields = byId('hb-installed-fields');
-    if (openState) openState.hidden = completionFieldsVisible;
+    const delayFields = byId('hb-installation-delay-fields');
+    if (openState) openState.hidden = completionFieldsVisible || delayFieldsVisible;
     if (installedFields) installedFields.hidden = !completionFieldsVisible;
-    byId('hb-action-save').textContent = correctionMode && detail.installation_status === 'installed' ? 'Save installation correction' : 'Save installation';
+    if (delayFields) delayFields.hidden = !delayFieldsVisible;
+    byId('hb-action-save').textContent = delayFieldsVisible
+      ? 'Save delay update'
+      : (correctionMode && detail.installation_status === 'installed' ? 'Save installation correction' : 'Save installation');
   }
   function applyReadOnlyState() {
     const form = byId('hb-action-form');
@@ -205,14 +168,19 @@
     );
     const editable = Boolean(permissions.write) && (!completedMilestone || correctionMode);
     form.querySelectorAll('input,select,textarea').forEach(control => { control.disabled = !editable; });
-    const needsInstallationCompletion = detail?.workstream === 'installation'
-      && detail?.installation_status === 'open' && !installationCompletionMode;
+    const needsInstallationAction = detail?.workstream === 'installation'
+      && detail?.installation_status === 'open' && !installationCompletionMode && !installationDelayMode;
     const saveWrap = byId('hb-action-save-wrap');
-    if (saveWrap) saveWrap.hidden = !editable || needsInstallationCompletion;
+    if (saveWrap) saveWrap.hidden = !editable || needsInstallationAction;
     const markInstalled = byId('hb-mark-installed');
     if (markInstalled) {
-      markInstalled.hidden = detail?.workstream !== 'installation' || detail?.installation_status !== 'open' || installationCompletionMode;
+      markInstalled.hidden = detail?.workstream !== 'installation' || detail?.installation_status !== 'open' || installationCompletionMode || installationDelayMode;
       markInstalled.disabled = !permissions.write;
+    }
+    const reportDelay = byId('hb-report-installation-delay');
+    if (reportDelay) {
+      reportDelay.hidden = detail?.workstream !== 'installation' || detail?.installation_status !== 'open' || installationDelayMode || installationCompletionMode;
+      reportDelay.disabled = !permissions.write;
     }
     const editToggle = byId('hb-action-edit-toggle');
     if (editToggle) editToggle.hidden = !permissions.correct || !completedMilestone || detail?.installation_status === 'closed';
@@ -242,6 +210,10 @@
   function payloadFromForm() {
     const workstream = detail.workstream || currentWorkstream();
     if (workstream === 'commissioning') return {revision: detail.revision, workstream, commissioning_status: 'commissioned', commissioning_date: field('hb-commissioning-date')?.value || ''};
+    if (installationDelayMode) return {
+      revision: detail.revision, workstream: 'installation', installation_status: 'open',
+      installation_note: field('hb-installation-note')?.value.trim() || '',
+    };
     return {
       revision: detail.revision, workstream: 'installation', installation_status: 'installed',
       installation_date: field('hb-installation-date')?.value || '', serial_number: field('hb-serial-number')?.value.trim() || '',
@@ -255,6 +227,7 @@
       if (payload.commissioning_date > today) return 'The actual commissioning date cannot be in the future.';
       return '';
     }
+    if (payload.installation_status === 'open') return payload.installation_note ? '' : 'Add a short pending installation comment.';
     if (!payload.installation_date) return 'Choose the actual installation date.';
     if (payload.installation_date > today) return 'The actual installation date cannot be in the future.';
     return '';
@@ -296,7 +269,7 @@
     }
     populateDetail(response.data.action);
     applyVisualDetailHierarchy(response.data.action);
-    deps.showToast(payload.workstream === 'commissioning' ? 'Commissioning recorded.' : 'Installation saved.', 'success');
+    deps.showToast(payload.workstream === 'commissioning' ? 'Commissioning recorded.' : (payload.installation_status === 'open' ? 'Delay update saved.' : 'Installation saved.'), 'success');
   }
 
   function closeInvoicePreview() {
@@ -339,9 +312,17 @@
       byId('hb-action-form')?.addEventListener('submit', save);
       byId('hb-mark-installed')?.addEventListener('click', () => {
         installationCompletionMode = true;
+        installationDelayMode = false;
         renderInstallationForm();
         applyReadOnlyState();
         field('hb-installation-date')?.focus();
+      });
+      byId('hb-report-installation-delay')?.addEventListener('click', () => {
+        installationDelayMode = true;
+        installationCompletionMode = false;
+        renderInstallationForm();
+        applyReadOnlyState();
+        field('hb-installation-note')?.focus();
       });
       byId('hb-action-invoice')?.addEventListener('click', openInvoicePreview);
       byId('media-viewer-close')?.addEventListener('click', closeInvoicePreview);
@@ -365,13 +346,6 @@
     document.querySelectorAll('[data-hb-queue]').forEach(button => { const active = button.dataset.hbQueue === activeQueue; button.classList.toggle('active', active); button.setAttribute('aria-selected', String(active)); });
     byId('hb-actions-refresh')?.addEventListener('click', loadList);
     byId('hb-actions-search')?.addEventListener('input', () => { window.clearTimeout(searchTimer); searchTimer = window.setTimeout(() => { page = 1; loadList(); }, 250); });
-    filterSheet = window.MiniAppComponents?.bindFilterSheet?.({
-      trigger: byId('hb-action-filter-trigger'), overlay: byId('hb-action-filter-overlay'),
-      sheet: byId('hb-action-filter-sheet'), form: byId('hb-action-filter-form'),
-      onApply: () => { readFilters(); page = 1; renderFilterSummary(); loadList(); },
-    });
-    byId('hb-action-filter-reset')?.addEventListener('click', clearFilters);
-    updateFilterMode();
   }
   function loadCurrent() { const farmerId = byId('portal-screen')?.dataset.hbActionFarmerId || ''; return farmerId ? loadDetail(farmerId) : loadList(); }
 

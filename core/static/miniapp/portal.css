@@ -4617,6 +4617,13 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 /* HB Action follows the current Portal detail language: a clear case heading,
    left-aligned information and one compact, mobile-safe primary action. */
 .hb-action-detail-header { grid-template-columns:44px minmax(0,1fr) 44px; align-items:center; gap:4px; margin:0 0 10px; }
+
+/* JBL officers can start a lead and record the first visit without first
+   manufacturing a queue record. The circular control matches the queue
+   refresh affordance and remains thumb-safe on narrow Telegram WebViews. */
+.portal-queue-header-actions { display:flex; align-items:center; gap:8px; flex:0 0 auto; }
+.jbl-create-lead-button { color:var(--color-primary); border-color:color-mix(in srgb,var(--color-primary) 28%,var(--border)); }
+.jbl-new-lead-fields { padding-top:0; }
 .hb-action-detail-header .case-history-back { display:grid; width:44px; height:44px; place-items:center; border:0; border-radius:999px; background:transparent; color:var(--color-primary); text-decoration:none; -webkit-tap-highlight-color:transparent; }
 .hb-action-detail-header .case-history-back:active { background:color-mix(in srgb,var(--color-primary) 9%,transparent); }
 .hb-action-detail-header .case-history-back:focus-visible { outline:2px solid var(--color-primary); outline-offset:2px; }
@@ -4650,6 +4657,7 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 .hb-action-card-heading p { margin-top:3px; font-size:12px; line-height:1.4; }
 .hb-action-open-state { display:grid; gap:8px; }
 .hb-action-open-state .btn { width:100%; min-height:44px; }
+.hb-action-delay-fields { display:grid; gap:8px; }
 .hb-action-checkbox { display:flex; align-items:center; gap:8px; min-height:42px; padding:9px 10px; border:1px solid var(--border, var(--border-color)); border-radius:10px; background:var(--surface-muted, var(--color-soft)); font-size:13px; font-weight:650; }
 .hb-action-checkbox input { width:18px !important; min-height:18px !important; margin:0 !important; accent-color:var(--color-primary); }
 .hb-action-form label { gap:6px; font-size:12px; line-height:1.3; }
