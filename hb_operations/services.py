@@ -52,6 +52,21 @@ def _display_date(value) -> str:
     return value.strftime('%d-%m-%Y') if value else ''
 
 
+def _tat_stage_snapshot(stage_key: str) -> dict:
+    """Freeze the Portal TAT target at an HB hand-off event.
+
+    HB owns its events; Portal owns only the target policy and the read-only
+    cross-workflow TAT projection.  Storing this small snapshot prevents a
+    later Settings change from changing an already-started HB clock.
+    """
+    from core.services.jawabu_case360 import portal_tat_target_for_stage
+
+    target = portal_tat_target_for_stage(stage_key)
+    if target is None:
+        return {}
+    return {'tat_target_snapshot': {'stage_key': stage_key, 'target_minutes': target}}
+
+
 def commissioning_readiness(action: HomeBiogasAction, *, today: date | None = None) -> dict:
     """Return the policy-derived commissioning state; never persist a stale countdown."""
     installed_on = action.installation_date if action.installation_status == HomeBiogasAction.INSTALLATION_INSTALLED else None
@@ -266,6 +281,7 @@ def release_requisition_signoff(signoff, *, actor=None) -> dict:
                     'requisition_version': batch.version,
                     'installation_status': HomeBiogasAction.INSTALLATION_OPEN,
                     'commissioning_status': HomeBiogasAction.COMMISSIONING_NOT_COMMISSIONED,
+                    **_tat_stage_snapshot('hb_order_released_to_installation_completed'),
                 },
             )
             # The farmer record is the one-way Master Data projection source.
@@ -435,10 +451,13 @@ def transition_action(action_id, *, payload: dict, actor, request_id: str, expec
     action.revision += 1
     action.updated_by = actor
     action.save(update_fields=[*values.keys(), 'revision', 'updated_by', 'updated_at'])
+    event_values = {**_snapshot(action), **policy}
+    if workstream == 'installation' and action.installation_status == HomeBiogasAction.INSTALLATION_INSTALLED:
+        event_values.update(_tat_stage_snapshot('installation_completed_to_commissioning_completed'))
     HomeBiogasActionEvent.objects.create(
         action=action, event_type=f'{workstream}.{"completed" if workstream == "commissioning" else "progressed"}', revision=action.revision,
         actor=actor, actor_label=_actor_label(actor), request_id=request_id,
-        previous_values=before, new_values={**_snapshot(action), **policy},
+        previous_values=before, new_values=event_values,
     )
     operations = _sync_farmer(action, actor=actor, request_id=request_id)
     return action, operations, False

@@ -600,6 +600,14 @@
     </form>
     <div id="portal-settings-operations-panel" data-required-capability="portal.settings.operations.view" hidden>
     <div id="portal-settings-operations" class="portal-settings-operations" aria-live="polite"></div>
+    <section id="portal-tat-target-settings" class="portal-settings-card" data-required-capability="portal.tat.targets.manage" hidden>
+      <div class="portal-settings-heading"><span class="settings-eyebrow">IT ONLY · PORTAL TAT</span><h2>Pipeline TAT targets</h2><p>Targets apply to work that starts after you save. Earlier stages retain the target that governed when they began.</p></div>
+      <form id="portal-tat-target-form">
+        <div class="portal-settings-grid"><label>Overall target (minutes)<input id="portal-tat-overall-target" type="number" min="1" inputmode="numeric" placeholder="Optional"></label></div>
+        <div id="portal-tat-stage-targets" class="portal-settings-grid" aria-live="polite"></div>
+        <div class="portal-settings-action-row"><small id="portal-tat-target-status">Loading targets…</small><button type="submit" class="btn btn-primary">Save TAT targets</button></div>
+      </form>
+    </section>
     <section id="requisition-sequence-panel" class="portal-settings-card" data-required-capability="portal.requisition.sequence.manage" hidden>
       <div class="portal-settings-heading"><span class="settings-eyebrow">OPERATIONS</span><h2>Official order number</h2><p>Set the next number only when aligning the Portal with the official order register.</p></div>
       <div class="portal-settings-grid payment-sequence-settings-grid"><label>Next order number<input id="requisition-sequence-next" type="number" min="1" inputmode="numeric"></label><label>Reason<input id="requisition-sequence-reason" type="text" placeholder="Reason for the register alignment"></label></div>

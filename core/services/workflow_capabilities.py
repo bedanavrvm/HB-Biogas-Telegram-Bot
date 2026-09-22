@@ -84,6 +84,7 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     CapabilityDefinition('portal.reports.view', 'jawabu_portal', 'View controlled Portal reports', 'Reporting', _roles('IT')),
     CapabilityDefinition('portal.reports.manage', 'jawabu_portal', 'Create and manage controlled Portal reports', 'Reporting', _roles('IT'), ('portal.reports.view',)),
     CapabilityDefinition('portal.settings.operations.view', 'jawabu_portal', 'View Portal operational settings', 'Operations', _roles(OPERATIONS_ADMIN_ROLE, 'IT')),
+    CapabilityDefinition('portal.tat.targets.manage', 'jawabu_portal', 'Manage Portal pipeline TAT targets', 'TAT settings', _roles('IT'), ('portal.settings.operations.view',)),
     CapabilityDefinition('portal.health.read', 'jawabu_portal', 'View workflow health', 'Operations', _roles(OPERATIONS_ADMIN_ROLE, 'IT')),
     CapabilityDefinition('portal.health.maintenance.manage', 'jawabu_portal', 'Set Portal maintenance mode', 'Operations', _roles('IT'), ('portal.health.read',)),
     CapabilityDefinition('portal.publication.retry', 'jawabu_portal', 'Retry durable Portal register publication', 'Operations', _roles(OPERATIONS_ADMIN_ROLE, 'IT'), ('portal.case.read',)),

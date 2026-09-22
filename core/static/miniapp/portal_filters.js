@@ -15,11 +15,12 @@
 
   function filtersFor(queueKey) {
     state().filtersByQueue ||= {};
-    state().filtersByQueue[queueKey] ||= { county: [], branch: [], status: [], ordering: '' };
+    state().filtersByQueue[queueKey] ||= { county: [], branch: [], status: [], hbg_visit_date_from: '', hbg_visit_date_to: '', jbl_visit_date_from: '', jbl_visit_date_to: '', ordering: '' };
     const filters = state().filtersByQueue[queueKey];
     filters.county = listValue(filters.county);
     filters.branch = listValue(filters.branch);
     filters.status = listValue(filters.status);
+    ['hbg_visit_date_from', 'hbg_visit_date_to', 'jbl_visit_date_from', 'jbl_visit_date_to'].forEach(key => { filters[key] = String(filters[key] || ''); });
     return filters;
   }
 
@@ -85,7 +86,7 @@
     components.renderFilterChips?.(
       root.querySelector('[data-portal-filter-chips]'),
       Object.fromEntries(active.map(function (entry) {
-        const labels = { county: 'County', branch: 'Branch', status: 'Status', ordering: 'Order' };
+        const labels = { county: 'County', branch: 'Branch', status: 'Status', hbg_visit_date_from: 'HB visit from', hbg_visit_date_to: 'HB visit to', jbl_visit_date_from: 'JBL visit from', jbl_visit_date_to: 'JBL visit to', ordering: 'Order' };
         return [entry[0], { label: labels[entry[0]], value: entry[1], text: readableValue(root, entry[0], entry[1]) }];
       })),
       function (key) {
@@ -111,6 +112,10 @@
         county: listValue(saved.filters?.county),
         branch: listValue(saved.filters?.branch),
         status: queueKey === 'all' ? listValue(saved.filters?.status) : [],
+        hbg_visit_date_from: String(saved.filters?.hbg_visit_date_from || ''),
+        hbg_visit_date_to: String(saved.filters?.hbg_visit_date_to || ''),
+        jbl_visit_date_from: String(saved.filters?.jbl_visit_date_from || ''),
+        jbl_visit_date_to: String(saved.filters?.jbl_visit_date_to || ''),
         ordering: String(saved.filters?.ordering || ''),
       };
     }
@@ -143,6 +148,7 @@
       input.checked = selected.includes(input.value);
     });
     if (form?.elements.ordering) form.elements.ordering.value = filters.ordering || '';
+    ['hbg_visit_date_from', 'hbg_visit_date_to', 'jbl_visit_date_from', 'jbl_visit_date_to'].forEach(key => { if (form?.elements[key]) form.elements[key].value = filters[key] || ''; });
     updatePresentation(root, queueKey);
     if (boundRoots.has(root)) return;
     boundRoots.add(root);
@@ -174,6 +180,7 @@
         filters[key] = data.getAll(key);
       });
       filters.ordering = String(data.get('ordering') || '');
+      ['hbg_visit_date_from', 'hbg_visit_date_to', 'jbl_visit_date_from', 'jbl_visit_date_to'].forEach(key => { filters[key] = String(data.get(key) || ''); });
       state().pages[queueKey] = 1;
       updatePresentation(root, queueKey);
       persist(queueKey);
@@ -185,6 +192,7 @@
       filters.branch = [];
       filters.status = [];
       filters.ordering = '';
+      ['hbg_visit_date_from', 'hbg_visit_date_to', 'jbl_visit_date_from', 'jbl_visit_date_to'].forEach(key => { filters[key] = ''; });
       clearTimeout(changeTimer);
       form?.reset();
       state().pages[queueKey] = 1;

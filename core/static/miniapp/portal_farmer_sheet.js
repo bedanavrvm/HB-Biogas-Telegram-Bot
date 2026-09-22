@@ -349,11 +349,12 @@
 
   const CASE_SECTION_META = {
     identity: ['Customer Identity', 'Core identifiers and contact details'],
-    intake: ['Application & Intake', 'Origin, location, sales, and deposit information'],
+    intake: ['Intake', 'Origin, location, sales, and deposit information'],
     jbl_visit: ['JBL Visit', 'Field visit outcome and officer notes'],
     credit: ['Credit Analysis', 'Credit decision and IMAB preparation'],
     final_review: ['Final Review', 'Final decision and repayment terms'],
     order: ['Order', 'Requisition and product details'],
+    homebiogas: ['HomeBiogas delivery', 'Installation and commissioning progress'],
     invoice: ['Invoice & Balance', 'Confirmed invoice and payment amounts'],
   };
 
@@ -379,26 +380,28 @@
   }
 
   function caseStageFlow(sections, workflowState = '') {
+    const hb = sections.homebiogas || {};
     const steps = [
-      ['Application', Boolean(sections.identity?.customer_name || sections.intake?.hbg_visit_date)],
+      ['Intake', Boolean(sections.identity?.customer_name || sections.intake?.hbg_visit_date)],
       ['JBL Visit', Boolean(sections.jbl_visit?.visit_date || sections.jbl_visit?.status)],
-      ['Credit', Boolean(sections.credit?.decision && sections.credit.decision !== 'Pending')],
-      ['Final Review', Boolean(sections.final_review?.decision)],
-      ['Order', Boolean(sections.order?.order_number)],
-      ['Invoice', Boolean(sections.invoice?.number)],
+      ['Credit Analysis', Boolean(sections.credit?.decision && sections.credit.decision !== 'Pending')],
+      ['Head of Rural Review', Boolean(sections.final_review?.decision)],
+      ['Order Submitted', Boolean(sections.order?.order_number)],
+      ['Installation', Boolean(hb.installation_status === 'installed')],
+      ['Commissioning', Boolean(hb.commissioning_status === 'commissioned')],
     ];
     const stateIndex = {
       jbl_visit: 1,
-      credit: 2,
-      final_review: 3,
-      order: 4,
-      ordered: 5,
+      credit: 2, final_review: 3, order: 4, ordered: 5,
     };
     // The workflow state is canonical. The older field-presence fallback is
     // retained for records created before state integrity existed.
-    const current = Object.prototype.hasOwnProperty.call(stateIndex, workflowState)
-      ? stateIndex[workflowState]
-      : steps.findIndex(([, complete]) => !complete);
+    let current = Object.prototype.hasOwnProperty.call(stateIndex, workflowState)
+      ? stateIndex[workflowState] : steps.findIndex(([, complete]) => !complete);
+    if (hb.commissioning_status === 'commissioned') current = steps.length - 1;
+    else if (hb.installation_status === 'installed') current = 6;
+    else if (hb.released_at) current = 5;
+    if (current < 0) current = steps.length - 1;
     return `<ol class="case360-flow" aria-label="Case progress">${steps.map(([label, complete], index) => {
       const status = index < current ? 'complete' : index === current ? 'current' : 'pending';
       // A historical value can remain populated after a case is returned to
@@ -420,7 +423,7 @@
       : '';
     const status = currentPipelineState || (sections.invoice?.number ? 'Invoiced'
       : sections.order?.order_number ? 'Ordered'
-      : sections.final_review?.decision || sections.credit?.decision || sections.jbl_visit?.status || 'Application received');
+      : sections.final_review?.decision || sections.credit?.decision || sections.jbl_visit?.status || 'Intake received');
     return `<header class="case360-hero">
       <div class="case360-identity"><span class="case360-eyebrow">${deps.escapeHtml(caseReference || 'Customer case')}</span><h2>${deps.escapeHtml(identity.customer_name || 'Unnamed customer')}</h2><p>${deps.escapeHtml([systemName, identity.national_id && `ID ${identity.national_id}`, identity.primary_phone, intake.branch].filter(Boolean).join('  |  ') || 'Identifiers not recorded')}</p></div>
       <div class="case360-hero-actions"><span class="case360-status">${deps.escapeHtml(status)}</span>${canCorrect ? '<button type="button" class="case360-edit-toggle" aria-label="Edit case fields" title="Edit case fields"><i data-lucide="pencil" aria-hidden="true"></i><span class="sr-only">Edit case fields</span></button>' : ''}</div>
@@ -528,6 +531,12 @@
     }
   }
 
+  function renderTimelineEvent(event) {
+    const children = Array.isArray(event.children) ? event.children : [];
+    const childMarkup = children.length ? `<details class="case360-timeline-children"><summary>${children.length} related record${children.length === 1 ? '' : 's'}</summary>${children.map(child => `<div><strong>${deps.escapeHtml(child.title || humanLabel(child.action))}</strong>${child.detail ? `<span>${deps.escapeHtml(child.detail)}</span>` : ''}${child.artifact?.url ? `<a class="case360-link" href="${deps.escapeHtml(child.artifact.url)}" target="_blank" rel="noopener">${deps.escapeHtml(child.artifact.name || 'Open document')} ↗</a>` : ''}</div>`).join('')}</details>` : '';
+    return `<article class="${event.redacted ? 'redacted' : ''}"><time>${deps.escapeHtml(deps.fmtDate(event.occurred_at))}</time><div><strong>${deps.escapeHtml(event.title || humanLabel(event.action))}</strong><small>${deps.escapeHtml([event.actor, event.authority && `Authority: ${event.authority}`, event.stage, humanLabel(event.origin || event.source)].filter(Boolean).join(' · ') || 'System')}</small>${event.detail ? `<p>${deps.escapeHtml(event.detail)}</p>` : ''}${event.artifact?.url ? `<a class="case360-link" href="${deps.escapeHtml(event.artifact.url)}" target="_blank" rel="noopener">${deps.escapeHtml(event.artifact.name || 'Open linked document')} ↗</a>` : ''}${childMarkup}</div></article>`;
+  }
+
   function renderCase360(data, target) {
     const root = target || el('case360');
     if (!root || !data) return;
@@ -574,12 +583,12 @@
       <section class="case360-panel" role="tabpanel" data-case360-panel="overview">${data.can_correct ? caseCorrectionMarkup(data.correction) : ''}<div class="case360-view-content">${escalationAlert}<div class="case360-sections">${sectionCards}${householdCards}${invoiceChangeCards}${relatedCaseCards}</div></div></section>
       <section class="case360-panel" role="tabpanel" data-case360-panel="timeline" hidden>
         <div class="case360-panel-heading"><div><h3>Case Timeline</h3><p>Recorded actions in chronological order</p></div><strong>${timeline.length} events</strong></div>
-        ${timeline.length ? `<div class="case360-timeline">${timeline.map(event => `<article class="${event.redacted ? 'redacted' : ''}"><time>${deps.escapeHtml(deps.fmtDate(event.occurred_at))}</time><div><strong>${deps.escapeHtml(event.title || humanLabel(event.action))}</strong><small>${deps.escapeHtml([event.actor, event.authority && `Authority: ${event.authority}`, event.stage, humanLabel(event.origin || event.source)].filter(Boolean).join(' · ') || 'System')}</small>${event.detail ? `<p>${deps.escapeHtml(event.detail)}</p>` : ''}${event.artifact?.url ? `<a class="case360-link" href="${deps.escapeHtml(event.artifact.url)}" target="_blank" rel="noopener">${deps.escapeHtml(event.artifact.name || 'Open linked document')} ↗</a>` : ''}</div></article>`).join('')}</div>` : '<div class="empty-state">No exact events recorded yet.</div>'}
+        ${timeline.length ? `<div class="case360-timeline">${timeline.map(renderTimelineEvent).join('')}</div>` : '<div class="empty-state">No exact events recorded yet.</div>'}
       </section>
       <section class="case360-panel" role="tabpanel" data-case360-panel="tat" hidden>
         <div class="case360-panel-heading"><div><h3>Turnaround Time</h3><p>Time spent at each tracked workflow stage</p></div></div>
         ${tat.historical_timestamps_available ? '' : '<div class="batch-warning">Historical stage timestamps were not inferred. TAT begins with exact events recorded after tracking was enabled.</div>'}
-        <div class="case360-tat-total"><div><span>Portal pipeline TAT (wall clock)</span><strong>${caseTatCounter(tat, 'overall')}</strong><small>Measured from exact Portal milestones and Portal pipeline targets.</small></div><span class="case360-sla ${deps.escapeHtml(tat.status || '')}">${deps.escapeHtml(humanLabel(tat.status || ''))}</span></div><div class="case360-tat-list">${stageRows}</div>
+        <div class="case360-tat-total"><div><span>Pipeline TAT (wall clock)</span><strong>${caseTatCounter(tat, 'overall')}</strong><small>Measured from exact Portal and HomeBiogas milestones.</small></div><span class="case360-sla ${deps.escapeHtml(tat.status || '')}">${deps.escapeHtml(humanLabel(tat.status || ''))}</span></div><div class="case360-tat-list">${stageRows}</div>
       </section>
       <section class="case360-panel" role="tabpanel" data-case360-panel="documents" hidden><div class="case360-panel-heading"><div><h3>Case Documents</h3><p>View supported evidence without leaving Portal, or open a file in its external app.</p></div></div><div class="case360-documents" data-case360-documents></div></section>
       <section class="case360-panel" role="tabpanel" data-case360-panel="quality" hidden><div class="case360-panel-heading"><div><h3>Data Quality</h3><p>Validation checks requiring staff attention</p></div></div>${validation.length ? `<div class="case360-quality-list">${validation.map(issue => `<article><span>!</span><div><strong>${deps.escapeHtml(humanLabel(issue.field))}</strong><p>${deps.escapeHtml(issue.message)}</p></div></article>`).join('')}</div>` : '<div class="case360-valid"><strong>All checks passed</strong><span>All monitored business fields are valid.</span></div>'}</section>`;
@@ -1119,6 +1128,8 @@
         <div class="form-row" data-jbl-field="customer_name"><label>Customer name <span class="required-marker" aria-hidden="true">*</span></label><input id="jbl-new-lead-name" type="text" maxlength="255" autocomplete="name" placeholder="Full name"><small class="jbl-field-error" data-error-message-for="customer_name"></small></div>
         <div class="form-row" data-jbl-field="national_id"><label>National ID <span class="required-marker" aria-hidden="true">*</span></label><input id="jbl-new-lead-id" type="text" inputmode="numeric" maxlength="20" autocomplete="off" placeholder="Digits only"><small class="jbl-field-error" data-error-message-for="national_id"></small></div>
         <div class="form-row" data-jbl-field="primary_phone"><label>Phone number <span class="required-marker" aria-hidden="true">*</span></label><input id="jbl-new-lead-phone" type="tel" inputmode="tel" maxlength="16" autocomplete="tel" placeholder="e.g. 2547…"><small class="jbl-field-error" data-error-message-for="primary_phone"></small></div>
+        <div class="form-row" data-jbl-field="deposit_paid_hbg"><label>HB deposit paid <small>Optional; FarmUp may update this later.</small></label><input id="jbl-new-lead-hb-deposit" type="text" inputmode="decimal" maxlength="16" placeholder="KES amount"><small class="jbl-field-error" data-error-message-for="deposit_paid_hbg"></small></div>
+        <div class="form-row" data-jbl-field="hb_sales_person"><label>HB sales person <small>Optional; FarmUp may update this later.</small></label><input id="jbl-new-lead-hb-sales-person" type="text" maxlength="255" placeholder="Name"><small class="jbl-field-error" data-error-message-for="hb_sales_person"></small></div>
       </div>` : '';
     return `
       <section id="jbl-form-errors" class="jbl-form-errors" role="alert" tabindex="-1" hidden><strong>Correct the following before logging the visit:</strong><ul></ul></section>
@@ -2753,7 +2764,8 @@
       })),
       newLead: isNewLead ? {
         name: el('jbl-new-lead-name')?.value || '', id: el('jbl-new-lead-id')?.value || '',
-        phone: el('jbl-new-lead-phone')?.value || '',
+        phone: el('jbl-new-lead-phone')?.value || '', deposit: el('jbl-new-lead-hb-deposit')?.value || '',
+        salesPerson: el('jbl-new-lead-hb-sales-person')?.value || '',
       } : null,
     });
     const persistedSubmission = persistedJblSubmission(farmer.id);
@@ -2776,6 +2788,8 @@
       formData.set('customer_name', el('jbl-new-lead-name')?.value || '');
       formData.set('national_id', el('jbl-new-lead-id')?.value || '');
       formData.set('primary_phone', el('jbl-new-lead-phone')?.value || '');
+      formData.set('deposit_paid_hbg', el('jbl-new-lead-hb-deposit')?.value || '');
+      formData.set('hb_sales_person', el('jbl-new-lead-hb-sales-person')?.value || '');
     }
     if (acceptedVoiceAttempts.jbl_visit_comment) formData.set('voice_transcription_id', acceptedVoiceAttempts.jbl_visit_comment);
     formData.set('capture_latitude', el('jbl-lat')?.value || '');

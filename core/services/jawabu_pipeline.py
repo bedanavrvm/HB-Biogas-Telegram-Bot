@@ -876,6 +876,7 @@ def complete_jbl_visit(
             capture_longitude=longitude,
             location_unavailable_reason=location_unavailable_reason,
             expected_revision=expected_revision,
+            request_id=request_id,
         )
         upload_result = upload_result or {}
         if not uploaded_ok or upload_result.get('errors'):
@@ -1483,6 +1484,7 @@ def append_jbl_media_links(
     capture_longitude=None,
     location_unavailable_reason: str = '',
     expected_revision: int | None = None,
+    request_id: str = '',
 ) -> tuple[bool, str, dict[str, Any]]:
     """Upload JBL visit media to Drive, append links to farmer/order sheet, and audit uploads."""
     if not uploaded_files:
@@ -1563,6 +1565,7 @@ def append_jbl_media_links(
         capture_latitude=capture_latitude,
         capture_longitude=capture_longitude,
         capture_location_unavailable_reason=location_unavailable_reason,
+        portal_operation_id=request_id,
     )
     revision_after = int(farmer.workflow_revision or 1)
     if uploaded.links:
@@ -1578,7 +1581,7 @@ def append_jbl_media_links(
 
                 from core.models import MediaAttachment
                 linked_rows = MediaAttachment.objects.filter(
-                    jawabu_farmer__isnull=True,
+                    jawabu_farmer=locked_farmer,
                     business_key_type='case_reference',
                     business_key_value=storage_key,
                     file_type=media_category,
@@ -1591,6 +1594,7 @@ def append_jbl_media_links(
                     capture_latitude=capture_latitude,
                     capture_longitude=capture_longitude,
                     capture_location_unavailable_reason=str(location_unavailable_reason or '').strip(),
+                    portal_operation_id=str(request_id or ''),
                 )
                 existing = [line.strip() for line in str(locked_farmer.jbl_media_urls or '').splitlines() if line.strip()]
                 for link in uploaded.links:
@@ -1684,6 +1688,7 @@ def append_jbl_media_uploads(
     capture_longitude=None,
     location_unavailable_reason: str = '',
     expected_revision: int | None = None,
+    request_id: str = '',
 ) -> tuple[bool, str, dict[str, Any]]:
     """Store LAF and JBL-visit media categories in one visit-form update.
 
@@ -1721,6 +1726,7 @@ def append_jbl_media_uploads(
             capture_longitude=capture_longitude,
             location_unavailable_reason=location_unavailable_reason,
             expected_revision=current_revision,
+            request_id=request_id,
         )
         result = result or {}
         category_results[category] = {

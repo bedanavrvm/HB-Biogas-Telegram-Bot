@@ -1898,6 +1898,7 @@ def store_uploaded_files_for_order(
     capture_latitude=None,
     capture_longitude=None,
     capture_location_unavailable_reason: str = '',
+    portal_operation_id: str = '',
 ) -> UploadedMedia:
     links: list[str] = []
     warnings: list[str] = []
@@ -1927,6 +1928,7 @@ def store_uploaded_files_for_order(
             business_key_type=business_key_type,
             business_key_value=business_key_value,
             jawabu_farmer=jawabu_farmer,
+            portal_operation_id=str(portal_operation_id or ''),
             captured_at=captured_at,
             capture_latitude=capture_latitude,
             capture_longitude=capture_longitude,

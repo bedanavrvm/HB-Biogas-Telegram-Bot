@@ -2051,8 +2051,39 @@
       await renderPortalOperations(data.data?.operations || {});
       if (data.data?.operations?.payment_sequence) await portalPayments.loadSequence?.();
       if (data.data?.operations?.requisition_sequence) await portalRequisitions.loadSequence?.();
+      if (data.data?.operations?.tat_targets) await loadPortalTatTargets();
     }
     return personal;
+  }
+
+  function renderPortalTatTargets(targets) {
+    const panel = el('portal-tat-target-settings');
+    const stages = el('portal-tat-stage-targets');
+    if (!panel || !stages) return;
+    panel.hidden = false;
+    if (el('portal-tat-overall-target')) el('portal-tat-overall-target').value = targets.overall_minutes ?? '';
+    stages.innerHTML = (targets.stages || []).map(stage => `<label>${escapeHtml(stage.label)}<input type="number" min="1" inputmode="numeric" data-portal-tat-stage="${escapeHtml(stage.key)}" value="${escapeHtml(stage.target_minutes ?? '')}" placeholder="Optional minutes"></label>`).join('');
+    if (el('portal-tat-target-status')) el('portal-tat-target-status').textContent = 'Targets are saved per new stage start.';
+  }
+
+  async function loadPortalTatTargets() {
+    const { ok, data } = await apiFetch('/settings/tat-targets/');
+    if (!ok || !data.ok) throw new Error(data.error || 'Portal TAT targets could not be loaded.');
+    renderPortalTatTargets(data.data || {});
+  }
+
+  async function savePortalTatTargets(form) {
+    const stages = {};
+    form.querySelectorAll('[data-portal-tat-stage]').forEach(input => {
+      stages[input.dataset.portalTatStage] = input.value.trim();
+    });
+    const payload = { overall_minutes: el('portal-tat-overall-target')?.value.trim() || '', stages };
+    const { ok, data } = await apiFetch('/settings/tat-targets/', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    if (!ok || !data.ok) throw new Error(data.error || 'Portal TAT targets could not be saved.');
+    renderPortalTatTargets(data.data || {});
+    showToast('Portal TAT targets saved. New stages will use them.', 'success');
   }
 
   function newWorkspaceOpenKey() {
@@ -2779,6 +2810,15 @@
   el('jbl-create-lead')?.addEventListener('click', () => {
     if (!hasCapability('portal.jbl_lead.create')) {
       showToast('Your role is not assigned to create JBL leads.', 'error');
+      return;
+    }
+    if (event.target.matches('#portal-tat-target-form')) {
+      event.preventDefault();
+      const form = event.target;
+      const button = form.querySelector('button[type="submit"]');
+      setButtonLoading(button, true, 'Saving');
+      savePortalTatTargets(form).catch(error => showToast(error.message || 'Portal TAT targets could not be saved.', 'error'))
+        .finally(() => setButtonLoading(button, false));
       return;
     }
     portalFarmerSheet.openNewJblLeadSheet?.();

@@ -30,7 +30,7 @@
 
   function appendCommonFilters(params, state, queueKey) {
     const filters = (state.filtersByQueue || {})[queueKey] || {};
-    ['county', 'branch', 'status', 'ordering'].forEach(function (key) {
+    ['county', 'branch', 'status', 'hbg_visit_date_from', 'hbg_visit_date_to', 'jbl_visit_date_from', 'jbl_visit_date_to', 'ordering'].forEach(function (key) {
       const values = Array.isArray(filters[key]) ? filters[key] : [filters[key]];
       values.forEach(value => { if (String(value || '').trim()) params.append(key, value); });
     });

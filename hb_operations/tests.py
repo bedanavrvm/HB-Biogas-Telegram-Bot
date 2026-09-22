@@ -76,6 +76,63 @@ class HomeBiogasActionServiceTests(TestCase):
         self.assertEqual(self.farmer.installation_status, 'Open')
         self.assertEqual(self.farmer.workflow_revision, 2)
 
+    def test_hb_handoffs_freeze_the_portal_tat_target_for_each_new_stage(self):
+        self.group.workflow = {
+            'type': 'jawabu_homebiogas',
+            'jawabu_tat_targets_minutes': {
+                'overall': 1000,
+                'stages': {
+                    'hb_order_released_to_installation_completed': 180,
+                    'installation_completed_to_commissioning_completed': 360,
+                },
+            },
+        }
+        self.group.save(update_fields=['workflow', 'updated_at'])
+
+        action = self.release()
+        release_event = action.events.get(event_type='order.released_to_hb')
+        self.assertEqual(
+            release_event.new_values['tat_target_snapshot']['target_minutes'], 180,
+        )
+        transition_action(
+            action.pk, actor=self.user, request_id='installed-target-snapshot', expected_revision=1,
+            payload={
+                'workstream': 'installation', 'installation_status': 'installed',
+                'installation_date': timezone.localdate().isoformat(),
+            },
+        )
+        installation_event = action.events.get(request_id='installed-target-snapshot')
+        self.assertEqual(
+            installation_event.new_values['tat_target_snapshot']['target_minutes'], 360,
+        )
+
+    def test_portal_tat_projects_the_hb_release_as_the_installation_clock_start(self):
+        from core.services.jawabu_case360 import calculate_case_tat, record_pipeline_event
+
+        self.group.workflow = {
+            'type': 'jawabu_homebiogas',
+            'jawabu_tat_targets_minutes': {
+                'stages': {'hb_order_released_to_installation_completed': 180},
+            },
+        }
+        self.group.save(update_fields=['workflow', 'updated_at'])
+        now = timezone.now()
+        record_pipeline_event(self.farmer, action='application_imported', occurred_at=now - timedelta(hours=8))
+        record_pipeline_event(self.farmer, action='jbl_visit_completed', occurred_at=now - timedelta(hours=7))
+        record_pipeline_event(self.farmer, action='credit_decision_recorded', occurred_at=now - timedelta(hours=6))
+        record_pipeline_event(self.farmer, action='final_decision_recorded', occurred_at=now - timedelta(hours=5))
+        record_pipeline_event(self.farmer, action='order_assigned', occurred_at=now - timedelta(hours=4))
+        action = self.release()
+        release_event = action.events.get(event_type='order.released_to_hb')
+        HomeBiogasActionEvent.objects.filter(pk=release_event.pk).update(created_at=now - timedelta(minutes=90))
+
+        tat = calculate_case_tat(self.farmer, now=now)
+        installation = next(row for row in tat['stages'] if row['key'] == 'hb_order_released_to_installation_completed')
+
+        self.assertEqual(installation['elapsed_seconds'], 5400)
+        self.assertEqual(installation['target_minutes'], '180')
+        self.assertTrue(installation['running'])
+
     def test_simplification_migration_preserves_planned_dates_and_completed_commissioning(self):
         action = self.release()
         planned = timezone.localdate() + timedelta(days=3)

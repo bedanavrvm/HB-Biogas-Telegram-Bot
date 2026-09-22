@@ -60,6 +60,7 @@ from hb_operations.views import hb_action_correct, hb_action_detail, hb_action_l
 from .portal_views import (
     portal_navigation,
     portal_settings,
+    portal_tat_target_settings,
     portal_approval_delegations,
     portal_approval_delegation_revoke,
     portal_workspace,
@@ -441,6 +442,7 @@ urlpatterns = [
     path('portal/s/<str:screen>/', legacy_get_redirect('portal_screen'), name='legacy_api_portal_screen'),
     path('portal/navigation/', portal_navigation, name='portal_navigation'),
     path('portal/settings/', portal_settings, name='portal_settings'),
+    path('portal/settings/tat-targets/', portal_tat_target_settings, name='portal_tat_target_settings'),
     path('portal/settings/delegations/', portal_approval_delegations, name='portal_approval_delegations'),
     path('portal/settings/delegations/<str:delegation_id>/revoke/', portal_approval_delegation_revoke, name='portal_approval_delegation_revoke'),
     path('portal/workspace/', portal_workspace, name='portal_workspace'),

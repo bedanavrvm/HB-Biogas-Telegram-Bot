@@ -390,6 +390,20 @@ def _apply_county_branch_filters(qs, request, *, params=None, capability: str = 
             for value in values:
                 condition |= Q(**{f'{field}__iexact': value})
             qs = qs.filter(condition)
+    # These are operational dates, not a generic record-updated timestamp:
+    # HBG work precedes the JBL visit and each can be constrained separately.
+    from datetime import date as _date
+    try:
+        hbg_from = _date.fromisoformat(str(params.get('hbg_visit_date_from') or '').strip()) if str(params.get('hbg_visit_date_from') or '').strip() else None
+        hbg_to = _date.fromisoformat(str(params.get('hbg_visit_date_to') or '').strip()) if str(params.get('hbg_visit_date_to') or '').strip() else None
+        jbl_from = _date.fromisoformat(str(params.get('jbl_visit_date_from') or '').strip()) if str(params.get('jbl_visit_date_from') or '').strip() else None
+        jbl_to = _date.fromisoformat(str(params.get('jbl_visit_date_to') or '').strip()) if str(params.get('jbl_visit_date_to') or '').strip() else None
+    except ValueError:
+        hbg_from = hbg_to = jbl_from = jbl_to = None
+    if hbg_from: qs = qs.filter(hbg_visit_date__gte=hbg_from)
+    if hbg_to: qs = qs.filter(hbg_visit_date__lte=hbg_to)
+    if jbl_from: qs = qs.filter(jbl_visit_date__gte=jbl_from)
+    if jbl_to: qs = qs.filter(jbl_visit_date__lte=jbl_to)
     access = getattr(request, 'portal_access', None)
     if capability:
         from core.services.portal_permissions import scope_portal_case_queryset
@@ -1620,6 +1634,7 @@ def _portal_setting_options(request, actor) -> dict:
             'maintenance': operations_settings and has_capability(actor, 'jawabu_portal', 'portal.health.maintenance.manage', access=access),
             'payment_sequence': operations_settings and has_capability(actor, 'jawabu_portal', 'portal.payment.sequence.manage', access=access),
             'requisition_sequence': operations_settings and has_capability(actor, 'jawabu_portal', 'portal.requisition.sequence.manage', access=access),
+            'tat_targets': has_capability(actor, 'jawabu_portal', 'portal.tat.targets.manage', access=access),
         },
     }
 
@@ -7094,6 +7109,7 @@ def portal_invoice_pool(request):
 def portal_create_and_complete_jbl_lead(request):
     """Atomically create a JBL office lead and submit its first visit."""
     from datetime import date as _date
+    from decimal import Decimal, InvalidOperation
     from core.models import JawabuCustomer, JawabuFarmerMaster
     from core.services.jawabu_pipeline import JBL_FORWARD_STATUSES, JawabuWorkflowState, complete_jbl_visit, farmer_to_card, validate_jbl_visit_upload_batch
     from core.services.location_catalog import LocationCatalogError, validate_location_selection
@@ -7107,11 +7123,21 @@ def portal_create_and_complete_jbl_lead(request):
     national_id = re.sub(r'\s+', '', str(body.get('national_id') or ''))
     phone = re.sub(r'\s+', '', str(body.get('primary_phone') or ''))
     county_value = str(body.get('county') or '').strip()
+    hb_sales_person = str(body.get('hb_sales_person') or '').strip()
+    deposit_raw = str(body.get('deposit_paid_hbg') or '').strip().replace(',', '')
+    deposit_paid_hbg = None
     errors = {}
     if not name: errors['customer_name'] = 'Enter the customer name.'
     if not re.fullmatch(r'\d{5,20}', national_id): errors['national_id'] = 'Enter the customer National ID using digits only.'
     if not re.fullmatch(r'\+?\d{9,15}', phone): errors['primary_phone'] = 'Enter a valid phone number.'
     if not county_value: errors['county'] = 'Choose the county where this visit was done.'
+    if len(hb_sales_person) > 255: errors['hb_sales_person'] = 'HB sales person must be 255 characters or fewer.'
+    if deposit_raw:
+        try:
+            deposit_paid_hbg = Decimal(deposit_raw)
+            if deposit_paid_hbg < 0: raise InvalidOperation
+        except (InvalidOperation, ValueError):
+            errors['deposit_paid_hbg'] = 'Enter the HB deposit as a positive number.'
     try: visit_date = _date.fromisoformat(str(body.get('visit_date') or '').strip())
     except ValueError: errors['visit_date'], visit_date = 'Visit date must use YYYY-MM-DD.', None
     if errors:
@@ -7156,6 +7182,7 @@ def portal_create_and_complete_jbl_lead(request):
                     customer=customer, source='jawabu_office_lead', source_name='JBL office visit intake', external_id=external_id,
                     customer_name=name, national_id=national_id, primary_phone=phone, lead_name=name, lead_national_id=national_id,
                     lead_primary_phone=phone, lead_source_reference='JBL office', lead_source='JAWABU',
+                    deposit_paid_hbg=deposit_paid_hbg, hb_sales_person=hb_sales_person,
                     county=county_record.name if county_record else county_value,
                     sub_county=sub_county_record.name if sub_county_record else str(body.get('sub_county') or '').strip(),
                     county_ref=county_record, sub_county_ref=sub_county_record, workflow_state=JawabuWorkflowState.JBL_VISIT,
@@ -7175,6 +7202,39 @@ def portal_create_and_complete_jbl_lead(request):
         )
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+
+
+def _portal_tat_configuration():
+    """Return the enabled Jawabu/HomeBiogas configuration owning Portal TAT."""
+    from core.models import GroupSheetConfiguration
+
+    for config in GroupSheetConfiguration.objects.filter(enabled=True).order_by('pk'):
+        workflow = config.workflow or {}
+        if workflow.get('type') in {'jawabu', 'jawabu_homebiogas'} or workflow.get('master_sync_enabled'):
+            return config
+    return None
+
+
+@portal_auth_required
+@csrf_exempt  # Telegram initData, rather than a browser cookie, authenticates this request.
+@require_http_methods(['GET', 'POST'])
+def portal_tat_target_settings(request):
+    """Read or update IT-governed Portal pipeline TAT targets."""
+    access_error = _portal_capability_error(request, 'portal.tat.targets.manage')
+    if access_error:
+        return access_error
+    config = _portal_tat_configuration()
+    if config is None:
+        return JsonResponse({'ok': False, 'error': 'The Jawabu Portal workflow configuration is unavailable.'}, status=409)
+    from core.services.jawabu_case360 import portal_tat_target_settings_payload, save_portal_tat_target_settings
+    if request.method == 'GET':
+        return JsonResponse({'ok': True, 'data': portal_tat_target_settings_payload(config)})
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+        result = save_portal_tat_target_settings(config, payload, actor=request.portal_user)
+    except (UnicodeDecodeError, TypeError, ValueError) as exc:
+        return JsonResponse({'ok': False, 'error': str(exc) or 'TAT targets must be valid JSON.'}, status=400)
+    return JsonResponse({'ok': True, 'data': result})
     if not ok:
         # A failed local validation must not leave a half-created office lead.
         # If Drive evidence was stored, it remains linked for an idempotent

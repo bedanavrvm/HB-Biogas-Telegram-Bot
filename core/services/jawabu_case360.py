@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 
 from django.db import IntegrityError
@@ -30,9 +31,18 @@ MILESTONES = (
     ('credit_decision_recorded', 'Credit decision recorded'),
     ('final_decision_recorded', 'Final decision recorded'),
     ('order_assigned', 'Order assigned'),
-    ('invoice_confirmed', 'Invoice confirmed'),
-    ('payment_finalized', 'Payment finalized'),
+    ('hb_order_released', 'Released to HomeBiogas'),
+    ('installation_completed', 'Installation completed'),
+    ('commissioning_completed', 'Commissioning completed'),
 )
+
+# The target is frozen at the point a stage starts.  Changing Settings is
+# therefore prospective: it improves the next case/stage without quietly
+# rewriting a staff member's historical TAT result.
+TAT_STAGE_START_ACTIONS = {
+    start: f'{start}_to_{end}'
+    for (start, _label), (end, _next_label) in zip(MILESTONES, MILESTONES[1:])
+}
 
 
 def _case_date(value: Any) -> str | None:
@@ -158,6 +168,19 @@ def record_pipeline_event(
     revision_before: int | None = None,
     revision_after: int | None = None,
 ) -> JawabuPipelineEvent:
+    event_metadata = dict(metadata or {})
+    stage_target_key = TAT_STAGE_START_ACTIONS.get(action)
+    if stage_target_key and 'tat_target_snapshot' not in event_metadata:
+        target = portal_tat_target_for_stage(stage_target_key)
+        if target is not None:
+            event_metadata['tat_target_snapshot'] = {
+                'stage_key': stage_target_key,
+                'target_minutes': target,
+            }
+    if action == 'application_imported' and 'tat_overall_target_snapshot' not in event_metadata:
+        overall_target = portal_tat_overall_target()
+        if overall_target is not None:
+            event_metadata['tat_overall_target_snapshot'] = {'target_minutes': overall_target}
     values = {
         'action': action,
         'stage_key': stage_key,
@@ -167,7 +190,7 @@ def record_pipeline_event(
         'request_id': str(request_id or ''),
         'old_values': old_values or {},
         'new_values': new_values or {},
-        'metadata': metadata or {},
+        'metadata': event_metadata,
         'occurred_at': occurred_at or timezone.now(),
         'actor_user': actor_user,
         # Delegation is intentionally not enabled yet. Keeping a separate
@@ -231,12 +254,101 @@ def record_pipeline_event(
     return event
 
 
-def _tat_targets() -> dict[str, Any]:
-    for config in GroupSheetConfiguration.objects.filter(enabled=True):
+def _portal_tat_configuration():
+    for config in GroupSheetConfiguration.objects.filter(enabled=True).order_by('pk'):
         workflow = config.workflow or {}
         if workflow.get('type') in {'jawabu', 'jawabu_homebiogas'} or workflow.get('master_sync_enabled'):
-            return workflow.get('jawabu_tat_targets_minutes') or {}
-    return {}
+            return config
+    return None
+
+
+def _tat_targets() -> dict[str, Any]:
+    config = _portal_tat_configuration()
+    return ((config.workflow or {}).get('jawabu_tat_targets_minutes') or {}) if config else {}
+
+
+def _portal_tat_stage_definitions() -> list[dict[str, str]]:
+    return [
+        {'key': f'{start}_to_{end}', 'label': f'{start_label} to {end_label}'}
+        for (start, start_label), (end, end_label) in zip(MILESTONES, MILESTONES[1:])
+    ]
+
+
+def portal_tat_target_settings_payload(config) -> dict[str, Any]:
+    targets = ((config.workflow or {}).get('jawabu_tat_targets_minutes') or {})
+    stage_targets = targets.get('stages') or {}
+    return {'overall_minutes': targets.get('overall'), 'stages': [
+        {**definition, 'target_minutes': stage_targets.get(definition['key'])}
+        for definition in _portal_tat_stage_definitions()
+    ]}
+
+
+def save_portal_tat_target_settings(config, payload: object, *, actor=None) -> dict[str, Any]:
+    if not isinstance(payload, dict) or not isinstance(payload.get('stages') or {}, dict):
+        raise ValueError('TAT targets must contain a stage-target object.')
+    supplied = payload.get('stages') or {}
+    allowed = {item['key'] for item in _portal_tat_stage_definitions()}
+    if set(supplied) - allowed:
+        raise ValueError('An unknown Portal TAT stage was supplied.')
+    stages = {}
+    for key, raw in supplied.items():
+        if raw in (None, ''):
+            continue
+        try:
+            value = int(raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError('Each target must be a whole number of minutes.') from exc
+        if value < 1:
+            raise ValueError('Each target must be at least one minute.')
+        stages[key] = value
+    raw_overall = payload.get('overall_minutes')
+    if raw_overall in (None, ''):
+        overall = None
+    else:
+        try:
+            overall = int(raw_overall)
+        except (TypeError, ValueError) as exc:
+            raise ValueError('Overall target must be a whole number of minutes.') from exc
+        if overall < 1:
+            raise ValueError('Overall target must be at least one minute.')
+    from django.db import transaction
+    from core.services.compliance_audit import record_event
+    with transaction.atomic():
+        locked = GroupSheetConfiguration.objects.select_for_update().get(pk=config.pk)
+        workflow = dict(locked.workflow or {})
+        before = workflow.get('jawabu_tat_targets_minutes') or {}
+        updated = {'overall': overall, 'stages': stages}
+        workflow['jawabu_tat_targets_minutes'] = updated
+        locked.workflow = workflow
+        locked.save(update_fields=['workflow', 'updated_at'])
+        record_event(workflow='portal', action='portal.tat_targets.updated', category='configuration', origin='human', subject_type='group_sheet_configuration', subject_id=str(locked.pk), actor=actor, actor_label=(actor.get_full_name() or actor.get_username()) if actor else '', before_values=before, after_values=updated, sensitive=False)
+    return portal_tat_target_settings_payload(locked)
+
+
+def portal_tat_target_for_stage(stage_key: str) -> int | None:
+    value = (_tat_targets().get('stages') or {}).get(stage_key)
+    try:
+        return int(value) if value not in (None, '') else None
+    except (TypeError, ValueError):
+        return None
+
+
+def portal_tat_overall_target() -> int | None:
+    value = _tat_targets().get('overall')
+    try:
+        return int(value) if value not in (None, '') else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _frozen_target(start_event, stage_key: str, fallback: Any) -> Any:
+    """Prefer the audited target captured when this stage began."""
+    metadata = getattr(start_event, 'metadata', None) or {}
+    values = getattr(start_event, 'new_values', None) or {}
+    snapshot = metadata.get('tat_target_snapshot') or values.get('tat_target_snapshot') or {}
+    if snapshot.get('stage_key') == stage_key and snapshot.get('target_minutes') not in (None, ''):
+        return snapshot['target_minutes']
+    return fallback
 
 
 def _deferral_intervals(events, start, end) -> list[tuple[datetime, datetime]]:
@@ -295,6 +407,25 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
     for event in current_events:
         if event.action in dict(MILESTONES):
             milestone_events[event.action] = event
+    # HB events are maintained in their bounded post-order domain.  Project
+    # them into this read-only Portal TAT view without duplicating their state.
+    from hb_operations.models import HomeBiogasActionEvent
+    hb_events = HomeBiogasActionEvent.objects.filter(
+        action__farmer=farmer,
+        event_type__in=['order.released_to_hb', 'installation.progressed', 'commissioning.completed'],
+    ).order_by('created_at', 'pk')
+    hb_milestones = {
+        'order.released_to_hb': 'hb_order_released',
+        'installation.progressed': 'installation_completed',
+        'commissioning.completed': 'commissioning_completed',
+    }
+    for event in hb_events:
+        action = hb_milestones[event.event_type]
+        milestone_events[action] = SimpleNamespace(
+            occurred_at=event.created_at,
+            new_values=event.new_values or {},
+            metadata={},
+        )
     terminal_at = None
     for event in current_events:
         values = event.new_values or {}
@@ -360,7 +491,7 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
             sla_minutes = None
             excluded_business_minutes = Decimal('0')
         stage_key = f'{start_action}_to_{end_action}'
-        target = (targets.get('stages') or {}).get(stage_key)
+        target = _frozen_target(start_event, stage_key, (targets.get('stages') or {}).get(stage_key)) if start_event else (targets.get('stages') or {}).get(stage_key)
         stages.append({
             'key': stage_key,
             'label': f'{start_label} to {end_label}',
@@ -382,7 +513,9 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
             'target_seconds': int(Decimal(str(target)) * Decimal('60')) if target not in (None, '') else None,
             'status': _sla_status(minutes, target),
         })
-    overall_target = targets.get('overall')
+    application_event = milestone_events.get('application_imported')
+    overall_snapshot = ((getattr(application_event, 'metadata', None) or {}).get('tat_overall_target_snapshot') or {})
+    overall_target = overall_snapshot.get('target_minutes', targets.get('overall'))
     return {
         'tracking_started_at': next((e.occurred_at.isoformat() for e in events if e.action == 'tracking_started'), None),
         'current_cycle_started_at': application_events[-1].occurred_at.isoformat() if application_events else None,
@@ -436,6 +569,8 @@ def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
     invoice_name_changes = farmer.invoice_name_changes.select_related(
         'batch', 'original_invoice', 'replacement_invoice',
     ).order_by('-created_at')
+    from hb_operations.models import HomeBiogasAction
+    hb_action = HomeBiogasAction.objects.filter(farmer=farmer).first()
     return {
         'case_reference': display_case_reference(farmer),
         # The current canonical state, rather than historical non-empty
@@ -453,6 +588,13 @@ def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
             'credit': {'decision': farmer.credit_decision, 'decision_label': credit_decision_label(farmer), 'decided_by': farmer.credit_decided_by, 'decided_at': _case_datetime(farmer.credit_decided_at), 'imab_created': farmer.imab_created, 'customer_no': farmer.customer_no},
             'final_review': {'decision': farmer.final_decision, 'comment': farmer.final_decision_comment, 'payment_comment': payment_comment, 'decided_by': farmer.final_decided_by, 'decided_at': _case_datetime(farmer.final_decided_at), 'repayment_day': farmer.repayment_day, 'tenor_months': farmer.repayment_tenor_months},
             'order': {'order_number': farmer.order_number, 'requisition_date': _case_date(farmer.requisition_date), 'payment_product': farmer.payment_product},
+            'homebiogas': {
+                'released_at': _case_datetime(hb_action.created_at) if hb_action else '',
+                'installation_status': hb_action.installation_status if hb_action else '',
+                'installation_date': _case_date(hb_action.installation_date) if hb_action else '',
+                'commissioning_status': hb_action.commissioning_status if hb_action else '',
+                'commissioning_date': _case_date(hb_action.commissioning_date) if hb_action else '',
+            },
             'invoice': {'number': farmer.invoice_number, 'date': _case_date(farmer.invoice_date), 'amount': _case_amount(farmer.invoice_amount), 'discount': _case_amount(farmer.discount), 'payment': _case_amount(farmer.payment), 'balance_due': _case_amount(farmer.balance_due)},
         },
         'household_relationships': [{

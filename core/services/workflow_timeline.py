@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
+from django.db.models import Q
+
 from core.models import (
     JawabuDataQualityResolution,
     JawabuFarmerMaster,
@@ -68,6 +70,7 @@ def _entry(
     artifact: dict[str, str] | None = None,
     redaction: WorkflowTimelineAnnotation | None = None,
     kind: str = 'event',
+    operation_id: str = '',
 ) -> dict[str, Any]:
     public_id = source_id.split(':', 1)[1] if source_id.startswith('jawabu:') else source_id
     entry = {
@@ -89,6 +92,7 @@ def _entry(
         'artifact': artifact,
         'redacted': bool(redaction),
         'redaction_reason': str(redaction.note or '') if redaction else '',
+        'operation_id': str(operation_id or ''),
     }
     if redaction:
         entry['detail'] = 'Sensitive event content has been redacted.'
@@ -121,6 +125,20 @@ def _annotation_entries(rows: Iterable[WorkflowTimelineAnnotation]) -> list[dict
     return entries
 
 
+def _changed_field_children(event, *, source_id: str, occurred_at) -> list[dict[str, Any]]:
+    """Compact related field changes beneath their single staff action."""
+    before = getattr(event, 'old_values', None) or getattr(event, 'previous_values', None) or {}
+    after = getattr(event, 'new_values', None) or {}
+    if not isinstance(after, dict):
+        return []
+    ignored = {'tat_target_snapshot', 'commissioning_ready_on', 'early_by_days', 'early_commissioning_acknowledged'}
+    changed = [key for key, value in after.items() if key not in ignored and before.get(key) != value]
+    return [_entry(
+        source_id=f'{source_id}:field:{key}', action='field_recorded', occurred_at=occurred_at,
+        source='portal', stage='record', detail=key.replace('_', ' ').capitalize(), kind='field',
+    ) for key in changed[:20]]
+
+
 def jawabu_case_timeline(farmer: JawabuFarmerMaster) -> dict[str, Any]:
     """Return the unified internal history for a Jawabu application."""
     redactions, annotations = _annotations('jawabu_pipeline', str(farmer.pk))
@@ -130,7 +148,7 @@ def jawabu_case_timeline(farmer: JawabuFarmerMaster) -> dict[str, Any]:
     # Case History is a bounded operational projection.
     for event in farmer.pipeline_events.select_related('actor_user', 'authority_user').order_by('-occurred_at', '-created_at')[:500]:
         source_id = f'jawabu:{event.id}'
-        entries.append(_entry(
+        entry = _entry(
             source_id=source_id,
             action=event.action,
             occurred_at=event.occurred_at,
@@ -140,7 +158,29 @@ def jawabu_case_timeline(farmer: JawabuFarmerMaster) -> dict[str, Any]:
             stage=event.stage_key,
             detail=event.reason,
             redaction=redactions.get(source_id),
-        ))
+            operation_id=event.request_id,
+        )
+        entry['children'] = _changed_field_children(event, source_id=source_id, occurred_at=event.occurred_at)
+        entries.append(entry)
+
+    # Post-order work belongs to the HB domain.  It is surfaced here as a
+    # parent action, not copied into the Portal event log.
+    from hb_operations.models import HomeBiogasActionEvent
+    for event in HomeBiogasActionEvent.objects.filter(action__farmer=farmer).select_related('actor').order_by('-created_at')[:100]:
+        source_id = f'hb:{event.id}'
+        entry = _entry(
+            source_id=source_id,
+            action=event.event_type,
+            occurred_at=event.created_at,
+            actor=_actor_name(event.actor, event.actor_label),
+            source='portal',
+            stage='homebiogas',
+            detail=event.reason,
+            redaction=redactions.get(source_id),
+            operation_id=event.request_id,
+        )
+        entry['children'] = _changed_field_children(event, source_id=source_id, occurred_at=event.created_at)
+        entries.append(entry)
 
     for provenance in farmer.field_provenance.order_by('-occurred_at')[:100]:
         source_id = f'provenance:{provenance.id}'
@@ -171,11 +211,14 @@ def jawabu_case_timeline(farmer: JawabuFarmerMaster) -> dict[str, Any]:
         ))
 
     national_id = str(farmer.national_id or '').strip()
-    if national_id:
+    if national_id or farmer.pk:
+        media_query = Q(jawabu_farmer=farmer)
+        if national_id:
+            media_query |= Q(
+                business_key_type='id_number', business_key_value=national_id,
+            )
         for media in MediaAttachment.objects.filter(
-            business_key_type='id_number',
-            business_key_value=national_id,
-            upload_status='success',
+            media_query, upload_status='success',
         ).order_by('-created_at')[:100]:
             source_id = f'media:{media.id}'
             entries.append(_entry(
@@ -189,6 +232,7 @@ def jawabu_case_timeline(farmer: JawabuFarmerMaster) -> dict[str, Any]:
                 artifact={'name': media.original_filename or 'Visit media', 'url': media.drive_url} if media.drive_url else None,
                 redaction=redactions.get(source_id),
                 kind='document',
+                operation_id=media.portal_operation_id,
             ))
 
     if farmer.order_number:
@@ -256,7 +300,27 @@ def jawabu_case_timeline(farmer: JawabuFarmerMaster) -> dict[str, Any]:
             }
             for application in farmer.customer.applications.exclude(pk=farmer.pk).order_by('-updated_at')[:20]
         ]
-    return {'entries': entries, 'related_cases': related_cases}
+    # A single staff action can generate multiple field/document events.  The
+    # UI consumes this grouping to keep the default timeline scannable while
+    # retaining every child record on demand.
+    grouped: list[dict[str, Any]] = []
+    parents = {
+        entry['operation_id']: entry
+        for entry in entries
+        if entry['kind'] == 'event' and entry.get('operation_id')
+    }
+    for parent in parents.values():
+        parent.setdefault('children', [])
+    for entry in entries:
+        operation_id = entry.get('operation_id') or ''
+        is_parent = entry['kind'] == 'event' and bool(operation_id)
+        parent = parents.get(operation_id)
+        if not is_parent and parent is not None:
+            parent['children'].append(entry)
+        elif is_parent or parent is None:
+            grouped.append(entry)
+    grouped.sort(key=lambda item: item['occurred_at'], reverse=True)
+    return {'entries': grouped, 'related_cases': related_cases}
 
 
 def tat_case_timeline(case: TatTrackerCase) -> dict[str, Any]:

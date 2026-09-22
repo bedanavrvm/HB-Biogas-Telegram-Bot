@@ -761,6 +761,10 @@ class MediaAttachment(models.Model):
         'JawabuFarmerMaster', null=True, blank=True,
         on_delete=models.PROTECT, related_name='media_attachments',
     )
+    # Groups every file captured in one Portal form submission beneath that
+    # recorded operational action in Case History. It is not an identifier for
+    # authorization or external storage.
+    portal_operation_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
     captured_at = models.DateTimeField(null=True, blank=True)
     capture_latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     capture_longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
