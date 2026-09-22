@@ -183,21 +183,19 @@
       const statusOptions = (options.installation_statuses || []).filter(row => allowed.includes(row.value));
       setOptions(field('hb-installation-status'), statusOptions, '');
       setOptions(field('hb-readiness-status'), options.readiness_statuses, 'Choose readiness');
-      setOptions(field('hb-installation-report-status'), options.installation_report_statuses, 'Choose report status');
       field('hb-installation-status').value = action.installation_status || 'open';
       field('hb-readiness-status').value = action.readiness_status || '';
       field('hb-planned-installation-date').value = action.planned_installation_date || '';
       field('hb-installation-date').value = action.installation_date || '';
       field('hb-installation-note').value = action.installation_note || '';
       field('hb-serial-number').value = action.serial_number || '';
-      field('hb-installation-report-status').value = action.installation_report_status || '';
+      field('hb-installation-report-submitted').checked = action.installation_report_status === 'yes';
       planningExpanded = Boolean(action.readiness_status || action.planned_installation_date || action.installation_note);
       renderFormState();
     } else {
       field('hb-commissioning-date').value = action.commissioning_status === 'commissioned' ? (action.commissioning_date || '') : '';
       renderReadiness(action);
     }
-    field('hb-correction-reason').value = '';
     const legacyClosed = action.installation_status === 'closed';
     byId('hb-action-form').hidden = legacyClosed;
     byId('hb-action-save').textContent = workstream === 'commissioning' ? 'Mark commissioned' : 'Save installation';
@@ -233,7 +231,7 @@
       || (detail?.workstream === 'commissioning' && detail?.commissioning_status === 'commissioned')
     );
     const editable = Boolean(permissions.write) && (!completedMilestone || correctionMode);
-    form.querySelectorAll('input,select,textarea').forEach(control => { if (control.id !== 'hb-correction-reason') control.disabled = !editable; });
+    form.querySelectorAll('input,select,textarea').forEach(control => { control.disabled = !editable; });
     byId('hb-action-save').hidden = !editable;
     byId('hb-action-edit-toggle').hidden = !permissions.correct || !completedMilestone || detail?.installation_status === 'closed';
   }
@@ -261,12 +259,13 @@
 
   function payloadFromForm() {
     const workstream = detail.workstream || currentWorkstream();
-    if (workstream === 'commissioning') return {revision: detail.revision, workstream, commissioning_status: 'commissioned', commissioning_date: field('hb-commissioning-date')?.value || '', reason: field('hb-correction-reason')?.value.trim() || ''};
+    if (workstream === 'commissioning') return {revision: detail.revision, workstream, commissioning_status: 'commissioned', commissioning_date: field('hb-commissioning-date')?.value || ''};
+    const installed = field('hb-installation-status')?.value === 'installed';
     return {
       revision: detail.revision, workstream: 'installation', installation_status: field('hb-installation-status')?.value || '',
-      readiness_status: field('hb-readiness-status')?.value || '', planned_installation_date: field('hb-planned-installation-date')?.value || '',
-      installation_date: field('hb-installation-date')?.value || '', installation_note: field('hb-installation-note')?.value.trim() || '', serial_number: field('hb-serial-number')?.value.trim() || '',
-      installation_report_status: field('hb-installation-report-status')?.value || '', reason: field('hb-correction-reason')?.value.trim() || '',
+      readiness_status: installed ? '' : field('hb-readiness-status')?.value || '', planned_installation_date: installed ? '' : field('hb-planned-installation-date')?.value || '',
+      installation_date: field('hb-installation-date')?.value || '', installation_note: installed ? '' : field('hb-installation-note')?.value.trim() || '', serial_number: field('hb-serial-number')?.value.trim() || '',
+      installation_report_submitted: Boolean(field('hb-installation-report-submitted')?.checked),
     };
   }
   function validate(payload) {
@@ -281,7 +280,6 @@
     if (payload.installation_status === 'installed') {
       if (!payload.installation_date) return 'Choose the actual installation date.';
       if (payload.installation_date > today) return 'The actual installation date cannot be in the future.';
-      if (!payload.installation_report_status) return 'Choose whether the installation report was submitted.';
     }
     return '';
   }
@@ -315,7 +313,7 @@
     const response = await deps.portalApi.postJson(endpoint, payload, deps.tg);
     deps.setButtonLoading?.(button, false);
     if (!response.ok || !response.data?.ok) { deps.showToast(response.data?.error || 'The record could not be saved.', 'error'); return; }
-    correctionMode = false; byId('hb-correction-reason-wrap').hidden = true;
+    correctionMode = false;
     if (payload.workstream === 'installation' && response.data.action.installation_status === 'installed') {
       deps.showToast('Installation saved. The case is now in the commissioning queue.', 'success');
       window.location.assign(`/portal/s/hb-actions/${encodeURIComponent(detail.farmer_id)}/?workstream=commissioning`); return;
@@ -372,7 +370,7 @@
       byId('hb-action-invoice')?.addEventListener('click', openInvoicePreview);
       byId('media-viewer-close')?.addEventListener('click', closeInvoicePreview);
       byId('hb-action-edit-toggle')?.addEventListener('click', () => {
-        correctionMode = !correctionMode; byId('hb-correction-reason-wrap').hidden = !correctionMode;
+        correctionMode = !correctionMode;
         byId('hb-action-save').textContent = correctionMode ? 'Save correction' : (detail?.workstream === 'commissioning' ? 'Mark commissioned' : 'Save installation');
         const toggle = byId('hb-action-edit-toggle');
         toggle.classList.toggle('active', correctionMode);

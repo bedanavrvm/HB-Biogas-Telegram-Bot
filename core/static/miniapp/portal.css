@@ -4650,6 +4650,8 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 .hb-action-planning-toggle { display:inline-flex; align-items:center; justify-content:flex-start; gap:7px; width:max-content; min-height:36px; padding:7px 9px; border:1px dashed var(--border, var(--border-color)); border-radius:9px; background:var(--surface-muted, var(--color-soft)); color:var(--color-primary); font:inherit; font-size:12px; font-weight:700; }
 .hb-action-planning-toggle svg { width:16px; height:16px; }
 .hb-action-planning-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.hb-action-checkbox { display:flex; align-items:center; gap:8px; min-height:42px; padding:9px 10px; border:1px solid var(--border, var(--border-color)); border-radius:10px; background:var(--surface-muted, var(--color-soft)); font-size:13px; font-weight:650; }
+.hb-action-checkbox input { width:18px !important; min-height:18px !important; margin:0 !important; accent-color:var(--color-primary); }
 .hb-action-form label { gap:6px; font-size:12px; line-height:1.3; }
 .hb-action-form label small { font-size:11px; line-height:1.35; }
 .hb-action-form :is(input,select,textarea) { min-height:42px; font-size:14px; }

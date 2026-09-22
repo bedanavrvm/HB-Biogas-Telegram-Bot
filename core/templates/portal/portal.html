@@ -159,11 +159,10 @@
               <label>Actual installation date<input id="hb-installation-date" name="installation_date" type="date"></label>
               <label>Serial number <small>Optional</small><input id="hb-serial-number" name="serial_number" type="text" maxlength="128"></label>
             </div>
-            <label>Installation report<select id="hb-installation-report-status" name="installation_report_status"></select></label>
+            <label class="hb-action-checkbox"><input id="hb-installation-report-submitted" name="installation_report_submitted" type="checkbox"><span>Installation report submitted</span></label>
           </div>
         </section>
         {% endif %}
-        <label id="hb-correction-reason-wrap" class="hb-action-correction-reason" hidden>Correction reason<textarea id="hb-correction-reason" name="reason" rows="2" maxlength="1000" placeholder="Explain a change to a completed milestone"></textarea></label>
         <div class="hb-action-form-actions"><button type="submit" class="btn btn-primary" id="hb-action-save">Save progress</button></div>
       </form>
       <details class="hb-action-history"><summary>Activity history <span id="hb-action-history-count"></span></summary><div id="hb-action-history-list"></div></details>

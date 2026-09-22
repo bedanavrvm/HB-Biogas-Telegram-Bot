@@ -306,7 +306,18 @@ def _validate_installation(action: HomeBiogasAction, payload: dict, *, correctio
     planned_installation_date = _date_value(payload, 'planned_installation_date')
     installation_date = _date_value(payload, 'installation_date')
     serial = _text(payload, 'serial_number', max_length=128)
-    report = _text(payload, 'installation_report_status', max_length=24)
+    # The staff form records this as a simple optional checkbox.  Preserve the
+    # legacy API field for historical integrations, but never make it a gate
+    # for recording an actual installation.
+    if 'installation_report_submitted' in payload:
+        submitted = str(payload.get('installation_report_submitted') or '').strip().lower()
+        report = (
+            HomeBiogasAction.REPORT_YES
+            if submitted in {'1', 'true', 'yes', 'on'}
+            else HomeBiogasAction.REPORT_NO
+        )
+    else:
+        report = _text(payload, 'installation_report_status', max_length=24)
 
     if target == HomeBiogasAction.INSTALLATION_OPEN:
         if readiness and readiness not in dict(HomeBiogasAction.READINESS_CHOICES):
@@ -324,10 +335,10 @@ def _validate_installation(action: HomeBiogasAction, payload: dict, *, correctio
         raise HomeBiogasActionError('Choose the actual installation date.')
     if installation_date > timezone.localdate():
         raise HomeBiogasActionError('The actual installation date cannot be in the future.')
-    if report not in dict(HomeBiogasAction.REPORT_CHOICES):
-        raise HomeBiogasActionError('Choose whether the installation report was submitted.')
+    if report and report not in dict(HomeBiogasAction.REPORT_CHOICES):
+        raise HomeBiogasActionError('Choose a valid installation report status.')
     values = {
-        'installation_status': target, 'planned_installation_date': planned_installation_date,
+        'installation_status': target, 'planned_installation_date': None,
         'installation_date': installation_date,
         'readiness_status': '', 'pending_installation_comment': '',
         'serial_number': serial, 'installation_report_status': report,
@@ -444,7 +455,6 @@ def correct_action(action_id, *, payload: dict, actor, request_id: str, expected
     workstream = _text(payload, 'workstream', max_length=24)
     if workstream not in {'installation', 'commissioning'}:
         raise HomeBiogasActionError('Refresh this screen before saving this HB correction.')
-    reason = _text(payload, 'reason')
     before = _snapshot(action)
     policy = {}
     if workstream == 'installation':
@@ -472,16 +482,6 @@ def correct_action(action_id, *, payload: dict, actor, request_id: str, expected
             }
     else:
         corrected, policy = _validate_commissioning(action, {**before, **payload}, correction=True)
-    milestone_changed = any(
-        before.get(key) != (value.isoformat() if isinstance(value, date) else value)
-        for key, value in corrected.items()
-        if key in {'installation_status', 'installation_date', 'commissioning_status', 'commissioning_date'}
-    ) and (
-        action.installation_status == HomeBiogasAction.INSTALLATION_INSTALLED
-        or action.commissioning_status == HomeBiogasAction.COMMISSIONING_COMMISSIONED
-    )
-    if milestone_changed and not reason:
-        raise HomeBiogasActionError('Give a reason for changing a completed milestone.')
     for key, value in corrected.items():
         setattr(action, key, value)
     action.revision += 1
@@ -490,7 +490,7 @@ def correct_action(action_id, *, payload: dict, actor, request_id: str, expected
     HomeBiogasActionEvent.objects.create(
         action=action, event_type=f'{workstream}.corrected', revision=action.revision,
         actor=actor, actor_label=_actor_label(actor), request_id=request_id,
-        previous_values=before, new_values={**_snapshot(action), **policy}, reason=reason,
+        previous_values=before, new_values={**_snapshot(action), **policy}, reason='',
     )
     operations = _sync_farmer(action, actor=actor, request_id=request_id)
     return action, operations, False

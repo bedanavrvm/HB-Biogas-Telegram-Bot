@@ -184,7 +184,6 @@ def hb_action_detail(request, farmer_id):
                 {'value': HomeBiogasAction.INSTALLATION_INSTALLED, 'label': 'Installed'},
             ],
             'readiness_statuses': [{'value': key, 'label': label} for key, label in HomeBiogasAction.READINESS_CHOICES],
-            'installation_report_statuses': [{'value': key, 'label': label} for key, label in HomeBiogasAction.REPORT_CHOICES],
         },
     })
 

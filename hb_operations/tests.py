@@ -180,18 +180,40 @@ class HomeBiogasActionServiceTests(TestCase):
                 payload={'workstream': 'installation', 'installation_status': 'open'},
             )
 
-    def test_installed_record_enters_automatic_commissioning_wait_without_extra_input(self):
+    def test_installed_record_enters_automatic_commissioning_wait_without_report_selection(self):
         action = self.release()
         installed_on = timezone.localdate()
         updated, _operations, _replayed = transition_action(
             action.pk, actor=self.user, request_id='installed-1', expected_revision=1,
             payload={
                 'workstream': 'installation', 'installation_status': 'installed',
-                'installation_date': installed_on.isoformat(), 'installation_report_status': 'yes',
+                'installation_date': installed_on.isoformat(),
             },
         )
         self.assertEqual(updated.serial_number, '')
+        self.assertEqual(updated.installation_report_status, '')
         self.assertEqual(updated.commissioning_status, 'not_commissioned')
+
+    def test_installation_report_checkbox_maps_to_yes_or_no_without_blocking_completion(self):
+        action = self.release()
+        installed_on = timezone.localdate()
+        updated, _operations, _replayed = transition_action(
+            action.pk, actor=self.user, request_id='installed-report-checkbox', expected_revision=1,
+            payload={
+                'workstream': 'installation', 'installation_status': 'installed',
+                'installation_date': installed_on.isoformat(), 'installation_report_submitted': True,
+            },
+        )
+
+        self.assertEqual(updated.installation_report_status, HomeBiogasAction.REPORT_YES)
+        updated, _operations, _replayed = correct_action(
+            updated.pk, actor=self.user, request_id='installed-report-checkbox-unchecked', expected_revision=2,
+            payload={
+                'workstream': 'installation', 'installation_date': installed_on.isoformat(),
+                'installation_report_submitted': False,
+            },
+        )
+        self.assertEqual(updated.installation_report_status, HomeBiogasAction.REPORT_NO)
 
     def test_delivery_pipeline_stages_follow_signed_order_installation_and_commissioning(self):
         action = self.release()
@@ -226,7 +248,7 @@ class HomeBiogasActionServiceTests(TestCase):
         self.assertEqual(current_pipeline_state_label(self.farmer), 'Commissioned')
         self.assertEqual(_pipeline_stage(self.farmer), 8)
 
-    def test_completed_milestone_correction_requires_reason_and_is_audited(self):
+    def test_completed_milestone_correction_is_audited_without_a_manual_reason(self):
         action = self.release()
         installed_on = timezone.localdate() - timedelta(days=30)
         action, _operations, _replayed = transition_action(
@@ -243,21 +265,17 @@ class HomeBiogasActionServiceTests(TestCase):
                 'commissioning_date': (installed_on + timedelta(days=21)).isoformat(),
             },
         )
-        with self.assertRaisesMessage(HomeBiogasActionError, 'Give a reason'):
-            correct_action(
-                action.pk, actor=self.user, request_id='correct-1', expected_revision=3,
-                payload={'workstream': 'installation', 'installation_date': (installed_on - timedelta(days=1)).isoformat()},
-            )
         corrected, _operations, _replayed = correct_action(
-            action.pk, actor=self.user, request_id='correct-2', expected_revision=3,
+            action.pk, actor=self.user, request_id='correct-1', expected_revision=3,
             payload={
                 'workstream': 'installation', 'installation_date': (installed_on - timedelta(days=1)).isoformat(),
-                'reason': 'Corrected from installation report.',
             },
         )
         self.assertEqual(corrected.installation_date, installed_on - timedelta(days=1))
-        event = HomeBiogasActionEvent.objects.get(request_id='correct-2')
-        self.assertEqual(event.reason, 'Corrected from installation report.')
+        event = HomeBiogasActionEvent.objects.get(request_id='correct-1')
+        self.assertEqual(event.reason, '')
+        self.assertEqual(event.actor, self.user)
+        self.assertNotEqual(event.previous_values['installation_date'], event.new_values['installation_date'])
 
     def test_early_commissioning_requires_explicit_acknowledgement(self):
         action = self.release()

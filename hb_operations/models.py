@@ -100,7 +100,7 @@ class HomeBiogasActionEvent(models.Model):
     request_id = models.CharField(max_length=128, blank=True, default='', db_comment='Idempotency key for user or internal retries.')
     previous_values = models.JSONField(default=dict, blank=True, db_comment='Allowlisted prior operational values for audit interpretation.')
     new_values = models.JSONField(default=dict, blank=True, db_comment='Allowlisted accepted operational values for audit interpretation.')
-    reason = models.TextField(blank=True, default='', db_comment='Required reason for consequential milestone corrections.')
+    reason = models.TextField(blank=True, default='', db_comment='Optional legacy context for an audited correction; actor and before/after values are always recorded.')
     created_at = models.DateTimeField(auto_now_add=True, db_comment='When this immutable event was recorded.')
 
     class Meta:
