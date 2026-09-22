@@ -2357,6 +2357,7 @@ def sync_farmer_to_master_sheet(
                 'commissioning_status': (candidates('commissioning_status'), hb_action.get_commissioning_status_display() if hb_action.commissioning_status else ''),
                 'commissioning_date': (candidates('commissioning_date'), _date_text(hb_action.commissioning_date)),
                 'pending_commissioning_comment': (candidates('pending_commissioning_comment'), hb_action.pending_commissioning_comment),
+                'cs_remarks': (candidates('cs_remarks'), hb_action.cs_remarks),
             })
 
         for field_name, (candidates, new_val) in pipeline_fields.items():

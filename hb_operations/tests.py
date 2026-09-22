@@ -25,7 +25,7 @@ from core.services.telegram_identity import user_access
 from core.services.jawabu_pipeline import _pipeline_stage, current_pipeline_state_label
 
 from .models import HomeBiogasAction, HomeBiogasActionEvent
-from .services import HomeBiogasActionError, correct_action, release_requisition_signoff, scoped_actions, serialize_action, transition_action
+from .services import HomeBiogasActionError, correct_action, release_requisition_signoff, scoped_actions, serialize_action, transition_action, update_commissioning_notes
 
 
 class HomeBiogasActionServiceTests(TestCase):
@@ -383,6 +383,50 @@ class HomeBiogasActionServiceTests(TestCase):
         event = HomeBiogasActionEvent.objects.get(request_id='commission-early-accepted')
         self.assertTrue(event.new_values['early_commissioning_acknowledged'])
 
+    def test_commissioning_notes_keep_delay_and_additional_context_separate(self):
+        action = self.release()
+        action, _operations, _replayed = transition_action(
+            action.pk, actor=self.user, request_id='notes-install', expected_revision=1,
+            payload={
+                'workstream': 'installation', 'installation_status': 'installed',
+                'installation_date': timezone.localdate().isoformat(),
+            },
+        )
+        action, _operations, replayed = update_commissioning_notes(
+            action.pk, actor=self.user, request_id='notes-pending', expected_revision=2,
+            payload={
+                'pending_commissioning_comment': 'Customer asked the team to return after kitchen work is complete.',
+                'additional_remarks': 'Access route is shared with the neighbouring household.',
+            },
+        )
+        self.assertFalse(replayed)
+        self.assertEqual(action.commissioning_status, HomeBiogasAction.COMMISSIONING_NOT_COMMISSIONED)
+        self.assertIn('kitchen work', action.pending_commissioning_comment)
+        self.assertIn('Access route', action.cs_remarks)
+        event = HomeBiogasActionEvent.objects.get(request_id='notes-pending')
+        self.assertEqual(event.event_type, 'commissioning.notes_updated')
+        self.assertEqual(event.new_values['cs_remarks'], action.cs_remarks)
+
+        action, _operations, _replayed = transition_action(
+            action.pk, actor=self.user, request_id='notes-complete', expected_revision=3,
+            payload={
+                'workstream': 'commissioning', 'commissioning_status': 'commissioned',
+                'commissioning_date': timezone.localdate().isoformat(),
+                'early_commissioning_acknowledged': True,
+            },
+        )
+        self.assertEqual(action.pending_commissioning_comment, '')
+        updated, _operations, _replayed = update_commissioning_notes(
+            action.pk, actor=self.user, request_id='notes-complete-remarks', expected_revision=4,
+            payload={'additional_remarks': 'Customer completed handover training.'},
+        )
+        self.assertEqual(updated.cs_remarks, 'Customer completed handover training.')
+        with self.assertRaisesMessage(HomeBiogasActionError, 'only be changed while commissioning is outstanding'):
+            update_commissioning_notes(
+                updated.pk, actor=self.user, request_id='notes-complete-pending', expected_revision=5,
+                payload={'pending_commissioning_comment': 'Not applicable after completion.'},
+            )
+
 
 @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, SECURE_SSL_REDIRECT=False)
 class HomeBiogasActionApiTests(HomeBiogasActionServiceTests):
@@ -413,6 +457,8 @@ class HomeBiogasActionApiTests(HomeBiogasActionServiceTests):
         self.assertNotContains(screen, 'hb-installation-note-wrap')
         self.assertNotContains(screen, 'id="hb-commissioning-date"')
         self.assertContains(commissioning_screen, 'id="hb-commissioning-date"')
+        self.assertContains(commissioning_screen, 'id="hb-pending-commissioning-comment"')
+        self.assertContains(commissioning_screen, 'id="hb-additional-remarks"')
         self.assertNotContains(commissioning_screen, 'id="hb-mark-installed"')
         self.assertNotContains(list_screen, 'hb-action-filter-trigger')
         self.assertNotContains(list_screen, 'hb-filter-readiness')

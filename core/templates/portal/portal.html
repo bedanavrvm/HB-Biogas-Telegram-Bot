@@ -141,8 +141,13 @@
         <section class="hb-action-form-card" id="hb-commissioning-card">
           <div class="hb-action-card-heading"><div><h2>Commissioning</h2><p>Commissioning is normally ready 21 days after installation.</p></div></div>
           <div class="hb-commissioning-readiness" id="hb-commissioning-readiness" role="status"></div>
-          <label>Actual commissioning date<input id="hb-commissioning-date" name="commissioning_date" type="date"></label>
+          <label id="hb-commissioning-date-wrap">Actual commissioning date<input id="hb-commissioning-date" name="commissioning_date" type="date"></label>
           <input id="hb-commissioning-status" name="commissioning_status" type="hidden" value="commissioned">
+          <div class="hb-commissioning-notes" id="hb-commissioning-notes">
+            <label id="hb-pending-commissioning-note-wrap">Pending commissioning comment<textarea id="hb-pending-commissioning-comment" rows="3" maxlength="4000" placeholder="What is delaying commissioning?"></textarea></label>
+            <label>Additional remarks <small>Optional</small><textarea id="hb-additional-remarks" rows="3" maxlength="4000" placeholder="Any additional operational context"></textarea><small class="hb-field-help">Shown in Master Data as CS Remarks.</small></label>
+            <button type="button" class="btn btn-secondary" id="hb-save-commissioning-notes" data-hb-notes-control>Save notes</button>
+          </div>
         </section>
         {% else %}
         <section class="hb-action-form-card" id="hb-installation-card">

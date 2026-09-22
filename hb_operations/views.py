@@ -26,6 +26,7 @@ from .services import (
     scoped_actions,
     serialize_action,
     transition_action,
+    update_commissioning_notes,
 )
 
 
@@ -224,3 +225,37 @@ def hb_action_transition(request, farmer_id):
 @require_http_methods(['POST'])
 def hb_action_correct(request, farmer_id):
     return _mutation(request, farmer_id, correction=True)
+
+
+@portal_auth_required
+@csrf_exempt  # Portal writes authenticate through verified Telegram initData, not a browser cookie.
+@require_http_methods(['POST'])
+def hb_action_commissioning_notes(request, farmer_id):
+    action = _action_for_request(request, farmer_id, WRITE_CAPABILITY)
+    if action is None:
+        return _error('This HomeBiogas action is unavailable or outside your authorized scope.', status=404, code='not_found')
+    denied = _portal_capability_error(request, WRITE_CAPABILITY, action.farmer)
+    if denied:
+        return denied
+    body = _portal_request_data(request)
+    try:
+        revision = int(body.get('revision'))
+    except (TypeError, ValueError):
+        return _error('Refresh this record before saving notes.', code='revision_required')
+    try:
+        updated, operations, replayed = update_commissioning_notes(
+            action.pk, payload=body, actor=_actor(request), request_id=_portal_request_id(request, body),
+            expected_revision=revision,
+        )
+    except HomeBiogasActionError as exc:
+        return _error(str(exc))
+    updated.refresh_from_db()
+    return JsonResponse({
+        'ok': True,
+        'action': _serialized(request, updated, include_history=True, workstream='commissioning'),
+        'replayed': replayed,
+        'publications': [
+            {'status': item.status, 'pending_operation_ids': [str(item.pk)] if item.status in {'pending', 'retryable_failure'} else []}
+            for item in operations
+        ],
+    })

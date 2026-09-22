@@ -73,6 +73,7 @@ OPERATIONAL_FIELDS: dict[str, tuple[PublicationField, ...]] = {
         _field("commissioning_status", "HomeBiogasAction.commissioning_status", ("Commissioning Status",), "workflow"),
         _field("commissioning_date", "HomeBiogasAction.commissioning_date", ("Commissioning Date",), "workflow"),
         _field("pending_commissioning_comment", "HomeBiogasAction.pending_commissioning_comment", ("Pending Commissioning Comments",), "workflow"),
+        _field("cs_remarks", "HomeBiogasAction.cs_remarks", ("CS Remarks",), "workflow"),
         _field("hb_sales_person", "JawabuFarmerMaster.hb_sales_person", ("HB Sales Person", "Sales Person"), "workflow"),
         _field("actual_receipts_currency", "JawabuFarmerMaster.actual_receipts_currency", ("Deposit Currency", "Actual Receipts Currency"), "financial"),
         _field("credit_decision", "JawabuFarmerMaster.credit_decision", ("Credit Decision", "Credit Analysis"), "decision"),

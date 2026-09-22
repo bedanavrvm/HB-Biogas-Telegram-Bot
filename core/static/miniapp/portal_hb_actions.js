@@ -138,6 +138,8 @@
       renderInstallationForm();
     } else {
       field('hb-commissioning-date').value = action.commissioning_status === 'commissioned' ? (action.commissioning_date || '') : '';
+      field('hb-pending-commissioning-comment').value = action.pending_commissioning_comment || '';
+      field('hb-additional-remarks').value = action.additional_remarks || '';
       renderReadiness(action);
     }
     const legacyClosed = action.installation_status === 'closed';
@@ -167,11 +169,22 @@
       || (detail?.workstream === 'commissioning' && detail?.commissioning_status === 'commissioned')
     );
     const editable = Boolean(permissions.write) && (!completedMilestone || correctionMode);
-    form.querySelectorAll('input,select,textarea').forEach(control => { control.disabled = !editable; });
+    form.querySelectorAll('input,select,textarea').forEach(control => {
+      if (!control.closest('#hb-commissioning-notes')) control.disabled = !editable;
+    });
     const needsInstallationAction = detail?.workstream === 'installation'
       && detail?.installation_status === 'open' && !installationCompletionMode && !installationDelayMode;
     const saveWrap = byId('hb-action-save-wrap');
     if (saveWrap) saveWrap.hidden = !editable || needsInstallationAction;
+    const notes = byId('hb-commissioning-notes');
+    const pendingNote = byId('hb-pending-commissioning-note-wrap');
+    const notesButton = byId('hb-save-commissioning-notes');
+    if (notes) notes.hidden = detail?.workstream !== 'commissioning';
+    if (pendingNote) pendingNote.hidden = detail?.commissioning_status === 'commissioned';
+    if (notesButton) notesButton.disabled = !permissions.write;
+    [field('hb-pending-commissioning-comment'), field('hb-additional-remarks')].forEach(control => {
+      if (control) control.disabled = !permissions.write;
+    });
     const markInstalled = byId('hb-mark-installed');
     if (markInstalled) {
       markInstalled.hidden = detail?.workstream !== 'installation' || detail?.installation_status !== 'open' || installationCompletionMode || installationDelayMode;
@@ -272,6 +285,23 @@
     deps.showToast(payload.workstream === 'commissioning' ? 'Commissioning recorded.' : (payload.installation_status === 'open' ? 'Delay update saved.' : 'Installation saved.'), 'success');
   }
 
+  async function saveCommissioningNotes() {
+    if (!detail || detail.workstream !== 'commissioning') return;
+    const payload = {
+      revision: detail.revision,
+      pending_commissioning_comment: field('hb-pending-commissioning-comment')?.value.trim() || '',
+      additional_remarks: field('hb-additional-remarks')?.value.trim() || '',
+    };
+    const button = byId('hb-save-commissioning-notes');
+    deps.setButtonLoading?.(button, true, 'Saving notes…');
+    const response = await deps.portalApi.postJson(`/hb-actions/${encodeURIComponent(detail.farmer_id)}/commissioning-notes/`, payload, deps.tg);
+    deps.setButtonLoading?.(button, false);
+    if (!response.ok || !response.data?.ok) { deps.showToast(response.data?.error || 'Notes could not be saved.', 'error'); return; }
+    populateDetail(response.data.action);
+    applyVisualDetailHierarchy(response.data.action);
+    deps.showToast('Commissioning notes saved.', 'success');
+  }
+
   function closeInvoicePreview() {
     if (invoiceObjectUrl) { window.SecureMediaViewer?.revoke(invoiceObjectUrl); invoiceObjectUrl = ''; }
     byId('media-viewer-overlay')?.classList.remove('open');
@@ -310,6 +340,7 @@
     const farmerId = root.dataset.hbActionFarmerId || '';
     if (farmerId) {
       byId('hb-action-form')?.addEventListener('submit', save);
+      byId('hb-save-commissioning-notes')?.addEventListener('click', saveCommissioningNotes);
       byId('hb-mark-installed')?.addEventListener('click', () => {
         installationCompletionMode = true;
         installationDelayMode = false;

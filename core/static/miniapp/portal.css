@@ -4668,6 +4668,10 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 .hb-action-form label small { font-size:11px; line-height:1.35; }
 .hb-action-form :is(input,select,textarea) { min-height:42px; font-size:14px; }
 .hb-action-form textarea { min-height:76px; }
+.hb-commissioning-notes { display:grid; gap:10px; padding-top:2px; border-top:1px solid var(--border,var(--border-color)); }
+.hb-commissioning-notes > label:first-child { padding-top:10px; }
+.hb-field-help { display:block; margin-top:-2px; color:var(--text-muted); font-size:11px; font-weight:400; line-height:1.35; }
+.hb-commissioning-notes .btn { width:100%; min-height:42px; }
 .hb-commissioning-readiness { display:flex; flex-direction:column; align-items:flex-start; gap:3px; padding:11px 12px; border-radius:10px; }
 .hb-commissioning-readiness span { font-size:11px; }
 .hb-commissioning-readiness strong { font-size:14px; text-align:left; }

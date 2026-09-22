@@ -23,7 +23,7 @@ CORRECT_CAPABILITY = 'portal.hb_action.correct'
 STATE_FIELDS = (
     'installation_status', 'planned_installation_date', 'installation_date', 'serial_number', 'readiness_status',
     'pending_installation_comment', 'installation_report_status',
-    'commissioning_status', 'commissioning_date', 'pending_commissioning_comment',
+    'commissioning_status', 'commissioning_date', 'pending_commissioning_comment', 'cs_remarks',
 )
 
 COMMISSIONING_WAIT_DAYS = 21
@@ -180,6 +180,9 @@ def serialize_action(action: HomeBiogasAction, *, include_history: bool = False)
         'commissioning_date_display': _display_date(action.commissioning_date),
         'commissioning_date_label': 'Actual commissioning date',
         'pending_commissioning_comment': action.pending_commissioning_comment,
+        # The staff label is deliberately plain language.  "CS Remarks" is
+        # only the legacy Master Data sheet heading used for projection.
+        'additional_remarks': action.cs_remarks,
         'commissioning_ready_on': readiness['ready_on'].isoformat() if readiness['ready_on'] else '',
         'commissioning_ready_on_display': _display_date(readiness['ready_on']),
         'commissioning_state': readiness['state'],
@@ -458,6 +461,51 @@ def transition_action(action_id, *, payload: dict, actor, request_id: str, expec
         action=action, event_type=f'{workstream}.{"completed" if workstream == "commissioning" else "progressed"}', revision=action.revision,
         actor=actor, actor_label=_actor_label(actor), request_id=request_id,
         previous_values=before, new_values=event_values,
+    )
+    operations = _sync_farmer(action, actor=actor, request_id=request_id)
+    return action, operations, False
+
+
+@transaction.atomic
+def update_commissioning_notes(action_id, *, payload: dict, actor, request_id: str, expected_revision: int):
+    """Save operational commissioning notes without changing a milestone.
+
+    A pending comment answers *why commissioning is still outstanding* and is
+    deliberately cleared when commissioning is completed.  Additional remarks
+    are durable context for the existing Master Data ``CS Remarks`` column.
+    This is a normal HB write, not a correction of historic facts.
+    """
+    action = HomeBiogasAction.objects.select_for_update().select_related('farmer').get(pk=action_id)
+    duplicate = action.events.filter(request_id=request_id).first() if request_id else None
+    if duplicate:
+        return action, [], True
+    if int(expected_revision) != int(action.revision):
+        raise HomeBiogasActionError('This record changed after you opened it. Refresh and try again.')
+    if action.installation_status != HomeBiogasAction.INSTALLATION_INSTALLED or not action.installation_date:
+        raise HomeBiogasActionError('Complete installation before saving commissioning notes.')
+
+    pending_comment = _text(payload, 'pending_commissioning_comment', max_length=4000)
+    additional_remarks = _text(payload, 'additional_remarks', max_length=4000)
+    if action.commissioning_status == HomeBiogasAction.COMMISSIONING_COMMISSIONED and pending_comment:
+        raise HomeBiogasActionError('A pending commissioning comment can only be changed while commissioning is outstanding.')
+    values = {
+        'pending_commissioning_comment': (
+            '' if action.commissioning_status == HomeBiogasAction.COMMISSIONING_COMMISSIONED else pending_comment
+        ),
+        'cs_remarks': additional_remarks,
+    }
+    before = _snapshot(action)
+    if all(before[key] == value for key, value in values.items()):
+        return action, [], False
+    for key, value in values.items():
+        setattr(action, key, value)
+    action.revision += 1
+    action.updated_by = actor
+    action.save(update_fields=[*values.keys(), 'revision', 'updated_by', 'updated_at'])
+    HomeBiogasActionEvent.objects.create(
+        action=action, event_type='commissioning.notes_updated', revision=action.revision,
+        actor=actor, actor_label=_actor_label(actor), request_id=request_id,
+        previous_values=before, new_values=_snapshot(action),
     )
     operations = _sync_farmer(action, actor=actor, request_id=request_id)
     return action, operations, False
