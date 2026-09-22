@@ -856,7 +856,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('Ready for my role', template)
         self.assertIn('data-home-queue="role"', template)
         self.assertIn('miniapp/tat_tracker.js', template)
-        self.assertIn("miniapp/tat_tracker.js' %}?v=100", template)
+        self.assertIn("miniapp/tat_tracker.js' %}?v=101", template)
 
     def test_credit_assessment_uses_staff_inputs_and_in_app_pdf_preview(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
@@ -875,6 +875,8 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn("mode: 'download'", source)
         self.assertIn('.assessment-preview-sheet', stylesheet)
         self.assertIn('detail.credit_assessment_enabled === true', source)
+        self.assertIn('Never let that stale response make the', source)
+        self.assertIn("const enabled = state.detail?.credit_assessment_enabled === true", source)
         self.assertIn('creditAssessmentPanel" class="credit-assessment-panel" aria-labelledby="creditAssessmentTitle" hidden', template)
 
     def test_compact_home_has_filter_sheet_metrics_and_explicit_pagination(self):

@@ -1922,8 +1922,12 @@
   async function loadCreditAssessment(caseId) {
     try {
       const result = await api('/api/tat-tracker/credit-assessment/detail/', { case_id: caseId });
+      // A detail refresh can disable this optional workflow while an older
+      // request is still in flight. Never let that stale response make the
+      // hidden panel visible again.
       if (state.detail?.summary?.case_id !== caseId) return;
-      renderCreditAssessment(result.data, state.detail.can_start_credit_assessment);
+      const enabled = state.detail?.credit_assessment_enabled === true;
+      renderCreditAssessment(enabled ? result.data : null, enabled ? state.detail.can_start_credit_assessment : false, enabled);
     } catch (error) {
       setStatus(error.message, 'error');
     }
@@ -1933,7 +1937,8 @@
     try {
       const result = await api('/api/tat-tracker/credit-assessment/action/', Object.assign({ case_id: state.detail.summary.case_id, action, request_id: newRequestId() }, values || {}));
       if (rerender) {
-        renderCreditAssessment(result.data, false);
+        const enabled = state.detail?.credit_assessment_enabled === true;
+        renderCreditAssessment(enabled ? result.data : null, false, enabled);
         await refreshDetailBackground();
       }
       setStatus('Credit assessment updated.', 'ok');
@@ -1954,7 +1959,8 @@
         data.delete('question_lines');
       }
       const result = await creditAssessmentUpload(data);
-      renderCreditAssessment(result.data, false);
+      const enabled = state.detail?.credit_assessment_enabled === true;
+      renderCreditAssessment(enabled ? result.data : null, false, enabled);
       await refreshDetailBackground();
       setStatus('Credit assessment updated.', 'ok');
     } catch (error) { setStatus(error.message, 'error'); }
