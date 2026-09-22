@@ -53,8 +53,8 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/utils.js?v=18', html)
         self.assertIn('miniapp/portal_helpers.js?v=10', html)
         self.assertIn('miniapp/components.css?v=2', html)
-        self.assertIn('miniapp/portal.css?v=121', html)
-        self.assertIn('miniapp/portal_filters.js?v=16', html)
+        self.assertIn('miniapp/portal.css?v=129', html)
+        self.assertIn('miniapp/portal_filters.js?v=17', html)
         self.assertIn('miniapp/portal_imports.js?v=10', html)
         self.assertNotIn('portal-import-group', html)
         self.assertIn('miniapp/portal_requisitions.js?v=40', html)
@@ -637,6 +637,12 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('data-portal-filter-chips', template)
         self.assertEqual(template.count('data-portal-filter-options="county"'), 1)
         self.assertEqual(template.count('data-portal-filter-options="branch"'), 1)
+        self.assertEqual(template.count('data-portal-filter-options="status"'), 1)
+        self.assertIn('placeholder="DD-MM-YYYY"', template)
+        self.assertNotIn('type="date" name="hbg_visit_date_from"', template)
+        self.assertIn('function isoDate(value)', source)
+        self.assertIn("Use DD-MM-YYYY.", source)
+        self.assertIn('function availableOptions(queueKey, root, rows)', source)
         self.assertNotIn('<select name="county">', template)
         self.assertNotIn('<select name="branch">', template)
         self.assertIn("filters[key] = data.getAll(key)", source)
@@ -701,6 +707,8 @@ class MiniAppFrontendSmokeTests(TestCase):
             'renderCase360',
             'case360-hero',
             'case360-flow',
+            "['Installation'",
+            "['Commissioning'",
             'case360-sections',
             'case360-link',
             'Open map',

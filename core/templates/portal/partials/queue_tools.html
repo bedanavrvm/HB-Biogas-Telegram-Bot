@@ -19,22 +19,13 @@
         <button type="button" data-miniapp-sheet-close aria-label="Close filters"><i data-lucide="x" aria-hidden="true"></i></button>
       </header>
       <form class="miniapp-sheet-body" data-portal-filter-form>
-        <fieldset class="portal-filter-options"><legend>County</legend><div data-portal-filter-options="county"></div></fieldset>
-        <fieldset class="portal-filter-options"><legend>Branch</legend><div data-portal-filter-options="branch"></div></fieldset>
+        <fieldset class="portal-filter-options" data-portal-filter-group="county"><legend>County</legend><div data-portal-filter-options="county"></div></fieldset>
+        <fieldset class="portal-filter-options" data-portal-filter-group="branch"><legend>Branch</legend><div data-portal-filter-options="branch"></div></fieldset>
         {% if queue_key == 'all' %}
-        <fieldset class="portal-filter-options"><legend>Status</legend><div>
-          <label><input type="checkbox" name="status" value="jbl_visit">Awaiting visit</label>
-          <label><input type="checkbox" name="status" value="credit">Awaiting credit analysis</label>
-          <label><input type="checkbox" name="status" value="final_review">Awaiting final review</label>
-          <label><input type="checkbox" name="status" value="order">Ready for order</label>
-          <label><input type="checkbox" name="status" value="ordered">Ordered</label>
-          <label><input type="checkbox" name="status" value="deferred">Deferred</label>
-          <label><input type="checkbox" name="status" value="rejected">Rejected</label>
-          <label><input type="checkbox" name="status" value="withdrawn">Withdrawn</label>
-        </div></fieldset>
+        <fieldset class="portal-filter-options" data-portal-filter-group="status"><legend>Status</legend><div data-portal-filter-options="status"></div></fieldset>
         {% endif %}
-        <fieldset class="portal-filter-options portal-filter-date-range"><legend>HB visit date</legend><div class="portal-filter-date-inputs"><label>From<input type="date" name="hbg_visit_date_from"></label><label>To<input type="date" name="hbg_visit_date_to"></label></div></fieldset>
-        <fieldset class="portal-filter-options portal-filter-date-range"><legend>JBL visit date</legend><div class="portal-filter-date-inputs"><label>From<input type="date" name="jbl_visit_date_from"></label><label>To<input type="date" name="jbl_visit_date_to"></label></div></fieldset>
+        <fieldset class="portal-filter-options portal-filter-date-range" data-portal-filter-group="hbg_visit_date"><legend>HB visit date</legend><div class="portal-filter-date-inputs"><label>From<input type="text" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="DD-MM-YYYY" name="hbg_visit_date_from" data-portal-date-filter></label><label>To<input type="text" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="DD-MM-YYYY" name="hbg_visit_date_to" data-portal-date-filter></label></div></fieldset>
+        <fieldset class="portal-filter-options portal-filter-date-range" data-portal-filter-group="jbl_visit_date"><legend>JBL visit date</legend><div class="portal-filter-date-inputs"><label>From<input type="text" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="DD-MM-YYYY" name="jbl_visit_date_from" data-portal-date-filter></label><label>To<input type="text" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="DD-MM-YYYY" name="jbl_visit_date_to" data-portal-date-filter></label></div></fieldset>
         <label>Show<select name="ordering"><option value="">Needs attention first</option><option value="newest">Newest first</option></select></label>
         <footer class="miniapp-sheet-actions">
           <button type="button" class="btn btn-secondary" data-portal-filter-reset>Reset</button>

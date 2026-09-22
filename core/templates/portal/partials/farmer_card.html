@@ -3,6 +3,11 @@
   data-farmer-id="{{ farmer.id }}"
   data-qkey="{{ queue_key }}"
   data-mode="{{ mode|default:'' }}"
+  data-county="{{ farmer.county|default:'' }}"
+  data-branch="{{ farmer.branch|default:'' }}"
+  data-workflow-state="{{ farmer.workflow_state|default:'' }}"
+  data-hbg-visit="{% if farmer.hbg_visit_date %}1{% endif %}"
+  data-jbl-visit="{% if farmer.jbl_visit_date %}1{% endif %}"
 >
   {% if queue_key == "requisition" and can_requisition_write %}
     <input

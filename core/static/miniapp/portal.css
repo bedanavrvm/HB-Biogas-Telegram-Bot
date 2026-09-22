@@ -2557,7 +2557,7 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .case360-identity h2 { margin: 2px 0 3px; overflow-wrap: anywhere; font-size: 18px; line-height: 1.15; }
 .case360-identity p { margin: 0; color: var(--text-muted); font-size: 11px; }
 .case360-status { max-width: 140px; border-radius: 999px; background: color-mix(in srgb, var(--color-primary) 13%, transparent); color: var(--color-primary); padding: 6px 9px; font-size: 10px; font-weight: 800; text-align: center; }
-.case360-flow { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); margin: 0 0 14px; border: 1px solid var(--border-color); border-top: 0; border-radius: 0 0 14px 14px; background: var(--bg-surface); padding: 11px 7px 9px; list-style: none; }
+.case360-flow { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); margin: 0 0 14px; border: 1px solid var(--border-color); border-top: 0; border-radius: 0 0 14px 14px; background: var(--bg-surface); padding: 11px 7px 9px; list-style: none; }
 .case360-flow li { position: relative; display: grid; justify-items: center; gap: 4px; min-width: 0; text-align: center; }
 .case360-flow li:not(:last-child)::after { content: ''; position: absolute; top: 11px; left: calc(50% + 13px); right: calc(-50% + 13px); height: 2px; background: var(--border-color); }
 .case360-flow li > span { position: relative; z-index: 1; display: grid; width: 23px; height: 23px; place-items: center; box-sizing: border-box; border: 2px solid var(--border-color); border-radius: 50%; background: var(--bg-surface); color: var(--text-muted); }
@@ -2567,6 +2567,11 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .case360-flow li.current > span { border-color: var(--color-primary); color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 14%, transparent); }
 .case360-flow li.pending > span { opacity: .72; }
 .case360-flow small { max-width: 100%; overflow: hidden; color: var(--text-muted); font-size: 8px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 460px) {
+  .case360-flow { grid-template-columns:repeat(4,minmax(0,1fr)); row-gap:12px; padding:12px 8px; }
+  .case360-flow li:not(:last-child)::after { display:none; }
+  .case360-flow small { display:-webkit-box; overflow:hidden; min-height:22px; font-size:10px; line-height:1.1; text-overflow:clip; white-space:normal; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
+}
 .case360-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; margin-bottom: 12px; border: 1px solid var(--border-color); border-radius: 11px; background: var(--bg-muted); padding: 4px; }
 .case360-tabs button { display: flex; min-width: 0; min-height: 38px; align-items: center; justify-content: center; gap: 5px; border: 0; border-radius: 8px; background: transparent; color: var(--text-muted); padding: 5px 6px; font-size: 10px; font-weight: 700; }
 .case360-tabs button b { display: grid; min-width: 17px; height: 17px; place-items: center; border-radius: 999px; background: var(--border-color); font-size: 8px; }

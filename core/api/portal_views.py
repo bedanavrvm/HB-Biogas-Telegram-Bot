@@ -393,13 +393,21 @@ def _apply_county_branch_filters(qs, request, *, params=None, capability: str = 
     # These are operational dates, not a generic record-updated timestamp:
     # HBG work precedes the JBL visit and each can be constrained separately.
     from datetime import date as _date
-    try:
-        hbg_from = _date.fromisoformat(str(params.get('hbg_visit_date_from') or '').strip()) if str(params.get('hbg_visit_date_from') or '').strip() else None
-        hbg_to = _date.fromisoformat(str(params.get('hbg_visit_date_to') or '').strip()) if str(params.get('hbg_visit_date_to') or '').strip() else None
-        jbl_from = _date.fromisoformat(str(params.get('jbl_visit_date_from') or '').strip()) if str(params.get('jbl_visit_date_from') or '').strip() else None
-        jbl_to = _date.fromisoformat(str(params.get('jbl_visit_date_to') or '').strip()) if str(params.get('jbl_visit_date_to') or '').strip() else None
-    except ValueError:
-        hbg_from = hbg_to = jbl_from = jbl_to = None
+    from datetime import datetime as _datetime
+
+    def filter_date(key):
+        raw = str(params.get(key) or '').strip()
+        if not raw:
+            return None
+        for parser in (_date.fromisoformat, lambda value: _datetime.strptime(value, '%d-%m-%Y').date()):
+            try:
+                return parser(raw)
+            except ValueError:
+                continue
+        return None
+
+    hbg_from, hbg_to = filter_date('hbg_visit_date_from'), filter_date('hbg_visit_date_to')
+    jbl_from, jbl_to = filter_date('jbl_visit_date_from'), filter_date('jbl_visit_date_to')
     if hbg_from: qs = qs.filter(hbg_visit_date__gte=hbg_from)
     if hbg_to: qs = qs.filter(hbg_visit_date__lte=hbg_to)
     if jbl_from: qs = qs.filter(jbl_visit_date__gte=jbl_from)
