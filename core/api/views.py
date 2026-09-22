@@ -194,6 +194,12 @@ def tat_tracker_app(request):
     token = request.GET.get('token') or start_payload.get('token', '')
     return render(request, 'tat_tracker/app.html', {
         'group_id': group_id, 'token': token, 'task_token': task_token,
+        # This is an environment-level workflow switch, not a per-case
+        # preference. Do not send its UI shell at all when mailbox-backed
+        # credit assessment is disabled.
+        'credit_assessment_enabled': bool(
+            getattr(settings, 'CREDIT_ASSESSMENT_GMAIL_ENABLED', False)
+        ),
     })
 
 

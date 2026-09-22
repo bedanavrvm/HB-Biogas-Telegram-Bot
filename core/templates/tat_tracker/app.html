@@ -307,6 +307,7 @@
 
       <section class="detail-shell">
         <div id="detailSummary" class="detail-summary"></div>
+        {% if credit_assessment_enabled %}
         <section id="creditAssessmentPanel" class="credit-assessment-panel" aria-labelledby="creditAssessmentTitle" hidden>
           <div class="credit-assessment-head">
             <div><p class="eyebrow">Appraisal</p><h2 id="creditAssessmentTitle">Credit assessment</h2></div>
@@ -314,6 +315,7 @@
           </div>
           <div id="creditAssessmentContent" aria-live="polite"></div>
         </section>
+        {% endif %}
         <div class="detail-actions">
           <button id="correctCaseDetailsBtn" type="button" class="secondary hidden">Correct case details</button>
         </div>
@@ -428,6 +430,7 @@
         </footer>
       </section>
     </div>
+    {% if credit_assessment_enabled %}
     <div id="assessmentPreviewOverlay" class="tat-sheet-overlay assessment-preview-overlay" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="assessmentPreviewTitle" hidden>
       <section class="tat-sheet assessment-preview-sheet">
         <header class="tat-sheet-header">
@@ -444,6 +447,7 @@
         </footer>
       </section>
     </div>
+    {% endif %}
     <div id="noticeModal" class="notice-toast hidden" role="status" aria-live="polite" aria-labelledby="noticeTitle" aria-describedby="noticeMessage">
       <div class="notice-dialog">
         <span class="notice-icon" aria-hidden="true"></span>
@@ -465,6 +469,6 @@
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
   <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=3"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=101"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=102"></script>
 </body>
 </html>
