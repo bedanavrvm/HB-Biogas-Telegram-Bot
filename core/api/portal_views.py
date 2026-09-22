@@ -6409,6 +6409,7 @@ def portal_upload_batch_invoices(request):
             'drive_url': upload_batch.drive_url,
             'total_parsed': upload_batch.total_parsed,
             'matched_count': upload_batch.matched_count,
+            'candidate_count': len(match_candidates),
             'manual_review_count': len(auto_result['manual_review']),
             'auto_matched': auto_result['matched'],
             'manual_review': auto_result['manual_review'],

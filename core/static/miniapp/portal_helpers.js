@@ -131,16 +131,20 @@
 
   function invoiceResultRows(result) {
     return (result.results || []).map(function (row) {
-      const matched = row.status === 'Matched';
+      // The governed invoice API exposes canonical lowercase states
+      // ("matched", "unmatched", etc.). Older upload responses used title
+      // case. Accept both so a successful match is never rendered as a red
+      // missing-data result merely because of presentation casing.
+      const matched = String(row.status || '').trim().toLowerCase() === 'matched';
       const customerName = escapeHtml(row.customer_name || '-');
       const invoiceNo = escapeHtml(row.invoice_no || '-');
       const status = escapeHtml(row.status || 'Unmatched');
       const reason = row.reason ? `<div style="font-size:11px; color:#7f1d1d; margin-top:2px;">${escapeHtml(row.reason)}</div>` : '';
       const parsed = !matched ? `
           <div style="font-size:11px; color:#475569; margin-top:4px; line-height:1.45;">
-            Parsed ID: <strong>${escapeHtml(row.parsed_national_id || '-')}</strong> |
-            Phone: <strong>${escapeHtml(row.parsed_phone || '-')}</strong> |
-            Selected order: <strong>${escapeHtml(row.selected_order_number || result.order_number || '-')}</strong><br>
+            Parsed ID: <strong>${escapeHtml(row.parsed_national_id ?? row.customer_id ?? '-')}</strong> |
+            Phone: <strong>${escapeHtml(row.parsed_phone ?? row.customer_phone ?? '-')}</strong> |
+            Selected order: <strong>${escapeHtml(row.selected_order_number ?? row.matched_order_number ?? result.order_number ?? '-')}</strong><br>
             Batch candidates: ${escapeHtml(row.batch_candidate_count ?? '-')} |
             ID matches: ${escapeHtml(row.batch_id_match_count ?? '-')} |
             Phone matches: ${escapeHtml(row.batch_phone_match_count ?? '-')} |
