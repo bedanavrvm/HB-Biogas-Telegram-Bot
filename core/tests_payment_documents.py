@@ -217,6 +217,19 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(readiness['blocked_count'], 0)
         self.assertEqual(readiness['ready'][0]['invoice_number'], '9505')
 
+    def test_payment_workbook_keeps_sysup_and_farmup_names_in_their_own_columns(self):
+        farmer = self.farmer(
+            lead_name='Caroline Nkatha Gitari',
+            imab_customer_name='Gitari, Caroline Nkatha',
+        )
+        self.invoice_batch(farmer)
+
+        readiness = payment_readiness(farmer_ids=[str(farmer.id)])
+        row = readiness['ready'][0]['row']
+
+        self.assertEqual(row['name_imab'], 'GITARI, CAROLINE NKATHA')
+        self.assertEqual(row['name'], 'CAROLINE NKATHA GITARI')
+
     def test_finalized_order_and_payment_review_do_not_reopen_an_earlier_approved_final_gate(self):
         farmer = self.farmer()
         self.invoice_batch(farmer)

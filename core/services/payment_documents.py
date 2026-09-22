@@ -450,8 +450,12 @@ def _row_payload(
         'requisition_date': farmer.requisition_date,
         'order_no': farmer.order_number,
         'cust_no': farmer.customer_no,
+        # Keep the two source identities distinct in the workbook.  SysUp is
+        # the source for IMAB, while the original FarmUp lead name remains the
+        # ordinary Name value.  Older records without a lead snapshot retain
+        # their existing customer-name fallback.
         'name_imab': str(farmer.imab_customer_name or '').upper(),
-        'name': str(farmer.customer_name or '').upper(),
+        'name': str(farmer.lead_name or farmer.customer_name or '').upper(),
         'mobile_no': farmer.primary_phone,
         'secondary_mobile': farmer.secondary_phone,
         'branch': str(farmer.system_branch or farmer.branch or '').upper(),
