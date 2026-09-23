@@ -7,6 +7,7 @@ history.  It intentionally has no write or synchronization side effects.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Iterable
 
 from django.db.models import Q
@@ -139,6 +140,105 @@ def _changed_field_children(event, *, source_id: str, occurred_at) -> list[dict[
     ) for key in changed[:20]]
 
 
+def _timeline_minute(entry: dict[str, Any]) -> str:
+    """Return the local event minute used only for staff-facing grouping."""
+    return str(entry.get('occurred_at') or '')[:16]
+
+
+def _append_timeline_children(parent: dict[str, Any], children: Iterable[dict[str, Any]]) -> None:
+    """Append evidence once while retaining its immutable source identifier."""
+    existing = {str(item.get('source_event_id') or '') for item in parent.setdefault('children', [])}
+    for child in children:
+        source_event_id = str(child.get('source_event_id') or '')
+        if source_event_id and source_event_id in existing:
+            continue
+        parent['children'].append(child)
+        existing.add(source_event_id)
+
+
+def _group_same_moment_activity(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Turn noisy import/upload receipts into one operational staff event.
+
+    The immutable pipeline, provenance, and media records are retained as
+    expandable children.  This is deliberately a read projection: it changes
+    neither the audit ledger nor the underlying event sequence.
+    """
+    remaining = list(entries)
+
+    # FarmUp commonly creates one intake event and a provenance event per
+    # field.  Staff need to see one import, with the changed fields available
+    # only if they open it.
+    provenance_groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for entry in remaining:
+        if entry.get('action') != 'customer_field_synchronized':
+            continue
+        source = str(entry.get('source') or '').strip().casefold()
+        provenance_groups.setdefault((_timeline_minute(entry), source), []).append(entry)
+    for (minute, source), children in provenance_groups.items():
+        parent = next((entry for entry in remaining if (
+            entry.get('action') == 'application_imported'
+            and _timeline_minute(entry) == minute
+            and str(entry.get('source') or '').strip().casefold() == source
+        )), None)
+        if parent is None:
+            first = children[0]
+            parent = _entry(
+                source_id=f"timeline:source-sync:{minute}:{source or 'system'}",
+                action='source_record_synchronized',
+                occurred_at=datetime.fromisoformat(first['occurred_at']),
+                actor=first.get('actor', ''),
+                source=first.get('source', 'system'),
+                stage='identity',
+                detail='',
+                kind='event',
+            )
+            parent['title'] = 'Customer record synchronized'
+            parent['children'] = []
+            remaining.append(parent)
+        _append_timeline_children(parent, children)
+        parent['detail'] = f"{len(children)} customer field{'s' if len(children) != 1 else ''} synchronized from {source.title() if source else 'the source record'}."
+        remaining = [entry for entry in remaining if entry not in children]
+
+    # A completed JBL visit can write its completion receipt, generic media
+    # receipts, and individual evidence files in the same request/minute.
+    # Present the visit once, then place all supporting uploads beneath it.
+    media_actions = {'jbl_media_uploaded', 'visit_media_uploaded'}
+    media_by_minute: dict[str, list[dict[str, Any]]] = {}
+    for entry in remaining:
+        if entry.get('action') in media_actions and entry.get('stage') == 'jbl_visit':
+            media_by_minute.setdefault(_timeline_minute(entry), []).append(entry)
+    for minute, media_entries in media_by_minute.items():
+        parent = next((entry for entry in remaining if (
+            entry.get('action') == 'jbl_visit_completed'
+            and _timeline_minute(entry) == minute
+        )), None)
+        if parent is None:
+            first = media_entries[0]
+            parent = _entry(
+                source_id=f'timeline:jbl-visit-media:{minute}',
+                action='jbl_visit_evidence_recorded',
+                occurred_at=datetime.fromisoformat(first['occurred_at']),
+                actor=first.get('actor', ''),
+                source='portal',
+                stage='jbl_visit',
+                kind='event',
+            )
+            parent['title'] = 'JBL visit evidence recorded'
+            parent['children'] = []
+            remaining.append(parent)
+        for media_entry in media_entries:
+            # Generic media receipts are useful only as their attached files;
+            # do not show a second empty "media uploaded" row.
+            if media_entry.get('action') == 'jbl_media_uploaded':
+                _append_timeline_children(parent, media_entry.get('children') or [])
+            else:
+                _append_timeline_children(parent, [media_entry])
+        remaining = [entry for entry in remaining if entry not in media_entries]
+
+    remaining.sort(key=lambda item: item['occurred_at'], reverse=True)
+    return remaining
+
+
 def jawabu_case_timeline(farmer: JawabuFarmerMaster) -> dict[str, Any]:
     """Return the unified internal history for a Jawabu application."""
     redactions, annotations = _annotations('jawabu_pipeline', str(farmer.pk))
@@ -221,7 +321,7 @@ def jawabu_case_timeline(farmer: JawabuFarmerMaster) -> dict[str, Any]:
             media_query, upload_status='success',
         ).order_by('-created_at')[:100]:
             source_id = f'media:{media.id}'
-            entries.append(_entry(
+            media_entry = _entry(
                 source_id=source_id,
                 action='visit_media_uploaded',
                 occurred_at=media.created_at,
@@ -233,7 +333,9 @@ def jawabu_case_timeline(farmer: JawabuFarmerMaster) -> dict[str, Any]:
                 redaction=redactions.get(source_id),
                 kind='document',
                 operation_id=media.portal_operation_id,
-            ))
+            )
+            media_entry['title'] = str(media.file_type or 'Visit media').replace('_', ' ').title()
+            entries.append(media_entry)
 
     if farmer.order_number:
         requisition = RequisitionBatch.objects.filter(order_number=farmer.order_number).order_by('-updated_at').first()
@@ -320,7 +422,7 @@ def jawabu_case_timeline(farmer: JawabuFarmerMaster) -> dict[str, Any]:
         elif is_parent or parent is None:
             grouped.append(entry)
     grouped.sort(key=lambda item: item['occurred_at'], reverse=True)
-    return {'entries': grouped, 'related_cases': related_cases}
+    return {'entries': _group_same_moment_activity(grouped), 'related_cases': related_cases}
 
 
 def tat_case_timeline(case: TatTrackerCase) -> dict[str, Any]:

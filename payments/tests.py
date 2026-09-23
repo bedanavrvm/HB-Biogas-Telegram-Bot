@@ -11,7 +11,7 @@ from openpyxl import Workbook
 from core.models import GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, ParsedInvoice, PaymentDocument
 from core.services.payment_documents import _write_payment_mode
 from core.services.jawabu_case_reference import display_case_reference
-from core.services.jawabu_pipeline import completed_payment_number_for_farmer
+from core.services.jawabu_pipeline import completed_payment_mode_for_farmer, completed_payment_number_for_farmer
 from payments.models import PaymentBatch, PaymentCaseReview, PaymentReceiptItem, PaymentSequenceState
 from payments.receipt_batches import create_payment_batch_from_receipt, create_receipt_batch
 from payments.services import (
@@ -309,6 +309,7 @@ class PaymentBatchServiceTests(TestCase):
         document.refresh_from_db()
         self.assertEqual(document.status, 'completed')
         self.assertEqual(completed_payment_number_for_farmer(farmer), '1')
+        self.assertEqual(completed_payment_mode_for_farmer(farmer), 'Loan - Jawabu')
         farmer.refresh_from_db()
         self.assertEqual(farmer.workflow_revision, 2)
         with self.assertRaisesMessage(PaymentBatchError, 'cannot be removed'):

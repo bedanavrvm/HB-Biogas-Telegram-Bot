@@ -1,12 +1,31 @@
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from core.models import JawabuFarmerMaster
 from core.services.invoice_parser import _match_invoice_to_farmer
 from core.services.portal_case_corrections import correct_case_fields
-from core.services.workflow_timeline import jawabu_case_timeline
+from core.services.workflow_timeline import _group_same_moment_activity, jawabu_case_timeline
+
+
+class CaseTimelineProjectionTests(SimpleTestCase):
+    def test_same_moment_visit_media_and_farmup_fields_are_nested(self):
+        occurred_at = '2026-09-22T07:17:00+03:00'
+        entries = [
+            {'source_event_id': 'visit', 'action': 'jbl_visit_completed', 'title': 'JBL Visit Completed', 'kind': 'event', 'stage': 'jbl_visit', 'source': 'portal', 'occurred_at': occurred_at, 'children': []},
+            {'source_event_id': 'media-receipt', 'action': 'jbl_media_uploaded', 'title': 'JBL Media Uploaded', 'kind': 'event', 'stage': 'jbl_visit', 'source': 'portal', 'occurred_at': occurred_at, 'children': []},
+            {'source_event_id': 'laf', 'action': 'visit_media_uploaded', 'title': 'LAF', 'kind': 'document', 'stage': 'jbl_visit', 'source': 'telegram', 'occurred_at': occurred_at},
+            {'source_event_id': 'import', 'action': 'application_imported', 'title': 'Application Imported', 'kind': 'event', 'stage': 'intake', 'source': 'farmup', 'occurred_at': occurred_at, 'children': []},
+            {'source_event_id': 'field-name', 'action': 'customer_field_synchronized', 'title': 'Customer Field Synchronized', 'kind': 'provenance', 'stage': 'identity', 'source': 'farmup', 'occurred_at': occurred_at},
+            {'source_event_id': 'field-id', 'action': 'customer_field_synchronized', 'title': 'Customer Field Synchronized', 'kind': 'provenance', 'stage': 'identity', 'source': 'farmup', 'occurred_at': occurred_at},
+        ]
+
+        grouped = _group_same_moment_activity(entries)
+        self.assertEqual([entry['action'] for entry in grouped], ['jbl_visit_completed', 'application_imported'])
+        self.assertEqual([child['source_event_id'] for child in grouped[0]['children']], ['laf'])
+        self.assertEqual({child['source_event_id'] for child in grouped[1]['children']}, {'field-name', 'field-id'})
+        self.assertEqual(grouped[1]['detail'], '2 customer fields synchronized from Farmup.')
 
 
 class PortalCaseCorrectionTests(TestCase):

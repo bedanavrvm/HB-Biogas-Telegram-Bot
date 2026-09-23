@@ -146,6 +146,36 @@ def completed_payment_number_for_farmer(farmer: JawabuFarmerMaster) -> str:
     return str(numbers[0]) if numbers else ''
 
 
+def completed_payment_mode_for_farmer(farmer: JawabuFarmerMaster) -> str:
+    """Return the accepted, per-case payment route safe for Master Data.
+
+    Payment mode is a decision made per case, not a batch-wide label.  As
+    with the official payment number, it becomes visible in the shared
+    register only after the exact signed payment document has been accepted.
+    This prevents a draft selection from being mistaken for a completed
+    payment instruction.
+    """
+    from payments.models import PaymentBatch, PaymentBatchCase
+
+    modes = list(
+        PaymentBatchCase.objects.filter(
+            farmer=farmer,
+            is_active=True,
+            batch__status=PaymentBatch.STATUS_COMPLETED,
+            batch__current_document__status='completed',
+        ).order_by('batch__payment_number').values_list('payment_mode', flat=True).distinct()
+    )
+    if len(modes) > 1:
+        raise PaymentNumberProjectionConflict(
+            'This case has more than one accepted payment mode. Reconcile the completed payment batches before publishing Master Data.'
+        )
+    labels = {
+        'LOAN-JAWABU': 'Loan - Jawabu',
+        'CASH': 'Cash',
+    }
+    return labels.get(str(modes[0]), '') if modes else ''
+
+
 def _homebiogas_action_for_pipeline(farmer: JawabuFarmerMaster):
     """Read the hard-cutover fulfilment state without changing pre-cutover rows."""
     from hb_operations.models import HomeBiogasAction
@@ -2373,6 +2403,7 @@ def sync_farmer_to_master_sheet(
             'requisition_date': (candidates('requisition_date'), _date_text(farmer.requisition_date)),
             'order_number': (candidates('order_number'), farmer.order_number),
             'payment_number': (candidates('payment_number'), completed_payment_number_for_farmer(farmer)),
+            'payment_mode': (candidates('payment_mode'), completed_payment_mode_for_farmer(farmer)),
             'latitude': (candidates('latitude'), str(farmer.latitude) if farmer.latitude is not None else ''),
             'longitude': (candidates('longitude'), str(farmer.longitude) if farmer.longitude is not None else ''),
             'gps_link': (candidates('gps_link'), farmer.gps_link or ''),

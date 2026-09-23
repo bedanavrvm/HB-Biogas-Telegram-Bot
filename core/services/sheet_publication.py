@@ -96,6 +96,7 @@ OPERATIONAL_FIELDS: dict[str, tuple[PublicationField, ...]] = {
         _field("deferred_until", "JawabuFarmerMaster.deferred_until", ("Deferred Until",), "timestamp"),
         _field("order_number", "JawabuFarmerMaster.order_number", ("Order No.", "Order No", "Order Number"), "documents"),
         _field("payment_number", "derived.completed_payment_number_for_farmer", ("Payment No #", "Payment No.", "Payment No", "Payment Number"), "documents"),
+        _field("payment_mode", "derived.completed_payment_mode_for_farmer", ("Mode of Payment", "Payment Mode"), "documents"),
         _field("requisition_date", "JawabuFarmerMaster.requisition_date", ("Requisition Date", "Jawabu Requisition Date"), "documents"),
         _field("invoice_number", "JawabuFarmerMaster.invoice_number", ("Invoice Number", "HBG Invoice Number"), "documents"),
         _field("invoice_date", "JawabuFarmerMaster.invoice_date", ("Invoice Date", "HBG Invoice Date"), "documents"),
