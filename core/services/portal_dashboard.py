@@ -188,11 +188,12 @@ def dashboard_payload(user, *, access=None) -> dict:
         failed_operations = IntegrationOperation.objects.filter(status__in=['retryable_failure', 'dead_letter'])
         integration_labels = dict(IntegrationOperation.INTEGRATION_CHOICES)
         for item in failed_operations.values('integration', 'operation_type', 'last_error_code').annotate(count=Count('id')).order_by('integration', 'operation_type'):
-            retry_operation_ids = list(failed_operations.filter(
+            matching_operations = failed_operations.filter(
                 integration=item['integration'],
                 operation_type=item['operation_type'],
                 last_error_code=item['last_error_code'],
-            ).values_list('pk', flat=True))
+            )
+            retry_operation_ids = list(matching_operations.values_list('pk', flat=True))
             can_retry = (
                 item['integration'] == IntegrationOperation.INTEGRATION_GOOGLE_SHEETS
                 and 'portal.publication.retry' in capabilities
@@ -200,6 +201,24 @@ def dashboard_payload(user, *, access=None) -> dict:
             operation = str(item['operation_type'] or 'operation').replace('_', ' ').title()
             integration = integration_labels.get(item['integration'], str(item['integration']).replace('_', ' ').title())
             error_code = str(item['last_error_code'] or '').replace('_', ' ').strip()
+            failure_contexts = []
+            if item['operation_type'] == 'jawabu_master_publish':
+                from core.services.jawabu_case_reference import display_case_reference
+                for failed in matching_operations.order_by('-updated_at')[:3]:
+                    context = (failed.metadata or {}).get('failure_context') or {}
+                    reference = display_case_reference(failed.source_id) if failed.source_id else 'Case'
+                    field_names = [str(value) for value in (context.get('field_names') or []) if str(value).strip()]
+                    if field_names:
+                        failure_contexts.append(f'{reference}: fields waiting to sync — {", ".join(field_names[:6])}')
+                    elif context.get('detail'):
+                        failure_contexts.append(f'{reference}: {context["detail"]}')
+                    else:
+                        failure_contexts.append(f'{reference}: fields could not be checked before the sync failed.')
+            detail_parts = [
+                f"{item['count']} failed operation{'s' if item['count'] != 1 else ''}",
+                error_code,
+                *failure_contexts,
+            ]
             attention.append({
                 'key': f"integration_failure:{item['integration']}:{item['operation_type']}",
                 'label': f'{integration}: {operation}',
@@ -214,6 +233,7 @@ def dashboard_payload(user, *, access=None) -> dict:
                 } if can_retry else None),
                 'url': reverse('portal_screen', kwargs={'screen': 'settings'}) if not can_retry else '',
             })
+            attention[-1]['detail'] = ' | '.join(part for part in detail_parts if part)
 
     notification_items = []
     seen_case_ids = set()

@@ -2157,6 +2157,7 @@ def sync_farmer_to_master_sheet(
     farmer: JawabuFarmerMaster,
     *,
     force_date_columns: bool = False,
+    failure_context: dict | None = None,
 ) -> bool:
     """
     Sync a farmer's updated pipeline fields to the master Google sheet.
@@ -2182,15 +2183,29 @@ def sync_farmer_to_master_sheet(
     )
     from core.services.sheet_publication import aliases_for
 
+    failure_context = failure_context if isinstance(failure_context, dict) else None
+
+    def note_failure(*, phase: str, field_names=None, fields_checked: bool = False, detail: str = ''):
+        if failure_context is None:
+            return
+        failure_context.update({
+            'phase': phase,
+            'field_names': sorted({str(value) for value in (field_names or []) if str(value).strip()}),
+            'fields_checked': bool(fields_checked),
+            'detail': str(detail or '')[:255],
+        })
+
     group_config = _jawabu_group_config()
 
     if not group_config:
         logger.warning("No group configuration found for sync of farmer %s", farmer.id)
+        note_failure(phase='configuration', detail='No Jawabu Master Data configuration is available.')
         return False
 
     workflow = getattr(group_config, 'workflow', None) or {}
     if not workflow.get('master_sync_enabled'):
         logger.info("Master sheet sync is disabled for group %s", group_config.group_id)
+        note_failure(phase='configuration', detail='Jawabu Master Data sync is disabled.')
         return False
 
     sheet_id = str(workflow.get('master_sheet_id') or getattr(group_config, 'sheet_id', '') or '').strip()
@@ -2200,12 +2215,14 @@ def sync_farmer_to_master_sheet(
 
     if not sheet_id or not sheet_name:
         logger.warning("Master sheet config incomplete for group %s", group_config.group_id)
+        note_failure(phase='configuration', detail='The Master Data sheet destination is incomplete.')
         return False
 
     try:
         service = GoogleSheetsService.get_instance(sheet_id=sheet_id, sheet_name=sheet_name)
         if not service.is_available():
             logger.warning("Google Sheets service unavailable for master sync")
+            note_failure(phase='connection', detail='Google Sheets could not be reached, so fields could not be compared.')
             return False
         sheet = service._sheet
 
@@ -2213,6 +2230,10 @@ def sync_farmer_to_master_sheet(
         header_lookup = header_lookup_from_headers(headers)
         if not first_existing_header(header_lookup, ['No.']) or not first_existing_header(header_lookup, ['Customer Name']):
             logger.error('Master Data publication requires No. and Customer Name headers')
+            note_failure(
+                phase='schema', fields_checked=True,
+                detail='Required Master Data headers No. and Customer Name are missing.',
+            )
             return False
         cleaned = {
             'id': str(farmer.pk),
@@ -2437,6 +2458,14 @@ def sync_farmer_to_master_sheet(
             )
         return True
     except Exception as exc:
+        # Retain only header labels, never before/after customer values. The
+        # caller persists this context on its durable retry record.
+        note_failure(
+            phase='write' if 'changes' in locals() else 'read',
+            field_names=(changes or {}).keys() if 'changes' in locals() else [],
+            fields_checked='changes' in locals(),
+            detail='Google Sheets did not complete the Master Data update.',
+        )
         logger.error("Failed to sync farmer %s to master sheet: %s", farmer.id, exc, exc_info=True)
         return False
 

@@ -299,7 +299,7 @@
     correctionMode = false;
     if (payload.workstream === 'installation' && response.data.action.installation_status === 'installed') {
       deps.showToast('Installation saved. The case is now in the commissioning queue.', 'success');
-      window.location.assign(`/portal/s/hb-actions/${encodeURIComponent(detail.farmer_id)}/?workstream=commissioning`); return;
+      window.location.assign('/portal/s/hb-actions/?queue=commissioning'); return;
     }
     populateDetail(response.data.action);
     applyVisualDetailHierarchy(response.data.action);

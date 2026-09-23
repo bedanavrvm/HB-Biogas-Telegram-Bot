@@ -201,6 +201,21 @@ def requeue_publication_after_review(
     return replacement, replacement.pk != operation.pk
 
 
+def _record_master_failure_context(operation: IntegrationOperation, farmer, context: dict) -> None:
+    """Persist safe field-level publication evidence for the staff retry view."""
+    metadata = dict(operation.metadata or {})
+    fields = sorted({str(value)[:120] for value in (context.get('field_names') or []) if str(value).strip()})
+    metadata['failure_context'] = {
+        'case_reference': str(getattr(farmer, 'case_reference_number', '') or ''),
+        'phase': str(context.get('phase') or 'unknown')[:40],
+        'fields_checked': bool(context.get('fields_checked')),
+        'field_names': fields[:30],
+        'detail': str(context.get('detail') or '')[:255],
+    }
+    operation.metadata = metadata
+    operation.save(update_fields=['metadata', 'updated_at'])
+
+
 def attempt_publication(operation: IntegrationOperation) -> dict[str, Any]:
     """Perform exactly one bounded Google publication attempt for one record."""
     from core.models import JawabuFarmerMaster
@@ -230,7 +245,10 @@ def attempt_publication(operation: IntegrationOperation) -> dict[str, Any]:
 
     def publish_once():
         if operation.operation_type == MASTER_OPERATION:
-            completed = sync_farmer_to_master_sheet(farmer)
+            failure_context: dict[str, Any] = {}
+            completed = sync_farmer_to_master_sheet(farmer, failure_context=failure_context)
+            if not completed:
+                _record_master_failure_context(operation, farmer, failure_context)
         else:
             completed = sync_farmer_to_internal_order_sheet(farmer)
         if not completed:
