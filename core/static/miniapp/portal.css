@@ -3970,6 +3970,11 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) {
   border-radius:10px;
   background:var(--bg-surface);
 }
+.portal-segmented-tabs { display:flex; width:100%; gap:4px; margin:0 0 10px; padding:3px; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-muted); }
+.portal-segmented-tabs button { flex:1 1 0; min-width:0; min-height:34px; padding:6px 8px; border:0; border-radius:7px; background:transparent; color:var(--text-muted); font:inherit; font-size:12px; font-weight:700; line-height:1.15; }
+.portal-segmented-tabs button.active { background:var(--bg-surface); color:var(--text-primary); box-shadow:0 1px 2px rgba(15,23,42,.12); }
+.portal-segmented-tabs span { display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px; margin-left:3px; padding:0 5px; border-radius:999px; background:var(--bg-muted); font-size:10px; }
+.portal-segmented-tabs button.active span { background:color-mix(in srgb,var(--color-primary) 14%,var(--bg-surface)); color:var(--color-primary); }
 
 body.portal-app #dashboard-activity.is-empty .dashboard-activity-layout { grid-template-columns:64px minmax(0,1fr); gap:6px; }
 body.portal-app #dashboard-activity.is-empty .dashboard-today { min-height:54px; padding:8px; }

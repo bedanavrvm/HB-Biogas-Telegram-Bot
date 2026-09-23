@@ -7083,7 +7083,7 @@ class RequisitionTemplateAdmin(ModelAdmin):
     compressed_fields = True
     list_filter_submit = True
     list_fullwidth = True
-    list_display = ('name', 'version_status', 'is_active', 'file', 'drive_url', 'drive_uploaded_at', 'created_at', 'updated_at')
+    list_display = ('name', 'fulfillment_partner', 'version_status', 'is_active', 'file', 'drive_url', 'drive_uploaded_at', 'created_at', 'updated_at')
     list_editable = ('is_active',)
     readonly_fields = (
         'original_filename', 'content_type', 'size', 'checksum',
@@ -7092,6 +7092,7 @@ class RequisitionTemplateAdmin(ModelAdmin):
     )
 
     search_fields = ('name', 'original_filename', 'drive_file_id', 'drive_url')
+    list_filter = ('fulfillment_partner', 'is_active')
 
     @admin.display(description='Version')
     def version_status(self, obj):

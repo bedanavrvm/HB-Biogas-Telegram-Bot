@@ -25,6 +25,7 @@ from django.db.models import F, Q
 
 from core.models import JawabuFarmerMaster, JawabuPipelineEvent
 from core.services.jawabu_comments import master_comment_history, record_case_comment
+from core.services.requisition_partners import fulfillment_partner_for_farmer
 from core.services.workflow_transitions import next_workflow_revision, validate_workflow_revision
 
 JBL_MEDIA_CATEGORIES = {
@@ -1974,6 +1975,7 @@ def farmer_to_card(
         'sub_county_ref_code': farmer.sub_county_ref.code if include_detail_metadata and farmer.sub_county_ref_id else '',
         'location_label': ' | '.join(location_parts) or '-',
         'hb_sales_person': farmer.hb_sales_person,
+        'fulfillment_partner': fulfillment_partner_for_farmer(farmer),
         # Keep the legacy text field for compatibility, but never expose a
         # spreadsheet text marker such as ``'15-May-2026`` to the Mini App.
         'sign_date': normalize_date_text(farmer.sign_date),
@@ -2239,7 +2241,13 @@ def sync_farmer_to_master_sheet(
         return False
 
     sheet_id = str(workflow.get('master_sheet_id') or getattr(group_config, 'sheet_id', '') or '').strip()
-    sheet_name = str(workflow.get('master_sheet_name') or 'Master Data').strip()
+    from core.services.requisition_partners import PARTNER_ECO, fulfillment_partner_for_farmer
+    fulfillment_partner = fulfillment_partner_for_farmer(farmer)
+    sheet_name = str(
+        (workflow.get('eco_conserve_sheet_name') or 'Eco-conserve')
+        if fulfillment_partner == PARTNER_ECO
+        else (workflow.get('master_sheet_name') or 'Master Data')
+    ).strip()
     header_row = int(workflow.get('master_header_row') or 3)
     data_start_row = int(workflow.get('master_data_start_row') or header_row + 2)
 

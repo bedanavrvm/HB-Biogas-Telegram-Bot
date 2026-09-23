@@ -11,10 +11,16 @@ class OrderSequenceState(models.Model):
     """
 
     id = models.BigAutoField(primary_key=True, db_comment='Internal sequence-state identifier.')
-    group_configuration = models.OneToOneField(
+    partner = models.CharField(
+        max_length=20,
+        choices=[('HB', 'HB'), ('ECOCONSERVE', 'Eco-conserve')],
+        default='HB',
+        db_comment='Fulfilment partner whose official order numbers this sequence governs.',
+    )
+    group_configuration = models.ForeignKey(
         'core.GroupSheetConfiguration',
         on_delete=models.PROTECT,
-        related_name='requisition_order_sequence',
+        related_name='requisition_order_sequences',
         db_comment='Jawabu group whose official paper numbering this sequence governs.',
     )
     next_number = models.PositiveBigIntegerField(db_comment='Next plain numeric order number available for finalization.')
@@ -36,6 +42,12 @@ class OrderSequenceState(models.Model):
         db_table_comment = 'Group-scoped source of truth for the next official requisition order number.'
         verbose_name = 'Requisition order sequence'
         verbose_name_plural = 'Requisition order sequences'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['group_configuration', 'partner'],
+                name='unique_requisition_sequence_partner',
+            ),
+        ]
 
 
 class OrderSequenceEvent(models.Model):

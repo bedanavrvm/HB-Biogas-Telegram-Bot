@@ -65,6 +65,7 @@
     },
     selectedRequisitions: new Set(),
     selectedRequisitionRevisions: new Map(),
+    requisitionPartner: 'HB',
     pendingRequisitionPayload: null
   };
   state.actor = { name: '', roles: [] };
@@ -998,6 +999,13 @@
       }
 
       const farmers = data.farmers || [];
+      if (qKey === 'requisition') {
+        const counts = data.partner_counts || {};
+        const hb = el('requisition-partner-count-hb');
+        const eco = el('requisition-partner-count-eco');
+        if (hb) hb.textContent = String(counts.HB || 0);
+        if (eco) eco.textContent = String(counts.ECOCONSERVE || 0);
+      }
       state.queues[qKey] = farmers;
       state.pagination[qKey] = data.pagination || {};
       state.pages[qKey] = page;

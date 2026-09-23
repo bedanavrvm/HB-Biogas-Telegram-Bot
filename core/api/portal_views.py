@@ -1104,6 +1104,8 @@ def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> d
     return {
         'id': str(batch.id),
         'order_number': batch.order_number,
+        'fulfillment_partner': getattr(batch, 'fulfillment_partner', 'HB') or 'HB',
+        'requisition_template_name': getattr(getattr(batch, 'requisition_template', None), 'name', '') or '',
         'version': getattr(batch, 'version', 0) or 0,
         'preview_version': getattr(batch, 'preview_version', 0) or 0,
         'requisition_date': batch.requisition_date.strftime('%Y-%m-%d') if batch.requisition_date else None,
@@ -4967,15 +4969,30 @@ def portal_requisition_queue(request):
         return access_error
     """GET /api/portal/requisition-queue/ — credit-approved farmers awaiting order."""
     from core.services.jawabu_pipeline import requisition_queue, farmer_to_card
+    from core.services.requisition_partners import PARTNER_ECO, PARTNER_HB, fulfillment_partner_for_farmer
     qs = _apply_portal_ordering(_apply_county_branch_filters(
         requisition_queue(), request, capability='portal.requisition.view',
     ), params=request.GET)
+    scoped_qs = qs
     qs = _apply_portal_search(qs, params=request.GET)
+    requested_partner = str(request.GET.get('partner') or PARTNER_HB).strip().upper()
+    if requested_partner not in {PARTNER_HB, PARTNER_ECO}:
+        return JsonResponse({'ok': False, 'error': 'Choose HB or Eco-conserve.'}, status=400)
+    # Partner routing depends on two canonical fields and is intentionally
+    # resolved in Python so the same rule governs Sheets and finalization.
+    scoped_ids = [farmer.id for farmer in qs.only('id', 'county', 'hb_sales_person')
+                  if fulfillment_partner_for_farmer(farmer) == requested_partner]
+    qs = qs.filter(id__in=scoped_ids)
+    partner_counts = {PARTNER_HB: 0, PARTNER_ECO: 0}
+    for farmer in scoped_qs.only('id', 'county', 'hb_sales_person'):
+        partner_counts[fulfillment_partner_for_farmer(farmer)] += 1
     items, pagination = _paginate_qs(qs, request, page_size=10)
     return JsonResponse({
         'ok': True,
         'calculated_at': timezone.now().isoformat(),
         'queue': 'requisition',
+        'fulfillment_partner': requested_partner,
+        'partner_counts': partner_counts,
         'farmers': _numbered_farmer_cards(items, pagination),
         'pagination': pagination,
     })
@@ -5192,12 +5209,14 @@ def portal_farmer_case_correction(request, farmer_id: str):
 
 
 
-def _requisition_sequence_queryset(request):
+def _requisition_sequence_queryset(request, partner: str = ''):
     from requisitions.models import OrderSequenceState
     allowed = _portal_import_group_ids(request)
     queryset = OrderSequenceState.objects.select_related('group_configuration').filter(group_configuration__enabled=True)
     if allowed is not None:
         queryset = queryset.filter(group_configuration__group_id__in=allowed)
+    if partner:
+        queryset = queryset.filter(partner=partner)
     return queryset.order_by('group_configuration__group_id')
 
 
@@ -5210,17 +5229,32 @@ def portal_requisition_numbering(request):
     from core.models import GroupSheetConfiguration, RequisitionBatch
     from requisitions.models import OrderSequenceEvent, OrderSequenceState
     if request.method == 'GET':
-        return JsonResponse({'ok': True, 'sequences': [{
-            'group_id': row.group_configuration.group_id,
-            'group_name': row.group_configuration.display_name or row.group_configuration.group_id,
-            'next_number': row.next_number,
-            'last_finalized_number': max([
-                int(value) for value in RequisitionBatch.objects.filter(
-                    group_configuration=row.group_configuration, finalized_at__isnull=False,
-                ).values_list('order_number', flat=True) if str(value).isdigit()
-            ] or [0]),
-            'revision': row.revision,
-        } for row in _requisition_sequence_queryset(request)]})
+        from core.services.requisition_partners import PARTNER_CHOICES, order_number_for_partner
+        states = {
+            (row.group_configuration_id, row.partner): row
+            for row in _requisition_sequence_queryset(request)
+        }
+        groups = []
+        allowed = _portal_import_group_ids(request)
+        group_query = GroupSheetConfiguration.objects.filter(enabled=True)
+        if allowed is not None:
+            group_query = group_query.filter(group_id__in=allowed)
+        for group in group_query.order_by('group_id'):
+            if (group.workflow or {}).get('type') not in {'jawabu_homebiogas', 'jawabu'}:
+                continue
+            for partner, _label in PARTNER_CHOICES:
+                row = states.get((group.id, partner))
+                next_number = row.next_number if row else 1
+                groups.append({
+                    'group_id': group.group_id,
+                    'group_name': group.display_name or group.group_id,
+                    'partner': partner,
+                    'next_number': next_number,
+                    'next_order_number': order_number_for_partner(partner, next_number),
+                    'revision': row.revision if row else 0,
+                    'initialized': bool(row),
+                })
+        return JsonResponse({'ok': True, 'sequences': groups})
     try:
         body = json.loads(request.body)
         next_number = int(body.get('next_number'))
@@ -5230,6 +5264,9 @@ def portal_requisition_numbering(request):
     reason = str(body.get('reason') or '').strip()
     request_id = _portal_request_id(request, body)
     requested_group = str(body.get('group_id') or '').strip()
+    requested_partner = str(body.get('partner') or 'HB').strip().upper()
+    if requested_partner not in {'HB', 'ECOCONSERVE'}:
+        return JsonResponse({'ok': False, 'error': 'Choose HB or Eco-conserve.'}, status=400)
     if not reason:
         return JsonResponse({'ok': False, 'error': 'Enter an adjustment reason.'}, status=400)
     existing_event = OrderSequenceEvent.objects.filter(request_id=request_id).first() if request_id else None
@@ -5249,21 +5286,26 @@ def portal_requisition_numbering(request):
     group = next((item for item in groups.order_by('group_id') if (item.workflow or {}).get('type') in {'jawabu_homebiogas', 'jawabu'}), None)
     if not group:
         return JsonResponse({'ok': False, 'error': 'No scoped Jawabu HomeBiogas group is available.'}, status=403)
-    finalized = [int(value) for value in RequisitionBatch.objects.filter(
-        group_configuration=group, finalized_at__isnull=False,
-    ).values_list('order_number', flat=True) if str(value).isdigit()]
+    prefix = 'ECO-' if requested_partner == 'ECOCONSERVE' else 'HB-'
+    finalized = [
+        int(str(value)[len(prefix):])
+        for value in RequisitionBatch.objects.filter(
+            group_configuration=group, fulfillment_partner=requested_partner, finalized_at__isnull=False,
+        ).values_list('order_number', flat=True)
+        if str(value).startswith(prefix) and str(value)[len(prefix):].isdigit()
+    ]
     last_finalized = max(finalized or [0])
     if next_number <= last_finalized:
         return JsonResponse({'ok': False, 'error': f'The next number must be at least {last_finalized + 1}.'}, status=409)
     from django.db import transaction
     with transaction.atomic():
-        row = OrderSequenceState.objects.select_for_update().filter(group_configuration=group).first()
+        row = OrderSequenceState.objects.select_for_update().filter(group_configuration=group, partner=requested_partner).first()
         if row and row.revision != expected_revision:
             return JsonResponse({'ok': False, 'error': 'The order sequence changed. Reload it before saving.', 'revision': row.revision}, status=409)
         if row is None:
             if expected_revision not in (0, 1):
                 return JsonResponse({'ok': False, 'error': 'The order sequence has not been initialized.'}, status=409)
-            row = OrderSequenceState(group_configuration=group, next_number=next_number)
+            row = OrderSequenceState(group_configuration=group, partner=requested_partner, next_number=next_number)
             number_before = next_number
         else:
             number_before = row.next_number
@@ -5277,11 +5319,11 @@ def portal_requisition_numbering(request):
             number_after=row.next_number, revision_after=row.revision,
             actor=getattr(request, 'portal_user', None), reason=reason, request_id=request_id,
         )
-    return JsonResponse({'ok': True, 'group_id': group.group_id, 'next_number': row.next_number, 'revision': row.revision})
+    return JsonResponse({'ok': True, 'group_id': group.group_id, 'partner': row.partner, 'next_number': row.next_number, 'revision': row.revision})
 
 
-def _active_requisition_sequence(request):
-    rows = list(_requisition_sequence_queryset(request)[:2])
+def _active_requisition_sequence(request, partner: str):
+    rows = list(_requisition_sequence_queryset(request, partner)[:2])
     if not rows:
         if getattr(request, 'portal_access', None) is None:
             # Authentication-disabled local/test mode has no governed staff or
@@ -5294,7 +5336,7 @@ def _active_requisition_sequence(request):
                 body = {}
             legacy_number = str(body.get('order_number') or '').strip()
             if legacy_number:
-                return SimpleNamespace(pk=0, revision=0, next_number=legacy_number), None
+                return SimpleNamespace(pk=0, revision=0, next_number=legacy_number, partner=partner, legacy=True), None
         return None, JsonResponse({'ok': False, 'error': 'IT must configure the official order number before a requisition can be previewed.', 'code': 'sequence_not_initialized'}, status=409)
     if len(rows) > 1:
         return None, JsonResponse({'ok': False, 'code': 'order_group_ambiguous', 'error': 'More than one group is available for this order. Ask IT to set the correct group for your Order Preparation access.'}, status=409)
@@ -5727,11 +5769,28 @@ def portal_requisition_preview(request):
     if access_error:
         return access_error
     preview_format = 'document'
-    sequence, sequence_error = _active_requisition_sequence(request)
+    try:
+        preview_body = json.loads(request.body or b'{}')
+        preview_ids = preview_body.get('farmer_ids') or []
+        from core.models import JawabuFarmerMaster
+        from core.services.requisition_partners import order_number_for_partner, require_single_fulfillment_partner
+        preview_farmers = list(JawabuFarmerMaster.objects.filter(id__in=preview_ids))
+        if len(preview_farmers) != len(preview_ids):
+            raise ValueError('A selected customer is no longer available. Refresh Order Preparation and select the customers again.')
+        partner = require_single_fulfillment_partner(preview_farmers)
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        return JsonResponse({'ok': False, 'code': 'order_partner_invalid', 'error': str(exc) or 'Select at least one customer.'}, status=400)
+    sequence, sequence_error = _active_requisition_sequence(request, partner)
     if sequence_error:
         return sequence_error
+    forced_order_number = (
+        str(sequence.next_number)
+        if getattr(sequence, 'legacy', False)
+        else order_number_for_partner(partner, sequence.next_number)
+    )
     parsed, error_response = _parse_requisition_workbook_payload(
-        request, allow_blocked=True, forced_order_number=str(sequence.next_number),
+        request, allow_blocked=True,
+        forced_order_number=forced_order_number,
     )
     if error_response:
         return error_response
@@ -5760,7 +5819,8 @@ def portal_requisition_preview(request):
     signed = {
         'user_id': str(getattr(getattr(request, 'portal_user', None), 'pk', '') or ''),
         'sequence_id': sequence.pk, 'sequence_revision': sequence.revision,
-        'order_number': sequence.next_number, 'requisition_date': requisition_date.isoformat(),
+        'sequence_number': sequence.next_number, 'order_number': order_number,
+        'partner': partner, 'requisition_date': requisition_date.isoformat(),
         'farmer_ids': sorted(str(farmer.id) for farmer in farmers),
         'workflow_revisions': revisions,
     }
@@ -5768,6 +5828,7 @@ def portal_requisition_preview(request):
     return JsonResponse({
         'ok': True,
         'order_number': order_number,
+        'fulfillment_partner': partner,
         'requisition_date': requisition_date.isoformat(),
         'ready_count': len(parsed['ready']),
         'blocked_count': len(parsed['blocked']),
@@ -5798,7 +5859,8 @@ def portal_requisition_workbook_preview(request):
     """
     from django.utils import timezone
     from core.models import RequisitionBatch
-    from core.services.requisition import RequisitionTemplateError, generate_requisition_excel
+    from core.services.requisition import RequisitionTemplateError, generate_requisition_excel, requisition_template_for_partner
+    from core.services.requisition_partners import order_number_for_partner, require_single_fulfillment_partner
 
     parsed, error_response = _parse_requisition_workbook_payload(request)
     if error_response:
@@ -5902,7 +5964,8 @@ def portal_requisition_finalize(request):
     from django.db import transaction
     from core.models import JawabuFarmerMaster, RequisitionBatch
     from core.services.jawabu_pipeline import assign_order
-    from core.services.requisition import RequisitionTemplateError, generate_requisition_excel
+    from core.services.requisition import RequisitionTemplateError, generate_requisition_excel, requisition_template_for_partner
+    from core.services.requisition_partners import order_number_for_partner, require_single_fulfillment_partner
     from core.services.workflow_transitions import validate_workflow_revision
     from requisitions.models import OrderSequenceEvent, OrderSequenceState
 
@@ -5934,7 +5997,11 @@ def portal_requisition_finalize(request):
         requisition_date = _date.fromisoformat(str(signed['requisition_date']))
         with transaction.atomic():
             sequence = OrderSequenceState.objects.select_for_update().get(pk=signed['sequence_id'])
-            if sequence.revision != int(signed['sequence_revision']) or sequence.next_number != int(signed['order_number']):
+            # Legacy previews predate partner routing. Their sequence is the
+            # authoritative route, while all new previews bind the partner.
+            partner = str(signed.get('partner') or sequence.partner)
+            signed_sequence_number = signed.get('sequence_number', signed.get('order_number'))
+            if sequence.partner != partner or sequence.revision != int(signed['sequence_revision']) or sequence.next_number != int(signed_sequence_number):
                 return JsonResponse({'ok': False, 'error': 'The official order number changed. Preview again.', 'code': 'sequence_changed'}, status=409)
             farmers = list(JawabuFarmerMaster.objects.select_for_update().filter(id__in=farmer_ids).order_by('id'))
             if len(farmers) != len(farmer_ids):
@@ -5942,6 +6009,8 @@ def portal_requisition_finalize(request):
             scope_error = _portal_farmers_scope_error(request, farmers, capability='portal.requisition.finalize')
             if scope_error:
                 return scope_error
+            if require_single_fulfillment_partner(farmers) != partner:
+                return JsonResponse({'ok': False, 'code': 'order_partner_changed', 'error': 'A selected case changed fulfilment partner. Preview the order again.'}, status=409)
             revisions = signed.get('workflow_revisions') or {}
             for farmer in farmers:
                 validate_workflow_revision(farmer, revisions.get(str(farmer.id)))
@@ -5951,8 +6020,9 @@ def portal_requisition_finalize(request):
                 name = first.get('farmer', {}).get('customer_name') or 'A selected customer'
                 reasons = ' '.join(first.get('missing') or [])
                 return JsonResponse({'ok': False, 'error': f'{name}: {reasons or "This case is no longer ready for an order."} Correct the case details, then preview again.', 'code': 'order_cases_not_ready', 'blocked': blocked}, status=409)
-            order_number = str(sequence.next_number)
-            xlsx_bytes = generate_requisition_excel(farmers, order_number, requisition_date)
+            order_number = order_number_for_partner(partner, sequence.next_number)
+            template = requisition_template_for_partner(partner)
+            xlsx_bytes = generate_requisition_excel(farmers, order_number, requisition_date, partner=partner, template=template)
             sender = _portal_sender_from_request(request)
             for farmer in farmers:
                 ok, assignment_error = assign_order(
@@ -5966,9 +6036,10 @@ def portal_requisition_finalize(request):
             checksum = hashlib.sha256(xlsx_bytes).hexdigest()
             batch = RequisitionBatch.objects.create(
                 group_configuration=sequence.group_configuration,
+                fulfillment_partner=partner, requisition_template=template,
                 order_number=order_number, generation_request_id=request_id, version=1,
                 requisition_date=requisition_date, generated_by=sender,
-                filename=f'JBL_Requisition_Form_{order_number}_v1.xlsx', file_content=xlsx_bytes,
+                filename=f'{"ECO" if partner == "ECOCONSERVE" else "HB"}_Requisition_Form_{order_number}_v1.xlsx', file_content=xlsx_bytes,
                 content_checksum=checksum, membership_digest=membership_digest,
                 finalization_payload_digest=payload_digest,
                 finalized_at=timezone.now(), finalized_by=getattr(request, 'portal_user', None),
@@ -5982,7 +6053,7 @@ def portal_requisition_finalize(request):
             sequence.adjustment_reason = f'Consumed by finalized order {order_number}'
             sequence.save()
             OrderSequenceEvent.objects.create(
-                sequence=sequence, action='consumed', number_before=int(order_number),
+                sequence=sequence, action='consumed', number_before=int(signed_sequence_number),
                 number_after=sequence.next_number, revision_after=sequence.revision,
                 actor=getattr(request, 'portal_user', None),
                 reason=f'Finalized official order {order_number}', request_id=request_id,

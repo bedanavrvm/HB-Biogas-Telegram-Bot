@@ -110,20 +110,44 @@ def requisition_location_text(farmer: Any) -> str:
     village = str(getattr(farmer, 'village', '') or '').strip()
     return ' - '.join(part for part in (constituency, village) if part)
 
-def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: str, requisition_date: date) -> bytes:
+def requisition_template_for_partner(partner: str):
+    from core.models import RequisitionTemplate
+    from core.services.requisition_partners import PARTNER_HB
+
+    template = RequisitionTemplate.objects.filter(
+        fulfillment_partner=partner,
+        is_active=True,
+    ).order_by('-updated_at', '-created_at').first()
+    # Existing deployments have only the legacy JBL template. It remains the
+    # HB template during the hard cutover, but Eco-conserve must be explicitly
+    # configured rather than silently using JBL branding.
+    if template is None and partner == PARTNER_HB:
+        template = RequisitionTemplate.objects.filter(
+            is_active=True,
+        ).order_by('-updated_at', '-created_at').first()
+    return template
+
+
+def generate_requisition_excel(
+    farmers: list[JawabuFarmerMaster], order_number: str, requisition_date: date,
+    *, partner: str = 'HB', template=None,
+) -> bytes:
     import os
     from django.conf import settings
     from core.models import RequisitionTemplate
 
-    active_template = RequisitionTemplate.objects.filter(
-        is_active=True,
-    ).order_by('-updated_at', '-created_at').first()
+    active_template = template or requisition_template_for_partner(partner)
+    if active_template is None and partner != 'HB':
+        raise RequisitionTemplateError(
+            'No active Eco-conserve requisition template is available. Upload the Eco-conserve branded workbook '
+            'in Django Admin > Requisition templates before finalizing this order.'
+        )
     fallback_path = os.path.join(settings.BASE_DIR, 'requisition', 'JBL_Requisition_Form_184.xlsx')
     try:
         template_source = workbook_source_from_template(active_template, fallback_path=fallback_path)
     except TemplateStorageError as exc:
         raise RequisitionTemplateError(
-            'No requisition Excel template is available. Upload the template in '
+            f'No active {partner} requisition template is available. Upload the branded template in '
             'Django Admin > Requisition templates and confirm it was stored in Google Drive.'
         ) from exc
 

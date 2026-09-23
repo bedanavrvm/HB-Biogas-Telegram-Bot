@@ -6,7 +6,7 @@
     my_visits: { endpoint: '/my-visits/', fragmentEndpoint: '/queues/my_visits/fragment/', listId: 'my-visits-list', pageKey: 'my_visits', mode: null, emptyTitle: 'No submitted JBL visits', emptySub: 'Cases you log after a JBL visit will appear here.' },
     credit: { endpoint: '/credit-queue/', fragmentEndpoint: '/queues/credit/fragment/', listId: 'credit-list', pageKey: 'credit', mode: 'credit', emptyTitle: 'Credit queue is clear', emptySub: 'No farmer is waiting for credit analysis.' },
     final: { endpoint: '/final-review-queue/', fragmentEndpoint: '/queues/final/fragment/', listId: 'final-list', pageKey: 'final', mode: 'final_review', emptyTitle: 'Final review queue is clear', emptySub: 'No client is waiting for Head of Rural review.' },
-    requisition: { endpoint: '/requisition-queue/', fragmentEndpoint: '/queues/requisition/fragment/', listId: 'req-list', pageKey: 'requisition', mode: 'requisition', emptyTitle: 'No orders to assign', emptySub: 'Approved cases awaiting an order number will appear here.' },
+    requisition: { endpoint: '/requisition-queue/', fragmentEndpoint: null, listId: 'req-list', pageKey: 'requisition', mode: 'requisition', emptyTitle: 'No orders to assign', emptySub: 'Approved cases awaiting an order number will appear here.' },
     deferred: { endpoint: '/deferred/', fragmentEndpoint: '/queues/deferred/fragment/', listId: 'deferred-list', pageKey: 'deferred', mode: null, emptyTitle: 'No deferred cases', emptySub: 'No farmers are deferred or flagged.' },
     all: { endpoint: '/farmers/', fragmentEndpoint: '/queues/all/fragment/', listId: 'all-list', pageKey: 'all', mode: null, emptyTitle: 'No farmers found', emptySub: 'Try a different search term.' },
     batches: { endpoint: '/requisition-batches/', fragmentEndpoint: '/requisition-batches/fragment/', listId: 'batches-list', pageKey: 'batches', mode: null, emptyTitle: 'No batches found', emptySub: 'No requisition batches have been generated yet.' },
@@ -47,6 +47,8 @@
     if (!cfg) return '';
     const params = new URLSearchParams({ page: String(page || 1) });
     appendSearch(params, state, queueKey);
+    if (queueKey === 'requisition') params.set('partner', state.requisitionPartner || 'HB');
+    if (queueKey === 'requisition') params.set('partner', state.requisitionPartner || 'HB');
     if (queueKey === 'all' || cfg.fragmentEndpoint) appendCommonFilters(params, state, queueKey);
     return cfg.endpoint + '?' + params.toString();
   }
@@ -56,6 +58,8 @@
     if (!cfg || !cfg.fragmentEndpoint) return '';
     const params = new URLSearchParams({ page: String(page || 1) });
     appendSearch(params, state, queueKey);
+    if (queueKey === 'requisition') params.set('partner', state.requisitionPartner || 'HB');
+    if (queueKey === 'requisition') params.set('partner', state.requisitionPartner || 'HB');
     appendCommonFilters(params, state, queueKey);
     return cfg.fragmentEndpoint + '?' + params.toString();
   }

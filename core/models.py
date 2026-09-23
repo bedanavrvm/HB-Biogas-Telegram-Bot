@@ -7750,6 +7750,18 @@ class RequisitionBatch(models.Model):
         'GroupSheetConfiguration', null=True, blank=True, on_delete=models.PROTECT,
         related_name='requisition_batches',
     )
+    fulfillment_partner = models.CharField(
+        max_length=20,
+        choices=[('HB', 'HB'), ('ECOCONSERVE', 'Eco-conserve')],
+        default='HB',
+        db_index=True,
+        help_text='Immutable partner route selected from the case fields at order finalization.',
+    )
+    requisition_template = models.ForeignKey(
+        'RequisitionTemplate', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='generated_batches',
+        help_text='Exact validated template retained for this finalized order.',
+    )
     order_number = models.CharField(max_length=128, unique=True, db_index=True)
     generation_request_id = models.CharField(
         max_length=128,
@@ -7832,6 +7844,13 @@ class RequisitionTemplate(models.Model):
     Admin-uploaded Excel templates used for Requisition/Order generation.
     """
     name = models.CharField(max_length=255, default='JBL Requisition Form')
+    fulfillment_partner = models.CharField(
+        max_length=20,
+        choices=[('HB', 'HB'), ('ECOCONSERVE', 'Eco-conserve')],
+        default='HB',
+        db_index=True,
+        help_text='Partner whose branded requisition workbook this template generates.',
+    )
     file = models.FileField(upload_to='requisition/', help_text='Upload the Excel (.xlsx) template here.')
     original_filename = models.CharField(max_length=255, blank=True, default='')
     content_type = models.CharField(
@@ -7859,7 +7878,7 @@ class RequisitionTemplate(models.Model):
             super().save(*args, **kwargs)
             if self.is_active:
                 type(self).objects.filter(
-                    name__iexact=self.name,
+                    fulfillment_partner=self.fulfillment_partner,
                     is_active=True,
                 ).exclude(pk=self.pk).update(
                     is_active=False,
@@ -7867,7 +7886,7 @@ class RequisitionTemplate(models.Model):
                 )
 
     def __str__(self):
-        return f"{self.name} ({'Active' if self.is_active else 'Inactive'})"
+        return f"{self.get_fulfillment_partner_display()} - {self.name} ({'Active' if self.is_active else 'Inactive'})"
 
 
 class PaymentDocumentTemplate(models.Model):

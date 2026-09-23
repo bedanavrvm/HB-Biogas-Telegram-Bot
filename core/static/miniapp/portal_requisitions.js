@@ -8,6 +8,7 @@
   let activePaymentReviewId = null;
   let sequenceRevision = 0;
   let sequenceGroupId = '';
+  let sequencePartner = 'HB';
   let selectionStorageKey = null;
   let selectionRestored = false;
   let selectedDate = '';
@@ -130,8 +131,9 @@
         <td>${deps.escapeHtml(caps(farmer.hb_sales_person || '-'))}</td>
       </tr>`;
     }).join('');
+    const partnerName = data.fulfillment_partner === 'ECOCONSERVE' ? 'Eco-conserve' : 'HB';
     return `<article class="requisition-print-preview">
-      <header><h3>JBL Requisition Form</h3><div><strong>Order No:</strong> ${deps.escapeHtml(data.order_number || '-')}</div><div><strong>Date:</strong> ${deps.escapeHtml(deps.fmtDate(data.requisition_date))}</div></header>
+      <header><h3>${partnerName} Requisition Form</h3><div><strong>Order No:</strong> ${deps.escapeHtml(data.order_number || '-')}</div><div><strong>Date:</strong> ${deps.escapeHtml(deps.fmtDate(data.requisition_date))}</div></header>
       <div class="requisition-print-scroll"><table>
         <thead><tr><th>No.</th><th>Customer name</th><th>Contact</th><th>ID No.</th><th>Credit analysis</th><th>Callup comment</th><th>County</th><th>Location & nearest landmark</th><th>HBG deposit</th><th>JBL deposit</th><th>HB salesperson</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="11">No clients selected.</td></tr>'}</tbody>
@@ -468,7 +470,8 @@
   async function loadOrderSequence() {
     if (!state().capabilities?.has('portal.requisition.sequence.manage') || !el('requisition-sequence-panel')) return;
     const response = await deps.apiFetch('/requisition-numbering/');
-    const row = response.data?.sequences?.[0];
+    sequencePartner = String(el('requisition-sequence-partner')?.value || sequencePartner || 'HB');
+    const row = (response.data?.sequences || []).find(item => item.partner === sequencePartner);
     const status = el('requisition-sequence-status');
     if (!response.ok || !response.data?.ok) {
       if (status) status.textContent = response.data?.error || 'Could not load the official sequence.';
@@ -493,7 +496,7 @@
     try {
       const response = await deps.portalApi.postJson('/requisition-numbering/', {
         group_id: sequenceGroupId, next_number: nextNumber,
-        expected_revision: sequenceRevision, reason,
+        partner: sequencePartner, expected_revision: sequenceRevision, reason,
       }, deps.tg, csrfHeader());
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not save the sequence.');
       el('requisition-sequence-reason').value = '';
@@ -522,7 +525,7 @@
       alert('No farmers selected.');
       return null;
     }
-    return { farmer_ids, workflow_revisions, requisition_date, return_url: true };
+    return { farmer_ids, workflow_revisions, requisition_date, partner: state().requisitionPartner || 'HB', return_url: true };
   }
 
   function payloadAtPreviewRevision(payload, preview) {
@@ -1234,6 +1237,28 @@
     });
     document.addEventListener('change', event => {
       if (event.target.id === 'batch-req-date') persistSelection();
+      if (event.target.id === 'requisition-sequence-partner') loadOrderSequence();
+    });
+    document.addEventListener('click', event => {
+      const tab = event.target.closest('[data-requisition-partner]');
+      if (!tab) return;
+      const partner = String(tab.dataset.requisitionPartner || 'HB');
+      if (!['HB', 'ECOCONSERVE'].includes(partner) || partner === state().requisitionPartner) return;
+      if (state().selectedRequisitions.size) {
+        state().selectedRequisitions.clear();
+        state().selectedRequisitionRevisions.clear();
+        state().pendingRequisitionPayload = null;
+        persistSelection();
+        deps.showToast('Selection cleared. Each order contains one fulfilment partner.', 'info');
+      }
+      state().requisitionPartner = partner;
+      document.querySelectorAll('[data-requisition-partner]').forEach(button => {
+        const active = button === tab;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+      updateBatchPanel();
+      deps.loadQueue('requisition', 1);
     });
     bindEvents();
     window.setTimeout(loadOrderSequence, 0);

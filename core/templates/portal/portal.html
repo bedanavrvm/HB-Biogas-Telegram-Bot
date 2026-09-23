@@ -262,6 +262,10 @@
       <div><h1>Requisition Queue</h1><p class="meta">Final decision approved - assign order number</p></div>
       <button type="button" class="queue-refresh-button" data-queue-refresh="requisition" aria-label="Refresh requisition queue" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
+    <nav class="portal-segmented-tabs" id="requisition-partner-tabs" aria-label="Order fulfilment partner">
+      <button type="button" class="active" data-requisition-partner="HB" aria-pressed="true">HB <span id="requisition-partner-count-hb">0</span></button>
+      <button type="button" data-requisition-partner="ECOCONSERVE" aria-pressed="false">Eco-conserve <span id="requisition-partner-count-eco">0</span></button>
+    </nav>
     {% include "portal/partials/queue_tools.html" with queue_key="requisition" queue_label="order preparation queue" %}
     <div id="requisition-batch-panel" class="batch-panel portal-initially-hidden" data-required-capability="portal.requisition.finalize">
       <div class="batch-title">
@@ -617,8 +621,8 @@
       </form>
     </section>
     <section id="requisition-sequence-panel" class="portal-settings-card" data-required-capability="portal.requisition.sequence.manage" hidden>
-      <div class="portal-settings-heading"><span class="settings-eyebrow">OPERATIONS</span><h2>Official order number</h2><p>Set the next number only when aligning the Portal with the official order register.</p></div>
-      <div class="portal-settings-grid payment-sequence-settings-grid"><label>Next order number<input id="requisition-sequence-next" type="number" min="1" inputmode="numeric"></label><label>Reason<input id="requisition-sequence-reason" type="text" placeholder="Reason for the register alignment"></label></div>
+      <div class="portal-settings-heading"><span class="settings-eyebrow">OPERATIONS</span><h2>Official order numbers</h2><p>HB and Eco-conserve use separate official number registers.</p></div>
+      <div class="portal-settings-grid payment-sequence-settings-grid"><label>Fulfilment partner<select id="requisition-sequence-partner"><option value="HB">HB</option><option value="ECOCONSERVE">Eco-conserve</option></select></label><label>Next order number<input id="requisition-sequence-next" type="number" min="1" inputmode="numeric"></label><label>Reason<input id="requisition-sequence-reason" type="text" placeholder="Reason for the register alignment"></label></div>
       <div class="portal-settings-action-row"><small id="requisition-sequence-status">Loading…</small><button type="button" class="btn btn-primary" id="requisition-sequence-save">Save official number</button></div>
     </section>
     <section id="portal-payment-sequence-settings" class="portal-settings-card" data-required-capability="portal.payment.sequence.manage" hidden>
