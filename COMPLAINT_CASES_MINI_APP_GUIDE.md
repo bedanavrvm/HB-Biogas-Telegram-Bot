@@ -346,7 +346,7 @@ history without requiring them to interpret raw Sheet rows or Telegram posts.
 Some older complaints may show **Needs More Information** because required
 customer information was not captured during the original intake.
 
-An authorized Officer or Manager sees **Complete Required Details**.
+An authorized Officer or Manager sees **Complete Legacy Case Details**.
 
 1. Confirm or enter the primary phone number.
 2. Confirm or enter the Customer National ID.
@@ -356,7 +356,7 @@ An authorized Officer or Manager sees **Complete Required Details**.
 Existing verified information may be read-only. After the details are saved,
 the complaint returns to **Open** and can follow the normal resolution process.
 
-> **Screenshot 6 — Complete Required Details**
+> **Screenshot 6 — Complete Legacy Case Details**
 > Add a screenshot showing a Needs More Information complaint and the fields
 > used to complete it.
 
@@ -586,7 +586,7 @@ The download is audited and may contain sensitive personal data. Store it only
 in an approved location and do not forward it through personal accounts.
 
 > **Screenshot 14 — Export confirmation and download ready**
-> Add screenshots of the all-complaints confirmation and the Download ready
+> Add screenshots of the export confirmation and the Download ready
 > panel.
 
 ### Business benefit
@@ -792,7 +792,7 @@ protects the current screen; it is not confirmation that a draft was saved.
 | “This complaint changed while you were working” | Another staff member saved a newer action first. | Read the winning update, use **Copy My Draft** if needed, then tap **Review Latest Complaint** before deciding whether another action is still necessary. |
 | Resolve Complaint is unavailable | The complaint is already closed or your role cannot resolve complaints. | Review history. Ask authorized HomeBiogas resolution staff if closure is required. |
 | Reopen Complaint is unavailable | The complaint is not closed or your role cannot reopen. | Ask a Complaint Manager to review it. |
-| Complete Required Details is unavailable | The complaint is not marked Needs More Information or your role cannot complete it. | Refresh and confirm status; otherwise ask an Officer or Manager. |
+| Complete Legacy Case Details is unavailable | The complaint is not marked Needs More Information or your role cannot complete it. | Refresh and confirm status; otherwise ask an Officer or Manager. |
 | The app says the complaint is already resolved | A retry or another staff action closed it first. | Refresh and review Resolution History instead of resubmitting. |
 
 ### Google Sheet synchronization problems
