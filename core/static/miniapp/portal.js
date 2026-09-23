@@ -681,7 +681,14 @@
     const attentionList = el('dashboard-attention-list');
     if (attentionSection && attentionList) {
       attentionSection.hidden = !attention.length;
-      attentionList.innerHTML = attention.map(item => `<a class="dashboard-action-card dashboard-route-link ${item.severity === 'urgent' ? 'urgent' : ''}" href="${escapeHtml(item.url || '#')}"><span><strong>${escapeHtml(item.label || 'Needs attention')}</strong><span>${escapeHtml(item.severity || 'review')}</span></span><b>${escapeHtml(item.count || 0)}</b></a>`).join('');
+      attentionList.innerHTML = attention.map(item => {
+        const retry = item.action?.type === 'publication_retry'
+          && Array.isArray(item.action.operation_ids) && item.action.operation_ids.length;
+        if (retry) {
+          return `<article class="dashboard-action-card ${item.severity === 'urgent' ? 'urgent' : ''}"><span><strong>${escapeHtml(item.label || 'Needs attention')}</strong><span>${escapeHtml(item.detail || item.severity || 'review')}</span></span><div class="dashboard-action-controls"><b>${escapeHtml(item.count || 0)}</b><button type="button" class="btn btn-secondary" data-publication-retry data-publication-operation-ids="${escapeHtml(JSON.stringify(item.action.operation_ids))}">${escapeHtml(item.action.label || 'Retry sync')}</button></div></article>`;
+        }
+        return `<a class="dashboard-action-card dashboard-route-link ${item.severity === 'urgent' ? 'urgent' : ''}" href="${escapeHtml(item.url || '#')}"><span><strong>${escapeHtml(item.label || 'Needs attention')}</strong><span>${escapeHtml(item.detail || item.severity || 'review')}</span></span><b>${escapeHtml(item.count || 0)}</b></a>`;
+      }).join('');
     }
     const activity = dashboard.business_metrics || [];
     const activitySection = el('dashboard-activity');
@@ -752,6 +759,36 @@
     if (!routeLink) return;
     event.preventDefault();
     navigateToUrl(routeLink.href);
+  });
+  document.addEventListener('click', async event => {
+    const button = event.target.closest('[data-publication-retry]');
+    if (!button || button.disabled) return;
+    event.preventDefault();
+    let operationIds = [];
+    try { operationIds = JSON.parse(button.dataset.publicationOperationIds || '[]'); } catch (_) { operationIds = []; }
+    if (!operationIds.length) {
+      showToast('No sheet synchronization operation is available to retry.', 'error');
+      return;
+    }
+    button.disabled = true;
+    button.textContent = 'Retrying…';
+    let failedMessage = '';
+    let needsAttention = false;
+    for (const operationId of operationIds) {
+      const result = await portalApi.postJson('/publication/attempt/', {
+        operation_id: String(operationId), manual_retry: true,
+      }, tg);
+      if (!result.ok || !result.data?.ok) {
+        failedMessage = result.data?.error || 'The Google Sheet could not be reached.';
+        break;
+      }
+      needsAttention = needsAttention || Boolean(result.data?.needs_attention);
+    }
+    if (failedMessage) showToast(`Sheet sync was not retried: ${failedMessage}`, 'error');
+    else if (needsAttention) showToast('Sheet sync still needs attention. Check the connection and retry later.', 'warning');
+    else showToast('Sheet synchronization retry started.', 'success');
+    await loadDashboard({ force: true });
+    loadPortalNotifications();
   });
   document.addEventListener('click', async event => {
     const button = event.target.closest('[data-queue-refresh]');

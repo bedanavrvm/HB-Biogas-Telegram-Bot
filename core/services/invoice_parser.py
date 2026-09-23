@@ -261,6 +261,61 @@ def parse_invoice_date(date_str: str) -> date | None:
     return None
 
 
+# Some HomeBiogas invoice layouts append an order reference to the Bill To
+# identity or the invoice number, for example ``INVOICE 10031 · Order 076``.
+# Keep that reference separate: an eight-digit order number must never be
+# mistaken for the customer's national ID.
+ORDER_REFERENCE_RE = re.compile(
+    r'\bORDER\b(?:\s+(?:NO\.?|NUMBER)(?=\s|[:#-]|$))?\s*(?:[:#-]\s*)?'
+    r'([A-Z0-9][A-Z0-9/_-]{0,127})',
+    flags=re.IGNORECASE,
+)
+
+
+def _strip_order_reference(value: str) -> str:
+    """Remove a labelled order reference without touching ordinary text."""
+    return ORDER_REFERENCE_RE.sub(' ', value or '')
+
+
+def _extract_order_reference(lines) -> str:
+    """Return the first labelled order reference near invoice identity fields."""
+    for line in lines:
+        match = ORDER_REFERENCE_RE.search(line or '')
+        if match:
+            reference = match.group(1).strip('.,;:')
+            if reference.upper() not in {'NO', 'NUMBER'}:
+                return reference
+    return ''
+
+
+def order_reference_mismatch(order_reference: str, expected_order_number: str) -> dict | None:
+    """Describe a printed-order discrepancy without changing match eligibility.
+
+    Printed order numbers are useful review evidence, but the exact finalized
+    requisition membership and customer identity rules remain authoritative.
+    Leading zeroes are presentation only for numeric order references.
+    """
+    printed = str(order_reference or '').strip()
+    expected = str(expected_order_number or '').strip()
+    if not printed or not expected:
+        return None
+
+    def comparable(value: str) -> str:
+        compact = re.sub(r'\s+', '', value).upper()
+        return str(int(compact)) if compact.isdigit() else compact
+
+    if comparable(printed) == comparable(expected):
+        return None
+    return {
+        'printed_order_reference': printed,
+        'expected_order_number': expected,
+        'message': (
+            f'Invoice shows Order {printed}, but this case is in Order {expected}. '
+            'Check the printed order number; matching is not blocked.'
+        ),
+    }
+
+
 def _normalize_invoice_text(text: str) -> str:
     """Normalize PDF text where pypdf glues invoice labels to nearby values."""
     normalized = text or ''
@@ -316,16 +371,17 @@ def _first_match(lines, pattern):
 
 def _customer_id(bill_to_lines):
     for line in bill_to_lines[1:]:
-        if re.fullmatch(r"\d{7,8}", line):
-            return line
+        identity_line = _strip_order_reference(line).strip()
+        if re.fullmatch(r"\d{7,8}", identity_line):
+            return identity_line
     for line in bill_to_lines:
-        for match in re.finditer(r"\b\d{7,8}\b", line):
+        for match in re.finditer(r"\b\d{7,8}\b", _strip_order_reference(line)):
             return match.group(0)
     return ""
 
 
 def _clean_customer_name(value: str, customer_phone: str = '', customer_id: str = '') -> str:
-    name = value or ''
+    name = _strip_order_reference(value)
     if customer_phone:
         name = name.replace(customer_phone, ' ')
     if customer_id:
@@ -333,6 +389,12 @@ def _clean_customer_name(value: str, customer_phone: str = '', customer_id: str 
     name = re.sub(r'\bKenya\b', ' ', name, flags=re.IGNORECASE)
     name = re.sub(r'\s+', ' ', name).strip(' -,:')
     return name
+
+
+def _clean_invoice_number(value: str) -> str:
+    """Keep the invoice token when an adjacent labelled order is present."""
+    cleaned = _strip_order_reference(value).strip(' -,:')
+    return cleaned.split()[0] if cleaned else ''
 
 def _amount_lines(lines, start, end=None):
     if start < 0:
@@ -515,12 +577,19 @@ def parse_invoice_text(text: str, page_number: int) -> dict | None:
     invoice_no = _extract_inline(lines, 'INVOICE ')   # 'INVOICE 9505' → '9505'
     invoice_date_raw = _extract_inline(lines, 'DATE ') # 'DATE 16/03/2026' → '16/03/2026'
 
+    invoice_no = _clean_invoice_number(invoice_no)
     if not invoice_no or not invoice_date_raw:
         # Stacked layout fallback
         due_date_index = _index(lines, 'DUE DATE')
         if due_date_index >= 0:
             invoice_no = invoice_no or _line_after(lines, due_date_index, 1)
             invoice_date_raw = invoice_date_raw or _line_after(lines, due_date_index, 2)
+
+    invoice_no = _clean_invoice_number(invoice_no)
+    # Retain the printed order reference for review. It does not override the
+    # governed batch/order selected by the user for invoice matching.
+    invoice_lines = [line for line in lines if line.upper().startswith('INVOICE ')]
+    order_reference = _extract_order_reference([*bill_to_lines, *invoice_lines])
 
     # ── Monetary fields ───────────────────────────────────────────────────────
     # Real format:  'SUBTOTAL 54,000.00'  /  'DISCOUNT -3,000.00'  etc. (inline)
@@ -560,6 +629,7 @@ def parse_invoice_text(text: str, page_number: int) -> dict | None:
     return {
         'page': page_number,
         'invoice_no': invoice_no,
+        'order_reference': order_reference,
         'invoice_date': invoice_date_raw,
         'customer_name': customer_name,
         'customer_phone': customer_phone,
@@ -1440,6 +1510,11 @@ def match_and_update_invoices(order_number: str, pdf_bytes: bytes) -> dict:
                 "customer_name": matched_farmer.customer_name,
                 "status": "Matched",
                 "invoice_no": inv["invoice_no"],
+                "order_reference": inv.get('order_reference') or '',
+                "order_reference_alert": order_reference_mismatch(
+                    inv.get('order_reference') or '',
+                    matched_farmer.order_number or order_number,
+                ),
                 "matched_farmer_id": str(matched_farmer.id),
                 "matched_national_id": matched_farmer.national_id,
                 "matched_phone": matched_farmer.primary_phone,
@@ -1461,6 +1536,10 @@ def match_and_update_invoices(order_number: str, pdf_bytes: bytes) -> dict:
                 "customer_name": inv["customer_name"],
                 "status": "Ambiguous" if match_error else "Unmatched",
                 "invoice_no": inv["invoice_no"],
+                "order_reference": inv.get('order_reference') or '',
+                "order_reference_alert": order_reference_mismatch(
+                    inv.get('order_reference') or '', order_number,
+                ),
                 "reason": reason,
             })
 

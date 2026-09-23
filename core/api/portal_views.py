@@ -4041,7 +4041,12 @@ def portal_publication_attempt(request):
     Gunicorn workers on the free Render service.
     """
     from core.models import IntegrationOperation, JawabuFarmerMaster
-    from core.services.portal_publication import SOURCE_MODEL, attempt_publication, publication_payload
+    from core.services.portal_publication import (
+        SOURCE_MODEL,
+        attempt_publication,
+        publication_payload,
+        requeue_publication_after_review,
+    )
 
     body = _portal_request_data(request)
     operation_id = str((body or {}).get('operation_id') or '').strip()
@@ -4065,6 +4070,7 @@ def portal_publication_attempt(request):
         if support_error:
             return access_error
     automatic = bool((body or {}).get('automatic'))
+    manual_retry = bool((body or {}).get('manual_retry'))
     if automatic and operation.next_retry_at and operation.next_retry_at > timezone.now():
         return JsonResponse({
             'ok': True,
@@ -4072,6 +4078,18 @@ def portal_publication_attempt(request):
             'publication': publication_payload(farmer),
             'retryable': True,
         }, status=202)
+
+    requeued = False
+    if manual_retry:
+        try:
+            operation, requeued = requeue_publication_after_review(
+                operation,
+                request_id=_portal_request_id(request, body),
+                requested_by=getattr(request, 'portal_user', None),
+                requested_by_label=_portal_sender_from_request(request),
+            )
+        except ValueError as exc:
+            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 
     try:
         result = attempt_publication(operation)
@@ -4087,6 +4105,7 @@ def portal_publication_attempt(request):
         'retryable': operation.status == IntegrationOperation.STATUS_RETRYABLE,
         'needs_attention': operation.status == IntegrationOperation.STATUS_DEAD_LETTER,
         'superseded': bool(result.get('superseded')),
+        'requeued': requeued,
     }, status=202 if operation.status in {
         IntegrationOperation.STATUS_PENDING,
         IntegrationOperation.STATUS_RUNNING,
@@ -6759,6 +6778,11 @@ def _serialize_parsed_invoice(
 ) -> dict:
     farmer = invoice.matched_farmer
     order_number = invoice.matched_order_number or (farmer.order_number if farmer else '')
+    comparison_order_number = order_number or invoice.proposed_order_number or (invoice.batch.order_number if invoice.batch_id else '')
+    raw_payload = invoice.raw_payload if isinstance(invoice.raw_payload, dict) else {}
+    from core.services.invoice_parser import order_reference_mismatch
+    printed_order_reference = str(raw_payload.get('order_reference') or '').strip()
+    order_reference_alert = order_reference_mismatch(printed_order_reference, comparison_order_number)
     readiness = (payment_readiness_by_order or {}).get(order_number) if order_number else None
     data = {
         'id': str(invoice.id),
@@ -6794,6 +6818,8 @@ def _serialize_parsed_invoice(
         'matched_farmer_id': str(farmer.id) if farmer else '',
         'matched_farmer_name': farmer.customer_name if farmer else '',
         'matched_order_number': order_number,
+        'printed_order_reference': printed_order_reference,
+        'order_reference_alert': order_reference_alert,
         'proposed_farmer_id': str(invoice.proposed_farmer_id or ''),
         'proposed_farmer_name': invoice.proposed_farmer.customer_name if invoice.proposed_farmer_id else '',
         'proposed_order_number': invoice.proposed_order_number,

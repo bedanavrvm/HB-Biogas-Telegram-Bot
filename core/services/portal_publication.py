@@ -155,6 +155,52 @@ def publication_payload(farmer) -> dict[str, Any]:
     }
 
 
+def requeue_publication_after_review(
+    operation: IntegrationOperation,
+    *,
+    request_id: str,
+    requested_by=None,
+    requested_by_label: str = '',
+) -> tuple[IntegrationOperation, bool]:
+    """Create one fresh, auditable retry after an exhausted publication fails.
+
+    A dead-letter operation is immutable evidence of its failed attempt.  Do
+    not reset it in place: reserve a replacement bound to the same case and
+    revision, so a staff member can explicitly retry from the Portal without
+    losing the failure history.
+    """
+    operation.refresh_from_db()
+    if operation.source_model != SOURCE_MODEL or operation.operation_type not in {
+        MASTER_OPERATION, INTERNAL_ORDER_OPERATION,
+    }:
+        raise ValueError('This is not a Portal register publication operation.')
+    if operation.status != IntegrationOperation.STATUS_DEAD_LETTER:
+        return operation, False
+
+    from core.models import JawabuFarmerMaster
+
+    farmer = JawabuFarmerMaster.objects.filter(pk=operation.source_id).first()
+    if farmer is None:
+        raise ValueError('The source case is no longer available.')
+    replacements = reserve_farmer_publication(
+        farmer,
+        request_id=request_id,
+        requested_by=requested_by,
+        requested_by_label=requested_by_label,
+        required_capability=str((operation.metadata or {}).get('required_capability') or 'portal.case.read'),
+        # This stable namespace makes a repeated tap a replay of the same
+        # reviewed retry, while a later dead-letter replacement gets its own
+        # explicit retry chain.
+        deduplication_namespace=f'manual-retry:{operation.pk}',
+        operation_types=[operation.operation_type],
+        extra_metadata={'retry_of_operation_id': str(operation.pk), 'retry_reason': 'staff_reviewed'},
+    )
+    if not replacements:
+        raise ValueError('This Google Sheet publication is disabled in the current Portal configuration.')
+    replacement = replacements[0]
+    return replacement, replacement.pk != operation.pk
+
+
 def attempt_publication(operation: IntegrationOperation) -> dict[str, Any]:
     """Perform exactly one bounded Google publication attempt for one record."""
     from core.models import JawabuFarmerMaster

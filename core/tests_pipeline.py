@@ -42,6 +42,7 @@ from core.services.jawabu_pipeline import (
     sync_farmer_to_internal_order_sheet,
     sync_farmer_to_master_sheet,
     current_pipeline_state_label,
+    _master_hbg_deposit_for_sheet,
 )
 from core.services.workflow_transitions import WorkflowRevisionConflict
 
@@ -484,6 +485,25 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(row[4], 'MURANGA')
         self.assertEqual(row[5], 'KANDARA')
         self.assertEqual(row[6], 'GAKIRA')
+
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_master_sheet_keeps_hb_deposit_separate_from_lgf_and_plain(self, mock_get_sheets):
+        """The HB invoice payment is a whole-number display, never the LGF value."""
+        from core.tests import FakeMasterDataSheet, FakeJawabuService
+
+        self.farmer_stage1.deposit_paid_hbg = Decimal('5000.00')
+        self.farmer_stage1.system_deposit_paid_jbl = Decimal('13500.50')
+        self.farmer_stage1.save(update_fields=['deposit_paid_hbg', 'system_deposit_paid_jbl', 'updated_at'])
+        headers = ['No.', 'Customer Name', 'National ID', 'Primary Phone', 'Deposit Paid to HB', 'Deposit Paid to JBL']
+        fake_sheet = FakeMasterDataSheet(headers)
+        mock_get_sheets.return_value = FakeJawabuService(fake_sheet)
+
+        self.assertEqual(_master_hbg_deposit_for_sheet(self.farmer_stage1), '5000')
+        self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
+
+        row = fake_sheet.values[-1]
+        self.assertEqual(row[headers.index('Deposit Paid to HB')], '5000')
+        self.assertEqual(row[headers.index('Deposit Paid to JBL')], 13500.5)
 
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
     def test_master_sheet_projection_uppercases_short_text_but_preserves_visit_note(self, mock_get_sheets):
@@ -4169,6 +4189,38 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(parsed['discount'], '3000.00')
         self.assertEqual(parsed['balance_due'], '46,000.00')
         self.assertEqual(parsed['balance_due_check'], 'OK')
+
+    def test_invoice_parser_keeps_labelled_order_reference_out_of_customer_identity(self):
+        from core.services.invoice_parser import order_reference_mismatch, parse_invoice_text
+
+        text = (
+            "Page 1 of 1\n"
+            "HOMEBIOGAS VENTURES LIMITED\n"
+            "BILL TO\n"
+            "CAROLINE NKATHA GITARI Order No. 076\n"
+            "+254721929868\n"
+            "2476584 Order 076\n"
+            "Kenya\n"
+            "INVOICE 10031 Order 076\n"
+            "DATE 16/03/2026\n"
+            "TOTAL 51,000.00\n"
+            "PAYMENT 5,000.00\n"
+            "BALANCE DUE KES 46,000.00\n"
+        )
+
+        parsed = parse_invoice_text(text, 1)
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed['invoice_no'], '10031')
+        self.assertEqual(parsed['order_reference'], '076')
+        self.assertEqual(parsed['customer_name'], 'CAROLINE NKATHA GITARI')
+        self.assertEqual(parsed['customer_phone'], '+254721929868')
+        self.assertEqual(parsed['customer_id'], '2476584')
+        self.assertEqual(
+            order_reference_mismatch(parsed['order_reference'], '077')['expected_order_number'],
+            '077',
+        )
+        self.assertIsNone(order_reference_mismatch(parsed['order_reference'], '76'))
 
 
 class JawabuIntegrityRulesTests(TestCase):

@@ -651,6 +651,8 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
 .dashboard-action-card b { display: grid; min-width: 34px; height: 34px; place-items: center; border-radius: 999px; background: var(--color-soft); color: var(--brand-primary); }
 .dashboard-action-card.urgent { border-color: rgba(220, 38, 38, .28); }
 .dashboard-action-card.urgent b { background: rgba(220, 38, 38, .1); color: var(--color-danger); }
+.dashboard-action-controls { display: grid; justify-items: end; gap: 6px; flex: 0 0 auto; }
+.dashboard-action-controls .btn { min-height: 32px; padding: 5px 8px; font-size: 11px; white-space: nowrap; }
 .dashboard-activity-layout { display: grid; grid-template-columns: minmax(110px, .35fr) 1fr; gap: 10px; }
 .dashboard-today { display: grid; align-content: center; padding: 14px; border-radius: var(--radius-md); background: var(--brand-primary); color: #fff; }
 .dashboard-today strong { font-size: 32px; line-height: 1; }

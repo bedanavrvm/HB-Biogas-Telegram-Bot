@@ -204,6 +204,7 @@
     }
     target.innerHTML = invoices.map(function (invoice) {
       const readiness = invoice.payment_readiness || {};
+      const orderReferenceAlert = invoice.order_reference_alert || null;
       const needsMatch = canWriteInvoices() && ['draft', 'unmatched', 'ambiguous'].includes(invoice.status);
       const secondaryActions = [
         canWriteInvoices() && invoice.status === 'matched' ? '<button type="button" class="invoice-unmatch-action" data-invoice="' + escapeHtml(invoice.id) + '">Unmatch</button>' : '',
@@ -213,7 +214,8 @@
       const warningCount = Number(invoice.duplicate_count || 0)
         + (readiness.error || Number(readiness.blocked_count || 0) > 0 ? 1 : 0)
         + (invoice.balance_due_check && String(invoice.balance_due_check).toLowerCase() !== 'ok' ? 1 : 0)
-        + (invoice.review_notes ? 1 : 0);
+        + (invoice.review_notes ? 1 : 0)
+        + (orderReferenceAlert ? 1 : 0);
       const checked = state.selectedIds.has(invoice.id) ? ' checked' : '';
       return [
         '<article class="invoice-pool-card invoice-status-' + escapeHtml(invoice.status || 'unknown') + (checked ? ' is-selected' : '') + '" data-invoice-open="' + escapeHtml(invoice.id) + '" role="link" tabindex="0" aria-label="Open invoice ' + escapeHtml(invoice.invoice_no || '') + '">',
@@ -224,6 +226,7 @@
         '<div class="invoice-card-heading"><div class="fc-name">Invoice ' + escapeHtml(invoice.invoice_no || '-') + '</div><span class="badge ' + badgeClass(invoice.status) + '">' + escapeHtml(invoice.status || '-') + '</span></div>',
         '<div class="invoice-card-customer">' + escapeHtml(invoice.customer_name || 'Unknown invoice holder') + '</div>',
         '<div class="invoice-card-meta"><span>ID ' + escapeHtml(invoice.customer_id || '-') + '</span><span>' + escapeHtml(invoice.matched_order_number ? 'Order ' + invoice.matched_order_number : (invoice.customer_phone || '-')) + '</span></div>',
+        orderReferenceAlert ? '<div class="invoice-card-warning">' + escapeHtml(orderReferenceAlert.message) + '</div>' : '',
         warningCount ? '<span class="invoice-card-alert"><i data-lucide="circle-alert" aria-hidden="true"></i>' + escapeHtml(warningCount) + ' item' + (warningCount === 1 ? '' : 's') + ' to review</span>' : '',
         '</div>',
         '</div>',
@@ -429,6 +432,11 @@
       ? '<button class="btn btn-secondary invoice-drive-link" data-url="' + escapeHtml(data.source_pdf_url) + '">Open source PDF</button>'
       : '<span class="badge badge-grey">No source PDF link</span>';
     const identity = invoice.identity || {};
+    const orderReferenceNotice = invoice.order_reference_alert
+      ? '<div class="invoice-card-warning">' + escapeHtml(invoice.order_reference_alert.message) + '</div>'
+      : invoice.printed_order_reference
+        ? '<div class="invoice-info-note">Invoice shows Order ' + escapeHtml(invoice.printed_order_reference) + '.</div>'
+        : '';
     const identityActions = [];
     const invoiceMatchEligible = identity.match_eligibility?.eligible !== false;
     const hasDifferentIds = identity.discrepancy_codes?.includes('national_id_mismatch');
@@ -512,6 +520,7 @@
       '<div class="fc-sub">' + escapeHtml(invoice.customer_name || 'Unknown customer') + ' | ID ' + escapeHtml(invoice.customer_id || '-') + ' | ' + escapeHtml(invoice.customer_phone || '-') + '</div></div>',
       '<span class="badge ' + badgeClass(invoice.status) + '">' + escapeHtml(invoice.status || '-') + '</span>',
       '</div>',
+      orderReferenceNotice,
       '<div class="invoice-financial-strip">',
       '<span><small>Amount</small><strong>' + money(invoice.invoice_amount) + '</strong></span>',
       '<span><small>HBG deposit</small><strong>' + money(hbgDeposit(invoice)) + '</strong></span>',
@@ -534,6 +543,7 @@
       kv('Balance due', money(invoice.balance_due)),
       kv('Page', invoice.page),
       kv('Matched order', invoice.matched_order_number),
+      kv('Printed order', invoice.printed_order_reference),
       kv('Balance check', invoice.balance_due_check),
       kv('Calculated balance', money(invoice.calculated_balance_due)),
       kv('Balance difference', money(invoice.balance_due_difference)),

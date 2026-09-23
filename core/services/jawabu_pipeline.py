@@ -2075,6 +2075,29 @@ def _canonical_hbg_deposit_for_sheet(farmer):
     return _sheet_number(parsed)
 
 
+def _master_hbg_deposit_for_sheet(farmer) -> str:
+    """Return the HomeBiogas-paid deposit in the Master Data display format.
+
+    The Master Data register is operationally read as a whole-KES amount, not
+    as a currency-formatted payment value.  Keep the canonical Decimal in
+    Django; this string conversion is limited to the ``Deposit Paid to HB``
+    projection so Google Sheets cannot add a currency symbol, commas, or a
+    trailing ``.00``.  LGF remains a separate system-export value.
+    """
+    from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+
+    value = _canonical_hbg_deposit_for_sheet(farmer)
+    if value == '':
+        return ''
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        # _canonical_hbg_deposit_for_sheet already rejects malformed legacy
+        # input. This is a last-resort safe presentation fallback.
+        return str(value)
+    return format(amount.quantize(Decimal('1'), rounding=ROUND_HALF_UP), 'f')
+
+
 def _sheet_cell_value(value: Any):
     """Return a JSON-safe Google Sheets cell value without changing local data.
 
@@ -2309,8 +2332,11 @@ def sync_farmer_to_master_sheet(
             'imab_customer_name': (candidates('imab_customer_name'), _smart_sheet_label(farmer.imab_customer_name)),
             'system_branch': (candidates('system_branch'), _smart_sheet_label(farmer.system_branch)),
             'system_loan_officer': (candidates('system_loan_officer'), _smart_sheet_label(farmer.system_loan_officer)),
+            # Keep the two deposits distinct: LGF is the IMAB/SysUp balance
+            # used by payment reconciliation; the invoice payment is what
+            # the customer paid HomeBiogas and belongs only in the HB column.
             'system_deposit_paid_jbl': (candidates('system_deposit_paid_jbl'), _sheet_number(farmer.system_deposit_paid_jbl)),
-            'deposit_paid_hbg': (candidates('deposit_paid_hbg'), _canonical_hbg_deposit_for_sheet(farmer)),
+            'deposit_paid_hbg': (candidates('deposit_paid_hbg'), _master_hbg_deposit_for_sheet(farmer)),
             'repayment_date': (candidates('repayment_date'), farmer.repayment_date),
             'repayment_day': (candidates('repayment_day'), farmer.repayment_day),
             'repayment_tenor': (candidates('repayment_tenor'), farmer.repayment_tenor),
