@@ -355,40 +355,6 @@ h2 { font-size: 13px; font-weight: 750; }
 }
 .metric-tile.warning span { color: var(--tat-warn); }
 
-/* Status Notifications */
-.status-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 30px;
-  margin-bottom: 6px;
-  padding: 5px 8px;
-  border: 1px solid var(--tat-line);
-  border-radius: var(--radius-sm);
-  background: var(--tat-surface);
-  color: var(--tat-muted);
-  font-size: 12px;
-  font-weight: 600;
-  box-shadow: var(--shadow);
-  transition: opacity 0.2s ease;
-}
-.status-bar.hidden { display: none; }
-.status-bar.error {
-  background: var(--tat-danger-soft);
-  border-color: color-mix(in srgb, var(--tat-danger) 25%, transparent);
-  color: var(--tat-danger);
-}
-.status-bar.ok {
-  background: var(--tat-ok-soft);
-  border-color: color-mix(in srgb, var(--tat-ok) 25%, transparent);
-  color: var(--tat-ok);
-}
-.status-bar.busy {
-  background: var(--tat-info-soft);
-  border-color: color-mix(in srgb, var(--tat-info) 25%, transparent);
-  color: var(--tat-info);
-}
-
 .notice-toast {
   position: fixed;
   top: max(12px, env(safe-area-inset-top));
@@ -1497,14 +1463,24 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
 
 .closed-pilot-notice strong { font-size: 11px; }
 
-.task-inbox-block {
-  border-color: color-mix(in srgb, var(--tat-primary) 38%, var(--tat-line));
-  background: color-mix(in srgb, var(--tat-primary) 4%, var(--tat-surface));
+.task-inbox-panel {
+  position: fixed;
+  z-index: 95;
+  top: max(58px, calc(env(safe-area-inset-top) + 54px));
+  right: 8px;
+  width: min(360px, calc(100vw - 16px));
+  max-height: min(70dvh, 520px);
+  overflow: auto;
+  border: 1px solid var(--tat-line);
+  border-radius: 12px;
+  background: var(--tat-surface);
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--tat-text) 22%, transparent);
 }
-.task-inbox-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 10px 6px; }
-.task-inbox-heading > div { min-width: 0; }
-.task-inbox-heading button { width: 32px; min-width: 32px; min-height: 32px; padding: 0; font-size: 20px; }
-.task-inbox-list { display: grid; gap: 6px; padding: 0 8px 8px; }
+.task-inbox-panel[hidden] { display: none; }
+.task-inbox-panel-heading { position: sticky; z-index: 1; top: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 10px; border-bottom: 1px solid var(--tat-line); background: var(--tat-surface); }
+.task-inbox-panel-heading h2 { margin: 0; font-size: 13px; }
+.task-inbox-panel-heading button { width: 32px; min-width: 32px; min-height: 32px; padding: 0; font-size: 20px; }
+.task-inbox-list { display: grid; gap: 6px; padding: 8px; }
 .recognition-view { gap: 10px; }
 .recognition-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 4px 10px; }
 .recognition-header h2, .recognition-header p { margin: 0; }
@@ -1613,6 +1589,7 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
   text-align: left;
 }
 .task-inbox-card.unread { border-left: 3px solid var(--tat-primary); }
+.task-inbox-card.task-focus { border-color: var(--tat-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--tat-primary) 22%, transparent); }
 .task-card-copy { min-width: 0; display: grid; gap: 2px; }
 .task-card-copy strong { font-size: 12px; }
 .task-card-copy small { color: var(--tat-muted); font-size: 9.5px; overflow-wrap: anywhere; }

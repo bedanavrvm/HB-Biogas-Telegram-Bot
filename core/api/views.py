@@ -947,6 +947,31 @@ def tat_tracker_target_settings(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 @miniapp_write_response
+def tat_tracker_target_sheet_sync(request):
+    payload = _tat_json_body(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    group_id, group_config, user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    roles = {str(role or '').strip().upper() for role in (user_payload.get('roles') or [])}
+    if not (getattr(user, 'is_superuser', False) or 'IT' in roles):
+        return JsonResponse({'ok': False, 'error': 'Only IT staff can retry the TAT target sheet sync.'}, status=403)
+    from core.services.tat_tracker import sync_tat_target_sheet_mirror
+    result = sync_tat_target_sheet_mirror(group_config, actor=user, force_retry=True)
+    if result.get('status') != 'synced':
+        return JsonResponse({
+            'ok': False,
+            'error': 'Database targets are live, but the TAT target sheet is still unavailable. Try again when Google Sheets is available.',
+            'data': result,
+        }, status=503)
+    return JsonResponse({'ok': True, 'data': result})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@miniapp_write_response
 def tat_tracker_settings(request):
     payload = _tat_json_body(request)
     group_id, group_config, user_payload, user, error = _tat_context(payload)

@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=65">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=66">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}" data-task-token="{{ task_token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -28,7 +28,7 @@
           <p id="userLine" class="user-line">Opening tracker...</p>
         </div>
       </div>
-      <button id="privateTaskButton" type="button" class="ghost-btn task-inbox-button" aria-label="Assigned work" title="Assigned work" aria-controls="privateTaskSection" aria-expanded="false">
+      <button id="privateTaskButton" type="button" class="ghost-btn task-inbox-button" aria-label="Work needing attention" title="Work needing attention" aria-controls="privateTaskPanel" aria-expanded="false">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
         <span id="privateTaskCount" class="task-inbox-count" hidden>0</span>
       </button>
@@ -39,12 +39,17 @@
         <span class="refresh-label">Refresh</span>
       </button>
     </header>
+    <section id="privateTaskPanel" class="task-inbox-panel" aria-labelledby="privateTaskHeading" hidden>
+      <div class="task-inbox-panel-heading">
+        <h2 id="privateTaskHeading">Needs your input</h2>
+        <button id="closePrivateTasks" type="button" class="ghost-btn" aria-label="Close notifications">&times;</button>
+      </div>
+      <div id="privateTaskList" class="task-inbox-list"></div>
+    </section>
     <div id="loadingBrand" class="loading-brand" role="status" aria-live="polite">
       <img src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu">
       <span>Loading tracker...</span>
     </div>
-    <div id="status" class="status-bar" role="status" aria-live="polite">Loading tracker...</div>
-
     <nav id="workspaceTabs" class="workspace-tabs" aria-label="TAT workspace">
       <button id="casesWorkspaceBtn" type="button" class="active" aria-pressed="true">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9h8M8 13h8M8 17h5"/></svg>
@@ -168,10 +173,6 @@
       <p id="queueFreshness" class="queue-freshness" role="status" aria-live="polite">Updating queue…</p>
       <div id="activeQueueFilters" class="active-filters" aria-label="Active filters" hidden></div>
 
-      <section id="privateTaskSection" class="section-block task-inbox-block" aria-labelledby="privateTaskHeading" hidden>
-        <div class="task-inbox-heading"><div><span class="eyebrow">Assigned work</span><h2 id="privateTaskHeading">Needs your input</h2></div><button id="closePrivateTasks" type="button" class="ghost-btn" aria-label="Close assigned work">&times;</button></div>
-        <div id="privateTaskList" class="task-inbox-list"></div>
-      </section>
 
       <section class="section-block active-queue-block">
         <div id="queueList" class="case-list"></div>
@@ -278,6 +279,7 @@
           <h2>TAT Targets</h2>
           <p>Set every product stage in minutes. Total target is optional and otherwise uses the applicable loan-cycle stage sum. A different authorised Business Admin must approve changes.</p>
         </div>
+        <div id="targetSheetSyncStatus" class="settings-attention hidden" role="status" aria-live="polite"></div>
         <div id="targetSettingsList" class="target-settings-list" aria-live="polite"></div>
         <label>Reason for change<textarea id="targetSettingsReason" required placeholder="Why is this target changing?"></textarea></label>
         <div class="form-actions">
@@ -470,6 +472,6 @@
   <script src="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.js' %}"></script>
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}"></script>
   <script src="{% static 'miniapp/ag_grid_zoom.js' %}?v=3"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=102"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=103"></script>
 </body>
 </html>

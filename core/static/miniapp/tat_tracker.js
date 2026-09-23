@@ -43,6 +43,8 @@
     assessmentPreview: { open: false, url: '', filename: '', documentId: '', source: '' },
     workflowMode: null,
     taskInbox: { items: [], unread_count: 0, total: 0 },
+    taskFocus: null,
+    taskFocusTimer: null,
     recognition: { view: 'personal', role: '', product: '', page: 1, loading: false, sequence: 0 },
     pendingStageUpdate: null,
     directTask: null,
@@ -71,7 +73,6 @@
   };
 
   const $ = (id) => document.getElementById(id);
-  let statusTimeout = null;
   let noticeTimeout = null;
 
   function bindCollapsingHeader() {
@@ -149,6 +150,7 @@
       '/api/tat-tracker/settings/proposals/': 'Saving the settings proposal',
       '/api/tat-tracker/settings/proposals/review/': 'Reviewing the settings proposal',
       '/api/tat-tracker/target-settings/': 'Saving TAT targets',
+      '/api/tat-tracker/target-settings/sync/': 'Synchronising the TAT target sheet',
     };
     return actions[path] || 'Completing the TAT action';
   }
@@ -287,65 +289,13 @@
   }
   function presentTatError(error, suffix) {
     if (!error || error.name === 'AbortError') return;
-    const presentation = error.presentation || error.payload?.presentation || {};
     const message = `${error.message || 'We could not complete that action.'}${suffix || ''}`;
-    if (presentation.surface_hint === 'toast' && presentation.persistence === 'transient') {
-      showNotice(message, presentation.tone === 'warning' ? 'error' : (presentation.tone || 'error'));
-      return;
-    }
-    setStatus(message, 'error');
+    showNotice(message, 'error');
     utils.haptic?.('error');
   }
   function setStatus(message, tone) {
-    if (statusTimeout) {
-      clearTimeout(statusTimeout);
-      statusTimeout = null;
-    }
-    const el = $('status');
-    if (!message) {
-      el.innerHTML = '';
-      el.className = 'status-bar hidden';
-      return;
-    }
-    
-    let icon = '';
-    if (tone === 'busy') {
-      icon = `
-        <svg class="spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="12" y1="2" x2="12" y2="6"></line>
-          <line x1="12" y1="18" x2="12" y2="22"></line>
-          <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line>
-          <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
-          <line x1="2" y1="12" x2="6" y2="12"></line>
-          <line x1="18" y1="12" x2="22" y2="12"></line>
-          <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line>
-          <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
-        </svg>
-      `;
-    } else if (tone === 'ok') {
-      icon = `
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="20 6 9 17 4 12"></polyline>
-        </svg>
-      `;
-    } else if (tone === 'error') {
-      icon = `
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10"></circle>
-          <line x1="12" y1="8" x2="12" y2="12"></line>
-          <line x1="12" y1="16" x2="12.01" y2="16"></line>
-        </svg>
-      `;
-    }
-    el.innerHTML = `${icon}<span>${escapeHtml(message)}</span>`;
-    el.className = 'status-bar' + (tone ? ' ' + tone : '');
-    if (tone === 'ok') showNotice(message, tone);
-
-    if (tone === 'ok') {
-      statusTimeout = setTimeout(() => {
-        setStatus('');
-      }, 1500);
-    }
+    if (!message || tone === 'busy') return;
+    showNotice(message, tone === 'error' ? 'error' : 'ok');
   }
 
   function show(view) {
@@ -771,15 +721,18 @@
   function renderTaskInbox(inbox) {
     const data = inbox || { items: [], unread_count: 0, total: 0 };
     state.taskInbox = data;
-    const section = $('privateTaskSection');
+    const panel = $('privateTaskPanel');
     const list = $('privateTaskList');
-    if (!section || !list) return;
+    if (!panel || !list) return;
     const items = data.items || [];
     const unread = Number(data.unread_count || 0);
     $('privateTaskCount').textContent = unread || data.total || items.length;
     $('privateTaskCount').hidden = !items.length;
-    if (!items.length) section.hidden = true;
     list.replaceChildren();
+    if (!items.length) {
+      list.innerHTML = '<div class="empty-state"><div class="es-title">No assigned work</div><div class="es-sub">New cases requiring your role will appear here.</div></div>';
+      return;
+    }
     items.forEach((item) => {
       const button = document.createElement('button');
       button.type = 'button';
@@ -787,7 +740,8 @@
       button.innerHTML = `
         <span class="task-card-copy">
           <strong>${escapeHtml(item.stage_label)}</strong>
-          <small>${escapeHtml(item.case_id)} &middot; ${escapeHtml(item.product)} &middot; ${escapeHtml(item.branch)}</small>
+          <small>${escapeHtml(item.client_name || item.case_id)} &middot; ${escapeHtml(item.case_id)}</small>
+          <small>${escapeHtml([item.product, item.branch, item.status].filter(Boolean).join(' · '))}</small>
         </span>
         <span class="task-card-meta">
           <span class="role-chip">${escapeHtml(item.kind === 'backup' ? 'Backup cover' : item.role)}</span>
@@ -796,6 +750,8 @@
       button.addEventListener('click', async () => {
         try {
           if (item.unread) await api('/api/tat-tracker/tasks/read/', { task_id: item.task_id });
+          closePrivateTasks({ restoreFocus: false });
+          setTaskFocus(item.case_id, item.stage_key);
           await openCase(item.case_id, item.stage_key);
           loadTaskInbox().catch(() => {});
         } catch (error) {
@@ -804,6 +760,52 @@
       });
       list.appendChild(button);
     });
+  }
+
+  function closePrivateTasks({ restoreFocus = true } = {}) {
+    const panel = $('privateTaskPanel');
+    if (!panel) return;
+    panel.hidden = true;
+    $('privateTaskButton').setAttribute('aria-expanded', 'false');
+    if (restoreFocus) $('privateTaskButton').focus();
+  }
+
+  function clearTaskFocus() {
+    if (state.taskFocusTimer) window.clearTimeout(state.taskFocusTimer);
+    state.taskFocusTimer = null;
+    state.taskFocus = null;
+    document.querySelectorAll('[data-stage-key].task-focus').forEach(node => node.classList.remove('task-focus'));
+  }
+
+  function applyTaskFocus() {
+    const focus = state.taskFocus;
+    if (!focus || Date.now() >= focus.expiresAt || state.detail?.summary?.case_id !== focus.caseId) {
+      if (focus && Date.now() >= focus.expiresAt) clearTaskFocus();
+      return;
+    }
+    const row = [...document.querySelectorAll('[data-stage-key]')]
+      .find(node => node.dataset.stageKey === focus.stageKey);
+    if (!row) return;
+    row.classList.add('task-focus');
+    if (!focus.announced) {
+      focus.announced = true;
+      window.requestAnimationFrame(() => {
+        if (!row.isConnected || state.taskFocus !== focus) return;
+        row.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+        const control = row.querySelector('.stage-action-wrap button, .stage-action-wrap select');
+        if (control) control.focus({ preventScroll: true });
+      });
+    }
+  }
+
+  function setTaskFocus(caseId, stageKey) {
+    clearTaskFocus();
+    if (!caseId || !stageKey) return;
+    const focus = { caseId, stageKey, expiresAt: Date.now() + 6500, announced: false };
+    state.taskFocus = focus;
+    state.taskFocusTimer = window.setTimeout(() => {
+      if (state.taskFocus === focus) clearTaskFocus();
+    }, 6500);
   }
 
   async function creditAssessmentUpload(formData) {
@@ -995,6 +997,7 @@
 
   function returnToQueue() {
     state.directTask = null;
+    clearTaskFocus();
     show('queue');
     setStatus('');
     // The bootstrap queue is already usable. Reconcile it quietly so Back is
@@ -1422,6 +1425,34 @@
     }));
   }
 
+  function renderTargetSheetSync(health, account = {}) {
+    const node = $('targetSheetSyncStatus');
+    if (!node) return;
+    const status = String(health?.status || 'not_configured');
+    const canRetry = Boolean(health?.can_retry) && (account.roles || [])
+      .some((role) => String(role || '').toUpperCase() === 'IT');
+    if (status === 'synced' || status === 'not_configured') {
+      node.classList.add('hidden');
+      node.replaceChildren();
+      return;
+    }
+    node.classList.remove('hidden');
+    node.innerHTML = `<strong>Target sheet needs sync</strong><span>Database targets are live. The read-only TAT TARGETS tab has not caught up yet.</span>${canRetry ? '<button id="retryTargetSheetSyncBtn" type="button" class="secondary compact-btn">Retry sheet sync</button>' : ''}`;
+    $('retryTargetSheetSyncBtn')?.addEventListener('click', async (event) => {
+      const button = event.currentTarget;
+      try {
+        setButtonLoading(button, true, 'Syncing');
+        await api('/api/tat-tracker/target-settings/sync/', {});
+        showNotice('TAT target sheet updated.', 'ok');
+        await loadSettings();
+      } catch (error) {
+        presentTatError(error);
+      } finally {
+        setButtonLoading(button, false);
+      }
+    });
+  }
+
   async function loadSettings() {
     const result = await api('/api/tat-tracker/settings/', {});
     const personal = result.data.personal || {};
@@ -1444,7 +1475,10 @@
     $('preferenceCompactCards').checked = Boolean(personal.compact_cards);
     const targetCard = (configuration.cards || {}).tat_targets || {};
     $('targetSettingsForm').classList.toggle('hidden', !targetCard.can_propose);
-    if (targetCard.can_propose) renderTargetSettings(configuration.targets || []);
+    if (targetCard.can_propose) {
+      renderTargetSettings(configuration.targets || []);
+      renderTargetSheetSync(configuration.target_sheet_sync || {}, result.data.account || {});
+    }
     const escalationCard = (configuration.cards || {}).tat_escalation || {};
     $('escalationSettingsForm').classList.toggle('hidden', !escalationCard.can_propose);
     if (escalationCard.can_propose) renderEscalationSettings((configuration.escalation || {}).rules || []);
@@ -1691,7 +1725,6 @@
   async function openCase(caseId, focusStageKey) {
     const requestNumber = ++state.detailRequestNumber;
     state.detailRequestsInFlight += 1;
-    setStatus('Opening case...', 'busy');
     let result;
     try {
       result = await api('/api/tat-tracker/detail/', { case_id: caseId });
@@ -1706,15 +1739,10 @@
     state.pendingDetail = null;
     renderDetail(result.data);
     show('detail');
-    setStatus('Case opened.', 'ok');
     if (focusStageKey) {
       const field = (result.data.fields || []).find((item) => item.key === focusStageKey);
-      const row = [...document.querySelectorAll('[data-stage-key]')].find((node) => node.dataset.stageKey === focusStageKey);
-      row?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      if (field && field.editable) {
-        window.setTimeout(() => row?.querySelector('.stage-action-wrap button, .stage-action-wrap select')?.focus(), 180);
-      }
-      else if (field) setStatus(field.value ? 'This task has already been completed.' : (field.locked_reason || 'This task is no longer actionable.'), 'error');
+      applyTaskFocus();
+      if (field && !field.editable) showNotice(field.value ? 'This task has already been completed.' : (field.locked_reason || 'This task is no longer actionable.'), 'error');
     }
   }
 
@@ -2196,6 +2224,7 @@
       fields.appendChild(row);
     });
     hydrateTatCounters($('detailView'));
+    applyTaskFocus();
 
     // The server projection omits only duplicate technical transition receipts.
     const events = $('eventList');
@@ -3786,19 +3815,25 @@
     loadTatRecognition().catch(presentTatError);
   });
   $('privateTaskButton').addEventListener('click', () => {
-    const section = $('privateTaskSection');
-    const opening = section.hidden;
-    section.hidden = !opening;
+    const panel = $('privateTaskPanel');
+    const opening = panel.hidden;
+    panel.hidden = !opening;
     $('privateTaskButton').setAttribute('aria-expanded', String(opening));
     if (opening) {
-      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
       loadTaskInbox().catch(presentTatError);
     }
   });
   $('closePrivateTasks').addEventListener('click', () => {
-    $('privateTaskSection').hidden = true;
-    $('privateTaskButton').setAttribute('aria-expanded', 'false');
-    $('privateTaskButton').focus();
+    closePrivateTasks();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !$('privateTaskPanel').hidden) closePrivateTasks();
+  });
+  document.addEventListener('click', (event) => {
+    const panel = $('privateTaskPanel');
+    if (!panel.hidden && !panel.contains(event.target) && !$('privateTaskButton').contains(event.target)) {
+      closePrivateTasks({ restoreFocus: false });
+    }
   });
   $('backBtn').addEventListener('click', returnToQueue);
   document.querySelectorAll('[data-home-queue]').forEach((button) => button.addEventListener('click', () => {

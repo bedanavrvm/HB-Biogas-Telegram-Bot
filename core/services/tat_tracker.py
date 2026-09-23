@@ -64,6 +64,19 @@ REGISTER_APPROVED_OPTIONS = ['Approved', 'Declined']
 MINUTES_SHARED_OPTIONS = ['Yes', 'No']
 BRO_APPLIED_OPTIONS = ['Met', 'Not Met']
 STATUS_VALUES = ['Active', 'Stalled', 'Declined', 'Disbursed']
+TAT_SHEET_STATUS_FORMATS = {
+    'ACTIVE': {'backgroundColor': {'red': 0.855, 'green': 0.929, 'blue': 0.996}, 'textFormat': {'foregroundColor': {'red': 0.075, 'green': 0.337, 'blue': 0.651}, 'bold': True}},
+    'STALLED': {'backgroundColor': {'red': 1.0, 'green': 0.933, 'blue': 0.773}, 'textFormat': {'foregroundColor': {'red': 0.573, 'green': 0.251, 'blue': 0.055}, 'bold': True}},
+    'DECLINED': {'backgroundColor': {'red': 0.996, 'green': 0.878, 'blue': 0.878}, 'textFormat': {'foregroundColor': {'red': 0.694, 'green': 0.114, 'blue': 0.114}, 'bold': True}},
+    'DISBURSED': {'backgroundColor': {'red': 0.863, 'green': 0.988, 'blue': 0.906}, 'textFormat': {'foregroundColor': {'red': 0.086, 'green': 0.396, 'blue': 0.204}, 'bold': True}},
+}
+TAT_SHEET_STAGE_FORMATS = {
+    'within_target': {'backgroundColor': {'red': 0.863, 'green': 0.988, 'blue': 0.906}, 'textFormat': {'foregroundColor': {'red': 0.086, 'green': 0.396, 'blue': 0.204}, 'bold': True}},
+    'near_target': {'backgroundColor': {'red': 1.0, 'green': 0.933, 'blue': 0.773}, 'textFormat': {'foregroundColor': {'red': 0.573, 'green': 0.251, 'blue': 0.055}, 'bold': True}},
+    'overdue': {'backgroundColor': {'red': 0.996, 'green': 0.878, 'blue': 0.878}, 'textFormat': {'foregroundColor': {'red': 0.694, 'green': 0.114, 'blue': 0.114}, 'bold': True}},
+    'target_unavailable': {'backgroundColor': {'red': 0.941, 'green': 0.949, 'blue': 0.965}, 'textFormat': {'foregroundColor': {'red': 0.334, 'green': 0.388, 'blue': 0.467}, 'bold': True}},
+}
+TAT_SHEET_NEUTRAL_STAGE_FORMAT = {'backgroundColor': {'red': 1.0, 'green': 1.0, 'blue': 1.0}, 'textFormat': {'foregroundColor': {'red': 0.102, 'green': 0.122, 'blue': 0.161}, 'bold': False}}
 TAT_NEGATIVE_OUTCOME_STATUSES = frozenset({'Rejected', 'Declined', 'Deferred'})
 TAT_STAGE_OUTCOME_OPTIONS = {
     'bm_response': tuple(BM_RESPONSE_OPTIONS),
@@ -2067,6 +2080,57 @@ def _tat_sheet_call(operation, *, description: str):
             time.sleep(delay)
 
 
+def _format_tat_sheet_cells(sheet, formats: list[dict[str, Any]], *, case_id: str) -> None:
+    """Apply presentation-only TAT formats without affecting canonical values."""
+    if not formats:
+        return
+    try:
+        if hasattr(sheet, 'batch_format'):
+            sheet.batch_format(formats)
+        elif hasattr(sheet, 'format'):
+            for item in formats:
+                sheet.format(item['range'], item['format'])
+    except Exception:
+        logger.warning('Could not apply TAT sheet highlighting for %s.', case_id, exc_info=True)
+
+
+def format_tat_sheet_case_row(group_config, sheet, row: int, case: TatTrackerCase, product: ProductConfig) -> None:
+    """Colour the displayed status and applicable stage cells for one case row.
+
+    The Register is only a projection.  Formatting is deliberately best-effort
+    so a cosmetic Google Sheets failure cannot reject a valid workflow update.
+    """
+    now = timezone.now()
+    workflow = getattr(group_config, 'workflow', None) or {}
+    formats: list[dict[str, Any]] = []
+    # Keep the colour aligned with the value written to the Register.  The
+    # reporting projection can derive a different status (for example,
+    # ``Stalled`` from elapsed time) but it must not make the Sheet visually
+    # claim a status different from the stored cell value.
+    status_style = TAT_SHEET_STATUS_FORMATS.get(str(case.status or '').upper())
+    if status_style:
+        formats.append({
+            'range': f'{column_letter(product.status_col)}{int(row)}',
+            'format': status_style,
+        })
+    for stage in product.stages:
+        completed = stage.key in (case.stage_values or {}) and case.stage_values.get(stage.key) not in (None, '')
+        active = case.current_stage == stage.key and case.status not in TAT_COMPLETED_STATUSES
+        stage_style = TAT_SHEET_NEUTRAL_STAGE_FORMAT
+        if completed or active:
+            minutes = stage_tat_minutes(case, stage, now=now)
+            target = stage_target_minutes_for_case(case, workflow, product, stage)
+            stage_style = TAT_SHEET_STAGE_FORMATS.get(
+                sla_status(minutes, target),
+                TAT_SHEET_NEUTRAL_STAGE_FORMAT,
+            )
+        formats.append({
+            'range': f'{column_letter(stage.column)}{int(row)}',
+            'format': stage_style,
+        })
+    _format_tat_sheet_cells(sheet, formats, case_id=case.case_id)
+
+
 def sync_case_to_sheet(group_config, case: TatTrackerCase) -> bool:
     if not bool(getattr(group_config, 'tat_sheet_projection_enabled', True)):
         if case.sync_error:
@@ -2141,6 +2205,7 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> bool:
             )
         else:
             row = append_case_row(sheet, row_data)
+        format_tat_sheet_case_row(group_config, sheet, row, case, product)
         case.row_number = row
         case.sheet_name = projection_sheet
         synced_at = timezone.now()
@@ -2847,7 +2912,81 @@ def sync_tat_target_settings_to_sheet(group_config, workflow: dict | None) -> di
     except Exception as exc:
         logger.warning('TAT target sheet sync failed for group %s: %s', group_config.group_id, exc)
         return {'status': 'failed'}
-@transaction.atomic
+
+
+def _tat_target_sync_key(group_config, workflow: dict | None) -> str:
+    from core.services.external_resilience import payload_digest
+    target_digest = payload_digest((workflow or {}).get('tat_targets_minutes') or {})
+    return f'tat-target-sheet:{group_config.pk}:{target_digest}'
+
+
+def tat_target_sheet_sync_health(group_config) -> dict[str, Any]:
+    """Return source-of-truth-safe health for the current target mirror."""
+    if not getattr(group_config, 'sheet_id', ''):
+        return {'status': 'not_configured', 'can_retry': False}
+    from core.models import IntegrationOperation
+    operation = IntegrationOperation.objects.filter(
+        deduplication_key=_tat_target_sync_key(group_config, getattr(group_config, 'workflow', None)),
+    ).first()
+    if not operation:
+        return {'status': 'needs_sync', 'can_retry': True}
+    if operation.status == IntegrationOperation.STATUS_SUCCEEDED:
+        return {'status': 'synced', 'can_retry': False, 'last_synced_at': operation.completed_at.isoformat() if operation.completed_at else ''}
+    return {
+        'status': 'needs_sync',
+        'can_retry': True,
+        'last_attempted_at': operation.last_attempt_at.isoformat() if operation.last_attempt_at else '',
+    }
+
+
+def sync_tat_target_sheet_mirror(group_config, *, actor=None, force_retry: bool = False) -> dict[str, Any]:
+    """Synchronize the read-only target support tab through a durable operation."""
+    if not getattr(group_config, 'sheet_id', ''):
+        return {'status': 'not_configured', 'can_retry': False}
+    from core.models import IntegrationOperation
+    from core.services.external_resilience import ExternalOperationError, execute_operation, reserve_operation
+
+    workflow = getattr(group_config, 'workflow', None) or {}
+    operation, _ = reserve_operation(
+        integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+        operation_type='tat_target_sheet_sync',
+        deduplication_key=_tat_target_sync_key(group_config, workflow),
+        source_model='core.GroupSheetConfiguration',
+        source_id=str(group_config.pk),
+        requested_by=actor if getattr(actor, 'pk', None) else None,
+        requested_by_label=(actor.get_full_name() or actor.get_username()) if getattr(actor, 'pk', None) else '',
+        operation_payload=(workflow.get('tat_targets_minutes') or {}),
+        max_attempts=1,
+    )
+    if force_retry and operation.status in {
+        IntegrationOperation.STATUS_RETRYABLE,
+        IntegrationOperation.STATUS_DEAD_LETTER,
+    }:
+        operation.status = IntegrationOperation.STATUS_PENDING
+        operation.attempts = 0
+        operation.last_error = ''
+        operation.last_error_code = ''
+        operation.next_retry_at = None
+        operation.save(update_fields=['status', 'attempts', 'last_error', 'last_error_code', 'next_retry_at', 'updated_at'])
+    try:
+        result = execute_operation(
+            operation,
+            lambda: _sync_tat_target_sheet_or_raise(group_config, workflow),
+            attempt_budget=1,
+        )
+    except ExternalOperationError:
+        logger.warning('TAT target sheet mirror needs retry for group %s.', group_config.group_id)
+        return tat_target_sheet_sync_health(group_config)
+    return {'status': 'synced', 'can_retry': False, 'result': result or {}}
+
+
+def _sync_tat_target_sheet_or_raise(group_config, workflow: dict) -> dict:
+    result = sync_tat_target_settings_to_sheet(group_config, workflow)
+    if result.get('status') != 'synced':
+        raise RuntimeError('TAT target sheet is unavailable.')
+    return result
+
+
 def update_tat_target_settings(group_config, user: dict, payload: object) -> dict:
     """Persist administrator-managed SLA targets and refresh the group registry."""
     if not can_manage_tat_targets(user):
@@ -2855,20 +2994,28 @@ def update_tat_target_settings(group_config, user: dict, payload: object) -> dic
     from core.models import GroupSheetConfiguration
     from core.services.group_config import GroupRegistry
 
-    config = GroupSheetConfiguration.objects.select_for_update().get(group_id=str(group_config.group_id))
-    workflow = dict(config.workflow or {})
-    targets = normalize_tat_target_settings(workflow, payload)
-    changed = workflow.get('tat_targets_minutes') != targets
+    with transaction.atomic():
+        config = GroupSheetConfiguration.objects.select_for_update().get(group_id=str(group_config.group_id))
+        workflow = dict(config.workflow or {})
+        targets = normalize_tat_target_settings(workflow, payload)
+        changed = workflow.get('tat_targets_minutes') != targets
+        if changed:
+            workflow['tat_targets_minutes'] = targets
+            config.workflow = workflow
+            config.save(update_fields=['workflow', 'updated_at'])
+            GroupRegistry.get_instance().reload()
+        active_workflow = workflow if changed else config.workflow
+
+    # The database save above is authoritative.  The support tab is a
+    # best-effort mirror and is deliberately attempted only after commit so a
+    # Sheets outage never rolls back a valid IT target change.
     if changed:
-        workflow['tat_targets_minutes'] = targets
-        config.workflow = workflow
-        config.save(update_fields=['workflow', 'updated_at'])
-        GroupRegistry.get_instance().reload()
-    active_workflow = workflow if changed else config.workflow
+        sync_tat_target_sheet_mirror(GroupSheetConfiguration.objects.get(pk=config.pk))
+    config.refresh_from_db(fields=['workflow'])
     return {
         'changed': changed,
         'targets': tat_target_settings(active_workflow),
-        'sheet_sync': sync_tat_target_settings_to_sheet(group_config, active_workflow),
+        'sheet_sync': tat_target_sheet_sync_health(config),
     }
 def stage_target_minutes(workflow: dict | None, product: ProductConfig, stage: StageConfig) -> Decimal | None:
     value = (tat_targets_for_product(workflow, product).get('stages') or {}).get(stage.key)

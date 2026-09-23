@@ -311,7 +311,7 @@ def _normalise_escalation(payload: Any) -> dict[str, Any]:
 
 
 def tat_settings_payload(config, actor: dict) -> dict[str, Any]:
-    from core.services.tat_tracker import tat_target_settings
+    from core.services.tat_tracker import tat_target_settings, tat_target_sheet_sync_health
     from core.services.tat_presentation import presentation_settings
     config = _tat_database_configuration(config)
     presentation = presentation_settings()
@@ -331,6 +331,7 @@ def tat_settings_payload(config, actor: dict) -> dict[str, Any]:
         'presentation': presentation,
         'settings_version': int((config.workflow or {}).get('settings_version') or 1),
         'targets': tat_target_settings(config.workflow),
+        'target_sheet_sync': tat_target_sheet_sync_health(config),
         # Future rows are configurable; old rows remain immutable evidence for
         # historical business-hour calculations.
         'holidays': ({'holidays': [
@@ -419,6 +420,13 @@ def review_tat_configuration_request(request_id: str, actor: dict, *, approve: b
         # the newly approved target values.
         from core.services.group_config import GroupRegistry
         GroupRegistry.get_instance().reload()
+        from core.services.tat_tracker import sync_tat_target_sheet_mirror
+        config_id = config.pk
+        transaction.on_commit(
+            lambda: sync_tat_target_sheet_mirror(
+                GroupSheetConfiguration.objects.get(pk=config_id), actor=reviewer,
+            )
+        )
     elif request.setting_key == WorkflowConfigurationChangeRequest.SETTING_HOLIDAYS:
         requested_dates = {row['date'] for row in request.proposed_snapshot['holidays']}
         for holiday in BusinessCalendarHoliday.objects.filter(date__gt=timezone.localdate()).exclude(date__in=requested_dates):
