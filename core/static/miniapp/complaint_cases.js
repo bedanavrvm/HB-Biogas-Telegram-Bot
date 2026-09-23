@@ -15,6 +15,7 @@
     workspace: 'queue', returnWorkspace: 'queue', globalLoaded: false,
     globalOverview: null, globalPage: 1, globalPages: 1, globalPageSize: 50,
     globalSort: '-date_reported', reportGridApi: null, reportGridZoom: null, reportGridLoading: false,
+    reportGridCopyTimer: null, reportGridCopyPointerId: null, reportGridCopyStart: null, reportGridCopyReadyCell: null,
     categoryChart: null, timeChart: null, categoryChartType: 'bar', reportGranularity: 'month',
     reportSummarySequence: 0, reportTableSequence: 0, reportFilterTimer: null,
     reportTableAbortController: null,
@@ -165,6 +166,69 @@
     if (className) button.className = className;
     button.append(iconNode(icon), textNode('span', label));
     return button;
+  }
+  function shortCopiedValue(value) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    return text.length > 56 ? `${text.slice(0, 53)}...` : text;
+  }
+  async function copyReportCell(cell) {
+    const rowIndex = Number(cell?.closest('.ag-row')?.getAttribute('row-index'));
+    const columnId = cell?.getAttribute('col-id');
+    if (!Number.isInteger(rowIndex) || !columnId || !state.reportGridApi) return false;
+    const row = state.reportGridApi.getDisplayedRowAtIndex(rowIndex);
+    const column = state.reportGridApi.getColumn(columnId);
+    const value = String(cell.innerText || '').replace(/\s+/g, ' ').trim();
+    if (!row || !column || !value) return false;
+    try {
+      await navigator.clipboard.writeText(value);
+      notify(`${shortCopiedValue(value)} copied`);
+      return true;
+    } catch (_) {
+      notify('Copy was unavailable on this device.', true);
+      return false;
+    }
+  }
+  function clearReportGridCopy() {
+    clearTimeout(state.reportGridCopyTimer);
+    state.reportGridCopyTimer = null;
+    state.reportGridCopyPointerId = null;
+    state.reportGridCopyStart = null;
+    state.reportGridCopyReadyCell = null;
+  }
+  function bindReportGridCopy() {
+    const grid = $('complaintReportGrid');
+    if (grid.dataset.copyBound === 'true') return;
+    grid.dataset.copyBound = 'true';
+    grid.addEventListener('pointerdown', event => {
+      if (!event.isPrimary || event.button !== 0 || event.target.closest('a, button, input, textarea, select')) return;
+      const cell = event.target.closest('.ag-cell');
+      if (!cell || !grid.contains(cell)) return;
+      clearReportGridCopy();
+      state.reportGridCopyPointerId = event.pointerId;
+      state.reportGridCopyStart = { x: event.clientX, y: event.clientY, cell };
+      state.reportGridCopyTimer = setTimeout(() => {
+        const current = state.reportGridCopyStart;
+        if (!current || event.pointerId !== state.reportGridCopyPointerId) return;
+        state.reportGridCopyTimer = null;
+        state.reportGridCopyReadyCell = current.cell;
+        utils.haptic?.('light');
+      }, 500);
+    });
+    grid.addEventListener('pointermove', event => {
+      const start = state.reportGridCopyStart;
+      if (!start || event.pointerId !== state.reportGridCopyPointerId) return;
+      if (Math.abs(event.clientX - start.x) > 8 || Math.abs(event.clientY - start.y) > 8) clearReportGridCopy();
+    });
+    const finish = event => {
+      const readyCell = event.pointerId === state.reportGridCopyPointerId ? state.reportGridCopyReadyCell : null;
+      if (readyCell && event.type === 'pointerup') {
+        event.preventDefault();
+        void copyReportCell(readyCell);
+      }
+      if (event.pointerId === state.reportGridCopyPointerId) clearReportGridCopy();
+    };
+    grid.addEventListener('pointerup', finish);
+    grid.addEventListener('pointercancel', finish);
   }
 
   function savedVoiceLanguage() {
@@ -1528,6 +1592,7 @@
         state.globalPage = 1; refreshReport({ summary: false });
       },
     });
+    bindReportGridCopy();
     state.reportGridZoom?.refresh();
   }
   async function loadGlobalCases(filters) {
@@ -1586,7 +1651,7 @@
     try {
       $('downloadResult').hidden = true;
       const overview = await getJson('reports/summary/', { granularity: 'year' }); const count = overview.total || 0;
-      $('exportConfirmText').textContent = `This download includes all ${count} complaints across all complaint groups, not only your current filters. Continue?`;
+      $('exportConfirmText').textContent = `Download all ${count} complaints as an Excel file?`;
       $('exportConfirm').hidden = false; $('cancelExportBtn').focus();
     } catch (error) { presentError(error, openGlobalWorkspace); }
   }
@@ -1682,6 +1747,8 @@
     notify(`Download started again. Check Downloads for ${state.exportFilename}.`);
   }
   function returnPrevious() {
+    if (!$('mediaViewerOverlay').hidden) { closeMediaViewer(); return; }
+    if (!$('cameraOverlay').hidden) { closeCamera(); return; }
     if (!$('exportConfirm').hidden) { cancelExport(); return; }
     if (!$('createView').hidden) resetVoiceField('complaint_description');
     if (!$('detailView').hidden) {
