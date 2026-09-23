@@ -848,6 +848,7 @@ class TatTrackerWorkflowTest(TestCase):
 
         self.assertIn('function consumeTaskLaunchUrl()', source)
         self.assertIn("const keys = ['startapp', 'start_param', 'tgWebAppStartParam'];", source)
+        self.assertIn("url.searchParams.set('group_id', state.groupId)", source)
         self.assertIn("window.history.replaceState(window.history.state, '', url.toString())", source)
         self.assertIn("$('backBtn').addEventListener('click', returnToQueue)", source)
         self.assertIn("refresh({ background: true }).catch(() => {})", source)

@@ -1107,10 +1107,6 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
   font-weight: 800;
 }
 
-.activity-times { display: grid; gap: 3px; }
-.activity-times div { display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: baseline; justify-content: start; gap: 5px; min-width: 0; }
-.activity-times small { flex: 0 0 auto; font-size: 8px; }
-.activity-times span { min-width: 0; font-size: 10px; text-align: left; }
 /* Detail Panels */
 .detail-grid { display: grid; gap: 8px; }
 .stage-panel, .side-panel, .audit-box {

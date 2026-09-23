@@ -321,6 +321,13 @@
     }
   }
 
+  function fitVisibleTabs(container) {
+    if (!container) return;
+    const visibleCount = [...container.querySelectorAll(':scope > button')]
+      .filter((button) => !button.hidden).length;
+    container.style.gridTemplateColumns = `repeat(${Math.max(1, visibleCount)}, minmax(0, 1fr))`;
+  }
+
   function escapeHtml(value) {
     if (utils.escapeHtml) return utils.escapeHtml(value);
     return String(value == null ? '' : value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
@@ -976,6 +983,10 @@
       const url = new URL(window.location.href);
       const keys = ['startapp', 'start_param', 'tgWebAppStartParam'];
       keys.forEach((key) => url.searchParams.delete(key));
+      // Consume the opaque, one-time task locator but retain the resolved
+      // workflow group. A refresh can then bootstrap the same authorized
+      // workspace instead of posting an empty group ID.
+      if (state.groupId) url.searchParams.set('group_id', state.groupId);
       const rawHash = url.hash.replace(/^#/, '');
       if (rawHash.includes('=')) {
         const hashParams = new URLSearchParams(rawHash);
@@ -1527,7 +1538,7 @@
     document.querySelectorAll('[data-required-capability]').forEach((node) => {
       node.hidden = !capabilities.has(node.dataset.requiredCapability);
     });
-    $('workspaceTabs').classList.toggle('single-tab', !capabilities.has('tat.reports.view') && !capabilities.has('tat.recognition.view'));
+    fitVisibleTabs($('workspaceTabs'));
     const roles = (user.roles || []).join(', ') || 'Staff';
     $('userLine').textContent = `${user.name || 'Staff'} | ${roles}`;
     const productInput = $('newCaseForm')?.elements.product_key;
@@ -1552,7 +1563,7 @@
     markRefreshSuccess();
     renderPrivateAlertConnection(data.private_alerts || {});
     renderTaskInbox(data.task_inbox || {});
-    $('trackerTabs').classList.add('has-settings');
+    fitVisibleTabs($('trackerTabs'));
     const initialView = applyPersonalPreference(data.personal || {});
     show(initialView);
     const initialFilters = currentHomeFilters();
@@ -2061,13 +2072,6 @@
           <small>Official TAT (wall clock)</small>
           <span class="tat-badge ${escapeHtml(summary.sla_status || '')}">${tatCounterMarkup(summary, `case:${summary.case_id}`)}</span>
         </div>
-        <div class="fact fact-activity">
-          <small>Activity</small>
-          <div class="activity-times">
-            <div><small>Created</small><span>${escapeHtml(formatTatDateTime(summary.created_at_iso || summary.created_at))}</span></div>
-            <div><small>Last updated</small><span>${escapeHtml(formatTatDateTime(summary.updated_at_iso || summary.updated_at))}</span></div>
-          </div>
-        </div>
       </div>
       ${escalation ? `<div class="tat-escalation level-${escapeHtml(escalation.escalation_level)}"><strong>SLA escalation: ${escapeHtml(escalation.routing_role)}</strong><span>${escapeHtml(formatMinutes(escalation.overdue_minutes))} overdue at ${escapeHtml(escalation.threshold_percent)}% threshold</span></div>` : ''}`;
 
@@ -2238,8 +2242,10 @@
       timelineEvents.forEach((event) => {
         const eventTitle = event.stage || event.title || 'Case event';
         const eventValue = event.detail || event.value || '';
-        const eventActor = [event.actor, event.authority && `Authority: ${event.authority}`].filter(Boolean).join(' · ');
         const eventAt = formatTatDateTime(event.occurred_at || event.at);
+        // Authority ordinarily repeats the human actor. Show one clear
+        // attribution; retain authority only for system-originated entries.
+        const eventActorDisplay = event.actor || event.authority || 'System';
         const row = document.createElement('div');
         row.className = 'event-item';
         row.innerHTML = `
@@ -2249,7 +2255,7 @@
               <strong class="event-stage">${escapeHtml(eventTitle)}</strong>
             </div>
             ${eventValue ? `<div class="event-detail">${escapeHtml(eventValue)}</div>` : ''}
-            <div class="event-meta">${escapeHtml(eventActor || 'System')} &middot; ${escapeHtml(eventAt || '')}</div>
+            <div class="event-meta">${escapeHtml(eventActorDisplay)} &middot; ${escapeHtml(eventAt || '')}</div>
             ${event.artifact?.url ? `<a class="event-artifact-link" href="${escapeHtml(event.artifact.url)}" target="_blank" rel="noopener">${escapeHtml(event.artifact.name || 'Open linked document')} ↗</a>` : ''}
           </div>
         `;
