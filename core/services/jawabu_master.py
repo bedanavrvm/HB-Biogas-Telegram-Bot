@@ -22,6 +22,7 @@ from django.utils import timezone
 
 from core.models import JawabuFarmerMaster, JawabuFarmerUploadBatch
 from core.services.jawabu_validation import normalize_date_text
+from core.services.identifiers import validate_kenyan_national_id
 from core.services.jawabu import (
     is_valid_phone,
     jawabu_duplicate_key,
@@ -1303,7 +1304,7 @@ def farmup_review_validation_notes(row: dict, cleaned: dict) -> list[str]:
     notes = []
     raw_national_id = clean_text(row.get('National ID', ''))
     if raw_national_id and not clean_national_id(raw_national_id):
-        notes.append('National ID must contain digits only')
+        notes.append('National ID / Maisha Namba must contain 1-9 digits only')
     required = [
         ('National ID', 'national_id'),
         ('Primary Phone', 'primary_phone'),
@@ -1548,11 +1549,11 @@ def clean_farmer_row(
     if raw_national_id and not explicit_national_id:
         review_notes.append('National ID must contain digits only')
     elif national_id and not is_valid_national_id(national_id):
-        review_notes.append('National ID should contain 7-9 digits; reviewer confirmation is required')
+        review_notes.append('National ID / Maisha Namba must contain 1-9 digits only')
     if bracketed_id_value and not clean_national_id(bracketed_id_value):
         review_notes.append('Bracketed National ID in Full Name must contain digits only')
     elif bracketed_id_value and not is_valid_national_id(bracketed_id_value):
-        review_notes.append('Bracketed National ID in Full Name should contain 7-9 digits; reviewer confirmation is required')
+        review_notes.append('Bracketed National ID in Full Name must contain 1-9 digits only')
     if not national_id:
         review_notes.append('Missing National ID')
     if not primary_phone:
@@ -1668,14 +1669,11 @@ def clean_name(value: str) -> str:
 
 def clean_national_id(value: str) -> str:
     text = clean_text(value)
-    # Preserve exceptional numeric historical IDs for supervised review.
-    # Validation decides whether they are standard; normalization must not
-    # force staff to fabricate a seven-to-nine-digit value to continue.
-    return text if re.fullmatch(r'\d{1,64}', text) else ''
+    return validate_kenyan_national_id(text)
 
 
 def is_valid_national_id(value: str) -> bool:
-    return bool(re.fullmatch(r'\d{7,9}', clean_text(value)))
+    return bool(validate_kenyan_national_id(value))
 
 
 def bracketed_id_token(value: str) -> str:

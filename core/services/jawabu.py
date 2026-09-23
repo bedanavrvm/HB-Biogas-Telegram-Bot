@@ -862,14 +862,8 @@ def extract_phone_numbers(content: str) -> list[str]:
 
 
 def normalise_phone(value: str) -> str:
-    digits = re.sub(r'\D', '', str(value or ''))
-    if digits.startswith('254') and len(digits) >= 12:
-        return digits[:12]
-    if digits.startswith('0') and len(digits) >= 10:
-        return '254' + digits[1:10]
-    if len(digits) >= 9 and digits[0] in {'1', '7'}:
-        return '254' + digits[:9]
-    return digits
+    from core.services.identifiers import normalize_kenyan_phone
+    return normalize_kenyan_phone(value)
 
 
 def is_valid_phone(value: str) -> bool:

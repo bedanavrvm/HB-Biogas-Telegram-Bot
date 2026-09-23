@@ -193,8 +193,9 @@
           <label>Product<select name="product_key" required></select></label>
           <label>Branch<select name="branch" required></select></label>
           <label class="new-case-full">Client Name<input class="tat-paste-field" name="client_name" autocomplete="name" autocapitalize="words" spellcheck="false" required placeholder="Customer name"></label>
-          <label>ID Number<input class="tat-paste-field" name="national_id" inputmode="numeric" autocomplete="off" spellcheck="false" data-paste-normalize="digits" required pattern="[0-9]{7,8}" placeholder="7 or 8 digits"></label>
-          <label>Phone Number<input class="tat-paste-field" name="primary_phone" type="tel" inputmode="tel" autocomplete="tel" spellcheck="false" required placeholder="0712 345 678"></label>
+          <label>National ID / Maisha Namba<input class="tat-paste-field" name="national_id" inputmode="numeric" autocomplete="off" spellcheck="false" data-paste-normalize="digits" required pattern="[0-9]{1,9}" placeholder="1 to 9 digits" aria-describedby="newCaseIdHelp"></label>
+          <small id="newCaseIdHelp" class="new-case-amount-help">Do not enter Card Serial No.</small>
+          <label>Primary Mobile Number<input class="tat-paste-field" name="primary_phone" type="tel" inputmode="tel" autocomplete="tel" spellcheck="false" required placeholder="0712 345 678"></label>
           <label>BRO Name<select name="bro_user_id" required></select></label>
           <label>Requested amount (KES)<input class="tat-paste-field" name="amount" type="number" inputmode="decimal" autocomplete="off" data-paste-normalize="amount" min="0" step="1" required placeholder="0" aria-describedby="newCaseAmountHelp"></label>
           <small id="newCaseAmountHelp" class="amount-range-help new-case-amount-help" aria-live="polite">Select a product to see its allowed amount range.</small>
@@ -330,7 +331,7 @@
           </div>
           <form id="caseCorrectionForm" class="form-grid">
             <label>Client Name<input class="tat-paste-field" name="client_name" autocomplete="name" autocapitalize="words" spellcheck="false" required></label>
-            <label>ID Number<input class="tat-paste-field" name="national_id" inputmode="numeric" autocomplete="off" spellcheck="false" data-paste-normalize="digits" required></label>
+            <label>National ID / Maisha Namba<input class="tat-paste-field" name="national_id" inputmode="numeric" autocomplete="off" spellcheck="false" data-paste-normalize="digits" required pattern="[0-9]{1,9}" aria-describedby="caseDetailsIdHelp"></label><small id="caseDetailsIdHelp" class="new-case-amount-help">Do not enter Card Serial No.</small>
             <label>Phone Number<input class="tat-paste-field" name="primary_phone" type="tel" inputmode="tel" autocomplete="tel" spellcheck="false" required></label>
             <label>Branch<select name="branch" required></select></label>
             <label>BRO Name<input class="tat-paste-field" name="bro_name" autocomplete="name" autocapitalize="words" spellcheck="false" required></label>

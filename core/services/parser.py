@@ -26,6 +26,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Optional
 from enum import Enum
 from django.utils import timezone
+from core.services.identifiers import validate_kenyan_national_id
 
 logger = logging.getLogger(__name__)
 
@@ -1287,7 +1288,7 @@ def _invalid_required_complaint_fields(result: ParsedResult) -> list[str]:
     customer_id = str(result.customer_id or '').strip()
     if phone and not re.fullmatch(r'254[17]\d{8}', phone):
         invalid.append("Primary Phone Number")
-    if customer_id and (not customer_id.isascii() or not customer_id.isdigit()):
+    if customer_id and not validate_kenyan_national_id(customer_id):
         invalid.append("Customer National ID")
     return invalid
 

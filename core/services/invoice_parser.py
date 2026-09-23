@@ -372,10 +372,10 @@ def _first_match(lines, pattern):
 def _customer_id(bill_to_lines):
     for line in bill_to_lines[1:]:
         identity_line = _strip_order_reference(line).strip()
-        if re.fullmatch(r"\d{7,8}", identity_line):
+        if re.fullmatch(r"\d{7,9}", identity_line):
             return identity_line
     for line in bill_to_lines:
-        for match in re.finditer(r"\b\d{7,8}\b", _strip_order_reference(line)):
+        for match in re.finditer(r"\b\d{7,9}\b", _strip_order_reference(line)):
             return match.group(0)
     return ""
 

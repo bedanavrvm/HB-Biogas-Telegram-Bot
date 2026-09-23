@@ -27,6 +27,7 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 from core.models import MediaAttachment, OrderApprovalUpdate
+from core.services.identifiers import normalize_kenyan_phone
 from core.services.sheets import get_sheets_service
 
 logger = logging.getLogger(__name__)
@@ -1173,19 +1174,6 @@ def normalize_order_approval_fields(fields: dict[str, str]) -> dict[str, str]:
             if key in choices:
                 fields[field] = choices[key]
     return fields
-
-
-def normalize_kenyan_phone(value: str) -> str:
-    digits = re.sub(r'\D+', '', str(value or ''))
-    if not digits:
-        return ''
-    if digits.startswith('0') and len(digits) == 10:
-        return f"254{digits[1:]}"
-    if len(digits) == 9 and digits[0] in {'1', '7'}:
-        return f"254{digits}"
-    if digits.startswith('254') and len(digits) == 12:
-        return digits
-    return digits
 
 
 def normalize_choice_value(value: str) -> str:

@@ -22,6 +22,7 @@ from django.utils import timezone
 from core.models import RawMessage, ProcessedMessage, ParsedMessage
 from core.services.deduplication import generate_message_hash, mark_as_processed
 from core.services.parser import ParsedResult
+from core.services.identifiers import validate_kenyan_national_id
 
 logger = logging.getLogger(__name__)
 
@@ -360,7 +361,7 @@ def _complaint_rejection(parsed_result: ParsedResult) -> MessageRejectedError | 
         invalid_fields.append('Primary Phone Number')
     if not customer_id:
         missing_fields.append('Customer National ID')
-    elif not customer_id.isascii() or not customer_id.isdigit():
+    elif not validate_kenyan_national_id(customer_id):
         invalid_fields.append('Customer National ID')
     if not str(getattr(parsed_result, 'problem_description', '') or '').strip():
         missing_fields.append('Complaint Description')

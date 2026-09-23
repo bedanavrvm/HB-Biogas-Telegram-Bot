@@ -7217,6 +7217,7 @@ def portal_create_and_complete_jbl_lead(request):
     from decimal import Decimal, InvalidOperation
     from core.models import JawabuCustomer, JawabuFarmerMaster
     from core.services.jawabu_pipeline import JBL_FORWARD_STATUSES, JawabuWorkflowState, complete_jbl_visit, farmer_to_card, validate_jbl_visit_upload_batch
+    from core.services.identifiers import normalize_kenyan_phone, validate_kenyan_national_id
     from core.services.location_catalog import LocationCatalogError, validate_location_selection
 
     if (role_error := _portal_capability_error(request, 'portal.jbl_lead.create')):
@@ -7225,16 +7226,16 @@ def portal_create_and_complete_jbl_lead(request):
     if not request_id:
         return JsonResponse({'ok': False, 'error': 'Refresh the app and retry. A secure submission key is required.', 'code': 'request_key_required'}, status=428)
     name = str(body.get('customer_name') or '').strip()
-    national_id = re.sub(r'\s+', '', str(body.get('national_id') or ''))
-    phone = re.sub(r'\s+', '', str(body.get('primary_phone') or ''))
+    national_id = validate_kenyan_national_id(body.get('national_id'))
+    phone = normalize_kenyan_phone(body.get('primary_phone'))
     county_value = str(body.get('county') or '').strip()
     hb_sales_person = str(body.get('hb_sales_person') or '').strip()
     deposit_raw = str(body.get('deposit_paid_hbg') or '').strip().replace(',', '')
     deposit_paid_hbg = None
     errors = {}
     if not name: errors['customer_name'] = 'Enter the customer name.'
-    if not re.fullmatch(r'\d{5,20}', national_id): errors['national_id'] = 'Enter the customer National ID using digits only.'
-    if not re.fullmatch(r'\+?\d{9,15}', phone): errors['primary_phone'] = 'Enter a valid phone number.'
+    if not national_id: errors['national_id'] = 'National ID / Maisha Namba must contain 1 to 9 digits only. Do not enter Card Serial No.'
+    if not phone: errors['primary_phone'] = 'Enter a valid Kenyan mobile number.'
     if not county_value: errors['county'] = 'Choose the county where this visit was done.'
     if len(hb_sales_person) > 255: errors['hb_sales_person'] = 'HB sales person must be 255 characters or fewer.'
     if deposit_raw:

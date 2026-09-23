@@ -36,7 +36,7 @@ from core.models import (
     ProcessedMessage,
     RawMessage,
 )
-from core.services.identifiers import normalize_kenyan_phone
+from core.services.identifiers import normalize_kenyan_phone, validate_kenyan_national_id
 from core.services.order_approval import GoogleDriveMediaStorage
 from core.services.sheets import append_parsed_message_to_sheet, get_sheets_service
 
@@ -853,10 +853,12 @@ def normalize_customer_name(value: Any) -> str:
 
 
 def numeric_customer_id(value: Any) -> str:
-    """Validate a national ID as digits while preserving leading zeroes."""
+    """Validate a National ID/Maisha Namba while preserving leading zeroes."""
     text = limited_case_text(value, 'Customer National ID')
-    if text and (not text.isascii() or not text.isdigit()):
-        raise ComplaintCaseError('Customer National ID must contain numbers only.')
+    if not text:
+        return ''
+    if not validate_kenyan_national_id(text):
+        raise ComplaintCaseError('National ID / Maisha Namba must contain 1 to 9 digits only. Do not enter the card serial number.')
     return text
 
 

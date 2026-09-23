@@ -57,6 +57,18 @@
     return Boolean(gateByMode[mode] && state().approvalDelegationGates?.includes(gateByMode[mode]));
   }
   function requestId() { return window.crypto?.randomUUID?.() || `portal-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
+  function normalizeKenyanMobile(value) {
+    let text = String(value || '').trim();
+    if (!text || !/^[0-9+\s()\-]+$/.test(text) || (text.match(/\+/g) || []).length > 1 || (text.includes('+') && !text.startsWith('+'))) return '';
+    text = text.replace(/[\s()\-]/g, '');
+    if (text.startsWith('+')) text = text.slice(1);
+    if (text.startsWith('00254')) text = text.slice(2);
+    else if (text.startsWith('005')) text = `254${text.slice(3)}`;
+    if (/^2540[17]\d{8}$/.test(text)) text = `254${text.slice(4)}`;
+    else if (/^0[17]\d{8}$/.test(text)) text = `254${text.slice(1)}`;
+    else if (/^[17]\d{8}$/.test(text)) text = `254${text}`;
+    return /^254[17]\d{8}$/.test(text) && !text.startsWith('254199') ? text : '';
+  }
 
   function persistedJblSubmission(farmerId) {
     try {
@@ -1129,8 +1141,8 @@
       <p class="jbl-section-label">Lead details</p>
       <div class="form-section form-grid jbl-details-grid jbl-new-lead-fields">
         <div class="form-row" data-jbl-field="customer_name"><label>Customer name <span class="required-marker" aria-hidden="true">*</span></label><input id="jbl-new-lead-name" type="text" maxlength="255" autocomplete="name" placeholder="Full name"><small class="jbl-field-error" data-error-message-for="customer_name"></small></div>
-        <div class="form-row" data-jbl-field="national_id"><label>National ID <span class="required-marker" aria-hidden="true">*</span></label><input id="jbl-new-lead-id" type="text" inputmode="numeric" maxlength="20" autocomplete="off" placeholder="Digits only"><small class="jbl-field-error" data-error-message-for="national_id"></small></div>
-        <div class="form-row" data-jbl-field="primary_phone"><label>Phone number <span class="required-marker" aria-hidden="true">*</span></label><input id="jbl-new-lead-phone" type="tel" inputmode="tel" maxlength="16" autocomplete="tel" placeholder="e.g. 2547…"><small class="jbl-field-error" data-error-message-for="primary_phone"></small></div>
+        <div class="form-row" data-jbl-field="national_id"><label>National ID / Maisha Namba <span class="required-marker" aria-hidden="true">*</span><small>Do not enter Card Serial No.</small></label><input id="jbl-new-lead-id" type="text" inputmode="numeric" maxlength="9" autocomplete="off" placeholder="1 to 9 digits"><small class="jbl-field-error" data-error-message-for="national_id"></small></div>
+        <div class="form-row" data-jbl-field="primary_phone"><label>Primary mobile number <span class="required-marker" aria-hidden="true">*</span></label><input id="jbl-new-lead-phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="e.g. 0712 345 678"><small class="jbl-field-error" data-error-message-for="primary_phone"></small></div>
         <div class="form-row" data-jbl-field="deposit_paid_hbg"><label>HB deposit paid <small>Optional; FarmUp may update this later.</small></label><input id="jbl-new-lead-hb-deposit" type="text" inputmode="decimal" maxlength="16" placeholder="KES amount"><small class="jbl-field-error" data-error-message-for="deposit_paid_hbg"></small></div>
         <div class="form-row" data-jbl-field="hb_sales_person"><label>HB sales person <small>Optional; FarmUp may update this later.</small></label><input id="jbl-new-lead-hb-sales-person" type="text" maxlength="255" placeholder="Name"><small class="jbl-field-error" data-error-message-for="hb_sales_person"></small></div>
       </div>` : '';
@@ -2001,8 +2013,8 @@
     const errors = {};
     if (state().selectedFarmer?.is_new_jbl_lead) {
       if (!el('jbl-new-lead-name')?.value.trim()) errors.customer_name = 'Enter the customer name.';
-      if (!/^\d{5,20}$/.test((el('jbl-new-lead-id')?.value || '').replace(/\s/g, ''))) errors.national_id = 'Enter the customer National ID using digits only.';
-      if (!/^\+?\d{9,15}$/.test((el('jbl-new-lead-phone')?.value || '').replace(/\s/g, ''))) errors.primary_phone = 'Enter a valid phone number.';
+      if (!/^\d{1,9}$/.test((el('jbl-new-lead-id')?.value || '').trim())) errors.national_id = 'Enter a National ID / Maisha Namba using 1 to 9 digits only. Do not enter Card Serial No.';
+      if (!normalizeKenyanMobile(el('jbl-new-lead-phone')?.value || '')) errors.primary_phone = 'Enter a valid Kenyan mobile number.';
     }
     const status = el('jbl-status')?.value || '';
     if (!status) errors.visit_status = 'Select the JBL visit outcome.';

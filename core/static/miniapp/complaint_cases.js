@@ -1029,21 +1029,25 @@
   function validateCustomerId(input) {
     const value = String(input?.value || '').trim();
     if (!value) {
-      input?.setCustomValidity?.('Customer National ID is required.'); input?.reportValidity?.();
-      return 'Customer National ID is required.';
+      input?.setCustomValidity?.('National ID / Maisha Namba is required.'); input?.reportValidity?.();
+      return 'National ID / Maisha Namba is required.';
     }
-    if (!/^\d+$/.test(value)) {
-      input?.setCustomValidity?.('Customer National ID must contain numbers only.'); input?.reportValidity?.();
-      return 'Customer National ID must contain numbers only.';
+    if (!/^\d{1,9}$/.test(value)) {
+      input?.setCustomValidity?.('National ID / Maisha Namba must contain 1 to 9 digits only. Do not enter Card Serial No.'); input?.reportValidity?.();
+      return 'National ID / Maisha Namba must contain 1 to 9 digits only. Do not enter Card Serial No.';
     }
     input?.setCustomValidity?.(''); return '';
   }
   function normalizedKenyanPhone(value) {
-    const digits = String(value || '').replace(/\D/g, '');
-    if (/^254[17]\d{8}$/.test(digits)) return digits;
-    if (/^0[17]\d{8}$/.test(digits)) return `254${digits.slice(1)}`;
-    if (/^[17]\d{8}$/.test(digits)) return `254${digits}`;
-    return '';
+    const raw = String(value || '').trim();
+    if (!raw || !/^[0-9+\s()-]+$/.test(raw) || (raw.match(/\+/g) || []).length > 1 || (raw.includes('+') && !raw.startsWith('+'))) return '';
+    let digits = raw.replace(/[\s()\-+]/g, '');
+    if (digits.startsWith('00254')) digits = digits.slice(2);
+    else if (digits.startsWith('005')) digits = `254${digits.slice(3)}`;
+    if (/^2540[17]\d{8}$/.test(digits)) digits = `254${digits.slice(4)}`;
+    else if (/^0[17]\d{8}$/.test(digits)) digits = `254${digits.slice(1)}`;
+    else if (/^[17]\d{8}$/.test(digits)) digits = `254${digits}`;
+    return /^254[17]\d{8}$/.test(digits) && !digits.startsWith('254199') ? digits : '';
   }
   function setFieldError(input, message) {
     if (!input) return;
@@ -1078,9 +1082,9 @@
     const normalizedSecondary = secondaryValue ? normalizedKenyanPhone(secondaryValue) : '';
     setFieldError(
       primary,
-      !primaryValue ? 'Primary Phone Number is required.' : (!normalizedPrimary ? 'Enter a valid Kenyan phone number.' : ''),
+      !primaryValue ? 'Primary Mobile Number is required.' : (!normalizedPrimary ? 'Enter a valid Kenyan mobile number.' : ''),
     );
-    setFieldError(secondary, secondaryValue && !normalizedSecondary ? 'Enter a valid secondary Kenyan phone number or leave it blank.' : '');
+    setFieldError(secondary, secondaryValue && !normalizedSecondary ? 'Enter a valid secondary Kenyan mobile number or leave it blank.' : '');
     if (normalizedPrimary && normalizedSecondary && normalizedPrimary === normalizedSecondary) {
       setFieldError(secondary, 'Primary and secondary phone numbers must be different.');
     }

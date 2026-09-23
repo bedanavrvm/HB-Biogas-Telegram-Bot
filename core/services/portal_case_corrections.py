@@ -7,7 +7,7 @@ from decimal import Decimal
 from django.db import transaction
 
 from core.models import JawabuFarmerMaster
-from core.services.identifiers import normalize_kenyan_phone, normalize_national_id
+from core.services.identifiers import normalize_kenyan_phone, validate_kenyan_national_id
 from core.services.jawabu_case360 import record_pipeline_event
 from core.services.jawabu_customer_quality import record_field_provenance
 from core.services.jawabu_validation import parse_business_date, parse_money
@@ -54,9 +54,15 @@ def correction_payload(farmer: JawabuFarmerMaster) -> dict:
 
 def _clean_value(key: str, raw_value):
     if key in {'national_id', 'lead_national_id'}:
-        return normalize_national_id(raw_value)
+        value = validate_kenyan_national_id(raw_value) if str(raw_value or '').strip() else ''
+        if str(raw_value or '').strip() and not value:
+            raise ValueError('National ID / Maisha Namba must contain 1 to 9 digits only.')
+        return value
     if key in {'primary_phone', 'secondary_phone', 'lead_primary_phone'}:
-        return normalize_kenyan_phone(raw_value) if str(raw_value or '').strip() else ''
+        value = normalize_kenyan_phone(raw_value) if str(raw_value or '').strip() else ''
+        if str(raw_value or '').strip() and not value:
+            raise ValueError('Enter a valid Kenyan mobile number.')
+        return value
     if key == 'hbg_visit_date':
         parsed = parse_business_date(raw_value)
         if str(raw_value or '').strip() and parsed is None:

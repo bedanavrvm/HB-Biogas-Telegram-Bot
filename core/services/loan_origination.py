@@ -522,7 +522,24 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
                         break
                     if blank_cell:
                         continue
-                    if str(column.get('type') or '') in {'money', 'number'}:
+                    column_type = str(column.get('type') or '')
+                    if column_type == 'national_id':
+                        from core.services.identifiers import validate_kenyan_national_id
+                        if not validate_kenyan_national_id(cell):
+                            errors[key] = (
+                                f'Enter a National ID / Maisha Namba using 1 to 9 digits only '
+                                f'for {column.get("label") or column_key} in row {index + 1}.'
+                            )
+                            break
+                    elif column_type == 'phone':
+                        from core.services.identifiers import normalize_kenyan_phone
+                        if not normalize_kenyan_phone(cell):
+                            errors[key] = (
+                                f'Enter a valid Kenyan mobile number for '
+                                f'{column.get("label") or column_key} in row {index + 1}.'
+                            )
+                            break
+                    elif column_type in {'money', 'number'}:
                         try:
                             decimal_value = Decimal(_normalized_numeric_text(cell))
                             if not decimal_value.is_finite():
@@ -596,6 +613,14 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
                             errors[key] = f'Enter a value no greater than {maximum}.'
                     except (InvalidOperation, TypeError, ValueError):
                         errors[key] = 'This field has invalid configured limits.'
+        if field_type == 'national_id':
+            from core.services.identifiers import validate_kenyan_national_id
+            if not validate_kenyan_national_id(value):
+                errors[key] = 'Enter a National ID / Maisha Namba using 1 to 9 digits only. Do not enter Card Serial No.'
+        elif field_type == 'phone':
+            from core.services.identifiers import normalize_kenyan_phone
+            if not normalize_kenyan_phone(value):
+                errors[key] = 'Enter a valid Kenyan mobile number.'
         if key in errors:
             continue
         if (
@@ -606,15 +631,15 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
             errors[key] = 'Enter no more than 500 characters for this reportable field.'
             continue
         if field_type in {'text', 'textarea', 'phone', 'national_id', 'branch', 'county', 'sub_county'}:
-            minimum_length = validation.get('min_length')
-            maximum_length = validation.get('max_length')
+            minimum_length = validation.get('min_length') if field_type != 'national_id' else None
+            maximum_length = validation.get('max_length') if field_type != 'national_id' else None
             if minimum_length not in (None, '') and len(value) < int(minimum_length):
                 errors[key] = f'Enter at least {minimum_length} characters.'
                 continue
             if maximum_length not in (None, '') and len(value) > int(maximum_length):
                 errors[key] = f'Enter no more than {maximum_length} characters.'
                 continue
-            pattern = str(validation.get('pattern') or '')
+            pattern = str(validation.get('pattern') or '') if field_type != 'national_id' else ''
             if pattern and re.fullmatch(pattern[:200], value[:2000]) is None:
                 errors[key] = 'Enter the value in the required format.'
                 continue
@@ -666,9 +691,20 @@ def normalize_form_payload(schema: dict[str, Any], payload: Any) -> dict[str, An
     if not isinstance(payload, dict):
         return payload
     normalized = dict(payload)
+    from core.services.identifiers import normalize_kenyan_phone, validate_kenyan_national_id
+
     for field in _schema_fields(schema):
         key = str(field.get('key') or '')
-        if str(field.get('type') or '') != 'repeating_group' or key not in normalized:
+        field_type = str(field.get('type') or '')
+        if key in normalized and field_type == 'national_id':
+            value = validate_kenyan_national_id(normalized.get(key))
+            if value:
+                normalized[key] = value
+        elif key in normalized and field_type == 'phone':
+            value = normalize_kenyan_phone(normalized.get(key))
+            if value:
+                normalized[key] = value
+        if field_type != 'repeating_group' or key not in normalized:
             continue
         rows = normalized.get(key)
         if not isinstance(rows, list):
@@ -695,7 +731,15 @@ def normalize_form_payload(schema: dict[str, Any], payload: Any) -> dict[str, An
                     continue
                 if isinstance(cell, str):
                     row[column_key] = cell.strip()
-                if column_type in {'money', 'number'}:
+                if column_type == 'national_id':
+                    validated = validate_kenyan_national_id(row[column_key])
+                    if validated:
+                        row[column_key] = validated
+                elif column_type == 'phone':
+                    normalized_phone = normalize_kenyan_phone(row[column_key])
+                    if normalized_phone:
+                        row[column_key] = normalized_phone
+                elif column_type in {'money', 'number'}:
                     try:
                         numeric_cell = _normalized_numeric_text(row[column_key])
                         row[column_key] = format(Decimal(numeric_cell), 'f')

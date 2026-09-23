@@ -82,8 +82,9 @@
           <input name="customer_name" autocomplete="name" required>
         </label>
         <label class="field">
-          <span>National ID</span>
-          <input name="national_id" inputmode="numeric" pattern="[0-9]{7,8}" required>
+          <span>National ID / Maisha Namba</span>
+          <input name="national_id" inputmode="numeric" maxlength="9" pattern="[0-9]{1,9}" required aria-describedby="spinNationalIdHelp">
+          <small id="spinNationalIdHelp">Do not enter Card Serial No.</small>
         </label>
         <label class="field">
           <span>Customer Type</span>
@@ -94,11 +95,11 @@
           </select>
         </label>
         <label class="field">
-          <span>Primary Phone</span>
+          <span>Primary Mobile Number</span>
           <input name="primary_phone" type="tel" inputmode="tel" placeholder="254712345678" required>
         </label>
         <label class="field">
-          <span>Secondary Phone</span>
+          <span>Secondary Mobile Number</span>
           <input name="secondary_phone" type="tel" inputmode="tel" placeholder="Optional">
         </label>
       </section>
@@ -301,11 +302,12 @@
           <input name="customer_name" autocomplete="name">
         </label>
         <label class="field">
-          <span>National ID</span>
-          <input name="national_id" inputmode="numeric">
+          <span>National ID / Maisha Namba</span>
+          <input name="national_id" inputmode="numeric" maxlength="9" pattern="[0-9]{1,9}" aria-describedby="reviewNationalIdHelp">
+          <small id="reviewNationalIdHelp">Do not enter Card Serial No.</small>
         </label>
         <label class="field">
-          <span>Primary Phone</span>
+          <span>Primary Mobile Number</span>
           <input name="primary_phone" type="tel" inputmode="tel">
         </label>
         <label class="field">
@@ -325,7 +327,7 @@
           </select>
         </label>
         <label class="field">
-          <span>Secondary Phone</span>
+          <span>Secondary Mobile Number</span>
           <input name="secondary_phone" type="tel" inputmode="tel">
         </label>
         <label class="field">

@@ -104,9 +104,9 @@ def _review_source_fingerprint(row: dict) -> str:
 
 
 def _review_identity_key(row: dict) -> str:
-    from core.services.identifiers import normalize_kenyan_phone, normalize_national_id
+    from core.services.identifiers import normalize_kenyan_phone, validate_kenyan_national_id
 
-    national_id = normalize_national_id(row.get('National ID'))
+    national_id = validate_kenyan_national_id(row.get('National ID'))
     phone = normalize_kenyan_phone(row.get('Primary Phone'))
     if national_id:
         material = f'national-id:{national_id}'
@@ -659,9 +659,9 @@ def _farmup_row_issues(batch: JawabuFarmerUploadBatch, row: dict, index: int) ->
         blockers.append('Customer Name is required')
     blockers.extend(farmup_review_validation_notes(row, cleaned))
     if cleaned.get('primary_phone') and not is_valid_phone(cleaned['primary_phone']):
-        blockers.append('Primary Phone must be in 254 format')
+        blockers.append('Primary Mobile Number must be a valid Kenyan mobile number')
     if cleaned.get('secondary_phone') and not is_valid_phone(cleaned['secondary_phone']):
-        blockers.append('Secondary Phone must be in 254 format')
+        blockers.append('Secondary Mobile Number must be a valid Kenyan mobile number')
     issues = [{'severity': 'blocker', 'message': message} for message in dict.fromkeys(blockers)]
     if row.get('_duplicate_in_upload'):
         issues.append({'severity': 'blocker', 'message': 'This upload contains another row with the same customer identity'})
@@ -674,7 +674,7 @@ def _farmup_row_issues(batch: JawabuFarmerUploadBatch, row: dict, index: int) ->
     if numeric_id and not is_valid_national_id(numeric_id):
         issues.append({
             'severity': 'warning',
-            'message': 'National ID is outside the usual 7-9 digit range',
+            'message': 'National ID / Maisha Namba is unusually short; verify it against the customer document',
         })
     notes = str(row.get('Cleaning Notes') or '').strip()
     if row.get('Import Status') == 'review_needed' and not issues and notes.startswith('Master Data conflict before commit:'):

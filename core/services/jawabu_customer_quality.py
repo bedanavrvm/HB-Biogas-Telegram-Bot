@@ -21,10 +21,14 @@ from core.models import (
     JawabuFarmerMaster,
     OperationalProduct,
 )
-from core.services.identifiers import normalize_kenyan_phone, normalize_national_id
+from core.services.identifiers import (
+    normalize_kenyan_phone,
+    normalize_national_id,
+    validate_kenyan_national_id,
+)
 
 
-SUPPORTED_NATIONAL_ID_LENGTHS = frozenset({7, 8, 9})
+SUPPORTED_NATIONAL_ID_LENGTHS = frozenset(range(1, 10))
 
 
 @dataclass(frozen=True)
@@ -48,11 +52,14 @@ def normalize_customer_name(value: object) -> str:
 
 
 def national_id_quality_message(value: object) -> str:
-    national_id = normalize_national_id(value)
-    if not national_id:
+    raw_value = str(value or '').strip()
+    if not raw_value:
         return ''
-    if len(national_id) not in SUPPORTED_NATIONAL_ID_LENGTHS:
-        return 'National ID should contain 7 to 9 digits; confirm this exception before use.'
+    national_id = validate_kenyan_national_id(raw_value)
+    if not national_id:
+        return 'National ID / Maisha Namba must contain 1 to 9 digits only.'
+    if len(national_id) < 7:
+        return 'National ID / Maisha Namba is unusually short; verify it against the customer document.'
     return ''
 
 

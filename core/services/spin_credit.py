@@ -19,6 +19,7 @@ from django.utils import timezone
 
 from core.models import GroupSheetConfiguration, SpinBatchReviewItem, SpinCreditRequest, SpinRequestSequence
 from core.services.branches import workflow_default_branch
+from core.services.identifiers import normalize_kenyan_phone, validate_kenyan_national_id
 from core.services.parser import analyze_whatsapp_export
 from core.services.sheets import get_sheets_service
 from core.services.workflow_data_mode import WORKFLOW_SPIN, mode_snapshot
@@ -713,7 +714,7 @@ def has_spin_request_details(low: str) -> bool:
         return True
     if re.search(r'(?<!\d)(?:\+?254|0)?[17]\d{8}(?!\d)', low):
         return True
-    if re.search(r'\b\d{7,8}\b', low):
+    if re.search(r'\b\d{7,9}\b', low):
         return True
     return False
 
@@ -751,18 +752,18 @@ def extract_customer_name(text: str, request_type: str) -> str:
         patterns.append(r'(?:crb\s+(?:and|&)\s+spin|spin\s+(?:and|&)\s+crb)\s+report\s+for\s+(?P<name>.+?)(?:\s+who\b|\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+requesting|\s+id\b|\s+phone\b|$)')
         patterns.append(r'spin\s+and\s+credit\s+analysis\s+for\s+(?P<name>.+?)(?:\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+requesting|\s+id\b|\s+phone\b|$)')
         patterns.append(r'(?:spin\s*/\s*crb|spin\s+(?:and|&)\s+crb|spin\s+crb)\s+(?:request\s+)?(?:for\s+)?(?P<name>.+?)(?:\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+requesting|\s+id\b|\s+phone\b|$)')
-        patterns.append(r'share\s+(?:the\s+)?spin\s+analysis\s+(?:of|for)?\s*(?P<name>.+?)(?:\s+who\b|\s+applying\b|\s+seeking\b|\s+taking\b|\s+id\b|\s+i\'?d\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+p/no\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
+        patterns.append(r'share\s+(?:the\s+)?spin\s+analysis\s+(?:of|for)?\s*(?P<name>.+?)(?:\s+who\b|\s+applying\b|\s+seeking\b|\s+taking\b|\s+id\b|\s+i\'?d\b|\s+\d{7,9}\b|\s+phone\b|\s+phn\b|\s+p/no\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
         patterns.append(r'share\s+(?:the\s+)?analysis\s+for\s+(?P<name>.+?)(?:\s+who\b|\s+phone\b|\s+id\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
-        patterns.append(r'(?:assist|help|do|run|check|process|send|share|need|request(?:ing)?)\s+(?:me\s+)?(?:with\s+|for\s+)?(?:a\s+|the\s+)?(?:client\s+)?(?:spin\s*(?:/|and|&)?\s*)?(?:credit\s+)?analysis\s+(?:for|of)?\s*(?P<name>.+?)(?:\s+who\b|\s+applying\b|\s+seeking\b|\s+taking\b|\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+id\b|\s+i\'?d\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+p/no\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
-        patterns.append(r'(?:spin|credit\s+analysis|analysis)\s+(?:request\s+)?(?:for|of)\s+(?P<name>.+?)(?:\s+who\b|\s+applying\b|\s+seeking\b|\s+taking\b|\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+id\b|\s+i\'?d\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+p/no\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
+        patterns.append(r'(?:assist|help|do|run|check|process|send|share|need|request(?:ing)?)\s+(?:me\s+)?(?:with\s+|for\s+)?(?:a\s+|the\s+)?(?:client\s+)?(?:spin\s*(?:/|and|&)?\s*)?(?:credit\s+)?analysis\s+(?:for|of)?\s*(?P<name>.+?)(?:\s+who\b|\s+applying\b|\s+seeking\b|\s+taking\b|\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+id\b|\s+i\'?d\b|\s+\d{7,9}\b|\s+phone\b|\s+phn\b|\s+p/no\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
+        patterns.append(r'(?:spin|credit\s+analysis|analysis)\s+(?:request\s+)?(?:for|of)\s+(?P<name>.+?)(?:\s+who\b|\s+applying\b|\s+seeking\b|\s+taking\b|\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+id\b|\s+i\'?d\b|\s+\d{7,9}\b|\s+phone\b|\s+phn\b|\s+p/no\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
     elif request_type == 'spin':
         patterns.append(r'share\s+spin\s+for\s*(?P<name>.+?)(?:\s+he\b|\s+she\b|\s+they\b|\s+id\b|\s+i\'?d\b|\s+phn\b|\s+p/no\b|\s+phone\b|\s+requesting\b|\s+new\b|\s+existing\b|$)')
-        patterns.append(r'share\s+(?:the\s+)?spin\s+(?P<name>.+?)(?:\s+id\b|\s+i\'?d\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+p/no\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
-        patterns.append(r'(?:assist|help|do|run|check|process|send|share|need|request(?:ing)?)\s+(?:with\s+|for\s+)?(?:a\s+|the\s+)?spin\s+(?:for|of)?\s*(?P<name>.+?)(?:\s+id\b|\s+i\'?d\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+p/no\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
-        patterns.append(r'spin\s+(?:request\s+)?(?:for|of)\s+(?P<name>.+?)(?:\s+id\b|\s+i\'?d\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+p/no\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
+        patterns.append(r'share\s+(?:the\s+)?spin\s+(?P<name>.+?)(?:\s+id\b|\s+i\'?d\b|\s+\d{7,9}\b|\s+phone\b|\s+phn\b|\s+p/no\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
+        patterns.append(r'(?:assist|help|do|run|check|process|send|share|need|request(?:ing)?)\s+(?:with\s+|for\s+)?(?:a\s+|the\s+)?spin\s+(?:for|of)?\s*(?P<name>.+?)(?:\s+id\b|\s+i\'?d\b|\s+\d{7,9}\b|\s+phone\b|\s+phn\b|\s+p/no\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
+        patterns.append(r'spin\s+(?:request\s+)?(?:for|of)\s+(?P<name>.+?)(?:\s+id\b|\s+i\'?d\b|\s+\d{7,9}\b|\s+phone\b|\s+phn\b|\s+p/no\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
     elif request_type == 'crb':
         patterns.append(r'share\s+crb\s+report\s+(?:of|for)?\s*(?P<name>.+?)(?:\s+he\s+is|\s+she\s+is|\s+they\s+are|\s+requesting|\s+id\b|\s+phone\b|$)')
-        patterns.append(r'(?:assist|help|do|run|check|process|send|share|need|request(?:ing)?)\s+(?:with\s+|for\s+)?(?:a\s+|the\s+)?crb(?:\s+report)?\s+(?:for|of)?\s*(?P<name>.+?)(?:\s+he\s+is|\s+she\s+is|\s+they\s+are|\s+requesting|\s+id\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+kes\b|\s+ksh\b|$)')
+        patterns.append(r'(?:assist|help|do|run|check|process|send|share|need|request(?:ing)?)\s+(?:with\s+|for\s+)?(?:a\s+|the\s+)?crb(?:\s+report)?\s+(?:for|of)?\s*(?P<name>.+?)(?:\s+he\s+is|\s+she\s+is|\s+they\s+are|\s+requesting|\s+id\b|\s+\d{7,9}\b|\s+phone\b|\s+phn\b|\s+kes\b|\s+ksh\b|$)')
     label_match = re.search(
         rf'(?is)(?:^|\b)name\s*[-:;]\s*(?P<name>.+?)(?=\s+\b{FIELD_LABEL_PATTERN}\s*[-:;]|\n|$)',
         text,
@@ -795,7 +796,7 @@ def extract_id(text: str) -> tuple[str, str]:
         raw = re.sub(r'\s+', '', match.group(1)).strip('.,;:/')
         candidates.append(raw)
     if not candidates:
-        for match in re.finditer(r'\b(\d{7,8})(?:-\d{3,8})?\b', text):
+        for match in re.finditer(r'\b(\d{7,9})(?:-\d{3,8})?\b', text):
             raw = match.group(0)
             # Avoid common amounts like 150,000 after punctuation removal.
             if raw.replace('-', '').startswith('20') and len(raw.replace('-', '')) == 8:
@@ -805,7 +806,7 @@ def extract_id(text: str) -> tuple[str, str]:
     if not candidates:
         return '', ''
     raw = candidates[0]
-    national = re.match(r'(\d{7,8})', raw)
+    national = re.match(r'(\d{7,9})', raw)
     return raw, national.group(1) if national else re.sub(r'\D', '', raw)[:8]
 
 
@@ -839,14 +840,7 @@ def split_phone_blob(blob: str) -> list[str]:
 
 
 def normalize_phone(value: str) -> str:
-    digits = re.sub(r'\D', '', str(value or ''))
-    if digits.startswith('254') and len(digits) == 12 and digits[3] in {'1', '7'}:
-        return digits
-    if digits.startswith('0') and len(digits) == 10 and digits[1] in {'1', '7'}:
-        return '254' + digits[1:]
-    if len(digits) == 9 and digits[0] in {'1', '7'}:
-        return '254' + digits
-    return ''
+    return normalize_kenyan_phone(value)
 
 
 def extract_customer_type(text: str) -> str:
@@ -1841,9 +1835,10 @@ def normalize_spin_review_fields(group_config, record: SpinCreditRequest, fields
     if request_type not in SPIN_FORM_REQUEST_TYPES:
         errors.append('Request Type must be SPIN/CRB, SPIN, or CRB.')
 
-    national_id = re.sub(r'\D', '', str(merged.get('national_id') or ''))
-    if national_id and not re.fullmatch(r'\d{7,8}', national_id):
-        errors.append('National ID must be 7 or 8 digits.')
+    national_id_source = str(merged.get('national_id') or '').strip()
+    national_id = validate_kenyan_national_id(national_id_source) if national_id_source else ''
+    if national_id_source and not national_id:
+        errors.append('National ID / Maisha Namba must contain 1 to 9 digits only.')
 
     primary_phone_source = str(merged.get('primary_phone') or '').strip()
     primary_phone = normalize_phone(primary_phone_source) if primary_phone_source else ''
@@ -2256,9 +2251,9 @@ def validate_spin_form_fields(fields: dict[str, Any]) -> tuple[dict[str, Any], l
     if not name:
         errors.append('Customer Name is required.')
 
-    national_id = re.sub(r'\D', '', data.get('national_id', ''))
-    if not re.fullmatch(r'\d{7,8}', national_id or ''):
-        errors.append('National ID must be 7 or 8 digits.')
+    national_id = validate_kenyan_national_id(data.get('national_id', ''))
+    if not national_id:
+        errors.append('National ID / Maisha Namba must contain 1 to 9 digits only.')
 
     primary_phone = normalize_phone(data.get('primary_phone', ''))
     if not primary_phone:

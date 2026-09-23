@@ -27,7 +27,11 @@ from core.models import TatCaseSequence, TatTrackerApprovalCertificate, TatTrack
 from core.services.access_policies import BUSINESS_ADMIN_ROLE
 from core.services.branches import DEFAULT_WORKFLOW_BRANCHES, global_branch_choices, workflow_branches as configured_workflow_branches
 from core.services.business_calendar import business_minutes_between
-from core.services.identifiers import normalize_kenyan_phone, normalize_national_id
+from core.services.identifiers import (
+    normalize_kenyan_phone,
+    normalize_national_id,
+    validate_kenyan_national_id,
+)
 from core.services.sheets import get_sheets_service
 from core.services.workflow_escalations import latest_escalation
 from core.services.workflow_timeline import tat_case_timeline
@@ -997,7 +1001,7 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
             'tat_create_scope_denied', 'You do not have access to this product.',
         )
     client_name = str(payload.get('client_name') or '').strip().upper()
-    national_id = normalize_national_id(payload.get('national_id'))
+    national_id = validate_kenyan_national_id(payload.get('national_id'))
     primary_phone = normalize_kenyan_phone(payload.get('primary_phone'))
     branch = _canonical_allowed_branch(
         workflow, user, payload.get('branch'),
@@ -1013,9 +1017,9 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
         raise TatCreateValidationError(
             'tat_create_client_name_required', 'Client name is required.',
         )
-    if not re.fullmatch(r'\d{7,8}', national_id):
+    if not national_id:
         raise TatCreateValidationError(
-            'tat_create_invalid_national_id', 'ID number must be 7 or 8 digits.',
+            'tat_create_invalid_national_id', 'National ID / Maisha Namba must contain 1 to 9 digits only.',
         )
     if not primary_phone:
         raise TatCreateValidationError(
@@ -1844,9 +1848,9 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
             if not new_value:
                 raise ValueError('Client name is required.')
         elif field == 'national_id':
-            new_value = normalize_national_id(raw_value)
-            if not re.fullmatch(r'\d{7,8}', new_value):
-                raise ValueError('ID number must be 7 or 8 digits.')
+            new_value = validate_kenyan_national_id(raw_value)
+            if not new_value:
+                raise ValueError('National ID / Maisha Namba must contain 1 to 9 digits only.')
         elif field == 'primary_phone':
             new_value = normalize_kenyan_phone(raw_value)
             if not new_value:

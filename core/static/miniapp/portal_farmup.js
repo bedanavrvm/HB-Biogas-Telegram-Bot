@@ -55,8 +55,8 @@
     if (!['update_existing', 'create_additional_unit'].includes(row['Application Action'] || 'update_existing')) issues.push({severity:'blocker', field:'Application Action', message:'Application Action must be selected'});
     if (row['Application Action'] === 'create_additional_unit' && isBlank(row['Additional Unit Reason'])) issues.push({severity:'blocker', field:'Additional Unit Reason', message:'Additional Unit Reason is required'});
     const nationalId = String(row['National ID'] || '').trim();
-    if (nationalId && !/^\d+$/.test(nationalId)) issues.push({severity:'blocker', field:'National ID', message:'National ID must contain digits only'});
-    else if (nationalId && !/^\d{7,9}$/.test(nationalId)) issues.push({severity:'warning', field:'National ID', message:'National ID is outside the usual 7-9 digit range'});
+    if (nationalId && !/^\d{1,9}$/.test(nationalId)) issues.push({severity:'blocker', field:'National ID', message:'National ID / Maisha Namba must contain 1 to 9 digits only'});
+    else if (nationalId && nationalId.length < 7) issues.push({severity:'warning', field:'National ID', message:'National ID / Maisha Namba is unusually short; verify it against the customer document'});
     return issues;
   }
   function fieldInvalid(row, field) {

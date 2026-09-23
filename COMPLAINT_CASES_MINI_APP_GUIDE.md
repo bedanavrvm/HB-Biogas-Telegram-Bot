@@ -888,7 +888,7 @@ Google Sheet, evidence file, or report.
 | 6 | `06-complete-details.png` | Needs More Information correction |
 | 7 | `07-resolve-complaint.png` | Resolution form |
 | 8 | `08-reopen-complaint.png` | Reopen form and prior resolution |
-| 9 | `09-camera-selected-files.png` | Camera and pending evidence viewer |
+| 9 | `09-camera.png` and `09-camera-selected-files.png` | Camera and pending evidence viewer |
 | 10 | `10-secure-evidence.png` | Saved evidence preview |
 | 11 | `11-data-overview.png` | Metrics and charts |
 | 12 | `12-report-filters.png` | Report filter controls |

@@ -81,7 +81,7 @@ MESSAGE_CATALOG: dict[str, MiniAppMessage] = {
         "Enter the client name and try again.", 400,
     ),
     "tat_create_invalid_national_id": MiniAppMessage(
-        "Enter a valid 7 or 8 digit national ID number and try again.", 400,
+        "Enter a National ID / Maisha Namba using 1 to 9 digits only, then try again.", 400,
     ),
     "tat_create_invalid_phone": MiniAppMessage(
         "Enter a valid Kenyan phone number and try again.", 400,

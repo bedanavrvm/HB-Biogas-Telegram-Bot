@@ -170,11 +170,15 @@
   }
 
   function normalizePhone(value) {
-    const digits = String(value || '').replace(/\D/g, '');
-    if (/^254[17]\d{8}$/.test(digits)) return digits;
-    if (/^0[17]\d{8}$/.test(digits)) return `254${digits.slice(1)}`;
-    if (/^[17]\d{8}$/.test(digits)) return `254${digits}`;
-    return '';
+    const raw = String(value || '').trim();
+    if (!raw || !/^[0-9+\s()-]+$/.test(raw) || (raw.match(/\+/g) || []).length > 1 || (raw.includes('+') && !raw.startsWith('+'))) return '';
+    let digits = raw.replace(/[\s()\-+]/g, '');
+    if (digits.startsWith('00254')) digits = digits.slice(2);
+    else if (digits.startsWith('005')) digits = `254${digits.slice(3)}`;
+    if (/^2540[17]\d{8}$/.test(digits)) digits = `254${digits.slice(4)}`;
+    else if (/^0[17]\d{8}$/.test(digits)) digits = `254${digits.slice(1)}`;
+    else if (/^[17]\d{8}$/.test(digits)) digits = `254${digits}`;
+    return /^254[17]\d{8}$/.test(digits) && !digits.startsWith('254199') ? digits : '';
   }
 
   function cleanAmount(value) {
@@ -195,7 +199,7 @@
       request_type: selectedType ? selectedType.value : '',
       branch: field('branch') ? field('branch').value.trim() : (config.default_branch || ''),
       customer_name: field('customer_name').value.trim(),
-      national_id: field('national_id').value.replace(/\D/g, ''),
+      national_id: field('national_id').value.trim(),
       customer_type: field('customer_type').value,
       primary_phone: normalizePhone(field('primary_phone').value) || field('primary_phone').value.trim(),
       secondary_phone: normalizePhone(field('secondary_phone').value) || field('secondary_phone').value.trim(),
@@ -320,9 +324,9 @@
     if (!['spin_crb', 'spin', 'crb'].includes(data.request_type)) add('request_type', 'Choose SPIN/CRB, SPIN, or CRB.');
     if (Array.isArray(config.branch_choices) && config.branch_choices.length && !data.branch) add('branch', 'Select a valid branch.');
     if (!data.customer_name) add('customer_name', 'Customer Name is required.');
-    if (!/^\d{7,8}$/.test(data.national_id)) add('national_id', 'National ID must be 7 or 8 digits.');
-    if (!normalizePhone(data.primary_phone)) add('primary_phone', 'Primary Phone must be a valid Kenyan number, for example 254712345678.');
-    if (data.secondary_phone && !normalizePhone(data.secondary_phone)) add('secondary_phone', 'Secondary Phone is invalid. Use 254 format or leave it blank.');
+    if (!/^\d{1,9}$/.test(data.national_id)) add('national_id', 'National ID / Maisha Namba must contain 1 to 9 digits only.');
+    if (!normalizePhone(data.primary_phone)) add('primary_phone', 'Primary Mobile Number must be a valid Kenyan mobile number.');
+    if (data.secondary_phone && !normalizePhone(data.secondary_phone)) add('secondary_phone', 'Secondary Mobile Number is invalid or not a Kenyan mobile number.');
     if (!data.requested_amount || Number(data.requested_amount) <= 0) add('requested_amount', 'Requested Amount is required and must be greater than 0.');
     if (!data.tenor) add('tenor', 'Tenor is required, for example 6 weeks or 12 months.');
     if (!selectedProduct()) add('loan_product', 'Choose a product from the global product catalogue.');
@@ -919,7 +923,7 @@
       request_type: reviewForm.elements['request_type'].value,
       branch: reviewForm.elements['branch'] ? reviewForm.elements['branch'].value : (config.default_branch || ''),
       customer_name: reviewForm.elements['customer_name'].value.trim(),
-      national_id: reviewForm.elements['national_id'].value.replace(/\D/g, ''),
+      national_id: reviewForm.elements['national_id'].value.trim(),
       primary_phone: normalizePhone(reviewForm.elements['primary_phone'].value) || reviewForm.elements['primary_phone'].value.trim(),
       secondary_phone: normalizePhone(reviewForm.elements['secondary_phone'].value) || reviewForm.elements['secondary_phone'].value.trim(),
       requested_amount: cleanAmount(reviewForm.elements['requested_amount'].value),

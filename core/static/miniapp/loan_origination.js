@@ -1449,16 +1449,21 @@
       const prefix = field.type === 'money' ? '<span class="input-prefix">KES</span>' : '';
       const validation = field.validation || {};
       const numeric = field.type === 'money' ? ` inputmode="numeric" data-numeric-input${field.source_type === 'system' ? '' : ' data-money-input'} data-min="${escapeHtml(validation.min ?? 0)}" data-max="${escapeHtml(validation.max ?? '')}"` : field.type === 'number' ? ` inputmode="decimal" data-numeric-input data-min="${escapeHtml(validation.min ?? '')}" data-max="${escapeHtml(validation.max ?? '')}"` : '';
-      const textRules = ['text', 'textarea', 'phone', 'national_id'].includes(field.type) ? `${validation.min_length != null ? ` minlength="${escapeHtml(validation.min_length)}"` : ''}${validation.max_length != null ? ` maxlength="${escapeHtml(validation.max_length)}"` : ''}${validation.pattern ? ` pattern="${escapeHtml(validation.pattern)}"` : ''}` : '';
+      const identifierRules = field.type === 'national_id'
+        ? ' maxlength="9" pattern="[0-9]{1,9}" inputmode="numeric"'
+        : field.type === 'phone' ? ' inputmode="tel"' : '';
+      const textRules = ['text', 'textarea', 'phone', 'national_id'].includes(field.type) ? `${validation.min_length != null ? ` minlength="${escapeHtml(validation.min_length)}"` : ''}${validation.max_length != null && field.type !== 'national_id' ? ` maxlength="${escapeHtml(validation.max_length)}"` : ''}${validation.pattern && field.type !== 'national_id' ? ` pattern="${escapeHtml(validation.pattern)}"` : ''}${identifierRules}` : '';
       const dobMin = field.key === 'applicant_dob' ? isoDate(new Date(new Date().getFullYear() - 120, 0, 1)) : '';
       const dobMax = field.key === 'applicant_dob' ? isoDate(new Date()) : '';
       const dateRules = field.type === 'date' ? `${validation.min_date || dobMin ? ` min="${escapeHtml(validation.min_date || dobMin)}"` : ''}${validation.max_date || dobMax ? ` max="${escapeHtml(validation.max_date || dobMax)}"` : ''}` : '';
       const input = field.type === 'date'
         ? nativeDateControl(`data-field="${key}"${field.required ? ' required' : ''}`, value, disabled, dateRules)
-        : `<input data-field="${key}" type="${type}" value="${escapeHtml(value ?? '')}"${field.required ? ' required' : ''}${numeric}${textRules}${field.type === 'national_id' ? ' inputmode="numeric"' : ''}${disabled ? ' disabled' : ''}>`;
+        : `<input data-field="${key}" type="${type}" value="${escapeHtml(value ?? '')}"${field.required ? ' required' : ''}${numeric}${textRules}${disabled ? ' disabled' : ''}>`;
       control = `<div class="input-wrap${prefix ? ' has-prefix' : ''}">${prefix}${input}</div>`;
     }
-    const help = field.help_text ? `<small class="field-help">${escapeHtml(field.help_text)}</small>` : '';
+    const identifierHelp = field.type === 'national_id' ? 'Do not enter Card Serial No.' : '';
+    const helpText = [field.help_text, identifierHelp].filter(Boolean).join(' ');
+    const help = helpText ? `<small class="field-help">${escapeHtml(helpText)}</small>` : '';
     const correction = ['ready_for_review', 'signed_pending_approval'].includes(current.status) ? correctionToggle('field', field.key, normalizeLabel(field)) : '';
     const wrapperTag = field.type === 'repeating_group' ? 'div' : 'label';
     return `<${wrapperTag} class="${classes}" data-field-wrap="${key}"><span>${label}${required}</span><small class="field-error" aria-live="polite"></small>${help}${correction}${control}</${wrapperTag}>`;
