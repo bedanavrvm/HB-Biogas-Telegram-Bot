@@ -623,11 +623,16 @@ def sync_committed_farmup_rows_to_master_sheet(
         return {'success': True, 'enabled': False, 'created': 0, 'updated': 0, 'conflicts': 0, 'errors': []}
 
     sheet_id = str(workflow.get('master_sheet_id') or getattr(group_config, 'sheet_id', '') or '').strip()
-    sheet_name = str(workflow.get('master_sheet_name') or 'Master Data').strip()
+    from core.services.requisition_partners import PARTNER_ECO, fulfillment_partner_for_farmer
+    from types import SimpleNamespace
+    sheet_names = {
+        False: str(workflow.get('master_sheet_name') or 'Master Data').strip(),
+        True: str(workflow.get('eco_conserve_sheet_name') or 'Eco-conserve').strip(),
+    }
     header_row = positive_int(workflow.get('master_header_row'), 3)
     data_start_row = positive_int(workflow.get('master_data_start_row'), header_row + 2)
     log_sheet_name = str(workflow.get('master_import_log_sheet_name') or '').strip()
-    if not sheet_id or not sheet_name:
+    if not sheet_id or not all(sheet_names.values()):
         return {
             'success': False, 'enabled': True, 'created': 0, 'updated': 0, 'conflicts': 0,
             'errors': ['Master sheet sync is enabled but master_sheet_id/master_sheet_name is incomplete.'],
@@ -636,26 +641,33 @@ def sync_committed_farmup_rows_to_master_sheet(
     try:
         from core.services.sheets import GoogleSheetsService
 
-        service = GoogleSheetsService.get_instance(sheet_id=sheet_id, sheet_name=sheet_name)
-        if not service.is_available():
-            raise RuntimeError('Google Sheets service unavailable for Master Data sheet.')
-        sheet = service._sheet
-        headers = ensure_master_system_headers(sheet, header_row)
-        result = write_rows_to_master_sheet(
-            sheet=sheet,
-            headers=headers,
-            data_start_row=data_start_row,
-            batch=batch,
-            cleaned_rows=cleaned_rows,
-        )
-        if log_sheet_name:
-            append_master_import_log(
-                service=service,
-                log_sheet_name=log_sheet_name,
-                batch=batch,
-                result=result,
+        grouped = {False: [], True: []}
+        for cleaned in cleaned_rows:
+            eco = fulfillment_partner_for_farmer(SimpleNamespace(
+                county=cleaned.get('county'), hb_sales_person=cleaned.get('hb_sales_person'),
+            )) == PARTNER_ECO
+            grouped[eco].append(cleaned)
+        totals = {'created': 0, 'updated': 0, 'conflicts': 0, 'errors': []}
+        for eco, rows in grouped.items():
+            if not rows:
+                continue
+            sheet_name = sheet_names[eco]
+            service = GoogleSheetsService.get_instance(sheet_id=sheet_id, sheet_name=sheet_name)
+            if not service.is_available():
+                totals['errors'].append(f'Google Sheets service unavailable for {sheet_name}.')
+                continue
+            sheet = service._sheet
+            headers = ensure_master_system_headers(sheet, header_row)
+            result = write_rows_to_master_sheet(
+                sheet=sheet, headers=headers, data_start_row=data_start_row,
+                batch=batch, cleaned_rows=rows,
             )
-        return {'success': result['errors'] == [], 'enabled': True, **result}
+            for key in ('created', 'updated', 'conflicts'):
+                totals[key] += result[key]
+            totals['errors'].extend(result['errors'])
+            if log_sheet_name:
+                append_master_import_log(service=service, log_sheet_name=log_sheet_name, batch=batch, result=result)
+        return {'success': not totals['errors'], 'enabled': True, **totals}
     except Exception as exc:  # pragma: no cover - defensive external API handling
         logger.error('Farmup Master Data sheet sync failed: %s', exc, exc_info=True)
         return {

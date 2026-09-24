@@ -499,6 +499,90 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(mock_get_sheets.call_args.kwargs['sheet_name'], 'Eco-conserve')
         self.assertEqual(sheet.values[4][1], 'FARMER ONE')
 
+    def test_eco_salesperson_variants_route_at_intake(self):
+        from types import SimpleNamespace
+        from core.services.requisition_partners import PARTNER_ECO, PARTNER_HB, fulfillment_partner_for_farmer
+
+        for value in ('EcoConserve Jawabu', 'Eco-conserve Jawabu', 'ECO CONSERVE/JAWABU', 'eco.conserve'):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    fulfillment_partner_for_farmer(SimpleNamespace(county='Kiambu', hb_sales_person=value)),
+                    PARTNER_ECO,
+                )
+        self.assertEqual(
+            fulfillment_partner_for_farmer(SimpleNamespace(county='Kiambu', hb_sales_person='Eco technician')),
+            PARTNER_HB,
+        )
+
+    @patch('core.services.jawabu_master.write_rows_to_master_sheet')
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_direct_farmup_sheet_sync_splits_partner_tabs(self, mock_get_sheets, mock_write):
+        from types import SimpleNamespace
+        from core.services.jawabu_master import sync_committed_farmup_rows_to_master_sheet
+        from core.tests import FakeMasterDataSheet, FakeJawabuService
+
+        mock_get_sheets.side_effect = lambda *, sheet_name, **kwargs: FakeJawabuService(
+            FakeMasterDataSheet(['No.', 'Customer Name'])
+        )
+        mock_write.side_effect = lambda **kwargs: {
+            'created': len(kwargs['cleaned_rows']), 'updated': 0, 'conflicts': 0, 'errors': [],
+        }
+        rows = [
+            {'county': 'Kiambu', 'hb_sales_person': 'Eco-Conserve Jawabu'},
+            {'county': 'Kiambu', 'hb_sales_person': 'Mary'},
+        ]
+        result = sync_committed_farmup_rows_to_master_sheet(
+            batch=SimpleNamespace(), cleaned_rows=rows, group_config=self.config,
+        )
+        self.assertTrue(result['success'])
+        self.assertEqual(result['created'], 2)
+        self.assertEqual(
+            {call.kwargs['sheet_name'] for call in mock_get_sheets.call_args_list},
+            {'Eco-conserve', 'Master Data'},
+        )
+
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_corrected_partner_moves_only_its_verified_sheet_row(self, mock_get_sheets):
+        from core.tests import FakeMasterDataSheet, FakeJawabuService
+
+        headers = ['No.', 'Customer Name', 'National ID', 'Primary Phone', 'Other Field']
+        master = FakeMasterDataSheet(headers)
+        eco = FakeMasterDataSheet(headers)
+        mock_get_sheets.side_effect = lambda *, sheet_name, **kwargs: FakeJawabuService(
+            eco if sheet_name == 'Eco-conserve' else master
+        )
+        self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
+        master.update_cell(5, 5, 'Staff note to retain')
+
+        self.farmer_stage1.hb_sales_person = 'Eco-conserve Jawabu'
+        self.farmer_stage1.save(update_fields=['hb_sales_person', 'updated_at'])
+        self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
+        self.assertEqual(eco.values[4][4], 'Staff note to retain')
+        self.assertFalse(any(str(value).strip() for value in master.values[4]))
+        self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
+        self.assertEqual(len(eco.values), 5)
+
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_partner_move_retains_old_row_when_destination_unavailable(self, mock_get_sheets):
+        from core.tests import FakeMasterDataSheet, FakeJawabuService
+
+        headers = ['No.', 'Customer Name', 'National ID', 'Primary Phone']
+        master = FakeMasterDataSheet(headers)
+        eco = FakeMasterDataSheet(headers)
+        mock_get_sheets.side_effect = lambda *, sheet_name, **kwargs: (
+            FakeJawabuService(master) if sheet_name == 'Master Data' else None
+        )
+        self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
+        self.farmer_stage1.county = 'Nakuru'
+        self.farmer_stage1.save(update_fields=['county', 'updated_at'])
+        unavailable = FakeJawabuService(eco)
+        unavailable.is_available = lambda: False
+        mock_get_sheets.side_effect = lambda *, sheet_name, **kwargs: (
+            unavailable if sheet_name == 'Eco-conserve' else FakeJawabuService(master)
+        )
+        self.assertFalse(sync_farmer_to_master_sheet(self.farmer_stage1))
+        self.assertEqual(master.values[4][1], 'FARMER ONE')
+
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
     def test_eco_conserve_unavailable_names_target_in_failure_context(self, mock_get_sheets):
         self.farmer_stage1.hb_sales_person = 'ECOCONSERVE JAWABU'

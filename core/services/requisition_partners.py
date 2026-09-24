@@ -17,11 +17,16 @@ def normalize_partner_value(value) -> str:
     return re.sub(r'\s+', ' ', str(value or '').strip()).upper()
 
 
+def is_eco_conserve_sales_person(value) -> bool:
+    """Accept the common FarmUp spellings without matching unrelated staff."""
+    return bool(re.fullmatch(r'ECO[\s._/-]*CONSERVE(?:[\s._/-]*JAWABU)?', normalize_partner_value(value)))
+
+
 def fulfillment_partner_for_farmer(farmer) -> str:
     """Resolve the sole partner from canonical case fields, never client input."""
     county = normalize_partner_value(getattr(farmer, 'county', ''))
     sales_person = normalize_partner_value(getattr(farmer, 'hb_sales_person', ''))
-    if county == 'NAKURU' or sales_person == 'ECOCONSERVE JAWABU':
+    if county == 'NAKURU' or is_eco_conserve_sales_person(sales_person):
         return PARTNER_ECO
     return PARTNER_HB
 

@@ -2205,11 +2205,13 @@ def sync_farmer_to_master_sheet(
         ensure_master_system_headers,
         find_master_row_number,
         first_existing_header,
+        header_row_value,
         header_lookup_from_headers,
         master_date_column_indexes,
         master_hbg_deposit_column_indexes,
         next_master_append_row,
         set_header_value,
+        col_letter,
         update_master_sheet_row,
         normalize_header,
     )
@@ -2285,6 +2287,51 @@ def sync_farmer_to_master_sheet(
             'national_id': farmer.national_id,
             'primary_phone': farmer.primary_phone,
         }
+        # A corrected county/salesperson may change the destination after an
+        # earlier publication. Never remove a row on a mutable identity match.
+        other_sheet_name = str(
+            (workflow.get('master_sheet_name') or 'Master Data')
+            if fulfillment_partner == PARTNER_ECO
+            else (workflow.get('eco_conserve_sheet_name') or 'Eco-conserve')
+        ).strip()
+        previous_sheet = None
+        previous_row = 0
+        previous_values = []
+        previous_headers = []
+        if other_sheet_name and other_sheet_name != sheet_name:
+            previous_pointers = list(LiveSheetRecordChange.objects.filter(
+                sheet_id=sheet_id, sheet_tab=other_sheet_name,
+                record_key=str(farmer.pk), status='success',
+            ).order_by('-created_at').values_list('row_number', flat=True)[:10])
+            if previous_pointers:
+                previous_service = GoogleSheetsService.get_instance(sheet_id=sheet_id, sheet_name=other_sheet_name)
+                if not previous_service.is_available():
+                    note_failure(phase='connection', detail=f'The previous {other_sheet_name} tab could not be opened for safe reassignment.')
+                    return False
+                previous_sheet = previous_service._sheet
+                previous_headers = list(previous_sheet.row_values(header_row))
+                previous_lookup = header_lookup_from_headers(previous_headers)
+                for pointer in dict.fromkeys(previous_pointers):
+                    candidate_values = list(previous_sheet.row_values(pointer))
+                    if header_row_value(candidate_values, previous_lookup, 'Master Record ID').casefold() == str(farmer.pk).casefold():
+                        previous_row = pointer
+                        previous_values = candidate_values
+                        break
+                if previous_row:
+                    unmapped = [
+                        previous_headers[index] if index < len(previous_headers) else f'Column {index + 1}'
+                        for index, value in enumerate(previous_values)
+                        if str(value or '').strip() and (
+                            index >= len(previous_headers)
+                            or normalize_header(previous_headers[index]) not in header_lookup
+                        )
+                    ]
+                    if unmapped:
+                        note_failure(
+                            phase='schema', field_names=unmapped, fields_checked=True,
+                            detail=f'The former {other_sheet_name} row has fields missing from {sheet_name}; it was retained.',
+                        )
+                        return False
         # A successful publication already records the canonical sheet row.
         # Reuse that immutable audit pointer (and verify its identifiers) so a
         # routine case edit does not repeatedly download the entire register.
@@ -2337,10 +2384,28 @@ def sync_farmer_to_master_sheet(
             row_values = list(values[row_number - 1]) if row_number - 1 < len(values) else []
         if len(row_values) < len(headers):
             row_values.extend([''] * (len(headers) - len(row_values)))
+        existing_record_id = header_row_value(row_values, header_lookup, 'Master Record ID')
+        if existing_record_id and existing_record_id.casefold() != str(farmer.pk).casefold():
+            note_failure(phase='identity', detail=f'A different case already owns the matching row in {sheet_name}.')
+            return False
+
+        moved_fields = {}
+        if previous_row:
+            previous_lookup = header_lookup_from_headers(previous_headers)
+            for header in headers:
+                if not str(header or '').strip() or normalize_header(header) in {
+                    normalize_header('No.'), normalize_header('Last Updated At'),
+                }:
+                    continue
+                old_value = header_row_value(previous_values, previous_lookup, header)
+                index = header_lookup[normalize_header(header)] - 1
+                if old_value and not str(row_values[index] or '').strip():
+                    row_values[index] = old_value
+                    moved_fields[header] = {'before': '', 'after': old_value}
 
         # Update pipeline fields
         now_text = timezone.now().strftime('%d-%m-%Y %H:%M')
-        changes = {}
+        changes = dict(moved_fields)
 
         from core.services.jawabu_case_reference import display_case_reference
         for header in (MASTER_CASE_ID_HEADER, 'Master Record ID'):
@@ -2500,6 +2565,30 @@ def sync_farmer_to_master_sheet(
             write_master_hbg_deposit_cells(
                 sheet, [(row_number, row_values)],
                 master_hbg_deposit_column_indexes(headers),
+            )
+        if previous_row:
+            # Google Sheets is not transactional: confirm the destination and
+            # re-check the source's immutable ID immediately before clearing.
+            target_values = list(sheet.row_values(row_number))
+            if header_row_value(target_values, header_lookup, 'Master Record ID').casefold() != str(farmer.pk).casefold():
+                note_failure(phase='verify', detail=f'The case was not confirmed in {sheet_name}; the old row was retained.')
+                return False
+            previous_lookup = header_lookup_from_headers(previous_headers)
+            current_previous = list(previous_sheet.row_values(previous_row))
+            if header_row_value(current_previous, previous_lookup, 'Master Record ID').casefold() != str(farmer.pk).casefold():
+                note_failure(phase='verify', detail=f'The former {other_sheet_name} row changed; it was not cleared.')
+                return False
+            width = max(len(previous_headers), len(current_previous))
+            previous_sheet.update(
+                f'A{previous_row}:{col_letter(width)}{previous_row}',
+                [[''] * width], value_input_option='RAW',
+            )
+            LiveSheetRecordChange.objects.create(
+                group_configuration=GroupSheetConfiguration.objects.filter(group_id=group_config.group_id).first(),
+                group_id=group_config.group_id, sheet_id=sheet_id,
+                sheet_tab=other_sheet_name, row_number=previous_row,
+                record_key=str(farmer.pk), action='delete', changed_by='portal',
+                changes={'moved_to_tab': sheet_name, 'moved_to_row': row_number}, status='success',
             )
         return True
     except Exception as exc:
