@@ -2557,7 +2557,7 @@
     if (!viewButton) return;
     event.preventDefault();
     if (viewButton.dataset.kind === 'payments') portalRequisitions.openFinalPaymentHistory?.(viewButton.dataset.id);
-    else portalRequisitions.openFinalOrderHistory?.(viewButton.dataset.order);
+    else portalRequisitions.openFinalOrderHistory?.(viewButton.dataset.id);
   });
 
   document.addEventListener('click', event => {

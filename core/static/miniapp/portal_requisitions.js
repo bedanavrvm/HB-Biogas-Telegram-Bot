@@ -305,8 +305,8 @@
     }
   }
 
-  async function openFinalOrderHistory(orderNumber) {
-    const response = await deps.apiFetch('/requisition-batches/' + encodeURIComponent(orderNumber) + '/');
+  async function openFinalOrderHistory(documentId) {
+    const response = await deps.apiFetch('/document-history/orders/' + encodeURIComponent(documentId) + '/preview/');
     if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Could not load final order.', 'error');
     const batch = response.data.batch || {};
     openRequisitionPreview({

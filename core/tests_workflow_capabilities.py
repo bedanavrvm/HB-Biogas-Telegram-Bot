@@ -16,7 +16,7 @@ from django.urls import reverse
 from django.test.client import RequestFactory
 from django.test import TestCase, override_settings
 
-from core.api.portal_views import portal_meta
+from core.api.portal_views import portal_document_history, portal_document_order_preview, portal_meta, portal_requisition_batch_detail
 from core.models import (
     AccessControlChangeRequest,
     AccessControlCheckerAssignment,
@@ -24,6 +24,7 @@ from core.models import (
     ComplianceAuditEvent,
     EmergencyAccessGrant,
     JawabuFarmerMaster,
+    RequisitionBatch,
     Product,
     WorkflowRoleCapability,
     WorkflowRoleCapabilityAuditEvent,
@@ -45,6 +46,7 @@ from core.services.access_control import (
 from core.services.access_policies import WORKFLOW_ROLES
 from core.services.business_admin import legacy_business_admin_cutover_issues
 from core.services.portal_permissions import portal_access_decision, scope_portal_case_queryset
+from core.services.portal_navigation import get_portal_nav_items
 from core.services.origination_access import queue_capabilities
 from core.services.telegram_identity import (
     TelegramAuthenticationError, user_access, validate_telegram_init_data,
@@ -120,6 +122,52 @@ class WorkflowCapabilityPolicyTests(TestCase):
         self.assertIn('portal.documents.sign', operation_caps)
         self.assertNotIn('portal.jbl_visit.write', operation_caps)
         self.assertNotIn('portal.final_review.write', operation_caps)
+
+    def test_hb_uses_document_archive_without_finalized_order_batch_access(self):
+        hb_user = get_user_model().objects.create_user(username='hb-archive', is_active=True)
+        AccessGrant.objects.create(
+            user=hb_user, workflow='jawabu_portal', role='HB_STAFF', branch='EMBU',
+        )
+        access = user_access(hb_user, 'jawabu_portal')
+        capabilities = effective_capability_keys(hb_user, 'jawabu_portal', access=access)
+        self.assertIn('portal.documents.view', capabilities)
+        self.assertNotIn('portal.batches.view', capabilities)
+        nav_keys = {item['key'] for item in get_portal_nav_items(hb_user, access=access)}
+        self.assertIn('history', nav_keys)
+        self.assertNotIn('batches', nav_keys)
+
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Archive customer', national_id='12345678',
+            primary_phone='0712345678', branch='EMBU', order_number='104',
+        )
+        batch = RequisitionBatch.objects.create(
+            order_number='104', farmer_ids=[str(farmer.pk)], farmer_count=1,
+            filename='order-104.xlsx', file_content=b'workbook',
+        )
+        request = RequestFactory().get('/api/portal/document-history/?kind=orders')
+        request.portal_user = hb_user
+        request.portal_access = access
+        archive = portal_document_history(request)
+        self.assertEqual(archive.status_code, 200)
+        self.assertEqual(json.loads(archive.content)['documents'][0]['id'], str(batch.pk))
+
+        preview = portal_document_order_preview(request, batch.pk)
+        self.assertEqual(preview.status_code, 200)
+        payload = json.loads(preview.content)['batch']
+        self.assertEqual(payload['farmers'][0]['customer_name'], 'Archive customer')
+        self.assertNotIn('download_url', payload)
+
+        batch_detail = portal_requisition_batch_detail(request, batch.order_number)
+        self.assertEqual(batch_detail.status_code, 403)
+
+        outsider = JawabuFarmerMaster.objects.create(
+            customer_name='Other branch', national_id='87654321',
+            primary_phone='0798765432', branch='NAKURU', order_number='105',
+        )
+        other_batch = RequisitionBatch.objects.create(
+            order_number='105', farmer_ids=[str(outsider.pk)], farmer_count=1,
+        )
+        self.assertEqual(portal_document_order_preview(request, other_batch.pk).status_code, 403)
 
     def test_business_admin_cutover_preflight_flags_pending_legacy_request(self):
         AccessControlChangeRequest.objects.create(

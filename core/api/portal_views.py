@@ -8889,6 +8889,58 @@ def portal_payment_document_regenerate(request, document_id: str):
 
 
 @require_http_methods(["GET"])
+def portal_document_order_preview(request, document_id):
+    """Read-only preview of the exact archived order, independent of batch management."""
+    from django.shortcuts import get_object_or_404
+    from core.models import RequisitionBatch
+    from core.services.compliance_audit import record_sensitive_access
+
+    access_error = _portal_read_access_error(request, capability='portal.documents.view')
+    if access_error:
+        return access_error
+    batch = get_object_or_404(RequisitionBatch, pk=document_id)
+    if batch.status == 'preview':
+        return JsonResponse({'ok': False, 'error': 'This order is not in the document archive.'}, status=404)
+    if not _portal_saved_document_in_scope(
+        request, batch.order_number, batch.farmer_ids, capability='portal.documents.view',
+    ):
+        return JsonResponse({'ok': False, 'error': 'You do not have access to this order.'}, status=403)
+    farmers = _farmers_for_batch(batch.order_number, batch.farmer_ids or None)
+    access_error = _portal_farmers_scope_error(request, farmers, capability='portal.documents.view')
+    if access_error:
+        return access_error
+    record_sensitive_access(
+        workflow='portal', action='portal.document_order.preview',
+        subject_type='requisition_batch', subject_id=str(batch.pk),
+        actor=getattr(request, 'portal_user', None),
+        actor_label=_portal_sender_from_request(request),
+        request_id=_portal_request_id(request),
+        metadata={'order_number': batch.order_number},
+    )
+    return JsonResponse({'ok': True, 'batch': {
+        'id': str(batch.pk),
+        'order_number': batch.order_number,
+        'fulfillment_partner': getattr(batch, 'fulfillment_partner', 'HB') or 'HB',
+        'requisition_date': batch.requisition_date.isoformat() if batch.requisition_date else None,
+        'farmer_count': len(farmers),
+        'farmers': [{
+            'customer_name': farmer.customer_name,
+            'primary_phone': farmer.primary_phone,
+            'national_id': farmer.national_id,
+            'credit_decision': farmer.credit_decision,
+            'final_decision_comment': farmer.final_decision_comment,
+            'county': farmer.county,
+            'sub_county': farmer.sub_county,
+            'village': farmer.village,
+            'deposit_paid_hbg': str(farmer.deposit_paid_hbg) if farmer.deposit_paid_hbg is not None else '',
+            'actual_receipts': str(farmer.actual_receipts) if farmer.actual_receipts is not None else '',
+            'lead_source': farmer.lead_source,
+            'hb_sales_person': farmer.hb_sales_person,
+        } for farmer in farmers],
+    }})
+
+
+@require_http_methods(["GET"])
 def portal_document_history(request):
     """List generated order documents and payment review/final artifacts."""
     from core.models import PaymentDocument, RequisitionBatch

@@ -52,7 +52,7 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     CapabilityDefinition('portal.requisition.write', 'jawabu_portal', 'Assign orders and generate requisitions', 'Orders', _roles('HB_STAFF', OPERATIONS_ADMIN_ROLE), ('portal.requisition.view',)),
     CapabilityDefinition('portal.requisition.finalize', 'jawabu_portal', 'Finalize official requisition orders', 'Orders', _roles(OPERATIONS_ADMIN_ROLE), ('portal.requisition.view',)),
     CapabilityDefinition('portal.requisition.sequence.manage', 'jawabu_portal', 'Align the official requisition number sequence', 'Orders', _roles('IT', OPERATIONS_ADMIN_ROLE)),
-    CapabilityDefinition('portal.batches.view', 'jawabu_portal', 'View requisition batches', 'Orders', _roles('HB_STAFF', OPERATIONS_ADMIN_ROLE)),
+    CapabilityDefinition('portal.batches.view', 'jawabu_portal', 'View requisition batches', 'Orders', _roles(OPERATIONS_ADMIN_ROLE)),
     CapabilityDefinition('portal.hb_action.view', 'jawabu_portal', 'View HomeBiogas installation and commissioning work', 'HomeBiogas action', _roles('HB_STAFF', OPERATIONS_ADMIN_ROLE)),
     CapabilityDefinition('portal.hb_action.write', 'jawabu_portal', 'Record installation and commissioning progress', 'HomeBiogas action', _roles('HB_STAFF'), ('portal.hb_action.view',)),
     CapabilityDefinition('portal.hb_action.correct', 'jawabu_portal', 'Correct installation and commissioning records with audit evidence', 'HomeBiogas action', _roles('HB_STAFF'), ('portal.hb_action.view',)),
