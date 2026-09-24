@@ -1617,7 +1617,7 @@
   // Meta (dropdown values)
   async function loadMeta() {
     const { ok, data } = await apiFetch('/meta/');
-    if (!ok) return;
+    if (!ok || !data || data.ok === false) return false;
     state.metaStatuses = data.jbl_visit_statuses || [];
     state.metaDecisions = data.credit_decisions || [];
     state.metaImabOptions = data.imab_created_options || [];
@@ -1649,6 +1649,7 @@
     applyCapabilityVisibility();
     portalFilters.setupQueueTools?.(state.activePage);
     applyWorkspaceVisibility();
+    return true;
   }
 
   function paymentHistoryScope(document) {
@@ -2282,7 +2283,14 @@
   // Bootstrap
   async function init() {
     configureHtmx();
-    await loadMeta();
+    if (!await loadMeta()) {
+      const screen = el('portal-screen');
+      if (screen) {
+        screen.innerHTML = '<section class="shell-error" role="alert"><h2>Portal could not load</h2><p>We could not check your access or load this screen. Check your connection and try again.</p><button type="button" class="btn btn-secondary" id="portal-startup-retry">Retry</button></section>';
+        el('portal-startup-retry')?.addEventListener('click', () => window.location.reload());
+      }
+      return;
+    }
     loadPortalNotifications().catch(() => {});
     await portalRequisitions.restoreSelection?.();
     try { await loadPortalSettings(); } catch (_) { /* Settings are non-critical to opening the workflow. */ }

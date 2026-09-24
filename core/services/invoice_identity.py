@@ -143,6 +143,8 @@ def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
         blocker = 'invoice_identity_verification_pending'
     elif open_change:
         blocker = 'invoice_name_change_pending'
+    elif latest and latest.status == InvoiceIdentityReview.STATUS_FLAGGED:
+        blocker = 'invoice_identity_flagged'
     elif not material_codes:
         blocker = ''
     elif 'national_id_mismatch' in material_codes:
@@ -151,8 +153,6 @@ def identity_gate(invoice: ParsedInvoice, farmer: JawabuFarmerMaster) -> dict:
         blocker = ''
     elif latest and latest.status == InvoiceIdentityReview.STATUS_DIFFERENT_PERSON:
         blocker = 'invoice_name_change_required'
-    elif latest and latest.status == InvoiceIdentityReview.STATUS_FLAGGED:
-        blocker = 'invoice_identity_flagged'
     else:
         blocker = 'invoice_identity_verification_pending'
     if not match_eligibility['eligible']:

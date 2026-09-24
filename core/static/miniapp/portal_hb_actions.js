@@ -13,6 +13,7 @@
   let page = 1;
   let searchTimer = null;
   let invoiceObjectUrl = '';
+  let listRequestVersion = 0;
 
   const byId = id => document.getElementById(id);
   const esc = value => deps.escapeHtml ? deps.escapeHtml(value == null ? '' : String(value)) : String(value || '');
@@ -53,11 +54,14 @@
   async function loadList() {
     const target = byId('hb-action-list');
     if (!target) return;
+    const requestVersion = ++listRequestVersion;
+    const requestQueue = activeQueue;
     target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
     const params = new URLSearchParams({page: String(page), queue: activeQueue, state: activeState});
     const search = byId('hb-actions-search')?.value.trim() || '';
     if (search) params.set('search', search);
     const response = await deps.portalApi.apiFetch(`/hb-actions/?${params.toString()}`, {}, deps.tg);
+    if (requestVersion !== listRequestVersion || requestQueue !== activeQueue) return;
     if (!response.ok || !response.data?.ok) {
       target.innerHTML = `<div class="empty-state"><strong>HB Action could not load</strong><div class="es-sub">${esc(response.data?.error || 'Check your connection and try again.')}</div><button type="button" class="btn btn-secondary" data-hb-retry>Retry</button></div>`;
       target.querySelector('[data-hb-retry]')?.addEventListener('click', loadList);

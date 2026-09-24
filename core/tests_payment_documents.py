@@ -13,6 +13,7 @@ from django.utils import timezone
 from openpyxl import Workbook, load_workbook
 
 from core.models import (
+    GroupSheetConfiguration,
     InvoiceUploadBatch,
     JawabuFarmerMaster,
     ParsedInvoice,
@@ -78,6 +79,12 @@ def synthetic_payment_template_bytes():
 )
 class InvoicePoolAndPaymentDocumentTests(TestCase):
     def setUp(self):
+        GroupSheetConfiguration.objects.create(
+            group_id='-100payment-documents-test',
+            display_name='Jawabu HomeBiogas',
+            sheet_id='payment-documents-test-sheet',
+            workflow={'type': 'jawabu_homebiogas'},
+        )
         self._media_root = tempfile.TemporaryDirectory()
         self.addCleanup(self._media_root.cleanup)
         self._media_settings = override_settings(MEDIA_ROOT=self._media_root.name)
@@ -234,7 +241,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         farmer = self.farmer()
         self.invoice_batch(farmer)
         approval = record_approval(
-            farmer=farmer, gate='final_review', decision='approved', actor=None, access=None,
+            farmer=farmer, gate='final_review', decision='Approved', actor=None, access=None,
         )
         invalidate_material_approvals(
             farmer=farmer, changed_fields={'balance_due'}, reason='Invoice values were recorded after the order.',
@@ -364,12 +371,13 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
             }], 1),
         ]
 
-        response = self.client.post(reverse('portal_invoice_pool_upload'), {
-            'file': [
-                SimpleUploadedFile('invoice-1.pdf', b'%PDF-1.4 one', content_type='application/pdf'),
-                SimpleUploadedFile('invoice-2.pdf', b'%PDF-1.4 two', content_type='application/pdf'),
-            ],
-        })
+        with patch('core.api.portal_views._portal_import_group_ids', return_value=None):
+            response = self.client.post(reverse('portal_invoice_pool_upload'), {
+                'file': [
+                    SimpleUploadedFile('invoice-1.pdf', b'%PDF-1.4 one', content_type='application/pdf'),
+                    SimpleUploadedFile('invoice-2.pdf', b'%PDF-1.4 two', content_type='application/pdf'),
+                ],
+            })
         data = response.json()
 
         self.assertEqual(response.status_code, 200)
@@ -393,9 +401,10 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
             'payment': '6,000.00', 'balance_due': '43,500.00',
         }], 1)
 
-        response = self.client.post(reverse('portal_invoice_pool_upload'), {
-            'file': SimpleUploadedFile('exact.pdf', b'%PDF-1.4 exact', content_type='application/pdf'),
-        })
+        with patch('core.api.portal_views._portal_import_group_ids', return_value=None):
+            response = self.client.post(reverse('portal_invoice_pool_upload'), {
+                'file': SimpleUploadedFile('exact.pdf', b'%PDF-1.4 exact', content_type='application/pdf'),
+            })
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
@@ -413,12 +422,13 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         storage.return_value.upload.return_value = ('drive-id', 'https://drive.test/pdf')
         parse_pdf.return_value = ([], 1)
 
-        response = self.client.post(reverse('portal_invoice_pool_upload'), {
-            'file': [
-                SimpleUploadedFile('kept.pdf', b'%PDF-1.4 kept', content_type='application/pdf'),
-                SimpleUploadedFile('wrong.txt', b'not a pdf', content_type='text/plain'),
-            ],
-        })
+        with patch('core.api.portal_views._portal_import_group_ids', return_value=None):
+            response = self.client.post(reverse('portal_invoice_pool_upload'), {
+                'file': [
+                    SimpleUploadedFile('kept.pdf', b'%PDF-1.4 kept', content_type='application/pdf'),
+                    SimpleUploadedFile('wrong.txt', b'not a pdf', content_type='text/plain'),
+                ],
+            })
 
         self.assertEqual(response.status_code, 207)
         data = response.json()

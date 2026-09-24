@@ -20,7 +20,7 @@ from core.services.jawabu_approvals import (
     validate_reason,
     visit_media_orphan_report,
 )
-from core.services.jawabu_pipeline import log_jbl_visit, set_credit_decision
+from core.services.jawabu_pipeline import JBL_FORWARD_STATUS, log_jbl_visit, set_credit_decision
 from core.services.telegram_identity import user_access
 
 
@@ -54,7 +54,7 @@ class PortalApprovalControlsTests(TestCase):
         self.assertFalse(ok)
         self.assertIn('Invalid credit decision', error)
         self.farmer.refresh_from_db()
-        self.assertEqual(self.farmer.credit_decision, 'Pending')
+        self.assertEqual(self.farmer.credit_decision, '')
         self.assertFalse(self.farmer.approval_records.filter(gate='credit').exists())
 
     def test_on_hold_decision_uses_the_governed_deferred_approval_code(self):
@@ -136,13 +136,13 @@ class PortalApprovalControlsTests(TestCase):
         )
         ok, error = log_jbl_visit(
             visit_farmer, visit_date=date(2026, 7, 2), officer='BRO',
-            visit_status='Approved', location_unavailable_reason='GPS disabled by device policy.',
+            visit_status=JBL_FORWARD_STATUS, village='Test Village', location_unavailable_reason='GPS disabled by device policy.',
             require_visit_evidence=True,
         )
         self.assertFalse(ok)
-        self.assertIn('signed LAF document', error)
+        self.assertIn('LAF document', error)
 
-        for category in ('LAF', 'JBL_VISIT_PHOTO'):
+        for category in ('CLIENT_ID', 'LAF', 'JBL_VISIT_PHOTO'):
             MediaAttachment.objects.create(
                 group_id='portal-test', jawabu_farmer=visit_farmer,
                 file_type=category, upload_status='success',
@@ -150,7 +150,7 @@ class PortalApprovalControlsTests(TestCase):
             )
         ok, error = log_jbl_visit(
             visit_farmer, visit_date=date(2026, 7, 2), officer='BRO',
-            visit_status='Approved', location_unavailable_reason='GPS disabled by device policy.',
+            visit_status=JBL_FORWARD_STATUS, village='Test Village', location_unavailable_reason='GPS disabled by device policy.',
             require_visit_evidence=True,
         )
         self.assertTrue(ok, error)

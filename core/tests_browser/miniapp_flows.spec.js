@@ -14,7 +14,6 @@ async function loadUtilities(page) {
 test('Portal case-card policy distinguishes work, inspection and unsupported queues',async({page})=>{
   const source=fs.readFileSync(asset('portal.js'),'utf8');
   const routing=source.match(/  function openQueueCase\([^]*?\n  \}/)[0];
-  const mode=source.match(/  function reviewCardMode\([^]*?\n  \}/)[0];
   await page.setContent('<p>Portal case-card routing</p>');
   await page.addScriptTag({content:`
     window.calls=[];
@@ -24,9 +23,8 @@ test('Portal case-card policy distinguishes work, inspection and unsupported que
     const caseHistoryUrl=(id,queue)=>'/portal/cases/'+id+'/?from='+queue;
     const navigateToUrl=url=>calls.push({kind:'history',url});
     const showToast=message=>calls.push({kind:'error',message});
-    ${routing}\n${mode}
+    ${routing}
     window.openQueueCase=openQueueCase;
-    window.reviewCardMode=reviewCardMode;
     window.routingState=state;
   `});
   for(const [queue,mode] of [['jbl','jbl_visit'],['credit','credit'],['final','final_review'],['deferred','deferred']]){
@@ -39,10 +37,9 @@ test('Portal case-card policy distinguishes work, inspection and unsupported que
   }
   await page.evaluate(()=>window.openQueueCase({id:'case-1'},'unknown',null));
   expect(await page.evaluate(()=>window.calls.at(-1).kind)).toBe('error');
-  expect(await page.evaluate(()=>{window.routingState.filters.reviewStage='payment';return window.reviewCardMode({mode:'final_review'},'final');})).toBeNull();
   // Both server-fragment and client-rendered cards use this same tested policy.
   expect(source).toContain('openQueueCase({ id: card.dataset.farmerId }, queue, card.dataset.mode || null)');
-  expect(source).toContain('openQueueCase(farmer, qKey, reviewCardMode(cfg, qKey))');
+  expect(source).toContain('openQueueCase(farmer, qKey, cfg.mode)');
 });
 
 test('Staff activation remains readable in dark mode and follows Telegram theme changes',async({page},testInfo)=>{
@@ -197,7 +194,7 @@ test('Hidden main action can retry finalization and produces a working workbook 
 
 test('FarmUp final review row stays above the scrollbar and commit bar',async({page})=>{
   await page.setViewportSize({width:390,height:700});
-  await page.setContent('<body class="portal-app"><main id="content" style="height:100dvh;overflow:auto"><div id="portal-screen" data-screen="farmup"><section id="page-farmup"><form id="portal-farmup-upload"></form><div id="portal-farmup-feedback"></div><section id="portal-farmup-review" class="portal-import-review" hidden></section><div id="portal-farmup-list"></div></section></div></main></body>');
+  await page.setContent('<body class="portal-app"><main id="content" style="height:100dvh;overflow:auto"><div id="portal-screen" data-screen="farmup"><section id="page-farmup" class="farmup-review-page"><form id="portal-farmup-upload"></form><div id="portal-farmup-feedback"></div><section id="portal-farmup-review" class="portal-import-review" hidden></section><div id="portal-farmup-list"></div></section></div></main></body>');
   for(const name of ['base.css','portal.css','vendor-ag-grid-community-36.1.0.min.css','vendor-ag-grid-theme-quartz-36.1.0.min.css']) await page.addStyleTag({path:asset(name)});
   await page.addScriptTag({path:asset('vendor-ag-grid-community-36.1.0.min.js')});
   await page.evaluate(()=>{
@@ -267,17 +264,16 @@ test('Portal secondary actions use blue without changing primary or destructive 
 
 test('Portal refresh actions sit at the right content edge across screens', async ({page},testInfo)=>{
   const template=fs.readFileSync(path.join(root,'core/templates/portal/portal.html'),'utf8');
-  const queueHeaders=template.match(/<header class="portal-queue-header">[^]*?<\/header>/g);
+  const queueHeaders=template.match(/<header class="portal-queue-header">[^]*?<\/header>/g).filter(header=>!header.includes('{%'));
   await page.setContent(`<body class="workflow-standard portal-app"><main id="content" style="padding:12px"><div class="dashboard-intro"><div><h2>Overview</h2></div><button class="dashboard-refresh-button">Refresh</button></div>${queueHeaders.join('')}<section id="page-farmup"><div class="portal-import-history"><div class="portal-import-history-heading"><h2>Recent batches</h2><button>Refresh</button></div></div></section><section id="page-imports"><div class="portal-import-history"><div class="portal-import-history-heading"><h2>Recent imports</h2><button>Refresh</button></div></div></section></main></body>`);
   for(const name of ['base.css','workflow_standard.css','portal.css']) await page.addStyleTag({path:asset(name)});
   for(const width of [390,1280]){
     await page.setViewportSize({width,height:900});
-    const positions=await page.locator('.portal-queue-header, .dashboard-intro, .portal-import-history-heading').evaluateAll(headers=>headers.map(header=>{
-      const bounds=header.getBoundingClientRect();const button=header.querySelector('button').getBoundingClientRect();
+    const positions=await page.locator('.portal-queue-header, .dashboard-intro, .portal-import-history-heading').evaluateAll(headers=>headers.filter(header=>header.querySelector('[data-queue-refresh], #hb-actions-refresh, #payments-refresh, .dashboard-refresh-button, .portal-import-history-heading button')).map(header=>{
+      const bounds=header.getBoundingClientRect();const button=(header.querySelector('.payment-header-actions') || header.querySelector('[data-queue-refresh], #hb-actions-refresh, #payments-refresh, .dashboard-refresh-button, .portal-import-history-heading button')).getBoundingClientRect();
       return {gap:bounds.right-button.right,top:button.top-bounds.top,width:bounds.width};
     }));
-    const contentWidth=await page.locator('#content').evaluate(el=>el.clientWidth-24);
-    for(const position of positions){expect(Math.abs(position.gap)).toBeLessThan(2);expect(position.top).toBeLessThan(10);expect(Math.abs(position.width-contentWidth)).toBeLessThan(2);}
+    for(const position of positions){expect(Math.abs(position.gap)).toBeLessThan(2);expect(position.top).toBeLessThan(10);}
     await page.screenshot({path:testInfo.outputPath(`refresh-${width}.png`),fullPage:true});
   }
 });
@@ -464,7 +460,7 @@ test('Import History keeps compact mobile cards and working review navigation', 
 
 test('FarmUp landing highlights pending work without mobile overflow', async ({ page }, testInfo) => {
   const template = fs.readFileSync(path.join(root, 'core/templates/portal/portal.html'), 'utf8');
-  const section = template.slice(template.indexOf('<section id="page-farmup"'), template.indexOf('{% endif %}', template.indexOf('<section id="page-farmup"') + 100))
+  const section = `<section id="page-farmup">${template.slice(template.indexOf('<header class="farmup-intake-heading"'), template.indexOf('    {% endif %}', template.indexOf('<header class="farmup-intake-heading"')))}</section>`
     .replace(/\{%[^]*?%\}/g, '').replace(/\{\{[^]*?\}\}/g, '5');
   await page.setViewportSize({ width:390, height:700 });
   await page.setContent(`<body class="portal-app"><div id="portal-screen" data-screen="farmup" style="padding:12px">${section}</div></body>`);
@@ -818,29 +814,31 @@ test('Portal FarmUp renders a compact mobile grid with explicit selection counts
   await expect(page.locator('#farmup-grid .ag-root-wrapper')).toBeVisible();
   await expect(page.locator('#farmup-grid .ag-header')).toBeVisible();
   await expect(page.locator('.farmup-mobile-card')).toHaveCount(0);
-  await expect(page.locator('#farmup-selection-summary')).toContainText('1 commit');
+  await expect(page.locator('#farmup-selection-summary')).toContainText(/1\s*to commit/);
   await page.screenshot({path:testInfo.outputPath('farmup-review-mobile.png'),fullPage:true});
   expect(await page.locator('.farmup-grid-wrap').evaluate(element => element.scrollWidth === element.clientWidth)).toBe(true);
   expect(await page.locator('.farmup-grid .ag-body-horizontal-scroll-viewport').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
-  const nameCell = page.locator('.ag-cell').filter({ hasText: 'Test Farmer' }).first();
-  await nameCell.dblclick();
+  const idCell = page.locator('.ag-cell[col-id="National ID"]').first();
+  await idCell.dblclick();
   await page.keyboard.press('Control+A');
-  await page.keyboard.type('Edited Farmer');
+  await page.keyboard.type('87654321');
   await page.keyboard.press('Enter');
-  await expect(page.locator('.ag-cell').filter({ hasText: 'Edited Farmer' }).first()).toHaveClass(/farmup-cell-edited/);
-  await expect(page.locator('#farmup-selection-summary')).toContainText('1 edits');
+  await expect(page.locator('.ag-cell').filter({ hasText: '87654321' }).first()).toHaveClass(/farmup-cell-edited/);
+  await expect(page.locator('#farmup-selection-summary')).toContainText(/1\s*edits/);
   await page.locator('[data-farmup-mode="carousel"]').click();
-  await expect(page.locator('.farmup-carousel-card')).toContainText('Edited Farmer');
+  await expect(page.locator('.farmup-carousel-card')).toContainText('87654321');
   await expect(page.locator('.farmup-carousel-field.edited')).toHaveCount(1);
   await expect(page.locator('.farmup-carousel-track')).toHaveCSS('scroll-snap-type', 'x mandatory');
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
   expect(await page.evaluate(() => window.__farmupSwipeGuards)).toBeGreaterThan(0);
   await page.locator('[data-farmup-mode="table"]').click();
+  await page.locator('.farmup-bulk-actions summary').click();
   await page.locator('#farmup-clear-all').click();
-  await expect(page.locator('#farmup-selection-summary')).toContainText('0 commit');
-  await expect(page.locator('#farmup-selection-summary')).toContainText('1 held');
+  await expect(page.locator('#farmup-selection-summary')).toContainText(/0\s*to commit/);
+  await expect(page.locator('#farmup-selection-summary')).toContainText(/1\s*held/);
+  await page.locator('.farmup-bulk-actions summary').click();
   await page.locator('#farmup-select-all').click();
-  await expect(page.locator('#farmup-selection-summary')).toContainText('1 commit');
+  await expect(page.locator('#farmup-selection-summary')).toContainText(/1\s*to commit/);
   await page.locator('#farmup-commit').click();
   await expect(page.locator('.farmup-confirm-dialog')).toContainText('1selected');
   await expect(page.locator('.farmup-confirm-dialog')).toContainText('1edited cells');

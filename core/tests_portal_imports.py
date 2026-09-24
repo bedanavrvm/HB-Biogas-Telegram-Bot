@@ -283,6 +283,10 @@ class PortalImportStagingTests(TestCase):
 
     def test_warning_rows_require_actor_acknowledgement(self):
         batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})
+        staged_rows = list(batch.parsed_rows)
+        staged_rows[0]['_source_state'] = 'changed'
+        batch.parsed_rows = staged_rows
+        batch.save(update_fields=['parsed_rows'])
         row = dict(batch.parsed_rows[0], **{'National ID': '123456', 'approved': True})
         _batch, validation, counts = validate_portal_farmup(
             batch_id=str(batch.pk), rows=[row], revision_token=farmup_revision_token(batch),

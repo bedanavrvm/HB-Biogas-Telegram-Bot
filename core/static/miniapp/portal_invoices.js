@@ -17,6 +17,7 @@
   let candidateTimer = null;
   let letterPreviewObjectUrl = '';
   let invoiceFilterSheet = null;
+  let listRequestVersion = 0;
 
   function el(id) {
     return deps.el ? deps.el(id) : document.getElementById(id);
@@ -341,7 +342,7 @@
 
   async function load(page, extra) {
     if (!invoicesScreenIsActive()) return;
-    if (state.loading) return;
+    const requestVersion = ++listRequestVersion;
     state.loading = true;
     try {
       const route = readRoute();
@@ -365,7 +366,7 @@
       if (state.search) params.set('search', state.search);
       if (extra && extra.batch_id) params.set('batch_id', extra.batch_id);
       const result = await deps.apiFetch('/invoice-pool/?' + params.toString());
-      if (!invoicesScreenIsActive()) return;
+      if (!invoicesScreenIsActive() || requestVersion !== listRequestVersion) return;
       if (!result.ok || !result.data?.ok) {
         if (list) list.innerHTML = '<div class="empty-state"><div class="es-title">Could not load invoices</div><div class="es-sub">Refresh and try again.</div></div>';
         return;
@@ -379,11 +380,11 @@
       }
       if (window.lucide) window.lucide.createIcons();
     } catch (_) {
-      if (!invoicesScreenIsActive()) return;
+      if (!invoicesScreenIsActive() || requestVersion !== listRequestVersion) return;
       const list = el('invoice-pool-list');
       if (list) list.innerHTML = '<div class="empty-state"><div class="es-title">Could not load invoices</div><div class="es-sub">Refresh and try again.</div></div>';
     } finally {
-      state.loading = false;
+      if (requestVersion === listRequestVersion) state.loading = false;
     }
   }
 

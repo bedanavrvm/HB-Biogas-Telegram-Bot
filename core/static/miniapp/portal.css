@@ -2973,7 +2973,7 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .farmup-counters strong { display: block; color: var(--text-primary); font-size: 16px; }
 .farmup-counters .warning, .farmup-counters .warning strong { color: var(--portal-status-warning); }
 .farmup-counters .danger, .farmup-counters .danger strong { color: var(--portal-status-danger); }
-.farmup-toolbar { display: grid; grid-template-columns: minmax(160px, 1fr) auto auto repeat(4, 32px); align-items: center; gap: 4px; margin-bottom: 6px; }
+.farmup-toolbar { position:relative; z-index:21; display: grid; grid-template-columns: minmax(160px, 1fr) auto auto repeat(4, 32px); align-items: center; gap: 4px; margin-bottom: 6px; }
 .farmup-toolbar input { min-width: 0; min-height: 32px; border: 1px solid var(--border-color); border-radius: 7px; padding: 5px 7px; background: var(--bg-surface); color: var(--text-primary); }
 .farmup-toolbar .btn { min-height: 32px; padding: 4px 7px; }
 .farmup-toolbar .active { border-color: var(--brand-primary); color: var(--brand-primary); }
@@ -4324,7 +4324,7 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 #page-farmup .farmup-review-setup .farmup-mapping-summary { display:flex; min-height:64px; justify-content:space-between; padding:8px 9px; border-radius:10px; background:var(--bg-muted); }
 #page-farmup .farmup-mapping-summary strong { font-size:11px; }
 #page-farmup .farmup-mapping-summary span { font-size:10px; }
-#page-farmup.farmup-review-page .farmup-toolbar { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:7px; padding:7px 0; }
+#page-farmup.farmup-review-page .farmup-toolbar { position:relative; z-index:30; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:7px; padding:7px 0; }
 .farmup-search-field { position:relative; display:flex; min-width:0; align-items:center; }
 .farmup-search-field > i { position:absolute; left:10px; display:grid; width:15px; height:15px; place-items:center; color:var(--text-muted); pointer-events:none; }
 .farmup-search-field > i svg { width:15px; height:15px; }
@@ -4342,12 +4342,15 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 .farmup-bulk-actions button { display:flex; min-height:34px; align-items:center; gap:7px; padding:6px 7px; border:0; border-radius:7px; background:transparent; color:var(--text-primary); font-size:11px; font-weight:650; text-align:left; }
 .farmup-bulk-actions button:hover { background:var(--bg-muted); }
 .farmup-bulk-actions button svg { width:15px; height:15px; color:var(--text-muted); }
-#page-farmup.farmup-review-page .farmup-selection-summary { grid-template-columns:repeat(4,minmax(0,1fr)); border-radius:10px 10px 0 0; }
+#page-farmup.farmup-review-page .farmup-selection-summary { z-index:auto; grid-template-columns:repeat(4,minmax(0,1fr)); border-radius:10px 10px 0 0; }
 #page-farmup.farmup-review-page .farmup-selection-summary span { min-height:43px; align-content:center; justify-items:center; padding:5px 3px; }
 #page-farmup.farmup-review-page .farmup-selection-summary strong { font-size:14px; line-height:1; }
 #page-farmup.farmup-review-page .farmup-selection-summary small { color:inherit; font-size:9px; font-weight:650; line-height:1.1; }
 #page-farmup.farmup-review-page .farmup-grid-wrap { border-radius:0 0 10px 10px; }
-#page-farmup.farmup-review-page .farmup-commit-bar { position:sticky; bottom:calc(env(safe-area-inset-bottom,0px) + 4px); margin-top:8px; padding:8px 10px; border:1px solid var(--border-color); border-radius:10px; background:color-mix(in srgb,var(--bg-surface) 96%,transparent); backdrop-filter:blur(10px); }
+#page-farmup.farmup-review-page .farmup-commit-bar { position:sticky; bottom:env(safe-area-inset-bottom,0px); margin-top:8px; padding:8px 10px; border:1px solid var(--border-color); border-radius:10px; background:color-mix(in srgb,var(--bg-surface) 96%,transparent); backdrop-filter:blur(10px); }
+@media (max-height: 500px) {
+  #page-farmup.farmup-review-page .farmup-commit-bar { position:relative; bottom:auto; }
+}
 #page-farmup.farmup-review-page .farmup-commit-bar .btn { min-height:40px; padding-inline:12px; }
 
 /* FarmUp landing is an upload action, not a form questionnaire.  The month,
