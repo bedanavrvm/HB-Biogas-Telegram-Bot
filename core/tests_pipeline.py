@@ -487,6 +487,31 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(row[6], 'GAKIRA')
 
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_nakuru_case_publishes_to_eco_conserve_tab(self, mock_get_sheets):
+        from core.tests import FakeMasterDataSheet, FakeJawabuService
+
+        self.farmer_stage1.county = 'Nakuru'
+        self.farmer_stage1.save(update_fields=['county', 'updated_at'])
+        sheet = FakeMasterDataSheet(['No.', 'Customer Name', 'National ID', 'Primary Phone'])
+        mock_get_sheets.return_value = FakeJawabuService(sheet)
+
+        self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
+        self.assertEqual(mock_get_sheets.call_args.kwargs['sheet_name'], 'Eco-conserve')
+        self.assertEqual(sheet.values[4][1], 'FARMER ONE')
+
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_eco_conserve_unavailable_names_target_in_failure_context(self, mock_get_sheets):
+        self.farmer_stage1.hb_sales_person = 'ECOCONSERVE JAWABU'
+        self.farmer_stage1.save(update_fields=['hb_sales_person', 'updated_at'])
+        mock_get_sheets.return_value.is_available.return_value = False
+        failure_context = {}
+
+        self.assertFalse(sync_farmer_to_master_sheet(self.farmer_stage1, failure_context=failure_context))
+        self.assertEqual(failure_context['sheet_tab'], 'Eco-conserve')
+        self.assertEqual(failure_context['phase'], 'connection')
+        self.assertIn('Eco-conserve', failure_context['detail'])
+
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
     def test_master_sheet_keeps_hb_deposit_separate_from_lgf_and_plain(self, mock_get_sheets):
         """The HB invoice payment is a whole-number display, never the LGF value."""
         from core.tests import FakeMasterDataSheet, FakeJawabuService

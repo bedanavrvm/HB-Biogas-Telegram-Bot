@@ -207,6 +207,8 @@ def dashboard_payload(user, *, access=None) -> dict:
                 for failed in matching_operations.order_by('-updated_at')[:3]:
                     context = (failed.metadata or {}).get('failure_context') or {}
                     reference = display_case_reference(failed.source_id) if failed.source_id else 'Case'
+                    if context.get('sheet_tab'):
+                        reference = f'{reference} to {str(context["sheet_tab"])[:120]}'
                     field_names = [str(value) for value in (context.get('field_names') or []) if str(value).strip()]
                     if field_names:
                         failure_contexts.append(f'{reference}: fields waiting to sync — {", ".join(field_names[:6])}')

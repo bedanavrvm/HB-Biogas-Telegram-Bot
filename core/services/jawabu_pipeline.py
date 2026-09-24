@@ -2216,12 +2216,14 @@ def sync_farmer_to_master_sheet(
     from core.services.sheet_publication import aliases_for
 
     failure_context = failure_context if isinstance(failure_context, dict) else None
+    target_sheet_name = ''
 
     def note_failure(*, phase: str, field_names=None, fields_checked: bool = False, detail: str = ''):
         if failure_context is None:
             return
         failure_context.update({
             'phase': phase,
+            'sheet_tab': target_sheet_name,
             'field_names': sorted({str(value) for value in (field_names or []) if str(value).strip()}),
             'fields_checked': bool(fields_checked),
             'detail': str(detail or '')[:255],
@@ -2248,6 +2250,7 @@ def sync_farmer_to_master_sheet(
         if fulfillment_partner == PARTNER_ECO
         else (workflow.get('master_sheet_name') or 'Master Data')
     ).strip()
+    target_sheet_name = sheet_name
     header_row = int(workflow.get('master_header_row') or 3)
     data_start_row = int(workflow.get('master_data_start_row') or header_row + 2)
 
@@ -2260,7 +2263,10 @@ def sync_farmer_to_master_sheet(
         service = GoogleSheetsService.get_instance(sheet_id=sheet_id, sheet_name=sheet_name)
         if not service.is_available():
             logger.warning("Google Sheets service unavailable for master sync")
-            note_failure(phase='connection', detail='Google Sheets could not be reached, so fields could not be compared.')
+            note_failure(
+                phase='connection',
+                detail=f'The {sheet_name} tab could not be opened. Check its name, spreadsheet access, and Google connection.',
+            )
             return False
         sheet = service._sheet
 
@@ -2503,7 +2509,7 @@ def sync_farmer_to_master_sheet(
             phase='write' if 'changes' in locals() else 'read',
             field_names=(changes or {}).keys() if 'changes' in locals() else [],
             fields_checked='changes' in locals(),
-            detail='Google Sheets did not complete the Master Data update.',
+            detail=f'Google Sheets did not complete the {sheet_name} update.',
         )
         logger.error("Failed to sync farmer %s to master sheet: %s", farmer.id, exc, exc_info=True)
         return False

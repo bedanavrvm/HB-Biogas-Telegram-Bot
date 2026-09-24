@@ -208,6 +208,7 @@ def _record_master_failure_context(operation: IntegrationOperation, farmer, cont
     metadata['failure_context'] = {
         'case_reference': str(getattr(farmer, 'case_reference_number', '') or ''),
         'phase': str(context.get('phase') or 'unknown')[:40],
+        'sheet_tab': str(context.get('sheet_tab') or '')[:120],
         'fields_checked': bool(context.get('fields_checked')),
         'field_names': fields[:30],
         'detail': str(context.get('detail') or '')[:255],

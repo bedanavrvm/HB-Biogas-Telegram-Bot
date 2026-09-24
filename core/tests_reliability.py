@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.test import RequestFactory, TestCase, override_settings
+from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.db import transaction
 from django.core.management import call_command
@@ -18,7 +19,7 @@ from io import StringIO
 
 from core.api.complaint_case_views import complaint_cases_create
 from core.api.views import spin_form_submit, tat_tracker_create
-from core.models import IntegrationCircuitState, IntegrationOperation, JawabuFarmerMaster
+from core.models import AccessGrant, IntegrationCircuitState, IntegrationOperation, JawabuFarmerMaster
 from core.api.portal_views import portal_publication_attempt
 from core.services.external_resilience import (
     ExternalCircuitOpen,
@@ -37,6 +38,7 @@ from core.services.portal_publication import (
     publication_payload,
     reserve_farmer_publication,
 )
+from core.services.telegram_identity import user_access
 from core.management.commands.probe_integrations import configuration_status
 
 
@@ -320,6 +322,48 @@ class PortalPublicationEndpointTests(TestCase):
         response = portal_publication_attempt(self._request())
 
         self.assertEqual(response.status_code, 202)
+        mocked_attempt.assert_called_once()
+
+    @patch('core.services.portal_publication.attempt_publication')
+    @patch('core.services.portal_publication.publication_payload', return_value={'status': 'pending', 'pending_operation_ids': []})
+    def test_scoped_reader_can_finish_reserved_automatic_publication_but_not_manual_retry(self, _payload, mocked_attempt):
+        user = get_user_model().objects.create_user(username='publication-hb-reader', is_active=True)
+        AccessGrant.objects.create(
+            user=user, workflow='jawabu_portal', role='HB_STAFF', branch='EMBU',
+        )
+        self.farmer.branch = 'EMBU'
+        self.farmer.save(update_fields=['branch', 'updated_at'])
+        self.operation.metadata = {
+            **self.operation.metadata, 'required_capability': 'portal.batches.view',
+        }
+        self.operation.save(update_fields=['metadata', 'updated_at'])
+
+        def request(payload):
+            result = self.factory.post(
+                '/api/portal/publication/attempt/', data=json.dumps(payload),
+                content_type='application/json',
+            )
+            result.portal_user = user
+            result.portal_access = user_access(user, 'jawabu_portal')
+            return result
+
+        automatic = portal_publication_attempt(request({
+            'operation_id': str(self.operation.pk), 'automatic': True,
+        }))
+        self.assertEqual(automatic.status_code, 202)
+        mocked_attempt.assert_called_once()
+
+        manual = portal_publication_attempt(request({
+            'operation_id': str(self.operation.pk), 'manual_retry': True,
+        }))
+        self.assertEqual(manual.status_code, 403)
+
+        self.farmer.branch = 'NAKURU'
+        self.farmer.save(update_fields=['branch', 'updated_at'])
+        out_of_scope = portal_publication_attempt(request({
+            'operation_id': str(self.operation.pk), 'automatic': True,
+        }))
+        self.assertEqual(out_of_scope.status_code, 403)
         mocked_attempt.assert_called_once()
 
 

@@ -4061,18 +4061,30 @@ def portal_publication_attempt(request):
     farmer = JawabuFarmerMaster.objects.filter(pk=operation.source_id).first()
     if farmer is None:
         return JsonResponse({'ok': False, 'error': 'The related case is no longer available.'}, status=404)
+    automatic = (body or {}).get('automatic') is True
+    manual_retry = (body or {}).get('manual_retry') is True
     required_capability = str(
         (operation.metadata or {}).get('required_capability') or 'portal.case.read'
     )
-    access_error = _portal_capability_error(request, required_capability, farmer)
-    if access_error:
-        support_error = _portal_capability_error(
-            request, 'portal.publication.retry', farmer,
-        )
-        if support_error:
+    # Publication was already reserved by an authorized canonical write. A
+    # pending automatic attempt is a continuation of that write, so any actor
+    # with scoped case-read access may help drain it after the original writer
+    # leaves or loses a role. Manual retries remain separately privileged.
+    automatic_continuation = automatic and not manual_retry and operation.status in {
+        IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE,
+    }
+    if automatic_continuation:
+        access_error = _portal_capability_error(request, 'portal.case.read', farmer)
+        if access_error:
             return access_error
-    automatic = bool((body or {}).get('automatic'))
-    manual_retry = bool((body or {}).get('manual_retry'))
+    else:
+        access_error = _portal_capability_error(request, required_capability, farmer)
+        if access_error:
+            support_error = _portal_capability_error(
+                request, 'portal.publication.retry', farmer,
+            )
+            if support_error:
+                return access_error
     if automatic and operation.next_retry_at and operation.next_retry_at > timezone.now():
         return JsonResponse({
             'ok': True,
