@@ -134,7 +134,7 @@ def _normalize_telegram_groups(group_ids, grants) -> list[int]:
         raise ValidationError('One or more selected Telegram groups are disabled or no longer configured.')
     for group in groups:
         group_type = str((group.workflow or {}).get('type') or '')
-        from core.services.staff_telegram_onboarding import LAUNCHER_CAPABILITIES, LAUNCHER_WORKFLOWS
+        from core.services.staff_telegram_onboarding import LAUNCHER_WORKFLOWS, launcher_capability_candidates
         from core.services.telegram_launchers import configured_launcher_keys
 
         compatible = any(
@@ -163,7 +163,7 @@ def _normalize_telegram_groups(group_ids, grants) -> list[int]:
         from core.models import WorkflowRoleCapability
         for launcher_key in configured_launcher_keys(group):
             workflow = LAUNCHER_WORKFLOWS.get(launcher_key)
-            capability = LAUNCHER_CAPABILITIES.get(launcher_key)
+            capabilities = launcher_capability_candidates(launcher_key)
             matching_rows = [
                 row for row in grants
                 if row.get('workflow') == workflow
@@ -173,14 +173,14 @@ def _normalize_telegram_groups(group_ids, grants) -> list[int]:
                 continue
             allowed_roles = set(WorkflowRoleCapability.objects.filter(
                 workflow=workflow,
-                capability_key=capability,
+                capability_key__in=capabilities,
                 effect=WorkflowRoleCapability.EFFECT_ALLOW,
                 role__in={row.get('role') for row in matching_rows},
             ).values_list('role', flat=True))
             if not allowed_roles:
                 raise ValidationError(
                     f'{group.display_name or group.group_id} cannot launch {launcher_key}: '
-                    f'the proposed role does not receive {capability}.'
+                    'the proposed role does not receive a screen it can open.'
                 )
     return requested
 

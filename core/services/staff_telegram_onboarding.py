@@ -52,6 +52,16 @@ LAUNCHER_CAPABILITIES = {
 }
 
 
+def launcher_capability_candidates(launcher_key: str) -> tuple[str, ...]:
+    """A Portal launch may land on any screen granted to the staff member."""
+    if launcher_key == 'pipeline_portal':
+        from core.services.portal_navigation import PORTAL_NAV_ITEMS
+
+        return tuple(item[3] for item in PORTAL_NAV_ITEMS)
+    capability = LAUNCHER_CAPABILITIES.get(launcher_key, '')
+    return (capability,) if capability else ()
+
+
 def staff_activation_launcher_url(*, fallback_url: str = '') -> str:
     bot_username = str(getattr(settings, 'TELEGRAM_BOT_USERNAME', '') or '').strip().lstrip('@')
     short_name = str(

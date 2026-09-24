@@ -51,7 +51,7 @@ def launcher_readiness_for_group(user, group_configuration, *, require_identity:
     A group may advertise several launchers.  Only launchers whose workflow the
     user was actually granted are part of that user's onboarding contract.
     """
-    from core.services.staff_telegram_onboarding import LAUNCHER_CAPABILITIES, LAUNCHER_WORKFLOWS
+    from core.services.staff_telegram_onboarding import LAUNCHER_WORKFLOWS, launcher_capability_candidates
     from core.services.telegram_identity import user_access
     from core.services.telegram_launchers import configured_launcher_keys
     from core.services.workflow_access import workflow_access_decision
@@ -61,13 +61,13 @@ def launcher_readiness_for_group(user, group_configuration, *, require_identity:
     results: list[LauncherReadiness] = []
     for launcher_key in configured_launcher_keys(group_configuration):
         workflow = LAUNCHER_WORKFLOWS.get(launcher_key, '')
-        capability = LAUNCHER_CAPABILITIES.get(launcher_key, '')
-        if not workflow or not capability or workflow not in active_workflows:
+        capabilities = launcher_capability_candidates(launcher_key)
+        if not workflow or not capabilities or workflow not in active_workflows:
             continue
         base = {
             'launcher_key': launcher_key,
             'workflow': workflow,
-            'capability': capability,
+            'capability': capabilities[0],
             'group_configuration_id': getattr(group_configuration, 'pk', None),
             'group_id': str(getattr(group_configuration, 'group_id', '') or ''),
             'group_label': str(
@@ -95,13 +95,14 @@ def launcher_readiness_for_group(user, group_configuration, *, require_identity:
                 message=REASON_MESSAGES['group_scope_mismatch'],
             ))
             continue
-        decision = workflow_access_decision(
+        decisions = [workflow_access_decision(
             user, workflow, capability, access=scoped_access,
             group_configuration=group_configuration,
-        )
+        ) for capability in capabilities]
+        decision = next((item for item in decisions if item.allowed), decisions[0])
         reason = 'access_ready' if decision.allowed else 'capability_policy_denied'
         results.append(LauncherReadiness(
-            **base,
+            **{**base, 'capability': decision.capability},
             ready=reason == 'access_ready',
             reason_code=reason,
             message=REASON_MESSAGES[reason],

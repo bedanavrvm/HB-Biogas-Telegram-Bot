@@ -12,6 +12,7 @@ from core.models import (
     AccessControlPolicyState,
     AccessGrant,
     GroupSheetConfiguration,
+    WorkflowRoleCapability,
     StaffLifecycleChangePlan,
     StaffTelegramGroupInvitation,
     StaffTelegramOnboarding,
@@ -756,6 +757,37 @@ class StaffTelegramOnboardingTests(TestCase):
         readiness = onboarding_readiness(plan.telegram_onboarding)
         self.assertTrue(readiness['ready'])
         self.assertEqual(readiness['rows'][0]['reason_code'], 'access_ready')
+
+    def test_hb_portal_launcher_does_not_require_dashboard_access(self):
+        from core.services.staff_access_readiness import onboarding_readiness
+
+        portal_group = GroupSheetConfiguration.objects.create(
+            group_id='-100hbonboarding', display_name='HomeBiogas', enabled=True,
+            workflow={'type': 'jawabu_portal', 'mini_app_launchers': ['pipeline_portal']},
+        )
+        WorkflowRoleCapability.objects.update_or_create(
+            workflow='jawabu_portal', role='HB_STAFF',
+            capability_key='portal.dashboard.view',
+            defaults={'effect': WorkflowRoleCapability.EFFECT_DENY, 'enabled': False},
+        )
+        WorkflowRoleCapability.objects.update_or_create(
+            workflow='jawabu_portal', role='HB_STAFF',
+            capability_key='portal.hb_action.view',
+            defaults={'effect': WorkflowRoleCapability.EFFECT_ALLOW, 'enabled': True},
+        )
+        plan, created = self._onboard(
+            desired_grants=[{'workflow': 'jawabu_portal', 'role': 'HB_STAFF'}],
+            telegram_group_ids=[portal_group.pk],
+            request_key='hb-portal-without-dashboard',
+        )
+        self.assertTrue(created)
+        profile = plan.target_user.staff_profile
+        profile.telegram_id = '998877'
+        profile.save(update_fields=['telegram_id', 'updated_at'])
+
+        readiness = onboarding_readiness(plan.telegram_onboarding)
+        self.assertTrue(readiness['ready'])
+        self.assertNotEqual(readiness['rows'][0]['capability'], 'portal.dashboard.view')
 
     @patch('core.services.staff_telegram_onboarding.publish_group_launcher')
     @patch('core.services.staff_telegram_onboarding.telegram_api_call')

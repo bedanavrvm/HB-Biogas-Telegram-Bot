@@ -32,7 +32,7 @@ def _roles(*roles: str) -> frozenset[str]:
 _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     # Jawabu Portal: a view capability owns a screen; write capabilities own
     # consequential actions on that screen.
-    CapabilityDefinition('portal.dashboard.view', 'jawabu_portal', 'View dashboard', 'Dashboard', _roles('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', OPERATIONS_ADMIN_ROLE, 'IT', BUSINESS_ADMIN_ROLE)),
+    CapabilityDefinition('portal.dashboard.view', 'jawabu_portal', 'View dashboard', 'Dashboard', _roles('JBL_OFFICER', 'CREDIT_ANALYST', OPERATIONS_ADMIN_ROLE, 'IT', BUSINESS_ADMIN_ROLE)),
     CapabilityDefinition('portal.performance.view', 'jawabu_portal', 'View Portal team and personal performance', 'Dashboard', _roles('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', OPERATIONS_ADMIN_ROLE, 'IT', BUSINESS_ADMIN_ROLE)),
     CapabilityDefinition('portal.performance.people.view', 'jawabu_portal', 'View named Portal performance', 'Dashboard', _roles('IT', BUSINESS_ADMIN_ROLE), ('portal.performance.view',)),
     CapabilityDefinition('portal.case.read', 'jawabu_portal', 'View all cases and case history', 'Cases', _roles('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', OPERATIONS_ADMIN_ROLE, 'IT', BUSINESS_ADMIN_ROLE)),

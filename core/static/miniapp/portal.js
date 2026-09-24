@@ -2312,12 +2312,18 @@
     const startupView = isRootLanding ? state.workspace?.startup_view : null;
     if (startupView) state.workspaceOrdering = startupView.ordering === 'newest' ? 'newest' : 'queue_default';
     const savedQueue = isRootLanding ? String(startupView?.queue || savedFilters.queue || '') : '';
+    const hbOnlyLanding = isRootLanding
+      && state.actor?.roles?.length === 1
+      && state.actor.roles[0] === 'HB_STAFF'
+      && hasCapability('portal.hb_action.view')
+      ? 'hb_actions' : '';
     const requestedPage = savedQueue && hasCapability(PAGE_CAPABILITIES[savedQueue])
       ? savedQueue
       : (isRootLanding && (startupView?.screen || state.personalPreference?.default_screen)
         ? (startupView?.screen || state.personalPreference.default_screen)
-        : shellScreen);
-    const initialPage = hasCapability(PAGE_CAPABILITIES[requestedPage]) ? requestedPage : firstPermittedPage();
+        : (hbOnlyLanding || shellScreen));
+    const initialPage = hasCapability(PAGE_CAPABILITIES[requestedPage])
+      ? requestedPage : (hbOnlyLanding || firstPermittedPage());
     if (!initialPage) {
       document.getElementById('portal-screen').innerHTML = '<section class="shell-error" role="alert"><h2>Access not configured</h2><p>Ask an administrator to assign a Portal role and capability.</p></section>';
       return;

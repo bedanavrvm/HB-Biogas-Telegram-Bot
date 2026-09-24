@@ -4699,11 +4699,8 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 .hb-action-history article strong { font-size:12px; }
 .hb-action-history article span, .hb-action-history article p { font-size:11px; line-height:1.4; }
 .hb-action-list-toolbar.portal-queue-tools { margin:8px 0 7px; }
-.hb-action-list-toolbar .miniapp-sheet-body { grid-template-columns:1fr; }
-.hb-action-list-toolbar .miniapp-sheet-body label:last-of-type,
-.hb-action-list-toolbar .miniapp-sheet-actions { grid-column:1; }
-.hb-action-list-toolbar.hb-action-no-filter .portal-queue-tools-primary { grid-template-columns:minmax(0,1fr); }
-.hb-action-list-toolbar.hb-action-no-filter #hb-action-filter-trigger[hidden] { display:none !important; }
+.hb-action-list-toolbar .portal-queue-tools-primary { grid-template-columns:minmax(0,1fr); }
+.hb-action-list-toolbar .portal-queue-search { width:100%; }
 @media (max-width:390px) {
   .hb-action-two-column { grid-template-columns:1fr; }
   .hb-action-summary > div:nth-child(3) { border-left:0; }
