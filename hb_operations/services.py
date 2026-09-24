@@ -210,7 +210,7 @@ def serialize_action(action: HomeBiogasAction, *, include_history: bool = False)
             'date': _display_date(invoice.invoice_date),
             'batch_id': str(invoice.batch_id),
             'record_url': reverse('portal_invoice_screen_detail', kwargs={'invoice_id': invoice.id}),
-            'preview_url': reverse('portal_preview_case_invoice', kwargs={
+            'preview_url': reverse('portal_hb_action_invoice_preview', kwargs={
                 'farmer_id': farmer.id, 'batch_id': invoice.batch_id,
             }),
         } if invoice else None),

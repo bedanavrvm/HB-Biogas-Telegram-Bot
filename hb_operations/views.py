@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 
 from django.db.models import Q
@@ -29,6 +30,8 @@ from .services import (
     update_commissioning_notes,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def _actor(request):
     return getattr(request, 'portal_user', None) or (request.user if getattr(request.user, 'is_authenticated', False) else None)
@@ -42,6 +45,26 @@ def _action_for_request(request, farmer_id, capability):
     return scoped_actions(
         _actor(request), getattr(request, 'portal_access', None), capability,
     ).filter(farmer_id=farmer_id).first()
+
+
+def _action_access_error(request, action, capability):
+    """Check the same requisition group used by the scoped HB queryset."""
+    access = getattr(request, 'portal_access', None)
+    if access is None:
+        return None
+    from core.services.portal_permissions import portal_access_decision
+
+    decision = portal_access_decision(
+        _actor(request), capability, access=access, resource=action.farmer,
+        group_configuration=action.source_requisition_batch.group_configuration,
+        enforce_group_scope=True,
+    )
+    if not decision.allowed:
+        return _error('This HomeBiogas action is outside your authorized scope.', status=403, code='forbidden')
+    from core.services.access_control import record_capability_usage
+
+    record_capability_usage(_actor(request), 'jawabu_portal', capability)
+    return None
 
 
 def _invoice_presentation(request, action, data):
@@ -157,7 +180,7 @@ def hb_action_detail(request, farmer_id):
     action = _action_for_request(request, farmer_id, VIEW_CAPABILITY)
     if action is None:
         return _error('This HomeBiogas action is unavailable or outside your authorized scope.', status=404, code='not_found')
-    denied = _portal_capability_error(request, VIEW_CAPABILITY, action.farmer)
+    denied = _action_access_error(request, action, VIEW_CAPABILITY)
     if denied:
         return denied
     from core.services.workflow_capabilities import has_capability
@@ -184,7 +207,7 @@ def hb_action_document_preview(request, farmer_id, document_kind):
     action = _action_for_request(request, farmer_id, VIEW_CAPABILITY)
     if action is None:
         return _error('This HomeBiogas action is unavailable or outside your authorized scope.', status=404, code='not_found')
-    denied = _portal_capability_error(request, VIEW_CAPABILITY, action.farmer)
+    denied = _action_access_error(request, action, VIEW_CAPABILITY)
     if denied:
         return denied
     if str(document_kind or '').strip().lower() != 'signed-order':
@@ -213,12 +236,53 @@ def hb_action_document_preview(request, farmer_id, document_kind):
     return response
 
 
+@portal_auth_required
+@require_http_methods(['GET'])
+def hb_action_invoice_preview(request, farmer_id, batch_id):
+    """Preview only the matched invoice shown on this authorized HB record."""
+    from django.utils.http import content_disposition_header
+    from core.api.portal_views import (
+        _portal_case_invoice, _portal_case_invoice_audit_error,
+        _portal_pdf_preview_html,
+    )
+    from core.services.order_approval import GoogleDriveMediaStorage
+
+    action = _action_for_request(request, farmer_id, VIEW_CAPABILITY)
+    if action is None:
+        return _error('This HomeBiogas action is unavailable or outside your authorized scope.', status=404, code='not_found')
+    denied = _action_access_error(request, action, VIEW_CAPABILITY)
+    if denied:
+        return denied
+    visible_invoice = serialize_action(action).get('invoice') or {}
+    if str(visible_invoice.get('batch_id') or '') != str(batch_id):
+        return _error('This invoice is not available on this HomeBiogas record.', status=404, code='not_found')
+    farmer, batch = _portal_case_invoice(str(farmer_id), str(batch_id))
+    if not farmer or not batch or not batch.drive_file_id:
+        return _error('The matched invoice is not available for in-app preview.', status=404, code='preview_unavailable')
+    try:
+        source = GoogleDriveMediaStorage().download(batch.drive_file_id)
+        content = _portal_pdf_preview_html(source, batch.original_filename or 'Invoice.pdf')
+    except Exception:
+        logger.exception('HB invoice preview failed: batch_id=%s farmer_id=%s', batch.pk, action.farmer_id)
+        return _error('The invoice could not be prepared for in-app viewing. Please retry shortly.', status=503, code='preview_unavailable')
+    audit_error = _portal_case_invoice_audit_error(
+        request, farmer=farmer, batch=batch, action='portal.hb_action.invoice.preview',
+    )
+    if audit_error:
+        return audit_error
+    response = HttpResponse(content, content_type='text/html; charset=utf-8')
+    response['Content-Disposition'] = content_disposition_header(False, batch.original_filename or 'Invoice.pdf')
+    response['Cache-Control'] = 'private, no-store, max-age=0'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
 def _mutation(request, farmer_id, *, correction: bool):
     capability = CORRECT_CAPABILITY if correction else WRITE_CAPABILITY
     action = _action_for_request(request, farmer_id, capability)
     if action is None:
         return _error('This HomeBiogas action is unavailable or outside your authorized scope.', status=404, code='not_found')
-    denied = _portal_capability_error(request, capability, action.farmer)
+    denied = _action_access_error(request, action, capability)
     if denied:
         return denied
     body = _portal_request_data(request)
@@ -270,7 +334,7 @@ def hb_action_commissioning_notes(request, farmer_id):
     action = _action_for_request(request, farmer_id, WRITE_CAPABILITY)
     if action is None:
         return _error('This HomeBiogas action is unavailable or outside your authorized scope.', status=404, code='not_found')
-    denied = _portal_capability_error(request, WRITE_CAPABILITY, action.farmer)
+    denied = _action_access_error(request, action, WRITE_CAPABILITY)
     if denied:
         return denied
     body = _portal_request_data(request)

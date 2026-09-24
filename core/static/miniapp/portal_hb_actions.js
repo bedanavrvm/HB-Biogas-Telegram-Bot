@@ -340,7 +340,11 @@
     content.innerHTML = '<div class="media-viewer-loading" role="status"><span class="spinner-inline" aria-hidden="true"></span> Loading document…</div>';
     overlay.classList.add('open');
     try {
-      const blob = await window.SecureMediaViewer.fetchAuthorizedBlob(anchor.href, {headers: {'X-Request-ID': window.crypto?.randomUUID?.() || `hb-invoice-${Date.now()}`}});
+      const headers = {
+        ...(deps.portalApi?.initDataHeader?.(deps.tg) || {}),
+        'X-Request-ID': window.crypto?.randomUUID?.() || `hb-preview-${Date.now()}`,
+      };
+      const blob = await window.SecureMediaViewer.fetchAuthorizedBlob(anchor.href, {headers});
       invoiceObjectUrl = window.SecureMediaViewer.renderBlob(content, blob, {mimeType: anchor.dataset.previewMimeType || 'application/pdf', name: anchor.dataset.previewName || 'Document preview'});
     } catch (error) { content.innerHTML = `<p class="media-viewer-error">${esc(error.message || 'The document could not be opened in the Mini App.')}</p>`; }
   }

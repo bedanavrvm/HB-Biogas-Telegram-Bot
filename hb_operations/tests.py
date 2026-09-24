@@ -562,6 +562,12 @@ class HomeBiogasActionApiTests(HomeBiogasActionServiceTests):
         hb_invoice = _invoice_presentation(request, action, serialize_action(action))['invoice']
         self.assertEqual(hb_invoice['mode'], 'preview')
         self.assertEqual(hb_invoice['label'], 'Invoice sent')
+        self.assertEqual(
+            hb_invoice['url'],
+            reverse('portal_hb_action_invoice_preview', kwargs={
+                'farmer_id': self.farmer.pk, 'batch_id': batch.pk,
+            }),
+        )
 
         operations = get_user_model().objects.create_user(username='operations')
         AccessGrant.objects.create(
@@ -573,3 +579,52 @@ class HomeBiogasActionApiTests(HomeBiogasActionServiceTests):
         operations_invoice = _invoice_presentation(request, action, serialize_action(action))['invoice']
         self.assertEqual(operations_invoice['mode'], 'record')
         self.assertEqual(operations_invoice['label'], 'Invoice received')
+
+    @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='test-media-folder')
+    @patch('core.api.portal_views._portal_pdf_preview_html', return_value=b'<html>invoice preview</html>')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage.download', return_value=b'%PDF-test')
+    def test_hb_can_preview_own_invoice_without_general_case_access(self, mock_download, mock_preview):
+        from hb_operations.views import hb_action_detail, hb_action_document_preview, hb_action_invoice_preview
+        from core.models import WorkflowRoleCapability
+
+        self.release()
+        batch = InvoiceUploadBatch.objects.create(
+            original_filename='invoice.pdf', drive_file_id='drive-invoice',
+            drive_url='https://drive.example/invoice', status='matched',
+        )
+        ParsedInvoice.objects.create(
+            batch=batch, invoice_no='INV-20', status='matched', matched_farmer=self.farmer,
+        )
+        AccessGrant.objects.create(
+            user=self.user, workflow='jawabu_portal', role='HB_STAFF',
+            branch='Ruiru', group_configuration=self.group,
+        )
+        WorkflowRoleCapability.objects.update_or_create(
+            workflow='jawabu_portal', role='HB_STAFF', capability_key='portal.case.read',
+            defaults={'effect': WorkflowRoleCapability.EFFECT_DENY, 'enabled': False},
+        )
+        WorkflowRoleCapability.objects.update_or_create(
+            workflow='jawabu_portal', role='HB_STAFF', capability_key='portal.hb_action.view',
+            defaults={'effect': WorkflowRoleCapability.EFFECT_ALLOW, 'enabled': True},
+        )
+        request = RequestFactory().get('/api/portal/hb-actions/invoice/preview/')
+        request.portal_user = self.user
+        request.portal_access = user_access(self.user, 'jawabu_portal')
+        detail_response = hb_action_detail.__wrapped__(request, self.farmer.pk)
+        order_response = hb_action_document_preview.__wrapped__(request, self.farmer.pk, 'signed-order')
+        response = hb_action_invoice_preview.__wrapped__(request, self.farmer.pk, batch.pk)
+
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(order_response.status_code, 200)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b'<html>invoice preview</html>')
+        self.assertEqual(response['Cache-Control'], 'private, no-store, max-age=0')
+        mock_download.assert_called_once_with('drive-invoice')
+        mock_preview.assert_called_once()
+
+        other = get_user_model().objects.create_user(username='unassigned-hb-preview')
+        request.portal_user = other
+        request.portal_access = user_access(other, 'jawabu_portal')
+        denied = hb_action_invoice_preview.__wrapped__(request, self.farmer.pk, batch.pk)
+        self.assertEqual(denied.status_code, 404)
+        mock_download.assert_called_once()
