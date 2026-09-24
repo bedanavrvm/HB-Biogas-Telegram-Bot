@@ -3,6 +3,7 @@
 import json
 import hashlib
 import hmac
+import importlib
 import time
 from types import SimpleNamespace
 from urllib.parse import urlencode
@@ -69,6 +70,11 @@ class WorkflowCapabilityPolicyTests(TestCase):
         AccessGrant.objects.create(
             user=self.user, workflow='jawabu_portal', role='JBL_OFFICER', branch='EMBU',
         )
+
+    def test_hb_archive_migration_audit_source_fits_database_field(self):
+        migration = importlib.import_module('core.migrations.0190_hb_archive_instead_of_finalized_orders')
+        max_length = WorkflowRoleCapabilityAuditEvent._meta.get_field('source').max_length
+        self.assertLessEqual(len(migration.AUDIT_SOURCE), max_length)
 
     def test_access_grant_not_django_group_is_the_mini_app_role_source(self):
         self.user.groups.add(Group.objects.create(name='ADMIN'))

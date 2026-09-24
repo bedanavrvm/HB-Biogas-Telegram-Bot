@@ -81,7 +81,7 @@ every action and correction.
 
 > **Screenshot 1 — Tracker overview**
 >
-> Add `docs/images/tat/01-tracker-overview.png` here.
+> ![TAT Mini App screenshot 1: 01 tracker overview](docs/images/tat/01-tracker-overview.png)
 
 ---
 
@@ -151,9 +151,9 @@ queue rather than trying to force the old task.
 Telegram launch ties actions to an identified staff account, while private
 links route work without exposing customer details in group messages.
 
-> **Screenshot 2 — Telegram launch and verified header**
+> **Screenshot 2 — Verified header after launch**
 >
-> Add `docs/images/tat/02-telegram-launch.png` here.
+> ![TAT Mini App screenshot 2: 02 telegram launch](docs/images/tat/02-telegram-launch.png)
 
 ---
 
@@ -197,11 +197,11 @@ time while retaining access to the operational context.
 
 > **Screenshot 3 — Ready for my role and All cases**
 >
-> Add `docs/images/tat/03-case-queues.png` here.
+> ![TAT Mini App screenshot 3: 03 case queues](docs/images/tat/03-case-queues.png)
 >
 > **Screenshot 4 — Queue filters and active pills**
 >
-> Add `docs/images/tat/04-queue-filters.png` here.
+> ![TAT Mini App screenshot 4: 04 queue filters](docs/images/tat/04-queue-filters.png)
 
 ---
 
@@ -217,7 +217,7 @@ must not be used to repair an existing case.
 | Product | The product for the new loan. Only available products appear. |
 | Branch | The branch responsible for the loan. |
 | Client Name | The full customer name. It is stored in capital letters. |
-| ID Number | A digits-only national ID containing 7 or 8 digits. |
+| ID Number | A digits-only National ID / Maisha Namba containing 1–9 digits. Do not enter the card serial number. |
 | Phone Number | A valid Kenyan phone number. |
 | BRO Name | The responsible BRO. A BRO creator may default to themselves. |
 | Requested amount (KES) | A whole-KES amount within the product's permitted range. |
@@ -257,11 +257,11 @@ duplicate creation.
 
 > **Screenshot 5 — Create new loan case**
 >
-> Add `docs/images/tat/05-create-case.png` here.
+> ![TAT Mini App screenshot 5: 05 create case](docs/images/tat/05-create-case.png)
 >
 > **Screenshot 6 — Existing-loan context**
 >
-> Add `docs/images/tat/06-existing-loan-context.png` here.
+> ![TAT Mini App screenshot 6: 06 existing loan context](docs/images/tat/06-existing-loan-context.png)
 
 ---
 
@@ -285,7 +285,7 @@ internal database identifiers.
 
 > **Screenshot 7 — Find Case**
 >
-> Add `docs/images/tat/07-find-case.png` here.
+> ![TAT Mini App screenshot 7: 07 find case](docs/images/tat/07-find-case.png)
 
 ---
 
@@ -336,7 +336,7 @@ requiring users to calculate time or interpret raw configuration.
 
 > **Screenshot 8 — Case summary and TAT status**
 >
-> Add `docs/images/tat/08-case-summary.png` here.
+> ![TAT Mini App screenshot 8: 08 case summary](docs/images/tat/08-case-summary.png)
 
 ---
 
@@ -392,11 +392,11 @@ screen makes the current effective action clear.
 
 > **Screenshot 9 — Completed, actionable, and locked stages**
 >
-> Add `docs/images/tat/09-stage-states.png` here.
+> ![TAT Mini App screenshot 9: 09 stage states](docs/images/tat/09-stage-states.png)
 >
 > **Screenshot 10 — Outcome and final amount**
 >
-> Add `docs/images/tat/10-stage-outcome.png` here.
+> ![TAT Mini App screenshot 10: 10 stage outcome](docs/images/tat/10-stage-outcome.png)
 
 ---
 
@@ -417,7 +417,7 @@ investigation without silently replacing earlier evidence.
 
 > **Screenshot 11 — Remarks and Activity**
 >
-> Add `docs/images/tat/11-remarks-activity.png` here.
+> ![TAT Mini App screenshot 11: 11 remarks activity](docs/images/tat/11-remarks-activity.png)
 
 ---
 
@@ -452,7 +452,7 @@ duplicate cases.
 
 > **Screenshot 12 — Audited correction**
 >
-> Add `docs/images/tat/12-case-correction.png` here.
+> ![TAT Mini App screenshot 12: 12 case correction](docs/images/tat/12-case-correction.png)
 
 ---
 
@@ -488,7 +488,7 @@ alerts shorten response time without public customer details.
 
 > **Screenshot 13 — Work defaults and private alerts**
 >
-> Add `docs/images/tat/13-settings-alerts.png` here.
+> ![TAT Mini App screenshot 13: 13 settings alerts](docs/images/tat/13-settings-alerts.png)
 
 ---
 
@@ -522,7 +522,7 @@ targets or escalation routing.
 
 > **Screenshot 14 — Configuration proposal/review**
 >
-> Add `docs/images/tat/14-configuration-review.png` here.
+> ![TAT Mini App screenshot 14: 14 configuration review](docs/images/tat/14-configuration-review.png)
 
 ---
 
@@ -546,7 +546,7 @@ retaining test-cycle evidence.
 
 > **Screenshot 15 — Pilot/read-only state**
 >
-> Add `docs/images/tat/15-pilot-mode.png` here.
+> ![TAT Mini App screenshot 15: 15 pilot mode](docs/images/tat/15-pilot-mode.png)
 
 ---
 
@@ -618,19 +618,19 @@ manual calculation across several Sheet tabs.
 
 > **Screenshot 16 — Current Workload**
 >
-> Add `docs/images/tat/16-current-workload.png` here.
+> ![TAT Mini App screenshot 16: 16 current workload](docs/images/tat/16-current-workload.png)
 >
 > **Screenshot 17 — Report filters**
 >
-> Add `docs/images/tat/17-report-filters.png` here.
+> ![TAT Mini App screenshot 17: 17 report filters](docs/images/tat/17-report-filters.png)
 >
 > **Screenshot 18 — Insights and table**
 >
-> Add `docs/images/tat/18-insights-table.png` here.
+> ![TAT Mini App screenshot 18: 18 insights table](docs/images/tat/18-insights-table.png)
 >
 > **Screenshot 19 — Period Performance**
 >
-> Add `docs/images/tat/19-period-performance.png` here.
+> ![TAT Mini App screenshot 19: 19 period performance](docs/images/tat/19-period-performance.png)
 
 ---
 
@@ -793,7 +793,7 @@ and governed creation.
 
 | Problem | Remedy |
 |---|---|
-| ID rejected | Enter digits only, 7 or 8 digits. |
+| ID rejected | Enter the National ID / Maisha Namba as issued: digits only, 1–9 digits. Do not enter the card serial number. |
 | Phone rejected | Correct it to a valid Kenyan phone number. |
 | Product/branch unavailable | Choose an in-scope active option or ask the administrator to correct access/availability. |
 | Amount rejected | Use a valid whole-KES amount within the displayed product range. |
@@ -898,7 +898,7 @@ Capture ordinary small-phone viewports using only synthetic data.
 | No. | Filename | Content |
 |---:|---|---|
 | 1 | `01-tracker-overview.png` | Header and Cases workspace |
-| 2 | `02-telegram-launch.png` | Approved launch and verified header |
+| 2 | `02-telegram-launch.png` | Verified header after launch |
 | 3 | `03-case-queues.png` | Ready and All queues |
 | 4 | `04-queue-filters.png` | Filter sheet and pills |
 | 5 | `05-create-case.png` | Complete synthetic form |

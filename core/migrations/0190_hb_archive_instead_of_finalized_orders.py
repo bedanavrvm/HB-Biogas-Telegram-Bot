@@ -3,6 +3,9 @@
 from django.db import migrations
 
 
+AUDIT_SOURCE = 'hb_order_archive_0190'
+
+
 def remove_hb_batch_access(apps, schema_editor):
     Policy = apps.get_model('core', 'WorkflowRoleCapability')
     Audit = apps.get_model('core', 'WorkflowRoleCapabilityAuditEvent')
@@ -13,7 +16,7 @@ def remove_hb_batch_access(apps, schema_editor):
     if previous is None or previous['enabled'] or previous['effect'] != 'deny':
         Audit.objects.create(
             workflow='jawabu_portal', role='HB_STAFF', actor=None,
-            source='hb_archive_instead_of_finalized_orders_0190',
+            source=AUDIT_SOURCE,
             changes={
                 'reason': 'HB staff preview finalized orders through scoped Document Archive; batch management remains Operations-only.',
                 'removed': ['portal.batches.view'],

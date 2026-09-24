@@ -4,6 +4,11 @@ This folder documents the screenshot names referenced by
 `TAT_TRACKER_MINI_APP_GUIDE.md`. The folder does not authorize committing the
 image files.
 
+Screenshots 1–19 can be regenerated offline with
+`node scripts/capture_tat_guide.js`. The script renders the checked-in Mini App
+with invented training cases and intercepted responses; it does not contact
+Telegram, Google, or production Django. Review the output before publication.
+
 Use the numbered filenames in the guide's screenshot checklist in the final
 manual publication package. Keep screenshots outside Git by default. Capture
 the Mini App at an ordinary small-phone size and use synthetic training records
