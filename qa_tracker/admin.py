@@ -1,9 +1,12 @@
 import io
 import logging
+import os
+import re
 import uuid
 from xml.sax.saxutils import escape
 
 from django import forms
+from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404, HttpResponse
@@ -69,6 +72,23 @@ class TestCycleAdmin(QaAdmin):
     list_filter = ('app', 'environment', 'group_configuration')
     search_fields = ('release', 'build_commit')
     readonly_fields = ('created_by', 'created_at')
+
+    def get_changeform_initial_data(self, request):
+        initial = super().get_changeform_initial_data(request)
+        configured_release = str(getattr(settings, 'APP_RELEASE', '') or '').strip()
+        render_commit = str(os.environ.get('RENDER_GIT_COMMIT', '') or '').strip()
+        commit = render_commit if re.fullmatch(r'[0-9a-fA-F]{7,40}', render_commit) else ''
+        if not commit and re.fullmatch(r'[0-9a-fA-F]{7,40}', configured_release):
+            commit = configured_release
+        release = configured_release if 0 < len(configured_release) <= 80 else commit
+        environment = str(getattr(settings, 'RELEASE_ENVIRONMENT', '') or '').strip().lower()
+        if release:
+            initial.setdefault('release', release)
+        if commit:
+            initial.setdefault('build_commit', commit)
+        if environment in dict(TestCycle._meta.get_field('environment').choices):
+            initial.setdefault('environment', environment)
+        return initial
 
     def get_queryset(self, request):
         return allowed_cycles(request.user).select_related('group_configuration')

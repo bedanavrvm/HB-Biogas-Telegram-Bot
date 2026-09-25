@@ -901,7 +901,10 @@ def sync_fcaup_records_to_master_data(group_config, records: list[FcaImportRecor
             first_existing_header,
             header_lookup_from_headers,
             master_date_column_indexes,
+            master_datetime_column_indexes,
             next_master_append_row,
+            next_master_case_number,
+            repair_master_sheet_numbers,
             pad_values_to_row,
             row_values_for_number,
             set_header_value,
@@ -926,7 +929,7 @@ def sync_fcaup_records_to_master_data(group_config, records: list[FcaImportRecor
         pending_updates = []
         created = updated = duplicates = 0
         errors = []
-        now_text = timezone.now().strftime('%d-%B-%Y %H:%M')
+        now_text = timezone.now().strftime('%d-%b-%Y %H:%M')
 
         for record in records:
             fields = dict(record.parsed_fields or {})
@@ -947,7 +950,7 @@ def sync_fcaup_records_to_master_data(group_config, records: list[FcaImportRecor
             else:
                 row_number = next_master_append_row(values, header_lookup, data_start_row)
                 row_values = [''] * len(headers)
-                set_header_value(row_values, header_lookup, 'No.', row_number - data_start_row + 1)
+                set_header_value(row_values, header_lookup, 'No.', next_master_case_number(values, header_lookup, data_start_row))
                 created_row = True
 
             apply_fcaup_master_values(
@@ -1042,7 +1045,9 @@ def sync_fcaup_records_to_master_data(group_config, records: list[FcaImportRecor
                 pending_updates,
                 len(headers),
                 date_indexes=master_date_column_indexes(headers),
+                datetime_indexes=master_datetime_column_indexes(headers),
             )
+            repair_master_sheet_numbers(sheet, header_lookup, data_start_row)
         return {'created': created, 'updated': updated, 'duplicates': duplicates, 'errors': errors, 'sheet_tab': sheet_name}
     except Exception as exc:
         logger.error('FCA Master Data sync failed: %s', exc, exc_info=True)

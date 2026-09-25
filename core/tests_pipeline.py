@@ -499,6 +499,49 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(mock_get_sheets.call_args.kwargs['sheet_name'], 'Eco-conserve')
         self.assertEqual(sheet.values[4][1], 'FARMER ONE')
 
+    def test_master_and_eco_numbering_skips_empty_rows_without_moving_cases(self):
+        from core.tests import FakeMasterDataSheet
+        from core.services.jawabu_master import (
+            header_lookup_from_headers, next_master_case_number, repair_master_sheet_numbers,
+        )
+
+        headers = ['No.', 'Customer Name']
+        for tab_name in ('Master Data', 'Eco-conserve'):
+            with self.subTest(tab=tab_name):
+                sheet = FakeMasterDataSheet(headers)
+                sheet.values[4] = ['1', 'First']
+                sheet.values.extend([[], ['3', 'Second']])
+                self.assertEqual(next_master_case_number(sheet.values, header_lookup_from_headers(headers), 5), 3)
+                changed = repair_master_sheet_numbers(sheet, header_lookup_from_headers(headers), 5)
+                self.assertEqual(changed, 1)
+                self.assertEqual(sheet.values[4][0], '1')
+                self.assertEqual(sheet.values[5], [])
+                self.assertEqual(sheet.values[6][0], 2)
+                self.assertEqual(repair_master_sheet_numbers(sheet, header_lookup_from_headers(headers), 5), 0)
+
+    def test_master_and_eco_date_columns_use_short_month_and_keep_time(self):
+        from core.tests import FakeMasterDataSheet
+        from core.services.jawabu_master import (
+            master_date_column_indexes, master_datetime_column_indexes, write_master_date_cells,
+        )
+
+        headers = ['No.', 'Customer Name', 'Sign Date', 'Installation Date / Scheduled / Estimated Date',
+                   'Commissioning Date', 'Invoice Date', 'Deferred Until', 'Last Updated At']
+        for tab_name in ('Master Data', 'Eco-conserve'):
+            with self.subTest(tab=tab_name):
+                sheet = FakeMasterDataSheet(headers)
+                formats = []
+                sheet.format = lambda cell_range, style: formats.append((cell_range, style))
+                sheet.values[4] = ['1', 'First', '', '', '', '', '', '']
+                row = ['1', 'First', '12/05/2026', '12-May-2026', '12-May-2026',
+                       '12-May-2026', '12-May-2026', '12-05-2026 14:30']
+                write_master_date_cells(sheet, [(5, row)], master_date_column_indexes(headers),
+                                        master_datetime_column_indexes(headers))
+                self.assertEqual(sheet.values[4][2:7], ['12-May-2026'] * 5)
+                self.assertEqual(sheet.values[4][7], '12-May-2026 14:30')
+                self.assertIn('dd-mmm-yyyy', [style['numberFormat']['pattern'] for _, style in formats])
+                self.assertIn('dd-mmm-yyyy HH:mm', [style['numberFormat']['pattern'] for _, style in formats])
+
     def test_eco_salesperson_variants_route_at_intake(self):
         from types import SimpleNamespace
         from core.services.requisition_partners import PARTNER_ECO, PARTNER_HB, fulfillment_partner_for_farmer

@@ -836,7 +836,9 @@ def write_rows_to_master_sheet(
 
             row_number = next_master_append_row(values, header_lookup, data_start_row)
             row_values = [''] * len(headers)
-            set_header_value(row_values, header_lookup, 'No.', row_number - data_start_row + 1)
+            # Display numbers count cases, not physical rows (a partner move
+            # may leave a blank row in either tab).
+            set_header_value(row_values, header_lookup, 'No.', next_master_case_number(values, header_lookup, data_start_row))
             merge_master_row_values(
                 row_values=row_values,
                 headers=headers,
@@ -860,8 +862,10 @@ def write_rows_to_master_sheet(
                 pending_updates,
                 len(headers),
                 date_indexes=master_date_column_indexes(headers),
+                datetime_indexes=master_datetime_column_indexes(headers),
                 deposit_indexes=master_hbg_deposit_column_indexes(headers),
             )
+            repair_master_sheet_numbers(sheet, header_lookup, data_start_row)
         except Exception as exc:  # pragma: no cover - defensive external API handling
             errors.append(f'Master Data batch write failed: {exc}')
     if deposit_repairs:
@@ -884,10 +888,24 @@ def write_rows_to_master_sheet(
 
 MASTER_DATE_HEADERS = {
     'hbg visit date',
+    'homebiogas visit date',
     'sign date',
     'jawabu visit date',
     'jbl visit date',
     'date visited',
+    'installation date',
+    'installation date / scheduled / estimated date',
+    'commissioning date',
+    'deferred until',
+    'requisition date',
+    'jawabu requisition date',
+    'invoice date',
+    'hbg invoice date',
+}
+
+MASTER_DATETIME_HEADERS = {
+    'reviewed at', 'last updated at', 'credit decided at',
+    'credit decision date', 'final decided at', 'decision date',
 }
 
 MASTER_HBG_DEPOSIT_HEADERS = {
@@ -901,15 +919,20 @@ def master_date_column_indexes(headers: list[str]) -> list[int]:
     """Return zero-based Master Data columns that must be true spreadsheet dates."""
     return [
         index for index, header in enumerate(headers)
-        if normalize_header(header) in MASTER_DATE_HEADERS
+        if normalize_header(header) in {normalize_header(value) for value in MASTER_DATE_HEADERS}
     ]
+
+
+def master_datetime_column_indexes(headers: list[str]) -> list[int]:
+    return [index for index, header in enumerate(headers)
+            if normalize_header(header) in {normalize_header(value) for value in MASTER_DATETIME_HEADERS}]
 
 
 def master_hbg_deposit_column_indexes(headers: list[str]) -> list[int]:
     """Return zero-based columns that must remain numeric HB deposits."""
     return [
         index for index, header in enumerate(headers)
-        if normalize_header(header) in MASTER_HBG_DEPOSIT_HEADERS
+        if normalize_header(header) in {normalize_header(value) for value in MASTER_HBG_DEPOSIT_HEADERS}
     ]
 
 
@@ -928,24 +951,47 @@ def _numeric_sheet_money(value):
     return int(amount) if amount == amount.to_integral_value() else float(amount)
 
 
-def write_master_date_cells(sheet, updates: list[tuple[int, list]], date_indexes: list[int]) -> None:
+def _master_date_value(value, *, with_time=False):
+    from datetime import datetime
+    from core.services.jawabu_validation import parse_business_date
+
+    if value in (None, ''):
+        return ''
+    if isinstance(value, datetime):
+        return value.strftime('%d-%b-%Y %H:%M') if with_time else value.strftime('%d-%b-%Y')
+    text = str(value).strip().lstrip("'`").strip()
+    if with_time:
+        for pattern in ('%d-%m-%Y %H:%M', '%d-%b-%Y %H:%M', '%d-%B-%Y %H:%M', '%Y-%m-%d %H:%M'):
+            try:
+                return datetime.strptime(text, pattern).strftime('%d-%b-%Y %H:%M')
+            except ValueError:
+                pass
+    parsed = parse_business_date(text)
+    return parsed.strftime('%d-%b-%Y') if parsed else text
+
+
+def write_master_date_cells(
+    sheet, updates: list[tuple[int, list]], date_indexes: list[int],
+    datetime_indexes: list[int] | None = None,
+) -> None:
     """Rewrite date cells with USER_ENTERED so Sheets/Excel can group dates.
 
     The surrounding Master Data row deliberately uses RAW writes because staff
     text and formula-adjacent columns must not be reinterpreted.  Date columns
     are the exception: a RAW string is stored as text (often with a hidden
     leading apostrophe), so they are written in one USER_ENTERED batch and
-    formatted explicitly as ``dd-mmmm-yyyy``.
+    formatted explicitly as ``dd-mmm-yyyy``.
     """
-    if not updates or not date_indexes:
+    datetime_indexes = datetime_indexes or []
+    if not updates or not (date_indexes or datetime_indexes):
         return
     payload = []
     for row_number, row_values in updates:
-        for index in date_indexes:
+        for index in [*date_indexes, *datetime_indexes]:
             value = row_values[index] if index < len(row_values) else ''
             payload.append({
                 'range': f'{col_letter(index + 1)}{row_number}:{col_letter(index + 1)}{row_number}',
-                'values': [[normalize_date_text(value)]],
+                'values': [[_master_date_value(value, with_time=index in datetime_indexes)]],
             })
     if not payload:
         return
@@ -964,10 +1010,19 @@ def write_master_date_cells(sheet, updates: list[tuple[int, list]], date_indexes
             try:
                 sheet.format(
                     f'{column}{start_row}:{column}{end_row}',
-                    {'numberFormat': {'type': 'DATE', 'pattern': 'dd-mmmm-yyyy'}},
+                    {'numberFormat': {'type': 'DATE', 'pattern': 'dd-mmm-yyyy'}},
                 )
             except Exception:  # pragma: no cover - formatting is best effort
                 logger.debug('Could not format Master Data date column %s', column, exc_info=True)
+        for index in datetime_indexes:
+            column = col_letter(index + 1)
+            try:
+                sheet.format(
+                    f'{column}{start_row}:{column}{end_row}',
+                    {'numberFormat': {'type': 'DATE_TIME', 'pattern': 'dd-mmm-yyyy HH:mm'}},
+                )
+            except Exception:  # pragma: no cover - formatting is best effort
+                logger.debug('Could not format Master Data datetime column %s', column, exc_info=True)
 
 
 def write_master_hbg_deposit_cells(
@@ -1007,6 +1062,7 @@ def batch_update_master_sheet_rows(
     width: int,
     *,
     date_indexes: list[int] | None = None,
+    datetime_indexes: list[int] | None = None,
     deposit_indexes: list[int] | None = None,
 ) -> None:
     if not updates:
@@ -1019,7 +1075,7 @@ def batch_update_master_sheet_rows(
             'values': block_rows,
         })
     sheet.batch_update(payload, value_input_option='RAW')
-    write_master_date_cells(sheet, updates, date_indexes or [])
+    write_master_date_cells(sheet, updates, date_indexes or [], datetime_indexes)
     write_master_hbg_deposit_cells(sheet, updates, deposit_indexes or [])
 
 
@@ -1142,6 +1198,43 @@ def next_master_append_row(values: list[list[str]], header_lookup: dict[str, int
     return last + 1
 
 
+def next_master_case_number(values: list[list[str]], header_lookup: dict[str, int], data_start_row: int) -> int:
+    name_col = header_lookup.get(normalize_header('Customer Name'))
+    if not name_col:
+        return 1
+    return 1 + sum(
+        1 for row in values[data_start_row - 1:]
+        if name_col <= len(row) and str(row[name_col - 1] or '').strip()
+    )
+
+
+def master_sheet_number_changes(sheet, header_lookup: dict[str, int], data_start_row: int) -> list[dict]:
+    """Plan consecutive per-tab numbering without moving or editing case rows."""
+    number_col = header_lookup.get(normalize_header('No.'))
+    name_col = header_lookup.get(normalize_header('Customer Name'))
+    if not number_col or not name_col:
+        return []
+    changes = []
+    ordinal = 0
+    for row_number, row in enumerate(sheet.get_all_values()[data_start_row - 1:], start=data_start_row):
+        if name_col > len(row) or not str(row[name_col - 1] or '').strip():
+            continue
+        ordinal += 1
+        if number_col <= len(row) and str(row[number_col - 1] or '').strip() == str(ordinal):
+            continue
+        cell = f'{col_letter(number_col)}{row_number}'
+        changes.append({'range': f'{cell}:{cell}', 'values': [[ordinal]]})
+    return changes
+
+
+def repair_master_sheet_numbers(sheet, header_lookup: dict[str, int], data_start_row: int) -> int:
+    """Repair only No. cells; keep staff data and case-row pointers intact."""
+    changes = master_sheet_number_changes(sheet, header_lookup, data_start_row)
+    for start in range(0, len(changes), 200):
+        sheet.batch_update(changes[start:start + 200], value_input_option='RAW')
+    return len(changes)
+
+
 def build_master_existing_index(values: list[list[str]], header_lookup: dict[str, int], data_start_row: int) -> dict[str, int]:
     existing = {}
     for row_number, row_values in enumerate(values[data_start_row - 1:], start=data_start_row):
@@ -1206,6 +1299,7 @@ def update_master_sheet_row(
     row_values: list,
     *,
     date_indexes: list[int] | None = None,
+    datetime_indexes: list[int] | None = None,
     deposit_indexes: list[int] | None = None,
 ) -> None:
     end_cell = f"{col_letter(len(row_values))}{row_number}"
@@ -1213,7 +1307,7 @@ def update_master_sheet_row(
     # are rewritten separately below with USER_ENTERED so they remain typed
     # dates instead of text values with a hidden leading apostrophe.
     sheet.update(f"A{row_number}:{end_cell}", [row_values], value_input_option='RAW')
-    write_master_date_cells(sheet, [(row_number, row_values)], date_indexes or [])
+    write_master_date_cells(sheet, [(row_number, row_values)], date_indexes or [], datetime_indexes)
     write_master_hbg_deposit_cells(sheet, [(row_number, row_values)], deposit_indexes or [])
 
 

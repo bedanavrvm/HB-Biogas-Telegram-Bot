@@ -132,8 +132,23 @@
     const status = batch.publication?.status;
     if (status === 'synced') return '<span class="badge badge-green">Sheet synced</span>';
     if (status === 'needs_attention') return '<span class="badge badge-orange">Sheet needs retry</span>';
-    if (status === 'pending') return '<span class="badge badge-blue">Sheet sync queued</span>';
+    if (status === 'pending') {
+      const due = batch.publication?.next_retry_at;
+      return `<span class="badge badge-blue"${due ? ` data-sheet-retry-at="${escapeHtml(due)}"` : ''}>${due ? 'Retry timing' : 'Sheet sync queued'}</span>`;
+    }
     return '';
+  }
+  function updatePublicationRetryTimers() {
+    document.querySelectorAll('[data-sheet-retry-at]').forEach(element => {
+      const due = Date.parse(element.dataset.sheetRetryAt || '');
+      if (!Number.isFinite(due)) { element.textContent = 'Sheet sync queued'; return; }
+      const remaining = Math.max(0, Math.ceil((due - Date.now()) / 1000));
+      if (!remaining) { element.textContent = 'Retry eligible now'; return; }
+      element.textContent = remaining >= 60
+        ? `Retry eligible in ${Math.ceil(remaining / 60)} min`
+        : `Retry eligible in ${remaining} sec`;
+      element.title = 'This is the earliest retry time, not a guaranteed completion time.';
+    });
   }
   function renderBatches() {
     const target = node('portal-farmup-list'); if (!target) return;
@@ -156,6 +171,7 @@
       const state = batch.is_portal_archived ? 'Archived' : attention ? `${remaining} remaining` : 'Completed';
       return `<article class="portal-import-card farmup-batch-card ${attention ? 'needs-review' : 'settled'}"><div class="portal-import-card-title"><div><div class="farmup-batch-name"><h3>${escapeHtml(batch.source_filename || 'Farmers CSV')}</h3><span class="farmup-version">v${Number(batch.version_number || 1)}</span></div><p>${escapeHtml(batch.period_label || '')}${batch.created_at ? ` · ${escapeHtml(batch.created_at)}` : ''}</p></div><span class="farmup-batch-state ${attention ? 'pending' : batch.is_portal_archived ? 'archived' : 'completed'}">${state}</span></div><div class="farmup-batch-counts"><span><strong>${remaining}</strong> remaining</span><span class="committed"><strong>${Number(batch.committed_count || 0)}</strong> committed</span><span>${Number(batch.total_rows || 0)} total</span></div><div class="farmup-batch-publication">${archiveBadge(batch)}${publicationBadge(batch)}</div>${batch.mapping_state === 'needs_mapping' ? '<p class="farmup-mapping-alert">Map columns before reviewing rows.</p>' : ''}<div class="portal-import-actions"><button type="button" class="btn ${attention ? 'btn-primary' : 'btn-secondary'} farmup-open" data-batch-id="${escapeHtml(batch.id)}">${batch.mapping_state === 'needs_mapping' ? 'Map columns' : attention ? 'Review rows' : 'View result'}</button>${batch.archive_state === 'needs_attention' && can('portal.farmup.stage') ? `<button type="button" class="btn btn-secondary farmup-drive-retry" data-batch-id="${escapeHtml(batch.id)}">Retry Drive archive</button>` : ''}${can('portal.farmup.stage') && !batch.is_portal_archived ? `<button type="button" class="btn btn-secondary farmup-archive" data-batch-id="${escapeHtml(batch.id)}">Archive</button>` : ''}</div></article>`;
     }).join('');
+    updatePublicationRetryTimers();
     window.lucide?.createIcons?.();
   }
   async function load({silent = false} = {}) {
@@ -414,8 +430,26 @@
   window.visualViewport?.addEventListener('resize', onViewportChange);
   window.addEventListener('resize', layoutGrid);
   window.addEventListener('orientationchange', layoutGrid);
+  window.setInterval(() => { if (document.visibilityState === 'visible' && activeScreen()) updatePublicationRetryTimers(); }, 1000);
   tg?.onEvent?.('viewportChanged', layoutGrid);
   window.addEventListener('portal:publication-updated', event => {
+    const changedId = String(event.detail?.operationId || '');
+    const changedOperation = (event.detail?.publication?.operations || []).find(item => String(item.id) === changedId);
+    let changedBatch = false;
+    batches.forEach(batch => {
+      const publication = batch.publication;
+      if (!publication?.pending_operation_ids?.includes(changedId)) return;
+      changedBatch = true;
+      if (event.detail.needsAttention) {
+        publication.status = 'needs_attention';
+      } else if (event.detail.ok && !event.detail.retryable) {
+        publication.pending_operation_ids = publication.pending_operation_ids.filter(id => id !== changedId);
+        publication.status = publication.pending_operation_ids.length ? 'pending' : 'synced';
+      } else if (changedOperation?.next_retry_at) {
+        publication.next_retry_at = changedOperation.next_retry_at;
+      }
+    });
+    if (changedBatch && activeScreen()) renderBatches();
     if (!repairProgress || !repairProgress.pending.has(String(event.detail?.operationId || ''))) return;
     if (event.detail?.needsAttention) { repairProgress.pending.delete(String(event.detail.operationId)); repairProgress.failed += 1; }
     else if (event.detail?.ok && !event.detail?.retryable) repairProgress.pending.delete(String(event.detail.operationId));

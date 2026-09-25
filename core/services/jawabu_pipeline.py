@@ -2208,8 +2208,11 @@ def sync_farmer_to_master_sheet(
         header_row_value,
         header_lookup_from_headers,
         master_date_column_indexes,
+        master_datetime_column_indexes,
         master_hbg_deposit_column_indexes,
+        repair_master_sheet_numbers,
         next_master_append_row,
+        next_master_case_number,
         set_header_value,
         col_letter,
         update_master_sheet_row,
@@ -2376,7 +2379,7 @@ def sync_farmer_to_master_sheet(
         if not row_number:
             row_number = next_master_append_row(values, header_lookup, data_start_row)
             row_values = [''] * len(headers)
-            set_header_value(row_values, header_lookup, 'No.', row_number - data_start_row + 1)
+            set_header_value(row_values, header_lookup, 'No.', next_master_case_number(values, header_lookup, data_start_row))
             created_sheet_row = True
 
         # Get row values and pad if needed
@@ -2517,6 +2520,8 @@ def sync_farmer_to_master_sheet(
                 'cs_remarks': (candidates('cs_remarks'), hb_action.cs_remarks),
             })
 
+        date_indexes = master_date_column_indexes(headers)
+        datetime_indexes = master_datetime_column_indexes(headers)
         for field_name, (candidates, new_val) in pipeline_fields.items():
             if field_name in MASTER_UPPERCASE_TEXT_FIELDS:
                 new_val = _smart_sheet_label(new_val)
@@ -2524,7 +2529,7 @@ def sync_farmer_to_master_sheet(
             if header:
                 idx = header_lookup[normalize_header(header)] - 1
                 current_val = row_values[idx] if idx < len(row_values) else ''
-                is_date_field = field_name in {'hbg_visit_date', 'jbl_visit_date', 'installation_date', 'commissioning_date'}
+                is_date_field = idx in date_indexes or idx in datetime_indexes
                 if force_date_columns and is_date_field and new_val:
                     # A text-looking date may already compare equal while still
                     # being stored as text in Sheets.  Force a USER_ENTERED
@@ -2541,9 +2546,12 @@ def sync_farmer_to_master_sheet(
                 sheet,
                 row_number,
                 row_values,
-                date_indexes=master_date_column_indexes(headers),
+                date_indexes=date_indexes,
+                datetime_indexes=datetime_indexes,
                 deposit_indexes=master_hbg_deposit_column_indexes(headers),
             )
+            if created_sheet_row:
+                repair_master_sheet_numbers(sheet, header_lookup, data_start_row)
 
             # Create LiveSheetRecordChange audit entry
             LiveSheetRecordChange.objects.create(
@@ -2590,10 +2598,20 @@ def sync_farmer_to_master_sheet(
                 record_key=str(farmer.pk), action='delete', changed_by='portal',
                 changes={'moved_to_tab': sheet_name, 'moved_to_row': row_number}, status='success',
             )
+            repair_master_sheet_numbers(previous_sheet, previous_lookup, data_start_row)
+            if not created_sheet_row:
+                repair_master_sheet_numbers(sheet, header_lookup, data_start_row)
         return True
     except Exception as exc:
         # Retain only header labels, never before/after customer values. The
         # caller persists this context on its durable retry record.
+        response = getattr(exc, 'response', None)
+        provider_status = getattr(response, 'status_code', None) or getattr(exc, 'status_code', None)
+        if failure_context is not None:
+            try:
+                failure_context['provider_status'] = int(provider_status) if provider_status else None
+            except (TypeError, ValueError):
+                failure_context['provider_status'] = None
         note_failure(
             phase='write' if 'changes' in locals() else 'read',
             field_names=(changes or {}).keys() if 'changes' in locals() else [],
@@ -2807,6 +2825,7 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
                 sheet,
                 [(row_number, row_values)],
                 master_date_column_indexes(headers),
+                master_datetime_column_indexes(headers),
             )
         write_master_hbg_deposit_cells(
             sheet, [(row_number, row_values)], master_hbg_deposit_column_indexes(headers),

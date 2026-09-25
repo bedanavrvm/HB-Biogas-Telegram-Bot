@@ -1724,7 +1724,10 @@ def _farmup_publication_summary(batch: JawabuFarmerUploadBatch) -> dict[str, Any
     failed = sum(1 for item in operations if item.status == IntegrationOperation.STATUS_DEAD_LETTER)
     synced = sum(1 for item in operations if item.status == IntegrationOperation.STATUS_SUCCEEDED)
     status = 'needs_attention' if failed else ('pending' if pending else 'synced')
+    pending_operations = [item for item in operations if item.status in pending_statuses]
+    retry_times = [item.next_retry_at for item in pending_operations if item.next_retry_at]
     return {
         'status': status, 'total': len(operations), 'synced': synced,
         'needs_attention': failed, 'pending_operation_ids': pending,
+        'next_retry_at': min(retry_times).isoformat() if len(retry_times) == len(pending_operations) and retry_times else None,
     }

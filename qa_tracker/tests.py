@@ -3,18 +3,40 @@ import uuid
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.contrib import admin
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase as DjangoTestCase, override_settings
+from django.test import RequestFactory, TestCase as DjangoTestCase, override_settings
 from django.urls import reverse
 from PIL import Image
 
 from core.models import AccessGrant, GroupSheetConfiguration
 from .models import TestCase, TestCycle, TestEvidence, TestRun
+from .admin import TestCycleAdmin
 from .services import allowed_cycles, attach_screenshot, cycle_summary, record_result
 
 
 class QaTrackerTests(DjangoTestCase):
+    @override_settings(APP_RELEASE='release-20260925-a', RELEASE_ENVIRONMENT='production')
+    @patch.dict('os.environ', {'RENDER_GIT_COMMIT': 'a' * 40})
+    def test_new_cycle_prefills_deployed_release_and_commit(self):
+        request = RequestFactory().get('/admin/qa_tracker/testcycle/add/')
+        request.user = self.superuser
+        initial = TestCycleAdmin(TestCycle, admin.site).get_changeform_initial_data(request)
+        self.assertEqual(initial['release'], 'release-20260925-a')
+        self.assertEqual(initial['build_commit'], 'a' * 40)
+        self.assertEqual(initial['environment'], 'production')
+
+    @override_settings(APP_RELEASE='b' * 40, RELEASE_ENVIRONMENT='development')
+    @patch.dict('os.environ', {'RENDER_GIT_COMMIT': 'not-a-sha'})
+    def test_commit_falls_back_to_sha_release_without_guessing_environment(self):
+        request = RequestFactory().get('/admin/qa_tracker/testcycle/add/')
+        request.user = self.superuser
+        initial = TestCycleAdmin(TestCycle, admin.site).get_changeform_initial_data(request)
+        self.assertEqual(initial['release'], 'b' * 40)
+        self.assertEqual(initial['build_commit'], 'b' * 40)
+        self.assertNotIn('environment', initial)
+
     def test_other_miniapp_checklists_are_seeded(self):
         minimums = {
             'tat_tracker': 9, 'complaints': 9, 'spin': 6,

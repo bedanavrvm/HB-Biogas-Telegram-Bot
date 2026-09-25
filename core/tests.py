@@ -2263,7 +2263,7 @@ class FcaWorkflowServiceTest(TestCase):
         self.assertTrue(result['success'], result)
         self.assertEqual(result['committed'], 1)
         row = fake_sheet.values[4]
-        self.assertEqual(row[4], '23-June-2026')
+        self.assertEqual(row[4], '23-Jun-2026')
         self.assertEqual(row[6], 'Approved')
         self.assertIn('Customer needs 5k top-up', row[7])
         self.assertIn('JBL Officer', row[7])

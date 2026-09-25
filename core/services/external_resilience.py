@@ -82,11 +82,18 @@ def retry_after_seconds(error: Exception, *, attempt: int, random_value: Callabl
     response = getattr(error, 'response', None)
     headers = getattr(response, 'headers', {}) or getattr(error, 'headers', {}) or {}
     raw = headers.get('Retry-After') or headers.get('retry-after')
+    status = getattr(response, 'status_code', None) or getattr(error, 'status_code', None)
+    quota_failure = str(status) == '429' or redacted_error_code(error) == 'rate_limited'
     try:
         if raw is not None:
-            return max(0.0, min(120.0, float(raw)))
+            wait = max(0.0, min(600.0, float(raw)))
+            return max(60.0, wait) if quota_failure else wait
     except (TypeError, ValueError):
         pass
+    if quota_failure:
+        # Sheets quotas refill per minute. A 1-4 second retry can immediately
+        # hit the same quota again when a staff member reopens the Portal.
+        return min(600.0, 60.0 * (2 ** max(0, attempt - 1))) + random_value() * 5.0
     return min(60.0, (2 ** max(0, attempt - 1)) + random_value())
 
 
@@ -181,8 +188,18 @@ def _record_circuit_failure(integration: str, error: Exception, *, now) -> None:
         circuit.save()
 
 
-def _mark_attempt(operation_id, *, now) -> IntegrationOperation | None:
+def _mark_attempt(
+    operation_id, *, now, min_spacing_seconds: int = 0,
+    paced_operation_types: tuple[str, ...] = (),
+) -> IntegrationOperation | None:
     with transaction.atomic():
+        if min_spacing_seconds and paced_operation_types:
+            # Serialize Portal publication claims across Gunicorn workers and
+            # scheduled commands.  The circuit row is a durable mutex, not a
+            # process-local timer.  PostgreSQL SELECT FOR UPDATE enforces this.
+            IntegrationCircuitState.objects.select_for_update().get_or_create(
+                integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+            )
         operation = IntegrationOperation.objects.select_for_update().get(pk=operation_id)
         # A web worker can be recycled while an outbound request is in flight.
         # Do not let a second Mini App retry run the same operation at once;
@@ -192,6 +209,17 @@ def _mark_attempt(operation_id, *, now) -> IntegrationOperation | None:
             if operation.last_attempt_at and (timezone.now() - operation.last_attempt_at).total_seconds() < lease_seconds:
                 return None
             operation.status = IntegrationOperation.STATUS_RETRYABLE
+        if min_spacing_seconds and paced_operation_types:
+            most_recent = IntegrationOperation.objects.filter(
+                integration=operation.integration,
+                operation_type__in=paced_operation_types,
+                last_attempt_at__isnull=False,
+            ).exclude(pk=operation.pk).order_by('-last_attempt_at').values_list('last_attempt_at', flat=True).first()
+            due_at = most_recent + timedelta(seconds=min_spacing_seconds) if most_recent else None
+            if due_at and due_at > now:
+                operation.next_retry_at = due_at
+                operation.save(update_fields=['status', 'next_retry_at', 'updated_at'])
+                return None
         operation.status = IntegrationOperation.STATUS_RUNNING
         operation.attempts += 1
         operation.last_attempt_at = now
@@ -245,6 +273,8 @@ def execute_operation(
     sleeper: Callable[[float], None] = time.sleep,
     random_value: Callable[[], float] = random.random,
     attempt_budget: int | None = None,
+    min_spacing_seconds: int = 0,
+    paced_operation_types: tuple[str, ...] = (),
 ) -> T | None:
     """Run a reserved operation with bounded retry and durable outcomes.
 
@@ -269,7 +299,11 @@ def execute_operation(
     for attempt in range(1, attempts_this_call + 1):
         now = timezone.now()
         _claim_circuit(operation.integration, now=now)
-        current = _mark_attempt(operation.pk, now=now)
+        current = _mark_attempt(
+            operation.pk, now=now,
+            min_spacing_seconds=min_spacing_seconds,
+            paced_operation_types=paced_operation_types,
+        )
         if current is None:
             # Another request has the short execution lease.  Treat this as a
             # safe no-op rather than duplicating an external write.

@@ -612,6 +612,12 @@ ORIGINATION_SIGNING_BASE_URL = config(
 API_REQUEST_SIZE_LIMIT = 1_000_000  # 1MB - Prevent DoS from large payloads
 API_REQUEST_TIMEOUT = 10  # seconds - Timeout for external API calls
 GOOGLE_SHEETS_MAX_RETRIES = config('GOOGLE_SHEETS_MAX_RETRIES', default=4, cast=int)
+# Portal publication is paced across web requests and scheduled drainers using
+# the durable integration register.  This limits Portal operations, not other
+# workflows sharing the same Google service account.
+PORTAL_PUBLICATION_MIN_SPACING_SECONDS = max(1, config(
+    'PORTAL_PUBLICATION_MIN_SPACING_SECONDS', default=10, cast=int,
+))
 MAX_SYNC_ATTEMPTS = 5  # Max retries before giving up on Google Sheets sync
 MIN_CONFIDENCE_THRESHOLD = 0.5  # Minimum confidence score to consider parse acceptable
 PARSING_BATCH_SIZE = 50  # Process up to 50 messages per batch request

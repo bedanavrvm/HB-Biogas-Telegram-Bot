@@ -1,16 +1,16 @@
 """Durable, request-assisted publication of Portal records to Google.
 
-Free Render has no durable worker process.  Portal changes therefore commit
-locally first and reserve publication work in ``IntegrationOperation``.  The
-Mini App makes small, authenticated follow-up requests; each request performs
-at most one bounded external attempt and the next Portal visit resumes due
-work.  This is deliberately not a process-local background queue.
+Portal changes commit locally first and reserve publication work in
+``IntegrationOperation``. The Mini App makes authenticated follow-up requests;
+the optional scheduled management command drains due work when nobody has the
+app open. Both paths share persisted pacing and one-attempt-per-call behavior.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
 from django.utils import timezone
 
 from core.models import IntegrationOperation
@@ -229,9 +229,12 @@ def attempt_publication(operation: IntegrationOperation) -> dict[str, Any]:
         MASTER_OPERATION, INTERNAL_ORDER_OPERATION,
     }:
         raise ValueError('This is not a Portal register publication operation.')
+    operation.refresh_from_db()
     farmer = JawabuFarmerMaster.objects.filter(pk=operation.source_id).first()
     if farmer is None:
         raise ValueError('The source case is no longer available.')
+    if operation.next_retry_at and operation.next_retry_at > timezone.now():
+        return {'operation': operation, 'farmer': farmer, 'result': None, 'deferred': True}
     operation_revision = int((operation.metadata or {}).get('workflow_revision') or 0)
     if operation_revision != int(farmer.workflow_revision or 0):
         # A newer canonical state will publish its own operation.  Completing
@@ -241,6 +244,8 @@ def attempt_publication(operation: IntegrationOperation) -> dict[str, Any]:
             operation,
             lambda: {'action': 'superseded'},
             attempt_budget=1,
+            min_spacing_seconds=getattr(settings, 'PORTAL_PUBLICATION_MIN_SPACING_SECONDS', 10),
+            paced_operation_types=(MASTER_OPERATION, INTERNAL_ORDER_OPERATION),
         )
         return {'operation': operation, 'farmer': farmer, 'result': result, 'superseded': True}
 
@@ -255,11 +260,18 @@ def attempt_publication(operation: IntegrationOperation) -> dict[str, Any]:
         if not completed:
             # The low-level publisher intentionally keeps Google details in
             # protected logs.  This marker is retryable by the shared policy.
-            raise PortalPublicationError('Google register is temporarily unavailable.')
+            error = PortalPublicationError('Google register is temporarily unavailable.')
+            if operation.operation_type == MASTER_OPERATION and failure_context.get('provider_status') == 429:
+                error.status_code = 429
+            raise error
         return {'action': operation.operation_type}
 
     try:
-        result = execute_operation(operation, publish_once, attempt_budget=1)
+        result = execute_operation(
+            operation, publish_once, attempt_budget=1,
+            min_spacing_seconds=getattr(settings, 'PORTAL_PUBLICATION_MIN_SPACING_SECONDS', 10),
+            paced_operation_types=(MASTER_OPERATION, INTERNAL_ORDER_OPERATION),
+        )
     except ExternalOperationError:
         operation.refresh_from_db()
         return {'operation': operation, 'farmer': farmer, 'result': None, 'error': True}
