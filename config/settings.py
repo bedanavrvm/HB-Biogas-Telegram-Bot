@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     'payments',
     'credit_assessments',
     'hb_operations',
+    'qa_tracker',
 ]
 
 UNFOLD = {

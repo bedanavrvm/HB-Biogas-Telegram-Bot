@@ -1,0 +1,53 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+{% block content %}
+<style>
+  .qa-wrap { max-width: 920px; margin: 0 auto; padding: 0 12px 32px; }
+  .qa-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .qa-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); gap: 8px; margin: 12px 0; }
+  .qa-metric, .qa-card { background: var(--color-base-0, #fff); border: 1px solid var(--color-base-200, #d5dce5); border-radius: 10px; padding: 12px; }
+  .qa-metric strong { display: block; font-size: 20px; }
+  .qa-card { margin: 10px 0; }
+  .qa-card h2 { margin: 0 0 6px; font-size: 16px; }
+  .qa-muted { color: var(--color-base-500, #64748b); font-size: 12px; }
+  .qa-steps { white-space: pre-wrap; line-height: 1.45; margin: 6px 0; }
+  .qa-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .qa-grid label { display: block; font-size: 12px; font-weight: 600; }
+  .qa-grid input, .qa-grid select, .qa-grid textarea { width: 100%; box-sizing: border-box; border: 1px solid #aebccc; border-radius: 6px; padding: 7px; background: var(--color-base-0, #fff); color: inherit; }
+  .qa-grid .qa-full { grid-column: 1 / -1; }
+  .qa-grid textarea { min-height: 56px; }
+  .qa-button { border: 0; border-radius: 7px; background: #0284c7; color: #fff; padding: 9px 14px; font-weight: 700; cursor: pointer; }
+  .qa-link { color: #0284c7; text-decoration: underline; }
+  @media (max-width: 480px) { .qa-grid { grid-template-columns: 1fr; } .qa-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+</style>
+<div class="qa-wrap">
+  <div class="qa-head"><div><h1>{{ title }}</h1><div class="qa-muted">{{ cycle.app }} · {{ cycle.environment }} · {{ cycle.group_configuration }}{% if cycle.branch %} · {{ cycle.branch }}{% endif %}{% if cycle.product %} · {{ cycle.product }}{% endif %}</div></div><a class="qa-link" href="{{ report_url }}">Download PDF report</a></div>
+  <div class="qa-metrics" aria-label="QA release summary">
+    <div class="qa-metric"><strong>{{ summary.counts.tested }}/{{ summary.counts.total }}</strong>Tested</div>
+    <div class="qa-metric"><strong>{{ summary.counts.pass }}</strong>Pass</div>
+    <div class="qa-metric"><strong>{{ summary.counts.fail }}</strong>Fail</div>
+    <div class="qa-metric"><strong>{{ summary.counts.blocked }}</strong>Blocked</div>
+    <div class="qa-metric"><strong>{{ summary.counts.untested }}</strong>Untested</div>
+    <div class="qa-metric"><strong>{{ summary.counts.regressions }}</strong>Regressions</div>
+  </div>
+  {% if summary.previous_cycle %}<p class="qa-muted">Compared with {{ summary.previous_cycle.release }} in the same environment and scope. {{ summary.counts.persistent_failures }} still failing · {{ summary.counts.newly_fixed }} fixed · {{ summary.counts.blocker_regressions }} blocker regressions.</p>{% else %}<p class="qa-muted">First checklist in this environment and scope; no prior release to compare.</p>{% endif %}
+  {% for item in summary.rows %}
+  <section class="qa-card" aria-labelledby="case-{{ item.case.id }}">
+    <h2 id="case-{{ item.case.id }}">{{ item.case.id }} · {{ item.case.description }}</h2>
+    <div class="qa-muted">{{ item.case.journey }} · {{ item.case.get_priority_display }} priority{% if item.case.automation_gap %} · Automation gap{% endif %}{% if item.change %} · {{ item.change }}{% endif %}</div>
+    <details><summary>Steps and expected result</summary><p class="qa-steps">{{ item.case.steps }}</p><p class="qa-steps"><strong>Expected:</strong> {{ item.case.expected }}</p></details>
+    {% if item.run %}<p><strong>Current: {{ item.run.get_result_display }}</strong>{% if item.run.severity %} · {{ item.run.get_severity_display }}{% endif %} · {{ item.run.created_at|date:"d-m-Y H:i" }} · {{ item.run.tester|default:"Former user" }}</p>{% if item.run.notes %}<p class="qa-steps">{{ item.run.notes }}</p>{% endif %}{% for evidence in item.evidence %}<a class="qa-link" href="{% url 'admin:qa_tracker_cycle_evidence' cycle.pk evidence.pk %}" target="_blank" rel="noopener">Screenshot {{ forloop.counter }}</a> {% endfor %}{% endif %}
+    <form method="post" enctype="multipart/form-data" action="{{ run_url }}" class="qa-grid">
+      {% csrf_token %}<input type="hidden" name="test_case_id" value="{{ item.case.id }}"><input type="hidden" name="request_key" value="{{ item.request_key }}">
+      <label>Result<select name="result" required><option value="">Choose result</option><option value="pass">Pass</option><option value="fail">Fail</option><option value="blocked">Blocked</option></select></label>
+      <label>Severity (required for Fail)<select name="severity"><option value="">Choose if failed</option><option value="blocker">Blocker</option><option value="major">Major</option><option value="minor">Minor</option></select></label>
+      <label>Bug reference<input type="text" name="bug_reference" maxlength="100" autocomplete="off"></label>
+      <label>Screenshot (PNG/JPEG, max 5 MB)<input type="file" name="screenshot" accept="image/png,image/jpeg"></label>
+      <label class="qa-full">Observation (no customer data)<textarea name="notes" maxlength="4000"></textarea></label>
+      <div class="qa-full"><button class="qa-button" type="submit">Save result</button></div>
+    </form>
+    {% if item.run and item.evidence|length < 5 %}<form method="post" enctype="multipart/form-data" action="{% url 'admin:qa_tracker_add_evidence' cycle.pk item.run.pk %}">{% csrf_token %}<label class="qa-muted">Add screenshot to current result <input type="file" name="screenshot" accept="image/png,image/jpeg" required></label> <button type="submit">Attach</button></form>{% endif %}
+  </section>
+  {% empty %}<p>No active tests are registered for this app yet.</p>{% endfor %}
+</div>
+{% endblock %}

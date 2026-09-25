@@ -378,6 +378,9 @@ def get_admin_navigation(request) -> list[dict]:
         _custom_item("Add staff user", "admin:auth_user_add_staff", "person_add", _superuser),
     ]
     technical = [
+        _model_item("qa_tracker.TestCycle", "QA release checklists", "fact_check"),
+        _model_item("qa_tracker.TestCase", "QA test registry", "checklist"),
+        _model_item("qa_tracker.TestRun", "QA run history", "history"),
         _model_item("core.RawMessage", "Raw messages", "mark_chat_unread"),
         _model_item("core.ProcessedMessage", "Processed messages", "task_alt"),
         _model_item("core.ComplaintCaseEvidence", "Complaint evidence", "folder_shared"),
