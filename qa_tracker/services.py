@@ -19,6 +19,9 @@ WORKFLOWS = {
     'complaints': 'complaint_cases',
     'spin': 'spin_credit_analysis',
     'origination': 'jawabu_portal',
+    'fca_review': 'jawabu_portal',
+    'farmers_review': 'jawabu_portal',
+    'order_approval': 'jawabu_portal',
 }
 MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
 logger = logging.getLogger(__name__)

@@ -2,6 +2,8 @@
 
 This bounded app owns the internal, cross-workflow manual QA registry and release results. It is not an operational customer workflow and is not a replacement for CI.
 
+Seeded app choices: Portal, TAT Tracker, Complaints, SPIN, Origination, FCA Review, Farmers Review, and Order Approval. Each has its own human-observable checklist. Create a separate release cycle for each app being tested; creating a cycle freezes that app's then-active test IDs. Older review Mini Apps are included because their browser routes still exist; mark a case Blocked when its required upload or authorized test context is unavailable.
+
 - `TestCase` is a permanent-ID registry. Retire a case with `active=False`; never reuse its ID. Substantive behavior changes should receive a new ID.
 - `TestCycle` freezes the active test IDs when a release checklist is created. Its app, environment, group, branch, product, and build metadata are immutable afterward.
 - `TestRun` is create-only. The latest execution per case in a cycle is its current result; all earlier executions remain available in run history.

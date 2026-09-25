@@ -31,7 +31,7 @@ class TestCycle(models.Model):
     """One release/environment/scope against which tests are executed."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_comment='Immutable QA release-cycle identifier.')
-    app = models.CharField(max_length=32, choices=[('portal', 'Portal'), ('tat_tracker', 'TAT Tracker'), ('complaints', 'Complaints'), ('spin', 'SPIN'), ('origination', 'Origination')], db_comment='Workflow covered by this release checklist.')
+    app = models.CharField(max_length=32, choices=[('portal', 'Portal'), ('tat_tracker', 'TAT Tracker'), ('complaints', 'Complaints'), ('spin', 'SPIN'), ('origination', 'Origination'), ('fca_review', 'FCA Review'), ('farmers_review', 'Farmers Review'), ('order_approval', 'Order Approval')], db_comment='Workflow covered by this release checklist.')
     release = models.CharField(max_length=80, db_comment='Release or deployed version label.')
     environment = models.CharField(max_length=24, choices=[('pilot', 'Pilot'), ('staging', 'Staging'), ('production', 'Production')], db_comment='Environment tested.')
     build_commit = models.CharField(max_length=40, blank=True, db_comment='Optional deployed commit SHA, not customer data.')

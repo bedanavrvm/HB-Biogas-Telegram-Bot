@@ -15,6 +15,16 @@ from .services import allowed_cycles, attach_screenshot, cycle_summary, record_r
 
 
 class QaTrackerTests(DjangoTestCase):
+    def test_other_miniapp_checklists_are_seeded(self):
+        minimums = {
+            'tat_tracker': 9, 'complaints': 9, 'spin': 6,
+            'origination': 7, 'fca_review': 3,
+            'farmers_review': 3, 'order_approval': 4,
+        }
+        for app, minimum in minimums.items():
+            with self.subTest(app=app):
+                self.assertGreaterEqual(TestCase.objects.filter(app=app, active=True).count(), minimum)
+
     def setUp(self):
         User = get_user_model()
         self.superuser = User.objects.create_superuser(username='qa_root', email='qa@example.org', password='safe-test-pass')
@@ -35,6 +45,15 @@ class QaTrackerTests(DjangoTestCase):
         self.assertEqual(self.client.get(reverse('admin:qa_tracker_cycle_run', args=[self.other_cycle.pk])).status_code, 404)
         self.client.force_login(self.outsider)
         self.assertEqual(self.client.get(reverse('admin:qa_tracker_cycle_run', args=[self.cycle.pk])).status_code, 404)
+
+    def test_other_miniapp_cycles_use_their_workflow_grant(self):
+        tat_cycle = TestCycle.objects.create(app='tat_tracker', release='v1', environment='pilot', group_configuration=self.group)
+        self.assertGreater(len(tat_cycle.case_ids), 0)
+        self.assertFalse(allowed_cycles(self.it).filter(pk=tat_cycle.pk).exists())
+        AccessGrant.objects.create(user=self.it, workflow='tat_tracker', role='IT', active=True, group_configuration=self.group)
+        self.assertTrue(allowed_cycles(self.it).filter(pk=tat_cycle.pk).exists())
+        farmer_cycle = TestCycle.objects.create(app='farmers_review', release='v1', environment='pilot', group_configuration=self.group)
+        self.assertTrue(allowed_cycles(self.it).filter(pk=farmer_cycle.pk).exists())
 
     def test_latest_run_comparison_and_idempotency(self):
         prior = record_result(self.cycle, self.case, self.it, result='pass', request_key=uuid.uuid4())
