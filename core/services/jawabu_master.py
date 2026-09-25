@@ -1833,9 +1833,17 @@ def upsert_farmer(cleaned: dict, *, return_instance: bool = False):
     if existing is None and action != APPLICATION_ACTION_CREATE_ADDITIONAL_UNIT:
         existing = JawabuFarmerMaster.objects.filter(**lookup).order_by('-updated_at').first()
     defaults = model_fields(cleaned)
+    batch_id = str((cleaned.get('raw_data') or {}).get('upload_batch_id') or '')
+    if batch_id:
+        from core.models import GroupSheetConfiguration, JawabuFarmerUploadBatch
+        owner_group_id = JawabuFarmerUploadBatch.objects.filter(pk=batch_id).values_list('group_id', flat=True).first()
+        if owner_group_id:
+            defaults['group_configuration'] = GroupSheetConfiguration.objects.filter(group_id=owner_group_id).first()
     defaults['customer'] = customer
     defaults['unit_number'] = unit_number
     if existing:
+        if defaults.get('group_configuration') and existing.group_configuration_id is None:
+            existing.group_configuration = defaults['group_configuration']
         if not existing.lead_name:
             existing.lead_name = existing.customer_name or ''
             existing.lead_national_id = existing.national_id or ''

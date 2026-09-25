@@ -669,6 +669,7 @@ def ingest_invoice_upload_batch(
     uploaded_by: str = '',
     order_number: str = '',
     group_config=None,
+    group_configuration=None,
     client_request_id: str = '',
 ) -> InvoiceUploadBatch:
     """
@@ -710,6 +711,7 @@ def ingest_invoice_upload_batch(
         raise InvoiceUploadStorageError(str(exc)) from exc
 
     batch = InvoiceUploadBatch.objects.create(
+        group_configuration=group_configuration,
         original_filename=safe_name,
         content_type=content_type or 'application/pdf',
         size=len(pdf_bytes),

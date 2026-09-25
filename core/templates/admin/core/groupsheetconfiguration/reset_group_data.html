@@ -8,17 +8,19 @@
     <strong>{{ config.display_name|default:config.group_id }}</strong>
     (<code>{{ config.group_id }}</code>).
   </p>
+  {% if is_farmer_workflow %}
+  <p>This will reset the selected Portal group from FarmUp intake through orders, invoices, payments, installation and commissioning. Portal will be read-only while verified case rows are removed from the Master Data and Eco-conserve Sheets. Google Drive files and restricted compliance evidence remain.</p>
+  <p class="errornote">Official order and payment numbers will restart at their configured starting values. Previously issued documents must be voided or removed manually before reusing those numbers.</p>
+  {% else %}
   <p>
     Records belonging to other workflow configurations, shared/global Jawabu records,
     generated documents, invoice uploads, Google Sheets rows, and actual Google Drive
     files will not be deleted.
   </p>
-  {% if is_farmer_workflow %}
-  <p class="help">Media attachments with recorded access are retained as audit evidence. If linked farmer records have such access, the optional Farmers upload purge will be refused without deleting anything.</p>
   {% endif %}
 
   <h2>Current Local Records</h2>
-  <p class="help">Only records in this configuration's workflow-specific reset allowlist are shown.</p>
+  <p class="help">{% if is_farmer_workflow %}Portal reset preview for this group, including unattributed legacy Portal cases.{% else %}Only records in this configuration's workflow-specific reset allowlist are shown.{% endif %}</p>
   <table>
     <thead>
       <tr><th>Record type</th><th>Count</th></tr>
@@ -36,11 +38,16 @@
     {% csrf_token %}
     {% if is_farmer_workflow %}
     <div class="form-row">
-      <label>
-        <input type="checkbox" name="include_farmer_uploads" value="yes">
-        Also clear Farmers upload batches for this group and linked local Master Data rows.
-      </label>
-      <p class="help">Use this while retesting <code>/farmup</code>. It removes review batches and local master rows created from those batches.</p>
+      <label for="backup-reference">Verified database backup reference</label>
+      <input id="backup-reference" name="backup_reference" type="text" maxlength="255" required>
+      <p class="help">Record the backup or snapshot that can restore this Portal data if needed.</p>
+    </div>
+    <div class="form-row">
+      <label for="confirm-group">Type this exact group ID: <code>{{ config.group_id }}</code></label>
+      <input id="confirm-group" name="confirm_group" type="text" required>
+    </div>
+    <div class="form-row">
+      <label><input type="checkbox" name="confirm_number_reuse" value="yes" required> I understand official order and payment numbers will be reused after I manually void the old documents.</label>
     </div>
     {% endif %}
     {% if is_spin_workflow %}

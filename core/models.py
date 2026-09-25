@@ -2395,6 +2395,11 @@ class JawabuFarmerMaster(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    group_configuration = models.ForeignKey(
+        'GroupSheetConfiguration', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='portal_cases',
+        db_comment='Portal group that owns this case, including leads entered directly by JBL staff.',
+    )
     case_reference_number = models.PositiveBigIntegerField(
         unique=True,
         editable=False,
@@ -2840,8 +2845,10 @@ class JawabuMediaAccessEvent(models.Model):
     """Audit every Portal-mediated retrieval of sensitive JBL visit evidence."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    farmer = models.ForeignKey(JawabuFarmerMaster, on_delete=models.PROTECT, related_name='media_access_events')
-    attachment = models.ForeignKey(MediaAttachment, on_delete=models.PROTECT, related_name='access_events')
+    farmer = models.ForeignKey(JawabuFarmerMaster, null=True, blank=True, on_delete=models.SET_NULL, related_name='media_access_events')
+    attachment = models.ForeignKey(MediaAttachment, null=True, blank=True, on_delete=models.SET_NULL, related_name='access_events')
+    farmer_id_snapshot = models.CharField(max_length=64, blank=True, default='')
+    attachment_id_snapshot = models.CharField(max_length=64, blank=True, default='')
     actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
     action = models.CharField(max_length=32, default='view')
     request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
@@ -7947,6 +7954,11 @@ class InvoiceUploadBatch(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    group_configuration = models.ForeignKey(
+        'GroupSheetConfiguration', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='portal_invoice_uploads',
+        db_comment='Portal group owning this invoice upload independently of its optional order number.',
+    )
     original_filename = models.CharField(max_length=255, blank=True, default='')
     content_type = models.CharField(max_length=255, blank=True, default='application/pdf')
     size = models.PositiveIntegerField(default=0)

@@ -63,6 +63,8 @@ def record_jawabu_media_access(
             access_event = JawabuMediaAccessEvent.objects.create(
                 farmer=farmer,
                 attachment=attachment,
+                farmer_id_snapshot=str(farmer.pk),
+                attachment_id_snapshot=str(attachment.pk),
                 actor=actor,
                 request_id=normalized_request_id[:128],
             )

@@ -977,6 +977,9 @@ def sync_fcaup_records_to_master_data(group_config, records: list[FcaImportRecor
             visit_date = record.fca_visit_date
 
             if farmer:
+                if farmer.group_configuration_id is None:
+                    from core.models import GroupSheetConfiguration
+                    farmer.group_configuration = GroupSheetConfiguration.objects.filter(group_id=record.group_id).first()
                 farmer.jbl_visit_date = visit_date
                 farmer.jbl_visit_status = record.fca_decision
                 farmer.jbl_visit_comment = record.fca_comment
@@ -989,7 +992,10 @@ def sync_fcaup_records_to_master_data(group_config, records: list[FcaImportRecor
                 farmer.save()
                 logger.info("FCA sync: Updated existing database record for farmer %s", farmer.id)
             else:
+                from core.models import GroupSheetConfiguration
+                owner_group = GroupSheetConfiguration.objects.filter(group_id=record.group_id).first()
                 farmer = JawabuFarmerMaster.objects.create(
+                    group_configuration=owner_group,
                     customer_name=record.customer_name,
                     national_id=fields.get('id_number', ''),
                     primary_phone=record.primary_phone,

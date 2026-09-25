@@ -6758,18 +6758,25 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
         workflow_type = str(workflow.get('type') or 'case')
         is_spin_workflow = workflow_type == 'spin_credit_analysis'
         is_farmer_workflow = workflow_type in {'jawabu', 'jawabu_homebiogas'}
+        if is_farmer_workflow and not (request.user.is_active and request.user.is_superuser):
+            messages.error(request, 'Only an active Superuser can perform a full Portal reset.')
+            return HttpResponseRedirect('../')
         reset_supported = workflow_type in SUPPORTED_RESET_WORKFLOWS
         spin_legacy_batch_sheet_name = str(
             workflow.get('legacy_batch_sheet_name') or 'SPIN Legacy Batch'
         ).strip() or 'SPIN Legacy Batch'
-        counts = (
-            group_data_counts(
-                config,
-                spin_legacy_batch_sheet_name=spin_legacy_batch_sheet_name,
+        if is_farmer_workflow:
+            from core.services.portal_full_reset import portal_reset_manifest
+            counts = portal_reset_manifest(config)['counts']
+        else:
+            counts = (
+                group_data_counts(
+                    config,
+                    spin_legacy_batch_sheet_name=spin_legacy_batch_sheet_name,
+                )
+                if reset_supported
+                else {}
             )
-            if reset_supported
-            else {}
-        )
         if request.method == 'POST':
             if not reset_supported:
                 messages.error(
@@ -6780,6 +6787,49 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
             if request.POST.get('confirm_reset') != 'yes':
                 messages.error(request, 'Tick the confirmation checkbox before resetting group data.')
                 return HttpResponseRedirect(request.path)
+            if is_farmer_workflow:
+                from core.services.portal_full_reset import PortalResetError, reset_portal_configuration
+                from core.services.portal_maintenance import current_maintenance_state, set_maintenance_state
+                confirmation = str(request.POST.get('confirm_group') or '').strip()
+                expected = str(config.group_id)
+                if confirmation != expected or request.POST.get('confirm_number_reuse') != 'yes':
+                    messages.error(request, 'Enter the exact group ID and confirm official number reuse.')
+                    return HttpResponseRedirect(request.path)
+                backup_reference = str(request.POST.get('backup_reference') or '').strip()
+                if not backup_reference:
+                    messages.error(request, 'Enter the verified database backup reference.')
+                    return HttpResponseRedirect(request.path)
+                previous = current_maintenance_state()
+                previous_mode = previous.mode if previous else 'live'
+                previous_reason = previous.reason if previous else ''
+                from uuid import uuid4
+                set_maintenance_state(
+                    actor=request.user, mode='maintenance',
+                    reason=f'Portal reset in progress for {config.group_id}.',
+                    request_id=f'portal-reset-start:{uuid4()}',
+                )
+                try:
+                    result = reset_portal_configuration(
+                        config, actor=request.user, backup_reference=backup_reference,
+                    )
+                except (PortalResetError, ValueError) as exc:
+                    messages.error(request, f'Portal reset paused safely: {exc} Retry after resolving this issue. Portal remains read-only.')
+                    return HttpResponseRedirect(request.path)
+                except Exception:
+                    logger.exception('Portal full reset failed for configuration %s', config.pk)
+                    messages.error(request, 'Portal reset paused after an unexpected error. Some verified Sheet rows may already have been removed; Portal remains read-only. Contact IT and retry after reviewing the server log.')
+                    return HttpResponseRedirect(request.path)
+                set_maintenance_state(
+                    actor=request.user, mode=previous_mode, reason=previous_reason,
+                    request_id=f'portal-reset-end:{uuid4()}',
+                )
+                messages.success(
+                    request,
+                    f'Portal reset complete for {config.display_name or config.group_id}: '
+                    f'{result["cases_deleted"]} case(s) and {result["sheet_rows_deleted"]} verified Sheet row(s) removed. '
+                    'Drive files were not deleted.',
+                )
+                return HttpResponseRedirect(reverse('admin:core_groupsheetconfiguration_change', args=[config.pk]))
             include_farmer_uploads = request.POST.get('include_farmer_uploads') == 'yes'
             include_spin_legacy_batch = request.POST.get('include_spin_legacy_batch') == 'yes'
             from django.db.models.deletion import ProtectedError

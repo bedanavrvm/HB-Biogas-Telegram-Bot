@@ -6650,6 +6650,7 @@ def portal_invoice_pool_upload(request):
                 uploaded_by=uploaded_by,
                 order_number=order_number,
                 client_request_id=(f'{request_id}:{pdf_index}' if request_id else ''),
+                group_configuration=receipt_group,
             )
             candidates = JawabuFarmerMaster.objects.filter(status='active')
             if order_number:
@@ -7287,6 +7288,9 @@ def portal_create_and_complete_jbl_lead(request):
         if (media_error := _portal_capability_error(request, 'portal.jbl_media.write')):
             return media_error
     actor = getattr(request, 'portal_user', None)
+    owner_group = _portal_payment_group(request)
+    if owner_group is None:
+        return JsonResponse({'ok': False, 'error': 'No scoped Portal group is available for this case.'}, status=403)
     external_id = f'jbl-office-lead:{actor.pk if actor else "telegram"}:{request_id}'
     created_lead = False
     with transaction.atomic():
@@ -7297,7 +7301,7 @@ def portal_create_and_complete_jbl_lead(request):
             try:
                 customer = JawabuCustomer.objects.create(national_id=national_id, primary_phone=phone)
                 farmer = JawabuFarmerMaster.objects.create(
-                    customer=customer, source='jawabu_office_lead', source_name='JBL office visit intake', external_id=external_id,
+                    customer=customer, group_configuration=owner_group, source='jawabu_office_lead', source_name='JBL office visit intake', external_id=external_id,
                     customer_name=name, national_id=national_id, primary_phone=phone, lead_name=name, lead_national_id=national_id,
                     lead_primary_phone=phone, lead_source_reference='JBL office', lead_source='JAWABU',
                     deposit_paid_hbg=deposit_paid_hbg, hb_sales_person=hb_sales_person,

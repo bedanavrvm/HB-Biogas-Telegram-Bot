@@ -82,7 +82,7 @@ class GroupResetAdminTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertTrue(OrderApprovalUpdate.objects.filter(pk=order.pk).exists())
 
-    def test_admin_reports_audit_protected_farmer_purge_without_server_error(self):
+    def test_portal_admin_reset_requires_explicit_group_and_backup_confirmation(self):
         config = GroupSheetConfiguration.objects.create(
             group_id='-100audited-admin', workflow={'type': 'jawabu_homebiogas'},
         )
@@ -104,8 +104,26 @@ class GroupResetAdminTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'audited media access')
+        self.assertContains(response, 'Enter the exact group ID')
         self.assertTrue(JawabuVisitRecord.objects.filter(pk=visit.pk).exists())
+
+    def test_portal_admin_confirmed_reset_clears_case_and_restores_live_mode(self):
+        from core.models import PortalMaintenanceState
+
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100portal-confirmed', workflow={'type': 'jawabu_homebiogas'},
+        )
+        farmer = JawabuFarmerMaster.objects.create(group_configuration=config, national_id='12345671')
+        url = reverse('admin:core_groupsheetconfiguration_reset_data', args=[config.pk])
+        response = self.client.get(url, secure=True)
+        self.assertContains(response, 'FarmUp intake through orders')
+        response = self.client.post(url, data={
+            'confirm_reset': 'yes', 'confirm_group': config.group_id,
+            'confirm_number_reuse': 'yes', 'backup_reference': 'test-backup-snapshot',
+        }, secure=True, follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(JawabuFarmerMaster.objects.filter(pk=farmer.pk).exists())
+        self.assertEqual(PortalMaintenanceState.objects.get(singleton=1).mode, 'live')
 
 
 class GroupResetSpinTests(TestCase):
