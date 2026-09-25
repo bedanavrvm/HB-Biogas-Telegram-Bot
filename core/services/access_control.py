@@ -324,6 +324,9 @@ def create_capability_request(
         raise ValidationError('Choose at least one valid workflow role.')
     allowed = {definition.key for definition in capabilities_for_workflow(workflow)}
     selected = dependency_closure(workflow, set(capability_keys).intersection(allowed))
+    if (workflow == 'tat_tracker' and 'tat.reports.insight.target_review_signals' in selected
+            and any(target_role != 'IT' for target_role in normalized_roles)):
+        raise ValidationError('Target Review Signals is restricted to IT.')
     if 'IT' in normalized_roles and selected != allowed:
         raise ValidationError(
             'IT is the mandatory scoped override role and must retain every live capability.'

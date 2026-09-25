@@ -1739,6 +1739,7 @@ class TatPresentationSettings(models.Model):
         default=80,
         help_text='Percentage of the frozen stage target at which a case is shown as Near Target (50-99).',
     )
+    report_panel_order = models.JSONField(default=list, blank=True)
     revision = models.PositiveIntegerField(default=1)
     change_reason = models.TextField(blank=True, default='')
     updated_by = models.ForeignKey(

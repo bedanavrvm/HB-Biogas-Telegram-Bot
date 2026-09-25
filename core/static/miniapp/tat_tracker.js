@@ -1538,6 +1538,7 @@
     document.querySelectorAll('[data-required-capability]').forEach((node) => {
       node.hidden = !capabilities.has(node.dataset.requiredCapability);
     });
+    syncTatReportPanelAvailability();
     fitVisibleTabs($('workspaceTabs'));
     const roles = (user.roles || []).join(', ') || 'Staff';
     $('userLine').textContent = `${user.name || 'Staff'} | ${roles}`;
@@ -2635,7 +2636,9 @@
 
   function activeTatInsightKey() {
     const slides = visibleTatChartSlides();
-    return slides[state.report.activeSlide]?.dataset.reportKey || slides[0]?.dataset.reportKey || 'trend';
+    const noInsights = $('tatNoInsights');
+    if (noInsights) noInsights.hidden = slides.length > 0;
+    return slides[state.report.activeSlide]?.dataset.reportKey || slides[0]?.dataset.reportKey || '';
   }
 
   function tatInsightCacheKey(insight) {
@@ -3254,12 +3257,20 @@
   }
 
   function tatInsightAllowed(key) {
+    const capabilities = ((state.data || {}).user || {}).capabilities || [];
+    if (!capabilities.includes(`tat.reports.insight.${key}`)) return false;
     if (key === 'backlog_age') return state.report.view === 'current';
     if (['sla_compliance', 'tat_percentiles', 'stage_target'].includes(key)) return state.report.view === 'performance';
     return true;
   }
 
   function syncTatReportPanelAvailability() {
+    const container = $('tatReportCharts');
+    const order = ((state.data || {}).presentation || {}).report_panel_order || [];
+    if (container && Array.isArray(order)) {
+      const panels = new Map([...container.querySelectorAll('[data-report-slide]')].map(panel => [panel.dataset.reportKey, panel]));
+      order.forEach(key => { if (panels.has(key)) container.append(panels.get(key)); });
+    }
     document.querySelectorAll('#tatReportCharts [data-report-slide]').forEach(panel => {
       panel.hidden = !tatInsightAllowed(panel.dataset.reportKey || '');
     });
@@ -3289,7 +3300,7 @@
       button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active));
     });
     const paging = document.querySelector('.tat-chart-pagination');
-    if (paging) paging.hidden = state.report.display !== 'carousel';
+    if (paging) paging.hidden = state.report.display !== 'carousel' || slides.length === 0;
     $('tatChartPosition').textContent = slides.length ? `${state.report.activeSlide + 1} of ${slides.length}` : '0 of 0';
     $('tatChartPrevious').disabled = slides.length < 2 || state.report.activeSlide === 0;
     $('tatChartNext').disabled = slides.length < 2 || state.report.activeSlide === slides.length - 1;
@@ -3576,10 +3587,9 @@
     try {
       const insight = focusedInsight || activeTatInsightKey();
       const [summary, table] = await Promise.all([
-        settings.summary ? reportFetch('/api/tat-tracker/reports/summary/', focusedReportPayload(insight, {
-          include_overview: true,
-          include_options: initialLoad,
-        }), controller.signal) : Promise.resolve(null),
+        settings.summary ? reportFetch('/api/tat-tracker/reports/summary/', insight
+          ? focusedReportPayload(insight, { include_overview: true, include_options: initialLoad })
+          : reportPayload(), controller.signal) : Promise.resolve(null),
         settings.table ? reportFetch('/api/tat-tracker/reports/cases/', reportPayload(), controller.signal) : Promise.resolve(null),
       ]);
       if (sequence !== state.report.sequence) return;

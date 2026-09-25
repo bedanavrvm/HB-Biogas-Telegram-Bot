@@ -745,7 +745,16 @@ def tat_tracker_reports_summary(request):
     capability_error = _tat_capability_error(user, 'tat.reports.view', group_config)
     if capability_error:
         return capability_error
-    from core.services.tat_reporting import report_summary
+    from core.services.tat_reporting import report_summary, FOCUSED_INSIGHTS
+    permitted_insights = {
+        key for key in FOCUSED_INSIGHTS
+        if _tat_has_capability(user, f'tat.reports.insight.{key}', group_config)
+    }
+    focused = str(payload.get('response_mode') or '') == 'focused_v1'
+    insight = str(payload.get('insight') or 'trend').strip().lower()
+    if focused and insight in FOCUSED_INSIGHTS and insight not in permitted_insights:
+        return JsonResponse({'ok': False, 'code': 'permission_denied',
+                             'message': 'This report insight is not available to your role.'}, status=403)
     try:
         data = report_summary(
             user.get('_canonical_user'), payload,
@@ -757,6 +766,12 @@ def tat_tracker_reports_summary(request):
             'code': 'tat_report_invalid_filter',
             'message': str(exc),
         }, status=400)
+    if not focused:
+        data['charts'] = {key: value for key, value in (data.get('charts') or {}).items()
+                          if key not in FOCUSED_INSIGHTS or key in permitted_insights}
+        for key in ('heatmap', 'target_review_signals', 'oldest_cases'):
+            if key not in permitted_insights:
+                data.pop(key, None)
     return JsonResponse({'ok': True, 'data': data})
 
 

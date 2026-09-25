@@ -3516,6 +3516,20 @@ class TatConfigurationEventAdmin(GovernedConfigurationAuditAdmin):
 
 
 class TatPresentationSettingsForm(forms.ModelForm):
+    class Media:
+        js = ('admin/js/tat_report_panel_order.js',)
+
+    report_panel_order = forms.MultipleChoiceField(
+        choices=[
+            ('trend', 'Workload over Time'), ('case_progression', 'Case Stage Progression'),
+            ('backlog_age', 'Current-stage Backlog Age'), ('sla_compliance', 'SLA Compliance'),
+            ('tat_percentiles', 'TAT Percentiles'), ('stage_target', 'Stage Against Target'),
+            ('explorer', 'Operational Comparison'), ('heatmap', 'Operational Heatmap'),
+            ('target_review_signals', 'Target Review Signals (IT only)'), ('oldest_cases', 'Oldest Active Cases'),
+        ],
+        widget=forms.SelectMultiple(attrs={'size': 10}),
+        help_text='Select a panel and use Move up or Move down. Keep all ten panels selected.',
+    )
     expected_revision = forms.IntegerField(widget=forms.HiddenInput)
     change_reason = forms.CharField(
         required=True,
@@ -3526,11 +3540,13 @@ class TatPresentationSettingsForm(forms.ModelForm):
 
     class Meta:
         model = TatPresentationSettings
-        fields = ('business_time_enabled', 'near_target_percent', 'change_reason', 'expected_revision')
+        fields = ('business_time_enabled', 'near_target_percent', 'report_panel_order', 'change_reason', 'expected_revision')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['expected_revision'].initial = int(getattr(self.instance, 'revision', 1) or 1)
+        from core.services.tat_presentation import REPORT_PANEL_ORDER
+        self.fields['report_panel_order'].initial = list(getattr(self.instance, 'report_panel_order', None) or REPORT_PANEL_ORDER)
         if not self.is_bound:
             self.initial['change_reason'] = ''
 
@@ -3544,8 +3560,15 @@ class TatPresentationSettingsForm(forms.ModelForm):
             raise ValidationError('TAT presentation settings changed. Reload before saving.')
         desired = cleaned.get('business_time_enabled')
         desired_near = cleaned.get('near_target_percent')
+        from core.services.tat_presentation import validate_report_panel_order, REPORT_PANEL_ORDER
+        try:
+            desired_order = validate_report_panel_order(cleaned.get('report_panel_order'))
+        except ValueError as exc:
+            self.add_error('report_panel_order', str(exc))
+            return cleaned
         if (desired is not None and bool(desired) == bool(self.instance.business_time_enabled)
-                and desired_near == self.instance.near_target_percent):
+                and desired_near == self.instance.near_target_percent
+                and desired_order == list(self.instance.report_panel_order or REPORT_PANEL_ORDER)):
             raise ValidationError('Change a global TAT presentation setting before saving.')
         if desired is False:
             from core.services.tat_presentation import pending_business_calendar_proposals
@@ -3567,7 +3590,7 @@ class TatPresentationSettingsAdmin(CompactModelAdmin):
                 'Official wall-clock TAT remains authoritative. Turning this off removes the optional '
                 'business-hours comparison and Business Calendar controls from every TAT Mini App.'
             ),
-            'fields': ('business_time_enabled', 'near_target_percent', 'change_reason', 'expected_revision'),
+            'fields': ('business_time_enabled', 'near_target_percent', 'report_panel_order', 'change_reason', 'expected_revision'),
         }),
         ('Audit', {'fields': ('revision', 'updated_by', 'created_at', 'updated_at')}),
     )
@@ -3596,11 +3619,13 @@ class TatPresentationSettingsAdmin(CompactModelAdmin):
             actor=request.user,
             business_time_visible=form.cleaned_data['business_time_enabled'],
             near_target_percent=form.cleaned_data['near_target_percent'],
+            report_panel_order=form.cleaned_data['report_panel_order'],
             reason=form.cleaned_data['change_reason'],
             expected_revision=form.cleaned_data['expected_revision'],
         )
         obj.business_time_enabled = updated.business_time_enabled
         obj.near_target_percent = updated.near_target_percent
+        obj.report_panel_order = updated.report_panel_order
         obj.revision = updated.revision
         obj.change_reason = updated.change_reason
         obj.updated_by = updated.updated_by
@@ -6757,12 +6782,20 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 return HttpResponseRedirect(request.path)
             include_farmer_uploads = request.POST.get('include_farmer_uploads') == 'yes'
             include_spin_legacy_batch = request.POST.get('include_spin_legacy_batch') == 'yes'
-            result = reset_group_data(
-                config,
-                include_farmer_uploads=include_farmer_uploads,
-                include_spin_legacy_batch=include_spin_legacy_batch,
-                spin_legacy_batch_sheet_name=spin_legacy_batch_sheet_name,
-            )
+            from django.db.models.deletion import ProtectedError
+            try:
+                result = reset_group_data(
+                    config,
+                    include_farmer_uploads=include_farmer_uploads,
+                    include_spin_legacy_batch=include_spin_legacy_batch,
+                    spin_legacy_batch_sheet_name=spin_legacy_batch_sheet_name,
+                )
+            except (ValueError, ProtectedError) as exc:
+                messages.error(request, str(exc) if isinstance(exc, ValueError) else (
+                    'Some selected records are protected by audit or linked workflow evidence. '
+                    'Nothing was deleted. Contact IT to review the affected records.'
+                ))
+                return HttpResponseRedirect(request.path)
             deleted_total = sum(result.get('deleted', {}).values())
             self._clear_runtime_config_cache()
             messages.success(
@@ -6771,6 +6804,12 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 f'Deleted {deleted_total} local database record(s). '
                 'Google Sheets and Drive files were not changed.',
             )
+            if result.get('retained_audited_media'):
+                messages.warning(
+                    request,
+                    f"{result['retained_audited_media']} media attachment(s) were retained because "
+                    'their access is recorded in the audit trail.',
+                )
             change_url = reverse(
                 'admin:core_groupsheetconfiguration_change',
                 args=[config.pk],
@@ -7879,7 +7918,8 @@ class WorkflowRoleCapabilityAdmin(CompactModelAdmin):
             ).values_list('capability_key', flat=True))
         )
         rows = [
-            {'definition': definition, 'enabled': definition.key in enabled_keys}
+            {'definition': definition, 'enabled': definition.key in enabled_keys,
+             'restricted': selected_role != 'IT' and definition.key == 'tat.reports.insight.target_review_signals'}
             for definition in definitions
         ]
         context = {

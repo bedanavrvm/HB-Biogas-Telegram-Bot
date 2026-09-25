@@ -13,6 +13,9 @@
     generated documents, invoice uploads, Google Sheets rows, and actual Google Drive
     files will not be deleted.
   </p>
+  {% if is_farmer_workflow %}
+  <p class="help">Media attachments with recorded access are retained as audit evidence. If linked farmer records have such access, the optional Farmers upload purge will be refused without deleting anything.</p>
+  {% endif %}
 
   <h2>Current Local Records</h2>
   <p class="help">Only records in this configuration's workflow-specific reset allowlist are shown.</p>

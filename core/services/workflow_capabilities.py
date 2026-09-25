@@ -109,6 +109,17 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     CapabilityDefinition('tat.recognition.people.view', 'tat_tracker', 'View named TAT recognition', 'Reporting', _roles('IT', 'MANAGEMENT'), ('tat.recognition.view',)),
     CapabilityDefinition('tat.reports.view', 'tat_tracker', 'View TAT reports', 'Reporting', _roles('IT', 'MANAGEMENT'), ('tat.home.view',)),
     CapabilityDefinition('tat.reports.people.view', 'tat_tracker', 'View named TAT performance', 'Reporting', _roles('IT', 'MANAGEMENT'), ('tat.reports.view',)),
+    *(CapabilityDefinition(
+        f'tat.reports.insight.{key}', 'tat_tracker', f'View TAT report: {label}', 'Report insights',
+        _roles('IT') if key == 'target_review_signals' else _roles('IT', 'MANAGEMENT'),
+        ('tat.reports.view',),
+    ) for key, label in (
+        ('trend', 'Workload over Time'), ('case_progression', 'Case Stage Progression'),
+        ('backlog_age', 'Current-stage Backlog Age'), ('sla_compliance', 'SLA Compliance'),
+        ('tat_percentiles', 'TAT Percentiles'), ('stage_target', 'Stage Against Target'),
+        ('explorer', 'Operational Comparison'), ('heatmap', 'Operational Heatmap'),
+        ('target_review_signals', 'Target Review Signals'), ('oldest_cases', 'Oldest Active Cases'),
+    )),
     CapabilityDefinition('tat.case.create', 'tat_tracker', 'Create TAT cases', 'Cases', _roles('BRO', BUSINESS_ADMIN_ROLE, 'IT'), ('tat.home.view',)),
     CapabilityDefinition('tat.case.search', 'tat_tracker', 'Search TAT cases', 'Cases', _roles('BRO', BUSINESS_ADMIN_ROLE, 'CA', 'BM', 'SECRETARY', 'CHAIR', 'LOAN_APPROVER', 'FINANCE', 'IT', 'MANAGEMENT'), ('tat.home.view',)),
     CapabilityDefinition('tat.case.correct', 'tat_tracker', 'Correct TAT case details', 'Cases', _roles('BRO', 'IT', BUSINESS_ADMIN_ROLE), ('tat.home.view',)),
@@ -221,7 +232,13 @@ def effective_capability_keys(user, workflow: str, *, access: dict | None = None
     roles = (access or {}).get('roles') or []
     if any(str(role or '').strip().upper() == 'IT' for role in roles):
         return available
-    return _policy_enabled_keys(workflow, roles).intersection(available)
+    enabled = _policy_enabled_keys(workflow, roles).intersection(available)
+    if workflow == 'tat_tracker':
+        enabled = {key for key in enabled if not key.startswith('tat.reports.insight.') or 'tat.reports.view' in enabled}
+        if 'tat.reports.people.view' in enabled and 'tat.reports.view' not in enabled:
+            enabled.discard('tat.reports.people.view')
+        enabled.discard('tat.reports.insight.target_review_signals')
+    return enabled
 
 
 def has_capability(user, workflow: str, capability_key: str, *, access: dict | None = None) -> bool:

@@ -11,8 +11,11 @@ from core.models import (
     JawabuCustomer,
     JawabuFarmerMaster,
     JawabuFarmerUploadBatch,
+    JawabuMediaAccessEvent,
     JawabuPipelineEvent,
+    JawabuVisitRecord,
     OrderApprovalUpdate,
+    MediaAttachment,
     SpinCreditRequest,
     ParsedMessage,
     ProcessedMessage,
@@ -79,8 +82,75 @@ class GroupResetAdminTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertTrue(OrderApprovalUpdate.objects.filter(pk=order.pk).exists())
 
+    def test_admin_reports_audit_protected_farmer_purge_without_server_error(self):
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100audited-admin', workflow={'type': 'jawabu_homebiogas'},
+        )
+        upload = JawabuFarmerUploadBatch.objects.create(
+            group_id=config.group_id, source_filename='test.csv', parsed_rows=[],
+        )
+        farmer = JawabuFarmerMaster.objects.create(
+            national_id='12345677', primary_phone='254700000003', status='active',
+            raw_data={'upload_batch_id': str(upload.pk)},
+        )
+        attachment = MediaAttachment.objects.create(group_id=config.group_id, jawabu_farmer=farmer)
+        JawabuMediaAccessEvent.objects.create(farmer=farmer, attachment=attachment)
+        visit = JawabuVisitRecord.objects.create(group_id=config.group_id)
+
+        response = self.client.post(
+            reverse('admin:core_groupsheetconfiguration_reset_data', args=[config.pk]),
+            data={'confirm_reset': 'yes', 'include_farmer_uploads': 'yes'}, secure=True,
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'audited media access')
+        self.assertTrue(JawabuVisitRecord.objects.filter(pk=visit.pk).exists())
+
 
 class GroupResetSpinTests(TestCase):
+    def test_farmer_reset_retains_access_audited_media_and_clears_other_rows(self):
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100audited-media', workflow={'type': 'jawabu_homebiogas'},
+        )
+        farmer = JawabuFarmerMaster.objects.create(
+            national_id='12345678', primary_phone='254700000001', status='active',
+        )
+        audited = MediaAttachment.objects.create(group_id=config.group_id, jawabu_farmer=farmer)
+        ordinary = MediaAttachment.objects.create(group_id=config.group_id, jawabu_farmer=farmer)
+        event = JawabuMediaAccessEvent.objects.create(farmer=farmer, attachment=audited)
+        JawabuVisitRecord.objects.create(group_id=config.group_id)
+
+        result = reset_group_data(config)
+
+        self.assertEqual(result['retained_audited_media'], 1)
+        self.assertEqual(result['deleted']['media_attachments'], 1)
+        self.assertTrue(MediaAttachment.objects.filter(pk=audited.pk).exists())
+        self.assertFalse(MediaAttachment.objects.filter(pk=ordinary.pk).exists())
+        self.assertTrue(JawabuMediaAccessEvent.objects.filter(pk=event.pk).exists())
+        self.assertEqual(result['after']['jawabu_records'], 0)
+
+    def test_optional_farmer_purge_refuses_audited_farmer_without_partial_delete(self):
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100audited-farmer', workflow={'type': 'jawabu_homebiogas'},
+        )
+        upload = JawabuFarmerUploadBatch.objects.create(
+            group_id=config.group_id, source_filename='test.csv', parsed_rows=[],
+        )
+        farmer = JawabuFarmerMaster.objects.create(
+            national_id='12345679', primary_phone='254700000002', status='active',
+            raw_data={'upload_batch_id': str(upload.pk)},
+        )
+        attachment = MediaAttachment.objects.create(group_id=config.group_id, jawabu_farmer=farmer)
+        JawabuMediaAccessEvent.objects.create(farmer=farmer, attachment=attachment)
+        visit = JawabuVisitRecord.objects.create(group_id=config.group_id)
+
+        with self.assertRaisesRegex(ValueError, 'audited media access'):
+            reset_group_data(config, include_farmer_uploads=True)
+
+        self.assertTrue(JawabuVisitRecord.objects.filter(pk=visit.pk).exists())
+        self.assertTrue(JawabuFarmerUploadBatch.objects.filter(pk=upload.pk).exists())
+
     def test_reset_removes_protected_complaint_records_in_dependency_order(self):
         config = GroupSheetConfiguration.objects.create(
             group_id='-100complaintreset', workflow={'type': 'case'},

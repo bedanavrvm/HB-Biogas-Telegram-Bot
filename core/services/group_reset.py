@@ -21,6 +21,7 @@ from core.models import (
     GroupSheetConfiguration,
     JawabuFarmerMaster,
     JawabuFarmerUploadBatch,
+    JawabuMediaAccessEvent,
     JawabuPipelineEvent,
     JawabuVisitRecord,
     LiveSheetRecordChange,
@@ -151,15 +152,26 @@ def reset_group_data(
         configuration,
         spin_legacy_batch_sheet_name=spin_legacy_name,
     )
+    # Media retrieval is compliance evidence. Its native access event protects
+    # both the attachment and the farmer, even during a configuration reset.
+    # Reject an optional farmer purge before touching any operational rows.
+    if workflow_type in {'jawabu', 'jawabu_homebiogas'} and include_farmer_uploads:
+        if JawabuMediaAccessEvent.objects.filter(
+            farmer__in=_linked_farmer_master_queryset(group_id),
+        ).exists():
+            raise ValueError(
+                'Linked farmer records include audited media access and cannot be deleted. '
+                'Leave Farmers uploads unchecked to reset operational records while retaining audit evidence.'
+            )
 
     if workflow_type == 'case':
         _reset_complaint_configuration(group_id)
     elif workflow_type == 'order_approval':
-        MediaAttachment.objects.filter(group_id=group_id).delete()
+        _delete_unaudited_media(group_id)
         OrderApprovalUpdate.objects.filter(group_id=group_id).delete()
         LiveSheetRecordChange.objects.filter(group_id=group_id).delete()
     elif workflow_type in {'jawabu', 'jawabu_homebiogas'}:
-        MediaAttachment.objects.filter(group_id=group_id).delete()
+        _delete_unaudited_media(group_id)
         JawabuVisitRecord.objects.filter(group_id=group_id).delete()
         FcaImportRecord.objects.filter(group_id=group_id).delete()
         LiveSheetRecordChange.objects.filter(group_id=group_id).delete()
@@ -190,7 +202,24 @@ def reset_group_data(
             key: max(before.get(key, 0) - after.get(key, 0), 0)
             for key in before
         },
+        'retained_audited_media': _audited_media_queryset(group_id).count()
+        if workflow_type in {'order_approval', 'jawabu', 'jawabu_homebiogas'} else 0,
     }
+
+
+def _audited_media_queryset(group_id: str):
+    return MediaAttachment.objects.filter(
+        group_id=group_id,
+        pk__in=JawabuMediaAccessEvent.objects.filter(
+            attachment__group_id=group_id,
+        ).values('attachment_id'),
+    )
+
+
+def _delete_unaudited_media(group_id: str) -> None:
+    MediaAttachment.objects.filter(group_id=group_id).exclude(
+        pk__in=_audited_media_queryset(group_id).values('pk'),
+    ).delete()
 
 
 def _reset_complaint_configuration(group_id: str) -> None:

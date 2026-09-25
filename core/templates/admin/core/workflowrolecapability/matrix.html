@@ -41,7 +41,7 @@
       <div class="divide-y divide-base-200 dark:divide-base-800">{% regroup rows by definition.module as modules %}
         {% for module in modules %}<details open><summary class="cursor-pointer bg-base-50 px-4 py-3 font-medium dark:bg-base-800">{{ module.grouper }} ({{ module.list|length }})</summary>{% for row in module.list %}
           <label data-capability-row data-search="{{ row.definition.label|lower }} {{ row.definition.module|lower }} {{ row.definition.key|lower }}" class="flex min-h-14 cursor-pointer items-center gap-4 px-4 py-3 hover:bg-base-50 dark:hover:bg-base-800">
-            <input type="checkbox" name="capability:{{ row.definition.key }}" {% if row.enabled %}checked{% endif %} {% if mandatory_it_policy %}disabled{% endif %} class="h-5 w-5">
+            <input type="checkbox" name="capability:{{ row.definition.key }}" {% if row.enabled %}checked{% endif %} {% if mandatory_it_policy or row.restricted %}disabled{% endif %} class="h-5 w-5">
             <span class="min-w-0 flex-1"><strong class="block">{{ row.definition.label }}</strong><span class="text-sm text-font-subtle-light dark:text-font-subtle-dark">{{ row.definition.module }} / {{ row.definition.key }}</span></span>
           </label>{% endfor %}</details>
         {% empty %}<p class="p-4">No capabilities are configured for this workflow.</p>{% endfor %}

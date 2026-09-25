@@ -1144,7 +1144,8 @@ def _comparison_explorer(rows, samples, filters):
     grouped = defaultdict(list)
     for item in source:
         grouped[_dimension_value(item, dimension, sample=source_is_samples)].append(item)
-    labels = sorted(grouped)
+    labels = (_heatmap_dimension_labels(source, 'stage', sample=source_is_samples)
+              if dimension == 'stage' else sorted(grouped))
     excluded = 0
     extras = {'dimension': dimension, 'metric': metric}
     if metric == 'workload':
@@ -1431,11 +1432,12 @@ def report_summary(actor, payload, *, include_people=False):
     rows = _eligible_rows(
         actor, filters, include_people=include_people, cases=all_cases, context=context,
     )
-    stages = set(); roles = set()
+    stages = set(); roles = set(); stage_positions = {}
     for case in scope_cases:
         try:
-            for stage in context.product(case).stages:
+            for index, stage in enumerate(context.product(case).stages):
                 stages.add((stage.key, stage.label)); roles.add(stage.role)
+                stage_positions[stage.key] = min(stage_positions.get(stage.key, index), index)
         except ValueError:
             continue
     options = {}
@@ -1451,7 +1453,9 @@ def report_summary(actor, payload, *, include_people=False):
             }),
             'branches': _casefold_distinct_labels(case.branch for case in scope_cases),
             'products': sorted({(case.product_key, case.product_label or case.product_key) for case in scope_cases}),
-            'stages': sorted(stages), 'roles': sorted(role for role in roles if role),
+            'stages': sorted(stages, key=lambda item: (
+                stage_positions.get(item[0], 1_000_000), item[1].casefold(), item[0],
+            )), 'roles': sorted(role for role in roles if role),
         }
     # Explorer, heatmap, target-review and correction-rate insights all use
     # the same exact timestamp-backed stage observations. Committing one stage
@@ -1512,7 +1516,9 @@ def report_summary(actor, payload, *, include_people=False):
         }
     common = {
         'view': filters['view'],
-        'by_stage': [{'label': key, 'count': value} for key, value in by_stage.most_common()],
+        'by_stage': [{'label': key, 'count': by_stage[key]} for key in _heatmap_dimension_labels(
+            breakdown_samples if breakdown_samples else breakdown_rows, 'stage', sample=bool(breakdown_samples)
+        )],
         'by_role': [{'label': key, 'count': value} for key, value in by_role.most_common()],
         'breakdown_basis': breakdown_basis,
     }
@@ -1714,7 +1720,8 @@ def report_summary(actor, payload, *, include_people=False):
                 continue
             target_groups[sample['stage']].append(float(elapsed_minutes) * 100 / float(target_minutes))
             target_versions[sample['stage']].add(round(float(target_minutes) / 1440, 2))
-        target_labels = sorted(target_groups, key=lambda label: _percentile(target_groups[label], .9) or 0, reverse=True)
+        target_labels = [label for label in _heatmap_dimension_labels(stage_samples, 'stage', sample=True)
+                         if label in target_groups]
         target_details = []
         if filters['product']:
             for label in target_labels:
@@ -1914,7 +1921,14 @@ def report_cases(actor, payload, *, include_people=False):
         calculation_path = 'database_paginated'
     else:
         rows = _eligible_rows(actor, filters, include_people=include_people)
-        rows.sort(key=lambda row: (row.get(key) is None, row.get(key) or ''), reverse=descending)
+        if key == 'current_stage':
+            rows.sort(key=lambda row: (
+                next((item['order'] for item in row.get('_stage_columns', [])
+                      if item['key'] == row.get('current_stage_key')), 1_000_000),
+                str(row.get('current_stage') or '').casefold(), str(row.get('case_id') or ''),
+            ), reverse=descending)
+        else:
+            rows.sort(key=lambda row: (row.get(key) is None, row.get(key) or ''), reverse=descending)
         count = len(rows)
         page_rows = rows[start:start + page_size]
         calculation_path = 'derived_complete'
