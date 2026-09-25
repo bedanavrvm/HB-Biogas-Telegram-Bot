@@ -80,7 +80,7 @@ from core.services.tat_tracker import (
     workflow_branches,
 )
 from core.services.workflow_transitions import WorkflowRevisionConflict
-from core.services.tat_configuration import product_config_from_snapshot, resolve_tat_configuration
+from core.services.tat_configuration import GLOBAL_TAT_STAGES, product_config_from_snapshot, resolve_tat_configuration
 from core.services.workflow_sla import collect_sla_candidates, collect_tat_daily_metrics, record_sla_candidates
 from core.services.miniapp_settings import create_tat_configuration_request, preference_payload, review_tat_configuration_request, update_preference
 from core.services.tat_presentation import update_presentation_settings
@@ -1000,7 +1000,8 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn("actionWrap.classList.add('correction-open')", source)
         self.assertIn('.stage-action-wrap.correction-open { grid-template-columns:repeat(2,minmax(0,1fr)); }', stylesheet)
         self.assertIn('state.report.abortController?.abort()', source)
-        self.assertIn("suppressMovableColumns: touch", source)
+        self.assertIn("suppressMovableColumns: true", source)
+        self.assertIn("applyOrder: true", source)
         self.assertIn('function formatTatDateTime(value)', source)
         self.assertIn('<summary><span>Activity</span>', template)
         self.assertNotIn('Activity (EAT)', source)
@@ -1122,6 +1123,60 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('.tat-report-charts .tat-heatmap{height:300px}', stylesheet)
         self.assertIn('.tat-report-charts .tat-heatmap{height:260px}', stylesheet)
         self.assertIn('.tat-heatmap td{min-width:64px;padding:1px', stylesheet)
+
+    def test_tat_report_stage_columns_follow_canonical_cycle_across_pages_and_paths(self):
+        standard = [stage for stage in GLOBAL_TAT_STAGES if stage['key'] not in {
+            'valuation_ready', 'bm_hocc_request', 'tat_scheduled', 'tat_held',
+            'decision', 'minutes_shared', 'sanctions',
+        }]
+        hocc_valuation = list(GLOBAL_TAT_STAGES)
+        legacy_hocc = [
+            {**stage, 'key': 'bm_tat_request', 'label': 'BM TAT request sent'}
+            if stage['key'] == 'bm_hocc_request' else stage
+            for stage in GLOBAL_TAT_STAGES
+        ]
+        now = timezone.now()
+        for index, stages in enumerate((standard, hocc_valuation, legacy_hocc)):
+            case = TatTrackerCase.objects.create(
+                group_id=self.config.group_id, case_id=f'TAT-ORDER-{index}',
+                product_key='business', product_label='Business', client_name=f'Case {index}',
+                branch='Nakuru', status='Active',
+                stage_values={'created': (now - timedelta(days=3 - index)).isoformat()},
+                tat_configuration_snapshot={'product_key': 'business', 'stages': stages},
+            )
+            TatTrackerCase.objects.filter(pk=case.pk).update(created_at=now - timedelta(days=3 - index))
+
+        pages = [report_cases(self.it_user, {'view': 'current', 'page_size': 1, 'page': page})
+                 for page in (1, 2, 3)]
+        expected = [stage['key'] for stage in GLOBAL_TAT_STAGES]
+        expected.insert(expected.index('bm_hocc_request') + 1, 'bm_tat_request')
+        self.assertEqual([[row['case_id'] for row in page['results']] for page in pages], [
+            ['TAT-ORDER-0'], ['TAT-ORDER-1'], ['TAT-ORDER-2'],
+        ])
+        for page in pages:
+            self.assertEqual([stage['key'] for stage in page['stage_columns']], expected)
+            self.assertEqual(page['calculation_path'], 'database_paginated')
+        reverse = report_cases(self.it_user, {'view': 'current', 'sort': '-created_at'})
+        self.assertEqual([row['case_id'] for row in reverse['results']], [
+            'TAT-ORDER-2', 'TAT-ORDER-1', 'TAT-ORDER-0',
+        ])
+        narrowed = report_cases(self.it_user, {'view': 'current', 'search': 'Case 0'})
+        self.assertNotIn('bm_hocc_request', [stage['key'] for stage in narrowed['stage_columns']])
+
+    def test_tat_report_oldest_first_uses_stable_case_reference_tiebreaker(self):
+        now = timezone.now()
+        for reference in ('TAT-TIE-B', 'TAT-TIE-A'):
+            case = TatTrackerCase.objects.create(
+                group_id=self.config.group_id, case_id=reference, product_key='business',
+                product_label='Business', client_name=reference, branch='Nakuru',
+                status='Active', stage_values={'created': now.isoformat()},
+            )
+            TatTrackerCase.objects.filter(pk=case.pk).update(created_at=now)
+
+        self.assertEqual([
+            report_cases(self.it_user, {'view': 'current', 'page_size': 1, 'page': page})
+            ['results'][0]['case_id'] for page in (1, 2)
+        ], ['TAT-TIE-A', 'TAT-TIE-B'])
 
     def test_tat_reporting_is_scoped_allowlisted_and_page_size_capped(self):
         TatTrackerCase.objects.create(

@@ -52,7 +52,7 @@
     filterSheetReturnFocus: null,
     personalPreference: {},
     report: {
-      view: 'current', page: 1, pageSize: 25, sort: '-created_at', sequence: 0,
+      view: 'current', page: 1, pageSize: 25, sort: 'created_at', sequence: 0,
       abortController: null, gridApi: null, gridZoom: null, charts: {}, count: 0, loaded: false,
       loading: false,
       display: (() => { try { return localStorage.getItem('tat-report-chart-display') === 'list' ? 'list' : 'carousel'; } catch (error) { return 'carousel'; } })(),
@@ -3001,7 +3001,12 @@
     const signature = JSON.stringify((stages || []).map(stage => [stage.key, stage.label]));
     if (!state.report.gridApi || signature === state.report.stageColumnsSignature) return;
     state.report.stageColumnsSignature = signature;
-    state.report.gridApi.setGridOption('columnDefs', tatReportColumnDefs(stages));
+    const columnDefs = tatReportColumnDefs(stages);
+    state.report.gridApi.setGridOption('columnDefs', columnDefs);
+    state.report.gridApi.applyColumnState({
+      state: columnDefs.map(column => ({ colId: column.colId || column.field })),
+      applyOrder: true,
+    });
     state.report.gridZoom?.refresh({ recaptureColumns: true });
   }
 
@@ -3073,11 +3078,11 @@
   function initTatReportGrid() {
     if (state.report.gridApi || !window.agGrid) return;
     window.agGrid.ModuleRegistry.registerModules([window.agGrid.AllCommunityModule]);
-    const touch = window.matchMedia('(pointer: coarse)').matches;
     state.report.gridApi = window.agGrid.createGrid($('tatReportGrid'), {
-      theme: 'legacy', rowData: [], animateRows: false, suppressMovableColumns: touch,
+      theme: 'legacy', rowData: [], animateRows: false, suppressMovableColumns: true,
       defaultColDef: {
-        sortable: true, resizable: !touch, suppressMovable: touch, suppressSizeToFit: true,
+        sortable: true, resizable: !window.matchMedia('(pointer: coarse)').matches,
+        suppressMovable: true, suppressSizeToFit: true,
         tooltipValueGetter: p => p.value == null ? '' : String(p.value),
       },
       columnDefs: tatReportColumnDefs([]),

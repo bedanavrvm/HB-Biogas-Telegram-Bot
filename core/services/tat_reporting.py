@@ -29,7 +29,9 @@ from core.models import (
     WorkflowTatMetricRebuildRequest, TatResponsibilityAssignment,
 )
 from core.services.tat_presentation import presentation_settings
+from core.services.tat_configuration import GLOBAL_TAT_STAGES
 from core.services.tat_tracker import (
+    PRODUCTS,
     TAT_COMPLETED_STATUSES, TAT_NEGATIVE_OUTCOME_STATUSES,
     calculated_tat_seconds, canonical_tat_status, minutes_between,
     overall_tat_end, parse_iso_datetime, product_for_case,
@@ -369,25 +371,68 @@ def _case_stage_tat(case, product, workflow, *, now, context):
     return values, columns
 
 
-def _stage_columns_for_rows(rows):
+_LOAN_CYCLE_STAGE_POSITIONS = {
+    stage['key']: index for index, stage in enumerate(GLOBAL_TAT_STAGES)
+}
+# Pre-governed cases used a different key for the same HOCC request step.
+_LOAN_CYCLE_STAGE_POSITIONS['bm_tat_request'] = _LOAN_CYCLE_STAGE_POSITIONS['bm_hocc_request']
+
+
+def _ordered_stage_columns(stage_lists):
     columns = {}
-    for row in rows:
-        for item in row.get('_stage_columns', []):
+    for stages in stage_lists:
+        for order, item in enumerate(stages):
             key = str(item.get('key') or '')
             if not key:
                 continue
             candidate = {
                 'key': key,
                 'label': str(item.get('label') or key),
-                'order': int(item.get('order') or 0),
+                'order': int(item.get('order', order)),
             }
             existing = columns.get(key)
-            if existing is None or candidate['order'] < existing['order']:
+            if existing is None or (candidate['label'].casefold(), candidate['order']) < (
+                existing['label'].casefold(), existing['order']
+            ):
                 columns[key] = candidate
     return [
         {'key': item['key'], 'label': item['label']}
-        for item in sorted(columns.values(), key=lambda item: (item['order'], item['label'].casefold(), item['key']))
+        for item in sorted(columns.values(), key=lambda item: (
+            _LOAN_CYCLE_STAGE_POSITIONS.get(item['key'], len(_LOAN_CYCLE_STAGE_POSITIONS) + item['order']),
+            item['key'] == 'bm_tat_request', item['label'].casefold(), item['key'],
+        ))
     ]
+
+
+def _stage_columns_for_rows(rows):
+    return _ordered_stage_columns(row.get('_stage_columns', []) for row in rows)
+
+
+def _stage_columns_for_case_scope(queryset):
+    """Read stage metadata across the filtered scope without loading case events."""
+    stage_lists = []
+    configurations = queryset.order_by().values_list(
+        'tat_configuration_snapshot', 'product_key',
+    ).distinct()
+    for snapshot, product_key in configurations.iterator(chunk_size=100):
+        configured = snapshot.get('stages') if isinstance(snapshot, dict) else None
+        if configured:
+            stage_lists.append(configured)
+        elif product_key in PRODUCTS:
+            stage_lists.append([
+                {'key': stage.key, 'label': stage.label, 'order': order}
+                for order, stage in enumerate(PRODUCTS[product_key].stages)
+            ])
+    return _ordered_stage_columns(stage_lists)
+
+
+def _current_stage_sort_position(row):
+    key = str(row.get('current_stage_key') or '')
+    if key in _LOAN_CYCLE_STAGE_POSITIONS:
+        return _LOAN_CYCLE_STAGE_POSITIONS[key]
+    return len(_LOAN_CYCLE_STAGE_POSITIONS) + next((
+        item['order'] for item in row.get('_stage_columns', []) if item['key'] == key
+    ), 1_000_000)
 
 
 def _case_row(case, *, include_people=False, now=None, context=None):
@@ -1897,7 +1942,7 @@ def _table_fast_path_allowed(filters, sort_key):
 
 def report_cases(actor, payload, *, include_people=False):
     filters = _filters(payload)
-    sort = str(payload.get('sort') or '-created_at')
+    sort = str(payload.get('sort') or 'created_at')
     descending = sort.startswith('-')
     key = sort.lstrip('-')
     if key not in SORT_FIELDS:
@@ -1911,8 +1956,9 @@ def report_cases(actor, payload, *, include_people=False):
     if _table_fast_path_allowed(filters, key):
         queryset = _filtered_case_queryset(actor, filters).exclude(status__in=TERMINAL)
         count = queryset.count()
+        stage_columns = _stage_columns_for_case_scope(queryset) if count else []
         order = f'-{key}' if descending else key
-        cases = list(queryset.order_by(order, 'pk')[start:start + page_size])
+        cases = list(queryset.order_by(order, 'case_id', 'pk')[start:start + page_size])
         context = _ReportContext(actor, cases, include_people=include_people)
         rows = _eligible_rows(
             actor, filters, include_people=include_people, cases=cases, context=context,
@@ -1921,12 +1967,14 @@ def report_cases(actor, payload, *, include_people=False):
         calculation_path = 'database_paginated'
     else:
         rows = _eligible_rows(actor, filters, include_people=include_people)
+        stage_columns = _stage_columns_for_rows(rows)
         if key == 'current_stage':
             rows.sort(key=lambda row: (
-                next((item['order'] for item in row.get('_stage_columns', [])
-                      if item['key'] == row.get('current_stage_key')), 1_000_000),
+                _current_stage_sort_position(row),
                 str(row.get('current_stage') or '').casefold(), str(row.get('case_id') or ''),
             ), reverse=descending)
+        elif key == 'created_at':
+            rows.sort(key=lambda row: (row.get('created_at') or '', row.get('case_id') or ''), reverse=descending)
         else:
             rows.sort(key=lambda row: (row.get(key) is None, row.get(key) or ''), reverse=descending)
         count = len(rows)
@@ -1941,7 +1989,7 @@ def report_cases(actor, payload, *, include_people=False):
         'count': count,
         'page': page,
         'page_size': page_size,
-        'stage_columns': _stage_columns_for_rows(page_rows),
+        'stage_columns': stage_columns,
         'calculation_path': calculation_path,
     }
 
