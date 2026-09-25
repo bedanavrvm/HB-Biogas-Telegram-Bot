@@ -138,6 +138,18 @@
     }
     return '';
   }
+  function showPublicationReceipt() {
+    const receipt = node('farmup-commit-receipt');
+    if (!receipt || !active) return;
+    const publication = active.publication || {};
+    receipt.hidden = !publication.status || publication.status === 'not_required';
+    if (receipt.hidden) return;
+    receipt.textContent = publication.status === 'synced'
+      ? `Master Data Sheet synchronized for ${publication.synced || 0} case(s).`
+      : publication.status === 'needs_attention'
+        ? `${publication.needs_attention || 0} current Master Data Sheet sync${publication.needs_attention === 1 ? '' : 's'} need attention. Portal data is saved.`
+        : 'Portal data is saved. Master Data Sheet synchronization is queued.';
+  }
   function updatePublicationRetryTimers() {
     document.querySelectorAll('[data-sheet-retry-at]').forEach(element => {
       const due = Date.parse(element.dataset.sheetRetryAt || '');
@@ -182,6 +194,8 @@
     if (!activeScreen()) return;
     if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'FarmUp batches could not be loaded.');
     batches = (Array.isArray(result.data.batches) ? result.data.batches : []).filter(batch => batch && typeof batch === 'object');
+    const current = active && batches.find(batch => batch.id === active.id || batch.worklist_id === active.worklist_id);
+    if (current) { active.publication = current.publication; showPublicationReceipt(); }
     batches.forEach(batch => api.schedulePublication?.(batch.publication || {}, tg)); renderBatches();
     if (node('portal-farmup-upload')) node('portal-farmup-upload').hidden = !can('portal.farmup.stage');
   }
@@ -294,8 +308,7 @@
     const routeBack = Boolean(node('portal-screen')?.dataset.farmupBatchId);
     target.innerHTML = `<div class="portal-import-review-heading"><button class="farmup-review-back" id="farmup-close" aria-label="Back to FarmUp worklists" title="Back to FarmUp worklists">${icon('arrow-left')}</button><div><span class="settings-eyebrow">${escapeHtml(active.period_label || 'FARMUP')} · V${Number(active.version_number || 1)}</span><h2>${escapeHtml(active.source_filename || 'FarmUp')}</h2></div><div class="portal-import-actions">${can('portal.publication.retry') && active.committed_count ? `<button class="btn btn-secondary" id="farmup-repair">${icon('wrench')} Repair Sheet</button>` : ''}${routeBack ? '' : `<button class="icon-button" id="farmup-close-inline" aria-label="Close review" title="Close review">${icon('x')}</button>`}</div></div><div id="farmup-commit-receipt" class="farmup-commit-receipt" hidden></div><div class="farmup-review-setup">${can('portal.farmup.stage') && active.is_current_version ? `<form id="farmup-version-upload" class="farmup-version-upload"><div><span class="farmup-setup-label">Updated CSV</span><label class="farmup-file-picker"><input type="file" name="file" data-farmup-file required><i aria-hidden="true">${icon('file-up')}</i><span data-farmup-file-label>Choose updated file</span></label></div><button class="btn btn-secondary" type="submit">Upload</button></form>` : ''}<section id="farmup-mapping-panel" class="farmup-mapping-panel"></section></div>${review}`;
     renderMapping(); window.lucide?.createIcons?.();
-    const priorReceipt = node('farmup-commit-receipt');
-    if (priorReceipt && active.publication?.status && active.publication.status !== 'not_required') { priorReceipt.hidden = false; priorReceipt.textContent = active.publication.status === 'synced' ? `Master Data Sheet synchronized for ${active.publication.synced || 0} publication operation(s).` : active.publication.status === 'needs_attention' ? 'Portal data is saved. Master Data Sheet synchronization needs repair.' : 'Portal data is saved. Master Data Sheet synchronization is queued.'; }
+    showPublicationReceipt();
     if (active.mapping?.state !== 'needs_mapping') { try { await loadGridAssets(); if (active && activeScreen()) { initializeGrid(); setReviewMode(reviewMode); updateSummary(); } } catch (error) { feedback(error.message, 'error'); } }
   }
   async function openBatch(batchId) {
@@ -362,7 +375,7 @@
       setLoading(button, true, 'Committing'); const key = commitRequestKey || requestId('portal-farmup-commit'); commitRequestKey = key;
       const result = await api.postJson(`/farmup/${encodeURIComponent(active.id)}/commit/`, {revision_token:active.revision_token, rows:submittedRows(), client_request_id:key}, tg);
       if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'FarmUp commit failed.');
-      commitRequestKey = ''; clearDirtyProtection(); const receipt = result.data.result || {}; const message = `${receipt.committed || 0} committed to Portal — ${receipt.created || 0} created, ${receipt.updated || 0} updated. ${receipt.held || 0} held.${receipt.publications?.length ? ' Master Data Sheet sync queued.' : ''}`; window.PortalAppShell?.showToast?.(message, receipt.success ? 'success' : 'error'); feedback(message, receipt.success ? 'success' : 'error'); (result.data.publications || []).forEach(publication => api.schedulePublication?.(publication, tg)); const batchId = active.id; await load({silent:true}); await openBatch(batchId); const receiptNode = node('farmup-commit-receipt'); if (receiptNode) { receiptNode.hidden = false; receiptNode.textContent = message; }
+      commitRequestKey = ''; clearDirtyProtection(); const receipt = result.data.result || {}; const message = `${receipt.committed || 0} committed to Portal — ${receipt.created || 0} created, ${receipt.updated || 0} updated. ${receipt.held || 0} held.${receipt.publications?.length ? ' Master Data Sheet sync queued.' : ''}`; window.PortalAppShell?.showToast?.(message, receipt.success ? 'success' : 'error'); feedback(message, receipt.success ? 'success' : 'error'); (result.data.publications || []).forEach(publication => api.schedulePublication?.(publication, tg)); const batchId = active.id; await load({silent:true}); await openBatch(batchId);
     } catch (error) { feedback(error.message, 'error'); window.PortalAppShell?.showToast?.(error.message, 'error'); } finally { setLoading(button, false); }
   }
   async function repairSheet() {
@@ -432,6 +445,7 @@
   window.addEventListener('orientationchange', layoutGrid);
   window.setInterval(() => { if (document.visibilityState === 'visible' && activeScreen()) updatePublicationRetryTimers(); }, 1000);
   tg?.onEvent?.('viewportChanged', layoutGrid);
+  let publicationRefreshTimer;
   window.addEventListener('portal:publication-updated', event => {
     const changedId = String(event.detail?.operationId || '');
     const changedOperation = (event.detail?.publication?.operations || []).find(item => String(item.id) === changedId);
@@ -449,7 +463,11 @@
         publication.next_retry_at = changedOperation.next_retry_at;
       }
     });
-    if (changedBatch && activeScreen()) renderBatches();
+    if (changedBatch && activeScreen()) {
+      renderBatches();
+      clearTimeout(publicationRefreshTimer);
+      publicationRefreshTimer = setTimeout(() => load({silent:true}).catch(() => {}), 500);
+    }
     if (!repairProgress || !repairProgress.pending.has(String(event.detail?.operationId || ''))) return;
     if (event.detail?.needsAttention) { repairProgress.pending.delete(String(event.detail.operationId)); repairProgress.failed += 1; }
     else if (event.detail?.ok && !event.detail?.retryable) repairProgress.pending.delete(String(event.detail.operationId));

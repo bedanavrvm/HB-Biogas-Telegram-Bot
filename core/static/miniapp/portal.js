@@ -999,6 +999,10 @@
       }
 
       const farmers = data.farmers || [];
+      if (qKey === 'jbl') {
+        state.queueFilterOptions ||= {};
+        state.queueFilterOptions.jbl = data.filter_options || null;
+      }
       if (qKey === 'requisition') {
         const counts = data.partner_counts || {};
         const hb = el('requisition-partner-count-hb');
@@ -1888,7 +1892,6 @@
         cleaned.searchParams.delete('action_case');
         window.history.replaceState(window.history.state, '', cleaned.href);
       }
-      if (page === 'final') await loadApprovalDelegations();
       if (actionCase && ['jbl', 'credit', 'final'].includes(page) && isCurrentScreen(page)) return openQueueCase({id:actionCase}, page);
     });
     throw new Error(`No loader is registered for ${page}.`);
@@ -2093,6 +2096,9 @@
     if (el('portal-preference-compact-cards')) el('portal-preference-compact-cards').checked = Boolean(personal.compact_cards);
     document.body.classList.toggle('portal-compact-cards', Boolean(personal.compact_cards));
     applyWorkspaceVisibility();
+    if (loadOperations && hasCapability('portal.approval.delegation.authorize')) {
+      await loadApprovalDelegations();
+    }
     if (loadOperations && data.data?.operations_settings) {
       await renderPortalOperations(data.data?.operations || {});
       if (data.data?.operations?.payment_sequence) await portalPayments.loadSequence?.();

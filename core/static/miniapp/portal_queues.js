@@ -78,6 +78,15 @@
       // replace the current queue (or leave its current loader behind).
       if (deps.isCurrent && !deps.isCurrent()) return false;
       list.innerHTML = html;
+      if (queueKey === 'jbl' && deps.state) {
+        const options = list.querySelector('#portal-jbl-filter-options');
+        try {
+          deps.state.queueFilterOptions ||= {};
+          deps.state.queueFilterOptions.jbl = options ? JSON.parse(options.textContent) : null;
+        } catch (_) {
+          deps.state.queueFilterOptions.jbl = null;
+        }
+      }
       const count = list.querySelector('[data-portal-result-count]');
       if (count) window.PortalMiniAppFilters?.updateResultCount(queueKey, count.dataset.total);
       if (queueKey === 'batches') deps.hydrateBatchCards(list);

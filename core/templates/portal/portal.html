@@ -244,10 +244,6 @@
       <div><h1>Order Approval</h1><p class="meta">Make final case decisions before order preparation.</p></div>
       <button type="button" class="queue-refresh-button" data-queue-refresh="final" aria-label="Refresh order approval" title="Refresh"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
     </header>
-    <details id="portal-approval-delegation" class="portal-approval-controls" data-required-capability="portal.approval.delegation.authorize" hidden>
-      <summary><span>Review controls</span><small>Temporary approval cover</small></summary>
-      <div id="portal-approval-delegation-content" aria-live="polite"></div>
-    </details>
     {% include "portal/partials/queue_tools.html" with queue_key="final" queue_label="order approval queue" %}
     <div id="final-list" class="farmer-list">
       <div class="empty-state"><div class="spinner-inline"></div></div>
@@ -631,6 +627,10 @@
       <div class="portal-settings-action-row"><small id="payments-sequence-status">Loading…</small><button type="button" class="btn btn-primary" id="payments-sequence-save">Save official number</button></div>
     </section>
     </div>
+    <details id="portal-approval-delegation" class="portal-approval-controls portal-settings-card" data-required-capability="portal.approval.delegation.authorize" hidden>
+      <summary><span>Temporary approval cover</span><small>Grant or revoke time-limited authority</small></summary>
+      <div id="portal-approval-delegation-content" aria-live="polite"></div>
+    </details>
     <section class="portal-settings-card portal-settings-about">
       <div class="portal-settings-heading"><span class="settings-eyebrow">ABOUT &amp; SUPPORT</span><h2>Portal access</h2><p>Sign-in is verified through Telegram. Security, assignment, approval, and overdue alerts remain mandatory.</p></div>
       <div class="portal-settings-about-row"><span>App release</span><strong id="portal-settings-release">Current release</strong></div>

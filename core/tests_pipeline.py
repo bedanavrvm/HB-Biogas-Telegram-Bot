@@ -2046,6 +2046,15 @@ class JblPipelineApiTestCase(TestCase):
         self.assertNotContains(response, 'id="page-invoices"')
         self.assertNotContains(response, 'id="sheet-overlay"')
 
+    def test_temporary_approval_cover_is_on_settings_not_order_approval(self):
+        final = self.client.get(reverse('portal_screen', kwargs={'screen': 'final'}))
+        settings = self.client.get(reverse('portal_screen', kwargs={'screen': 'settings'}))
+        self.assertEqual(final.status_code, 200)
+        self.assertEqual(settings.status_code, 200)
+        self.assertNotContains(final, 'id="portal-approval-delegation"')
+        self.assertContains(settings, 'id="portal-approval-delegation"')
+        self.assertContains(settings, 'data-required-capability="portal.approval.delegation.authorize"')
+
     def test_portal_cold_screen_retains_shared_shell_and_only_active_page(self):
         response = self.client.get(reverse('portal_screen', kwargs={'screen': 'credit'}))
 
@@ -2381,6 +2390,26 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Pipeline test farmer')
         self.assertNotContains(response, 'Other branch farmer')
+        self.assertEqual(response.context['filter_options']['county'], ['Kiambu', 'Nakuru'])
+        self.assertEqual(response.context['filter_options']['branch'], ['Naivasha', 'Ruiru'])
+
+    def test_portal_jbl_filter_choices_include_cases_beyond_first_page(self):
+        for index in range(11):
+            JawabuFarmerMaster.objects.create(
+                customer_name=f'Kiambu queue farmer {index}',
+                national_id=f'58888{index:03d}',
+                primary_phone=f'2547333{index:05d}',
+                sign_date='24-June-2026', county='Kiambu', branch='Ruiru', status='active',
+            )
+        JawabuFarmerMaster.objects.create(
+            customer_name='Nakuru queue farmer', national_id='58888999',
+            primary_phone='254733399999', sign_date='24-June-2026',
+            county='Nakuru', branch='Naivasha', status='active',
+        )
+        response = self.client.get(reverse('portal_jbl_queue_fragment'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['filter_options']['county'], ['Kiambu', 'Nakuru'])
+        self.assertEqual(response.context['filter_options']['branch'], ['Naivasha', 'Ruiru'])
 
     def test_portal_card_queues_search_before_ten_item_pagination(self):
         for index in range(12):

@@ -70,6 +70,8 @@
   }
 
   function availableOptions(queueKey, root, rows) {
+    const serverOptions = state().queueFilterOptions?.[queueKey];
+    if (serverOptions) return serverOptions;
     const source = Array.isArray(rows) && rows.length ? rows : cardOptions(root);
     if (!source.length) return null;
     const choices = key => Array.from(new Set(source.map(row => String(row[key] || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
@@ -176,13 +178,19 @@
     ['county', 'branch', 'status'].forEach(key => {
       const container = form?.querySelector('[data-portal-filter-options="' + key + '"]');
       if (!container) return populateSelect(form?.elements[key], key === 'county' ? state().metaCounties : state().metaBranches, filters[key]);
-      const base = key === 'county' ? state().metaCounties : key === 'branch' ? state().metaBranches : Object.keys(statusLabels).map(value => ({value, label: statusLabels[value]}));
+      const serverOptions = state().queueFilterOptions?.[queueKey];
+      const base = serverOptions && key !== 'status' ? (serverOptions[key] || [])
+        : key === 'county' ? state().metaCounties : key === 'branch' ? state().metaBranches : Object.keys(statusLabels).map(value => ({value, label: statusLabels[value]}));
       const selected = listValue(filters[key]);
       const current = new Set([...(available?.[key] || []), ...selected]);
       // Once staff have selected a value, retain the complete permitted list for
       // that group. Otherwise selecting one county/status would hide every
       // other choice and make a multi-select filter impossible to adjust.
-      const options = available && !selected.length ? base.filter(option => current.has(optionValue(option))) : base;
+      const options = serverOptions && key !== 'status'
+        ? Array.from(new Set([...base.map(optionValue), ...selected]))
+        : available && !selected.length ? base.filter(option => current.has(optionValue(option))) : base;
+      const group = form?.querySelector('[data-portal-filter-group="' + key + '"]');
+      if (group && key !== 'status') group.hidden = options.length === 0 && selected.length === 0;
       const signature = JSON.stringify(options.map(option => [optionValue(option), optionLabel(option)]));
       if (container.dataset.optionsSignature === signature) return;
       container.dataset.optionsSignature = signature;

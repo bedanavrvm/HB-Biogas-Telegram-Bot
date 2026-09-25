@@ -3408,7 +3408,31 @@ def portal_jbl_queue(request):
         'queue': 'jbl_visit',
         'farmers': _numbered_farmer_cards(items, pagination),
         'pagination': pagination,
+        'filter_options': _jbl_queue_filter_options(request),
     })
+
+
+def _jbl_queue_filter_options(request):
+    """Choices from the full authorized queue, never just the visible page."""
+    params = request.GET.copy()
+    params.pop('county', None)
+    params.pop('branch', None)
+    qs, _config = _portal_queue_queryset('jbl', request, params=params)
+    counties, branches = set(), set()
+    has_hbg_date = False
+    for county, branch, hbg_date in qs.values_list('county', 'branch', 'hbg_visit_date'):
+        if str(county or '').strip():
+            counties.add(str(county).strip())
+        if str(branch or '').strip():
+            branches.add(str(branch).strip())
+        has_hbg_date = has_hbg_date or bool(hbg_date)
+    return {
+        'county': sorted(counties, key=str.casefold),
+        'branch': sorted(branches, key=str.casefold),
+        'status': [],
+        'has_hbg_visit_date': has_hbg_date,
+        'has_jbl_visit_date': False,
+    }
 
 @csrf_exempt
 @require_http_methods(["GET"])
@@ -3470,6 +3494,7 @@ def portal_queue_fragment(request, queue_key: str):
         'empty_sub': config['empty_sub'],
         'can_requisition_write': _portal_capability_error(request, 'portal.requisition.write') is None,
         'calculated_at': timezone.now().isoformat(),
+        'filter_options': _jbl_queue_filter_options(request) if queue_key == 'jbl' else None,
     })
 
 

@@ -578,6 +578,36 @@ class PortalImportStagingTests(TestCase):
         self.assertEqual(result['sheet_sync']['status'], 'pending')
         self.assertTrue(result['publications'][0]['pending_operation_ids'])
 
+    def test_farmup_sheet_warning_clears_after_successful_repair(self):
+        self.group.workflow = {'type': 'jawabu_homebiogas', 'master_sync_enabled': True}
+        self.group.save(update_fields=['workflow'])
+        batch, _operation, _ = self.stage(
+            request_id='summary-stage', allowed_group_ids={self.group.group_id},
+        )
+        with patch('core.services.portal_publication._targets_for_farmer', return_value=['jawabu_master_publish']):
+            batch, _result, _ = commit_portal_farmup(
+                batch_id=str(batch.pk), rows=list(batch.parsed_rows),
+                revision_token=farmup_revision_token(batch), request_id='summary-commit',
+                actor=self.user, allowed_group_ids={self.group.group_id},
+            )
+            first = IntegrationOperation.objects.get(operation_type='jawabu_master_publish')
+            first.status = IntegrationOperation.STATUS_DEAD_LETTER
+            first.save(update_fields=['status'])
+            self.assertEqual(serialize_import_batch(batch)['publication']['status'], 'needs_attention')
+            batch, _result, _ = repair_portal_farmup(
+                batch_id=str(batch.pk), revision_token=farmup_revision_token(batch),
+                request_id='summary-repair', actor=self.user,
+                allowed_group_ids={self.group.group_id},
+            )
+        self.assertEqual(serialize_import_batch(batch)['publication']['status'], 'pending')
+        replacement = IntegrationOperation.objects.exclude(pk=first.pk).get(operation_type='jawabu_master_publish')
+        replacement.status = IntegrationOperation.STATUS_SUCCEEDED
+        replacement.save(update_fields=['status'])
+        summary = serialize_import_batch(batch)['publication']
+        self.assertEqual(summary['status'], 'synced')
+        self.assertEqual(summary['synced'], 1)
+        self.assertEqual(summary['needs_attention'], 0)
+
     def test_month_repair_is_sheet_only_revision_bound_and_replayable(self):
         self.group.workflow = {'type': 'jawabu_homebiogas', 'master_sync_enabled': True}
         self.group.save(update_fields=['workflow'])

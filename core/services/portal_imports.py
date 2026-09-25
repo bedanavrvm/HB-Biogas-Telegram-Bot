@@ -1701,21 +1701,32 @@ def serialize_import_batch(
 
 
 def _farmup_publication_summary(batch: JawabuFarmerUploadBatch) -> dict[str, Any]:
-    replay_ledgers = JawabuFarmerUploadBatch.objects.filter(
-        worklist_id=batch.worklist_id, import_kind='farmers',
-    ).values_list('portal_commit_replays', flat=True)
-    operation_ids = {
-        str(operation.get('id'))
-        for ledger in replay_ledgers
-        for replay in list(ledger or [])
-        if replay.get('operation') in (None, 'commit')
-        for publication in list((replay.get('result') or {}).get('publications') or [])
-        for operation in list(publication.get('operations') or [])
-        if operation.get('id')
-    }
+    from core.models import JawabuFarmerMaster
+    from core.services.portal_publication import MASTER_OPERATION
+
+    operation_ids = _farmup_repair_operation_ids(batch)
     if not operation_ids:
         return {'status': 'not_required', 'total': 0, 'synced': 0, 'pending_operation_ids': []}
-    operations = list(IntegrationOperation.objects.filter(pk__in=operation_ids))
+    farmer_ids = set(IntegrationOperation.objects.filter(
+        pk__in=operation_ids, source_model='JawabuFarmerMaster', operation_type=MASTER_OPERATION,
+    ).values_list('source_id', flat=True))
+    revisions = {
+        str(pk): int(revision or 0)
+        for pk, revision in JawabuFarmerMaster.objects.filter(pk__in=farmer_ids).values_list('pk', 'workflow_revision')
+    }
+    latest = {}
+    for operation in IntegrationOperation.objects.filter(
+        source_model='JawabuFarmerMaster', source_id__in=farmer_ids,
+        operation_type=MASTER_OPERATION,
+    ).order_by('-created_at', '-pk'):
+        if operation.source_id not in revisions:
+            continue
+        if int((operation.metadata or {}).get('workflow_revision', -1)) != revisions[operation.source_id]:
+            continue
+        latest.setdefault(operation.source_id, operation)
+    operations = list(latest.values())
+    if not operations:
+        return {'status': 'not_required', 'total': 0, 'synced': 0, 'pending_operation_ids': []}
     pending_statuses = {
         IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RUNNING,
         IntegrationOperation.STATUS_RETRYABLE,
