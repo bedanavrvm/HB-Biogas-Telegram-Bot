@@ -720,6 +720,73 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(updated_row[published_headers.index('National ID')], '22222222')
         self.assertEqual(updated_row[published_headers.index('County')], 'MURANGA')
 
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_master_sheet_shared_phone_with_distinct_ids_keeps_two_rows(self, mock_get_sheets):
+        from core.tests import FakeJawabuService, FakeMasterDataSheet
+        from core.services.jawabu_master import ensure_master_system_headers, header_lookup_from_headers
+
+        headers = ['No.', 'Customer Name', 'National ID', 'Primary Phone']
+        sheet = FakeMasterDataSheet(headers, [
+            '1', 'OTHER CUSTOMER', '99999999', self.farmer_stage1.primary_phone,
+        ])
+        lookup = header_lookup_from_headers(ensure_master_system_headers(sheet, 3))
+        owner_col = lookup['master record id']
+        sheet.update_cell(5, owner_col, str(self.farmer_stage2.pk))
+        mock_get_sheets.return_value = FakeJawabuService(sheet)
+
+        self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
+        self.assertEqual(len(sheet.values), 6)
+        self.assertEqual(sheet.values[4][2], '99999999')
+        self.assertEqual(sheet.values[4][owner_col - 1], str(self.farmer_stage2.pk))
+        self.assertEqual(sheet.values[5][2], self.farmer_stage1.national_id)
+        self.assertEqual(sheet.values[5][owner_col - 1], str(self.farmer_stage1.pk))
+        self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
+        self.assertEqual(len(sheet.values), 6)
+
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_master_sheet_rebinds_stale_owner_with_same_id_and_audits_it(self, mock_get_sheets):
+        from core.tests import FakeJawabuService, FakeMasterDataSheet
+        from core.services.jawabu_master import ensure_master_system_headers, header_lookup_from_headers
+
+        old_case_id = '00d4b9ab-8e50-4bea-986b-7fb0df296e02'
+        headers = ['No.', 'Customer Name', 'National ID', 'Primary Phone']
+        sheet = FakeMasterDataSheet(headers, [
+            '1', 'FARMER ONE', self.farmer_stage1.national_id,
+            self.farmer_stage1.primary_phone,
+        ])
+        lookup = header_lookup_from_headers(ensure_master_system_headers(sheet, 3))
+        owner_col = lookup['master record id']
+        sheet.update_cell(5, owner_col, old_case_id)
+        mock_get_sheets.return_value = FakeJawabuService(sheet)
+
+        self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
+        self.assertEqual(len(sheet.values), 5)
+        self.assertEqual(sheet.values[4][owner_col - 1], str(self.farmer_stage1.pk))
+        self.assertTrue(LiveSheetRecordChange.objects.filter(
+            record_key=str(self.farmer_stage1.pk), changed_by='portal:identity_rebind',
+        ).exists())
+
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_master_sheet_does_not_overwrite_active_owner_with_same_id(self, mock_get_sheets):
+        from core.tests import FakeJawabuService, FakeMasterDataSheet
+        from core.services.jawabu_master import ensure_master_system_headers, header_lookup_from_headers
+
+        headers = ['No.', 'Customer Name', 'National ID', 'Primary Phone']
+        sheet = FakeMasterDataSheet(headers, [
+            '1', 'OTHER CUSTOMER', self.farmer_stage1.national_id,
+            self.farmer_stage1.primary_phone,
+        ])
+        lookup = header_lookup_from_headers(ensure_master_system_headers(sheet, 3))
+        owner_col = lookup['master record id']
+        sheet.update_cell(5, owner_col, str(self.farmer_stage2.pk))
+        mock_get_sheets.return_value = FakeJawabuService(sheet)
+        failure = {}
+
+        self.assertFalse(sync_farmer_to_master_sheet(self.farmer_stage1, failure_context=failure))
+        self.assertEqual(failure['phase'], 'identity')
+        self.assertEqual(sheet.values[4][owner_col - 1], str(self.farmer_stage2.pk))
+        self.assertEqual(len(sheet.values), 5)
+
     @patch('core.services.jawabu_pipeline._jawabu_group_config')
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
     def test_internal_order_sheet_sync_serializes_decimal_fields(self, mock_get_sheets, mock_group_config):

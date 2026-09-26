@@ -131,7 +131,7 @@
   function publicationBadge(batch) {
     const status = batch.publication?.status;
     if (status === 'synced') return '<span class="badge badge-green">Sheet synced</span>';
-    if (status === 'needs_attention') return '<span class="badge badge-orange">Sheet needs retry</span>';
+    if (status === 'needs_attention') return `<span class="badge badge-orange">${batch.publication?.identity_review ? 'Identity review needed' : 'Sheet needs retry'}</span>`;
     if (status === 'pending') {
       const due = batch.publication?.next_retry_at;
       return `<span class="badge badge-blue"${due ? ` data-sheet-retry-at="${escapeHtml(due)}"` : ''}>${due ? 'Retry timing' : 'Sheet sync queued'}</span>`;
@@ -147,7 +147,7 @@
     receipt.textContent = publication.status === 'synced'
       ? `Master Data Sheet synchronized for ${publication.synced || 0} case(s).`
       : publication.status === 'needs_attention'
-        ? `${publication.needs_attention || 0} current Master Data Sheet sync${publication.needs_attention === 1 ? '' : 's'} need attention. Portal data is saved.`
+        ? `${publication.needs_attention || 0} current Master Data Sheet sync${publication.needs_attention === 1 ? '' : 's'} need attention.${publication.identity_review ? ` ${publication.identity_review} need identity review before retry.` : ''} Portal data is saved.`
         : 'Portal data is saved. Master Data Sheet synchronization is queued.';
   }
   function updatePublicationRetryTimers() {
@@ -386,12 +386,12 @@
       const preview = previewResult.data.preview, counts = preview.counts || {};
       if (!preview.sheet_enabled) throw new Error('Master Data Sheet synchronization is not enabled for this Jawabu group.');
       if (!counts.repairable && !counts.pending) {
-        const message = counts.invalid_deposits ? `${counts.synced || 0} synced. Fix ${counts.invalid_deposits} invalid deposit${counts.invalid_deposits === 1 ? '' : 's'} before syncing the remaining records.` : 'All eligible farmer records are already synced.';
-        feedback(message, counts.invalid_deposits ? 'warning' : 'success');
-        window.PortalAppShell?.showToast?.(message, counts.invalid_deposits ? 'warning' : 'success');
+        const message = counts.identity_review ? `${counts.identity_review} case${counts.identity_review === 1 ? '' : 's'} need identity review. Check the affected case and Master Data Sheet row before retrying.` : counts.invalid_deposits ? `${counts.synced || 0} synced. Fix ${counts.invalid_deposits} invalid deposit${counts.invalid_deposits === 1 ? '' : 's'} before syncing the remaining records.` : 'All eligible farmer records are already synced.';
+        feedback(message, counts.identity_review || counts.invalid_deposits ? 'warning' : 'success');
+        window.PortalAppShell?.showToast?.(message, counts.identity_review || counts.invalid_deposits ? 'warning' : 'success');
         return;
       }
-      if (!await confirmDialog(`${counts.repairable ? 'Repair' : 'Continue syncing'} ${preview.period_label || 'this month'}?`, counts, `${counts.synced || 0} already synced; ${counts.pending || 0} already queued. Only missing or failed publications need new repairs. Review rows and selections will not change.`, counts.repairable ? `Repair ${counts.repairable} farmers` : 'Continue sync')) return;
+      if (!await confirmDialog(`${counts.repairable ? 'Repair' : 'Continue syncing'} ${preview.period_label || 'this month'}?`, counts, `${counts.synced || 0} already synced; ${counts.pending || 0} already queued.${counts.identity_review ? ` ${counts.identity_review} identity conflict${counts.identity_review === 1 ? '' : 's'} excluded until reviewed.` : ''} Only missing or failed publications need new repairs. Review rows and selections will not change.`, counts.repairable ? `Repair ${counts.repairable} farmers` : 'Continue sync')) return;
       setLoading(button, true, 'Queuing'); const key = requestId('portal-farmup-repair');
       const result = await api.postJson(`/farmup/${encodeURIComponent(active.id)}/repair/`, {revision_token:active.revision_token, client_request_id:key}, tg);
       if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Sheet repair could not be queued.');

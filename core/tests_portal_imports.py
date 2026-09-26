@@ -730,6 +730,38 @@ class PortalImportStagingTests(TestCase):
         self.assertEqual(preview['counts']['failed_once'], 0)
         self.assertEqual(preview['failure_categories'], {'network': 1, 'rate_limited': 1})
 
+    def test_month_repair_excludes_identity_conflict_until_review(self):
+        self.group.workflow = {'type': 'jawabu_homebiogas', 'master_sync_enabled': True}
+        self.group.save(update_fields=['workflow'])
+        batch, _operation, _ = self.stage(
+            request_id='repair-identity-stage', allowed_group_ids={self.group.group_id},
+        )
+        with patch('core.services.portal_publication._targets_for_farmer', return_value=['jawabu_master_publish']):
+            batch, _result, _ = commit_portal_farmup(
+                batch_id=str(batch.pk), rows=list(batch.parsed_rows),
+                revision_token=farmup_revision_token(batch), request_id='repair-identity-commit',
+                actor=self.user, allowed_group_ids={self.group.group_id},
+            )
+            operation = IntegrationOperation.objects.get(operation_type='jawabu_master_publish')
+            operation.status = IntegrationOperation.STATUS_DEAD_LETTER
+            operation.last_error_code = 'identity_conflict'
+            operation.save(update_fields=['status', 'last_error_code'])
+            token = farmup_revision_token(batch)
+            _batch, preview, farmers = farmup_repair_preview(
+                batch_id=str(batch.pk), revision_token=token,
+                allowed_group_ids={self.group.group_id},
+            )
+            self.assertEqual(preview['counts']['identity_review'], 1)
+            self.assertEqual(preview['counts']['repairable'], 0)
+            self.assertEqual(farmers, [])
+            _batch, result, _replayed = repair_portal_farmup(
+                batch_id=str(batch.pk), revision_token=token,
+                request_id='repair-identity-click', actor=self.user,
+                allowed_group_ids={self.group.group_id},
+            )
+            self.assertEqual(result['repairable'], 0)
+            self.assertEqual(IntegrationOperation.objects.filter(operation_type='jawabu_master_publish').count(), 1)
+
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
     @patch('core.api.portal_views._portal_import_group_ids', return_value=None)
     @patch('core.services.portal_publication._targets_for_farmer', return_value=['jawabu_master_publish'])

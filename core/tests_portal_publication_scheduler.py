@@ -109,3 +109,20 @@ class DrainPortalPublicationsTests(TestCase):
         self.assertEqual(self.operation.status, IntegrationOperation.STATUS_RETRYABLE)
         self.assertEqual(self.operation.last_error_code, 'http_429')
         self.assertGreaterEqual((self.operation.next_retry_at - timezone.now()).total_seconds(), 58)
+
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
+    def test_identity_conflict_is_terminal_and_not_a_network_retry(self, publisher):
+        def identity_failure(_farmer, *, failure_context):
+            failure_context.update({'phase': 'identity', 'sheet_tab': 'Master Data',
+                                    'detail': 'Identity review is required.'})
+            return False
+
+        publisher.side_effect = identity_failure
+        attempt_publication(self.operation)
+        self.operation.refresh_from_db()
+        self.assertEqual(self.operation.status, IntegrationOperation.STATUS_DEAD_LETTER)
+        self.assertEqual(self.operation.last_error_code, 'identity_conflict')
+        self.assertEqual(self.operation.attempts, 1)
+        self.assertIsNone(self.operation.next_retry_at)
+        from core.services.portal_publication import publication_payload
+        self.assertEqual(publication_payload(self.farmer)['operations'][0]['issue'], 'identity_review')

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Q
 
 from core.models import (
@@ -178,6 +178,22 @@ def _sequence_start(sequence, event_model):
     return int(first.number_after if first.action == 'adjusted' else first.number_before)
 
 
+def _restart_case_references_if_globally_empty() -> bool:
+    """Restart staff-facing numbering only after every Portal case is gone."""
+    if connection.vendor == 'postgresql':
+        # Keep nextval/insert out until the emptiness check and transactional
+        # RESTART are complete. UUIDs and historical audit identities do not
+        # change; this affects only future JBL-# labels.
+        with connection.cursor() as cursor:
+            cursor.execute('LOCK TABLE core_jawabufarmermaster IN ACCESS EXCLUSIVE MODE')
+            if JawabuFarmerMaster.objects.exists():
+                return False
+            cursor.execute('ALTER SEQUENCE core_jawabu_case_reference_seq RESTART WITH 1')
+        return True
+    # SQLite's local/test allocator uses MAX(case_reference_number) + 1.
+    return not JawabuFarmerMaster.objects.exists()
+
+
 def reset_portal_configuration(configuration, *, actor, backup_reference: str):
     """Delete verified Sheet projections, then all linked local Portal state.
 
@@ -330,6 +346,7 @@ def reset_portal_configuration(configuration, *, actor, backup_reference: str):
         ProductMappingIssue.objects.filter(source_workflow='jawabu_portal', source_model='JawabuFarmerMaster', source_record_id__in=[str(pk) for pk in farmer_ids]).delete()
         LocationMappingIssue.objects.filter(source_model='JawabuFarmerMaster', source_record_id__in=[str(pk) for pk in farmer_ids]).delete()
         JawabuFarmerMaster.objects.filter(pk__in=farmer_ids).delete()
+        case_references_restarted = _restart_case_references_if_globally_empty()
         # Customer identity is shared with Complaints and Origination. Only
         # delete identities that became truly orphaned after this Portal reset.
         for customer_id in customer_ids:
@@ -368,7 +385,14 @@ def reset_portal_configuration(configuration, *, actor, backup_reference: str):
             source_model='GroupSheetConfiguration', source_event_id=str(configuration.pk),
             before_values={'case_count': len(farmer_ids), 'order_count': len(order_ids), 'payment_count': len(payment_ids)},
             after_values={'case_count': 0, 'order_count': 0, 'payment_count': 0},
-            metadata={'backup_reference': str(backup_reference)[:255], 'sheet_rows_deleted': deleted_sheet_rows},
+            metadata={
+                'backup_reference': str(backup_reference)[:255],
+                'sheet_rows_deleted': deleted_sheet_rows,
+                'case_references_restarted': case_references_restarted,
+            },
             sensitive=False,
         )
-    return {'cases_deleted': len(farmer_ids), 'sheet_rows_deleted': deleted_sheet_rows}
+    return {
+        'cases_deleted': len(farmer_ids), 'sheet_rows_deleted': deleted_sheet_rows,
+        'case_references_restarted': case_references_restarted,
+    }

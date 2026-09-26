@@ -15,6 +15,7 @@ Stage overview:
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -2200,10 +2201,7 @@ def sync_farmer_to_master_sheet(
     from core.services.sheets import GoogleSheetsService
     from core.services.jawabu_master import (
         MASTER_CASE_ID_HEADER,
-        add_master_index_row,
-        build_master_existing_index,
         ensure_master_system_headers,
-        find_master_row_number,
         first_existing_header,
         header_row_value,
         header_lookup_from_headers,
@@ -2211,7 +2209,6 @@ def sync_farmer_to_master_sheet(
         master_datetime_column_indexes,
         master_hbg_deposit_column_indexes,
         repair_master_sheet_numbers,
-        next_master_append_row,
         next_master_case_number,
         set_header_value,
         col_letter,
@@ -2284,12 +2281,6 @@ def sync_farmer_to_master_sheet(
                 detail='Required Master Data headers No. and Customer Name are missing.',
             )
             return False
-        cleaned = {
-            'id': str(farmer.pk),
-            'duplicate_key': farmer.duplicate_key,
-            'national_id': farmer.national_id,
-            'primary_phone': farmer.primary_phone,
-        }
         # A corrected county/salesperson may change the destination after an
         # earlier publication. Never remove a row on a mutable identity match.
         other_sheet_name = str(
@@ -2335,49 +2326,96 @@ def sync_farmer_to_master_sheet(
                             detail=f'The former {other_sheet_name} row has fields missing from {sheet_name}; it was retained.',
                         )
                         return False
-        # A successful publication already records the canonical sheet row.
-        # Reuse that immutable audit pointer (and verify its identifiers) so a
-        # routine case edit does not repeatedly download the entire register.
-        # The full-sheet lookup remains only as a safe fallback for legacy
-        # records that have never been published by Django.
+        # A successful publication already records the canonical row. Only
+        # its exact immutable ID may use the fast pointer: a phone/ID match
+        # can belong to another case and must be inspected before writing.
         candidate_rows = []
-        record_keys = [
-            str(value).strip() for value in (
-                farmer.pk, farmer.duplicate_key, farmer.national_id, farmer.primary_phone,
-            ) if str(value or '').strip()
-        ]
-        if record_keys:
-            candidate_rows.extend(
-                LiveSheetRecordChange.objects.filter(
-                    sheet_id=sheet_id,
-                    sheet_tab=sheet_name,
-                    record_key__in=record_keys,
-                ).order_by('-created_at').values_list('row_number', flat=True)[:3]
-            )
+        candidate_rows.extend(LiveSheetRecordChange.objects.filter(
+            sheet_id=sheet_id, sheet_tab=sheet_name, record_key=str(farmer.pk),
+            status='success',
+        ).order_by('-created_at').values_list('row_number', flat=True)[:3])
         if getattr(farmer, 'source_row_number', None):
             candidate_rows.append(farmer.source_row_number)
 
         row_number = 0
         row_values = None
         created_sheet_row = False
+        rebound_owner_id = ''
         for candidate in dict.fromkeys(int(value) for value in candidate_rows if value):
             if candidate < data_start_row:
                 continue
             candidate_values = list(sheet.row_values(candidate))
-            candidate_index = {}
-            add_master_index_row(candidate_index, candidate, candidate_values, header_lookup)
-            if find_master_row_number(cleaned, candidate_index) == candidate:
+            if header_row_value(candidate_values, header_lookup, 'Master Record ID').casefold() == str(farmer.pk).casefold():
                 row_number = candidate
                 row_values = candidate_values
                 break
 
         values = None
         if not row_number:
+            from core.services.identifiers import validate_kenyan_national_id, normalize_kenyan_phone
+
             values = sheet.get_all_values()
-            existing = build_master_existing_index(values, header_lookup, data_start_row)
-            row_number = find_master_row_number(cleaned, existing)
+            rows = list(enumerate(values[data_start_row - 1:], start=data_start_row))
+            incoming_id = validate_kenyan_national_id(farmer.national_id)
+            incoming_phone = normalize_kenyan_phone(farmer.primary_phone)
+
+            def row_id(row):
+                return validate_kenyan_national_id(
+                    header_row_value(row, header_lookup, 'National ID').lstrip("'")
+                )
+
+            def row_owner(row):
+                return header_row_value(row, header_lookup, 'Master Record ID').lstrip("'")
+
+            owned = [(number, row) for number, row in rows
+                     if row_owner(row).casefold() == str(farmer.pk).casefold()]
+            same_id = [(number, row) for number, row in rows
+                       if incoming_id and row_id(row) == incoming_id]
+            if len(owned) > 1 or len(same_id) > 1:
+                note_failure(phase='identity', detail=f'Multiple rows claim this case or National ID in {sheet_name}; identity review is required.')
+                return False
+            if owned:
+                row_number, row_values = owned[0]
+            elif same_id:
+                row_number, row_values = same_id[0]
+                rebound_owner_id = row_owner(row_values)
+                other_case_with_id = JawabuFarmerMaster.objects.filter(
+                    national_id=incoming_id,
+                ).exclude(pk=farmer.pk).exists()
+                if rebound_owner_id:
+                    try:
+                        owner_exists = JawabuFarmerMaster.objects.filter(pk=uuid.UUID(rebound_owner_id)).exists()
+                    except (ValueError, AttributeError):
+                        owner_exists = True
+                else:
+                    owner_exists = False
+                if owner_exists or other_case_with_id:
+                    note_failure(phase='identity', detail=f'The matching National ID belongs to another active case in {sheet_name}; identity review is required.')
+                    return False
+            else:
+                # A shared/recycled phone or a stale duplicate key must not
+                # make two customers share a Sheet row. An unidentified
+                # matching row is ambiguous and needs human review.
+                ambiguous = False
+                for _, row in rows:
+                    duplicate_match = bool(farmer.duplicate_key and header_row_value(row, header_lookup, 'Duplicate Key') == farmer.duplicate_key)
+                    row_phone = normalize_kenyan_phone(header_row_value(row, header_lookup, 'Primary Phone'))
+                    if (duplicate_match or (incoming_phone and row_phone == incoming_phone)) and not (
+                        incoming_id and row_id(row) and row_id(row) != incoming_id
+                    ):
+                        ambiguous = True
+                        break
+                if ambiguous:
+                    note_failure(phase='identity', detail=f'A matching row in {sheet_name} has no distinct National ID; identity review is required.')
+                    return False
         if not row_number:
-            row_number = next_master_append_row(values, header_lookup, data_start_row)
+            # Append after every populated row, not after the last named row:
+            # blank customer-name cells may still contain staff data.
+            row_number = max(
+                (number for number, row in enumerate(values[data_start_row - 1:], start=data_start_row)
+                 if any(str(cell or '').strip() for cell in row)),
+                default=data_start_row - 1,
+            ) + 1
             row_values = [''] * len(headers)
             set_header_value(row_values, header_lookup, 'No.', next_master_case_number(values, header_lookup, data_start_row))
             created_sheet_row = True
@@ -2385,11 +2423,12 @@ def sync_farmer_to_master_sheet(
         # Get row values and pad if needed
         if row_values is None:
             row_values = list(values[row_number - 1]) if row_number - 1 < len(values) else []
+        observed_row = [] if created_sheet_row else list(row_values)
         if len(row_values) < len(headers):
             row_values.extend([''] * (len(headers) - len(row_values)))
         existing_record_id = header_row_value(row_values, header_lookup, 'Master Record ID')
-        if existing_record_id and existing_record_id.casefold() != str(farmer.pk).casefold():
-            note_failure(phase='identity', detail=f'A different case already owns the matching row in {sheet_name}.')
+        if existing_record_id and existing_record_id.casefold() != str(farmer.pk).casefold() and existing_record_id != rebound_owner_id:
+            note_failure(phase='identity', detail=f'A different case already owns the matching row in {sheet_name}; identity review is required.')
             return False
 
         moved_fields = {}
@@ -2540,6 +2579,13 @@ def sync_farmer_to_master_sheet(
                     set_header_value(row_values, header_lookup, header, new_val)
                     changes[header] = {'before': current_val, 'after': new_val}
 
+        # Sheets are outside the database transaction. Refuse to overwrite a
+        # row that changed after identification, including an append target
+        # occupied by a concurrent staff edit.
+        if list(sheet.row_values(row_number)) != observed_row:
+            note_failure(phase='verify', detail=f'The selected {sheet_name} row changed before publication; retry after review.')
+            return False
+
         if changes:
             set_header_value(row_values, header_lookup, 'Last Updated At', now_text)
             update_master_sheet_row(
@@ -2562,7 +2608,7 @@ def sync_farmer_to_master_sheet(
                 row_number=row_number,
                 record_key=str(farmer.pk),
                 action='create' if created_sheet_row else 'update',
-                changed_by='portal',
+                changed_by='portal:identity_rebind' if rebound_owner_id else 'portal',
                 changes=changes,
                 status='success',
             )

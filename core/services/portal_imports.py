@@ -844,6 +844,13 @@ def farmup_repair_preview(
     synced = [farmer for farmer in eligible if current_operations[str(farmer.pk)]
               and current_operations[str(farmer.pk)].status == IntegrationOperation.STATUS_SUCCEEDED]
     eligible = [farmer for farmer in eligible if farmer not in synced]
+    identity_review = [
+        farmer for farmer in eligible
+        if current_operations[str(farmer.pk)]
+        and current_operations[str(farmer.pk)].status == IntegrationOperation.STATUS_DEAD_LETTER
+        and current_operations[str(farmer.pk)].last_error_code == 'identity_conflict'
+    ]
+    eligible = [farmer for farmer in eligible if farmer not in identity_review]
     operation_ids = _farmup_repair_operation_ids(batch)
     operations = list(IntegrationOperation.objects.filter(
         pk__in=operation_ids, source_model='JawabuFarmerMaster', source_id__in=farmer_ids,
@@ -887,6 +894,7 @@ def farmup_repair_preview(
         'failed_once': sum(1 for count in failures.values() if count == 1),
         'repeatedly_failing': sum(1 for count in failures.values() if count >= 2),
         'invalid_deposits': len(invalid_ids),
+        'identity_review': len(identity_review),
     }
     preview = {
         'worklist_id': str(batch.worklist_id),
@@ -1733,12 +1741,14 @@ def _farmup_publication_summary(batch: JawabuFarmerUploadBatch) -> dict[str, Any
     }
     pending = [str(item.pk) for item in operations if item.status in pending_statuses]
     failed = sum(1 for item in operations if item.status == IntegrationOperation.STATUS_DEAD_LETTER)
+    identity_review = sum(1 for item in operations if item.status == IntegrationOperation.STATUS_DEAD_LETTER
+                          and item.last_error_code == 'identity_conflict')
     synced = sum(1 for item in operations if item.status == IntegrationOperation.STATUS_SUCCEEDED)
     status = 'needs_attention' if failed else ('pending' if pending else 'synced')
     pending_operations = [item for item in operations if item.status in pending_statuses]
     retry_times = [item.next_retry_at for item in pending_operations if item.next_retry_at]
     return {
         'status': status, 'total': len(operations), 'synced': synced,
-        'needs_attention': failed, 'pending_operation_ids': pending,
+        'needs_attention': failed, 'identity_review': identity_review, 'pending_operation_ids': pending,
         'next_retry_at': min(retry_times).isoformat() if len(retry_times) == len(pending_operations) and retry_times else None,
     }

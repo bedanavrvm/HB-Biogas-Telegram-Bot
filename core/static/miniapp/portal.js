@@ -441,9 +441,10 @@
   window.addEventListener('portal:publication-updated', event => {
     const status = event.detail?.publication?.status;
     const masterData = (event.detail?.publication?.operations || []).some(item => item.target === 'jawabu_master_publish');
+    const identityReview = (event.detail?.publication?.operations || []).some(item => item.issue === 'identity_review');
     if (status === 'synced') showToast(masterData ? 'Master Data Sheet synchronized.' : 'Case saved and registers updated.', 'success');
     if (status === 'needs_attention') {
-      showToast(masterData ? 'Portal data is saved, but Master Data Sheet sync needs retry.' : 'Case is saved, but register synchronization needs attention.', 'warning');
+      showToast(identityReview ? 'Portal data is saved. Check the customer identity in the Sheet before retrying sync.' : masterData ? 'Portal data is saved, but Master Data Sheet sync needs retry.' : 'Case is saved, but register synchronization needs attention.', 'warning');
     }
   });
 

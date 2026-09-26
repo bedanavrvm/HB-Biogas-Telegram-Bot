@@ -4098,7 +4098,11 @@ def portal_publication_attempt(request):
     automatic_continuation = automatic and not manual_retry and operation.status in {
         IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE,
     }
-    if automatic_continuation:
+    if manual_retry:
+        access_error = _portal_capability_error(request, 'portal.publication.retry', farmer)
+        if access_error:
+            return access_error
+    elif automatic_continuation:
         access_error = _portal_capability_error(request, 'portal.case.read', farmer)
         if access_error:
             return access_error

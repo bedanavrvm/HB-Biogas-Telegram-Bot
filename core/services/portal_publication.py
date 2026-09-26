@@ -26,6 +26,12 @@ class PortalPublicationError(RuntimeError):
     """A Google register could not publish this canonical Portal record."""
 
 
+class PortalIdentityConflictError(PortalPublicationError):
+    """A Sheet row is owned by another case; retries cannot resolve it."""
+
+    safe_error_code = 'identity_conflict'
+
+
 def _targets_for_farmer() -> list[str]:
     """Return enabled register targets without performing an external call."""
     # Imported lazily so pipeline services can reserve work without a module
@@ -140,6 +146,7 @@ def publication_payload(farmer) -> dict[str, Any]:
                 'id': str(row.pk),
                 'target': row.operation_type,
                 'status': status_rank.get(row.status, 'pending'),
+                'issue': 'identity_review' if row.last_error_code == 'identity_conflict' else '',
                 'attempts': int(row.attempts or 0),
                 'next_retry_at': row.next_retry_at.isoformat() if row.next_retry_at else None,
             }
@@ -182,6 +189,12 @@ def requeue_publication_after_review(
     farmer = JawabuFarmerMaster.objects.filter(pk=operation.source_id).first()
     if farmer is None:
         raise ValueError('The source case is no longer available.')
+    if int((operation.metadata or {}).get('workflow_revision', -1)) != int(farmer.workflow_revision or 0):
+        raise ValueError('This sync belongs to an older case version. Refresh before retrying.')
+    current = next((row for row in _current_operations(farmer)
+                    if row.operation_type == operation.operation_type), None)
+    if current is not None and current.pk != operation.pk:
+        raise ValueError('A newer sync attempt exists for this case. Refresh its current status.')
     replacements = reserve_farmer_publication(
         farmer,
         request_id=request_id,
@@ -258,6 +271,8 @@ def attempt_publication(operation: IntegrationOperation) -> dict[str, Any]:
         else:
             completed = sync_farmer_to_internal_order_sheet(farmer)
         if not completed:
+            if operation.operation_type == MASTER_OPERATION and failure_context.get('phase') == 'identity':
+                raise PortalIdentityConflictError('The Sheet row needs identity review.')
             # The low-level publisher intentionally keeps Google details in
             # protected logs.  This marker is retryable by the shared policy.
             error = PortalPublicationError('Google register is temporarily unavailable.')

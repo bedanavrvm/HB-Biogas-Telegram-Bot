@@ -186,6 +186,28 @@ def dashboard_payload(user, *, access=None) -> dict:
         and health_scope.get('global_product')
     ):
         failed_operations = IntegrationOperation.objects.filter(status__in=['retryable_failure', 'dead_letter'])
+        portal_types = ('jawabu_master_publish', 'jawabu_internal_order_publish')
+        candidate_ids = list(failed_operations.filter(
+            source_model='JawabuFarmerMaster', operation_type__in=portal_types,
+        ).values_list('source_id', flat=True).distinct())
+        revisions = {
+            str(pk): int(revision or 0)
+            for pk, revision in JawabuFarmerMaster.objects.filter(pk__in=candidate_ids).values_list('pk', 'workflow_revision')
+        }
+        latest = {}
+        for row in IntegrationOperation.objects.filter(
+            source_model='JawabuFarmerMaster', source_id__in=candidate_ids,
+            operation_type__in=portal_types,
+        ).order_by('-created_at', '-pk'):
+            if row.source_id not in revisions or int((row.metadata or {}).get('workflow_revision', -1)) != revisions[row.source_id]:
+                continue
+            latest.setdefault((row.source_id, row.operation_type), row)
+        current_failed_ids = [row.pk for row in latest.values()
+                              if row.status in {'retryable_failure', 'dead_letter'}]
+        failed_operations = failed_operations.filter(
+            ~Q(source_model='JawabuFarmerMaster', operation_type__in=portal_types)
+            | Q(pk__in=current_failed_ids)
+        )
         integration_labels = dict(IntegrationOperation.INTEGRATION_CHOICES)
         for item in failed_operations.values('integration', 'operation_type', 'last_error_code').annotate(count=Count('id')).order_by('integration', 'operation_type'):
             matching_operations = failed_operations.filter(
@@ -197,10 +219,12 @@ def dashboard_payload(user, *, access=None) -> dict:
             can_retry = (
                 item['integration'] == IntegrationOperation.INTEGRATION_GOOGLE_SHEETS
                 and 'portal.publication.retry' in capabilities
+                and item['last_error_code'] != 'identity_conflict'
             )
             operation = str(item['operation_type'] or 'operation').replace('_', ' ').title()
             integration = integration_labels.get(item['integration'], str(item['integration']).replace('_', ' ').title())
-            error_code = str(item['last_error_code'] or '').replace('_', ' ').strip()
+            error_code = ('Identity review required' if item['last_error_code'] == 'identity_conflict'
+                          else str(item['last_error_code'] or '').replace('_', ' ').strip())
             failure_contexts = []
             if item['operation_type'] == 'jawabu_master_publish':
                 from core.services.jawabu_case_reference import display_case_reference
@@ -233,7 +257,11 @@ def dashboard_payload(user, *, access=None) -> dict:
                     'label': 'Retry sync',
                     'operation_ids': [str(row_id) for row_id in retry_operation_ids],
                 } if can_retry else None),
-                'url': reverse('portal_screen', kwargs={'screen': 'settings'}) if not can_retry else '',
+                'url': (
+                    reverse('portal_case_history_detail', kwargs={'farmer_id': matching_operations.values_list('source_id', flat=True).first()})
+                    if item['last_error_code'] == 'identity_conflict' and matching_operations.exists()
+                    else reverse('portal_screen', kwargs={'screen': 'settings'}) if not can_retry else ''
+                ),
             })
             attention[-1]['detail'] = ' | '.join(part for part in detail_parts if part)
 

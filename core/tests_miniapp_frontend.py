@@ -62,7 +62,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/portal_invoices.js?v=25', html)
         self.assertIn('miniapp/portal_payments.js?v=18', html)
         self.assertIn('miniapp/portal_curated_reports.js?v=4', html)
-        self.assertIn('miniapp/portal.js?v=101', html)
+        self.assertIn('miniapp/portal.js?v=104', html)
         self.assertNotIn('vendor-chartjs-4.5.1.umd.min.js', html)
         self.assertNotIn('<script src="/static/miniapp/vendor-leaflet-1.9.4.js', html)
         self.assertIn('miniapp/portal_case_history.js?v=1', html)

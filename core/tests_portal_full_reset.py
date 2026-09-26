@@ -31,6 +31,15 @@ class PortalFullResetTests(TestCase):
         PortalMaintenanceState.objects.create(singleton=1, mode='maintenance', reason='Reset test')
 
     @patch('core.services.portal_full_reset._delete_verified_sheet_rows', return_value=0)
+    def test_global_empty_reset_restarts_staff_reference_numbers(self, _sheet_delete):
+        first = JawabuFarmerMaster.objects.create(group_configuration=self.group, national_id='12345678')
+        result = reset_portal_configuration(self.group, actor=self.actor, backup_reference='reference-reset-test')
+        self.assertTrue(result['case_references_restarted'])
+        replacement = JawabuFarmerMaster.objects.create(group_configuration=self.group, national_id='87654321')
+        self.assertEqual(replacement.case_reference_number, 1)
+        self.assertNotEqual(replacement.pk, first.pk)
+
+    @patch('core.services.portal_full_reset._delete_verified_sheet_rows', return_value=0)
     def test_clears_owned_case_and_operational_links_but_keeps_access_audit(self, _sheet_delete):
         upload = JawabuFarmerUploadBatch.objects.create(
             group_id=self.group.group_id, source_filename='source.csv', parsed_rows=[],
@@ -52,6 +61,7 @@ class PortalFullResetTests(TestCase):
         result = reset_portal_configuration(self.group, actor=self.actor, backup_reference='test-backup-1')
 
         self.assertEqual(result['cases_deleted'], 1)
+        self.assertFalse(result['case_references_restarted'])
         self.assertFalse(JawabuFarmerMaster.objects.filter(pk=farmer.pk).exists())
         self.assertFalse(MediaAttachment.objects.filter(pk=attachment.pk).exists())
         self.assertFalse(JawabuFarmerUploadBatch.objects.filter(pk=upload.pk).exists())

@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from django.test import TestCase
 from django.utils import timezone
 
-from core.models import InvoiceIdentityReview, InvoiceUploadBatch, JawabuFarmerMaster, ParsedInvoice
+from core.models import IntegrationOperation, InvoiceIdentityReview, InvoiceUploadBatch, JawabuFarmerMaster, ParsedInvoice
 from core.services.portal_dashboard import dashboard_payload
 from core.services.jawabu_case360 import record_pipeline_event
 
@@ -31,6 +31,25 @@ class PortalActionDashboardTests(TestCase):
         self.assertEqual(payload['counts']['total'], 1)
         self.assertEqual([item['customer_name'] for item in payload['recent_cases']], [allowed.customer_name])
         self.assertEqual(payload['scope']['branches'], ['Nakuru'])
+
+    def test_repaired_publication_clears_old_dashboard_warning(self):
+        farmer = self.farmer('Sheet repair', 'Nakuru', national_id='11111111')
+        common = {
+            'integration': IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+            'operation_type': 'jawabu_master_publish',
+            'source_model': 'JawabuFarmerMaster', 'source_id': str(farmer.pk),
+            'metadata': {'workflow_revision': farmer.workflow_revision},
+        }
+        IntegrationOperation.objects.create(
+            **common, deduplication_key='old-failed-publication',
+            status=IntegrationOperation.STATUS_DEAD_LETTER, last_error_code='network',
+        )
+        IntegrationOperation.objects.create(
+            **common, deduplication_key='new-successful-publication',
+            status=IntegrationOperation.STATUS_SUCCEEDED,
+        )
+        payload = dashboard_payload(None, access={})
+        self.assertFalse(any(item['key'].startswith('integration_failure:') for item in payload['attention']))
 
     def test_invoice_identity_attention_does_not_cross_branch_scope(self):
         allowed = self.farmer('Allowed farmer', 'Nakuru', national_id='11111111')
