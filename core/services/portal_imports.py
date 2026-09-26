@@ -91,12 +91,18 @@ def parse_farmup_period(value: Any, *, required: bool = False) -> date | None:
 
 
 def _review_source_fingerprint(row: dict) -> str:
+    # A review row contains parser diagnostics and file provenance as well as
+    # customer data. Neither a renamed CSV nor a parser-note change is a new
+    # monthly source value requiring the officer to acknowledge a change.
+    excluded = {
+        'approved', 'warning_acknowledged', 'update_acknowledged',
+        'disposition', 'row_id', 'Source File', 'Source Row',
+        'Import Status', 'Cleaning Notes', 'Application Action',
+        'Additional Unit Reason', 'Additional Comments', 'Order No.',
+    }
     source = {
         str(key): value for key, value in dict(row or {}).items()
-        if not str(key).startswith('_') and key not in {
-            'approved', 'warning_acknowledged', 'update_acknowledged',
-            'disposition', 'row_id',
-        }
+        if not str(key).startswith('_') and key not in excluded
     }
     return hashlib.sha256(json.dumps(
         source, sort_keys=True, separators=(',', ':'), ensure_ascii=False, default=str,
@@ -648,10 +654,7 @@ def _farmup_database_match(batch: JawabuFarmerUploadBatch, row: dict, index: int
 
 def _farmup_row_issues(batch: JawabuFarmerUploadBatch, row: dict, index: int) -> list[dict[str, str]]:
     from core.services.jawabu import is_valid_phone
-    from core.services.jawabu_master import (
-        clean_national_id, cleaned_master_row_from_review,
-        farmup_review_validation_notes, is_valid_national_id,
-    )
+    from core.services.jawabu_master import cleaned_master_row_from_review, farmup_review_validation_notes
 
     cleaned = cleaned_master_row_from_review(row, batch, index, timezone.now())
     blockers = []
@@ -669,13 +672,6 @@ def _farmup_row_issues(batch: JawabuFarmerUploadBatch, row: dict, index: int) ->
         issues.append({'severity': 'warning', 'message': 'This row changed in the latest monthly upload; review it before selecting'})
     if row.get('_source_state') == 'removed':
         issues.append({'severity': 'warning', 'message': 'This held row is absent from the latest monthly upload'})
-    raw_id = str(row.get('National ID') or '').strip()
-    numeric_id = clean_national_id(raw_id)
-    if numeric_id and not is_valid_national_id(numeric_id):
-        issues.append({
-            'severity': 'warning',
-            'message': 'National ID / Maisha Namba is unusually short; verify it against the customer document',
-        })
     notes = str(row.get('Cleaning Notes') or '').strip()
     if row.get('Import Status') == 'review_needed' and not issues and notes.startswith('Master Data conflict before commit:'):
         issues.append({'severity': 'warning', 'message': notes})
@@ -695,6 +691,7 @@ def validate_portal_farmup(
         raise PortalImportError('This FarmUp batch is unavailable.')
     _assert_replay_is_in_scope(batch, allowed_group_ids=allowed_group_ids)
     _assert_farmup_batch(batch)
+    _restore_unchanged_farmup_rows(batch)
     if _revision_from_token(batch, revision_token) != int(batch.portal_revision or 1):
         raise PortalImportConflict('Another reviewer changed this FarmUp batch. Reload it before continuing.')
     merged = _farmup_commit_rows(batch, rows)
@@ -1097,6 +1094,7 @@ def commit_portal_farmup(
         raise PortalImportError('This FarmUp batch is unavailable.')
     _assert_replay_is_in_scope(batch, allowed_group_ids=allowed_group_ids)
     _assert_farmup_batch(batch)
+    _restore_unchanged_farmup_rows(batch)
     if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
         raise PortalImportError('FarmUp rows must be submitted as a list.')
     # Check the retry ledger before comparing against the now-mutated working
@@ -1413,12 +1411,32 @@ def stage_portal_import(
         raise
 
 
+def _original_farmup_rows(batch: JawabuFarmerUploadBatch) -> dict[int, dict]:
+    """Reparse retained CSV bytes so reviewer edits cannot appear to be source edits."""
+    if not batch.source_content:
+        return {}
+    from core.services.jawabu_master import build_cleaned_master_preview
+
+    mapping = _batch_mapping_payload(batch)
+    canonical_map = {
+        item['target_field']: item['source_id']
+        for item in mapping.get('columns', []) if item.get('target_field')
+    }
+    rows, _ = build_cleaned_master_preview(
+        io.StringIO(_decode_farmup_csv(bytes(batch.source_content))),
+        source_name=batch.source_filename,
+        header_mapping=canonical_map if mapping.get('state') != 'legacy_ready' else None,
+    )
+    return {int(row['Source Row']): row for row in rows}
+
+
 def _reconcile_farmup_version(previous: JawabuFarmerUploadBatch, incoming: list[dict]) -> tuple[list[dict], dict]:
     """Carry reviewer work forward without treating a cumulative CSV as new work."""
     previous_rows = {
         str(row.get('_identity_key') or _review_identity_key(row)): dict(row)
         for row in list(previous.parsed_rows or [])
     }
+    original_rows = _original_farmup_rows(previous)
     rows = _initialize_review_rows(incoming)
     seen: set[str] = set()
     counts = {'added': 0, 'source_unchanged': 0, 'source_changed': 0, 'removed_from_latest': 0}
@@ -1432,7 +1450,8 @@ def _reconcile_farmup_version(previous: JawabuFarmerUploadBatch, incoming: list[
         if prior is None:
             counts['added'] += 1
             continue
-        if str(prior.get('_source_fingerprint') or _review_source_fingerprint(prior)) == row['_source_fingerprint']:
+        prior_source = original_rows.get(int(prior.get('Source Row') or 0), prior)
+        if _review_source_fingerprint(prior_source) == row['_source_fingerprint']:
             for field in FARMUP_EDITABLE_FIELDS:
                 if field in prior:
                     row[field] = prior[field]
@@ -1462,6 +1481,50 @@ def _reconcile_farmup_version(previous: JawabuFarmerUploadBatch, incoming: list[
         rows.append(retained)
         counts['removed_from_latest'] += 1
     return rows, counts
+
+
+def _restore_unchanged_farmup_rows(batch: JawabuFarmerUploadBatch) -> None:
+    """Heal old metadata-only change flags without clearing genuine source changes.
+
+    This derives the effective review from the retained CSVs. It does not write
+    on a read request; a subsequent normal review commit persists the rows.
+    """
+    if int(batch.version_number or 1) < 2 or not any(
+        row.get('_source_state') == 'changed' for row in list(batch.parsed_rows or [])
+    ):
+        return
+    previous = JawabuFarmerUploadBatch.objects.filter(
+        worklist_id=batch.worklist_id,
+        version_number=int(batch.version_number or 1) - 1,
+    ).first()
+    if previous is None:
+        return
+    prior_rows = {
+        str(row.get('_identity_key') or _review_identity_key(row)): row
+        for row in list(previous.parsed_rows or [])
+    }
+    prior_original = _original_farmup_rows(previous)
+    current_original = _original_farmup_rows(batch)
+    if not prior_original or not current_original:
+        return
+    repaired = []
+    for original in list(batch.parsed_rows or []):
+        row = dict(original)
+        if row.get('_source_state') == 'changed':
+            prior = prior_rows.get(str(row.get('_identity_key') or _review_identity_key(row)))
+            before = prior_original.get(int(prior.get('Source Row') or 0)) if prior else None
+            after = current_original.get(int(row.get('Source Row') or 0))
+            if before and after and _review_source_fingerprint(before) == _review_source_fingerprint(after):
+                for field in FARMUP_EDITABLE_FIELDS:
+                    if field in prior:
+                        row[field] = prior[field]
+                row['_source_state'] = 'current'
+                row['disposition'] = prior.get('disposition') or FARMUP_DISPOSITION_HOLD
+                row['approved'] = row['disposition'] == FARMUP_DISPOSITION_COMMIT
+                row['warning_acknowledged'] = bool(prior.get('warning_acknowledged'))
+                row['update_acknowledged'] = bool(prior.get('update_acknowledged'))
+        repaired.append(row)
+    batch.parsed_rows = repaired
 
 
 @transaction.atomic
@@ -1638,6 +1701,8 @@ def serialize_import_batch(
     batch: JawabuFarmerUploadBatch, *, include_rows: bool = False, archive_operation_id: str = '',
 ) -> dict[str, Any]:
     """Return staff-safe metadata; raw bytes and Drive URLs stay private."""
+    if include_rows and batch.import_kind == 'farmers':
+        _restore_unchanged_farmup_rows(batch)
     review_rows = list(batch.parsed_rows or [])
     disposition_counts = {
         key: sum(1 for row in review_rows if str(row.get('disposition') or '') == key)

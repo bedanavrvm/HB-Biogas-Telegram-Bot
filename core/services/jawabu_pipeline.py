@@ -2094,6 +2094,21 @@ def _sheet_number(value):
     return float(value)
 
 
+def _whole_sheet_money(value):
+    """Render a monetary Sheet projection as numeric whole KES only."""
+    from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+
+    if value is None or value == '':
+        return ''
+    try:
+        amount = Decimal(str(value).replace(',', '').strip())
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError('A monetary amount could not be projected to Master Data.') from exc
+    if not amount.is_finite():
+        raise ValueError('A monetary amount could not be projected to Master Data.')
+    return int(amount.quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+
+
 def _canonical_hbg_deposit_for_sheet(farmer):
     """Resolve canonical Decimal money and reject unsafe legacy text."""
     from core.services.jawabu_validation import parse_money
@@ -2112,10 +2127,9 @@ def _master_hbg_deposit_for_sheet(farmer) -> str:
     """Return the HomeBiogas-paid deposit in the Master Data display format.
 
     The Master Data register is operationally read as a whole-KES amount, not
-    as a currency-formatted payment value.  Keep the canonical Decimal in
-    Django; this string conversion is limited to the ``Deposit Paid to HB``
-    projection so Google Sheets cannot add a currency symbol, commas, or a
-    trailing ``.00``.  LGF remains a separate system-export value.
+    as a currency-formatted payment value. Keep the canonical Decimal in
+    Django; the Sheet writer subsequently stores a numeric whole-KES cell
+    with a plain ``0`` display format. LGF remains a separate source value.
     """
     from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
@@ -2507,7 +2521,7 @@ def sync_farmer_to_master_sheet(
             # Keep the two deposits distinct: LGF is the IMAB/SysUp balance
             # used by payment reconciliation; the invoice payment is what
             # the customer paid HomeBiogas and belongs only in the HB column.
-            'system_deposit_paid_jbl': (candidates('system_deposit_paid_jbl'), _sheet_number(farmer.system_deposit_paid_jbl)),
+            'system_deposit_paid_jbl': (candidates('system_deposit_paid_jbl'), _whole_sheet_money(farmer.system_deposit_paid_jbl)),
             'deposit_paid_hbg': (candidates('deposit_paid_hbg'), _master_hbg_deposit_for_sheet(farmer)),
             'repayment_date': (candidates('repayment_date'), farmer.repayment_date),
             'repayment_day': (candidates('repayment_day'), farmer.repayment_day),
@@ -2530,10 +2544,10 @@ def sync_farmer_to_master_sheet(
             'gps_link': (candidates('gps_link'), farmer.gps_link or ''),
             'invoice_number': (candidates('invoice_number'), farmer.invoice_number),
             'invoice_date': (candidates('invoice_date'), _date_text(farmer.invoice_date)),
-            'invoice_amount': (candidates('invoice_amount', 'Total Amount'), _sheet_number(farmer.invoice_amount)),
-            'discount': (candidates('discount'), _sheet_number(farmer.discount)),
-            'payment': (candidates('payment'), _sheet_number(farmer.payment)),
-            'balance_due': (candidates('balance_due'), _sheet_number(farmer.balance_due)),
+            'invoice_amount': (candidates('invoice_amount', 'Total Amount'), _whole_sheet_money(farmer.invoice_amount)),
+            'discount': (candidates('discount'), _whole_sheet_money(farmer.discount)),
+            'payment': (candidates('payment'), _whole_sheet_money(farmer.payment)),
+            'balance_due': (candidates('balance_due'), _whole_sheet_money(farmer.balance_due)),
         }
 
         # Post-order HB fields are one-way projections from the bounded

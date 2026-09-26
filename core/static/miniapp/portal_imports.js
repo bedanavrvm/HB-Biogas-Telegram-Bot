@@ -196,6 +196,7 @@
       if (pageCount > 1) {
         target.insertAdjacentHTML('beforeend', `<div class="portal-import-pager"><span>Showing page ${escapeHtml(currentPage)} of ${escapeHtml(pageCount)} (${escapeHtml(totalRows)} rows)</span><div><button type="button" class="btn btn-secondary portal-import-review-page" data-batch-id="${escapeHtml(batch.id)}" data-page="${escapeHtml(currentPage - 1)}" ${currentPage <= 1 ? 'disabled' : ''}>Previous</button><button type="button" class="btn btn-secondary portal-import-review-page" data-batch-id="${escapeHtml(batch.id)}" data-page="${escapeHtml(currentPage + 1)}" ${currentPage >= pageCount ? 'disabled' : ''}>Next</button></div></div>`);
       }
+      helpers.bindHoldToCopy?.(target, '.portal-import-table td');
       target.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (error) {
       target.innerHTML = `<div class="empty-state"><div class="es-title">Review unavailable</div><div class="es-sub">${escapeHtml(error.message || 'Refresh and try again.')}</div></div>`;

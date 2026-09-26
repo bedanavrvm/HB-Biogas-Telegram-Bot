@@ -523,6 +523,76 @@ class PortalImportStagingTests(TestCase):
         self.assertEqual(counts['new'], 1)
         self.assertEqual(sum(1 for row in rows if row['disposition'] == 'already_committed'), 1)
 
+    def test_six_digit_national_id_is_not_a_farmup_warning(self):
+        csv_content = FARMUP_CSV.replace(b'23215888', b'123456')
+        batch, _, _ = stage_portal_import(
+            kind='farmup', filename='six-digit.csv', content=csv_content,
+            request_id='six-digit-stage', actor=self.user,
+            allowed_group_ids={self.group.group_id}, period='2026-08',
+        )
+        _, validation, _ = validate_portal_farmup(
+            batch_id=str(batch.pk), rows=list(batch.parsed_rows),
+            revision_token=farmup_revision_token(batch),
+            allowed_group_ids={self.group.group_id},
+        )
+        self.assertFalse(any('unusually short' in issue['message'] for issue in validation[0]['issues']))
+
+    def test_equivalent_monthly_csv_does_not_mark_held_row_changed(self):
+        batch, _, _ = stage_portal_import(
+            kind='farmup', filename='original.csv', content=FARMUP_CSV,
+            request_id='same-source-v1', actor=self.user,
+            allowed_group_ids={self.group.group_id}, period='2026-08',
+        )
+        held = dict(batch.parsed_rows[0], approved=False, disposition='hold', County='Kisumu')
+        batch.parsed_rows = [held]
+        batch.save(update_fields=['parsed_rows'])
+        equivalent = FARMUP_CSV.replace(b'\n', b'\r\n')
+        version, _, replayed = stage_portal_farmup_version(
+            batch_id=str(batch.pk), filename='renamed.csv', content=equivalent,
+            request_id='same-source-v2', actor=self.user,
+            allowed_group_ids={self.group.group_id},
+        )
+        self.assertFalse(replayed)
+        self.assertEqual(version.reconciliation['source_unchanged'], 1)
+        self.assertEqual(version.parsed_rows[0]['_source_state'], 'current')
+        self.assertEqual(version.parsed_rows[0]['disposition'], 'hold')
+        self.assertEqual(version.parsed_rows[0]['County'], 'Kisumu')
+
+        # Old versions could retain a false flag from filename/parser metadata.
+        stale = dict(version.parsed_rows[0], _source_state='changed')
+        version.parsed_rows = [stale]
+        version.save(update_fields=['parsed_rows'])
+        reopened = serialize_import_batch(version, include_rows=True)
+        self.assertEqual(reopened['rows'][0]['_source_state'], 'current')
+        _, validation, _ = validate_portal_farmup(
+            batch_id=str(version.pk), rows=reopened['rows'],
+            revision_token=farmup_revision_token(version),
+            allowed_group_ids={self.group.group_id},
+        )
+        self.assertFalse(any('changed in the latest' in issue['message'] for issue in validation[0]['issues']))
+
+    def test_changed_monthly_csv_still_warns_for_held_row(self):
+        batch, _, _ = stage_portal_import(
+            kind='farmup', filename='original.csv', content=FARMUP_CSV,
+            request_id='changed-held-v1', actor=self.user,
+            allowed_group_ids={self.group.group_id}, period='2026-08',
+        )
+        batch.parsed_rows = [dict(batch.parsed_rows[0], approved=False, disposition='hold')]
+        batch.save(update_fields=['parsed_rows'])
+        changed = FARMUP_CSV.replace(b',Embu,', b',Meru,')
+        version, _, _ = stage_portal_farmup_version(
+            batch_id=str(batch.pk), filename='changed.csv', content=changed,
+            request_id='changed-held-v2', actor=self.user,
+            allowed_group_ids={self.group.group_id},
+        )
+        self.assertEqual(version.reconciliation['source_changed'], 1)
+        _, validation, _ = validate_portal_farmup(
+            batch_id=str(version.pk), rows=list(version.parsed_rows),
+            revision_token=farmup_revision_token(version),
+            allowed_group_ids={self.group.group_id},
+        )
+        self.assertTrue(any('changed in the latest' in issue['message'] for issue in validation[0]['issues']))
+
     def test_changed_existing_case_requires_update_acknowledgement(self):
         batch, _operation, _ = stage_portal_import(
             kind='farmup', filename='august.csv', content=FARMUP_CSV,

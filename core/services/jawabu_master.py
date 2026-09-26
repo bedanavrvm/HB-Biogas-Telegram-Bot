@@ -914,6 +914,11 @@ MASTER_HBG_DEPOSIT_HEADERS = {
     'deposit / hb',
 }
 
+MASTER_MONEY_HEADERS = MASTER_HBG_DEPOSIT_HEADERS | {
+    'deposit paid to jbl', 'lgf balance', 'invoice amount',
+    'total amount', 'discount', 'payment', 'balance due',
+}
+
 
 def master_date_column_indexes(headers: list[str]) -> list[int]:
     """Return zero-based Master Data columns that must be true spreadsheet dates."""
@@ -929,26 +934,27 @@ def master_datetime_column_indexes(headers: list[str]) -> list[int]:
 
 
 def master_hbg_deposit_column_indexes(headers: list[str]) -> list[int]:
-    """Return zero-based columns that must remain numeric HB deposits."""
+    """Return monetary projection columns (legacy name retained for callers)."""
     return [
         index for index, header in enumerate(headers)
-        if normalize_header(header) in {normalize_header(value) for value in MASTER_HBG_DEPOSIT_HEADERS}
+        if normalize_header(header) in {normalize_header(value) for value in MASTER_MONEY_HEADERS}
     ]
 
 
 def _numeric_sheet_money(value):
-    """Return a JSON-safe number without allowing Sheets to infer a date."""
-    from decimal import Decimal, InvalidOperation
+    """Return a whole-KES numeric projection; canonical Decimal is untouched."""
+    from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
     if value in (None, ''):
         return ''
     try:
-        amount = value if isinstance(value, Decimal) else Decimal(str(value).replace(',', '').strip())
+        text = re.sub(r'^(?:KES|KSHS?)\s*', '', str(value).strip(), flags=re.IGNORECASE)
+        amount = value if isinstance(value, Decimal) else Decimal(text.replace(',', ''))
     except (InvalidOperation, TypeError, ValueError) as exc:
-        raise ValueError('HB deposit is not a valid monetary amount.') from exc
-    if not amount.is_finite() or amount < 0:
-        raise ValueError('HB deposit is not a valid monetary amount.')
-    return int(amount) if amount == amount.to_integral_value() else float(amount)
+        raise ValueError('Sheet amount is not a valid monetary amount.') from exc
+    if not amount.is_finite():
+        raise ValueError('Sheet amount is not a valid monetary amount.')
+    return int(amount.quantize(Decimal('1'), rounding=ROUND_HALF_UP))
 
 
 def _master_date_value(value, *, with_time=False):
@@ -1028,7 +1034,7 @@ def write_master_date_cells(
 def write_master_hbg_deposit_cells(
     sheet, updates: list[tuple[int, list]], deposit_indexes: list[int],
 ) -> None:
-    """Force HB deposits to numeric cells and repair inherited date formats."""
+    """Force all Master/Eco monetary cells to plain whole-KES numbers."""
     if not updates or not deposit_indexes:
         return
     payload = []
@@ -1052,7 +1058,7 @@ def write_master_hbg_deposit_cells(
             column = col_letter(index + 1)
             sheet.format(
                 f'{column}{start_row}:{column}{end_row}',
-                {'numberFormat': {'type': 'NUMBER', 'pattern': '#,##0.00'}},
+                {'numberFormat': {'type': 'NUMBER', 'pattern': '0'}},
             )
 
 

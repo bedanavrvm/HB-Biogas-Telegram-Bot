@@ -3,6 +3,7 @@
 
   const api = window.PortalMiniAppApi || {};
   const utils = window.MiniAppUtils || {};
+  const helpers = window.PortalMiniAppHelpers || {};
   const tg = window.Telegram?.WebApp;
   const editableFields = ['National ID', 'Primary Phone', 'Secondary Phone', 'Application Action', 'Additional Unit Reason', 'County', 'HBG Visit Date', 'Deposit Paid to HB', 'HB Sales Person'];
   const requiredFields = ['Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone', 'County', 'HBG Visit Date', 'Deposit Paid to HB', 'HB Sales Person'];
@@ -56,7 +57,6 @@
     if (row['Application Action'] === 'create_additional_unit' && isBlank(row['Additional Unit Reason'])) issues.push({severity:'blocker', field:'Additional Unit Reason', message:'Additional Unit Reason is required'});
     const nationalId = String(row['National ID'] || '').trim();
     if (nationalId && !/^\d{1,9}$/.test(nationalId)) issues.push({severity:'blocker', field:'National ID', message:'National ID / Maisha Namba must contain 1 to 9 digits only'});
-    else if (nationalId && nationalId.length < 7) issues.push({severity:'warning', field:'National ID', message:'National ID / Maisha Namba is unusually short; verify it against the customer document'});
     return issues;
   }
   function fieldInvalid(row, field) {
@@ -205,7 +205,7 @@
     const match = params.data._match?.kind;
     const label = params.data.disposition === 'committed' ? 'Committed' : (match === 'unchanged' || params.data.disposition === 'already_committed') ? 'Already committed' : match === 'update' ? 'Will update' : match === 'new' ? 'New' : params.data._state === 'needs_correction' ? 'Needs correction' : (params.data._state === 'warning' ? 'Warning' : 'Ready');
     const badge = document.createElement('span'); badge.className = `farmup-row-state ${params.data._state}`; badge.textContent = label; wrap.append(badge);
-    if (params.data._state === 'warning') { const button = document.createElement('button'); button.type = 'button'; button.className = 'farmup-acknowledge'; button.textContent = params.data.warning_acknowledged ? 'Acknowledged' : (match === 'update' ? 'Acknowledge update' : 'Acknowledge'); button.setAttribute('aria-pressed', String(Boolean(params.data.warning_acknowledged))); button.addEventListener('click', event => { event.stopPropagation(); params.data.warning_acknowledged = !params.data.warning_acknowledged; if (match === 'update') params.data.update_acknowledged = params.data.warning_acknowledged; if (!params.data.warning_acknowledged) { params.data.approved = false; params.data.disposition = 'hold'; params.node.setSelected(false); } params.api.refreshCells({rowNodes:[params.node], force:true}); updateSummary(); }); wrap.append(button); }
+    if (params.data._state === 'warning') { const button = document.createElement('button'); button.type = 'button'; button.className = 'farmup-acknowledge'; button.textContent = params.data.warning_acknowledged ? 'Acknowledged' : (match === 'update' ? 'Acknowledge update' : 'Acknowledge'); button.setAttribute('aria-pressed', String(Boolean(params.data.warning_acknowledged))); button.addEventListener('click', event => { event.stopPropagation(); params.data.warning_acknowledged = !params.data.warning_acknowledged; if (match === 'update') params.data.update_acknowledged = params.data.warning_acknowledged; if (!params.data.warning_acknowledged) { params.data.approved = false; params.data.disposition = 'hold'; params.node.setSelected(false); } params.api.redrawRows({rowNodes:[params.node]}); if (reviewMode === 'carousel') renderCarousel(); updateSummary(); }); wrap.append(button); }
     return wrap;
   }
   function applicationActionLabel(value, row) {
@@ -246,6 +246,7 @@
   }
   function initializeGrid() {
     if (gridApi || !window.agGrid || !node('farmup-grid')) return;
+    helpers.bindHoldToCopy?.(node('farmup-grid'), '.ag-cell:not([col-id="selected"]):not([col-id="state"])');
     window.agGrid.ModuleRegistry.registerModules([window.agGrid.AllCommunityModule]);
     const textColumn = (field, width = 150) => ({field, headerName:field, width, editable:can('portal.farmup.commit'), tooltipValueGetter:p => String(p.value || ''), cellClassRules:{'farmup-cell-edited':p => fieldEdited(p.data, field),'farmup-cell-invalid':p => fieldInvalid(p.data, field)}});
     gridApi = window.agGrid.createGrid(node('farmup-grid'), {

@@ -188,9 +188,51 @@
     return '';
   }
 
+  function bindHoldToCopy(root, cellSelector) {
+    if (!root || root.dataset.holdCopyBound === 'true') return;
+    root.dataset.holdCopyBound = 'true';
+    let timer = null, start = null, ready = null;
+    const clear = () => { clearTimeout(timer); timer = null; start = null; ready = null; };
+    root.addEventListener('pointerdown', event => {
+      if (!event.isPrimary || event.button !== 0 || event.target.closest('a, button, input, textarea, select, [contenteditable="true"]')) return;
+      const cell = event.target.closest(cellSelector);
+      if (!cell || !root.contains(cell)) return;
+      clear();
+      start = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, cell };
+      timer = setTimeout(() => { ready = start?.cell || null; utils.haptic?.('light'); }, 500);
+    });
+    root.addEventListener('pointermove', event => {
+      if (!start || event.pointerId !== start.pointerId) return;
+      if (Math.abs(event.clientX - start.x) > 8 || Math.abs(event.clientY - start.y) > 8) clear();
+    });
+    root.addEventListener('pointerup', event => {
+      if (!start || event.pointerId !== start.pointerId) return;
+      const cell = ready; clear();
+      if (!cell) return;
+      const value = String(cell.innerText || '').replace(/\s+/g, ' ').trim();
+      if (!value || value === '—') return;
+      event.preventDefault();
+      if (!navigator.clipboard?.writeText) {
+        window.PortalAppShell?.showToast?.('Copy is unavailable on this device.', 'error');
+        return;
+      }
+      try {
+        navigator.clipboard.writeText(value).then(
+          () => window.PortalAppShell?.showToast?.(`${value} copied`, 'success'),
+          () => window.PortalAppShell?.showToast?.('Copy is unavailable on this device.', 'error'),
+        );
+      } catch (_) {
+        window.PortalAppShell?.showToast?.('Copy is unavailable on this device.', 'error');
+      }
+    });
+    root.addEventListener('pointercancel', clear);
+    root.addEventListener('scroll', clear, true);
+  }
+
   window.PortalMiniAppHelpers = {
     creditBadge,
     batchClientRows,
+    bindHoldToCopy,
     finalDecisionBadge,
     fmt,
     fmtDate,

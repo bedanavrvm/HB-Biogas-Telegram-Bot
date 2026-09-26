@@ -638,8 +638,9 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(failure_context['phase'], 'connection')
         self.assertIn('Eco-conserve', failure_context['detail'])
 
+    @patch('core.services.jawabu_pipeline._jawabu_group_config')
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
-    def test_master_sheet_keeps_hb_deposit_separate_from_lgf_and_plain(self, mock_get_sheets):
+    def test_master_sheet_keeps_hb_deposit_separate_from_lgf_and_plain(self, mock_get_sheets, mock_group_config):
         """The HB invoice payment is a whole-number display, never the LGF value."""
         from core.tests import FakeMasterDataSheet, FakeJawabuService
 
@@ -649,13 +650,14 @@ class JblPipelineServiceTestCase(TestCase):
         headers = ['No.', 'Customer Name', 'National ID', 'Primary Phone', 'Deposit Paid to HB', 'Deposit Paid to JBL']
         fake_sheet = FakeMasterDataSheet(headers)
         mock_get_sheets.return_value = FakeJawabuService(fake_sheet)
+        mock_group_config.return_value = self.config
 
         self.assertEqual(_master_hbg_deposit_for_sheet(self.farmer_stage1), '5000')
         self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
 
         row = fake_sheet.values[-1]
-        self.assertEqual(row[headers.index('Deposit Paid to HB')], '5000')
-        self.assertEqual(row[headers.index('Deposit Paid to JBL')], 13500.5)
+        self.assertEqual(row[headers.index('Deposit Paid to HB')], 5000)
+        self.assertEqual(row[headers.index('Deposit Paid to JBL')], 13501)
 
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
     def test_master_sheet_projection_uppercases_short_text_but_preserves_visit_note(self, mock_get_sheets):

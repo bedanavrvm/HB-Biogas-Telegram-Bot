@@ -821,12 +821,14 @@ test('Portal FarmUp renders a compact mobile grid with explicit selection counts
   const idCell = page.locator('.ag-cell[col-id="National ID"]').first();
   await idCell.dblclick();
   await page.keyboard.press('Control+A');
-  await page.keyboard.type('87654321');
+  await page.keyboard.type('876543');
   await page.keyboard.press('Enter');
-  await expect(page.locator('.ag-cell').filter({ hasText: '87654321' }).first()).toHaveClass(/farmup-cell-edited/);
+  await expect(page.locator('.ag-cell').filter({ hasText: '876543' }).first()).toHaveClass(/farmup-cell-edited/);
+  await expect(page.locator('.ag-cell[col-id="selected"] input[type="checkbox"]')).toBeVisible();
+  await expect(page.locator('.farmup-row-state.warning')).toHaveCount(0);
   await expect(page.locator('#farmup-selection-summary')).toContainText(/1\s*edits/);
   await page.locator('[data-farmup-mode="carousel"]').click();
-  await expect(page.locator('.farmup-carousel-card')).toContainText('87654321');
+  await expect(page.locator('.farmup-carousel-card')).toContainText('876543');
   await expect(page.locator('.farmup-carousel-field.edited')).toHaveCount(1);
   await expect(page.locator('.farmup-carousel-track')).toHaveCSS('scroll-snap-type', 'x mandatory');
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
@@ -1208,6 +1210,61 @@ test('Complaint camera stops when Telegram deactivates the Mini App', async ({ p
 
   expect(stopped).toBe(1);
   await expect(page.locator('#cameraOverlay')).toBeHidden();
+});
+
+test('Portal review cells copy their actual value on hold without copying controls', async ({ page }) => {
+  await page.setContent('<div id="farmup-grid"><div class="ag-cell" col-id="National ID">123456</div><div class="ag-cell" col-id="selected"><input type="checkbox"></div></div><div id="portal-import-review"><table class="portal-import-table"><tbody><tr><td>5000</td><td><select><option>Case</option></select></td></tr></tbody></table></div>');
+  await page.evaluate(() => {
+    window.__copiedValues = [];
+    window.__copyToasts = [];
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async value => { window.__copiedValues.push(value); } } });
+    window.PortalAppShell = { showToast: message => window.__copyToasts.push(message) };
+  });
+  await page.addScriptTag({ path: asset('portal_helpers.js') });
+  await page.evaluate(() => {
+    PortalMiniAppHelpers.bindHoldToCopy(document.getElementById('farmup-grid'), '.ag-cell:not([col-id="selected"])');
+    PortalMiniAppHelpers.bindHoldToCopy(document.getElementById('portal-import-review'), '.portal-import-table td');
+    const hold = element => {
+      element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, isPrimary: true, button: 0, pointerId: 1 }));
+      return new Promise(resolve => setTimeout(() => {
+        element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, isPrimary: true, button: 0, pointerId: 1 }));
+        resolve();
+      }, 550));
+    };
+    window.__holdCell = hold;
+  });
+  await page.evaluate(async () => {
+    await window.__holdCell(document.querySelector('.ag-cell[col-id="National ID"]'));
+    await window.__holdCell(document.querySelector('.portal-import-table td'));
+    await window.__holdCell(document.querySelector('.ag-cell input'));
+  });
+  await expect.poll(() => page.evaluate(() => window.__copiedValues)).toEqual(['123456', '5000']);
+  expect(await page.evaluate(() => window.__copyToasts)).toEqual(['123456 copied', '5000 copied']);
+});
+
+test('FarmUp acknowledgement reveals the individual checkbox before bulk selection', async ({ page }) => {
+  await page.setContent('<div id="portal-screen" data-screen="farmup"><form id="portal-farmup-upload"></form><div id="portal-farmup-feedback"></div><section id="portal-farmup-review" hidden></section><div id="portal-farmup-list"></div></div>');
+  await page.addStyleTag({ path: asset('base.css') });
+  await page.addStyleTag({ path: asset('portal.css') });
+  await page.addStyleTag({ path: asset('vendor-ag-grid-community-36.1.0.min.css') });
+  await page.addStyleTag({ path: asset('vendor-ag-grid-theme-quartz-36.1.0.min.css') });
+  await page.addScriptTag({ path: asset('vendor-ag-grid-community-36.1.0.min.js') });
+  await page.evaluate(() => {
+    const row = { row_id: 1, approved: false, disposition: 'hold', 'Customer Name': 'Test Farmer', 'National ID': '123456', 'Primary Phone': '254700000001', 'Secondary Phone': '254700000002', 'Application Action': 'update_existing', County: 'Embu', 'HBG Visit Date': '01-05-2026', 'Deposit Paid to HB': '5000', 'HB Sales Person': 'Test Officer' };
+    const batch = { id: 'batch-1', source_filename: 'farmers.csv', status: 'pending_review', total_rows: 1, archive_state: 'archived', mapping_state: 'auto_ready', is_current_version: true, version_number: 1, period_label: 'August 2026', versions: [{ id: 'batch-1' }] };
+    const validation = [{ row_id: '1', state: 'warning', selected: false, disposition: 'hold', warning_acknowledged: false, match: { kind: 'new', changed_fields: [] }, issues: [{ severity: 'warning', message: 'Source changed' }] }];
+    window.PortalAppShell = { hasCapability: () => true, showToast: () => {} };
+    window.PortalMiniAppApi = { apiFetch: async path => ({ ok: true, data: { ok: true, ...(path === '/farmup/' ? { batches: [batch] } : { batch: { ...batch, mapping: { state: 'auto_ready', columns: [] }, validation, rows: [{ ...row }], revision_token: 'revision' } }) } }) };
+  });
+  await page.addScriptTag({ path: asset('portal_farmup.js') });
+  await page.evaluate(() => PortalMiniAppFarmUp.load());
+  await page.locator('.farmup-open').click();
+  await expect(page.locator('#farmup-grid .ag-cell[col-id="selected"] input[type="checkbox"]')).not.toBeVisible();
+  await page.locator('#farmup-grid .farmup-acknowledge').click();
+  await expect(page.locator('#farmup-grid .ag-cell[col-id="selected"] input[type="checkbox"]')).toBeVisible();
+  await page.locator('.farmup-bulk-actions summary').click();
+  await page.locator('#farmup-select-all').click();
+  await expect(page.locator('#farmup-selection-summary')).toContainText(/1\s*to commit/);
 });
 
 test('Complaint voice input reviews before insertion and stays compact on small phones', async ({ page }) => {

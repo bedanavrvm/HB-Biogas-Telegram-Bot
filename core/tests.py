@@ -6773,8 +6773,24 @@ class MasterSheetMoneyFormattingTests(TestCase):
         self.assertEqual(sheet.updates[0][1], 'USER_ENTERED')
         self.assertEqual(sheet.updates[0][0][0]['values'], [[5000]])
         self.assertEqual(sheet.formats, [(
-            'B8:B8', {'numberFormat': {'type': 'NUMBER', 'pattern': '#,##0.00'}},
+            'B8:B8', {'numberFormat': {'type': 'NUMBER', 'pattern': '0'}},
         )])
+
+    def test_all_master_monetary_columns_use_plain_whole_kes_numbers(self):
+        from core.services.jawabu_master import master_hbg_deposit_column_indexes, write_master_hbg_deposit_cells
+
+        headers = ['Deposit Paid to HB', 'LGF Balance', 'Invoice Amount', 'Discount', 'Payment', 'Balance Due']
+        sheet = self.FakeSheet()
+        indexes = master_hbg_deposit_column_indexes(headers)
+        self.assertEqual(indexes, list(range(len(headers))))
+        write_master_hbg_deposit_cells(
+            sheet, [(8, ['5000', '13500.50', '9999.49', '100.50', '2000', '7898.99'])], indexes,
+        )
+        self.assertEqual(
+            [item['values'][0][0] for item in sheet.updates[0][0]],
+            [5000, 13501, 9999, 101, 2000, 7899],
+        )
+        self.assertTrue(all(spec['numberFormat']['pattern'] == '0' for _, spec in sheet.formats))
 
     def test_invalid_hbg_deposit_is_never_written_or_blank_over_existing_value(self):
         from core.services.jawabu_master import write_master_hbg_deposit_cells
