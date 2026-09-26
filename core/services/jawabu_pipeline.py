@@ -1000,8 +1000,9 @@ def _validate_farmer_product_configuration(
         farmer.product_custom_values = {
             **(farmer.product_custom_values or {}), **custom_values,
         }
-    if farmer.payment_product and not farmer.product_version_id:
-        return 'Map this case to a published global product version before continuing.'
+    # SysUp supplies the system's payment-product label independently of the
+    # optional Portal product catalogue. An unmapped label must not prevent a
+    # previously reviewed case from recording its credit/final decision.
     from core.services.product_catalog import (
         missing_product_requirements, product_is_available, validate_custom_values,
     )

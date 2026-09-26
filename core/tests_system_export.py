@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.test import TestCase, override_settings
 
 from core.models import (
+    JawabuApprovalRecord,
     JawabuCustomer,
     JawabuCustomerFieldProvenance,
     JawabuCustomerPhoneHistory,
@@ -16,6 +17,7 @@ from core.models import (
     PaymentDocument,
 )
 from core.services.jawabu_case360 import serialize_case360
+from core.services.jawabu_approvals import approval_is_effective, record_approval
 from core.services.system_export import (
     commit_system_export_review_batch,
     create_system_export_review_batch,
@@ -165,6 +167,71 @@ class SystemExportImportTests(TestCase):
         self.assertEqual(self.farmer.system_deposit_paid_jbl, Decimal('5000'))
         self.assertEqual(batch.status, 'committed')
         self.assertTrue(self.farmer.pipeline_events.filter(source='system_export').exists())
+
+    def test_sysup_enrichment_keeps_existing_credit_and_final_approvals(self):
+        self.farmer.credit_decision = 'Approved'
+        self.farmer.final_decision = 'Approved'
+        self.farmer.workflow_state = 'order'
+        self.farmer.save(update_fields=['credit_decision', 'final_decision', 'workflow_state'])
+        credit = record_approval(
+            farmer=self.farmer, gate='credit', decision='Approved', actor=None, access=None,
+        )
+        final = record_approval(
+            farmer=self.farmer, gate='final_review', decision='Approved', actor=None, access=None,
+        )
+        revision_before = self.farmer.workflow_revision
+        batch, _stats = create_system_export_review_batch(
+            group_id='-100sysup', telegram_message_id='sysup-approved-enrichment', sender='Officer',
+            source_filename='customers.csv', content=export_csv([{
+                'Customer ID': '9001', 'Name': 'WANJIKU, JANE', 'Mobile No': '0712345678',
+                'ID NO': '12345678', 'Branch': 'Embu', 'Loan Officer': 'Officer A',
+                'Product Name': 'Biogas', 'LGF Balance': '5000',
+            }]),
+        )
+
+        result = commit_system_export_review_batch(batch, batch.parsed_rows, actor='Officer')
+
+        self.assertTrue(result['success'], result['errors'])
+        self.farmer.refresh_from_db()
+        credit.refresh_from_db()
+        final.refresh_from_db()
+        self.assertGreater(self.farmer.workflow_revision, revision_before)
+        self.assertEqual(self.farmer.workflow_state, 'order')
+        self.assertEqual(self.farmer.customer_no, '9001')
+        self.assertEqual(self.farmer.imab_customer_name, 'WANJIKU, JANE')
+        self.assertEqual(self.farmer.system_deposit_paid_jbl, Decimal('5000'))
+        self.assertEqual(credit.status, JawabuApprovalRecord.STATUS_ACTIVE)
+        self.assertEqual(final.status, JawabuApprovalRecord.STATUS_ACTIVE)
+        self.assertTrue(approval_is_effective(self.farmer, 'credit'))
+        self.assertTrue(approval_is_effective(self.farmer, 'final_review'))
+        self.assertTrue(self.farmer.pipeline_events.filter(source='system_export').exists())
+
+    def test_sysup_different_borrower_id_after_approval_stays_in_review(self):
+        self.farmer.credit_decision = 'Approved'
+        self.farmer.final_decision = 'Approved'
+        self.farmer.workflow_state = 'order'
+        self.farmer.save(update_fields=['credit_decision', 'final_decision', 'workflow_state'])
+        batch, _stats = create_system_export_review_batch(
+            group_id='-100sysup', telegram_message_id='sysup-approved-identity', sender='Officer',
+            source_filename='customers.csv', content=export_csv([{
+                'Customer ID': '9007', 'Name': 'BORROWER, JOHN', 'Mobile No': '0712345678',
+                'ID NO': '87654321', 'Branch': 'Embu', 'Loan Officer': 'Officer A',
+                'Product Name': 'Biogas', 'LGF Balance': '5000',
+            }]),
+        )
+        row = dict(batch.parsed_rows[0])
+        row['Matched Farmer ID'] = str(self.farmer.id)
+        row['approved'] = True
+
+        result = commit_system_export_review_batch(batch, [row], actor='Officer')
+
+        self.assertFalse(result['success'])
+        self.assertEqual(result['committed'], 0)
+        self.assertIn('National ID differs', result['errors'][0])
+        self.farmer.refresh_from_db()
+        self.assertEqual(self.farmer.national_id, '12345678')
+        self.assertEqual(self.farmer.customer_no, '')
+        self.assertEqual(self.farmer.workflow_state, 'order')
 
     def test_first_sysup_binding_preserves_lead_and_sets_canonical_borrower_identity(self):
         batch, _stats = create_system_export_review_batch(

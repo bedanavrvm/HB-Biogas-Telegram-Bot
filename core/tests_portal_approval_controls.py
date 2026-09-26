@@ -177,6 +177,39 @@ class PortalApprovalControlsTests(TestCase):
         require_effective_approval(self.farmer, 'credit')
         require_effective_approval(self.farmer, 'final_review')
 
+    def test_sysup_product_label_does_not_block_existing_case_re_review(self):
+        self.farmer.workflow_state = 'order'
+        self.farmer.credit_decision = 'Approved'
+        self.farmer.final_decision = 'Approved'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.customer_no = '9001'
+        self.farmer.payment_product = 'Biogas system label from SysUp'
+        self.farmer.save(update_fields=[
+            'workflow_state', 'credit_decision', 'final_decision', 'imab_created',
+            'customer_no', 'payment_product',
+        ])
+        record_approval(farmer=self.farmer, gate='credit', decision='Approved', actor=None, access=None)
+        record_approval(farmer=self.farmer, gate='final_review', decision='Approved', actor=None, access=None)
+        invalidate_material_approvals(
+            farmer=self.farmer, changed_fields={'payment_product'},
+            reason='SysUp changed approved case details: payment product.',
+        )
+
+        ok, error = set_credit_decision(
+            self.farmer, decision='Approved', imab_created='Yes', customer_no='9001',
+            expected_revision=self.farmer.workflow_revision,
+        )
+        self.assertTrue(ok, error)
+        self.farmer.refresh_from_db()
+        ok, error = set_final_decision(
+            self.farmer, final_decision='Approved', expected_revision=self.farmer.workflow_revision,
+        )
+        self.assertTrue(ok, error)
+        self.farmer.refresh_from_db()
+        self.assertEqual(self.farmer.workflow_state, 'order')
+        require_effective_approval(self.farmer, 'credit')
+        require_effective_approval(self.farmer, 'final_review')
+
     def test_credit_recheck_invalidates_still_active_final_review(self):
         self.farmer.workflow_state = 'order'
         self.farmer.credit_decision = 'Approved'

@@ -467,6 +467,22 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
         national_id = str(values['national_id'])
         phone = str(values['phone'])
         customer_no = str(values['customer_no'])
+        # SysUp enriches a reviewed application; it does not authorize
+        # changing the borrower whose credit/final decision was recorded.
+        # Hold a different National ID for an explicit identity investigation
+        # rather than accepting it with a checkbox or revoking both approvals
+        # as an accidental side effect of the import.
+        decision_recorded = (
+            str(farmer.credit_decision or '') not in {'', 'Pending'}
+            or str(farmer.final_decision or '') not in {'', 'Under Review'}
+            or bool(farmer.order_number)
+        )
+        if decision_recorded and national_id and farmer.national_id and national_id != farmer.national_id:
+            reason = 'SysUp National ID differs from the reviewed borrower. Resolve the identity before importing this row.'
+            _mark_review(row, reason)
+            errors.append(f'Row {index}: {reason}')
+            remaining.append(row)
+            continue
         preview = _sync_preview(row, farmer)
         if preview['state'] == 'already_current':
             unchanged += 1
@@ -581,28 +597,13 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
         }
         revision_before = revision_after = None
         if material_changes:
-            from core.services.jawabu_approvals import MATERIAL_FIELDS, invalidate_material_approvals
             from core.services.workflow_transitions import next_workflow_revision
 
             revision_before, revision_after = next_workflow_revision(farmer)
             farmer.save(update_fields=['workflow_revision', 'updated_at'])
-            approval_changes = sorted(material_changes.intersection(MATERIAL_FIELDS))
-            if approval_changes:
-                field_labels = {
-                    'national_id': 'National ID',
-                    'primary_phone': 'primary phone',
-                    'customer_no': 'iMAB customer number',
-                    'imab_customer_name': 'iMAB customer name',
-                    'branch': 'branch',
-                    'system_branch': 'system branch',
-                    'payment_product': 'payment product',
-                }
-                changed_labels = ', '.join(field_labels.get(field, field.replace('_', ' ')) for field in approval_changes)
-                invalidate_material_approvals(
-                    farmer=farmer,
-                    changed_fields=approval_changes,
-                    reason=f'SysUp changed approved case details: {changed_labels}.',
-                )
+            # System enrichment is audited and revisioned, but cannot revoke
+            # credit or Head of Rural decisions. Explicit case corrections in
+            # their owning workflows retain the material-change safeguard.
         record_pipeline_event(
             farmer,
             action='system_export_updated',
