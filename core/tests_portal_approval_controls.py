@@ -20,7 +20,10 @@ from core.services.jawabu_approvals import (
     validate_reason,
     visit_media_orphan_report,
 )
-from core.services.jawabu_pipeline import JBL_FORWARD_STATUS, log_jbl_visit, set_credit_decision
+from core.services.jawabu_pipeline import (
+    JBL_FORWARD_STATUS, credit_queue, final_review_queue, log_jbl_visit,
+    set_credit_decision, set_final_decision,
+)
 from core.services.telegram_identity import user_access
 
 
@@ -88,6 +91,176 @@ class PortalApprovalControlsTests(TestCase):
         self.assertEqual(changed, 1)
         self.assertEqual(approval.status, JawabuApprovalRecord.STATUS_INVALIDATED)
         self.assertFalse(approval_is_effective(self.farmer, 'credit'))
+
+    def test_sysup_lgf_only_change_does_not_invalidate_final_review(self):
+        self.farmer.final_decision = 'Approved'
+        self.farmer.save(update_fields=['final_decision'])
+        approval = record_approval(
+            farmer=self.farmer, gate='final_review', decision='Approved', actor=None, access=None,
+        )
+
+        changed = invalidate_material_approvals(
+            farmer=self.farmer, changed_fields={'system_deposit_paid_jbl'},
+            reason='SysUp LGF balance changed.',
+        )
+
+        approval.refresh_from_db()
+        self.assertEqual(changed, 0)
+        self.assertEqual(approval.status, JawabuApprovalRecord.STATUS_ACTIVE)
+        require_effective_approval(self.farmer, 'final_review')
+
+    def test_order_validation_blocks_invalidated_final_review_with_reason(self):
+        from core.api.portal_views import _validate_requisition_farmers
+
+        self.farmer.final_decision = 'Approved'
+        self.farmer.customer_no = '9001'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.sub_county = 'Kieni'
+        self.farmer.village = 'Test village'
+        self.farmer.save(update_fields=[
+            'final_decision', 'customer_no', 'imab_created', 'sub_county', 'village',
+        ])
+        record_approval(
+            farmer=self.farmer, gate='final_review', decision='Approved', actor=None, access=None,
+        )
+        invalidate_material_approvals(
+            farmer=self.farmer, changed_fields={'national_id'},
+            reason='SysUp changed approved case details: National ID.',
+        )
+
+        ready, blocked, _warnings = _validate_requisition_farmers([self.farmer])
+
+        self.assertFalse(ready)
+        self.assertEqual(len(blocked), 1)
+        self.assertIn('National ID', ' '.join(blocked[0]['missing']))
+
+    def test_invalidated_unordered_case_can_repeat_credit_then_final_review(self):
+        self.farmer.workflow_state = 'order'
+        self.farmer.credit_decision = 'Approved'
+        self.farmer.final_decision = 'Approved'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.customer_no = '9001'
+        self.farmer.save(update_fields=[
+            'workflow_state', 'credit_decision', 'final_decision', 'imab_created', 'customer_no',
+        ])
+        credit = record_approval(
+            farmer=self.farmer, gate='credit', decision='Approved', actor=None, access=None,
+        )
+        final = record_approval(
+            farmer=self.farmer, gate='final_review', decision='Approved', actor=None, access=None,
+        )
+        invalidate_material_approvals(
+            farmer=self.farmer, changed_fields={'system_branch'},
+            reason='SysUp changed approved case fields: system_branch.',
+        )
+
+        self.assertIn(self.farmer, credit_queue())
+        ok, error = set_credit_decision(
+            self.farmer, decision='Approved', imab_created='Yes', customer_no='9001',
+            expected_revision=self.farmer.workflow_revision,
+        )
+        self.assertTrue(ok, error)
+        self.farmer.refresh_from_db()
+        credit.refresh_from_db()
+        final.refresh_from_db()
+        self.assertEqual(self.farmer.workflow_state, 'final_review')
+        self.assertEqual(credit.status, JawabuApprovalRecord.STATUS_INVALIDATED)
+        self.assertEqual(final.status, JawabuApprovalRecord.STATUS_INVALIDATED)
+        self.assertIn(self.farmer, final_review_queue())
+
+        ok, error = set_final_decision(
+            self.farmer, final_decision='Approved', expected_revision=self.farmer.workflow_revision,
+        )
+        self.assertTrue(ok, error)
+        self.farmer.refresh_from_db()
+        self.assertEqual(self.farmer.workflow_state, 'order')
+        require_effective_approval(self.farmer, 'credit')
+        require_effective_approval(self.farmer, 'final_review')
+
+    def test_credit_recheck_invalidates_still_active_final_review(self):
+        self.farmer.workflow_state = 'order'
+        self.farmer.credit_decision = 'Approved'
+        self.farmer.final_decision = 'Approved'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.customer_no = '9001'
+        self.farmer.save(update_fields=[
+            'workflow_state', 'credit_decision', 'final_decision', 'imab_created', 'customer_no',
+        ])
+        record_approval(farmer=self.farmer, gate='credit', decision='Approved', actor=None, access=None)
+        final = record_approval(
+            farmer=self.farmer, gate='final_review', decision='Approved', actor=None, access=None,
+        )
+        self.farmer.approval_records.filter(gate='credit').update(
+            status=JawabuApprovalRecord.STATUS_INVALIDATED,
+        )
+
+        ok, error = set_credit_decision(
+            self.farmer, decision='Approved', imab_created='Yes', customer_no='9001',
+            expected_revision=self.farmer.workflow_revision,
+        )
+
+        self.assertTrue(ok, error)
+        final.refresh_from_db()
+        self.assertEqual(final.status, JawabuApprovalRecord.STATUS_INVALIDATED)
+
+    def test_final_review_can_be_repeated_from_order_before_order_assignment(self):
+        self.farmer.workflow_state = 'order'
+        self.farmer.credit_decision = 'Approved'
+        self.farmer.final_decision = 'Approved'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.customer_no = '9001'
+        self.farmer.save(update_fields=[
+            'workflow_state', 'credit_decision', 'final_decision', 'imab_created', 'customer_no',
+        ])
+        record_approval(farmer=self.farmer, gate='credit', decision='Approved', actor=None, access=None)
+        final = record_approval(
+            farmer=self.farmer, gate='final_review', decision='Approved', actor=None, access=None,
+        )
+        final.status = JawabuApprovalRecord.STATUS_INVALIDATED
+        final.invalidation_reason = 'Case identity changed.'
+        final.save(update_fields=['status', 'invalidation_reason'])
+
+        self.assertIn(self.farmer, final_review_queue())
+        ok, error = set_final_decision(
+            self.farmer, final_decision='Approved', expected_revision=self.farmer.workflow_revision,
+        )
+        self.assertTrue(ok, error)
+        self.farmer.refresh_from_db()
+        require_effective_approval(self.farmer, 'final_review')
+        self.assertNotIn(self.farmer, final_review_queue())
+
+    def test_approval_recheck_does_not_reopen_an_ordered_case(self):
+        self.farmer.workflow_state = 'ordered'
+        self.farmer.order_number = '104'
+        self.farmer.credit_decision = 'Approved'
+        self.farmer.final_decision = 'Approved'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.customer_no = '9001'
+        self.farmer.save(update_fields=[
+            'workflow_state', 'order_number', 'credit_decision', 'final_decision',
+            'imab_created', 'customer_no',
+        ])
+        credit = record_approval(farmer=self.farmer, gate='credit', decision='Approved', actor=None, access=None)
+        final = record_approval(
+            farmer=self.farmer, gate='final_review', decision='Approved', actor=None, access=None,
+        )
+        self.farmer.approval_records.update(status=JawabuApprovalRecord.STATUS_INVALIDATED)
+
+        self.assertNotIn(self.farmer, credit_queue())
+        self.assertNotIn(self.farmer, final_review_queue())
+        ok, _error = set_credit_decision(
+            self.farmer, decision='Approved', imab_created='Yes', customer_no='9001',
+            expected_revision=self.farmer.workflow_revision,
+        )
+        self.assertFalse(ok)
+        ok, _error = set_final_decision(
+            self.farmer, final_decision='Approved', expected_revision=self.farmer.workflow_revision,
+        )
+        self.assertFalse(ok)
+        credit.refresh_from_db()
+        final.refresh_from_db()
+        self.assertEqual(credit.status, JawabuApprovalRecord.STATUS_INVALIDATED)
+        self.assertEqual(final.status, JawabuApprovalRecord.STATUS_INVALIDATED)
 
     def test_temporary_delegation_is_scoped_and_cannot_be_self_granted(self):
         admin_access = user_access(self.admin, 'jawabu_portal')

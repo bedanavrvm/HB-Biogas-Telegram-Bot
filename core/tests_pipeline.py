@@ -695,7 +695,7 @@ class JblPipelineServiceTestCase(TestCase):
     @patch('core.services.jawabu_pipeline._jawabu_group_config')
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
     def test_master_sheet_keeps_hb_deposit_separate_from_lgf_and_plain(self, mock_get_sheets, mock_group_config):
-        """The HB invoice payment is a whole-number display, never the LGF value."""
+        """LGF remains in Django for payments, not the JBL Sheet deposit."""
         from core.tests import FakeMasterDataSheet, FakeJawabuService
 
         self.farmer_stage1.deposit_paid_hbg = Decimal('5000.00')
@@ -711,7 +711,17 @@ class JblPipelineServiceTestCase(TestCase):
 
         row = fake_sheet.values[-1]
         self.assertEqual(row[headers.index('Deposit Paid to HB')], 5000)
-        self.assertEqual(row[headers.index('Deposit Paid to JBL')], 13501)
+        self.assertEqual(row[headers.index('Deposit Paid to JBL')], '')
+        self.farmer_stage1.refresh_from_db()
+        self.assertEqual(self.farmer_stage1.system_deposit_paid_jbl, Decimal('13500.50'))
+
+        # A later SysUp update must not clear an independently maintained
+        # JBL deposit in an already-published Sheet row either.
+        fake_sheet.values[-1][headers.index('Deposit Paid to JBL')] = 7000
+        self.farmer_stage1.system_deposit_paid_jbl = Decimal('14500.50')
+        self.farmer_stage1.save(update_fields=['system_deposit_paid_jbl', 'updated_at'])
+        self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
+        self.assertEqual(fake_sheet.values[-1][headers.index('Deposit Paid to JBL')], 7000)
 
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
     def test_master_sheet_projection_uppercases_short_text_but_preserves_visit_note(self, mock_get_sheets):
@@ -879,11 +889,11 @@ class JblPipelineServiceTestCase(TestCase):
 
         synced_row = fake_sheet.values[-1]
         self.assertEqual(synced_row[2], 60000)
-        self.assertEqual(synced_row[3], 13500.5)
+        self.assertEqual(synced_row[3], '')
         self.assertFalse(any(isinstance(value, Decimal) for value in synced_row))
         change = LiveSheetRecordChange.objects.get(sheet_id='internal-orders-sheet')
         self.assertEqual(change.changes['DEPOSIT / HB']['after'], 60000)
-        self.assertEqual(change.changes['DEPOSIT / JBL']['after'], 13500.5)
+        self.assertNotIn('DEPOSIT / JBL', change.changes)
 
     def test_forward_visit_requires_missing_evidence_before_drive_upload(self):
         """A missing multipart category must never leave an orphaned upload."""

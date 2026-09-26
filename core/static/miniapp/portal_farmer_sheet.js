@@ -2339,6 +2339,9 @@
   }
 
   function buildCreditForm(farmer) {
+    const creditRecheck = ['invalidated', 'expired'].includes(farmer.approvals?.credit?.state)
+      ? '<p class="field-help" role="status">Credit approval needs a fresh review. Check the updated case details, then record a new decision.</p>'
+      : '';
     const currentDecision = farmer.credit_decision || 'Pending';
     const decisionOptions = state().metaDecisions.filter(decision => decision !== 'Pending').map(decision =>
       `<option value="${deps.escapeHtml(decision)}"${currentDecision === decision ? ' selected' : ''}>${deps.escapeHtml(decision)}</option>`
@@ -2356,6 +2359,7 @@
       return `<article class="credit-reference"><div><strong>${deps.escapeHtml(reference.request_type || `SPIN/CRB request ${index + 1}`)}</strong><small>${deps.escapeHtml(reference.status || '')}${reference.created_at ? ` · ${deps.escapeHtml(deps.fmtDate(reference.created_at))}` : ''}</small></div>${links || (names ? `<small>Uploaded: ${names}</small>` : '<small>No report link recorded yet.</small>')}</article>`;
     }).join('');
     return `
+      ${creditRecheck}
       ${farmer.jbl_visit_comment ? `<section class="credit-jbl-comment"><span class="credit-jbl-comment-heading"><span>JBL Comment</span><span class="credit-comment-type"><i data-lucide="message-square-text" aria-hidden="true"></i>Visit Note</span></span><p>${deps.escapeHtml(farmer.jbl_visit_comment)}</p></section>` : ''}
       <div class="form-section form-grid credit-analysis-form">
         ${spinReferences ? `<div class="credit-reference-panel"><div class="field-help"><strong>SPIN / CRB reference</strong> · reports already uploaded for this customer</div>${spinReferences}</div>` : ''}
@@ -2504,6 +2508,9 @@
   }
 
   function buildFinalReviewForm(farmer) {
+    const finalRecheck = ['invalidated', 'expired'].includes(farmer.approvals?.final_review?.state)
+      ? '<p class="field-help" role="status">Head of Rural approval needs a fresh review. Check the updated case details, then record a new decision.</p>'
+      : '';
     const decisionOptions = state().metaFinalDecisions.map(decision =>
       `<option value="${deps.escapeHtml(decision)}"${farmer.final_decision === decision ? ' selected' : ''}>${deps.escapeHtml(decision)}</option>`
     ).join('');
@@ -2512,6 +2519,7 @@
       ? `254${phoneDigits.slice(1)}`
       : phoneDigits;
     return `
+      ${finalRecheck}
       <div class="form-section form-grid final-review-grid">
         <div class="form-row">
           <label>Client Phone</label>

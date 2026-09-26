@@ -2523,7 +2523,7 @@ class JawabuFarmerMaster(models.Model):
     )
     system_deposit_paid_jbl = models.DecimalField(
         max_digits=12, decimal_places=2, null=True, blank=True,
-        help_text='Deposit paid to JBL from the IMAB/system export.',
+        help_text='LGF balance from the IMAB/SysUp export for payment preparation; not a deposit paid to JBL.',
     )
     repayment_date = models.CharField(
         max_length=64, blank=True, default='',

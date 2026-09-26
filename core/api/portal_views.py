@@ -908,6 +908,7 @@ def _invoice_summary_for_batch(farmers, stored_summary=None) -> dict:
 
 def _validate_requisition_farmers(farmers) -> tuple[list[dict], list[dict], list[dict]]:
     from core.services.jawabu_pipeline import farmer_to_card
+    from core.services.jawabu_approvals import JawabuApprovalError, require_effective_approval
     from core.services.requisition import requisition_order_deposit_values
 
     ready = []
@@ -926,6 +927,12 @@ def _validate_requisition_farmers(farmers) -> tuple[list[dict], list[dict], list
         missing = []
         if farmer.final_decision != 'Approved':
             missing.append(f"Final approval is required (currently {farmer.final_decision or 'not recorded'}).")
+        else:
+            for gate in ('credit', 'final_review'):
+                try:
+                    require_effective_approval(farmer, gate)
+                except JawabuApprovalError as exc:
+                    missing.append(str(exc))
         if not farmer.customer_name:
             missing.append('Enter the customer name.')
         if not farmer.customer_no:

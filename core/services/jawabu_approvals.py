@@ -48,7 +48,7 @@ NON_POSITIVE_DECISIONS = {
 MATERIAL_FIELDS = frozenset({
     'national_id', 'primary_phone', 'secondary_phone', 'customer_no',
     'imab_created', 'imab_customer_name', 'branch', 'system_branch',
-    'payment_product', 'system_deposit_paid_jbl', 'invoice_amount',
+    'payment_product', 'invoice_amount',
     'discount', 'payment', 'balance_due', 'repayment_date',
     'repayment_day', 'repayment_tenor', 'repayment_tenor_months',
     'jbl_visit_date', 'jbl_visit_status', 'jbl_media',
@@ -315,7 +315,10 @@ def require_effective_approval(farmer, gate: str, *, payment_document=None) -> N
         raise JawabuApprovalError(f'{label} has unresolved approval conditions.')
     if state == JawabuApprovalRecord.STATUS_EXPIRED:
         raise JawabuApprovalError(f'{label} approval expired and must be reviewed again.')
-    raise JawabuApprovalError(f'{label} approval is no longer valid and must be reviewed again.')
+    record = current_approval(farmer, gate, payment_document=payment_document)
+    reason = str(record.invalidation_reason or '').strip() if record and record.status == record.STATUS_INVALIDATED else ''
+    suffix = f' Reason: {reason}' if reason else ''
+    raise JawabuApprovalError(f'{label} approval is no longer valid and must be reviewed again.{suffix}')
 
 
 @transaction.atomic
@@ -527,6 +530,7 @@ def approval_payload(farmer) -> dict:
             'state': record.status if record else 'legacy',
             'decision': record.decision if record else '',
             'reason_code': record.reason_code if record else '',
+            'invalidation_reason': record.invalidation_reason if record and record.status == record.STATUS_INVALIDATED else '',
             'expires_at': record.expires_at.isoformat() if record and record.expires_at else None,
             'conditions_pending': record.conditions.filter(satisfied_at__isnull=True).count() if record else 0,
             'conditions': [

@@ -22,7 +22,7 @@ from typing import Any
 from django.conf import settings
 from django.utils import timezone
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import F, OuterRef, Q, Subquery
 
 from core.models import JawabuFarmerMaster, JawabuPipelineEvent
 from core.services.jawabu_comments import master_comment_history, record_case_comment
@@ -390,16 +390,24 @@ def credit_queue():
     """
     Stage 3 queue - JBL/BRO analysis after a JBL visit.
 
-    Filter: JBL Visit Date present AND Credit Analysis empty or Pending.
-    This is still a BRO-facing queue; it is not the Head of Rural gate.
+    Include invalidated, un-ordered decisions so the analyst can re-review
+    before Head of Rural makes a new decision.
     """
-    return JawabuFarmerMaster.objects.filter(status='active').filter(
-        Q(workflow_state=JawabuWorkflowState.CREDIT)
+    from core.models import JawabuApprovalRecord
+
+    latest_credit = JawabuApprovalRecord.objects.filter(
+        farmer_id=OuterRef('pk'), gate=JawabuApprovalRecord.GATE_CREDIT,
+        payment_document__isnull=True,
+    ).order_by('-decided_at', '-created_at').values('status')[:1]
+    return JawabuFarmerMaster.objects.filter(status='active').annotate(
+        _credit_approval_status=Subquery(latest_credit),
+    ).filter(
+        (Q(workflow_state=JawabuWorkflowState.CREDIT)
+         & (~Q(credit_decision__in=CREDIT_TERMINAL) | Q(imab_created='') | Q(customer_no='')))
         | Q(workflow_state='', jbl_visit_date__isnull=False, credit_decision='')
-    ).exclude(
-        Q(credit_decision__in=CREDIT_TERMINAL)
-        & ~Q(imab_created='')
-        & ~Q(customer_no='')
+        | (Q(workflow_state__in=[JawabuWorkflowState.FINAL_REVIEW, JawabuWorkflowState.ORDER])
+           & Q(order_number='')
+           & Q(_credit_approval_status__in=[JawabuApprovalRecord.STATUS_INVALIDATED, JawabuApprovalRecord.STATUS_EXPIRED]))
     ).order_by('jbl_visit_date', 'customer_name')
 
 
@@ -407,20 +415,32 @@ def final_review_queue():
     """
     Stage 4 queue - Head of Rural final review.
 
-    Filter: BRO/JBL visit done, Credit Analysis set, Final Decision not terminal.
+    Include invalidated, un-ordered final decisions only after credit is valid.
     """
-    return JawabuFarmerMaster.objects.filter(status='active').filter(
-        Q(workflow_state=JawabuWorkflowState.FINAL_REVIEW)
-        | Q(workflow_state='', credit_decision='Approved')
+    from core.models import JawabuApprovalRecord
+
+    latest_final = JawabuApprovalRecord.objects.filter(
+        farmer_id=OuterRef('pk'), gate=JawabuApprovalRecord.GATE_FINAL_REVIEW,
+        payment_document__isnull=True,
+    ).order_by('-decided_at', '-created_at').values('status')[:1]
+    latest_credit = JawabuApprovalRecord.objects.filter(
+        farmer_id=OuterRef('pk'), gate=JawabuApprovalRecord.GATE_CREDIT,
+        payment_document__isnull=True,
+    ).order_by('-decided_at', '-created_at').values('status')[:1]
+    return JawabuFarmerMaster.objects.filter(status='active').annotate(
+        _final_approval_status=Subquery(latest_final),
+        _credit_approval_status=Subquery(latest_credit),
+    ).filter(
+        (Q(workflow_state=JawabuWorkflowState.FINAL_REVIEW)
+         | Q(workflow_state='', credit_decision='Approved'))
+        & ~Q(final_decision__in=FINAL_DECISION_TERMINAL)
+        | Q(workflow_state__in=[JawabuWorkflowState.FINAL_REVIEW, JawabuWorkflowState.ORDER], order_number='',
+            _final_approval_status__in=[JawabuApprovalRecord.STATUS_INVALIDATED, JawabuApprovalRecord.STATUS_EXPIRED])
     ).exclude(
-        credit_decision='',
-    ).exclude(
-        imab_created='',
-    ).exclude(
-        customer_no='',
-    ).exclude(
-        final_decision__in=FINAL_DECISION_TERMINAL,
-    ).order_by('credit_decided_at', 'jbl_visit_date', 'customer_name')
+        _credit_approval_status__in=[JawabuApprovalRecord.STATUS_INVALIDATED, JawabuApprovalRecord.STATUS_EXPIRED],
+    ).exclude(credit_decision='').exclude(imab_created='').exclude(customer_no='').order_by(
+        'credit_decided_at', 'jbl_visit_date', 'customer_name',
+    )
 
 
 def requisition_queue():
@@ -1041,7 +1061,13 @@ def set_credit_decision(
         source_farmer.refresh_from_db()
         return True, ''
     validate_workflow_revision(farmer, expected_revision)
-    if not _is_actionable_at_stage(farmer, JawabuWorkflowState.CREDIT, deferred_stage='credit'):
+    from core.services.jawabu_approvals import approval_state
+    credit_recheck = (
+        current_workflow_state(farmer) in {JawabuWorkflowState.FINAL_REVIEW, JawabuWorkflowState.ORDER}
+        and not farmer.order_number
+        and approval_state(farmer, 'credit') in {'invalidated', 'expired'}
+    )
+    if not credit_recheck and not _is_actionable_at_stage(farmer, JawabuWorkflowState.CREDIT, deferred_stage='credit'):
         return False, _wrong_stage_message(farmer, JawabuWorkflowState.CREDIT)
     if is_reappraisal_required(farmer):
         return False, 'This deferral has expired. Fresh preappraisal and visit records are required.'
@@ -1106,6 +1132,20 @@ def set_credit_decision(
         'product_requirement_evidence', 'product_custom_values',
     ])
     from core.services.jawabu_approvals import JawabuApprovalError, record_approval
+    if credit_recheck:
+        from core.models import JawabuApprovalRecord
+
+        # An earlier Head of Rural decision cannot authorize a newly reviewed
+        # credit decision, even when its own approval had not yet expired.
+        JawabuApprovalRecord.objects.filter(
+            farmer=farmer, gate=JawabuApprovalRecord.GATE_FINAL_REVIEW,
+            payment_document__isnull=True,
+            status__in=[JawabuApprovalRecord.STATUS_ACTIVE, JawabuApprovalRecord.STATUS_CONDITIONS_PENDING],
+        ).update(
+            status=JawabuApprovalRecord.STATUS_INVALIDATED,
+            invalidated_at=timezone.now(), invalidated_by=actor_user,
+            invalidation_reason='Credit analysis was reviewed again; Head of Rural must review this case again.',
+        )
     try:
         record_approval(
             farmer=farmer,
@@ -1182,7 +1222,13 @@ def set_final_decision(
         source_farmer.refresh_from_db()
         return True, ''
     validate_workflow_revision(farmer, expected_revision)
-    if not _is_actionable_at_stage(farmer, JawabuWorkflowState.FINAL_REVIEW, deferred_stage='final'):
+    from core.services.jawabu_approvals import approval_state
+    final_recheck = (
+        current_workflow_state(farmer) == JawabuWorkflowState.ORDER
+        and not farmer.order_number
+        and approval_state(farmer, 'final_review') in {'invalidated', 'expired'}
+    )
+    if not final_recheck and not _is_actionable_at_stage(farmer, JawabuWorkflowState.FINAL_REVIEW, deferred_stage='final'):
         return False, _wrong_stage_message(farmer, JawabuWorkflowState.FINAL_REVIEW)
     if is_reappraisal_required(farmer):
         return False, 'This deferral has expired. Fresh preappraisal and visit records are required.'
@@ -2528,10 +2574,9 @@ def sync_farmer_to_master_sheet(
             'imab_customer_name': (candidates('imab_customer_name'), _smart_sheet_label(farmer.imab_customer_name)),
             'system_branch': (candidates('system_branch'), _smart_sheet_label(farmer.system_branch)),
             'system_loan_officer': (candidates('system_loan_officer'), _smart_sheet_label(farmer.system_loan_officer)),
-            # Keep the two deposits distinct: LGF is the IMAB/SysUp balance
-            # used by payment reconciliation; the invoice payment is what
-            # the customer paid HomeBiogas and belongs only in the HB column.
-            'system_deposit_paid_jbl': (candidates('system_deposit_paid_jbl'), _whole_sheet_money(farmer.system_deposit_paid_jbl)),
+            # SysUp's LGF balance is used by payment preparation; it is not
+            # evidence of a deposit paid to JBL. Leave that Sheet column
+            # untouched, including on an existing row.
             'deposit_paid_hbg': (candidates('deposit_paid_hbg'), _master_hbg_deposit_for_sheet(farmer)),
             'repayment_date': (candidates('repayment_date'), farmer.repayment_date),
             'repayment_day': (candidates('repayment_day'), farmer.repayment_day),
@@ -2872,7 +2917,8 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
             candidates('deposit_paid_hbg'),
             _canonical_hbg_deposit_for_sheet(farmer),
         )
-        put(candidates('system_deposit_paid_jbl'), farmer.system_deposit_paid_jbl if farmer.system_deposit_paid_jbl is not None else 0)
+        # LGF Balance from SysUp is not a Deposit / JBL receipt. Do not
+        # overwrite a value maintained independently in the order Sheet.
         put(candidates('hbg_visit_comment'), farmer.comments)
         put(candidates('jbl_visit_comment'), _attributed_sheet_comment(farmer.jbl_visit_comment, farmer.jbl_visit_date, farmer.jbl_officer, 'JBL Officer'))
         put(candidates('current_pipeline_state'), _smart_sheet_label(current_pipeline_state_label(farmer)))

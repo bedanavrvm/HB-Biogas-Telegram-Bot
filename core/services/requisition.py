@@ -29,13 +29,10 @@ def clean_deposit_float(val: Any) -> float | int | None:
 
 
 def requisition_deposit_values(farmer: JawabuFarmerMaster) -> tuple[Any, Any]:
-    """Return the canonical HBG and later JBL deposit values.
+    """Return HB deposit and SysUp LGF separately for payment preparation.
 
-    Jawabu records use ``JAWABU`` as the lead-source label, while older
-    records used ``JBL``.  Both identify the JBL-funded path.  Prefer the
-    explicit IMAB JBL deposit when it exists; otherwise preserve the legacy
-    receipt value as the deposit for that source.  Keeping this decision in
-    one helper prevents the preview, totals, and workbook from disagreeing.
+    LGF is the client's deposit recorded in JBL's system. An HB receipt does
+    not prove an LGF balance, regardless of the lead source.
     """
     if farmer.deposit_paid_hbg is not None:
         canonical_deposit = farmer.deposit_paid_hbg
@@ -46,21 +43,22 @@ def requisition_deposit_values(farmer: JawabuFarmerMaster) -> tuple[Any, Any]:
         canonical_deposit = farmer.payment
     else:
         canonical_deposit = clean_deposit_float(farmer.actual_receipts)
-    explicit_jbl = getattr(farmer, 'system_deposit_paid_jbl', None)
     source = str(getattr(farmer, 'lead_source', '') or '').strip().lower()
     is_jbl_source = 'jbl' in source or 'jawabu' in source
-    if is_jbl_source:
-        return None, explicit_jbl if explicit_jbl is not None else canonical_deposit
-    return canonical_deposit, explicit_jbl
+    # For a JBL-created lead, old "actual receipts" alone does not establish
+    # that money was paid to HB. An explicit HB deposit remains authoritative.
+    if is_jbl_source and farmer.deposit_paid_hbg is None and getattr(farmer, 'payment', None) is None:
+        canonical_deposit = None
+    return canonical_deposit, getattr(farmer, 'system_deposit_paid_jbl', None)
 
 
 def requisition_order_deposit_values(farmer: JawabuFarmerMaster) -> tuple[Any, int]:
     """Return deposit values for the requisition/order document.
 
     The order is raised before JBL has received its deposit, so the JBL
-    deposit column is always an explicit numeric zero.  Payment documents use
+    deposit column is always an explicit numeric zero. Payment documents use
     :func:`requisition_deposit_values` instead because they may contain the
-    later IMAB/LGF deposit actually received by JBL.
+    later SysUp LGF balance recorded in JBL's system.
     """
     hbg_deposit, _ = requisition_deposit_values(farmer)
     return hbg_deposit, 0

@@ -53,7 +53,9 @@ class SheetPublicationRegistryTests(SimpleTestCase):
         self.assertIn('ID NO', aliases_for('jawabu_master', 'national_id'))
         self.assertIn('Loan Officer', aliases_for('jawabu_master', 'system_loan_officer'))
         self.assertIn('Product Name', aliases_for('jawabu_master', 'payment_product'))
-        self.assertIn('LGF Balance', aliases_for('jawabu_master', 'system_deposit_paid_jbl'))
+        self.assertNotIn('LGF Balance', aliases_for('jawabu_master', 'system_deposit_paid_jbl'))
+        self.assertNotIn('Deposit Paid to JBL', aliases_for('jawabu_master', 'system_deposit_paid_jbl'))
+        self.assertNotIn('DEPOSIT / JBL', aliases_for('internal_order', 'system_deposit_paid_jbl'))
 
     def test_preferred_repayment_date_headers_are_supported(self):
         self.assertIn('Preferred Repayment Date', aliases_for('jawabu_master', 'repayment_date'))

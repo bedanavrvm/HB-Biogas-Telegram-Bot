@@ -139,6 +139,28 @@ class RequisitionTemplateGenerationTests(TestCase):
         self.assertIn(ws['K14'].value, (None, ''))
         self.assertEqual(ws['L14'].value, 0)
 
+    def test_payment_deposits_never_substitute_hb_receipt_for_missing_lgf(self):
+        from core.services.requisition import requisition_deposit_values
+
+        hbg, lgf = requisition_deposit_values(self.farmer(lead_source='JAWABU'))
+        self.assertIsNone(hbg)
+        self.assertIsNone(lgf)
+        hbg, lgf = requisition_deposit_values(self.farmer(
+            lead_source='JAWABU', system_deposit_paid_jbl=5000,
+        ))
+        self.assertIsNone(hbg)
+        self.assertEqual(lgf, 5000)
+        hbg, lgf = requisition_deposit_values(self.farmer(
+            lead_source='JAWABU', deposit_paid_hbg=25000, system_deposit_paid_jbl=5000,
+        ))
+        self.assertEqual(hbg, 25000)
+        self.assertEqual(lgf, 5000)
+        hbg, lgf = requisition_deposit_values(self.farmer(
+            lead_source='JAWABU', deposit_paid_hbg=None, actual_receipts='7500',
+        ))
+        self.assertIsNone(hbg)
+        self.assertIsNone(lgf)
+
 
     def test_template_validation_rejects_customer_data_but_allows_numbers_and_footer_labels(self):
         template_path = Path('tmp_requisition_validation.xlsx')

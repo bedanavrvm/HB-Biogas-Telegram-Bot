@@ -449,6 +449,14 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
             continue
         attempted_approved_rows += 1
         values, ignored_fields = _commit_values(row)
+        # A missing LGF is optional, but a non-empty invalid amount must not
+        # let the identity fields commit while the payment value is discarded.
+        invalid_lgf = next((message for message in ignored_fields if message.startswith('LGF Balance was not updated')), '')
+        if invalid_lgf:
+            _mark_review(row, invalid_lgf)
+            errors.append(f'Row {index}: {invalid_lgf}.')
+            remaining.append(row)
+            continue
         farmer_id = str(row.get('Matched Farmer ID') or '').strip()
         farmer = JawabuFarmerMaster.objects.select_for_update().filter(pk=farmer_id).first()
         if not farmer:
@@ -573,16 +581,28 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
         }
         revision_before = revision_after = None
         if material_changes:
-            from core.services.jawabu_approvals import invalidate_material_approvals
+            from core.services.jawabu_approvals import MATERIAL_FIELDS, invalidate_material_approvals
             from core.services.workflow_transitions import next_workflow_revision
 
             revision_before, revision_after = next_workflow_revision(farmer)
             farmer.save(update_fields=['workflow_revision', 'updated_at'])
-            invalidate_material_approvals(
-                farmer=farmer,
-                changed_fields=material_changes,
-                reason='A controlled system export changed material customer, branch, product, or financial data.',
-            )
+            approval_changes = sorted(material_changes.intersection(MATERIAL_FIELDS))
+            if approval_changes:
+                field_labels = {
+                    'national_id': 'National ID',
+                    'primary_phone': 'primary phone',
+                    'customer_no': 'iMAB customer number',
+                    'imab_customer_name': 'iMAB customer name',
+                    'branch': 'branch',
+                    'system_branch': 'system branch',
+                    'payment_product': 'payment product',
+                }
+                changed_labels = ', '.join(field_labels.get(field, field.replace('_', ' ')) for field in approval_changes)
+                invalidate_material_approvals(
+                    farmer=farmer,
+                    changed_fields=approval_changes,
+                    reason=f'SysUp changed approved case details: {changed_labels}.',
+                )
         record_pipeline_event(
             farmer,
             action='system_export_updated',
