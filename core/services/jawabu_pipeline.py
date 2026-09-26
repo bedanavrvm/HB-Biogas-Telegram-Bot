@@ -2222,7 +2222,6 @@ def sync_farmer_to_master_sheet(
         master_date_column_indexes,
         master_datetime_column_indexes,
         master_hbg_deposit_column_indexes,
-        master_row_is_system_description_only,
         repair_master_sheet_numbers,
         next_master_case_number,
         set_header_value,
@@ -2440,16 +2439,7 @@ def sync_farmer_to_master_sheet(
                 number for number, row in enumerate(values[data_start_row - 1:], start=data_start_row)
                 if any(str(cell or '').strip() for cell in row)
             ]
-            first_row = values[data_start_row - 1] if len(values) >= data_start_row else []
-            replacing_description = (
-                data_start_row == 2 and not any(number > 2 for number in populated_rows)
-                and master_row_is_system_description_only(first_row)
-            )
-            if (data_start_row == 2 and not any(number > 2 for number in populated_rows)
-                    and any(str(cell or '').strip() for cell in first_row) and not replacing_description):
-                note_failure(phase='schema', detail=f'{sheet_name} row 2 contains non-case content; it was not overwritten.')
-                return False
-            row_number = 2 if replacing_description else max(populated_rows, default=data_start_row - 1) + 1
+            row_number = max(populated_rows, default=data_start_row - 1) + 1
             row_values = [''] * len(headers)
             set_header_value(row_values, header_lookup, 'No.', next_master_case_number(values, header_lookup, data_start_row))
             created_sheet_row = True
@@ -2457,9 +2447,7 @@ def sync_farmer_to_master_sheet(
         # Get row values and pad if needed
         if row_values is None:
             row_values = list(values[row_number - 1]) if row_number - 1 < len(values) else []
-        observed_row = list(first_row) if created_sheet_row and replacing_description else (
-            [] if created_sheet_row else list(row_values)
-        )
+        observed_row = [] if created_sheet_row else list(row_values)
         if len(row_values) < len(headers):
             row_values.extend([''] * (len(headers) - len(row_values)))
         existing_record_id = header_row_value(row_values, header_lookup, 'Master Record ID')
@@ -2649,7 +2637,8 @@ def sync_farmer_to_master_sheet(
                 changes=changes,
                 status='success',
             )
-            logger.info("Synced farmer %s changes to master sheet row %s: %s", farmer.id, row_number, changes)
+            logger.info("Synced farmer %s to master sheet row %s; changed fields: %s",
+                        farmer.id, row_number, sorted(changes))
         else:
             # A previous attempt may have written the RAW row before the
             # typed-values batch failed. Reassert dates and money on retry.
@@ -2929,7 +2918,8 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
             changes=changes,
             status='success',
         )
-        logger.info('Synced farmer %s to internal order sheet row %s: %s', farmer.id, row_number, changes)
+        logger.info('Synced farmer %s to internal order sheet row %s; changed fields: %s',
+                    farmer.id, row_number, sorted(changes))
         return True
     except Exception as exc:
         logger.error('Failed to sync farmer %s to internal order sheet: %s', farmer.id, exc, exc_info=True)

@@ -206,19 +206,6 @@ MASTER_SYSTEM_HEADERS = [
 MASTER_CASE_ID_HEADER = 'Case ID'
 MASTER_CASE_ID_DESCRIPTION = 'BACKEND-OWNED: short staff-facing case reference. Exact UUID is retained in hidden Master Record ID.'
 
-MASTER_ROW_DESCRIPTIONS = frozenset({
-    MASTER_CASE_ID_DESCRIPTION,
-    'BACKEND-OWNED: 1st, 2nd, 3rd unit application number.',
-    'SYSTEM: hidden metadata used by Django import/sync. Do not edit.',
-})
-
-
-def master_row_is_system_description_only(row: list) -> bool:
-    """Recognize only descriptions this publisher previously wrote below headers."""
-    occupied = [str(value).strip() for value in row if str(value or '').strip()]
-    return bool(occupied) and all(value in MASTER_ROW_DESCRIPTIONS for value in occupied)
-
-
 MASTER_FIELD_HEADERS = {
     'unit_number': ['Unit Number'],
     'customer_name': ['Customer Name'],
@@ -1253,8 +1240,6 @@ def next_master_append_row(values: list[list[str]], header_lookup: dict[str, int
     for row_number, row in enumerate(values[data_start_row - 1:], start=data_start_row):
         if any(str(cell or '').strip() for cell in row):
             last = row_number
-    if data_start_row == 2 and last == 2 and master_row_is_system_description_only(values[1]):
-        return 2
     return last + 1
 
 

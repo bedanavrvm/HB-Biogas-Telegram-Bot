@@ -14,10 +14,8 @@ until the actual Sheet headers have been moved to row 1.
 If historical `No.` values are already inconsistent,
 run the dedicated number-repair command once after checking its dry-run plan;
 ordinary case publication no longer rescans the entire tab to repair history.
-If row 2 contains only the exact backend descriptions left by the old header
-layout and no later cases exist, the first case replaces those descriptions in
-row 2. Any other row-2 content is preserved and reported as a schema issue
-rather than overwritten. Existing case rows are never shifted automatically.
+For these tabs, row 1 is headers and row 2 onward is data. Each new case
+appends after the last occupied row. Existing case rows are never shifted.
 
 ## FarmUp operator-driven sync
 
