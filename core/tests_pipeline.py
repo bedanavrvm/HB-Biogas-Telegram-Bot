@@ -519,6 +519,44 @@ class JblPipelineServiceTestCase(TestCase):
                 self.assertEqual(sheet.values[1][1], farmer.customer_name.upper())
                 self.assertFalse(any('BACKEND-OWNED:' in str(value) for value in sheet.values[1]))
 
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_legacy_system_descriptions_in_row_two_do_not_push_first_case_to_row_three(self, mock_get_sheets):
+        from core.tests import FakeMasterDataSheet, FakeJawabuService
+        from core.services.jawabu_master import MASTER_CASE_ID_DESCRIPTION
+
+        # The saved group configuration is still 3/5, but the real tabs now
+        # have headers in row 1. Their observed layout must win.
+        for farmer, tab in (
+            (self.farmer_stage1, 'Master Data'),
+            (JawabuFarmerMaster.objects.create(customer_name='Farmer Two Eco', county='Nakuru'), 'Eco-conserve'),
+        ):
+            with self.subTest(tab=tab):
+                headers = ['No.', 'Case ID', 'Customer Name', 'National ID', 'Primary Phone']
+                sheet = FakeMasterDataSheet(headers)
+                sheet.values = [headers, ['', MASTER_CASE_ID_DESCRIPTION]]
+                mock_get_sheets.return_value = FakeJawabuService(sheet)
+                self.assertTrue(sync_farmer_to_master_sheet(farmer))
+                self.assertEqual(mock_get_sheets.call_args.kwargs['sheet_name'], tab)
+                self.assertEqual(sheet.values[1][2], farmer.customer_name.upper())
+                self.assertEqual(sheet.values[1][0], 1)
+
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_non_system_content_in_row_two_is_not_overwritten(self, mock_get_sheets):
+        from core.tests import FakeMasterDataSheet, FakeJawabuService
+
+        self.config.workflow = {**(self.config.workflow or {}),
+                                'master_header_row': 1, 'master_data_start_row': 2}
+        self.config.save(update_fields=['workflow'])
+        headers = ['No.', 'Case ID', 'Customer Name']
+        sheet = FakeMasterDataSheet(headers)
+        sheet.values = [headers, ['', 'Staff note']]
+        mock_get_sheets.return_value = FakeJawabuService(sheet)
+        failure = {}
+        self.assertFalse(sync_farmer_to_master_sheet(self.farmer_stage1, failure_context=failure))
+        self.assertEqual(sheet.values[1][1], 'Staff note')
+        self.assertEqual(len(sheet.values), 2)
+        self.assertEqual(failure['phase'], 'schema')
+
     def test_master_and_eco_numbering_skips_empty_rows_without_moving_cases(self):
         from core.tests import FakeMasterDataSheet
         from core.services.jawabu_master import (

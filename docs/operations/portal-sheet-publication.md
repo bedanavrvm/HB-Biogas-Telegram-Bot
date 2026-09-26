@@ -6,12 +6,18 @@ operation. A saved case is usable even while the Sheet update is queued.
 Both `Master Data` and `Eco-conserve` must have their column headers in row 1
 and their first case in row 2. Set the Jawabu group configuration's Master
 header row to `1` and data start row to `2` after confirming the tabs have
-that layout. Existing `3`/`5` configurations keep their old layout until an
-administrator updates them; the release does not move live spreadsheet rows
-automatically. Do not change those two settings until the actual Sheet headers
-have been moved to row 1. If historical `No.` values are already inconsistent,
+that layout. Publication detects valid row-1 headers in each tab and uses row 2
+even when an old group configuration still says `3`/`5`. Tabs whose headers
+remain in the old position retain that configured layout; this release does
+not move live spreadsheet rows automatically. Do not change the two settings
+until the actual Sheet headers have been moved to row 1.
+If historical `No.` values are already inconsistent,
 run the dedicated number-repair command once after checking its dry-run plan;
 ordinary case publication no longer rescans the entire tab to repair history.
+If row 2 contains only the exact backend descriptions left by the old header
+layout and no later cases exist, the first case replaces those descriptions in
+row 2. Any other row-2 content is preserved and reported as a schema issue
+rather than overwritten. Existing case rows are never shifted automatically.
 
 ## Scheduling
 

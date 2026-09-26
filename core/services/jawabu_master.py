@@ -206,6 +206,19 @@ MASTER_SYSTEM_HEADERS = [
 MASTER_CASE_ID_HEADER = 'Case ID'
 MASTER_CASE_ID_DESCRIPTION = 'BACKEND-OWNED: short staff-facing case reference. Exact UUID is retained in hidden Master Record ID.'
 
+MASTER_ROW_DESCRIPTIONS = frozenset({
+    MASTER_CASE_ID_DESCRIPTION,
+    'BACKEND-OWNED: 1st, 2nd, 3rd unit application number.',
+    'SYSTEM: hidden metadata used by Django import/sync. Do not edit.',
+})
+
+
+def master_row_is_system_description_only(row: list) -> bool:
+    """Recognize only descriptions this publisher previously wrote below headers."""
+    occupied = [str(value).strip() for value in row if str(value or '').strip()]
+    return bool(occupied) and all(value in MASTER_ROW_DESCRIPTIONS for value in occupied)
+
+
 MASTER_FIELD_HEADERS = {
     'unit_number': ['Unit Number'],
     'customer_name': ['Customer Name'],
@@ -351,8 +364,6 @@ def flag_farmup_master_sheet_conflicts(
 
     sheet_id = str(workflow.get('master_sheet_id') or getattr(group_config, 'sheet_id', '') or '').strip()
     sheet_name = str(workflow.get('master_sheet_name') or 'Master Data').strip()
-    header_row = positive_int(workflow.get('master_header_row'), 1)
-    data_start_row = positive_int(workflow.get('master_data_start_row'), header_row + 1)
     if not sheet_id or not sheet_name:
         return {
             'enabled': True,
@@ -367,7 +378,7 @@ def flag_farmup_master_sheet_conflicts(
         if not service.is_available():
             raise RuntimeError('Google Sheets service unavailable for Master Data sheet.')
         sheet = service._sheet
-        headers = list(sheet.row_values(header_row))
+        header_row, data_start_row, headers = resolve_master_sheet_layout(sheet, workflow)
         values = sheet.get_all_values()
         header_lookup = header_lookup_from_headers(headers)
         existing = build_master_existing_index(values, header_lookup, data_start_row)
@@ -629,8 +640,6 @@ def sync_committed_farmup_rows_to_master_sheet(
         False: str(workflow.get('master_sheet_name') or 'Master Data').strip(),
         True: str(workflow.get('eco_conserve_sheet_name') or 'Eco-conserve').strip(),
     }
-    header_row = positive_int(workflow.get('master_header_row'), 1)
-    data_start_row = positive_int(workflow.get('master_data_start_row'), header_row + 1)
     log_sheet_name = str(workflow.get('master_import_log_sheet_name') or '').strip()
     if not sheet_id or not all(sheet_names.values()):
         return {
@@ -657,7 +666,7 @@ def sync_committed_farmup_rows_to_master_sheet(
                 totals['errors'].append(f'Google Sheets service unavailable for {sheet_name}.')
                 continue
             sheet = service._sheet
-            source_headers = list(sheet.row_values(header_row))
+            header_row, data_start_row, source_headers = resolve_master_sheet_layout(sheet, workflow)
             source_lookup = header_lookup_from_headers(source_headers)
             if not first_existing_header(source_lookup, ['No.']) or not first_existing_header(source_lookup, ['Customer Name']):
                 totals['errors'].append(f'{sheet_name} needs No. and Customer Name headers in configured row {header_row}; no case row was written.')
@@ -1208,6 +1217,23 @@ def first_existing_header(header_lookup: dict[str, int], candidates: list[str]) 
     return ''
 
 
+def resolve_master_sheet_layout(sheet, workflow: dict) -> tuple[int, int, list[str]]:
+    """Prefer the row-1/row-2 layout when the tab itself proves it is present.
+
+    Saved group configurations may still contain the historical 3/5 layout.
+    Never infer row 1 from a blank or unrelated first row: such tabs retain
+    their explicit legacy configuration until their headers are moved.
+    """
+    first_headers = list(sheet.row_values(1))
+    first_lookup = header_lookup_from_headers(first_headers)
+    if first_existing_header(first_lookup, ['No.']) and first_existing_header(first_lookup, ['Customer Name']):
+        return 1, 2, first_headers
+    header_row = positive_int((workflow or {}).get('master_header_row'), 1)
+    data_start_row = positive_int((workflow or {}).get('master_data_start_row'), header_row + 1)
+    headers = first_headers if header_row == 1 else list(sheet.row_values(header_row))
+    return header_row, data_start_row, headers
+
+
 def row_values_for_number(values: list[list[str]], row_number: int, width: int) -> list[str]:
     if row_number - 1 < len(values):
         row_values = list(values[row_number - 1])
@@ -1223,11 +1249,12 @@ def pad_values_to_row(values: list[list[str]], row_number: int, width: int) -> l
 
 
 def next_master_append_row(values: list[list[str]], header_lookup: dict[str, int], data_start_row: int) -> int:
-    name_idx = header_lookup.get(normalize_header('Customer Name'), 2) - 1
     last = data_start_row - 1
     for row_number, row in enumerate(values[data_start_row - 1:], start=data_start_row):
-        if name_idx < len(row) and str(row[name_idx] or '').strip():
+        if any(str(cell or '').strip() for cell in row):
             last = row_number
+    if data_start_row == 2 and last == 2 and master_row_is_system_description_only(values[1]):
+        return 2
     return last + 1
 
 
