@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 from io import StringIO
+from types import SimpleNamespace
 from unittest.mock import patch
 from unittest.mock import MagicMock
 
@@ -12,11 +13,11 @@ from django.utils import timezone
 from core.models import DurableJobRunnerHeartbeat, IntegrationOperation, JawabuFarmerMaster
 from core.services.external_resilience import execute_operation, reserve_operation, retry_after_seconds
 from core.services.portal_publication import (
-    MASTER_OPERATION, PORTAL_PUBLICATION_RUNNER, SOURCE_MODEL,
+    INTERNAL_ORDER_OPERATION, MASTER_OPERATION, PORTAL_PUBLICATION_RUNNER, SOURCE_MODEL,
     attempt_publication, publication_scheduler_health,
 )
 from core.management.commands.drain_portal_publications import due_portal_operations
-from core.services.jawabu_master import ensure_master_system_headers
+from core.services.jawabu_master import ensure_master_system_headers, update_master_sheet_row
 
 
 class QuotaRetryTests(TestCase):
@@ -109,6 +110,33 @@ class DrainPortalPublicationsTests(TestCase):
         self.assertTrue(publication_scheduler_health()['healthy'])
         self.assertEqual(publication_scheduler_health()['queued'], 0)
 
+    def test_active_farmup_attempt_counts_as_recent_sync_activity(self):
+        self.assertFalse(publication_scheduler_health()['healthy'])
+        self.operation.last_attempt_at = timezone.now()
+        self.operation.save(update_fields=['last_attempt_at', 'updated_at'])
+        self.assertTrue(publication_scheduler_health()['healthy'])
+
+    @patch('core.services.portal_imports._farmup_repair_operation_ids')
+    def test_farmup_stays_pending_until_internal_order_is_synced(self, operation_ids):
+        from core.services.portal_imports import _farmup_publication_summary
+
+        order = reserve_operation(
+            integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+            operation_type=INTERNAL_ORDER_OPERATION,
+            deduplication_key='scheduler-internal-order',
+            source_model=SOURCE_MODEL, source_id=str(self.farmer.pk),
+            metadata={'workflow_revision': self.farmer.workflow_revision},
+        )[0]
+        operation_ids.return_value = {str(self.operation.pk), str(order.pk)}
+        self.operation.status = IntegrationOperation.STATUS_SUCCEEDED
+        self.operation.save(update_fields=['status', 'updated_at'])
+
+        result = _farmup_publication_summary(SimpleNamespace(worklist_id='test-worklist'))
+        self.assertEqual(result['status'], 'pending')
+        self.assertEqual(result['synced'], 1)
+        self.assertEqual(result['total'], 2)
+        self.assertEqual(result['pending_operation_ids'], [str(order.pk)])
+
     @patch('core.management.commands.drain_portal_publications.attempt_publication')
     def test_open_circuit_does_not_spin_or_consume_attempt(self, attempt):
         attempt.return_value = {'operation': self.operation, 'error': True}
@@ -180,6 +208,25 @@ class DrainPortalPublicationsTests(TestCase):
 
 
 class MasterSheetLayoutTests(TestCase):
+    def test_portal_row_combines_typed_values_and_formats(self):
+        sheet = MagicMock()
+        sheet.id = 42
+        update_master_sheet_row(
+            sheet, 8, ['Example', '12-05-2026', '5000'],
+            date_indexes=[1], deposit_indexes=[2],
+        )
+        sheet.update.assert_called_once_with(
+            'A8:C8', [['Example', '12-05-2026', '5000']], value_input_option='RAW',
+        )
+        sheet.batch_update.assert_called_once()
+        values = sheet.batch_update.call_args.args[0]
+        self.assertEqual(len(values), 2)
+        self.assertEqual(values[0]['values'], [['12-May-2026']])
+        self.assertEqual(values[1]['values'], [[5000]])
+        self.assertEqual(sheet.batch_update.call_args.kwargs['value_input_option'], 'USER_ENTERED')
+        sheet.spreadsheet.batch_update.assert_called_once()
+        self.assertEqual(len(sheet.spreadsheet.batch_update.call_args.args[0]['requests']), 2)
+
     def test_row_one_headers_never_write_descriptions_into_first_case_row(self):
         sheet = MagicMock()
         sheet.col_count = 100

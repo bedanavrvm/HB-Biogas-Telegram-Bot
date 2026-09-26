@@ -8,4 +8,4 @@
 set -e
 
 echo "Starting Django application..."
-exec gunicorn config.wsgi:application --log-file -
+exec gunicorn config.wsgi:application --log-file - --threads 2 --timeout 120

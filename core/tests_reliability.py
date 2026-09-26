@@ -322,6 +322,63 @@ class PortalPublicationEndpointTests(TestCase):
         self.assertEqual(response.status_code, 202)
         mocked_attempt.assert_not_called()
 
+    @patch('core.api.portal_views._portal_read_access_error', return_value=None)
+    @patch('core.api.portal_views._portal_imports_queryset')
+    @patch('core.api.portal_views._portal_capability_error', return_value=None)
+    @patch('core.services.portal_publication.attempt_publication')
+    def test_visible_farmup_advances_one_scoped_operation(self, attempt, _scope, batches, _farmup):
+        batches.return_value.filter.return_value.first.return_value = object()
+        worklist_id = '12345678-1234-4234-8234-123456789abc'
+        self.operation.metadata = {**self.operation.metadata, 'farmup_worklist_id': worklist_id}
+        self.operation.save(update_fields=['metadata', 'updated_at'])
+        request = self.factory.post('/api/portal/publication/attempt/', data=json.dumps({
+            'operation_id': str(self.operation.pk), 'automatic': True,
+            'interactive_farmup': True, 'worklist_id': worklist_id,
+        }), content_type='application/json')
+        request.portal_access = None
+        request.portal_user = None
+        response = portal_publication_attempt(request)
+        self.assertEqual(response.status_code, 202)
+        attempt.assert_called_once_with(self.operation)
+
+    @patch('core.api.portal_views._portal_read_access_error', return_value=None)
+    @patch('core.api.portal_views._portal_imports_queryset')
+    @patch('core.api.portal_views._portal_capability_error', return_value=None)
+    @patch('core.services.portal_publication.attempt_publication', side_effect=ExternalCircuitOpen('open'))
+    def test_farmup_circuit_pause_returns_retry_time(self, _attempt, _scope, batches, _farmup):
+        from django.utils import timezone
+        from datetime import timedelta
+
+        worklist_id = '12345678-1234-4234-8234-123456789abc'
+        batches.return_value.filter.return_value.first.return_value = object()
+        self.operation.metadata = {**self.operation.metadata, 'farmup_worklist_id': worklist_id}
+        self.operation.save(update_fields=['metadata', 'updated_at'])
+        retry_at = timezone.now() + timedelta(minutes=10)
+        IntegrationCircuitState.objects.create(integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+                                               next_probe_at=retry_at)
+        request = self.factory.post('/api/portal/publication/attempt/', data=json.dumps({
+            'operation_id': str(self.operation.pk), 'automatic': True,
+            'interactive_farmup': True, 'worklist_id': worklist_id,
+        }), content_type='application/json')
+        request.portal_access = None
+        request.portal_user = None
+        response = portal_publication_attempt(request)
+        self.assertEqual(response.status_code, 202)
+        self.assertTrue(json.loads(response.content)['deferred'])
+        self.assertEqual(json.loads(response.content)['circuit_retry_at'], retry_at.isoformat())
+
+    @patch('core.services.portal_publication.attempt_publication')
+    @patch('core.api.portal_views._portal_capability_error', return_value=None)
+    def test_farmup_cannot_advance_another_worklist(self, _scope, attempt):
+        request = self.factory.post('/api/portal/publication/attempt/', data=json.dumps({
+            'operation_id': str(self.operation.pk), 'automatic': True,
+            'interactive_farmup': True, 'worklist_id': '87654321-4321-4321-8321-abcdefabcdef',
+        }), content_type='application/json')
+        request.portal_access = None
+        request.portal_user = None
+        self.assertEqual(portal_publication_attempt(request).status_code, 403)
+        attempt.assert_not_called()
+
     @patch('core.services.portal_publication.attempt_publication')
     @patch('core.services.portal_publication.publication_payload', return_value={'status': 'pending', 'pending_operation_ids': []})
     def test_scoped_reader_can_read_reserved_publication_but_not_manual_retry(self, _payload, mocked_attempt):

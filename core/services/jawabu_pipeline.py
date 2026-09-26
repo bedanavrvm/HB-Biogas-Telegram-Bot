@@ -2651,10 +2651,11 @@ def sync_farmer_to_master_sheet(
             )
             logger.info("Synced farmer %s changes to master sheet row %s: %s", farmer.id, row_number, changes)
         else:
-            # Formatting can drift independently of the displayed value.
-            from core.services.jawabu_master import write_master_hbg_deposit_cells
-            write_master_hbg_deposit_cells(
-                sheet, [(row_number, row_values)],
+            # A previous attempt may have written the RAW row before the
+            # typed-values batch failed. Reassert dates and money on retry.
+            from core.services.jawabu_master import write_master_typed_cells
+            write_master_typed_cells(
+                sheet, [(row_number, row_values)], date_indexes, datetime_indexes,
                 master_hbg_deposit_column_indexes(headers),
             )
         if previous_row:
@@ -2754,11 +2755,12 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
         first_existing_header,
         header_lookup_from_headers,
         master_date_column_indexes,
+        master_datetime_column_indexes,
         master_hbg_deposit_column_indexes,
         normalize_header,
         set_header_value,
-        write_master_date_cells,
-        write_master_hbg_deposit_cells,
+        update_master_sheet_row,
+        write_master_typed_cells,
     )
     from core.services.sheet_publication import aliases_for
 
@@ -2902,17 +2904,17 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
         put(['Last Updated At'], now_text)
 
         if changes:
-            end_col = col_letter(max(len(headers), len(row_values)))
-            sheet.update(f'A{row_number}:{end_col}{row_number}', [row_values], value_input_option='RAW')
-            write_master_date_cells(
-                sheet,
-                [(row_number, row_values)],
-                master_date_column_indexes(headers),
-                master_datetime_column_indexes(headers),
+            update_master_sheet_row(
+                sheet, row_number, row_values,
+                date_indexes=master_date_column_indexes(headers),
+                datetime_indexes=master_datetime_column_indexes(headers),
+                deposit_indexes=master_hbg_deposit_column_indexes(headers),
             )
-        write_master_hbg_deposit_cells(
-            sheet, [(row_number, row_values)], master_hbg_deposit_column_indexes(headers),
-        )
+        else:
+            write_master_typed_cells(
+                sheet, [(row_number, row_values)], master_date_column_indexes(headers),
+                master_datetime_column_indexes(headers), master_hbg_deposit_column_indexes(headers),
+            )
         if not changes:
             return True
         LiveSheetRecordChange.objects.create(

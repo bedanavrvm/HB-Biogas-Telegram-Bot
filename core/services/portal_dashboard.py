@@ -344,8 +344,8 @@ def dashboard_payload(user, *, access=None) -> dict:
         if sheet_health['queued'] and not sheet_health['healthy']:
             attention.append({
                 'key': 'portal_sheet_scheduler_stale',
-                'label': 'Portal Sheet scheduler needs attention',
-                'detail': f"{sheet_health['queued']} Sheet publication(s) queued. Operations/IT: check the once-per-minute scheduler and its last run before retrying cases.",
+                'label': 'Portal Sheet sync needs attention',
+                'detail': f"{sheet_health['queued']} Sheet publication(s) queued with no recent sync activity. Keep FarmUp open to continue, or check the optional scheduler.",
                 'count': sheet_health['queued'], 'severity': 'urgent',
                 'url': reverse('portal_screen', kwargs={'screen': 'settings'}),
             })

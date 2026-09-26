@@ -55,7 +55,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--apply', action='store_true', help='Make Google calls; without this, inspect only.')
-        parser.add_argument('--limit', type=int, default=5, help='Maximum attempts this run (1-25).')
+        parser.add_argument('--limit', type=int, default=10, help='Maximum attempts this run (1-25).')
         parser.add_argument('--max-seconds', type=int, default=50, help='Maximum run time (1-240 seconds).')
 
     def handle(self, *args, **options):

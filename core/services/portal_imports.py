@@ -1775,13 +1775,14 @@ def serialize_import_batch(
 
 def _farmup_publication_summary(batch: JawabuFarmerUploadBatch) -> dict[str, Any]:
     from core.models import JawabuFarmerMaster
-    from core.services.portal_publication import MASTER_OPERATION
+    from core.services.portal_publication import MASTER_OPERATION, INTERNAL_ORDER_OPERATION
 
     operation_ids = _farmup_repair_operation_ids(batch)
     if not operation_ids:
         return {'status': 'not_required', 'total': 0, 'synced': 0, 'pending_operation_ids': []}
     farmer_ids = set(IntegrationOperation.objects.filter(
-        pk__in=operation_ids, source_model='JawabuFarmerMaster', operation_type=MASTER_OPERATION,
+        pk__in=operation_ids, source_model='JawabuFarmerMaster',
+        operation_type__in=(MASTER_OPERATION, INTERNAL_ORDER_OPERATION),
     ).values_list('source_id', flat=True))
     revisions = {
         str(pk): int(revision or 0)
@@ -1790,14 +1791,14 @@ def _farmup_publication_summary(batch: JawabuFarmerUploadBatch) -> dict[str, Any
     latest = {}
     for operation in IntegrationOperation.objects.filter(
         source_model='JawabuFarmerMaster', source_id__in=farmer_ids,
-        operation_type=MASTER_OPERATION,
+        operation_type__in=(MASTER_OPERATION, INTERNAL_ORDER_OPERATION),
     ).order_by('-created_at', '-pk'):
         if operation.source_id not in revisions:
             continue
         if int((operation.metadata or {}).get('workflow_revision', -1)) != revisions[operation.source_id]:
             continue
-        latest.setdefault(operation.source_id, operation)
-    operations = list(latest.values())
+        latest.setdefault((operation.source_id, operation.operation_type), operation)
+    operations = sorted(latest.values(), key=lambda item: (item.created_at, str(item.pk)))
     if not operations:
         return {'status': 'not_required', 'total': 0, 'synced': 0, 'pending_operation_ids': []}
     pending_statuses = {
@@ -1811,9 +1812,10 @@ def _farmup_publication_summary(batch: JawabuFarmerUploadBatch) -> dict[str, Any
     synced = sum(1 for item in operations if item.status == IntegrationOperation.STATUS_SUCCEEDED)
     status = 'needs_attention' if failed else ('pending' if pending else 'synced')
     pending_operations = [item for item in operations if item.status in pending_statuses]
-    retry_times = [item.next_retry_at for item in pending_operations if item.next_retry_at]
+    first_pending = pending_operations[0] if pending_operations else None
     return {
         'status': status, 'total': len(operations), 'synced': synced,
         'needs_attention': failed, 'identity_review': identity_review, 'pending_operation_ids': pending,
-        'next_retry_at': min(retry_times).isoformat() if len(retry_times) == len(pending_operations) and retry_times else None,
+        'oldest_pending_at': first_pending.created_at.isoformat() if first_pending else None,
+        'next_retry_at': first_pending.next_retry_at.isoformat() if first_pending and first_pending.next_retry_at else None,
     }

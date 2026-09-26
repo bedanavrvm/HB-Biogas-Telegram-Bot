@@ -1367,8 +1367,50 @@ def update_master_sheet_row(
     # are rewritten separately below with USER_ENTERED so they remain typed
     # dates instead of text values with a hidden leading apostrophe.
     sheet.update(f"A{row_number}:{end_cell}", [row_values], value_input_option='RAW')
-    write_master_date_cells(sheet, [(row_number, row_values)], date_indexes or [], datetime_indexes)
-    write_master_hbg_deposit_cells(sheet, [(row_number, row_values)], deposit_indexes or [])
+    write_master_typed_cells(
+        sheet, [(row_number, row_values)], date_indexes or [],
+        datetime_indexes or [], deposit_indexes or [],
+    )
+
+
+def write_master_typed_cells(
+    sheet, updates: list[tuple[int, list]], date_indexes: list[int],
+    datetime_indexes: list[int], money_indexes: list[int],
+) -> None:
+    """Write dates and money in one values batch, then format in one batch.
+
+    Portal publishes one row at a time. Combining these calls cuts a normal
+    publication from five Google writes to three without changing the RAW
+    text row or Sheets' USER_ENTERED date and money interpretation.
+    """
+    if not updates:
+        return
+    payload = []
+    for row_number, row_values in updates:
+        for index in [*date_indexes, *datetime_indexes]:
+            value = row_values[index] if index < len(row_values) else ''
+            payload.append({
+                'range': f'{col_letter(index + 1)}{row_number}:{col_letter(index + 1)}{row_number}',
+                'values': [[_master_date_value(value, with_time=index in datetime_indexes)]],
+            })
+        for index in money_indexes:
+            value = row_values[index] if index < len(row_values) else ''
+            payload.append({
+                'range': f'{col_letter(index + 1)}{row_number}:{col_letter(index + 1)}{row_number}',
+                'values': [[_numeric_sheet_money(value)]],
+            })
+    if not payload:
+        return
+    try:
+        sheet.batch_update(payload, value_input_option='USER_ENTERED')
+    except (AttributeError, TypeError):
+        for item in payload:
+            sheet.update(item['range'], item['values'], value_input_option='USER_ENTERED')
+    _format_master_columns(sheet, updates, [
+        *[(index, 'DATE', 'dd-mmm-yyyy') for index in date_indexes],
+        *[(index, 'DATE_TIME', 'dd-mmm-yyyy HH:mm') for index in datetime_indexes],
+        *[(index, 'NUMBER', '0') for index in money_indexes],
+    ])
 
 
 def values_equivalent(left, right) -> bool:

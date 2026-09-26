@@ -1,8 +1,8 @@
-"""Durable, scheduler-executed publication of Portal records to Google.
+"""Durable, paced publication of Portal records to Google.
 
 Portal changes commit locally first and reserve publication work in
-``IntegrationOperation``. Only the scheduled management command executes Sheet
-work; Mini App requests read status and may reserve a reviewed retry.
+``IntegrationOperation``. FarmUp may advance one scoped operation per visible
+request; the optional management command can drain work independently.
 """
 
 from __future__ import annotations
@@ -38,7 +38,13 @@ def publication_scheduler_health(*, now=None) -> dict[str, Any]:
     runner = DurableJobRunnerHeartbeat.objects.filter(runner_key=PORTAL_PUBLICATION_RUNNER).first()
     fresh = bool(runner and runner.heartbeat_at >= current - timedelta(minutes=3)
                  and runner.status != DurableJobRunnerHeartbeat.STATUS_FAILED)
-    return {'queued': queued, 'healthy': fresh, 'runner_status': runner.status if runner else 'never_run',
+    recent_attempt = IntegrationOperation.objects.filter(
+        integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+        source_model=SOURCE_MODEL,
+        operation_type__in=(MASTER_OPERATION, INTERNAL_ORDER_OPERATION),
+        last_attempt_at__gte=current - timedelta(minutes=3),
+    ).exists()
+    return {'queued': queued, 'healthy': fresh or recent_attempt, 'runner_status': runner.status if runner else 'never_run',
             'last_run_at': runner.heartbeat_at.isoformat() if runner else None}
 
 
@@ -226,7 +232,11 @@ def requeue_publication_after_review(
         # explicit retry chain.
         deduplication_namespace=f'manual-retry:{operation.pk}',
         operation_types=[operation.operation_type],
-        extra_metadata={'retry_of_operation_id': str(operation.pk), 'retry_reason': 'staff_reviewed'},
+        extra_metadata={
+            'retry_of_operation_id': str(operation.pk), 'retry_reason': 'staff_reviewed',
+            **{key: (operation.metadata or {})[key] for key in ('farmup_worklist_id', 'farmup_period')
+               if key in (operation.metadata or {})},
+        },
     )
     if not replacements:
         raise ValueError('This Google Sheet publication is disabled in the current Portal configuration.')
@@ -293,7 +303,7 @@ def attempt_publication(operation: IntegrationOperation) -> dict[str, Any]:
             operation,
             lambda: {'action': 'superseded'},
             attempt_budget=1,
-            min_spacing_seconds=getattr(settings, 'PORTAL_PUBLICATION_MIN_SPACING_SECONDS', 10),
+            min_spacing_seconds=getattr(settings, 'PORTAL_PUBLICATION_MIN_SPACING_SECONDS', 5),
             paced_operation_types=(MASTER_OPERATION, INTERNAL_ORDER_OPERATION),
         )
         return {'operation': operation, 'farmer': farmer, 'result': result, 'superseded': True}
@@ -320,7 +330,7 @@ def attempt_publication(operation: IntegrationOperation) -> dict[str, Any]:
     try:
         result = execute_operation(
             operation, publish_once, attempt_budget=1,
-            min_spacing_seconds=getattr(settings, 'PORTAL_PUBLICATION_MIN_SPACING_SECONDS', 10),
+            min_spacing_seconds=getattr(settings, 'PORTAL_PUBLICATION_MIN_SPACING_SECONDS', 5),
             paced_operation_types=(MASTER_OPERATION, INTERNAL_ORDER_OPERATION),
         )
     except ExternalOperationError:
