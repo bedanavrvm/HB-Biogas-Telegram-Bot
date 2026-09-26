@@ -4024,11 +4024,10 @@ def portal_complete_jbl_visit(request, farmer_id: str):
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_publication_attempt(request):
-    """Read status, queue a reviewed retry, or advance one scoped FarmUp item."""
+    """Read a scoped status or queue a reviewed retry without contacting Google."""
     from core.models import IntegrationOperation, JawabuFarmerMaster
     from core.services.portal_publication import (
         SOURCE_MODEL,
-        attempt_publication,
         publication_payload,
         requeue_publication_after_review,
     )
@@ -4046,7 +4045,6 @@ def portal_publication_attempt(request):
         return JsonResponse({'ok': False, 'error': 'The related case is no longer available.'}, status=404)
     automatic = (body or {}).get('automatic') is True
     manual_retry = (body or {}).get('manual_retry') is True
-    interactive_farmup = (body or {}).get('interactive_farmup') is True
     required_capability = str(
         (operation.metadata or {}).get('required_capability') or 'portal.case.read'
     )
@@ -4085,45 +4083,6 @@ def portal_publication_attempt(request):
         except ValueError as exc:
             return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 
-    # Old automatic clients remain status-only. Only an open, in-scope FarmUp
-    # worklist may advance its own reserved work, one operation per request.
-    attempt_result = None
-    if interactive_farmup and automatic and not manual_retry:
-        from uuid import UUID
-        worklist_id = str((body or {}).get('worklist_id') or '').strip()
-        if not worklist_id:
-            return JsonResponse({'ok': False, 'error': 'FarmUp worklist is required.'}, status=400)
-        try:
-            worklist_id = str(UUID(worklist_id))
-        except ValueError:
-            return JsonResponse({'ok': False, 'error': 'FarmUp worklist is invalid.'}, status=400)
-        batch = _portal_imports_queryset(request, include_archived=True, import_kind='farmers').filter(worklist_id=worklist_id).first()
-        if batch is None:
-            return JsonResponse({'ok': False, 'error': 'FarmUp worklist is unavailable.'}, status=403)
-        if worklist_id != str((operation.metadata or {}).get('farmup_worklist_id') or ''):
-            from core.services.portal_imports import _farmup_repair_operation_ids
-            linked = IntegrationOperation.objects.filter(
-                pk__in=_farmup_repair_operation_ids(batch), source_id=operation.source_id,
-            ).exists()
-            if not linked:
-                return JsonResponse({'ok': False, 'error': 'This operation is not part of the FarmUp worklist.'}, status=403)
-        access_error = _portal_read_access_error(request, capability='portal.farmup.commit')
-        if access_error:
-            return access_error
-        if operation.status in {IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE}:
-            from core.services.external_resilience import ExternalCircuitOpen
-            try:
-                attempt_result = attempt_publication(operation)
-            except ExternalCircuitOpen:
-                from core.models import IntegrationCircuitState
-                circuit = IntegrationCircuitState.objects.filter(
-                    integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
-                ).first()
-                attempt_result = {
-                    'deferred': True,
-                    'circuit_retry_at': circuit.next_probe_at.isoformat() if circuit and circuit.next_probe_at else None,
-                }
-
     operation.refresh_from_db()
     payload = publication_payload(farmer)
     return JsonResponse({
@@ -4133,13 +4092,62 @@ def portal_publication_attempt(request):
         'retryable': operation.status == IntegrationOperation.STATUS_RETRYABLE,
         'needs_attention': operation.status == IntegrationOperation.STATUS_DEAD_LETTER,
         'requeued': requeued,
-        'deferred': bool(attempt_result and attempt_result.get('deferred')),
-        'circuit_retry_at': attempt_result.get('circuit_retry_at') if attempt_result else None,
+        'deferred': False,
+        'circuit_retry_at': None,
     }, status=202 if operation.status in {
         IntegrationOperation.STATUS_PENDING,
         IntegrationOperation.STATUS_RUNNING,
         IntegrationOperation.STATUS_RETRYABLE,
     } else 200)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_publication_pump(request):
+    """Advance one durable Sheet operation on a visible Portal session.
+
+    The caller supplies no case identifier and receives no case data. The
+    operation was already reserved by an authorized canonical write; the
+    database lease and pacing remain the external-write authority.
+    """
+    access_error = _portal_any_capability_error(request)
+    if access_error:
+        return access_error
+    from core.models import IntegrationOperation, JawabuFarmerMaster, IntegrationCircuitState
+    from core.services.external_resilience import ExternalCircuitOpen
+    from core.services.portal_publication import (
+        attempt_publication, publication_queue_status, queued_publication_operations,
+    )
+
+    operation = queued_publication_operations().first()
+    changed = False
+    if operation is not None:
+        if not JawabuFarmerMaster.objects.filter(pk=operation.source_id).exists():
+            IntegrationOperation.objects.filter(pk=operation.pk).update(
+                status=IntegrationOperation.STATUS_DEAD_LETTER,
+                last_error_code='source_missing',
+                last_error='Canonical Portal case is no longer available.',
+                next_retry_at=None, updated_at=timezone.now(),
+            )
+            changed = True
+        else:
+            try:
+                before = operation.attempts
+                result = attempt_publication(operation)
+                operation.refresh_from_db()
+                changed = operation.attempts > before or bool(result.get('superseded'))
+            except ExternalCircuitOpen:
+                pass
+    status = publication_queue_status()
+    circuit = IntegrationCircuitState.objects.filter(
+        integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+    ).first()
+    circuit_paused = bool(circuit and circuit.next_probe_at and circuit.next_probe_at > timezone.now()
+                          and circuit.status == IntegrationCircuitState.STATUS_OPEN)
+    return JsonResponse({
+        'ok': True, 'queued': status['queued'], 'changed': changed,
+        'poll_after_seconds': 60 if not status['queued'] else (60 if circuit_paused else 5 if status['due'] else 20),
+    })
 
 
 # ── Stage 3: Credit Decision queue ───────────────────────────────────────────

@@ -1,8 +1,8 @@
 """Durable, paced publication of Portal records to Google.
 
 Portal changes commit locally first and reserve publication work in
-``IntegrationOperation``. FarmUp may advance one scoped operation per visible
-request; the optional management command can drain work independently.
+``IntegrationOperation``. A visible Portal session may advance the oldest
+eligible operation without blocking the staff member's workflow.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from typing import Any
 from datetime import timedelta
 
 from django.conf import settings
+from django.db.models import Q
 from django.utils import timezone
 
 from core.models import IntegrationOperation
@@ -21,6 +22,41 @@ MASTER_OPERATION = 'jawabu_master_publish'
 INTERNAL_ORDER_OPERATION = 'jawabu_internal_order_publish'
 SOURCE_MODEL = 'JawabuFarmerMaster'
 PORTAL_PUBLICATION_RUNNER = 'portal_sheet_publications'
+
+
+def queued_publication_operations():
+    """Eligible work, preserving Master/Eco FIFO across all FarmUp worklists."""
+    now = timezone.now()
+    lease_seconds = max(30, int(getattr(settings, 'API_REQUEST_TIMEOUT', 10) or 10) * 3)
+    oldest_master_id = IntegrationOperation.objects.filter(
+        integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+        source_model=SOURCE_MODEL, operation_type=MASTER_OPERATION,
+        status__in=(IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE,
+                    IntegrationOperation.STATUS_RUNNING),
+    ).order_by('created_at', 'pk').values_list('pk', flat=True).first()
+    due = (Q(status__in=(IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE))
+           & (Q(next_retry_at__isnull=True) | Q(next_retry_at__lte=now)))
+    stale_running = Q(status=IntegrationOperation.STATUS_RUNNING,
+                      last_attempt_at__lte=now - timedelta(seconds=lease_seconds))
+    return IntegrationOperation.objects.filter(
+        integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+        source_model=SOURCE_MODEL,
+        operation_type__in=(MASTER_OPERATION, INTERNAL_ORDER_OPERATION),
+    ).filter(due | stale_running).filter(
+        Q(operation_type=INTERNAL_ORDER_OPERATION) | Q(pk=oldest_master_id)
+    ).order_by('created_at', 'pk')
+
+
+def publication_queue_status() -> dict[str, Any]:
+    """Opaque queue status for an authenticated Portal session."""
+    active = IntegrationOperation.objects.filter(
+        integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+        source_model=SOURCE_MODEL,
+        operation_type__in=(MASTER_OPERATION, INTERNAL_ORDER_OPERATION),
+        status__in=(IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE,
+                    IntegrationOperation.STATUS_RUNNING),
+    )
+    return {'queued': active.count(), 'due': queued_publication_operations().exists()}
 
 
 def publication_scheduler_health(*, now=None) -> dict[str, Any]:

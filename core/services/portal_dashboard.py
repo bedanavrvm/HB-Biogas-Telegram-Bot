@@ -101,44 +101,6 @@ def _case_notification(farmer, *, queue_key: str, action: str, severity: str = '
     }
 
 
-def _origination_signing_home(user, access, capabilities):
-    """Reuse Origination's exact scoped signer queue; Home grants no new access."""
-    if not user or 'portal.origination.signing.staff' not in capabilities:
-        return [], None
-    from core.models import LoanOriginationApplication
-    from core.services.origination_access import queue_capabilities, scope_application_queryset
-    from core.api.origination_views import _pending_staff_signature_application_ids
-
-    scoped = scope_application_queryset(
-        LoanOriginationApplication.objects.select_related('product_definition'),
-        user=user, access=access,
-    )
-    signer_roles = queue_capabilities(user=user, access=access)['staff_signer_roles']
-    application_ids = _pending_staff_signature_application_ids(scoped, signer_roles)
-    actions = []
-    for application in scoped.filter(pk__in=application_ids).order_by('updated_at')[:6]:
-        identity = application.identity_snapshot or {}
-        actions.append({
-            'key': f'origination_signature:{application.pk}',
-            'kind': 'origination',
-            'label': str(identity.get('name') or application.reference_number),
-            'detail': 'Your signature is needed',
-            'context': application.branch,
-            'workflow': 'Origination',
-            'severity': 'action',
-            'url': f"{reverse('loan_origination_app')}?queue=my_signatures&application={application.pk}",
-        })
-    queue = None
-    if application_ids:
-        queue = {
-            'key': 'origination_signatures', 'label': 'My signatures',
-            'count': len(application_ids), 'urgent_count': 0,
-            'url': f"{reverse('loan_origination_app')}?queue=my_signatures",
-            'workflow': 'Origination',
-        }
-    return actions, queue
-
-
 def _payment_review_home(user, access, capabilities):
     if 'portal.payment.review' not in capabilities:
         return [], None
@@ -345,9 +307,10 @@ def dashboard_payload(user, *, access=None) -> dict:
             attention.append({
                 'key': 'portal_sheet_scheduler_stale',
                 'label': 'Portal Sheet sync needs attention',
-                'detail': f"{sheet_health['queued']} Sheet publication(s) queued with no recent sync activity. Keep FarmUp open to continue, or check the optional scheduler.",
+                'detail': f"{sheet_health['queued']} Sheet update(s) are waiting. Sync resumes while Portal is open; failed updates can be retried from their worklist or case.",
                 'count': sheet_health['queued'], 'severity': 'urgent',
-                'url': reverse('portal_screen', kwargs={'screen': 'settings'}),
+                'action': {'type': 'publication_wake', 'label': 'Resume sync'},
+                'url': '',
             })
         failed_operations = IntegrationOperation.objects.filter(status__in=['retryable_failure', 'dead_letter'])
         portal_types = ('jawabu_master_publish', 'jawabu_internal_order_publish')
@@ -637,13 +600,10 @@ def dashboard_payload(user, *, access=None) -> dict:
         }
         for item in queues if item['key'] != 'deferred'
     ]
-    origination_actions, origination_queue = _origination_signing_home(user, access, capabilities)
     payment_actions, payment_queue = _payment_review_home(user, access, capabilities)
     import_actions, import_queues = _import_review_home(user, access, capabilities)
-    notification_items.extend(origination_actions)
     notification_items.extend(payment_actions)
     notification_items.extend(import_actions)
-    notification_count += origination_queue['count'] if origination_queue else 0
     notification_count += payment_queue['count'] if payment_queue else 0
     notification_count += sum(item['count'] for item in import_queues)
     def home_priority(item):
@@ -664,8 +624,6 @@ def dashboard_payload(user, *, access=None) -> dict:
         if item['key'] in allowed_actions
         and (hb_actionable_count if item['key'] == 'hb_actions' else item['count'])
     ]
-    if origination_queue:
-        home_queues.append(origination_queue)
     if payment_queue:
         home_queues.append(payment_queue)
     home_queues.extend(import_queues)
@@ -689,11 +647,6 @@ def dashboard_payload(user, *, access=None) -> dict:
         if capability in capabilities and screen not in present_keys
         and not (screen == 'payment_approvals' and payment_queue)
     ]
-    if 'portal.origination.signing.staff' in capabilities and not origination_queue:
-        home_shortcuts.append({
-            'key': 'origination', 'label': 'My signatures', 'workflow': 'Origination',
-            'url': reverse('loan_origination_app') + '?queue=my_signatures',
-        })
     oversight = bool({'portal.final_review.write', 'portal.health.read'} & capabilities)
     return {
         'as_of': timezone.now().isoformat(),

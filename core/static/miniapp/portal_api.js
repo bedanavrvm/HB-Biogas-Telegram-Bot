@@ -7,6 +7,71 @@
   // short enough to return a retry state, while still allowing ordinary mobile
   // requests to complete without treating them as failures.
   const REQUEST_TIMEOUT_MS = 20000;
+  const PUBLICATION_LEASE_KEY = 'portal-publication-pump-lease';
+  const publicationTabId = window.crypto?.randomUUID ? window.crypto.randomUUID() : String(Math.random());
+  let publicationTimer = null;
+  let publicationRunning = false;
+  let publicationStarted = false;
+  let publicationTg = null;
+
+  function schedulePublicationPump(delayMs) {
+    if (publicationTimer) window.clearTimeout(publicationTimer);
+    publicationTimer = window.setTimeout(runPublicationPump, delayMs);
+  }
+
+  function wakePublicationPump() {
+    if (publicationStarted && document.visibilityState === 'visible') schedulePublicationPump(1000);
+  }
+
+  function startPublicationPump(tg) {
+    publicationTg = tg;
+    if (publicationStarted) return;
+    publicationStarted = true;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') wakePublicationPump();
+      else if (publicationTimer) window.clearTimeout(publicationTimer);
+    });
+    window.addEventListener('online', wakePublicationPump);
+    schedulePublicationPump(1000);
+  }
+
+  async function runPublicationPump() {
+    publicationTimer = null;
+    if (publicationRunning || document.visibilityState !== 'visible' || navigator.onLine === false) return;
+    try {
+      const lease = JSON.parse(window.localStorage.getItem(PUBLICATION_LEASE_KEY) || '{}');
+      if (lease.owner !== publicationTabId && Number(lease.until) > Date.now()) {
+        schedulePublicationPump(5000);
+        return;
+      }
+      window.localStorage.setItem(PUBLICATION_LEASE_KEY, JSON.stringify({owner: publicationTabId, until: Date.now() + 30000}));
+    } catch (_) { /* The server-side lease still protects private-browser sessions. */ }
+    publicationRunning = true;
+    let delayMs = 30000;
+    try {
+      const key = requestId({});
+      const response = await fetchWithTimeout(apiBase() + '/publication/pump/', {
+        method: 'POST', timeoutMs: 0,
+        headers: {'Content-Type': 'application/json', ...initDataHeader(publicationTg), 'X-Request-ID': key, 'Idempotency-Key': key},
+        body: JSON.stringify({client_request_id: key}),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok && data.ok) {
+        delayMs = Math.max(5000, Math.min(60000, Number(data.poll_after_seconds || 30) * 1000));
+        if (data.changed) window.dispatchEvent(new CustomEvent('portal:publication-updated', {detail: {global: true}}));
+      } else if (response.status === 401 || response.status === 403) {
+        publicationStarted = false;
+      }
+    } catch (_) { /* Durable work resumes on another visible Portal request. */ }
+    finally {
+      publicationRunning = false;
+      try {
+        const lease = JSON.parse(window.localStorage.getItem(PUBLICATION_LEASE_KEY) || '{}');
+        if (lease.owner === publicationTabId) window.localStorage.removeItem(PUBLICATION_LEASE_KEY);
+      } catch (_) {}
+      if (publicationStarted && document.visibilityState === 'visible') schedulePublicationPump(delayMs);
+    }
+  }
 
   function apiBase() {
     return '/api/portal';
@@ -114,6 +179,7 @@
       const raw = await response.json().catch(function () { return {}; });
       const data = window.MiniAppUtils?.normalizeResponsePayload
         ? window.MiniAppUtils.normalizeResponsePayload(response, raw) : raw;
+      if (data?.ok && isWrite && (data.publication || data.publications)) wakePublicationPump();
       return { ok: response.ok, status: response.status, data, requestId: response.headers.get('X-Request-ID') || headers['X-Request-ID'] };
     } catch (error) {
       return {
@@ -153,6 +219,7 @@
     const raw = await response.json().catch(function () { return {}; });
     const data = window.MiniAppUtils?.normalizeResponsePayload
       ? window.MiniAppUtils.normalizeResponsePayload(response, raw) : raw;
+    if (data?.ok && (data.publication || data.publications)) wakePublicationPump();
     return { ok: response.ok, status: response.status, data, requestId: response.headers.get('X-Request-ID') };
   }
 
@@ -182,5 +249,7 @@
     fetchWithTimeout,
     postForm,
     postJson,
+    startPublicationPump,
+    wakePublicationPump,
   };
 })();

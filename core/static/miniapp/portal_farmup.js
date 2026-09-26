@@ -12,7 +12,7 @@
   try { reviewMode = sessionStorage.getItem('portal-farmup-review-mode') === 'carousel' ? 'carousel' : 'table'; } catch (_) {}
   let carouselIndex = 0, pickerActive = false, pickerHadSelection = false;
   let gridLayoutFrame = 0;
-  let sheetSyncTimer = null, sheetSyncBusy = false, sheetSyncBlocked = false, sheetSyncCircuitRetryAt = 0;
+  let publicationRefreshTimer = null;
 
   function node(id) { return document.getElementById(id); }
   function activeScreen() { return node('portal-screen')?.dataset.screen === 'farmup'; }
@@ -130,11 +130,12 @@
   function publicationBadge(batch) {
     const status = batch.publication?.status;
     if (status === 'synced') return '<span class="badge badge-green">Sheet synced</span>';
-    if (status === 'needs_attention') return `<span class="badge badge-orange">${batch.publication?.identity_review ? 'Identity review needed' : 'Sheet needs retry'}</span>`;
+    if (status === 'needs_attention') return `<button type="button" class="badge badge-orange farmup-sync-status" data-batch-id="${escapeHtml(batch.id)}">${batch.publication?.identity_review ? 'Identity review needed' : 'Sheet needs retry'}</button>`;
     if (status === 'pending') {
       const due = batch.publication?.next_retry_at;
       const progress = `${Number(batch.publication.synced || 0)}/${Number(batch.publication.total || 0)} Sheet synced`;
-      return `<span class="badge badge-blue">${escapeHtml(progress)}</span> <span class="badge badge-blue"${due ? ` data-sheet-retry-at="${escapeHtml(due)}"` : ''}>${due ? 'Retry timing' : 'Keep FarmUp open'}</span>`;
+      const ahead = Number(batch.publication.ahead_count || 0);
+      return `<button type="button" class="badge badge-blue farmup-sync-status" data-batch-id="${escapeHtml(batch.id)}">${escapeHtml(progress)}${ahead ? ` · ${ahead} ahead` : ''}</button> <span class="badge badge-blue"${due ? ` data-sheet-retry-at="${escapeHtml(due)}"` : ''}>${due ? 'Retry timing' : 'Queued'}</span>`;
     }
     return '';
   }
@@ -148,7 +149,7 @@
       ? `${publication.synced || 0} Sheet update(s) synchronized.`
       : publication.status === 'needs_attention'
         ? `${publication.needs_attention || 0} current Sheet sync${publication.needs_attention === 1 ? '' : 's'} need attention.${publication.identity_review ? ` ${publication.identity_review} need identity review before retry.` : ''} Portal data is saved.`
-        : `Portal data is saved. ${publication.synced || 0}/${publication.total || 0} Sheet updates synced. Keep FarmUp open until Sheet synced.`;
+        : `Portal data is saved. ${publication.synced || 0}/${publication.total || 0} Sheet updates synced.${publication.ahead_count ? ` ${publication.ahead_count} earlier update${publication.ahead_count === 1 ? ' is' : 's are'} ahead. ` : ' '}Updates continue while any Portal screen is open; you can leave this worklist.`;
   }
   function updatePublicationRetryTimers() {
     document.querySelectorAll('[data-sheet-retry-at]').forEach(element => {
@@ -161,50 +162,6 @@
         : `Retry eligible in ${remaining} sec`;
       element.title = 'This is the earliest retry time, not a guaranteed completion time.';
     });
-  }
-  function pendingSyncBatch() {
-    return [active, ...batches]
-      .filter(batch => batch?.publication?.pending_operation_ids?.length)
-      .sort((a, b) => Date.parse(a.publication.oldest_pending_at || '') - Date.parse(b.publication.oldest_pending_at || ''))[0] || null;
-  }
-  function scheduleSheetSync() {
-    if (sheetSyncTimer) clearTimeout(sheetSyncTimer);
-    sheetSyncTimer = null;
-    if (sheetSyncBusy || sheetSyncBlocked || !activeScreen() || document.visibilityState !== 'visible' || !can('portal.farmup.commit')) return;
-    const batch = pendingSyncBatch();
-    if (!batch) return;
-    const retryAt = Date.parse(batch.publication.next_retry_at || '');
-    const dueAt = Math.max(Number.isFinite(retryAt) ? retryAt : 0, sheetSyncCircuitRetryAt);
-    const delay = Math.max(5000, Math.min(60000, dueAt - Date.now()));
-    sheetSyncTimer = setTimeout(advanceSheetSync, delay);
-  }
-  async function advanceSheetSync() {
-    sheetSyncTimer = null;
-    if (sheetSyncBusy || !activeScreen() || document.visibilityState !== 'visible') return;
-    const batch = pendingSyncBatch();
-    const operationId = batch?.publication?.pending_operation_ids?.[0];
-    if (!operationId) return;
-    sheetSyncBusy = true;
-    try {
-      const result = await api.postJson('/publication/attempt/', {
-        operation_id: String(operationId), automatic: true, interactive_farmup: true,
-        worklist_id: String(batch.worklist_id),
-      }, tg);
-      if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Sheet status could not be refreshed.');
-      sheetSyncCircuitRetryAt = Date.parse(result.data.circuit_retry_at || '') || 0;
-      await load({silent:true});
-      const refreshed = [active, ...batches].find(item => item?.worklist_id === batch.worklist_id);
-      if (result.data.deferred && !refreshed?.publication?.next_retry_at && !sheetSyncCircuitRetryAt) {
-        sheetSyncBlocked = true;
-        feedback('An earlier Sheet update is ahead of this worklist. Ask IT to run the queued updates, then tap Refresh.', 'warning');
-      }
-    } catch (_) {
-      sheetSyncBlocked = true;
-      feedback('Sheet sync paused. Tap Refresh to try again; your Portal changes are saved.', 'warning');
-    } finally {
-      sheetSyncBusy = false;
-      scheduleSheetSync();
-    }
   }
   function renderBatches() {
     const target = node('portal-farmup-list'); if (!target) return;
@@ -242,7 +199,6 @@
     if (current) { active.publication = current.publication; showPublicationReceipt(); }
     renderBatches();
     if (node('portal-farmup-upload')) node('portal-farmup-upload').hidden = !can('portal.farmup.stage');
-    scheduleSheetSync();
   }
   function statusTooltip(params) { const changes = params.data?._match?.changed_fields || []; return [(params.data?._issues || []).map(item => item.message).join('; '), params.data?._match?.consequence || '', changes.length ? `Changes: ${changes.join(', ')}` : ''].filter(Boolean).join('; ') || 'This row is ready to commit.'; }
   function statusRenderer(params) {
@@ -353,6 +309,12 @@
     const review = active.mapping?.state === 'needs_mapping' ? '' : `${tools}<div id="farmup-selection-summary" class="farmup-selection-summary" aria-live="polite"></div><div id="farmup-grid-wrap" class="farmup-grid-wrap" role="region" aria-label="FarmUp editable review table. Scroll horizontally to reach all fields." tabindex="0"><div id="farmup-grid" class="ag-theme-quartz farmup-grid"></div></div><div id="farmup-carousel" class="farmup-carousel" hidden></div>${can('portal.farmup.commit') && active.status !== 'committed' ? '<div class="farmup-commit-bar"><span>Selected rows commit now; other rows stay held.</span><button class="btn btn-primary" id="farmup-commit">Review commit</button></div>' : ''}`;
     const routeBack = Boolean(node('portal-screen')?.dataset.farmupBatchId);
     target.innerHTML = `<div class="portal-import-review-heading"><button class="farmup-review-back" id="farmup-close" aria-label="Back to FarmUp worklists" title="Back to FarmUp worklists">${icon('arrow-left')}</button><div><span class="settings-eyebrow">${escapeHtml(active.period_label || 'FARMUP')} · V${Number(active.version_number || 1)}</span><h2>${escapeHtml(active.source_filename || 'FarmUp')}</h2></div><div class="portal-import-actions">${can('portal.publication.retry') && active.committed_count ? `<button class="btn btn-secondary" id="farmup-repair">${icon('wrench')} Repair Sheet</button>` : ''}${routeBack ? '' : `<button class="icon-button" id="farmup-close-inline" aria-label="Close review" title="Close review">${icon('x')}</button>`}</div></div><div id="farmup-commit-receipt" class="farmup-commit-receipt" hidden></div><div class="farmup-review-setup">${can('portal.farmup.stage') && active.is_current_version ? `<form id="farmup-version-upload" class="farmup-version-upload"><div><span class="farmup-setup-label">Updated CSV</span><label class="farmup-file-picker"><input type="file" name="file" data-farmup-file required><i aria-hidden="true">${icon('file-up')}</i><span data-farmup-file-label>Choose updated file</span></label></div><button class="btn btn-secondary" type="submit">Upload</button></form>` : ''}<section id="farmup-mapping-panel" class="farmup-mapping-panel"></section></div>${review}`;
+    const actions = target.querySelector('.portal-import-review-heading .portal-import-actions');
+    if (can('portal.publication.retry') && active.publication?.failed_operation_ids?.length) {
+      actions?.insertAdjacentHTML('afterbegin', `<button type="button" class="btn btn-secondary" id="farmup-retry-sync">Retry failed sync</button>`);
+    }
+    const repairButton = node('farmup-repair');
+    if (repairButton) repairButton.textContent = 'Find missing updates';
     renderMapping(); window.lucide?.createIcons?.();
     showPublicationReceipt();
     if (active.mapping?.state !== 'needs_mapping') { try { await loadGridAssets(); if (active && activeScreen()) { initializeGrid(); setReviewMode(reviewMode); updateSummary(); } } catch (error) { feedback(error.message, 'error'); } }
@@ -446,7 +408,26 @@
       const continuing = result.data.result?.continuing || 0;
       const message = `${repaired} new repair${repaired === 1 ? '' : 's'} queued${continuing ? `; continuing ${continuing} queued sync${continuing === 1 ? '' : 's'}` : ''}${skipped ? `; ${skipped} invalid deposit${skipped === 1 ? '' : 's'} skipped` : ''}.`;
       window.PortalAppShell?.showToast?.(message, 'success'); feedback(message, 'success'); await load({silent:true});
+      api.wakePublicationPump?.();
     } catch (error) { feedback(error.message, 'error'); window.PortalAppShell?.showToast?.(error.message, 'error'); } finally { setLoading(button, false); }
+  }
+  async function retryFailedSync() {
+    const ids = active?.publication?.failed_operation_ids || [];
+    if (!ids.length) return;
+    if (!await confirmDialog('Retry failed Sheet updates?', {failed: ids.length}, 'Each failed update will be queued again. Your saved Portal case data will not change.', `Retry ${ids.length}`)) return;
+    const button = node('farmup-retry-sync'); setLoading(button, true, 'Queuing');
+    try {
+      for (const operationId of ids) {
+        const result = await api.postJson('/publication/attempt/', {operation_id: operationId, manual_retry: true}, tg);
+        if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'The Sheet update could not be queued.');
+      }
+      window.PortalAppShell?.showToast?.('Failed Sheet updates queued again.', 'success');
+      api.wakePublicationPump?.();
+      await load({silent:true});
+      await openBatch(active.id);
+    } catch (error) {
+      feedback(error.message, 'error'); window.PortalAppShell?.showToast?.(error.message, 'error');
+    } finally { setLoading(button, false); }
   }
   async function saveMapping() {
     const button = node('farmup-save-mapping');
@@ -463,8 +444,9 @@
   document.addEventListener('submit', event => { if (event.target.matches('#portal-farmup-upload')) { event.preventDefault(); return upload(event.target).catch(error => { feedback(error.message, 'error'); window.PortalAppShell?.showToast?.(error.message, 'error'); }); } if (event.target.matches('#farmup-version-upload')) { event.preventDefault(); return uploadVersion(event.target).catch(error => { feedback(error.message, 'error'); window.PortalAppShell?.showToast?.(error.message, 'error'); }); } });
   document.addEventListener('input', event => { if (event.target.id !== 'farmup-search') return; search = event.target.value; gridApi?.setGridOption('quickFilterText', search); carouselIndex = 0; if (reviewMode === 'carousel') renderCarousel(); updateSummary(); });
   document.addEventListener('click', event => {
+    const sync = event.target.closest('.farmup-sync-status'); if (sync) { if (routeToReview(sync.dataset.batchId)) return; return openBatch(sync.dataset.batchId).catch(error => feedback(error.message, 'error')); }
     const open = event.target.closest('.farmup-open'); if (open) { if (routeToReview(open.dataset.batchId)) return; return openBatch(open.dataset.batchId).catch(error => feedback(error.message, 'error')); }
-    if (event.target.closest('#portal-farmup-refresh')) { sheetSyncBlocked = false; return load().catch(error => feedback(error.message, 'error')); }
+    if (event.target.closest('#portal-farmup-refresh')) { api.wakePublicationPump?.(); return load().catch(error => feedback(error.message, 'error')); }
     if (event.target.closest('#farmup-close, #farmup-close-inline')) { if ((active?.rows || []).some(row => editedFields(row).length || rowWorkflowChanged(row)) && !window.confirm('Discard uncommitted FarmUp edits and selections?')) return; clearDirtyProtection(); gridApi?.destroy(); gridApi = null; if (node('portal-screen')?.dataset.farmupBatchId) { window.location.assign('/portal/s/farmup/'); return; } node('portal-farmup-review').hidden = true; active = null; renderBatches(); return; }
     const mode = event.target.closest('[data-farmup-mode]'); if (mode) return setReviewMode(mode.dataset.farmupMode);
     if (event.target.closest('#farmup-review-filter')) { needsReviewOnly = !needsReviewOnly; gridApi?.onFilterChanged(); event.target.closest('button').classList.toggle('active', needsReviewOnly); event.target.closest('button').setAttribute('aria-pressed', String(needsReviewOnly)); carouselIndex = 0; if (reviewMode === 'carousel') renderCarousel(); updateSummary(); return; }
@@ -475,24 +457,32 @@
     if (event.target.closest('#farmup-restore-excluded')) { gridApi?.forEachNode(n => { if (n.data.disposition === 'exclude') n.data.disposition = 'hold'; }); gridApi?.redrawRows(); updateSummary(); return; }
     if (event.target.closest('#farmup-carousel-prev')) return moveCarousel(-1); if (event.target.closest('#farmup-carousel-next')) return moveCarousel(1);
     if (event.target.closest('#farmup-review-mapping')) { mappingOpen = true; renderMapping(); return; } if (event.target.closest('#farmup-cancel-mapping')) { mappingOpen = false; renderMapping(); return; }
-    if (event.target.closest('#farmup-save-mapping')) return saveMapping(); if (event.target.closest('#farmup-commit')) return commit(); if (event.target.closest('#farmup-repair')) return repairSheet();
+    if (event.target.closest('#farmup-save-mapping')) return saveMapping(); if (event.target.closest('#farmup-commit')) return commit(); if (event.target.closest('#farmup-repair')) return repairSheet(); if (event.target.closest('#farmup-retry-sync')) return retryFailedSync();
     const retry = event.target.closest('.farmup-drive-retry'); if (retry) { const batch = batches.find(item => item.id === retry.dataset.batchId); return attemptDrive(batch?.archive_operation_id).catch(error => feedback(error.message, 'error')); }
     const archive = event.target.closest('.farmup-archive'); if (archive && window.confirm('Archive this batch from the FarmUp working list? Retained evidence will remain available.')) api.postJson(`/farmup/${encodeURIComponent(archive.dataset.batchId)}/archive/`, {}, tg).then(result => { if (!result.ok) throw new Error(result.data?.error); return load({silent:true}); }).catch(error => feedback(error.message, 'error'));
   });
   document.addEventListener('click', event => { if (!event.target.matches('[data-farmup-file]')) return; pickerActive = true; pickerHadSelection = false; utils.setCloseProtection?.('portal-farmup-file-picker', true); }, true);
   document.addEventListener('cancel', event => { if (event.target.matches('[data-farmup-file]')) finishPicker(); }, true);
   document.addEventListener('change', event => { if (!event.target.matches('[data-farmup-file]')) return; pickerHadSelection = Boolean(event.target.files?.length); finishPicker(); if (!pickerHadSelection) return; try { validateFarmupFile(event.target); showUploadFile(event.target.form, event.target.files[0].name); utils.setCloseProtection?.('portal-farmup-file-selected', true); } catch (error) { utils.setCloseProtection?.('portal-farmup-file-selected', false); feedback(error.message, 'error'); } }, true);
-  function pickerReturned() { if (pickerActive) setTimeout(() => { if (pickerActive && !pickerHadSelection) finishPicker(); }, 80); if (document.visibilityState === 'visible') tg?.disableVerticalSwipes?.(); scheduleSheetSync(); }
+  function pickerReturned() { if (pickerActive) setTimeout(() => { if (pickerActive && !pickerHadSelection) finishPicker(); }, 80); if (document.visibilityState === 'visible') tg?.disableVerticalSwipes?.(); }
   window.addEventListener('focus', pickerReturned); document.addEventListener('visibilitychange', pickerReturned);
   function onViewportChange() { layoutGrid(); const editor = document.querySelector('.farmup-grid .ag-cell-inline-editing input, .farmup-grid .ag-cell-inline-editing select, .farmup-carousel :focus'); editor?.scrollIntoView?.({block:'center', inline:'nearest'}); }
   window.visualViewport?.addEventListener('resize', onViewportChange);
   window.addEventListener('resize', layoutGrid);
   window.addEventListener('orientationchange', layoutGrid);
   window.setInterval(() => { if (document.visibilityState === 'visible' && activeScreen()) updatePublicationRetryTimers(); }, 1000);
+  window.addEventListener('portal:publication-updated', () => {
+    if (!activeScreen()) return;
+    if (publicationRefreshTimer) window.clearTimeout(publicationRefreshTimer);
+    publicationRefreshTimer = window.setTimeout(() => {
+      publicationRefreshTimer = null;
+      load({silent:true}).catch(() => {});
+    }, 350);
+  });
   tg?.onEvent?.('viewportChanged', layoutGrid);
   async function loadScreen() {
     const batchId = node('portal-screen')?.dataset.farmupBatchId;
-    if (batchId) { await openBatch(batchId); scheduleSheetSync(); return; }
+    if (batchId) { await openBatch(batchId); return; }
     return load();
   }
   window.PortalMiniAppFarmUp = {load: loadScreen};

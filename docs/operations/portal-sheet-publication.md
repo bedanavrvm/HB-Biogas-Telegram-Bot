@@ -17,52 +17,39 @@ ordinary case publication no longer rescans the entire tab to repair history.
 For these tabs, row 1 is headers and row 2 onward is data. Each new case
 appends after the last occupied row. Existing case rows are never shifted.
 
-## FarmUp operator-driven sync
+## Request-assisted sync (no cron)
 
-FarmUp can advance its queued Master Data and Internal Order Sheet publications while an authorized
-operator keeps its screen open and visible. The screen submits one operation at
-a time, waits at least five seconds between requests, refreshes status, and
-stops when the worklist is synced or needs attention. The server still owns
-FIFO order, pacing, backoff, leases, and retries. Saving the FarmUp worklist
-never waits for Google. If the operator closes the screen, pending work stays
-in Django and resumes when FarmUp opens again. The operator must check for
-**Sheet synced** before leaving if no independent scheduler is configured.
-The supplied `start.sh` allows a bounded Google attempt up to 120 seconds and
-keeps a second web thread available. Confirm the deployed web service uses
-that start command before relying on operator-driven attempts.
+While an authorized Portal screen is visible, its shared background request
+advances one eligible Sheet update at a time. This covers FarmUp and later
+Portal case changes, including both Master Data and Eco-conserve. Users can
+leave the worklist and continue using Portal; saving and navigation do not wait
+for Google. The server owns FIFO order, pacing, backoff, leases, and retries.
+Overlapping browser tabs cannot publish the same operation twice. If every
+Portal session closes, queued work remains durable in Django and resumes when
+someone next opens Portal. There is no cron job or unattended scheduler.
 
-This covers publications linked to FarmUp cases. Other Portal Sheet publications,
-including unrelated later case changes, still need an independent
-runner if they must finish without a FarmUp session. A production scheduler is
-optional for FarmUp but recommended for all-workflow unattended publication.
-Configure schedule `* * * * *` to run:
+The supplied `start.sh` permits a bounded Google attempt up to 120 seconds
+and keeps a second web thread available. Confirm the deployed service uses it.
 
-```sh
-python manage.py drain_portal_publications --apply --limit 10 --max-seconds 50
-```
-
-Before enabling it, inspect the queue without external calls:
+For diagnosis, inspect the queue without external calls:
 
 ```sh
 python manage.py drain_portal_publications
 ```
 
-The command does not install a scheduler by itself. If one is provisioned,
-confirm its first successful run and monitor it. Runs record a privacy-safe heartbeat
-in `DurableJobRunnerHeartbeat` under `portal_sheet_publications`. When queued
-work exists with neither a recent runner heartbeat nor a recent Sheet attempt,
-the Portal Operations/IT dashboard shows an inactivity warning. Overlapping
-runs and FarmUp requests use the database operation lease and pacing.
-Do not run the `--apply` form against production as an ad hoc test unless a
-real Sheet write is intended.
+The command is a manual recovery tool only. Its `--apply` form writes to the
+real Sheet; use it only when explicitly intended. When queued work has no
+recent attempt, Operations/IT see an inactivity warning directing them to
+open Portal. A failed update can be requeued from the authorized worklist or
+case; opening Portal alone cannot repair a permanent configuration error.
 
 ## Timing and limits
 
-- The first FarmUp attempt is eligible while its screen remains visible,
+- The first attempt is eligible while any Portal screen remains visible,
   usually within a few seconds. This is an estimate; pacing, queue depth,
   backoff, and Google availability can extend it.
 - Portal publication operations are paced at least 5 seconds apart by default
-  across FarmUp requests and overlapping scheduled runs. A normal new-row publication uses one RAW
+  across visible Portal sessions. A normal new-row publication uses one RAW
   row write, one combined USER_ENTERED date/money batch, and one combined
   formatting batch. At the 10-attempt ceiling this is about 30 writes and up
   to 33 reads per minute for one Master/Eco tab, before other workflows and
@@ -74,9 +61,9 @@ real Sheet write is intended.
 - Each operation has at most four attempts; an exhausted operation requires
   a reviewed manual retry. Newer case revisions supersede older publications.
 - The FarmUp badge counts down to **retry eligibility**, not a guaranteed
-  completion time. Status refreshes when FarmUp opens or staff tap Refresh.
+  completion time. Status refreshes as background attempts finish and on Refresh.
   If there is no due time, it says `Sheet sync queued`.
-- The drainer's limit bounds operation attempts, not individual Google HTTP
+- The manual drainer's limit bounds operation attempts, not individual Google HTTP
   requests. A single publication can read headers/rows and then write. The
   5-second default leaves quota headroom under Google's published per-user
   limits, but other workflows sharing the service account must also be
@@ -94,6 +81,6 @@ If work remains queued longer than expected, inspect the operation's `status`,
 `attempts`, `next_retry_at`, and `last_error_code` in Django Admin. A persistent
 `needs_attention` state means it has exhausted automatic retries; repeated
 refreshes will not fix a bad tab name, permissions, or schema mismatch.
-If no scheduler runs, reopen FarmUp to resume its pending work and confirm the
-**Sheet synced** badge. Manual **Retry sync** creates a reviewed queued
+Open any Portal screen to resume pending work and confirm the
+**Sheet synced** badge in FarmUp. Manual **Retry failed sync** creates a reviewed queued
 replacement for an exhausted operation and returns without contacting Google.

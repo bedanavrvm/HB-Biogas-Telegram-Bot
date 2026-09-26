@@ -20,7 +20,7 @@ from io import StringIO
 from core.api.complaint_case_views import complaint_cases_create
 from core.api.views import spin_form_submit, tat_tracker_create
 from core.models import AccessGrant, IntegrationCircuitState, IntegrationOperation, JawabuFarmerMaster
-from core.api.portal_views import portal_publication_attempt
+from core.api.portal_views import portal_publication_attempt, portal_publication_pump
 from core.services.external_resilience import (
     ExternalCircuitOpen,
     ExternalOperationError,
@@ -322,61 +322,57 @@ class PortalPublicationEndpointTests(TestCase):
         self.assertEqual(response.status_code, 202)
         mocked_attempt.assert_not_called()
 
-    @patch('core.api.portal_views._portal_read_access_error', return_value=None)
-    @patch('core.api.portal_views._portal_imports_queryset')
     @patch('core.api.portal_views._portal_capability_error', return_value=None)
     @patch('core.services.portal_publication.attempt_publication')
-    def test_visible_farmup_advances_one_scoped_operation(self, attempt, _scope, batches, _farmup):
-        batches.return_value.filter.return_value.first.return_value = object()
-        worklist_id = '12345678-1234-4234-8234-123456789abc'
-        self.operation.metadata = {**self.operation.metadata, 'farmup_worklist_id': worklist_id}
-        self.operation.save(update_fields=['metadata', 'updated_at'])
+    def test_old_interactive_farmup_request_is_status_only(self, attempt, _scope):
         request = self.factory.post('/api/portal/publication/attempt/', data=json.dumps({
             'operation_id': str(self.operation.pk), 'automatic': True,
-            'interactive_farmup': True, 'worklist_id': worklist_id,
+            'interactive_farmup': True, 'worklist_id': '12345678-1234-4234-8234-123456789abc',
         }), content_type='application/json')
         request.portal_access = None
         request.portal_user = None
         response = portal_publication_attempt(request)
         self.assertEqual(response.status_code, 202)
-        attempt.assert_called_once_with(self.operation)
+        attempt.assert_not_called()
 
-    @patch('core.api.portal_views._portal_read_access_error', return_value=None)
-    @patch('core.api.portal_views._portal_imports_queryset')
-    @patch('core.api.portal_views._portal_capability_error', return_value=None)
+    @patch('core.api.portal_views._portal_any_capability_error', return_value=None)
     @patch('core.services.portal_publication.attempt_publication', side_effect=ExternalCircuitOpen('open'))
-    def test_farmup_circuit_pause_returns_retry_time(self, _attempt, _scope, batches, _farmup):
+    def test_visible_portal_circuit_pause_does_not_expose_case(self, attempt, _access):
         from django.utils import timezone
         from datetime import timedelta
 
-        worklist_id = '12345678-1234-4234-8234-123456789abc'
-        batches.return_value.filter.return_value.first.return_value = object()
-        self.operation.metadata = {**self.operation.metadata, 'farmup_worklist_id': worklist_id}
-        self.operation.save(update_fields=['metadata', 'updated_at'])
         retry_at = timezone.now() + timedelta(minutes=10)
         IntegrationCircuitState.objects.create(integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
-                                               next_probe_at=retry_at)
-        request = self.factory.post('/api/portal/publication/attempt/', data=json.dumps({
-            'operation_id': str(self.operation.pk), 'automatic': True,
-            'interactive_farmup': True, 'worklist_id': worklist_id,
-        }), content_type='application/json')
-        request.portal_access = None
-        request.portal_user = None
-        response = portal_publication_attempt(request)
-        self.assertEqual(response.status_code, 202)
-        self.assertTrue(json.loads(response.content)['deferred'])
-        self.assertEqual(json.loads(response.content)['circuit_retry_at'], retry_at.isoformat())
+                                               status=IntegrationCircuitState.STATUS_OPEN, next_probe_at=retry_at)
+        response = portal_publication_pump(self.factory.post('/api/portal/publication/pump/'))
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(response.content)
+        self.assertEqual(body['poll_after_seconds'], 60)
+        self.assertNotIn(str(self.farmer.pk), response.content.decode())
+        attempt.assert_called_once()
 
+    @patch('core.api.portal_views._portal_any_capability_error', return_value=None)
     @patch('core.services.portal_publication.attempt_publication')
-    @patch('core.api.portal_views._portal_capability_error', return_value=None)
-    def test_farmup_cannot_advance_another_worklist(self, _scope, attempt):
-        request = self.factory.post('/api/portal/publication/attempt/', data=json.dumps({
-            'operation_id': str(self.operation.pk), 'automatic': True,
-            'interactive_farmup': True, 'worklist_id': '87654321-4321-4321-8321-abcdefabcdef',
-        }), content_type='application/json')
-        request.portal_access = None
-        request.portal_user = None
-        self.assertEqual(portal_publication_attempt(request).status_code, 403)
+    def test_visible_portal_advances_global_fifo_without_case_data(self, attempt, _access):
+        later_farmer = JawabuFarmerMaster.objects.create(customer_name='Later publication')
+        reserve_operation(
+            integration='google_sheets', operation_type=MASTER_OPERATION,
+            deduplication_key='later-visible-portal', source_model='JawabuFarmerMaster',
+            source_id=str(later_farmer.pk), metadata={'workflow_revision': later_farmer.workflow_revision},
+        )
+        response = portal_publication_pump(self.factory.post('/api/portal/publication/pump/'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.content)['queued'], 2)
+        attempt.assert_called_once()
+        self.assertEqual(attempt.call_args.args[0].pk, self.operation.pk)
+        self.assertNotIn(str(self.farmer.pk), response.content.decode())
+
+    @patch('core.api.portal_views._portal_any_capability_error')
+    @patch('core.services.portal_publication.attempt_publication')
+    def test_pump_rejects_unauthorized_portal_user(self, attempt, access):
+        from django.http import JsonResponse
+        access.return_value = JsonResponse({'ok': False}, status=403)
+        self.assertEqual(portal_publication_pump(self.factory.post('/api/portal/publication/pump/')).status_code, 403)
         attempt.assert_not_called()
 
     @patch('core.services.portal_publication.attempt_publication')

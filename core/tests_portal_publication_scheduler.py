@@ -137,6 +137,29 @@ class DrainPortalPublicationsTests(TestCase):
         self.assertEqual(result['total'], 2)
         self.assertEqual(result['pending_operation_ids'], [str(order.pk)])
 
+    @patch('core.services.portal_imports._farmup_repair_operation_ids')
+    def test_farmup_explains_global_fifo_and_exposes_failed_retry_id(self, operation_ids):
+        from core.services.portal_imports import _farmup_publication_summary
+
+        later_farmer = JawabuFarmerMaster.objects.create(customer_name='Later worklist case')
+        later = reserve_operation(
+            integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+            operation_type=MASTER_OPERATION, deduplication_key='later-worklist',
+            source_model=SOURCE_MODEL, source_id=str(later_farmer.pk),
+            metadata={'workflow_revision': later_farmer.workflow_revision},
+        )[0]
+        operation_ids.return_value = {str(later.pk)}
+        pending = _farmup_publication_summary(SimpleNamespace(worklist_id='later-worklist'))
+        self.assertEqual(pending['ahead_count'], 1)
+        self.assertEqual(pending['pending_operation_ids'], [str(later.pk)])
+
+        later.status = IntegrationOperation.STATUS_DEAD_LETTER
+        later.last_error_code = 'http_503'
+        later.save(update_fields=['status', 'last_error_code', 'updated_at'])
+        failed = _farmup_publication_summary(SimpleNamespace(worklist_id='later-worklist'))
+        self.assertEqual(failed['status'], 'needs_attention')
+        self.assertEqual(failed['failed_operation_ids'], [str(later.pk)])
+
     @patch('core.management.commands.drain_portal_publications.attempt_publication')
     def test_open_circuit_does_not_spin_or_consume_attempt(self, attempt):
         attempt.return_value = {'operation': self.operation, 'error': True}

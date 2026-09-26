@@ -1813,9 +1813,29 @@ def _farmup_publication_summary(batch: JawabuFarmerUploadBatch) -> dict[str, Any
     status = 'needs_attention' if failed else ('pending' if pending else 'synced')
     pending_operations = [item for item in operations if item.status in pending_statuses]
     first_pending = pending_operations[0] if pending_operations else None
+    first_master = next((item for item in pending_operations if item.operation_type == MASTER_OPERATION), None)
+    ahead_count = 0
+    head_retry_at = None
+    if first_master:
+        from django.db.models import Q
+        earlier = IntegrationOperation.objects.filter(
+            integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+            source_model='JawabuFarmerMaster', operation_type=MASTER_OPERATION,
+            status__in=pending_statuses,
+        ).filter(Q(created_at__lt=first_master.created_at)
+                 | Q(created_at=first_master.created_at, pk__lt=first_master.pk))
+        ahead_count = earlier.count()
+        if ahead_count:
+            head = earlier.order_by('created_at', 'pk').first()
+            head_retry_at = head.next_retry_at if head else None
     return {
         'status': status, 'total': len(operations), 'synced': synced,
         'needs_attention': failed, 'identity_review': identity_review, 'pending_operation_ids': pending,
+        'failed_operation_ids': [str(item.pk) for item in operations
+                                 if item.status == IntegrationOperation.STATUS_DEAD_LETTER
+                                 and item.last_error_code != 'identity_conflict'],
+        'ahead_count': ahead_count,
         'oldest_pending_at': first_pending.created_at.isoformat() if first_pending else None,
-        'next_retry_at': first_pending.next_retry_at.isoformat() if first_pending and first_pending.next_retry_at else None,
+        'next_retry_at': (head_retry_at or (first_pending.next_retry_at if first_pending else None)).isoformat()
+        if head_retry_at or (first_pending and first_pending.next_retry_at) else None,
     }

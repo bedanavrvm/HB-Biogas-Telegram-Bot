@@ -1,53 +1,27 @@
-"""Bounded, dry-run-first drainer for durable Portal Google Sheet work.
+"""Optional manual diagnostic drainer for durable Portal Google Sheet work.
 
-Run once per minute on the production scheduler. This is the only executor of
-Portal Sheet publications. No Google call is made without --apply.
+The normal executor is an open Portal session. No Google call is made by this
+command without --apply; no cron job is required or configured.
 """
 
 from __future__ import annotations
 
 import time
-from datetime import timedelta
-
-from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.db.models import Q
 from django.utils import timezone
 
 from core.models import IntegrationOperation, JawabuFarmerMaster
 from core.services.external_resilience import ExternalCircuitOpen
 from core.services.durable_jobs import begin_runner, finish_runner
 from core.services.portal_publication import (
-    INTERNAL_ORDER_OPERATION,
-    MASTER_OPERATION,
-    SOURCE_MODEL,
     PORTAL_PUBLICATION_RUNNER,
     attempt_publication,
+    queued_publication_operations,
 )
 
 
 def due_portal_operations():
-    now = timezone.now()
-    lease_seconds = max(30, int(getattr(settings, 'API_REQUEST_TIMEOUT', 10) or 10) * 3)
-    stale_running = Q(status=IntegrationOperation.STATUS_RUNNING,
-                      last_attempt_at__lte=now - timedelta(seconds=lease_seconds))
-    open_master_id = IntegrationOperation.objects.filter(
-        integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
-        source_model=SOURCE_MODEL,
-        operation_type=MASTER_OPERATION,
-        status__in=(IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE,
-                    IntegrationOperation.STATUS_RUNNING),
-    ).order_by('created_at', 'pk').values_list('pk', flat=True).first()
-    queryset = IntegrationOperation.objects.filter(
-        integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
-        source_model=SOURCE_MODEL,
-        operation_type__in=(MASTER_OPERATION, INTERNAL_ORDER_OPERATION),
-    ).filter(
-        Q(status__in=(IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE))
-        & (Q(next_retry_at__isnull=True) | Q(next_retry_at__lte=now))
-        | stale_running
-    ).order_by('created_at', 'pk')
-    return queryset.filter(Q(operation_type=INTERNAL_ORDER_OPERATION) | Q(pk=open_master_id))
+    return queued_publication_operations()
 
 
 class Command(BaseCommand):

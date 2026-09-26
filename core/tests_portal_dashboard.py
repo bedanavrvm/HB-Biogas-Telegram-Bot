@@ -61,7 +61,9 @@ class PortalActionDashboardTests(TestCase):
             source_id=str(farmer.pk), deduplication_key='queued-dashboard-test',
         )
         key = 'portal_sheet_scheduler_stale'
-        self.assertIn(key, {item['key'] for item in dashboard_payload(None, access={})['attention']})
+        queued = next(item for item in dashboard_payload(None, access={})['attention'] if item['key'] == key)
+        self.assertEqual(queued['action']['type'], 'publication_wake')
+        self.assertFalse(queued['url'])
         self.assertNotIn(key, {item['key'] for item in dashboard_payload(None, access={'branches': ['Nakuru']})['attention']})
         DurableJobRunnerHeartbeat.objects.create(
             runner_key='portal_sheet_publications', status=DurableJobRunnerHeartbeat.STATUS_SUCCEEDED,
@@ -117,6 +119,18 @@ class PortalActionDashboardTests(TestCase):
         self.assertEqual(payload['counts'], {})
         self.assertEqual(payload['pipeline'], [])
         self.assertEqual(payload['overview'], {})
+
+    def test_origination_capability_does_not_add_portal_home_content(self):
+        user = get_user_model().objects.create_user(username='origination-home', password='unused')
+        capabilities = {'portal.dashboard.view', 'portal.origination.signing.staff'}
+        with patch('core.services.portal_dashboard.effective_capability_keys', return_value=capabilities):
+            payload = dashboard_payload(user, access={'roles': ['BM'], 'grants': []})
+
+        self.assertEqual(payload['notification_count'], 0)
+        self.assertEqual(payload['notification_items'], [])
+        self.assertEqual(payload['home']['actions'], [])
+        self.assertEqual(payload['home']['queues'], [])
+        self.assertEqual(payload['home']['shortcuts'], [])
 
     def test_credit_home_only_prompts_for_credit_reappraisal(self):
         today = timezone.localdate()

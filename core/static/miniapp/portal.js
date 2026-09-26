@@ -658,6 +658,7 @@
     setSection('portal-home-health', 'portal-home-health-list', health, item => {
       const retry = item.action?.type === 'publication_retry' && Array.isArray(item.action.operation_ids) && item.action.operation_ids.length;
       if (retry) return `<article class="portal-home-row"><span><strong>${escapeHtml(item.label || 'Sync issue')}</strong><small>${escapeHtml(item.detail || '')}</small></span><button type="button" class="btn btn-secondary" data-publication-retry data-publication-operation-ids="${escapeHtml(JSON.stringify(item.action.operation_ids))}">${escapeHtml(item.action.label || 'Retry sync')}</button></article>`;
+      if (item.action?.type === 'publication_wake') return `<article class="portal-home-row"><span><strong>${escapeHtml(item.label || 'Sheet sync')}</strong><small>${escapeHtml(item.detail || '')}</small></span><button type="button" class="btn btn-secondary" data-publication-wake>${escapeHtml(item.action.label || 'Resume sync')}</button></article>`;
       return homeRow(item);
     });
     setSection('portal-home-queues', 'portal-home-queues-list', queues, item => `<a class="portal-home-row dashboard-route-link" href="${escapeHtml(item.url)}"><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.workflow || 'Portal')} · ${escapeHtml(item.count)} awaiting action</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></a>`);
@@ -714,6 +715,7 @@
         if (retry) {
           return `<article class="dashboard-action-card ${item.severity === 'urgent' ? 'urgent' : ''}"><span><strong>${escapeHtml(item.label || 'Needs attention')}</strong><span>${escapeHtml(item.detail || item.severity || 'review')}</span></span><div class="dashboard-action-controls"><b>${escapeHtml(item.count || 0)}</b><button type="button" class="btn btn-secondary" data-publication-retry data-publication-operation-ids="${escapeHtml(JSON.stringify(item.action.operation_ids))}">${escapeHtml(item.action.label || 'Retry sync')}</button></div></article>`;
         }
+        if (item.action?.type === 'publication_wake') return `<article class="dashboard-action-card ${item.severity === 'urgent' ? 'urgent' : ''}"><span><strong>${escapeHtml(item.label || 'Sheet sync')}</strong><span>${escapeHtml(item.detail || '')}</span></span><div class="dashboard-action-controls"><b>${escapeHtml(item.count || 0)}</b><button type="button" class="btn btn-secondary" data-publication-wake>${escapeHtml(item.action.label || 'Resume sync')}</button></div></article>`;
         return `<a class="dashboard-action-card dashboard-route-link ${item.severity === 'urgent' ? 'urgent' : ''}" href="${escapeHtml(item.url || '#')}"><span><strong>${escapeHtml(item.label || 'Needs attention')}</strong><span>${escapeHtml(item.detail || item.severity || 'review')}</span></span><b>${escapeHtml(item.count || 0)}</b></a>`;
       }).join('');
     }
@@ -786,6 +788,12 @@
     if (!routeLink) return;
     event.preventDefault();
     navigateToUrl(routeLink.href);
+  });
+  document.addEventListener('click', event => {
+    if (!event.target.closest('[data-publication-wake]')) return;
+    event.preventDefault();
+    portalApi.wakePublicationPump?.();
+    showToast('Sheet sync will continue in the background while Portal is open.', 'success');
   });
   document.addEventListener('click', async event => {
     const button = event.target.closest('[data-publication-retry]');
@@ -2320,6 +2328,7 @@
       }
       return;
     }
+    portalApi.startPublicationPump?.(tg);
     loadPortalNotifications().catch(() => {});
     await portalRequisitions.restoreSelection?.();
     try { await loadPortalSettings(); } catch (_) { /* Settings are non-critical to opening the workflow. */ }
