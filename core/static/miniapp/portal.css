@@ -4550,6 +4550,13 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 .portal-invoice-tabs .count-pill { display:inline-grid; min-width:18px; height:18px; place-items:center; border-radius:999px; background:color-mix(in srgb,var(--color-primary) 12%,var(--bg-surface)); color:var(--color-primary); padding:0 5px; font-size:9px; }
 .invoice-list-toolbar .portal-queue-tools-primary { width:100%; }
 .invoice-list-toolbar .portal-queue-search { min-width:0; }
+/* Keep the invoice search and icon filter on one line. The clear button is
+   inside the search label but must not participate in its layout. */
+#page-invoices .invoice-list-toolbar .portal-queue-tools-primary { display:grid; grid-template-columns:minmax(0,1fr) 44px; align-items:center; }
+#page-invoices .invoice-list-toolbar .portal-queue-search { width:100%; min-width:0; flex:none; }
+#page-invoices .invoice-list-toolbar .portal-queue-search #invoice-pool-search-clear { position:absolute; top:4px; right:4px; width:36px; min-width:36px; height:36px; min-height:36px; padding:0; }
+#page-invoices .invoice-list-toolbar .portal-queue-search #invoice-pool-search-clear[hidden] { display:none; }
+#page-invoices .invoice-list-toolbar #invoice-filter-trigger { box-sizing:border-box; width:44px; min-width:44px; height:44px; min-height:44px; padding:0; justify-self:end; }
 .invoice-pool-card { position:relative; display:block; min-width:0; cursor:pointer; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-surface); padding:8px 38px 8px 8px; }
 .invoice-pool-card:focus-visible { outline:2px solid var(--color-primary); outline-offset:2px; }
 .invoice-card-main { grid-template-columns:18px minmax(0,1fr); }

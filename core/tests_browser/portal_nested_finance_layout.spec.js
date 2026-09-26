@@ -52,8 +52,8 @@ test('invoice filters use the shared compact sheet without overflowing a 320px p
   await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="invoices" data-invoice-view="inbox"><section id="page-invoices" class="page active">
     <section class="portal-queue-tools invoice-list-toolbar" aria-label="Invoice search and filters">
       <div class="portal-queue-tools-primary">
-        <label class="portal-queue-search" for="invoice-pool-search"><span aria-hidden="true">⌕</span><input type="search" id="invoice-pool-search" placeholder="Search invoice, customer, ID, phone, order, or file"><button type="button" id="invoice-pool-search-clear" hidden>×</button></label>
-        <button type="button" class="miniapp-filter-trigger" id="invoice-filter-trigger"><span>Filters</span><span class="miniapp-filter-count" id="invoice-filter-count" hidden>0</span></button>
+        <label class="portal-queue-search" for="invoice-pool-search"><svg aria-hidden="true" viewBox="0 0 24 24"></svg><input type="search" id="invoice-pool-search" placeholder="Search invoice, customer, ID, phone, order, or file"><button type="button" id="invoice-pool-search-clear" hidden>×</button></label>
+        <button type="button" class="miniapp-filter-trigger" id="invoice-filter-trigger"><svg aria-hidden="true" viewBox="0 0 24 24"></svg><span>Filters</span><span class="miniapp-filter-count" id="invoice-filter-count" hidden>0</span></button>
       </div>
       <div class="miniapp-filter-chips" id="invoice-filter-chips"></div>
       <div class="miniapp-sheet-overlay" id="invoice-filter-overlay" aria-hidden="true" hidden><aside class="miniapp-sheet" id="invoice-filter-sheet" role="dialog">
@@ -77,6 +77,18 @@ test('invoice filters use the shared compact sheet without overflowing a 320px p
   });
 
   await assertNoHorizontalOverflow(page, 320);
+  const search = await page.locator('#invoice-pool-search').boundingBox();
+  const filter = await page.locator('#invoice-filter-trigger').boundingBox();
+  expect(filter.width).toBe(44);
+  expect(Math.abs(search.y - filter.y)).toBeLessThanOrEqual(2);
+  await expect(page.locator('#invoice-pool-search-clear')).toBeHidden();
+  await page.locator('#invoice-pool-search').fill('sample');
+  const clear = await page.locator('#invoice-pool-search-clear').boundingBox();
+  expect(clear.x).toBeGreaterThan(search.x);
+  expect(clear.x + clear.width).toBeLessThanOrEqual(search.x + search.width);
+  expect(clear.y + clear.height).toBeLessThanOrEqual(search.y + search.height);
+  await page.locator('#invoice-pool-search-clear').click();
+  await expect(page.locator('#invoice-pool-search')).toHaveValue('');
   await page.locator('#invoice-filter-trigger').click();
   await expect(page.locator('#invoice-filter-overlay')).toBeVisible();
   await assertNoHorizontalOverflow(page, 320);
