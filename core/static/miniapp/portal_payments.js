@@ -182,11 +182,12 @@
     }
     target.innerHTML = visible.map(function (receipt) {
       const matched = receiptCount(receipt, 'matched');
-      const held = receiptCount(receipt, 'name_change') + receiptCount(receipt, 'review') + receiptCount(receipt, 'parse_failed');
+      const correction = receiptCount(receipt, 'name_change');
+      const held = receiptCount(receipt, 'review') + receiptCount(receipt, 'parse_failed');
       const action = receipt.payment_batch_id
         ? `<button type="button" class="btn btn-secondary payment-open-receipt-batch" data-payment-receipt-batch="${escape(receipt.payment_batch_id)}">Open payment</button>`
         : `<button type="button" class="btn btn-secondary payment-open-receipt" data-payment-receipt="${escape(receipt.id)}">Review delivery</button>`;
-      return `<article class="payment-receipt-row"><div><strong>${escape(receipt.status_label || 'Invoice delivery')}</strong><small>${escape(matched)} matched${held ? ` · ${escape(held)} held` : ''}</small></div><div class="payment-receipt-row-action">${held ? '<span class="badge badge-orange">Held</span>' : '<span class="badge badge-green">Ready</span>'}${action}</div></article>`;
+      return `<article class="payment-receipt-row"><div><strong>${escape(receipt.status_label || 'Invoice delivery')}</strong><small>${escape(matched)} matched${correction ? ` · ${escape(correction)} correction pending` : ''}${held ? ` · ${escape(held)} held` : ''}</small></div><div class="payment-receipt-row-action">${held || correction ? '<span class="badge badge-orange">Review</span>' : '<span class="badge badge-green">Ready</span>'}${action}</div></article>`;
     }).join('');
   }
 
@@ -211,16 +212,17 @@
     const submit = el('payment-receipt-create');
     if (!dialog || !target || !activeReceipt) return;
     const items = activeReceipt.items || [];
-    const payable = items.filter(function (item) { return item.status === 'matched' && item.farmer_id; });
-    const held = items.filter(function (item) { return item.status !== 'matched'; });
+    const payable = items.filter(function (item) { return ['matched', 'name_change'].includes(item.status) && item.farmer_id; });
+    const held = items.filter(function (item) { return !['matched', 'name_change'].includes(item.status) || !item.farmer_id; });
     if (title) title.textContent = activeReceipt.payment_batch_id ? 'Payment created from this delivery' : 'Prepare payment from invoice delivery';
     if (copy) copy.textContent = activeReceipt.payment_batch_id
       ? 'This delivery already has a governed payment batch.'
-      : 'Matched invoices default to Loan - Jawabu. Switch only a Cash exception. Held invoices are not included.';
+      : 'Matched invoices default to Loan - Jawabu. Switch only a Cash exception. Correction-pending cases may enter this draft; held invoices are not included.';
     target.innerHTML = [
       ...payable.map(function (item) {
         const label = item.applicant_name || item.invoice_holder_name || item.invoice_no || 'Matched invoice';
-        return `<div class="payment-receipt-dialog-row"><span><strong>${escape(label)}</strong><small>${escape(item.invoice_no || 'Invoice')} · Loan - Jawabu</small></span><button type="button" class="payment-receipt-cash-toggle" data-payment-receipt-dialog-cash="${escape(item.farmer_id)}" aria-pressed="false" aria-label="Switch ${escape(label)} to Cash" title="Switch this invoice to Cash"><i data-lucide="landmark" aria-hidden="true"></i><span>Loan</span></button></div>`;
+        const correction = item.status === 'name_change' ? ` · ${escape(item.reason || 'Corrected invoice needed')}` : '';
+        return `<div class="payment-receipt-dialog-row"><span><strong>${escape(label)}</strong><small>${escape(item.invoice_no || 'Invoice')} · Loan - Jawabu${correction}</small></span><button type="button" class="payment-receipt-cash-toggle" data-payment-receipt-dialog-cash="${escape(item.farmer_id)}" aria-pressed="false" aria-label="Switch ${escape(label)} to Cash" title="Switch this invoice to Cash"><i data-lucide="landmark" aria-hidden="true"></i><span>Loan</span></button></div>`;
       }),
       ...held.map(function (item) {
         return `<div class="payment-receipt-dialog-row held"><span><strong>${escape(item.invoice_no || item.source_filename || 'Invoice')}</strong><small>${escape(item.reason || item.status_label || 'Needs review')}</small></span><span class="badge badge-orange">${escape(item.status_label || 'Held')}</span></div>`;
@@ -243,7 +245,7 @@
   async function createPaymentFromReceipt(button) {
     if (!activeReceipt?.id) return;
     const modes = {};
-    (activeReceipt.items || []).filter(function (item) { return item.status === 'matched' && item.farmer_id; }).forEach(function (item) {
+    (activeReceipt.items || []).filter(function (item) { return ['matched', 'name_change'].includes(item.status) && item.farmer_id; }).forEach(function (item) {
       modes[item.farmer_id] = 'LOAN-JAWABU';
     });
     el('payment-receipt-dialog-items')?.querySelectorAll('[data-payment-receipt-dialog-cash]').forEach(function (toggle) {

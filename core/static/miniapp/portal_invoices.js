@@ -460,14 +460,14 @@
     const varianceLabels = (identity.discrepancy_codes || []).filter(function (code) {
       return !['national_id_mismatch', 'national_id_missing'].includes(code);
     }).map(function (code) {
-      return code === 'name_variance' ? 'Name spelling differs' : code === 'phone_mismatch' ? 'Phone number differs' : code;
+      return code === 'name_variance' ? 'Name order or spelling differs' : code === 'phone_mismatch' ? 'Phone number differs' : code;
     });
     const identityNotice = !invoiceMatchEligible
       ? '<div class="invoice-card-warning">' + escapeHtml(identity.match_eligibility?.message || 'This invoice match has no finalized requisition/order. Unmatch it before continuing.') + '</div>'
       : hasMissingId
       ? '<div class="invoice-card-warning">A national ID is missing. Correct the parsed invoice or applicant data before continuing.</div>'
       : hasDifferentIds
-        ? '<div class="invoice-card-warning">The invoice holder and applicant have different national IDs. Payment stays blocked until a corrected invoice is confirmed.</div>'
+        ? '<div class="invoice-card-warning">The invoice holder and applicant have different national IDs. A corrected invoice is pending; review this before final payment.</div>'
         : varianceLabels.length
           ? '<div class="invoice-info-note">National ID matches. ' + escapeHtml(varianceLabels.join('. ')) + '.</div>'
           : '<span class="badge badge-green">National ID matches</span>';
@@ -1385,11 +1385,12 @@
           const list = function (items, value) {
             return items.length ? '<ul class="mini-list">' + items.map(function (item) { return '<li>' + escapeHtml(value(item)) + '</li>'; }).join('') + '</ul>' : '';
           };
-          const receiptMatched = Array.isArray(receipt.items) ? receipt.items.filter(function (item) { return item.status === 'matched' && item.farmer_id; }) : [];
-          const receiptHeld = Array.isArray(receipt.items) ? receipt.items.filter(function (item) { return item.status !== 'matched'; }) : [];
-          const modeRows = receiptMatched.map(function (item) {
+          const receiptPayable = Array.isArray(receipt.items) ? receipt.items.filter(function (item) { return ['matched', 'name_change'].includes(item.status) && item.farmer_id; }) : [];
+          const receiptHeld = Array.isArray(receipt.items) ? receipt.items.filter(function (item) { return !['matched', 'name_change'].includes(item.status) || !item.farmer_id; }) : [];
+          const modeRows = receiptPayable.map(function (item) {
             const label = item.applicant_name || item.invoice_holder_name || item.invoice_no || 'Matched invoice';
-            return '<div class="invoice-receipt-mode"><span><strong>' + escapeHtml(label) + '</strong><small>Loan - Jawabu</small></span><button type="button" class="invoice-receipt-cash-toggle" data-invoice-receipt-cash="' + escapeHtml(item.farmer_id) + '" aria-pressed="false" aria-label="Switch ' + escapeHtml(label) + ' to Cash" title="Switch this invoice to Cash"><i data-lucide="landmark" aria-hidden="true"></i><span>Loan</span></button></div>';
+            const note = item.status === 'name_change' ? (item.reason || 'Corrected invoice pending.') : 'Loan - Jawabu';
+            return '<div class="invoice-receipt-mode"><span><strong>' + escapeHtml(label) + '</strong><small>' + escapeHtml(note) + '</small></span><button type="button" class="invoice-receipt-cash-toggle" data-invoice-receipt-cash="' + escapeHtml(item.farmer_id) + '" aria-pressed="false" aria-label="Switch ' + escapeHtml(label) + ' to Cash" title="Switch this invoice to Cash"><i data-lucide="landmark" aria-hidden="true"></i><span>Loan</span></button></div>';
           }).join('');
           resultBox.innerHTML = '<div class="invoice-upload-outcome" role="status">'
             + '<strong>Successfully uploaded ' + escapeHtml(uploaded) + ' invoice file' + (uploaded === 1 ? '' : 's') + '.</strong>'
@@ -1398,9 +1399,10 @@
             + (reviewRows.length ? '<h4>Manual review</h4>' + list(reviewRows, function (item) { return (item.filename || 'PDF') + ': Invoice ' + (item.invoice_no || '-') + ' — ' + (item.reason || 'Review required'); }) : '')
             + (failures.length ? '<h4>Failed files</h4>' + list(failures, function (item) { return (item.filename || 'PDF') + ': ' + (item.error || 'Upload failed'); }) : '')
             + (receipt.id ? '<div class="invoice-receipt-next"><strong>Invoice delivery recorded</strong><span>' + escapeHtml(receipt.total_count || 0) + ' invoice row(s) stay together for payment.</span>'
-              + (receiptMatched.length ? '<div class="invoice-receipt-modes">' + modeRows + '</div><button type="button" class="btn btn-primary invoice-receipt-create-payment">Create payment batch</button>' : '')
+              + (receiptPayable.length ? '<div class="invoice-receipt-modes">' + modeRows + '</div><button type="button" class="btn btn-primary invoice-receipt-create-payment">Create payment batch</button>' : '')
+              + (receiptPayable.some(function (item) { return item.status === 'name_change'; }) ? '<span class="invoice-receipt-hint">An ID correction is still pending for this draft.</span>' : '')
               + (receiptHeld.length ? '<span class="badge badge-orange">' + escapeHtml(receiptHeld.length) + ' held for correction or review</span>' : '')
-              + (!receiptMatched.length ? '<span class="invoice-receipt-hint">Resolve a held invoice before it can be added to payment.</span>' : '')
+              + (!receiptPayable.length ? '<span class="invoice-receipt-hint">Resolve a held invoice before it can be added to payment.</span>' : '')
               + '</div>' : '')
             + '</div>';
           resultBox.querySelector('.invoice-receipt-create-payment')?.addEventListener('click', function () { createPaymentFromReceipt(receipt, this, resultBox); });

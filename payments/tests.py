@@ -13,7 +13,7 @@ from core.services.payment_documents import _write_payment_mode
 from core.services.jawabu_case_reference import display_case_reference
 from core.services.jawabu_pipeline import completed_payment_mode_for_farmer, completed_payment_number_for_farmer
 from payments.models import PaymentBatch, PaymentCaseReview, PaymentReceiptItem, PaymentSequenceState
-from payments.receipt_batches import create_payment_batch_from_receipt, create_receipt_batch
+from payments.receipt_batches import create_payment_batch_from_receipt, create_receipt_batch, serialize_receipt_batch
 from payments.services import (
     PaymentBatchError,
     add_cases,
@@ -64,6 +64,72 @@ class PaymentBatchServiceTests(TestCase):
             'ready': [{'farmer_id': value, 'row': {}} for value in (farmer_ids or [])],
             'blocked': [], 'ready_count': len(farmer_ids or []), 'blocked_count': 0,
         }
+
+    @patch('core.services.invoice_parser.official_requisition_eligibility', return_value={'eligible': True})
+    def test_receipt_accepts_reordered_applicant_name_when_national_id_matches(self, _eligibility):
+        farmer = self.farmer('62')
+        farmer.customer_name = 'GITARI, CAROLINE NKATHA'
+        farmer.imab_customer_name = 'GITARI, CAROLINE NKATHA'
+        farmer.lead_name = 'CAROLINE NKATHA GITARI'
+        farmer.save(update_fields=['customer_name', 'imab_customer_name', 'lead_name'])
+        upload = InvoiceUploadBatch.objects.create(original_filename='Caroline.pdf', status='matched', total_pages=1, total_parsed=1)
+        invoice = ParsedInvoice.objects.create(
+            batch=upload, page=1, invoice_no='INV-62', customer_name='Caroline Nkatha Gitari',
+            customer_id=farmer.national_id, status='matched', matched_farmer=farmer,
+        )
+
+        receipt, _replayed = create_receipt_batch(group_configuration=self.group, uploads=[upload], actor=self.user)
+
+        item = receipt.items.get(invoice=invoice)
+        self.assertEqual(item.status, PaymentReceiptItem.STATUS_MATCHED)
+        self.assertEqual(serialize_receipt_batch(receipt, include_items=True)['items'][0]['reason'], '')
+
+    @patch('payments.services.payment_readiness', side_effect=ready.__func__)
+    @patch('core.services.invoice_parser.official_requisition_eligibility', return_value={'eligible': True})
+    def test_older_name_only_hold_is_payable_without_reupload(self, _eligibility, _readiness):
+        farmer = self.farmer('63')
+        farmer.customer_name = 'GITARI, CAROLINE NKATHA'
+        farmer.imab_customer_name = 'GITARI, CAROLINE NKATHA'
+        farmer.save(update_fields=['customer_name', 'imab_customer_name'])
+        upload = InvoiceUploadBatch.objects.create(original_filename='Caroline.pdf', status='matched', total_pages=1, total_parsed=1)
+        invoice = ParsedInvoice.objects.create(
+            batch=upload, page=1, invoice_no='INV-63', customer_name='Caroline Nkatha Gitari',
+            customer_id=farmer.national_id, status='matched', matched_farmer=farmer,
+        )
+        receipt, _replayed = create_receipt_batch(group_configuration=self.group, uploads=[upload], actor=self.user)
+        item = receipt.items.get(invoice=invoice)
+        item.status = PaymentReceiptItem.STATUS_NAME_CHANGE
+        item.reason = 'Invoice holder differs from the committed loan applicant.'
+        item.save(update_fields=['status', 'reason'])
+
+        shown = serialize_receipt_batch(receipt, include_items=True)
+        self.assertEqual(shown['counts'][PaymentReceiptItem.STATUS_MATCHED], 1)
+        self.assertEqual(shown['items'][0]['status'], PaymentReceiptItem.STATUS_MATCHED)
+        item.refresh_from_db()
+        self.assertEqual(item.status, PaymentReceiptItem.STATUS_NAME_CHANGE)  # GET remains read-only.
+
+        batch, _replayed = create_payment_batch_from_receipt(
+            receipt_id=receipt.id, expected_revision=receipt.revision,
+            payment_modes={}, actor=self.user,
+        )
+        item.refresh_from_db()
+        self.assertEqual(item.status, PaymentReceiptItem.STATUS_MATCHED)
+        self.assertTrue(batch.case_memberships.filter(farmer=farmer, is_active=True).exists())
+
+    @patch('core.services.invoice_parser.official_requisition_eligibility', return_value={'eligible': True})
+    def test_receipt_keeps_different_national_id_for_correction(self, _eligibility):
+        farmer = self.farmer('64')
+        upload = InvoiceUploadBatch.objects.create(original_filename='Different-ID.pdf', status='matched', total_pages=1, total_parsed=1)
+        invoice = ParsedInvoice.objects.create(
+            batch=upload, page=1, invoice_no='INV-64', customer_name=farmer.customer_name,
+            customer_id='99999999', status='matched', matched_farmer=farmer,
+        )
+
+        receipt, _replayed = create_receipt_batch(group_configuration=self.group, uploads=[upload], actor=self.user)
+
+        item = receipt.items.get(invoice=invoice)
+        self.assertEqual(item.status, PaymentReceiptItem.STATUS_NAME_CHANGE)
+        self.assertIn('National ID', item.reason)
 
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
     def test_modes_are_governed(self, _readiness):
@@ -217,6 +283,7 @@ class PaymentBatchServiceTests(TestCase):
 
         disposition.side_effect = [
             (PaymentReceiptItem.STATUS_MATCHED, payable, ''),
+            (PaymentReceiptItem.STATUS_NAME_CHANGE, held, 'Invoice holder differs from the committed loan applicant.'),
             (PaymentReceiptItem.STATUS_NAME_CHANGE, held, 'Invoice holder differs from the committed loan applicant.'),
         ]
         receipt, replayed = create_receipt_batch(

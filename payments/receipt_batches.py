@@ -70,10 +70,11 @@ def _item_disposition(invoice: ParsedInvoice | None, farmer: JawabuFarmerMaster 
         return PaymentReceiptItem.STATUS_REVIEW, None, invoice.review_notes or 'No unique case was found for this invoice.'
     gate = identity_gate(invoice, farmer)
     discrepancy = set(gate.get('discrepancy_codes') or [])
-    # A receipt batch applies the agreed stricter rule: a present name or ID
-    # difference is a correction hold, even if a legacy invoice match exists.
-    if {'national_id_mismatch', 'name_variance'} & discrepancy:
-        return PaymentReceiptItem.STATUS_NAME_CHANGE, farmer, 'Invoice holder differs from the committed loan applicant. Request a corrected invoice.'
+    # Name order and spelling can differ across FarmUp, SysUp and the invoice.
+    # The governed identity gate treats an exact National ID match as decisive;
+    # only a different ID requires a corrected invoice.
+    if 'national_id_mismatch' in discrepancy:
+        return PaymentReceiptItem.STATUS_NAME_CHANGE, farmer, 'Invoice holder National ID differs from the loan applicant. Request a corrected invoice.'
     if 'national_id_missing' in discrepancy:
         return PaymentReceiptItem.STATUS_REVIEW, farmer, 'The invoice holder or loan applicant national ID is missing.'
     if gate.get('blocker'):
@@ -133,11 +134,26 @@ def create_receipt_batch(*, group_configuration, uploads, actor=None, request_id
 
 
 def serialize_receipt_batch(receipt: PaymentReceiptBatch, *, include_items: bool = False) -> dict:
-    items = receipt.items.select_related('invoice', 'farmer', 'source_upload', 'replacement_invoice').order_by('created_at')
-    counts = Counter(items.values_list('status', flat=True))
+    items = list(receipt.items.select_related('invoice', 'farmer', 'source_upload', 'replacement_invoice').order_by('created_at'))
+    # Older deliveries may have been held solely because the same person's
+    # name was reordered. Expose their current payable state without making a
+    # GET request mutate receipt evidence; the payment write reconciles it.
+    dispositions = {
+        item.pk: _item_disposition(item.invoice, item.farmer)
+        if item.status == PaymentReceiptItem.STATUS_NAME_CHANGE and item.invoice_id and item.farmer_id and not item.replacement_invoice_id
+        else (item.status, item.farmer, item.reason)
+        for item in items
+    }
+    counts = Counter(dispositions[item.pk][0] for item in items)
+    effective_status = receipt.status
+    if not _linked_batch(receipt) and counts and set(counts) <= {
+        PaymentReceiptItem.STATUS_MATCHED, PaymentReceiptItem.STATUS_IGNORED,
+    }:
+        effective_status = PaymentReceiptBatch.STATUS_RECONCILED
     data = {
-        'id': str(receipt.pk), 'status': receipt.status,
-        'status_label': receipt.get_status_display(), 'revision': receipt.revision,
+        'id': str(receipt.pk), 'status': effective_status,
+        'status_label': dict(PaymentReceiptBatch.STATUS_CHOICES).get(effective_status, ''),
+        'revision': receipt.revision,
         'payment_batch_id': str(getattr(_linked_batch(receipt), 'pk', '') or ''),
         'created_at': receipt.created_at.isoformat(),
         'counts': {status: int(counts.get(status, 0)) for status, _label in PaymentReceiptItem.STATUS_CHOICES},
@@ -146,8 +162,9 @@ def serialize_receipt_batch(receipt: PaymentReceiptBatch, *, include_items: bool
     if include_items:
         data['items'] = [
             {
-                'id': str(item.pk), 'status': item.status, 'status_label': item.get_status_display(),
-                'reason': item.reason, 'source_filename': item.source_upload.original_filename,
+                'id': str(item.pk), 'status': dispositions[item.pk][0],
+                'status_label': dict(PaymentReceiptItem.STATUS_CHOICES).get(dispositions[item.pk][0], ''),
+                'reason': dispositions[item.pk][2], 'source_filename': item.source_upload.original_filename,
                 'invoice_id': str(item.invoice_id or ''), 'replacement_invoice_id': str(item.replacement_invoice_id or ''),
                 'invoice_no': item.invoice.invoice_no if item.invoice_id else '',
                 'invoice_date': item.invoice.invoice_date.isoformat() if item.invoice_id and item.invoice.invoice_date else '',
@@ -182,6 +199,15 @@ def create_payment_batch_from_receipt(*, receipt_id, payment_modes, expected_rev
     existing_batch = _linked_batch(receipt)
     if existing_batch:
         return existing_batch, True
+    for item in receipt.items.select_for_update().filter(
+        status=PaymentReceiptItem.STATUS_NAME_CHANGE,
+        invoice__isnull=False, farmer__isnull=False, replacement_invoice__isnull=True,
+    ).select_related('invoice', 'farmer'):
+        status, _farmer, reason = _item_disposition(item.invoice, item.farmer)
+        if status != item.status or reason != item.reason:
+            item.status = status
+            item.reason = reason
+            item.save(update_fields=['status', 'reason', 'updated_at'])
     payable = list(receipt.items.select_for_update().filter(
         status__in=(
             PaymentReceiptItem.STATUS_MATCHED,
