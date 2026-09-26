@@ -62,6 +62,8 @@ class JblPipelineServiceTestCase(TestCase):
                 'master_sync_enabled': True,
                 'master_sheet_id': '1VFRZgbux8crsjAvH7Cn-F5NZdG-dz3E2aB2vhJV_0hg',
                 'master_sheet_name': 'Master Data',
+                'master_header_row': 3,
+                'master_data_start_row': 5,
             },
         )
 
@@ -499,6 +501,24 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(mock_get_sheets.call_args.kwargs['sheet_name'], 'Eco-conserve')
         self.assertEqual(sheet.values[4][1], 'FARMER ONE')
 
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_master_and_eco_first_case_starts_on_row_two(self, mock_get_sheets):
+        from core.tests import FakeMasterDataSheet, FakeJawabuService
+
+        self.config.workflow = {**(self.config.workflow or {}),
+                                'master_header_row': 1, 'master_data_start_row': 2}
+        self.config.save(update_fields=['workflow'])
+        eco_farmer = JawabuFarmerMaster.objects.create(customer_name='FARMER TWO', county='Nakuru')
+        for farmer, tab in ((self.farmer_stage1, 'Master Data'), (eco_farmer, 'Eco-conserve')):
+            with self.subTest(tab=tab):
+                sheet = FakeMasterDataSheet(['No.', 'Customer Name', 'National ID', 'Primary Phone'])
+                sheet.values = [list(sheet.values[2])]
+                mock_get_sheets.return_value = FakeJawabuService(sheet)
+                self.assertTrue(sync_farmer_to_master_sheet(farmer))
+                self.assertEqual(mock_get_sheets.call_args.kwargs['sheet_name'], tab)
+                self.assertEqual(sheet.values[1][1], farmer.customer_name.upper())
+                self.assertFalse(any('BACKEND-OWNED:' in str(value) for value in sheet.values[1]))
+
     def test_master_and_eco_numbering_skips_empty_rows_without_moving_cases(self):
         from core.tests import FakeMasterDataSheet
         from core.services.jawabu_master import (
@@ -539,8 +559,12 @@ class JblPipelineServiceTestCase(TestCase):
                                         master_datetime_column_indexes(headers))
                 self.assertEqual(sheet.values[4][2:7], ['12-May-2026'] * 5)
                 self.assertEqual(sheet.values[4][7], '12-May-2026 14:30')
-                self.assertIn('dd-mmm-yyyy', [style['numberFormat']['pattern'] for _, style in formats])
-                self.assertIn('dd-mmm-yyyy HH:mm', [style['numberFormat']['pattern'] for _, style in formats])
+                requests = [request['repeatCell'] for payload in sheet.spreadsheet.requests
+                            for request in payload.get('requests', []) if 'repeatCell' in request]
+                patterns = [item['cell']['userEnteredFormat']['numberFormat']['pattern'] for item in requests]
+                self.assertIn('dd-mmm-yyyy', patterns)
+                self.assertIn('dd-mmm-yyyy HH:mm', patterns)
+                self.assertEqual(len(sheet.spreadsheet.requests), 1)
 
     def test_eco_salesperson_variants_route_at_intake(self):
         from types import SimpleNamespace

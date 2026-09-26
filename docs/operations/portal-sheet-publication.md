@@ -3,6 +3,16 @@
 Portal changes commit to Django first. Sheet publication is a separate durable
 operation. A saved case is usable even while the Sheet update is queued.
 
+Both `Master Data` and `Eco-conserve` must have their column headers in row 1
+and their first case in row 2. Set the Jawabu group configuration's Master
+header row to `1` and data start row to `2` after confirming the tabs have
+that layout. Existing `3`/`5` configurations keep their old layout until an
+administrator updates them; the release does not move live spreadsheet rows
+automatically. Do not change those two settings until the actual Sheet headers
+have been moved to row 1. If historical `No.` values are already inconsistent,
+run the dedicated number-repair command once after checking its dry-run plan;
+ordinary case publication no longer rescans the entire tab to repair history.
+
 ## Scheduling
 
 The browser makes an immediate best-effort publication attempt and helps drain
@@ -41,6 +51,14 @@ an ad hoc test unless a real Sheet write is intended.
   requests. A single publication can read headers/rows and then write. The
   10-second default is intentionally conservative but other workflows sharing
   the service account must also be monitored in Google Cloud quotas.
+- Master Data and Eco-conserve publications retain their case commit reservation
+  order across browser and scheduler attempts. A later case waits while an
+  earlier one is retrying; a failed case can therefore delay the queue until
+  it succeeds or reaches its retry limit. Internal Order publication is paced
+  separately and does not determine case row order.
+- A new case receives its next `No.` during its own append. Full-tab number
+  repairs are reserved for explicit repair work or a partner-tab move, avoiding
+  an extra full Sheet read after every monthly-upload case.
 
 If work remains queued longer than expected, inspect the operation's `status`,
 `attempts`, `next_retry_at`, and `last_error_code` in Django Admin. A persistent

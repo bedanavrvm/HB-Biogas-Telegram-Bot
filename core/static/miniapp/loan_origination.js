@@ -3430,8 +3430,17 @@
     branches = productResult.data.branches || [];
     locationCatalog = productResult.data.location_catalog || {};
     capabilities = productResult.data.capabilities || capabilities;
+    const homeParams = new URLSearchParams(window.location.search);
+    const requestedQueue = homeParams.get('queue');
+    if (requestedQueue === 'my_signatures' && capabilities.can_staff_sign) listState.queue = requestedQueue;
     if (!listState.queue) listState.queue = capabilities.can_create ? 'mine' : capabilities.can_start_signing ? 'prepare' : capabilities.can_staff_sign ? 'signing' : capabilities.can_review ? 'review' : '';
     await loadApplications();
+    const requestedApplication = homeParams.get('application');
+    if (requestedApplication && /^[0-9a-f-]{36}$/i.test(requestedApplication)) {
+      const result = await apiFetch(`/applications/${requestedApplication}/`, {});
+      if (result.ok && result.data?.application) await openEditor(result.data.application, 0);
+      else showToast(result.data?.error || 'This application is not available to you.', 'error');
+    }
     root().setAttribute('aria-busy', 'false');
   }
 

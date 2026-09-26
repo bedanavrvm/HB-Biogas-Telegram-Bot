@@ -609,6 +609,10 @@
       + '<div class="dashboard-skeletons" aria-hidden="true"><span></span><span></span><span></span><span></span></div>';
     loading.style.display = 'block';
     loading.setAttribute('aria-busy', 'true');
+    ['portal-home-health', 'portal-home-actions', 'portal-home-caught-up',
+      'portal-home-queues', 'portal-home-shortcuts', 'portal-home-overview'].forEach(id => {
+      if (el(id)) el(id).hidden = true;
+    });
     if (el('dash-counts')) el('dash-counts').style.display = 'none';
     if (el('dashboard-overview')) el('dashboard-overview').hidden = true;
     const loadVersion = ++dashboardLoadVersion;
@@ -639,11 +643,45 @@
     state.counts = data.counts || {};
     state.dashboard = data || {};
     markPortalFresh(data.calculated_at);
-    renderDashboard();
+    renderPortalHome();
     renderPortalNotifications(data);
     if (canManagePortalWorkspace()) {
       try { await loadPortalWorkspace({ includeSummary: true }); } catch (_) { /* Workspace shortcuts are non-critical to queue work. */ }
     }
+  }
+
+  function renderPortalHome() {
+    const dashboard = state.dashboard || {};
+    const home = dashboard.home || {};
+    if (el('dashboard-scope')) el('dashboard-scope').textContent = dashboard.scope?.label || 'Your authorized work';
+    if (el('dashboard-as-of')) el('dashboard-as-of').textContent = dashboard.as_of ? `Updated ${fmtDateTime(dashboard.as_of)}` : 'Current data';
+    const actions = home.actions || [];
+    const health = home.system_health || [];
+    const queues = home.queues || [];
+    const shortcuts = home.shortcuts || [];
+    const setSection = (sectionId, listId, items, render) => {
+      const section = el(sectionId);
+      const list = el(listId);
+      if (!section || !list) return;
+      section.hidden = !items.length;
+      list.innerHTML = items.map(render).join('');
+    };
+    const homeRow = item => `<a class="portal-home-row dashboard-route-link ${item.severity === 'urgent' ? 'urgent' : ''}" href="${escapeHtml(item.url || '#')}"><span><strong>${escapeHtml(item.label || 'Case')}</strong><small>${escapeHtml(item.detail || '')}</small><small>${escapeHtml([item.context, item.workflow || 'Portal'].filter(Boolean).join(' · '))}</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></a>`;
+    setSection('portal-home-actions', 'portal-home-actions-list', actions, homeRow);
+    setSection('portal-home-health', 'portal-home-health-list', health, item => {
+      const retry = item.action?.type === 'publication_retry' && Array.isArray(item.action.operation_ids) && item.action.operation_ids.length;
+      if (retry) return `<article class="portal-home-row"><span><strong>${escapeHtml(item.label || 'Sync issue')}</strong><small>${escapeHtml(item.detail || '')}</small></span><button type="button" class="btn btn-secondary" data-publication-retry data-publication-operation-ids="${escapeHtml(JSON.stringify(item.action.operation_ids))}">${escapeHtml(item.action.label || 'Retry sync')}</button></article>`;
+      return homeRow(item);
+    });
+    setSection('portal-home-queues', 'portal-home-queues-list', queues, item => `<a class="portal-home-row dashboard-route-link" href="${escapeHtml(item.url)}"><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.workflow || 'Portal')} · ${escapeHtml(item.count)} awaiting action</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></a>`);
+    setSection('portal-home-shortcuts', 'portal-home-shortcuts-list', shortcuts, item => `<a class="portal-home-row dashboard-route-link" href="${escapeHtml(item.url)}"><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.workflow || 'Portal')} workspace</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></a>`);
+    const oversight = home.oversight ? (dashboard.pipeline_distribution || []).filter(item => item.count) : [];
+    setSection('portal-home-overview', 'portal-home-overview-list', oversight, item => `<div class="portal-home-row"><span><strong>${escapeHtml(item.label)}</strong><small>Visible in your scope</small></span><b>${escapeHtml(item.count)}</b></div>`);
+    const caughtUp = el('portal-home-caught-up');
+    if (caughtUp) caughtUp.hidden = Boolean(actions.length || health.length);
+    const next = el('portal-home-next');
+    if (next) next.href = home.next_url || '/portal/s/settings/';
+    if (window.lucide) window.lucide.createIcons();
   }
 
   function renderDashboard() {
@@ -2327,18 +2365,13 @@
     const startupView = isRootLanding ? state.workspace?.startup_view : null;
     if (startupView) state.workspaceOrdering = startupView.ordering === 'newest' ? 'newest' : 'queue_default';
     const savedQueue = isRootLanding ? String(startupView?.queue || savedFilters.queue || '') : '';
-    const hbOnlyLanding = isRootLanding
-      && state.actor?.roles?.length === 1
-      && state.actor.roles[0] === 'HB_STAFF'
-      && hasCapability('portal.hb_action.view')
-      ? 'hb_actions' : '';
     const requestedPage = savedQueue && hasCapability(PAGE_CAPABILITIES[savedQueue])
       ? savedQueue
       : (isRootLanding && (startupView?.screen || state.personalPreference?.default_screen)
         ? (startupView?.screen || state.personalPreference.default_screen)
-        : (hbOnlyLanding || shellScreen));
+        : shellScreen);
     const initialPage = hasCapability(PAGE_CAPABILITIES[requestedPage])
-      ? requestedPage : (hbOnlyLanding || firstPermittedPage());
+      ? requestedPage : firstPermittedPage();
     if (!initialPage) {
       document.getElementById('portal-screen').innerHTML = '<section class="shell-error" role="alert"><h2>Access not configured</h2><p>Ask an administrator to assign a Portal role and capability.</p></section>';
       return;
@@ -2354,7 +2387,18 @@
     const alreadyActivated = lastShellScreen === shellSignature;
     lastShellScreen = shellSignature;
     switchPage(shellScreen);
-    if (!alreadyActivated) runScreenLoader(shellScreen);
+    if (!alreadyActivated) {
+      const loaded = runScreenLoader(shellScreen);
+      if (shellScreen === 'jbl' && new URLSearchParams(window.location.search).get('create') === '1'
+          && hasCapability('portal.jbl_lead.create')) {
+        Promise.resolve(loaded).then(() => {
+          const params = new URLSearchParams(window.location.search);
+          params.delete('create');
+          window.history.replaceState(window.history.state, '', window.location.pathname + (params.size ? `?${params}` : ''));
+          portalFarmerSheet.openNewJblLeadSheet?.();
+        });
+      }
+    }
     if (window.lucide) {
       window.lucide.createIcons();
     }
@@ -2624,6 +2668,15 @@
   });
 
   document.addEventListener('submit', event => {
+    if (event.target.matches('#portal-tat-target-form')) {
+      event.preventDefault();
+      const form = event.target;
+      const button = form.querySelector('button[type="submit"]');
+      setButtonLoading(button, true, 'Saving');
+      savePortalTatTargets(form).catch(error => showToast(error.message || 'Portal TAT targets could not be saved.', 'error'))
+        .finally(() => setButtonLoading(button, false));
+      return;
+    }
     if (!PORTAL_WORKSPACE_UI_ENABLED && (
       event.target.matches('.portal-workspace-edit-form')
       || event.target.matches('#portal-workspace-save-view-form')
@@ -2876,15 +2929,6 @@
   el('jbl-create-lead')?.addEventListener('click', () => {
     if (!hasCapability('portal.jbl_lead.create')) {
       showToast('Your role is not assigned to create JBL leads.', 'error');
-      return;
-    }
-    if (event.target.matches('#portal-tat-target-form')) {
-      event.preventDefault();
-      const form = event.target;
-      const button = form.querySelector('button[type="submit"]');
-      setButtonLoading(button, true, 'Saving');
-      savePortalTatTargets(form).catch(error => showToast(error.message || 'Portal TAT targets could not be saved.', 'error'))
-        .finally(() => setButtonLoading(button, false));
       return;
     }
     portalFarmerSheet.openNewJblLeadSheet?.();

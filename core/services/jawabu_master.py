@@ -351,8 +351,8 @@ def flag_farmup_master_sheet_conflicts(
 
     sheet_id = str(workflow.get('master_sheet_id') or getattr(group_config, 'sheet_id', '') or '').strip()
     sheet_name = str(workflow.get('master_sheet_name') or 'Master Data').strip()
-    header_row = positive_int(workflow.get('master_header_row'), 3)
-    data_start_row = positive_int(workflow.get('master_data_start_row'), header_row + 2)
+    header_row = positive_int(workflow.get('master_header_row'), 1)
+    data_start_row = positive_int(workflow.get('master_data_start_row'), header_row + 1)
     if not sheet_id or not sheet_name:
         return {
             'enabled': True,
@@ -629,8 +629,8 @@ def sync_committed_farmup_rows_to_master_sheet(
         False: str(workflow.get('master_sheet_name') or 'Master Data').strip(),
         True: str(workflow.get('eco_conserve_sheet_name') or 'Eco-conserve').strip(),
     }
-    header_row = positive_int(workflow.get('master_header_row'), 3)
-    data_start_row = positive_int(workflow.get('master_data_start_row'), header_row + 2)
+    header_row = positive_int(workflow.get('master_header_row'), 1)
+    data_start_row = positive_int(workflow.get('master_data_start_row'), header_row + 1)
     log_sheet_name = str(workflow.get('master_import_log_sheet_name') or '').strip()
     if not sheet_id or not all(sheet_names.values()):
         return {
@@ -657,7 +657,12 @@ def sync_committed_farmup_rows_to_master_sheet(
                 totals['errors'].append(f'Google Sheets service unavailable for {sheet_name}.')
                 continue
             sheet = service._sheet
-            headers = ensure_master_system_headers(sheet, header_row)
+            source_headers = list(sheet.row_values(header_row))
+            source_lookup = header_lookup_from_headers(source_headers)
+            if not first_existing_header(source_lookup, ['No.']) or not first_existing_header(source_lookup, ['Customer Name']):
+                totals['errors'].append(f'{sheet_name} needs No. and Customer Name headers in configured row {header_row}; no case row was written.')
+                continue
+            headers = ensure_master_system_headers(sheet, header_row, headers=source_headers)
             result = write_rows_to_master_sheet(
                 sheet=sheet, headers=headers, data_start_row=data_start_row,
                 batch=batch, cleaned_rows=rows,
@@ -676,15 +681,16 @@ def sync_committed_farmup_rows_to_master_sheet(
         }
 
 
-def ensure_master_system_headers(sheet, header_row: int) -> list[str]:
-    headers = ensure_master_case_id_header(sheet, header_row)
+def ensure_master_system_headers(sheet, header_row: int, *, headers: list[str] | None = None) -> list[str]:
+    headers = ensure_master_case_id_header(sheet, header_row, headers=headers)
     has_case_id = bool(first_existing_header(header_lookup_from_headers(headers), [MASTER_CASE_ID_HEADER]))
     unit_col = 45 if has_case_id else 44  # AS after visible Case ID; AR for legacy/fake sheets.
     if len(headers) < unit_col:
         headers.extend([''] * (unit_col - len(headers)))
     if not first_existing_header(header_lookup_from_headers(headers), ['Unit Number']) and not str(headers[unit_col - 1] or '').strip():
         sheet.update_cell(header_row, unit_col, 'Unit Number')
-        sheet.update_cell(header_row + 1, unit_col, 'BACKEND-OWNED: 1st, 2nd, 3rd unit application number.')
+        if header_row > 1:
+            sheet.update_cell(header_row + 1, unit_col, 'BACKEND-OWNED: 1st, 2nd, 3rd unit application number.')
         headers[unit_col - 1] = 'Unit Number'
     start_col = unit_col + 1  # Keep system metadata immediately after Unit Number.
     end_col = start_col + len(MASTER_SYSTEM_HEADERS) - 1
@@ -700,25 +706,29 @@ def ensure_master_system_headers(sheet, header_row: int) -> list[str]:
             continue
         if normalize_header(header) in canonical_names:
             cleanup_cells.append((header_row, index, ''))
-            cleanup_cells.append((header_row + 1, index, ''))
+            if header_row > 1:
+                cleanup_cells.append((header_row + 1, index, ''))
             headers[index - 1] = ''
 
     for offset, header in enumerate(MASTER_SYSTEM_HEADERS):
         col = start_col + offset
-        headers[col - 1] = header
-        cleanup_cells.append((header_row, col, header))
-        cleanup_cells.append((
-            header_row + 1,
-            col,
-            'SYSTEM: hidden metadata used by Django import/sync. Do not edit.',
-        ))
+        if str(headers[col - 1] or '') != header:
+            headers[col - 1] = header
+            cleanup_cells.append((header_row, col, header))
+            if header_row > 1:
+                cleanup_cells.append((
+                    header_row + 1,
+                    col,
+                    'SYSTEM: hidden metadata used by Django import/sync. Do not edit.',
+                ))
 
     update_sheet_cells(sheet, cleanup_cells)
-    hide_master_system_columns(sheet, start_col, end_col)
+    if cleanup_cells:
+        hide_master_system_columns(sheet, start_col, end_col)
     return headers
 
 
-def ensure_master_case_id_header(sheet, header_row: int) -> list[str]:
+def ensure_master_case_id_header(sheet, header_row: int, *, headers: list[str] | None = None) -> list[str]:
     """Place the immutable visible case UUID between No. and Customer Name.
 
     Existing production sheets are migrated with a column insertion so
@@ -726,7 +736,7 @@ def ensure_master_case_id_header(sheet, header_row: int) -> list[str]:
     adapters without structural-column support retain the hidden exact UUID
     until their sheet schema is upgraded.
     """
-    headers = list(sheet.row_values(header_row))
+    headers = list(headers) if headers is not None else list(sheet.row_values(header_row))
     lookup = header_lookup_from_headers(headers)
     if first_existing_header(lookup, [MASTER_CASE_ID_HEADER]):
         return headers
@@ -738,11 +748,14 @@ def ensure_master_case_id_header(sheet, header_row: int) -> list[str]:
     target_col = number_col + 1
     if customer_col > target_col and not str(headers[target_col - 1] or '').strip():
         sheet.update_cell(header_row, target_col, MASTER_CASE_ID_HEADER)
-        sheet.update_cell(header_row + 1, target_col, MASTER_CASE_ID_DESCRIPTION)
+        if header_row > 1:
+            sheet.update_cell(header_row + 1, target_col, MASTER_CASE_ID_DESCRIPTION)
         return list(sheet.row_values(header_row))
     if customer_col == target_col and hasattr(sheet, 'insert_cols'):
         column_values = ['' for _ in range(max(header_row - 1, 0))]
-        column_values.extend([MASTER_CASE_ID_HEADER, MASTER_CASE_ID_DESCRIPTION])
+        column_values.append(MASTER_CASE_ID_HEADER)
+        if header_row > 1:
+            column_values.append(MASTER_CASE_ID_DESCRIPTION)
         sheet.insert_cols([column_values], col=target_col, value_input_option='RAW')
         return list(sheet.row_values(header_row))
     logger.warning(
@@ -1008,27 +1021,10 @@ def write_master_date_cells(
         for item in payload:
             sheet.update(item['range'], item['values'], value_input_option='USER_ENTERED')
 
-    if hasattr(sheet, 'format'):
-        rows = [row_number for row_number, _ in updates]
-        start_row, end_row = min(rows), max(rows)
-        for index in date_indexes:
-            column = col_letter(index + 1)
-            try:
-                sheet.format(
-                    f'{column}{start_row}:{column}{end_row}',
-                    {'numberFormat': {'type': 'DATE', 'pattern': 'dd-mmm-yyyy'}},
-                )
-            except Exception:  # pragma: no cover - formatting is best effort
-                logger.debug('Could not format Master Data date column %s', column, exc_info=True)
-        for index in datetime_indexes:
-            column = col_letter(index + 1)
-            try:
-                sheet.format(
-                    f'{column}{start_row}:{column}{end_row}',
-                    {'numberFormat': {'type': 'DATE_TIME', 'pattern': 'dd-mmm-yyyy HH:mm'}},
-                )
-            except Exception:  # pragma: no cover - formatting is best effort
-                logger.debug('Could not format Master Data datetime column %s', column, exc_info=True)
+    _format_master_columns(sheet, updates, [
+        *[(index, 'DATE', 'dd-mmm-yyyy') for index in date_indexes],
+        *[(index, 'DATE_TIME', 'dd-mmm-yyyy HH:mm') for index in datetime_indexes],
+    ])
 
 
 def write_master_hbg_deposit_cells(
@@ -1051,15 +1047,46 @@ def write_master_hbg_deposit_cells(
         for item in payload:
             sheet.update(item['range'], item['values'], value_input_option='USER_ENTERED')
 
+    _format_master_columns(sheet, updates, [
+        (index, 'NUMBER', '0') for index in deposit_indexes
+    ])
+
+
+def _format_master_columns(sheet, updates: list[tuple[int, list]], formats: list[tuple[int, str, str]]) -> None:
+    """Apply all column formats in one Sheets request, with a safe fallback."""
+    if not updates or not formats:
+        return
+    rows = [row_number for row_number, _ in updates]
+    start_row, end_row = min(rows), max(rows)
+    spreadsheet = getattr(sheet, 'spreadsheet', None)
+    if spreadsheet is not None and hasattr(spreadsheet, 'batch_update') and getattr(sheet, 'id', None) is not None:
+        try:
+            spreadsheet.batch_update({'requests': [{
+                'repeatCell': {
+                    'range': {
+                        'sheetId': sheet.id,
+                        'startRowIndex': start_row - 1,
+                        'endRowIndex': end_row,
+                        'startColumnIndex': index,
+                        'endColumnIndex': index + 1,
+                    },
+                    'cell': {'userEnteredFormat': {'numberFormat': {'type': number_type, 'pattern': pattern}}},
+                    'fields': 'userEnteredFormat.numberFormat',
+                }
+            } for index, number_type, pattern in formats]})
+            return
+        except Exception:  # pragma: no cover - formatting is best effort
+            logger.debug('Could not batch-format Master Data columns', exc_info=True)
     if hasattr(sheet, 'format'):
-        rows = [row_number for row_number, _ in updates]
-        start_row, end_row = min(rows), max(rows)
-        for index in deposit_indexes:
+        for index, number_type, pattern in formats:
             column = col_letter(index + 1)
-            sheet.format(
-                f'{column}{start_row}:{column}{end_row}',
-                {'numberFormat': {'type': 'NUMBER', 'pattern': '0'}},
-            )
+            try:
+                sheet.format(
+                    f'{column}{start_row}:{column}{end_row}',
+                    {'numberFormat': {'type': number_type, 'pattern': pattern}},
+                )
+            except Exception:  # pragma: no cover - formatting is best effort
+                logger.debug('Could not format Master Data column %s', column, exc_info=True)
 
 
 def batch_update_master_sheet_rows(

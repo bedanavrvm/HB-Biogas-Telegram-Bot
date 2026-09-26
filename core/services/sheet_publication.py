@@ -274,7 +274,7 @@ def surfaces_for_configuration(config) -> list[dict[str, str]]:
                 'surface': 'jawabu_master',
                 'sheet_id': str(workflow.get('master_sheet_id') or getattr(config, 'sheet_id', '') or ''),
                 'sheet_name': str(workflow.get('master_sheet_name') or 'Master Data'),
-                'header_row': str(workflow.get('master_header_row') or 3),
+                'header_row': str(workflow.get('master_header_row') or 1),
             })
         if workflow.get('internal_order_sync_enabled') or workflow.get('internal_order_sheet_id'):
             targets.append({

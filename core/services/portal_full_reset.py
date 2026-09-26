@@ -120,8 +120,8 @@ def _delete_verified_sheet_rows(configuration, farmer_ids):
     from core.services.jawabu_master import normalize_header
 
     workflow = configuration.workflow or {}
-    header_row = int(workflow.get('master_header_row') or 3)
-    data_start = int(workflow.get('master_data_start_row') or header_row + 2)
+    header_row = int(workflow.get('master_header_row') or 1)
+    data_start = int(workflow.get('master_data_start_row') or header_row + 1)
     target_ids = {str(value).casefold() for value in farmer_ids}
     deleted = 0
     for sheet_id, tab in _sheet_targets(configuration):

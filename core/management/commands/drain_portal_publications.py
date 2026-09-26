@@ -8,7 +8,9 @@ claims, circuit breaker and pacing.  No Google call is made without --apply.
 from __future__ import annotations
 
 import time
+from datetime import timedelta
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Q
 from django.utils import timezone
@@ -25,12 +27,26 @@ from core.services.portal_publication import (
 
 def due_portal_operations():
     now = timezone.now()
-    return IntegrationOperation.objects.filter(
+    lease_seconds = max(30, int(getattr(settings, 'API_REQUEST_TIMEOUT', 10) or 10) * 3)
+    stale_running = Q(status=IntegrationOperation.STATUS_RUNNING,
+                      last_attempt_at__lte=now - timedelta(seconds=lease_seconds))
+    open_master_id = IntegrationOperation.objects.filter(
+        integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+        source_model=SOURCE_MODEL,
+        operation_type=MASTER_OPERATION,
+        status__in=(IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE,
+                    IntegrationOperation.STATUS_RUNNING),
+    ).order_by('created_at', 'pk').values_list('pk', flat=True).first()
+    queryset = IntegrationOperation.objects.filter(
         integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
         source_model=SOURCE_MODEL,
         operation_type__in=(MASTER_OPERATION, INTERNAL_ORDER_OPERATION),
-        status__in=(IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE),
-    ).filter(Q(next_retry_at__isnull=True) | Q(next_retry_at__lte=now)).order_by('created_at', 'pk')
+    ).filter(
+        Q(status__in=(IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE))
+        & (Q(next_retry_at__isnull=True) | Q(next_retry_at__lte=now))
+        | stale_running
+    ).order_by('created_at', 'pk')
+    return queryset.filter(Q(operation_type=INTERNAL_ORDER_OPERATION) | Q(pk=open_master_id))
 
 
 class Command(BaseCommand):

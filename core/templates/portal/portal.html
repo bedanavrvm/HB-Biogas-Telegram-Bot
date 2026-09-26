@@ -10,8 +10,8 @@
   <section id="page-dashboard" class="page{% if active_screen == 'dashboard' %} active{% endif %}">
     <div class="dashboard-intro">
       <div>
-        <p class="eyebrow">Pipeline overview</p>
-        <h2>Operational pipeline</h2>
+        <p class="eyebrow">Your work</p>
+        <h2>Home</h2>
         <p class="meta"><span id="dashboard-scope">Your authorized scope</span> · <span id="dashboard-as-of">Refreshing</span></p>
       </div>
       <button type="button" class="dashboard-refresh-button" id="dashboard-refresh" aria-label="Refresh dashboard" title="Refresh dashboard"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
@@ -23,6 +23,26 @@
         <span></span><span></span><span></span><span></span>
       </div>
     </div>
+    <section id="portal-home-health" class="portal-home-section" aria-labelledby="portal-home-health-title" hidden>
+      <h3 id="portal-home-health-title">System health</h3><div id="portal-home-health-list" class="portal-home-list"></div>
+    </section>
+    <section id="portal-home-actions" class="portal-home-section" aria-labelledby="portal-home-actions-title" hidden>
+      <h3 id="portal-home-actions-title">Needs your action</h3><div id="portal-home-actions-list" class="portal-home-list"></div>
+    </section>
+    <section id="portal-home-caught-up" class="portal-home-section" hidden>
+      <h3>You're caught up</h3><p>There are no cases waiting for your action right now.</p>
+      <a id="portal-home-next" class="btn btn-secondary" href="{% url 'portal_screen' screen='settings' %}">Open Settings</a>
+    </section>
+    <section id="portal-home-queues" class="portal-home-section" aria-labelledby="portal-home-queues-title" hidden>
+      <h3 id="portal-home-queues-title">Work queues</h3><div id="portal-home-queues-list" class="portal-home-list"></div>
+    </section>
+    <section id="portal-home-shortcuts" class="portal-home-section" aria-labelledby="portal-home-shortcuts-title" hidden>
+      <h3 id="portal-home-shortcuts-title">Workspaces</h3><div id="portal-home-shortcuts-list" class="portal-home-list"></div>
+    </section>
+    <section id="portal-home-overview" class="portal-home-section" aria-labelledby="portal-home-overview-title" hidden>
+      <h3 id="portal-home-overview-title">Pipeline in your scope</h3><div id="portal-home-overview-list" class="portal-home-list"></div>
+    </section>
+    <div id="dashboard-legacy" hidden>
     <div id="dash-counts" class="count-grid portal-initially-hidden" hidden>
       <a class="count-card priority-queue" data-page="jbl" id="card-jbl" data-required-capability="portal.jbl_queue.view" href="{% url 'portal_screen' screen='jbl' %}">
         <span class="queue-card-icon"><i data-lucide="home"></i></span>
@@ -111,6 +131,7 @@
       </div>
       <div id="dashboard-pipeline-distribution" class="dashboard-metric-list"></div>
     </section>
+    </div>
   </section>
   {% endif %}
 

@@ -7,6 +7,29 @@ const { test, expect } = require('playwright/test');
 const root = path.resolve(__dirname, '..', '..');
 const asset = (name) => path.join(root, 'core', 'static', 'miniapp', name);
 
+test('Role-tailored Portal Home keeps the first task visible on narrow screens', async ({ page }) => {
+  const source = fs.readFileSync(path.join(root, 'core/templates/portal/portal.html'), 'utf8');
+  const start = source.indexOf('<!-- Dashboard -->');
+  const end = source.indexOf('  {% endif %}', source.indexOf('id="dashboard-pipeline-distribution"', start));
+  const home = source.slice(start, end).replace(/\{%[^]*?%\}/g, '/portal/s/settings/');
+  for (const width of [320, 360, 430]) {
+    await page.setViewportSize({ width, height: 568 });
+    await page.setContent(`<body class="portal-app"><main style="padding:12px">${home}</main></body>`);
+    await page.addStyleTag({ path: asset('base.css') });
+    await page.addStyleTag({ path: asset('portal.css') });
+    await page.evaluate(() => {
+      const section = document.getElementById('portal-home-actions');
+      section.hidden = false;
+      document.getElementById('dash-loading').hidden = true;
+      document.getElementById('portal-home-actions-list').innerHTML = '<a class="portal-home-row" href="/portal/s/jbl/?focus=1"><span><strong>Customer with a longer name</strong><small>JBL visit required</small><small>Nakuru · Portal</small></span></a>';
+    });
+    const bounds = await page.locator('.portal-home-row').boundingBox();
+    expect(bounds.y).toBeLessThan(230);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    expect(await page.locator('.portal-home-row strong').evaluate(node => parseFloat(getComputedStyle(node).fontSize))).toBeGreaterThanOrEqual(12);
+  }
+});
+
 async function loadUtilities(page) {
   await page.addScriptTag({ path: asset('utils.js') });
 }

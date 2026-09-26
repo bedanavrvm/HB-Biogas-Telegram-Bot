@@ -246,6 +246,22 @@ def attempt_publication(operation: IntegrationOperation) -> dict[str, Any]:
     farmer = JawabuFarmerMaster.objects.filter(pk=operation.source_id).first()
     if farmer is None:
         raise ValueError('The source case is no longer available.')
+    if operation.operation_type == MASTER_OPERATION:
+        # A monthly FarmUp commit can reserve hundreds of rows. Never let a
+        # later case take a lower Sheet row just because the earlier case is
+        # paced, retrying, or currently owned by another worker.
+        oldest_id = IntegrationOperation.objects.filter(
+            integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+            source_model=SOURCE_MODEL,
+            operation_type=MASTER_OPERATION,
+            status__in=(
+                IntegrationOperation.STATUS_PENDING,
+                IntegrationOperation.STATUS_RETRYABLE,
+                IntegrationOperation.STATUS_RUNNING,
+            ),
+        ).order_by('created_at', 'pk').values_list('pk', flat=True).first()
+        if oldest_id != operation.pk:
+            return {'operation': operation, 'farmer': farmer, 'result': None, 'deferred': True}
     if operation.next_retry_at and operation.next_retry_at > timezone.now():
         return {'operation': operation, 'farmer': farmer, 'result': None, 'deferred': True}
     operation_revision = int((operation.metadata or {}).get('workflow_revision') or 0)

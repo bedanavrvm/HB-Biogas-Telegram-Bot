@@ -26,8 +26,8 @@ class Command(BaseCommand):
         sheet_id = str(workflow.get('master_sheet_id') or config.sheet_id or '').strip()
         if not sheet_id:
             raise CommandError('The specified group has no Master Data spreadsheet configured.')
-        header_row = int(workflow.get('master_header_row') or 3)
-        data_start_row = int(workflow.get('master_data_start_row') or header_row + 2)
+        header_row = int(workflow.get('master_header_row') or 1)
+        data_start_row = int(workflow.get('master_data_start_row') or header_row + 1)
         names = (
             str(workflow.get('master_sheet_name') or 'Master Data').strip(),
             str(workflow.get('eco_conserve_sheet_name') or 'Eco-conserve').strip(),

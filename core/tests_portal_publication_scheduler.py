@@ -3,6 +3,7 @@
 from datetime import timedelta
 from io import StringIO
 from unittest.mock import patch
+from unittest.mock import MagicMock
 
 from django.core.management import call_command
 from django.test import TestCase, override_settings
@@ -11,6 +12,8 @@ from django.utils import timezone
 from core.models import IntegrationOperation, JawabuFarmerMaster
 from core.services.external_resilience import execute_operation, reserve_operation, retry_after_seconds
 from core.services.portal_publication import MASTER_OPERATION, SOURCE_MODEL, attempt_publication
+from core.management.commands.drain_portal_publications import due_portal_operations
+from core.services.jawabu_master import ensure_master_system_headers
 
 
 class QuotaRetryTests(TestCase):
@@ -97,6 +100,29 @@ class DrainPortalPublicationsTests(TestCase):
         self.assertEqual(self.operation.status, IntegrationOperation.STATUS_DEAD_LETTER)
         self.assertEqual(self.operation.last_error_code, 'source_missing')
 
+    def test_stale_running_master_operation_can_be_reclaimed(self):
+        self.operation.status = IntegrationOperation.STATUS_RUNNING
+        self.operation.last_attempt_at = timezone.now() - timedelta(minutes=2)
+        self.operation.save(update_fields=['status', 'last_attempt_at', 'updated_at'])
+        self.assertIn(self.operation.pk, list(due_portal_operations().values_list('pk', flat=True)))
+
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
+    def test_later_case_waits_for_earlier_master_publication(self, publisher):
+        later_farmer = JawabuFarmerMaster.objects.create(customer_name='Synthetic Later Case')
+        later = reserve_operation(
+            integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+            operation_type=MASTER_OPERATION, deduplication_key='later-case',
+            source_model=SOURCE_MODEL, source_id=str(later_farmer.pk),
+            metadata={'workflow_revision': later_farmer.workflow_revision},
+        )[0]
+        self.operation.next_retry_at = timezone.now() + timedelta(minutes=2)
+        self.operation.status = IntegrationOperation.STATUS_RETRYABLE
+        self.operation.save(update_fields=['status', 'next_retry_at', 'updated_at'])
+        self.assertNotIn(later.pk, list(due_portal_operations().values_list('pk', flat=True)))
+        self.assertTrue(attempt_publication(later).get('deferred'))
+        publisher.assert_not_called()
+
+
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
     def test_master_429_uses_quota_backoff(self, publisher):
         def quota_failure(_farmer, *, failure_context):
@@ -126,3 +152,15 @@ class DrainPortalPublicationsTests(TestCase):
         self.assertIsNone(self.operation.next_retry_at)
         from core.services.portal_publication import publication_payload
         self.assertEqual(publication_payload(self.farmer)['operations'][0]['issue'], 'identity_review')
+
+
+class MasterSheetLayoutTests(TestCase):
+    def test_row_one_headers_never_write_descriptions_into_first_case_row(self):
+        sheet = MagicMock()
+        sheet.col_count = 100
+        sheet.row_values.return_value = ['No.', 'Case ID', 'Customer Name']
+        with patch('core.services.jawabu_master.update_sheet_cells') as update_cells:
+            ensure_master_system_headers(sheet, 1)
+        all_cells = update_cells.call_args.args[1]
+        self.assertTrue(all(row == 1 for row, _col, _value in all_cells))
+        self.assertFalse(any(call.args and call.args[0] == 2 for call in sheet.update_cell.call_args_list))

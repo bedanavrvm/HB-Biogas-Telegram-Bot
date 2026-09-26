@@ -165,8 +165,8 @@ WORKFLOW_PRESETS = {
             'master_sync_enabled': False,
             'master_sheet_id': '',
             'master_sheet_name': 'Master Data',
-            'master_header_row': 3,
-            'master_data_start_row': 5,
+            'master_header_row': 1,
+            'master_data_start_row': 2,
             'fca_master_sheet_id': '',
             'fca_master_sheet_name': 'Master Data',
             'fca_master_header_row': 3,
@@ -212,12 +212,12 @@ WORKFLOW_PRESETS = {
             },
             'master_header_row': {
                 'label': 'Master header row',
-                'initial': 3,
+                'initial': 1,
                 'help_text': '1-based row number containing Master Data column headers.',
             },
             'master_data_start_row': {
                 'label': 'Master data start row',
-                'initial': 5,
+                'initial': 2,
                 'help_text': '1-based row number where real Master Data records begin.',
             },
             'master_import_log_sheet_name': {

@@ -4484,11 +4484,11 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
             )
             self.fields['jawabu_master_header_row'].initial = (
                 workflow.get('master_header_row')
-                or defaults.get('master_header_row', 3)
+                or defaults.get('master_header_row', 1)
             )
             self.fields['jawabu_master_data_start_row'].initial = (
                 workflow.get('master_data_start_row')
-                or defaults.get('master_data_start_row', 5)
+                or defaults.get('master_data_start_row', 2)
             )
             self.fields['jawabu_master_import_log_sheet_name'].initial = (
                 workflow.get('master_import_log_sheet_name')
@@ -4594,6 +4594,12 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 )
         if cleaned.get('workflow_preset') == MANUAL_PRESET:
             return cleaned
+
+        if cleaned.get('workflow_preset') == 'jawabu_homebiogas' and cleaned.get('jawabu_master_sync_enabled'):
+            if cleaned.get('jawabu_master_header_row') != 1:
+                self.add_error('jawabu_master_header_row', 'Master Data and Eco-conserve headers must be in row 1.')
+            if cleaned.get('jawabu_master_data_start_row') != 2:
+                self.add_error('jawabu_master_data_start_row', 'Master Data and Eco-conserve cases must start in row 2.')
 
         if cleaned.get('workflow_preset') == 'order_approval':
             tabs = self.order_approval_tabs()

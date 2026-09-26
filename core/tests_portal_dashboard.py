@@ -1,5 +1,7 @@
 from datetime import date, timedelta
+from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
@@ -85,6 +87,35 @@ class PortalActionDashboardTests(TestCase):
         self.assertIn('overview', payload)
         self.assertNotIn('deferred', {item['key'] for item in payload['pipeline']})
         self.assertIn('recent_cases', payload)
+        self.assertIn('home', payload)
+        self.assertTrue(payload['home']['actions'])
+        self.assertEqual(payload['home']['actions'][0]['label'], 'Farmer')
+        self.assertEqual(payload['notification_count'], 1)
+
+    def test_home_only_access_does_not_expose_general_pipeline(self):
+        self.farmer('Private farmer', 'Nakuru')
+        user = get_user_model().objects.create_user(username='home-only', password='unused')
+        with patch('core.services.portal_dashboard.effective_capability_keys', return_value={'portal.dashboard.view'}):
+            payload = dashboard_payload(user, access={'roles': ['BM'], 'grants': []})
+        self.assertEqual(payload['home']['actions'], [])
+        self.assertEqual(payload['notification_items'], [])
+        self.assertEqual(payload['counts'], {})
+        self.assertEqual(payload['pipeline'], [])
+        self.assertEqual(payload['overview'], {})
+
+    def test_credit_home_only_prompts_for_credit_reappraisal(self):
+        today = timezone.localdate()
+        self.farmer('Visit reappraisal', 'Nakuru', workflow_state='deferred', deferred_stage='jbl_visit', deferred_until=today)
+        self.farmer('Credit reappraisal', 'Nakuru', workflow_state='deferred', deferred_stage='credit', deferred_until=today)
+        user = get_user_model().objects.create_superuser(username='credit-home-test', password='unused')
+        capabilities = {
+            'portal.dashboard.view', 'portal.case.read', 'portal.deferred.view',
+            'portal.credit_queue.view', 'portal.credit.write',
+        }
+        with patch('core.services.portal_dashboard.effective_capability_keys', return_value=capabilities):
+            payload = dashboard_payload(user, access={'roles': ['CREDIT_ANALYST']})
+        reappraisals = [item['label'] for item in payload['home']['actions'] if 'reappraisal' in item['detail'].lower()]
+        self.assertEqual(reappraisals, ['Credit reappraisal'])
 
     def test_business_metrics_count_only_named_pipeline_outcomes_in_scope(self):
         allowed = self.farmer('Allowed farmer', 'Nakuru')

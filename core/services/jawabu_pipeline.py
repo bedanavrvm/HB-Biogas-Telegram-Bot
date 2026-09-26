@@ -2267,8 +2267,8 @@ def sync_farmer_to_master_sheet(
         else (workflow.get('master_sheet_name') or 'Master Data')
     ).strip()
     target_sheet_name = sheet_name
-    header_row = int(workflow.get('master_header_row') or 3)
-    data_start_row = int(workflow.get('master_data_start_row') or header_row + 2)
+    header_row = int(workflow.get('master_header_row') or 1)
+    data_start_row = int(workflow.get('master_data_start_row') or header_row + 1)
 
     if not sheet_id or not sheet_name:
         logger.warning("Master sheet config incomplete for group %s", group_config.group_id)
@@ -2286,7 +2286,16 @@ def sync_farmer_to_master_sheet(
             return False
         sheet = service._sheet
 
-        headers = ensure_master_system_headers(sheet, header_row)
+        source_headers = list(sheet.row_values(header_row))
+        source_lookup = header_lookup_from_headers(source_headers)
+        if not first_existing_header(source_lookup, ['No.']) or not first_existing_header(source_lookup, ['Customer Name']):
+            note_failure(
+                phase='schema', fields_checked=True,
+                detail=f'{sheet_name} needs No. and Customer Name headers in configured row {header_row}; no case row was written.',
+            )
+            return False
+
+        headers = ensure_master_system_headers(sheet, header_row, headers=source_headers)
         header_lookup = header_lookup_from_headers(headers)
         if not first_existing_header(header_lookup, ['No.']) or not first_existing_header(header_lookup, ['Customer Name']):
             logger.error('Master Data publication requires No. and Customer Name headers')
@@ -2610,8 +2619,9 @@ def sync_farmer_to_master_sheet(
                 datetime_indexes=datetime_indexes,
                 deposit_indexes=master_hbg_deposit_column_indexes(headers),
             )
-            if created_sheet_row:
-                repair_master_sheet_numbers(sheet, header_lookup, data_start_row)
+            # New rows already receive the next consecutive number. A full
+            # sheet-wide repair here rereads the entire tab for every case in
+            # a monthly upload and can overwhelm the Sheets API.
 
             # Create LiveSheetRecordChange audit entry
             LiveSheetRecordChange.objects.create(
