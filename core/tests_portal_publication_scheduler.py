@@ -9,9 +9,12 @@ from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from core.models import IntegrationOperation, JawabuFarmerMaster
+from core.models import DurableJobRunnerHeartbeat, IntegrationOperation, JawabuFarmerMaster
 from core.services.external_resilience import execute_operation, reserve_operation, retry_after_seconds
-from core.services.portal_publication import MASTER_OPERATION, SOURCE_MODEL, attempt_publication
+from core.services.portal_publication import (
+    MASTER_OPERATION, PORTAL_PUBLICATION_RUNNER, SOURCE_MODEL,
+    attempt_publication, publication_scheduler_health,
+)
 from core.management.commands.drain_portal_publications import due_portal_operations
 from core.services.jawabu_master import ensure_master_system_headers
 
@@ -83,6 +86,28 @@ class DrainPortalPublicationsTests(TestCase):
         call_command('drain_portal_publications', '--apply', stdout=output)
         self.assertEqual(attempt.call_count, 1)
         self.assertIn('1 Google attempt(s), 1 synchronized', output.getvalue())
+        self.assertTrue(publication_scheduler_health()['healthy'])
+
+    @patch('core.management.commands.drain_portal_publications.attempt_publication')
+    def test_scheduler_outage_warning_clears_after_recovery(self, attempt):
+        self.assertFalse(publication_scheduler_health()['healthy'])
+        self.assertEqual(publication_scheduler_health()['queued'], 1)
+        heartbeat = DurableJobRunnerHeartbeat.objects.create(runner_key=PORTAL_PUBLICATION_RUNNER)
+        DurableJobRunnerHeartbeat.objects.filter(pk=heartbeat.pk).update(
+            heartbeat_at=timezone.now() - timedelta(minutes=4),
+        )
+        self.assertFalse(publication_scheduler_health()['healthy'])
+
+        def complete(operation):
+            operation.status = IntegrationOperation.STATUS_SUCCEEDED
+            operation.attempts += 1
+            operation.save(update_fields=['status', 'attempts', 'updated_at'])
+            return {'operation': operation, 'error': False}
+
+        attempt.side_effect = complete
+        call_command('drain_portal_publications', '--apply', stdout=StringIO())
+        self.assertTrue(publication_scheduler_health()['healthy'])
+        self.assertEqual(publication_scheduler_health()['queued'], 0)
 
     @patch('core.management.commands.drain_portal_publications.attempt_publication')
     def test_open_circuit_does_not_spin_or_consume_attempt(self, attempt):

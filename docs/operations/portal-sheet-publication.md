@@ -21,9 +21,9 @@ rather than overwritten. Existing case rows are never shifted automatically.
 
 ## Scheduling
 
-The browser makes an immediate best-effort publication attempt and helps drain
-due work while an authorized Portal session is open. To progress work when no
-staff are online, configure a scheduler to run this command **every minute**:
+The scheduler is the sole executor. Configure the production Render Cron Job
+(or equivalent durable scheduler) with schedule `* * * * *` to run this exact
+command **every minute**, including when no staff have the Mini App open:
 
 ```sh
 python manage.py drain_portal_publications --apply --limit 5 --max-seconds 50
@@ -35,14 +35,21 @@ Before enabling it, inspect the queue without external calls:
 python manage.py drain_portal_publications
 ```
 
-The command does not install a scheduler by itself. Configure a single
-production scheduler invocation outside Django; overlapping invocations are
-safe but waste capacity. Do not run the `--apply` form against production as
-an ad hoc test unless a real Sheet write is intended.
+The command does not install a scheduler by itself. The deployment owner must
+provision the cron job, confirm its first successful run, and alert Operations/IT
+if it stops for more than three minutes. Runs record a privacy-safe heartbeat
+in `DurableJobRunnerHeartbeat` under `portal_sheet_publications`. When queued
+work exists and that heartbeat is missing, stale, or failed, the Portal
+Operations/IT dashboard shows a scheduler warning. Overlapping runs use the
+database operation lease and pacing; avoid scheduling extra runs to save capacity.
+Do not run the `--apply` form against production as an ad hoc test unless a
+real Sheet write is intended.
 
 ## Timing and limits
 
-- The first browser attempt is immediate when a Portal write returns.
+- The first attempt is eligible at the next scheduler tick, usually within
+  about one minute. This is an estimate; pacing, queue depth, backoff, and
+  Google availability can extend it.
 - Portal publication operations are paced at least 10 seconds apart by default
   across web workers and the scheduled drainer. Override with
   `PORTAL_PUBLICATION_MIN_SPACING_SECONDS` if the spreadsheet becomes slow.
@@ -52,13 +59,14 @@ an ad hoc test unless a real Sheet write is intended.
 - Each operation has at most four attempts; an exhausted operation requires
   a reviewed manual retry. Newer case revisions supersede older publications.
 - The FarmUp badge counts down to **retry eligibility**, not a guaranteed
-  completion time. If there is no due time, it says `Sheet sync queued`.
+  completion time. Status refreshes when FarmUp opens or staff tap Refresh.
+  If there is no due time, it says `Sheet sync queued`.
 - The drainer's limit bounds operation attempts, not individual Google HTTP
   requests. A single publication can read headers/rows and then write. The
   10-second default is intentionally conservative but other workflows sharing
   the service account must also be monitored in Google Cloud quotas.
 - Master Data and Eco-conserve publications retain their case commit reservation
-  order across browser and scheduler attempts. A later case waits while an
+  order across scheduler attempts. A later case waits while an
   earlier one is retrying; a failed case can therefore delay the queue until
   it succeeds or reaches its retry limit. Internal Order publication is paced
   separately and does not determine case row order.
@@ -70,3 +78,7 @@ If work remains queued longer than expected, inspect the operation's `status`,
 `attempts`, `next_retry_at`, and `last_error_code` in Django Admin. A persistent
 `needs_attention` state means it has exhausted automatic retries; repeated
 refreshes will not fix a bad tab name, permissions, or schema mismatch.
+After a scheduler outage, restore the cron job and confirm its heartbeat
+becomes fresh. The next tick resumes eligible operations; no staff session or
+manual retry is required. Manual **Retry sync** creates a reviewed queued
+replacement for an exhausted operation and returns without contacting Google.

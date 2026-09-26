@@ -435,19 +435,6 @@
     _toastTimer = setTimeout(() => { t.classList.remove('show'); }, 3000);
   }
 
-  // A local case change is committed before Google publication on the free
-  // Render service.  Give staff a truthful outcome without blocking the case
-  // action behind a slow register call.
-  window.addEventListener('portal:publication-updated', event => {
-    const status = event.detail?.publication?.status;
-    const masterData = (event.detail?.publication?.operations || []).some(item => item.target === 'jawabu_master_publish');
-    const identityReview = (event.detail?.publication?.operations || []).some(item => item.issue === 'identity_review');
-    if (status === 'synced') showToast(masterData ? 'Master Data Sheet synchronized.' : 'Case saved and registers updated.', 'success');
-    if (status === 'needs_attention') {
-      showToast(identityReview ? 'Portal data is saved. Check the customer identity in the Sheet before retrying sync.' : masterData ? 'Portal data is saved, but Master Data Sheet sync needs retry.' : 'Case is saved, but register synchronization needs attention.', 'warning');
-    }
-  });
-
   function updateConnectionBanner() {
     const banner = el('portal-offline-banner');
     const offline = navigator.onLine === false;
@@ -811,7 +798,7 @@
       return;
     }
     button.disabled = true;
-    button.textContent = 'Retrying…';
+    button.textContent = 'Queuing…';
     let failedMessage = '';
     let needsAttention = false;
     for (const operationId of operationIds) {
@@ -819,14 +806,14 @@
         operation_id: String(operationId), manual_retry: true,
       }, tg);
       if (!result.ok || !result.data?.ok) {
-        failedMessage = result.data?.error || 'The Google Sheet could not be reached.';
+        failedMessage = result.data?.error || 'The Sheet retry could not be queued.';
         break;
       }
       needsAttention = needsAttention || Boolean(result.data?.needs_attention);
     }
     if (failedMessage) showToast(`Sheet sync was not retried: ${failedMessage}`, 'error');
-    else if (needsAttention) showToast('Sheet sync still needs attention. Check the connection and retry later.', 'warning');
-    else showToast('Sheet synchronization retry started.', 'success');
+    else if (needsAttention) showToast('Sheet sync still needs attention. Review the case before retrying.', 'warning');
+    else showToast('Sheet synchronization retry queued.', 'success');
     await loadDashboard({ force: true });
     loadPortalNotifications();
   });
@@ -1679,9 +1666,6 @@
     state.voiceInput = data.voice_input || state.voiceInput;
     state.actor = data.actor || state.actor;
     updatePortalContext();
-    if (portalApi.schedulePublication && Array.isArray(data.due_publication_operation_ids)) {
-      portalApi.schedulePublication({ pending_operation_ids: data.due_publication_operation_ids }, tg);
-    }
     const nextPolicyVersion = data.access_policy_version || null;
     if (state.accessPolicyVersion && nextPolicyVersion && state.accessPolicyVersion !== nextPolicyVersion) {
       window.location.reload();

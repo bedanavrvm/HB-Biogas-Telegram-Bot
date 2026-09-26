@@ -2275,7 +2275,6 @@ def portal_meta(request):
             'max_seconds': max(1, int(getattr(settings, 'PORTAL_VOICE_MAX_SECONDS', 30) or 30)),
             'fields': ['jbl_visit_comment', 'final_decision_comment'],
         },
-        'due_publication_operation_ids': _portal_due_publication_ids(request),
     })
     response['Cache-Control'] = 'private, no-store, max-age=0'
     return response
@@ -3606,41 +3605,6 @@ def _portal_publications_payload(farmers) -> list[dict]:
     return payloads
 
 
-def _portal_due_publication_ids(request, *, limit: int = 8) -> list[str]:
-    """Return only due register work the current actor may already view."""
-    from django.db.models import Q
-    from core.models import IntegrationOperation, JawabuFarmerMaster
-    from core.services.portal_publication import SOURCE_MODEL
-
-    candidate_operations = list(
-        IntegrationOperation.objects.filter(
-            source_model=SOURCE_MODEL,
-            status__in=[
-                IntegrationOperation.STATUS_PENDING,
-                IntegrationOperation.STATUS_RETRYABLE,
-            ],
-        ).filter(
-            Q(next_retry_at__isnull=True) | Q(next_retry_at__lte=timezone.now())
-        ).order_by('created_at')[: max(1, int(limit) * 4)]
-    )
-    if not candidate_operations:
-        return []
-    permitted_ids = {
-        str(value)
-        for value in _apply_county_branch_filters(
-            JawabuFarmerMaster.objects.filter(
-                pk__in=[operation.source_id for operation in candidate_operations],
-            ),
-            request, capability='portal.case.read',
-        ).values_list('pk', flat=True)
-    }
-    return [
-        str(operation.pk)
-        for operation in candidate_operations
-        if str(operation.source_id) in permitted_ids
-    ][:limit]
-
-
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_log_jbl_visit(request, farmer_id: str):
@@ -4060,17 +4024,10 @@ def portal_complete_jbl_visit(request, farmer_id: str):
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_publication_attempt(request):
-    """Run one bounded, authorized Google-register publication attempt.
-
-    This endpoint is called automatically by the Mini App after a local Portal
-    write.  It never changes the canonical case data and never retries inside
-    the same HTTP request, preventing degraded Google services from starving
-    Gunicorn workers on the free Render service.
-    """
+    """Compatibility endpoint: read status or queue an authorized reviewed retry."""
     from core.models import IntegrationOperation, JawabuFarmerMaster
     from core.services.portal_publication import (
         SOURCE_MODEL,
-        attempt_publication,
         publication_payload,
         requeue_publication_after_review,
     )
@@ -4114,14 +4071,6 @@ def portal_publication_attempt(request):
             )
             if support_error:
                 return access_error
-    if automatic and operation.next_retry_at and operation.next_retry_at > timezone.now():
-        return JsonResponse({
-            'ok': True,
-            'operation_id': str(operation.pk),
-            'publication': publication_payload(farmer),
-            'retryable': True,
-        }, status=202)
-
     requeued = False
     if manual_retry:
         try:
@@ -4134,12 +4083,7 @@ def portal_publication_attempt(request):
         except ValueError as exc:
             return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 
-    try:
-        result = attempt_publication(operation)
-    except ValueError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     operation.refresh_from_db()
-    farmer.refresh_from_db()
     payload = publication_payload(farmer)
     return JsonResponse({
         'ok': True,
@@ -4147,7 +4091,6 @@ def portal_publication_attempt(request):
         'publication': payload,
         'retryable': operation.status == IntegrationOperation.STATUS_RETRYABLE,
         'needs_attention': operation.status == IntegrationOperation.STATUS_DEAD_LETTER,
-        'superseded': bool(result.get('superseded')),
         'requeued': requeued,
     }, status=202 if operation.status in {
         IntegrationOperation.STATUS_PENDING,

@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
-from core.models import IntegrationOperation, InvoiceIdentityReview, InvoiceUploadBatch, JawabuFarmerMaster, ParsedInvoice
+from core.models import DurableJobRunnerHeartbeat, IntegrationOperation, InvoiceIdentityReview, InvoiceUploadBatch, JawabuFarmerMaster, ParsedInvoice
 from core.services.portal_dashboard import dashboard_payload
 from core.services.jawabu_case360 import record_pipeline_event
 
@@ -52,6 +52,21 @@ class PortalActionDashboardTests(TestCase):
         )
         payload = dashboard_payload(None, access={})
         self.assertFalse(any(item['key'].startswith('integration_failure:') for item in payload['attention']))
+
+    def test_queued_publication_warns_operations_when_scheduler_stops(self):
+        farmer = self.farmer('Queued publication', 'Nakuru')
+        IntegrationOperation.objects.create(
+            integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+            operation_type='jawabu_master_publish', source_model='JawabuFarmerMaster',
+            source_id=str(farmer.pk), deduplication_key='queued-dashboard-test',
+        )
+        key = 'portal_sheet_scheduler_stale'
+        self.assertIn(key, {item['key'] for item in dashboard_payload(None, access={})['attention']})
+        self.assertNotIn(key, {item['key'] for item in dashboard_payload(None, access={'branches': ['Nakuru']})['attention']})
+        DurableJobRunnerHeartbeat.objects.create(
+            runner_key='portal_sheet_publications', status=DurableJobRunnerHeartbeat.STATUS_SUCCEEDED,
+        )
+        self.assertNotIn(key, {item['key'] for item in dashboard_payload(None, access={})['attention']})
 
     def test_invoice_identity_attention_does_not_cross_branch_scope(self):
         allowed = self.farmer('Allowed farmer', 'Nakuru', national_id='11111111')

@@ -1,8 +1,7 @@
 """Bounded, dry-run-first drainer for durable Portal Google Sheet work.
 
-Run on a scheduler to ensure publications progress when no staff Mini App is
-open.  The browser-assisted path and this command share the same DB operation
-claims, circuit breaker and pacing.  No Google call is made without --apply.
+Run once per minute on the production scheduler. This is the only executor of
+Portal Sheet publications. No Google call is made without --apply.
 """
 
 from __future__ import annotations
@@ -17,10 +16,12 @@ from django.utils import timezone
 
 from core.models import IntegrationOperation, JawabuFarmerMaster
 from core.services.external_resilience import ExternalCircuitOpen
+from core.services.durable_jobs import begin_runner, finish_runner
 from core.services.portal_publication import (
     INTERNAL_ORDER_OPERATION,
     MASTER_OPERATION,
     SOURCE_MODEL,
+    PORTAL_PUBLICATION_RUNNER,
     attempt_publication,
 )
 
@@ -66,6 +67,14 @@ class Command(BaseCommand):
             self.stdout.write(f'DRY RUN: {due_portal_operations().count()} due Portal Sheet operation(s); no Google calls made.')
             return
 
+        begin_runner(PORTAL_PUBLICATION_RUNNER)
+        try:
+            self._drain(limit=limit, max_seconds=max_seconds)
+        except Exception:
+            finish_runner(PORTAL_PUBLICATION_RUNNER, error_code='runner_failed')
+            raise
+
+    def _drain(self, *, limit, max_seconds):
         deadline = time.monotonic() + max_seconds
         attempted = succeeded = deferred = missing = 0
         while attempted < limit and time.monotonic() < deadline:
@@ -101,9 +110,13 @@ class Command(BaseCommand):
                     wait = min((operation.next_retry_at - timezone.now()).total_seconds(), deadline - time.monotonic())
                     if wait > 0:
                         time.sleep(wait)
+                else:
+                    # Another run may own this row. Leave it to the next tick.
+                    break
             else:
                 # Another worker owns the short lease. Do not spin on it.
                 break
+        finish_runner(PORTAL_PUBLICATION_RUNNER, processed_count=attempted)
         self.stdout.write(
             f'APPLY: {attempted} Google attempt(s), {succeeded} synchronized, '
             f'{deferred} paced, {missing} missing source(s); '

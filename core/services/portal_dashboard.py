@@ -338,6 +338,17 @@ def dashboard_payload(user, *, access=None) -> dict:
         and health_scope.get('global_branch')
         and health_scope.get('global_product')
     ):
+        from core.services.portal_publication import publication_scheduler_health
+
+        sheet_health = publication_scheduler_health()
+        if sheet_health['queued'] and not sheet_health['healthy']:
+            attention.append({
+                'key': 'portal_sheet_scheduler_stale',
+                'label': 'Portal Sheet scheduler needs attention',
+                'detail': f"{sheet_health['queued']} Sheet publication(s) queued. Operations/IT: check the once-per-minute scheduler and its last run before retrying cases.",
+                'count': sheet_health['queued'], 'severity': 'urgent',
+                'url': reverse('portal_screen', kwargs={'screen': 'settings'}),
+            })
         failed_operations = IntegrationOperation.objects.filter(status__in=['retryable_failure', 'dead_letter'])
         portal_types = ('jawabu_master_publish', 'jawabu_internal_order_publish')
         candidate_ids = list(failed_operations.filter(

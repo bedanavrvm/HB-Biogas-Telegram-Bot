@@ -1,14 +1,14 @@
-"""Durable, request-assisted publication of Portal records to Google.
+"""Durable, scheduler-executed publication of Portal records to Google.
 
 Portal changes commit locally first and reserve publication work in
-``IntegrationOperation``. The Mini App makes authenticated follow-up requests;
-the optional scheduled management command drains due work when nobody has the
-app open. Both paths share persisted pacing and one-attempt-per-call behavior.
+``IntegrationOperation``. Only the scheduled management command executes Sheet
+work; Mini App requests read status and may reserve a reviewed retry.
 """
 
 from __future__ import annotations
 
 from typing import Any
+from datetime import timedelta
 
 from django.conf import settings
 from django.utils import timezone
@@ -20,6 +20,26 @@ from core.services.external_resilience import ExternalOperationError, execute_op
 MASTER_OPERATION = 'jawabu_master_publish'
 INTERNAL_ORDER_OPERATION = 'jawabu_internal_order_publish'
 SOURCE_MODEL = 'JawabuFarmerMaster'
+PORTAL_PUBLICATION_RUNNER = 'portal_sheet_publications'
+
+
+def publication_scheduler_health(*, now=None) -> dict[str, Any]:
+    """Aggregate queue and runner freshness for Operations/IT oversight."""
+    from core.models import DurableJobRunnerHeartbeat
+
+    current = now or timezone.now()
+    queued = IntegrationOperation.objects.filter(
+        integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+        source_model=SOURCE_MODEL,
+        operation_type__in=(MASTER_OPERATION, INTERNAL_ORDER_OPERATION),
+        status__in=(IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE,
+                    IntegrationOperation.STATUS_RUNNING),
+    ).count()
+    runner = DurableJobRunnerHeartbeat.objects.filter(runner_key=PORTAL_PUBLICATION_RUNNER).first()
+    fresh = bool(runner and runner.heartbeat_at >= current - timedelta(minutes=3)
+                 and runner.status != DurableJobRunnerHeartbeat.STATUS_FAILED)
+    return {'queued': queued, 'healthy': fresh, 'runner_status': runner.status if runner else 'never_run',
+            'last_run_at': runner.heartbeat_at.isoformat() if runner else None}
 
 
 class PortalPublicationError(RuntimeError):

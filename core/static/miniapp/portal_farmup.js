@@ -1,6 +1,5 @@
 (() => {
   'use strict';
-
   const api = window.PortalMiniAppApi || {};
   const utils = window.MiniAppUtils || {};
   const helpers = window.PortalMiniAppHelpers || {};
@@ -12,7 +11,6 @@
   let reviewMode = 'table';
   try { reviewMode = sessionStorage.getItem('portal-farmup-review-mode') === 'carousel' ? 'carousel' : 'table'; } catch (_) {}
   let carouselIndex = 0, pickerActive = false, pickerHadSelection = false;
-  let repairProgress = null;
   let gridLayoutFrame = 0;
 
   function node(id) { return document.getElementById(id); }
@@ -196,7 +194,7 @@
     batches = (Array.isArray(result.data.batches) ? result.data.batches : []).filter(batch => batch && typeof batch === 'object');
     const current = active && batches.find(batch => batch.id === active.id || batch.worklist_id === active.worklist_id);
     if (current) { active.publication = current.publication; showPublicationReceipt(); }
-    batches.forEach(batch => api.schedulePublication?.(batch.publication || {}, tg)); renderBatches();
+    renderBatches();
     if (node('portal-farmup-upload')) node('portal-farmup-upload').hidden = !can('portal.farmup.stage');
   }
   function statusTooltip(params) { const changes = params.data?._match?.changed_fields || []; return [(params.data?._issues || []).map(item => item.message).join('; '), params.data?._match?.consequence || '', changes.length ? `Changes: ${changes.join(', ')}` : ''].filter(Boolean).join('; ') || 'This row is ready to commit.'; }
@@ -376,7 +374,7 @@
       setLoading(button, true, 'Committing'); const key = commitRequestKey || requestId('portal-farmup-commit'); commitRequestKey = key;
       const result = await api.postJson(`/farmup/${encodeURIComponent(active.id)}/commit/`, {revision_token:active.revision_token, rows:submittedRows(), client_request_id:key}, tg);
       if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'FarmUp commit failed.');
-      commitRequestKey = ''; clearDirtyProtection(); const receipt = result.data.result || {}; const message = `${receipt.committed || 0} committed to Portal — ${receipt.created || 0} created, ${receipt.updated || 0} updated. ${receipt.held || 0} held.${receipt.publications?.length ? ' Master Data Sheet sync queued.' : ''}`; window.PortalAppShell?.showToast?.(message, receipt.success ? 'success' : 'error'); feedback(message, receipt.success ? 'success' : 'error'); (result.data.publications || []).forEach(publication => api.schedulePublication?.(publication, tg)); const batchId = active.id; await load({silent:true}); await openBatch(batchId);
+      commitRequestKey = ''; clearDirtyProtection(); const receipt = result.data.result || {}; const message = `${receipt.committed || 0} committed to Portal — ${receipt.created || 0} created, ${receipt.updated || 0} updated. ${receipt.held || 0} held.${receipt.publications?.length ? ' Master Data Sheet sync queued.' : ''}`; window.PortalAppShell?.showToast?.(message, receipt.success ? 'success' : 'error'); feedback(message, receipt.success ? 'success' : 'error'); const batchId = active.id; await load({silent:true}); await openBatch(batchId);
     } catch (error) { feedback(error.message, 'error'); window.PortalAppShell?.showToast?.(error.message, 'error'); } finally { setLoading(button, false); }
   }
   async function repairSheet() {
@@ -396,9 +394,8 @@
       setLoading(button, true, 'Queuing'); const key = requestId('portal-farmup-repair');
       const result = await api.postJson(`/farmup/${encodeURIComponent(active.id)}/repair/`, {revision_token:active.revision_token, client_request_id:key}, tg);
       if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Sheet repair could not be queued.');
-      (result.data.publications || []).forEach(publication => api.schedulePublication?.(publication, tg));
+
       const repaired = result.data.result?.repairable || 0, skipped = result.data.result?.skipped_invalid_deposits || 0;
-      repairProgress = { pending: new Set(result.data.result?.pending_operation_ids || []), total: (result.data.result?.pending_operation_ids || []).length, failed: 0 };
       const continuing = result.data.result?.continuing || 0;
       const message = `${repaired} new repair${repaired === 1 ? '' : 's'} queued${continuing ? `; continuing ${continuing} queued sync${continuing === 1 ? '' : 's'}` : ''}${skipped ? `; ${skipped} invalid deposit${skipped === 1 ? '' : 's'} skipped` : ''}.`;
       window.PortalAppShell?.showToast?.(message, 'success'); feedback(message, 'success'); await load({silent:true});
@@ -446,37 +443,6 @@
   window.addEventListener('orientationchange', layoutGrid);
   window.setInterval(() => { if (document.visibilityState === 'visible' && activeScreen()) updatePublicationRetryTimers(); }, 1000);
   tg?.onEvent?.('viewportChanged', layoutGrid);
-  let publicationRefreshTimer;
-  window.addEventListener('portal:publication-updated', event => {
-    const changedId = String(event.detail?.operationId || '');
-    const changedOperation = (event.detail?.publication?.operations || []).find(item => String(item.id) === changedId);
-    let changedBatch = false;
-    batches.forEach(batch => {
-      const publication = batch.publication;
-      if (!publication?.pending_operation_ids?.includes(changedId)) return;
-      changedBatch = true;
-      if (event.detail.needsAttention) {
-        publication.status = 'needs_attention';
-      } else if (event.detail.ok && !event.detail.retryable) {
-        publication.pending_operation_ids = publication.pending_operation_ids.filter(id => id !== changedId);
-        publication.status = publication.pending_operation_ids.length ? 'pending' : 'synced';
-      } else if (changedOperation?.next_retry_at) {
-        publication.next_retry_at = changedOperation.next_retry_at;
-      }
-    });
-    if (changedBatch && activeScreen()) {
-      renderBatches();
-      clearTimeout(publicationRefreshTimer);
-      publicationRefreshTimer = setTimeout(() => load({silent:true}).catch(() => {}), 500);
-    }
-    if (!repairProgress || !repairProgress.pending.has(String(event.detail?.operationId || ''))) return;
-    if (event.detail?.needsAttention) { repairProgress.pending.delete(String(event.detail.operationId)); repairProgress.failed += 1; }
-    else if (event.detail?.ok && !event.detail?.retryable) repairProgress.pending.delete(String(event.detail.operationId));
-    const completed = repairProgress.total - repairProgress.pending.size - repairProgress.failed;
-    const message = `${completed} Sheet repair operation${completed === 1 ? '' : 's'} synchronized · ${repairProgress.pending.size} remaining · ${repairProgress.failed} failed.`;
-    feedback(message, repairProgress.failed ? 'error' : 'success');
-    if (!repairProgress.pending.size) { window.PortalAppShell?.showToast?.(message, repairProgress.failed ? 'error' : 'success'); load({silent:true}).catch(() => {}); }
-  });
   async function loadScreen() {
     const batchId = node('portal-screen')?.dataset.farmupBatchId;
     if (batchId) return openBatch(batchId);

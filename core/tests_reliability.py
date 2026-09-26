@@ -316,17 +316,15 @@ class PortalPublicationEndpointTests(TestCase):
     @patch('core.services.portal_publication.attempt_publication')
     @patch('core.services.portal_publication.publication_payload', return_value={'status': 'synced', 'pending_operation_ids': []})
     @patch('core.api.portal_views._portal_capability_error', return_value=None)
-    def test_publication_attempt_runs_one_authorized_operation(self, _scope, _payload, mocked_attempt):
-        mocked_attempt.return_value = {'superseded': False}
-
+    def test_publication_attempt_only_returns_status(self, _scope, _payload, mocked_attempt):
         response = portal_publication_attempt(self._request())
 
         self.assertEqual(response.status_code, 202)
-        mocked_attempt.assert_called_once()
+        mocked_attempt.assert_not_called()
 
     @patch('core.services.portal_publication.attempt_publication')
     @patch('core.services.portal_publication.publication_payload', return_value={'status': 'pending', 'pending_operation_ids': []})
-    def test_scoped_reader_can_finish_reserved_automatic_publication_but_not_manual_retry(self, _payload, mocked_attempt):
+    def test_scoped_reader_can_read_reserved_publication_but_not_manual_retry(self, _payload, mocked_attempt):
         user = get_user_model().objects.create_user(username='publication-hb-reader', is_active=True)
         AccessGrant.objects.create(
             user=user, workflow='jawabu_portal', role='HB_STAFF', branch='EMBU',
@@ -351,7 +349,7 @@ class PortalPublicationEndpointTests(TestCase):
             'operation_id': str(self.operation.pk), 'automatic': True,
         }))
         self.assertEqual(automatic.status_code, 202)
-        mocked_attempt.assert_called_once()
+        mocked_attempt.assert_not_called()
 
         manual = portal_publication_attempt(request({
             'operation_id': str(self.operation.pk), 'manual_retry': True,
@@ -364,7 +362,26 @@ class PortalPublicationEndpointTests(TestCase):
             'operation_id': str(self.operation.pk), 'automatic': True,
         }))
         self.assertEqual(out_of_scope.status_code, 403)
-        mocked_attempt.assert_called_once()
+        mocked_attempt.assert_not_called()
+
+    @patch('core.services.portal_publication._targets_for_farmer', return_value=[MASTER_OPERATION])
+    @patch('core.services.portal_publication.attempt_publication')
+    @patch('core.api.portal_views._portal_capability_error', return_value=None)
+    def test_manual_retry_queues_replacement_without_google(self, _scope, mocked_attempt, _targets):
+        self.operation.status = IntegrationOperation.STATUS_DEAD_LETTER
+        self.operation.save(update_fields=['status', 'updated_at'])
+        request = self.factory.post(
+            '/api/portal/publication/attempt/',
+            data=json.dumps({'operation_id': str(self.operation.pk), 'manual_retry': True}),
+            content_type='application/json',
+        )
+        request.portal_access = None
+        request.portal_user = None
+        response = portal_publication_attempt(request)
+        self.assertEqual(response.status_code, 202)
+        self.assertTrue(json.loads(response.content)['requeued'])
+        self.assertEqual(IntegrationOperation.objects.count(), 2)
+        mocked_attempt.assert_not_called()
 
 
 class ReadinessTests(TestCase):
