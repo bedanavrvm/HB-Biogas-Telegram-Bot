@@ -206,17 +206,19 @@
     target.innerHTML = invoices.map(function (invoice) {
       const readiness = invoice.payment_readiness || {};
       const orderReferenceAlert = invoice.order_reference_alert || null;
-      const needsMatch = canWriteInvoices() && ['draft', 'unmatched', 'ambiguous'].includes(invoice.status);
       const secondaryActions = [
         canWriteInvoices() && invoice.status === 'matched' ? '<button type="button" class="invoice-unmatch-action" data-invoice="' + escapeHtml(invoice.id) + '">Unmatch</button>' : '',
         canWriteInvoices() && invoice.status !== 'ignored' ? '<button type="button" class="invoice-ignore-action" data-invoice="' + escapeHtml(invoice.id) + '">Ignore</button>' : '',
         canWriteInvoices() && invoice.status === 'ignored' ? '<button type="button" class="invoice-restore-action" data-invoice="' + escapeHtml(invoice.id) + '">Restore</button>' : '',
       ].filter(Boolean).join('');
-      const warningCount = Number(invoice.duplicate_count || 0)
-        + (readiness.error || Number(readiness.blocked_count || 0) > 0 ? 1 : 0)
-        + (invoice.balance_due_check && String(invoice.balance_due_check).toLowerCase() !== 'ok' ? 1 : 0)
-        + (invoice.review_notes ? 1 : 0)
-        + (orderReferenceAlert ? 1 : 0);
+      const reviewReason = orderReferenceAlert ? ''
+        : Number(invoice.duplicate_count || 0) > 0 ? `${invoice.duplicate_count} possible duplicate ${Number(invoice.duplicate_count) === 1 ? 'invoice' : 'invoices'}`
+        : invoice.status === 'ambiguous' ? 'More than one possible client match'
+        : invoice.status === 'unmatched' ? 'No client match yet'
+        : typeof readiness.error === 'string' && readiness.error ? readiness.error
+        : Number(readiness.blocked_count || 0) > 0 ? 'Payment details need review'
+        : invoice.balance_due_check && String(invoice.balance_due_check).toLowerCase() !== 'ok' ? 'Invoice balance needs review'
+        : invoice.review_notes || '';
       const checked = state.selectedIds.has(invoice.id) ? ' checked' : '';
       return [
         '<article class="invoice-pool-card invoice-status-' + escapeHtml(invoice.status || 'unknown') + (checked ? ' is-selected' : '') + '" data-invoice-open="' + escapeHtml(invoice.id) + '" role="link" tabindex="0" aria-label="Open invoice ' + escapeHtml(invoice.invoice_no || '') + '">',
@@ -228,7 +230,7 @@
         '<div class="invoice-card-customer">' + escapeHtml(invoice.customer_name || 'Unknown invoice holder') + '</div>',
         '<div class="invoice-card-meta"><span>ID ' + escapeHtml(invoice.customer_id || '-') + '</span><span>' + escapeHtml(invoice.matched_order_number ? 'Order ' + invoice.matched_order_number : (invoice.customer_phone || '-')) + '</span></div>',
         orderReferenceAlert ? '<div class="invoice-card-warning">' + escapeHtml(orderReferenceAlert.message) + '</div>' : '',
-        warningCount ? '<span class="invoice-card-alert"><i data-lucide="circle-alert" aria-hidden="true"></i>' + escapeHtml(warningCount) + ' item' + (warningCount === 1 ? '' : 's') + ' to review</span>' : '',
+        reviewReason ? '<span class="invoice-card-alert"><i data-lucide="circle-alert" aria-hidden="true"></i>' + escapeHtml(reviewReason) + '</span>' : '',
         '</div>',
         '</div>',
         '</article>',

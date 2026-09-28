@@ -49,7 +49,7 @@ test('mobile notification bell stays fixed and payment approval tabs retain nati
 
 test('payment detail keeps a large batch compact and opens the sheet in place', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 640 });
-  await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="payments" data-payment-batch-id="batch-1"><section id="payments-detail" class="payment-detail"><header class="payment-detail-header"><button id="payments-detail-back">Back</button><div class="payment-detail-heading"><h2 id="payments-detail-title"></h2><p id="payments-detail-meta"></p></div><strong id="payments-detail-total" class="payment-detail-total"></strong></header><div id="payments-detail-feedback"></div><div id="payments-progress" class="payment-progress"></div><section id="payments-current-section"><header id="payments-current-heading">Needs attention</header><div id="payments-current-cases" class="payment-current-cases"></div></section><section id="payments-held-section"><div id="payments-held-items"></div></section><details class="payment-activity"><div id="payments-activity"></div></details><div id="payments-primary-action" class="payment-primary-action"></div></section></div></main><div class="sheet-overlay" id="payment-preview-overlay"><div id="payment-preview-title"></div><div id="payment-preview-sub"></div><div id="payment-preview-content"></div><button id="payment-preview-close">Close</button></div></body>`);
+  await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="payments" data-payment-batch-id="batch-1"><section id="payments-detail" class="payment-detail"><header class="payment-detail-header"><button id="payments-detail-back">Back</button><div class="payment-detail-heading"><h2 id="payments-detail-title"></h2><p id="payments-detail-meta"></p></div><strong id="payments-detail-total" class="payment-detail-total"></strong></header><div id="payments-detail-feedback"></div><div id="payments-progress" class="payment-progress"></div><section id="payments-current-section"><header id="payments-current-heading"><h3>Needs attention</h3></header><div id="payments-current-cases" class="payment-current-cases"></div></section><section id="payments-held-section"><div id="payments-held-items"></div></section><details class="payment-activity"><div id="payments-activity"></div></details><div id="payments-primary-action" class="payment-primary-action"></div></section></div></main><div class="sheet-overlay" id="payment-preview-overlay"><div id="payment-preview-title"></div><div id="payment-preview-sub"></div><div id="payment-preview-content"></div><button id="payment-preview-close">Close</button></div></body>`);
   await loadPortalStyles(page);
   await page.addScriptTag({ path: asset('portal_payments.js') });
   await page.evaluate(() => {
@@ -71,6 +71,12 @@ test('payment detail keeps a large batch compact and opens the sheet in place', 
   });
   await expect(page.locator('#payments-current-cases details.payment-current-case')).toHaveCount(50);
   await expect(page.locator('#payments-current-cases details.payment-current-case').first()).not.toHaveAttribute('open');
+  await expect(page.locator('#payments-progress > span')).toHaveCount(3);
+  await expect(page.locator('#payments-current-heading h3')).toHaveText('Cases in this payment');
+  const headingAndCard = await page.evaluate(() => [document.querySelector('#payments-current-heading h3').getBoundingClientRect().x, document.querySelector('.payment-current-case').getBoundingClientRect().x]);
+  expect(headingAndCard[0] - headingAndCard[1]).toBeLessThan(12);
+  await expect(page.locator('#payments-document-actions #payments-preview-sheet')).toBeVisible();
+  await expect(page.locator('#payments-primary-action #payments-preview-sheet')).toHaveCount(0);
   await assertNoHorizontalOverflow(page, 320);
   await page.locator('#payments-current-cases summary').first().click();
   await expect(page.locator('#payments-current-cases details').first()).toHaveAttribute('open');
@@ -78,6 +84,36 @@ test('payment detail keeps a large batch compact and opens the sheet in place', 
   await page.locator('#payments-preview-sheet').click();
   await expect(page.locator('#payment-preview-overlay')).toHaveClass(/open/);
   await expect(page.locator('#payment-preview-content')).toContainText('Saved sheet row');
+  await page.goBack();
+  await expect(page.locator('#payment-preview-overlay')).not.toHaveClass(/open/);
+});
+
+test('payment preview starts with readable customer rows and keeps the full sheet available', async ({ page }) => {
+  await page.setViewportSize({width: 320, height: 640});
+  await page.setContent('<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="payments"><div id="payment-preview-content"></div></div></main></body>');
+  await loadPortalStyles(page);
+  await page.addScriptTag({path: asset('portal_requisitions.js')});
+  await page.evaluate(() => {
+    window.PortalMiniAppRequisitions.init({
+      el: id => document.getElementById(id),
+      state: {capabilities: new Set()},
+      escapeHtml: value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;'),
+      fmtDate: value => value,
+    });
+    document.getElementById('payment-preview-content').innerHTML = window.PortalMiniAppRequisitions.renderPrintablePayment({
+      draft: true, ready_count: 1, order_numbers: ['104'],
+      rows: [{name: 'CAROLINE NKATHA GITARI', name_imab: 'GITARI, CAROLINE NKATHA', cust_no: '23767919', order_no: '104', hb_invoice_amount: '54000', payment_mode: 'LOAN-JAWABU', call_up_comments: 'A long call-up comment for the payment reviewer.'}],
+      totals: {hb_invoice_amount: '54000'},
+    });
+  });
+  await expect(page.locator('.payment-preview-case')).toBeVisible();
+  await expect(page.locator('.payment-print-scroll')).toBeHidden();
+  await page.locator('.payment-preview-case > summary').click();
+  await expect(page.locator('.payment-preview-case')).toContainText('A LONG CALL-UP COMMENT');
+  await page.locator('[data-payment-preview-view="sheet"]').click();
+  await expect(page.locator('.payment-print-scroll')).toBeVisible();
+  await expect(page.locator('.payment-preview-cases')).toBeHidden();
+  await assertNoHorizontalOverflow(page, 320);
 });
 
 test('invoice filters use the shared compact sheet without overflowing a 320px phone', async ({ page }) => {
@@ -135,6 +171,30 @@ test('invoice filters use the shared compact sheet without overflowing a 320px p
   await expect(page.locator('#invoice-filter-chips')).toContainText('Possible duplicates');
   await page.locator('#invoice-filter-form button[type="submit"]').click();
   await expect(page.locator('#invoice-filter-overlay')).toBeHidden();
+});
+
+test('invoice review shows a specific issue without sacrificing the mobile search', async ({page}) => {
+  await page.setViewportSize({width: 320, height: 640});
+  await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="invoices" data-invoice-view="inbox"><section id="page-invoices" class="page active">
+    <header class="invoice-page-header"><div><p class="eyebrow">INVOICE REVIEW</p><h1>Invoice review</h1><p class="meta">Match invoices and resolve payment issues.</p></div><div class="invoice-header-actions"><a class="btn btn-primary" href="#">Upload PDFs</a></div></header>
+    <section class="portal-queue-tools invoice-list-toolbar"><div class="portal-queue-tools-primary"><label class="portal-queue-search"><input id="invoice-pool-search" placeholder="Search invoice, customer, ID, phone, order, or file"></label><button class="miniapp-filter-trigger" id="invoice-filter-trigger">Filters</button></div></section>
+    <div id="invoice-pool-list"></div><div id="pg-invoices"></div></section></div></main></body>`);
+  await loadPortalStyles(page);
+  await page.addScriptTag({path: asset('portal_invoices.js')});
+  await page.evaluate(() => {
+    window.PortalMiniAppInvoices.init({
+      el: id => document.getElementById(id),
+      state: {capabilities: new Set(['portal.invoice.view'])},
+      apiFetch: async () => ({ok: true, data: {ok: true, summary: {}, pagination: {}, invoices: [{id: 'invoice-1', invoice_no: '10116', status: 'ambiguous', customer_name: 'Caroline Nkatha Gitari', customer_id: '23767919', duplicate_count: 2}]}}),
+    });
+    return window.PortalMiniAppInvoices.load(1);
+  });
+  await expect(page.locator('.invoice-card-alert')).toContainText('2 possible duplicate invoices');
+  const upload = await page.locator('.invoice-header-actions a').boundingBox();
+  const heading = await page.locator('.invoice-page-header h1').boundingBox();
+  expect(Math.abs(upload.y - heading.y)).toBeLessThanOrEqual(15);
+  expect((await page.locator('#invoice-filter-trigger').boundingBox()).width).toBe(44);
+  await assertNoHorizontalOverflow(page, 320);
 });
 
 test('operational GPS cards and JBL media errors retain their compact mobile geometry', async ({ page }) => {
@@ -246,6 +306,7 @@ test('payment detail keeps approved case facts compact and available at 320px', 
   await expect(page.locator('.payment-approved-case-list')).toContainText('Embu Central');
   await expect(page.locator('.payment-approved-case-list')).toContainText('Mary Officer');
   await expect(page.locator('.payment-approved-case-list .payment-case-open')).toHaveText('View case');
+  await expect(page.locator('.payment-approved-case-list .payment-case-open')).toHaveCSS('border-top-width', '1px');
   const headerBounds = await page.evaluate(() => {
     const header = document.querySelector('.payment-detail-header').getBoundingClientRect();
     const items = ['payments-detail-back', 'payments-detail-title', 'payments-detail-total'].map((id) => document.getElementById(id).getBoundingClientRect());

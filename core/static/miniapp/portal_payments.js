@@ -14,6 +14,9 @@
   const selectedModes = new Map();
   let searchTimer = null;
   let detailLoadVersion = 0;
+  let previewRequestVersion = 0;
+  let previewHistoryActive = false;
+  let previewTrigger = null;
 
   function el(id) { return deps.el(id); }
   function escape(value) { return deps.escapeHtml(value == null ? '' : value); }
@@ -72,10 +75,18 @@
   function batchCard(batch) {
     const counts = batch.counts || {};
     const number = batch.payment_number ? `Payment #${escape(batch.payment_number)}` : 'Payment batch';
+    const pending = Number(counts.pending || 0);
+    const returned = Number(counts.returned || 0);
+    const total = Number(counts.total || 0);
+    const nextAction = batch.status === 'completed' ? 'Signed payment'
+      : batch.status === 'awaiting_scan' ? 'Signed copy needed'
+      : returned ? `${returned} returned for correction`
+      : batch.status === 'review_complete' ? 'Ready to generate'
+      : pending && approvalMode() ? `Review ${pending} ${pending === 1 ? 'case' : 'cases'}`
+      : batch.status === 'draft' ? 'Prepare payment' : 'Awaiting approval';
     return `<a class="payment-batch-card" data-payment-batch="${escape(batch.id)}" href="${escape(detailUrl(batch.id))}">
-      <span class="payment-batch-card-head"><strong>${number}</strong><span class="badge ${statusClass(batch.status)}">${escape(batch.status_label)}</span></span>
-      <span class="payment-batch-card-stats"><span>${escape(counts.total || 0)} cases · ${escape(batch.payment_mode_summary)}</span><b>${escape(money(batch.total_amount))}</b></span>
-      <span class="payment-batch-card-review">${escape(counts.pending || 0)} awaiting · ${escape(counts.returned || 0)} returned · ${escape(counts.approved || 0)} approved</span>
+      <span class="payment-batch-card-head"><strong>${number}</strong><b>${escape(money(batch.total_amount))}</b></span>
+      <span class="payment-batch-card-foot"><span>${escape(total)} ${total === 1 ? 'case' : 'cases'} · ${escape(batch.payment_mode_summary || 'Payment')}</span><span class="payment-batch-next ${statusClass(batch.status)}">${escape(nextAction)}</span></span>
     </a>`;
   }
 
@@ -187,7 +198,7 @@
       const action = receipt.payment_batch_id
         ? `<button type="button" class="btn btn-secondary payment-open-receipt-batch" data-payment-receipt-batch="${escape(receipt.payment_batch_id)}">Open payment</button>`
         : `<button type="button" class="btn btn-secondary payment-open-receipt" data-payment-receipt="${escape(receipt.id)}">Review delivery</button>`;
-      return `<article class="payment-receipt-row"><div><strong>${escape(receipt.status_label || 'Invoice delivery')}</strong><small>${escape(matched)} matched${correction ? ` · ${escape(correction)} correction pending` : ''}${held ? ` · ${escape(held)} held` : ''}</small></div><div class="payment-receipt-row-action">${held || correction ? '<span class="badge badge-orange">Review</span>' : '<span class="badge badge-green">Ready</span>'}${action}</div></article>`;
+      return `<article class="payment-receipt-row"><div><strong>${escape(receipt.status_label || 'Invoice delivery')}</strong><small>${escape(matched)} matched${correction ? ` · ${escape(correction)} need corrected invoices` : ''}${held ? ` · ${escape(held)} need review` : ''}</small></div><div class="payment-receipt-row-action">${action}</div></article>`;
     }).join('');
   }
 
@@ -315,7 +326,7 @@
         <div><dt>Loan officer</dt><dd>${value(item.loan_officer, 'Unassigned')}</dd></div>
         <div><dt>Invoice / order</dt><dd>${value(item.invoice_number)} / ${value(item.order_number)}</dd></div>
         <div><dt>Repayment</dt><dd>${value(item.preferred_repayment_date, 'Missing')}</dd></div>
-        <div class="payment-case-mode"><dt>Payment</dt><dd>${paymentMode}</dd></div>
+        ${editableMode ? `<div class="payment-case-mode"><dt>Payment</dt><dd>${paymentMode}</dd></div>` : ''}
       </dl>`;
   }
 
@@ -328,9 +339,9 @@
     const caseUrl = `/portal/cases/${escape(item.farmer_id)}/?from=${approvalMode() ? 'payment_approvals' : 'payments'}`;
     const history = `<button type="button" class="payment-case-open" data-case-url="${caseUrl}" aria-label="View case details for ${customerName}"><span>View case</span><i data-lucide="chevron-right" aria-hidden="true"></i></button>`;
     return `<details class="payment-current-case payment-review-${escape(item.decision)}${item.changed_since_review ? ' changed' : ''}${compact ? ' payment-case-row' : ''}" data-payment-case="${escape(item.farmer_id)}">
-      <summary class="payment-case-heading"><span class="payment-case-title"><strong>${customerName}</strong>${badge}</span><span class="payment-case-summary-facts"><b>${escape(money(item.amount))}</b><small>${escape(item.payment_mode_label || 'Payment not recorded')}</small></span></summary>
+      <summary class="payment-case-heading"><span class="payment-case-title"><strong>${customerName}</strong>${badge}</span><span class="payment-case-summary-facts"><b>${escape(money(item.amount))}</b><small>${escape(item.payment_mode_label || 'Payment not recorded')} <span aria-hidden="true">⌄</span></small></span></summary>
       <div class="payment-case-expanded">${caseDetails(item, {editableMode: canRemove})}${warning}${history}
-      ${canReview ? `<textarea class="payment-review-comment" rows="2" placeholder="Approval comment">${escape(item.comment || '')}</textarea><div class="payment-case-actions"><button type="button" class="btn btn-secondary payment-return">Return</button><button type="button" class="btn btn-primary payment-approve">Approve</button></div>` : item.comment ? `<p class="payment-review-note">${escape(item.comment)}</p>` : ''}
+      ${canReview ? `<label class="payment-review-label">Approval comment<textarea class="payment-review-comment" rows="2" placeholder="Record your reason or conditions">${escape(item.comment || '')}</textarea></label><div class="payment-case-actions"><button type="button" class="btn btn-secondary payment-return">Return</button><button type="button" class="btn btn-primary payment-approve">Approve</button></div>` : item.comment ? `<p class="payment-review-note">${escape(item.comment)}</p>` : ''}
       ${canRemove ? '<button type="button" class="payment-remove-case">Remove</button>' : ''}
       </div>
     </details>`;
@@ -368,13 +379,17 @@
     required.title.textContent = activeBatch.payment_number ? `Payment #${activeBatch.payment_number}` : 'Payment batch';
     required.meta.textContent = activeBatch.status_label || activeBatch.payment_mode_summary || '';
     if (required.total) required.total.textContent = money(activeBatch.total_amount);
-    required.progress.innerHTML = `<span><strong>${escape(counts.total || 0)}</strong><small>Cases</small></span><span><strong>${escape(counts.approved || 0)}</strong><small>Approved</small></span><span><strong>${escape(counts.returned || 0)}</strong><small>Returned</small></span><span><strong>${escape(counts.pending || 0)}</strong><small>Awaiting</small></span>`;
+    required.progress.innerHTML = `<span><strong>${escape(counts.pending || 0)}</strong> awaiting review</span><span><strong>${escape(counts.returned || 0)}</strong> returned</span><span><strong>${escape(counts.approved || 0)}</strong> approved</span>`;
     required.progress.hidden = emptyDraft;
     const cases = activeBatch.cases || [];
     const approvedCases = cases.filter(item => item.decision === 'approved');
     const actionableCases = cases.filter(item => item.decision !== 'approved');
     const currentHeading = el('payments-current-heading');
-    if (currentHeading) currentHeading.hidden = actionableCases.length === 0;
+    if (currentHeading) {
+      currentHeading.hidden = actionableCases.length === 0;
+      const title = currentHeading.querySelector('h3');
+      if (title) title.textContent = approvalMode() ? 'Cases to review' : 'Cases in this payment';
+    }
     required.cases.innerHTML = cases.length ? [
       actionableCases.length ? actionableCases.map(caseRow).join('') : '',
       approvedCases.length ? `<details class="payment-approved-cases"><summary><span>Approved</span><b>${escape(approvedCases.length)}</b></summary><div class="payment-approved-case-list">${approvedCases.map(item => caseRow(item, {compact: true})).join('')}</div></details>` : '',
@@ -406,30 +421,41 @@
   function renderPrimaryAction() {
     const target = el('payments-primary-action');
     if (!target || !activeBatch) return;
+    let documents = el('payments-document-actions');
+    if (!documents) {
+      documents = document.createElement('div');
+      documents.id = 'payments-document-actions';
+      documents.className = 'payment-document-actions';
+      el('payments-detail')?.querySelector('.payment-detail-header')?.insertAdjacentElement('afterend', documents);
+    }
+    documents.innerHTML = '';
+    if (Number(activeBatch.counts?.total || 0) > 0 && capability('portal.payment.view')) {
+      documents.insertAdjacentHTML('beforeend', '<button type="button" class="btn btn-secondary payment-preview-action" id="payments-preview-sheet"><i data-lucide="eye" aria-hidden="true"></i> Preview payment</button>');
+    }
+    if (activeBatch.status === 'awaiting_scan' && activeBatch.workbook_download_url) {
+      documents.insertAdjacentHTML('beforeend', '<button type="button" class="btn btn-secondary" id="payments-open-workbook"><i data-lucide="download" aria-hidden="true"></i> Download workbook</button>');
+    }
+    if (activeBatch.status === 'completed' && activeBatch.signed_scan_url) {
+      documents.insertAdjacentHTML('beforeend', '<button type="button" class="btn btn-secondary" id="payments-open-signed-copy">Open signed copy</button>');
+    }
+    if (!approvalMode() && capability('portal.payment.prepare') && Number(activeBatch.counts?.total || 0) > 0 && !['completed', 'cancelled'].includes(activeBatch.status)) {
+      documents.insertAdjacentHTML('beforeend', '<button type="button" class="payment-cancel-link" id="payments-cancel">Cancel batch</button>');
+    }
+    documents.hidden = !documents.childElementCount;
     if (activeBatch.status === 'draft' && capability('portal.payment.prepare') && Number(activeBatch.counts?.total || 0) > 0) {
       target.innerHTML = '<button type="button" class="btn btn-primary" id="payments-submit-review">Submit for payment approval</button>';
     } else if (activeBatch.status === 'in_review') {
-      target.innerHTML = `<div class="payment-state-note"><strong>${activeBatch.counts.approved || 0} of ${activeBatch.counts.total || 0} reviewed</strong><small>${approvalMode() ? 'Review each case above.' : 'This batch is with the payment approver.'}</small></div>`;
+      target.innerHTML = approvalMode() ? '' : '<div class="payment-state-note">This batch is with the payment approver.</div>';
     } else if (activeBatch.status === 'review_complete' && approvalMode() && capability('portal.payment.review')) {
       target.innerHTML = '<button type="button" class="btn btn-primary" id="payments-generate">Confirm and generate workbook</button>';
     } else if (activeBatch.status === 'review_complete') {
-      target.innerHTML = '<div class="payment-state-note"><strong>Approval complete</strong><small>The authorised approver will generate the workbook.</small></div>';
+      target.innerHTML = '<div class="payment-state-note">Approval complete. The approver will generate the workbook.</div>';
     } else if (activeBatch.status === 'awaiting_scan') {
-      const open = activeBatch.workbook_download_url ? '<button type="button" class="btn btn-secondary" id="payments-open-workbook"><i data-lucide="download"></i> Download workbook</button>' : '';
       const upload = capability('portal.documents.sign') ? '<label class="payment-scan-picker"><input type="file" id="payments-scan-file" accept="application/pdf,image/jpeg,image/png"><span id="payments-scan-label">Select signed scan</span></label><button type="button" class="btn btn-primary" id="payments-upload-scan">Upload signed copy</button>' : '<p class="payment-state-note">Waiting for an authorised user to upload the signed copy.</p>';
-      target.innerHTML = open + upload;
+      target.innerHTML = upload;
     } else if (activeBatch.status === 'completed') {
-      const signed = activeBatch.signed_scan_url
-        ? '<button type="button" class="btn btn-secondary" id="payments-open-signed-copy">Open signed copy</button>'
-        : '';
-      target.innerHTML = `<div class="payment-complete"><strong>Payment completed</strong><small>The signed batch is locked.</small></div>${signed}`;
+      target.innerHTML = '';
     } else target.innerHTML = '';
-    if (Number(activeBatch.counts?.total || 0) > 0 && capability('portal.payment.view')) {
-      target.insertAdjacentHTML('afterbegin', '<button type="button" class="btn btn-secondary payment-preview-action" id="payments-preview-sheet"><i data-lucide="eye" aria-hidden="true"></i> Preview sheet</button>');
-    }
-    if (!approvalMode() && capability('portal.payment.prepare') && Number(activeBatch.counts?.total || 0) > 0 && !['completed', 'cancelled'].includes(activeBatch.status)) {
-      target.insertAdjacentHTML('beforeend', '<button type="button" class="payment-cancel-link" id="payments-cancel">Cancel</button>');
-    }
     target.hidden = target.childElementCount === 0;
     target.classList.toggle('payment-primary-action-quiet', Boolean(target.querySelector('.payment-state-note')));
   }
@@ -553,20 +579,38 @@
     const target = el('payment-preview-content');
     if (!overlay || !target || !activeBatch) return;
     const batchId = activeBatch.id;
+    const requestVersion = ++previewRequestVersion;
+    previewTrigger = button;
     overlay.classList.add('open');
+    try {
+      window.history.pushState({...window.history.state, paymentPreview: true}, '', window.location.href);
+      previewHistoryActive = true;
+    } catch (_) { previewHistoryActive = false; }
     target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
     deps.setButtonLoading(button, true, 'Loading...');
     try {
       const response = await deps.apiFetch(`/payments/batches/${encodeURIComponent(batchId)}/preview/`);
-      if (!overlay.classList.contains('open') || activeBatch?.id !== batchId) return;
+      if (requestVersion !== previewRequestVersion || !overlay.classList.contains('open') || activeBatch?.id !== batchId) return;
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Payment sheet could not be previewed.');
       const preview = response.data.preview;
       el('payment-preview-title').textContent = preview.draft ? 'Draft payment sheet' : `Payment sheet #${preview.payment_number}`;
       el('payment-preview-sub').textContent = preview.draft ? 'Before Head of Rural review' : 'Saved workbook snapshot';
       target.innerHTML = deps.requisitions.renderPrintablePayment(preview);
     } catch (error) {
-      if (overlay.classList.contains('open')) target.innerHTML = `<div class="batch-warning">${escape(error.message || 'Payment sheet could not be previewed.')}</div>`;
+      if (requestVersion === previewRequestVersion && overlay.classList.contains('open')) target.innerHTML = `<div class="batch-warning">${escape(error.message || 'Payment sheet could not be previewed.')}</div>`;
     } finally { deps.setButtonLoading(button, false); }
+  }
+
+  function closePreview({fromHistory = false} = {}) {
+    const overlay = el('payment-preview-overlay');
+    if (!previewHistoryActive && !overlay?.classList.contains('open')) return;
+    previewRequestVersion += 1;
+    overlay?.classList.remove('open');
+    overlay?.setAttribute('aria-hidden', 'true');
+    if (previewHistoryActive && !fromHistory && window.history.state?.paymentPreview) window.history.back();
+    previewHistoryActive = false;
+    if (previewTrigger?.isConnected) previewTrigger.focus();
+    previewTrigger = null;
   }
 
   async function addSelected(button) {
@@ -660,6 +704,16 @@
   function bind() {
     if (document.documentElement.dataset.portalPaymentsBound) return;
     document.documentElement.dataset.portalPaymentsBound = 'true';
+    window.addEventListener('popstate', () => {
+      if (previewHistoryActive && !window.history.state?.paymentPreview) closePreview({fromHistory: true});
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && previewHistoryActive) closePreview();
+    });
+    const previewOverlay = el('payment-preview-overlay');
+    if (previewOverlay) new MutationObserver(() => {
+      if (previewHistoryActive && !previewOverlay.classList.contains('open')) closePreview();
+    }).observe(previewOverlay, {attributes: true, attributeFilter: ['class']});
     document.addEventListener('change', event => {
       const checkbox = event.target.closest('.payment-candidate-checkbox');
       if (checkbox) { checkbox.checked ? selected.add(checkbox.value) : selected.delete(checkbox.value); renderCandidates(); return; }

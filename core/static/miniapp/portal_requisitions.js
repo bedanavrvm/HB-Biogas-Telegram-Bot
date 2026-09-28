@@ -166,6 +166,12 @@
   }
 
   function renderPrintablePayment(preview) {
+    const fact = (label, value, {amount = false} = {}) => value === null || value === undefined || value === ''
+      ? '' : `<div><dt>${label}</dt><dd>${amount ? paymentAmount(value) : paymentValue(value)}</dd></div>`;
+    const cards = (preview.rows || []).map((row, index) => `<details class="payment-preview-case">
+      <summary><span><strong>${index + 1}. ${paymentValue(row.name) || 'UNNAMED CUSTOMER'}</strong><small>${paymentValue(row.cust_no) || 'NO CUSTOMER NUMBER'} · Order ${paymentValue(row.order_no) || '—'}</small></span><span class="payment-preview-case-total"><b>${paymentAmount(row.hb_invoice_amount) || '—'}</b><small>${paymentValue(row.payment_mode) || 'PAYMENT MODE NOT SET'} <span aria-hidden="true">⌄</span></small></span></summary>
+      <dl>${fact('Name in IMAB', row.name_imab)}${fact('Branch', row.branch)}${fact('Loan officer', row.loan_officer)}${fact('Primary mobile', row.mobile_no)}${fact('Expected invoice', row.expected_invoice_amount, {amount: true})}${fact('Discount', row.discount, {amount: true})}${fact('HBG deposit', row.deposit_paid_hbg, {amount: true})}${fact('JBL deposit', row.deposit_paid_jbl, {amount: true})}${fact('Loan amount', row.loan_amount, {amount: true})}${fact('Repayment', row.repayment_dates)}${fact('Tenor', row.tenor)}${fact('Product', row.product)}${fact('Call-up comments', row.call_up_comments)}</dl>
+    </details>`).join('');
     const rows = (preview.rows || []).map((row, index) => `<tr>
       <td>${index + 1}</td><td>${deps.escapeHtml(deps.fmtDate(row.requisition_date))}</td>
       <td>${paymentValue(row.order_no)}</td><td>${paymentValue(row.cust_no)}</td>
@@ -188,7 +194,9 @@
       ${preview.draft ? '<p class="payment-preview-draft">Draft preview only. No official payment number has been assigned.</p>' : ''}
       ${(preview.blocked || []).length ? `<details class="payment-preview-warning"><summary>${deps.escapeHtml(preview.blocked.length)} selected case(s) need attention before generation</summary><ul>${preview.blocked.map(item => `<li><strong>${deps.escapeHtml(item.customer_name || 'Unnamed customer')}</strong>: ${deps.escapeHtml((item.missing || []).join(', ') || 'Review payment details')}</li>`).join('')}</ul></details>` : ''}
       <div class="payment-total-strip"><span>Balance due <strong>${paymentAmount(totals.hb_invoice_amount) || '0'}</strong></span><span>Discount <strong>${paymentAmount(totals.discount) || '0'}</strong></span><span>HBG deposit <strong>${paymentAmount(totals.deposit_paid_hbg) || '0'}</strong></span><span>JBL deposit <strong>${paymentAmount(totals.deposit_paid_jbl) || '0'}</strong></span></div>
-      <div class="payment-print-scroll"><table>
+      <div class="payment-preview-switch" role="group" aria-label="Payment preview view"><button type="button" class="active" data-payment-preview-view="customers" aria-pressed="true">By customer</button><button type="button" data-payment-preview-view="sheet" aria-pressed="false">Full sheet</button></div>
+      <div class="payment-preview-cases">${cards || '<p>No payment rows available.</p>'}</div>
+      <div class="payment-print-scroll" hidden><table>
         <thead><tr><th>No.</th><th>Requisition date</th><th>Order no.</th><th>Cust no.</th><th>Name in IMAB</th><th>Name</th><th>Primary mobile</th><th>Secondary mobile</th><th>Branch</th><th>Loan officer</th><th>HB invoice amount</th><th>Expected invoice amount</th><th>Discount</th><th>Deposit paid to HBG</th><th>Deposit paid to JBL</th><th>Loan amount</th><th>Repayment dates</th><th>Tenor</th><th>Product</th><th>Call up comments</th><th>Payment mode</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="21">No payment rows available.</td></tr>'}</tbody>
       </table></div>
@@ -1197,6 +1205,21 @@
         }
         const batchOverlay = event.target.closest('#batch-detail-overlay');
         if (batchOverlay && event.target === batchOverlay) batchOverlay.classList.remove('open');
+        const previewView = event.target.closest('[data-payment-preview-view]');
+        if (previewView) {
+          const preview = previewView.closest('.payment-print-preview');
+          const sheet = previewView.dataset.paymentPreviewView === 'sheet';
+          preview?.querySelectorAll('[data-payment-preview-view]').forEach(button => {
+            const active = button === previewView;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-pressed', String(active));
+          });
+          if (preview) {
+            preview.querySelector('.payment-preview-cases').hidden = sheet;
+            preview.querySelector('.payment-print-scroll').hidden = !sheet;
+          }
+          return;
+        }
         if (event.target.closest('#payment-preview-close, #payment-preview-done')) el('payment-preview-overlay')?.classList.remove('open');
         const approvePaymentButton = event.target.closest('#payment-review-approve');
         if (approvePaymentButton) {
