@@ -47,6 +47,39 @@ test('mobile notification bell stays fixed and payment approval tabs retain nati
   await assertNoHorizontalOverflow(page, 320);
 });
 
+test('payment detail keeps a large batch compact and opens the sheet in place', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="payments" data-payment-batch-id="batch-1"><section id="payments-detail" class="payment-detail"><header class="payment-detail-header"><button id="payments-detail-back">Back</button><div class="payment-detail-heading"><h2 id="payments-detail-title"></h2><p id="payments-detail-meta"></p></div><strong id="payments-detail-total" class="payment-detail-total"></strong></header><div id="payments-detail-feedback"></div><div id="payments-progress" class="payment-progress"></div><section id="payments-current-section"><header id="payments-current-heading">Needs attention</header><div id="payments-current-cases" class="payment-current-cases"></div></section><section id="payments-held-section"><div id="payments-held-items"></div></section><details class="payment-activity"><div id="payments-activity"></div></details><div id="payments-primary-action" class="payment-primary-action"></div></section></div></main><div class="sheet-overlay" id="payment-preview-overlay"><div id="payment-preview-title"></div><div id="payment-preview-sub"></div><div id="payment-preview-content"></div><button id="payment-preview-close">Close</button></div></body>`);
+  await loadPortalStyles(page);
+  await page.addScriptTag({ path: asset('portal_payments.js') });
+  await page.evaluate(() => {
+    const cases = Array.from({length: 50}, (_, index) => ({
+      farmer_id: `case-${index}`, customer_name: `Customer ${index} with a long name`,
+      decision: 'pending', amount: '1000', payment_mode_label: 'Loan - Jawabu',
+      national_id: `1234${index}`, primary_phone: '0712345678', branch: 'Nakuru',
+    }));
+    window.PortalMiniAppPayments.init({
+      el: id => document.getElementById(id), escapeHtml: value => String(value ?? ''),
+      state: {capabilities: new Set(['portal.payment.view'])},
+      requisitions: {renderPrintablePayment: preview => `<table><tbody><tr><td>${preview.rows[0].name}</td></tr></tbody></table>`},
+      apiFetch: async path => path.endsWith('/preview/')
+        ? {ok: true, data: {ok: true, preview: {draft: true, rows: [{name: 'Saved sheet row'}]}}}
+        : {ok: true, data: {ok: true, batch: {id: 'batch-1', status: 'draft', status_label: 'Draft', receipt_batch_id: 'delivery-1', counts: {total: 50, approved: 0, returned: 0, pending: 50}, cases, activity: [], held_items: [], total_amount: '50000'}}},
+      setButtonLoading() {}, showToast() {},
+    });
+    return window.PortalMiniAppPayments.load();
+  });
+  await expect(page.locator('#payments-current-cases details.payment-current-case')).toHaveCount(50);
+  await expect(page.locator('#payments-current-cases details.payment-current-case').first()).not.toHaveAttribute('open');
+  await assertNoHorizontalOverflow(page, 320);
+  await page.locator('#payments-current-cases summary').first().click();
+  await expect(page.locator('#payments-current-cases details').first()).toHaveAttribute('open');
+  await expect(page.locator('#payments-current-cases .payment-case-identifiers').first()).toContainText('ID 12340');
+  await page.locator('#payments-preview-sheet').click();
+  await expect(page.locator('#payment-preview-overlay')).toHaveClass(/open/);
+  await expect(page.locator('#payment-preview-content')).toContainText('Saved sheet row');
+});
+
 test('invoice filters use the shared compact sheet without overflowing a 320px phone', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="invoices" data-invoice-view="inbox"><section id="page-invoices" class="page active">
@@ -204,9 +237,10 @@ test('payment detail keeps approved case facts compact and available at 320px', 
   await expect(page.locator('#payments-current-section header')).toBeHidden();
   await expect(page.locator('.payment-progress .payment-progress-total')).toHaveCount(0);
   await expect(page.locator('.payment-approved-summary')).toHaveCount(0);
-  await expect(page.locator('.payment-approved-cases summary')).toContainText('Approved');
-  await page.locator('.payment-approved-cases summary').click();
+  await expect(page.locator('.payment-approved-cases > summary')).toContainText('Approved');
+  await page.locator('.payment-approved-cases > summary').click();
   await expect(page.locator('.payment-approved-case-list')).toContainText('Jane Wanjiku');
+  await page.locator('.payment-approved-case-list .payment-current-case > summary').click();
   await expect(page.locator('.payment-approved-case-list')).toContainText('ID 12345678');
   await expect(page.locator('.payment-approved-case-list')).toContainText('254712345678');
   await expect(page.locator('.payment-approved-case-list')).toContainText('Embu Central');

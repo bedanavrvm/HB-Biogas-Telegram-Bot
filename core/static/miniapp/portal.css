@@ -2413,6 +2413,7 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .payment-print-preview th:nth-child(7) { width: 145px; }
 .payment-print-preview th:nth-child(8) { width: 115px; }
 .payment-print-preview th:nth-child(20) { width: 260px; }
+.payment-print-preview th:nth-child(21) { width: 140px; }
 .payment-print-preview td.amount { text-align: right; }
 .payment-print-preview > footer { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 24px; color: #111827; font-size: 11px; }
 @media (max-width: 600px) { .payment-print-preview > header, .payment-print-preview > footer { grid-template-columns: 1fr; gap: 8px; } .payment-total-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -4234,6 +4235,31 @@ body.portal-app :is(.dashboard-overview,.portal-curated-summary) > :is(div,span)
 @media (min-width:760px) {
   #payments-current-section .payment-current-cases { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
+
+/* Payment work stays scannable even when a delivery contains many cases. */
+.payment-batch-card { gap:3px; padding:8px 10px; }
+.payment-batch-card-stats { display:flex; align-items:center; justify-content:space-between; gap:6px; color:var(--text-muted); font-size:11px; }
+.payment-batch-card-stats b { flex:0 0 auto; color:var(--text-primary); font-size:11px; }
+.payment-batch-card-review { color:var(--text-muted); font-size:10px; }
+.payment-current-case { padding:0; }
+.payment-current-case.payment-case-row { padding:0; }
+.payment-current-case > summary.payment-case-heading { display:grid; grid-template-columns:minmax(0,1fr) auto; min-height:52px; align-items:center; gap:8px; padding:8px 10px; cursor:pointer; list-style:none; }
+.payment-current-case > summary.payment-case-heading::-webkit-details-marker { display:none; }
+.payment-current-case > summary.payment-case-heading:focus-visible { outline:2px solid var(--color-primary); outline-offset:-2px; }
+.payment-case-title { display:grid; gap:2px; justify-items:start; }
+.payment-case-title strong { max-width:100%; }
+.payment-case-summary-facts { display:grid; gap:2px; justify-items:end; min-width:0; }
+.payment-case-summary-facts b { font-size:11px; white-space:nowrap; }
+.payment-case-summary-facts small { max-width:115px; overflow:hidden; color:var(--text-muted); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+.payment-case-expanded { padding:0 10px 9px; border-top:1px solid var(--border-color); }
+.payment-case-expanded .payment-case-open { margin-top:8px; }
+.payment-case-expanded .payment-case-details { margin-top:6px; }
+.payment-primary-action { flex-wrap:wrap; }
+.payment-primary-action .payment-preview-action { flex:0 0 auto; }
+.payment-preview-draft,.payment-preview-warning { margin:0 0 8px; padding:8px; border-radius:7px; background:#eff6ff; color:#1e40af; font-size:11px; font-weight:650; }
+.payment-preview-warning { background:#fffbeb; color:#92400e; }
+.payment-print-preview table { min-width:2200px; }
+@media (max-width:430px) { .payment-primary-action .payment-preview-action { flex:1 1 auto; } }
 
 .portal-settings-action-row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:10px; }
 .portal-settings-action-row small { color:var(--text-muted); font-size:10px; }

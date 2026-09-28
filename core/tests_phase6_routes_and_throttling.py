@@ -136,6 +136,24 @@ class FocusedRateLimitingTests(TestCase):
         with patch('core.services.request_throttling.timezone.now', return_value=now + timedelta(minutes=1)):
             self.assertIsNone(_actor_limit(actor))
 
+    @override_settings(MINIAPP_DIAGNOSTICS_RATE_LIMIT=1)
+    def test_authorized_diagnostics_do_not_share_a_network_budget(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from uuid import uuid4
+
+        actors = [SimpleNamespace(pk=number) for number in range(1, 12)]
+        session = SimpleNamespace(client_session_uuid=uuid4(), classification='normal')
+        with patch('core.api.miniapp_diagnostic_views._authorized_actor', side_effect=actors), \
+             patch('core.api.miniapp_diagnostic_views.start_session', return_value=(session, True)), \
+             patch('core.api.miniapp_diagnostic_views.issue_signal_token', return_value='test-token'):
+            for _ in actors:
+                response = self.client.post(
+                    '/api/miniapp-diagnostics/sessions/start/',
+                    data='{"surface":"portal"}', content_type='application/json',
+                )
+                self.assertEqual(response.status_code, 200)
+
     @override_settings(API_AUTH_TOKEN='valid-manual-token', MANUAL_API_AUTH_FAILURE_RATE_LIMIT=1)
     def test_only_failed_manual_credentials_consume_failure_limit(self):
         first = self.client.get('/api/readiness/', HTTP_AUTHORIZATION='Bearer wrong')

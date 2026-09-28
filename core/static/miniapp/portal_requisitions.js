@@ -179,15 +179,18 @@
       <td class="amount">${paymentAmount(row.deposit_paid_jbl)}</td>
       <td class="amount">${paymentAmount(row.loan_amount)}</td>
       <td>${deps.escapeHtml(deps.fmtDate(row.repayment_dates))}</td><td>${paymentValue(row.tenor)}</td>
-      <td>${paymentValue(row.product)}</td><td>${paymentValue(row.call_up_comments)}</td>
+      <td>${paymentValue(row.product)}</td><td>${paymentValue(row.call_up_comments)}</td><td>${paymentValue(row.payment_mode)}</td>
     </tr>`).join('');
     const totals = preview.totals || {};
+    const orderLabel = (preview.order_numbers || []).join(', ') || preview.order_number || '-';
     return `<article class="payment-print-preview">
-      <header><h3>JBL Payment Schedule #${deps.escapeHtml(preview.payment_number || '-')}</h3><div><strong>Order No:</strong> ${deps.escapeHtml(preview.order_number || '-')}</div><div><strong>Clients:</strong> ${deps.escapeHtml(preview.ready_count || 0)}</div></header>
+      <header><h3>JBL Payment Schedule ${preview.draft ? '— Draft' : '#' + deps.escapeHtml(preview.payment_number || '-')}</h3><div><strong>Order No:</strong> ${deps.escapeHtml(orderLabel)}</div><div><strong>Clients:</strong> ${deps.escapeHtml(preview.ready_count || 0)}</div></header>
+      ${preview.draft ? '<p class="payment-preview-draft">Draft preview only. No official payment number has been assigned.</p>' : ''}
+      ${(preview.blocked || []).length ? `<details class="payment-preview-warning"><summary>${deps.escapeHtml(preview.blocked.length)} selected case(s) need attention before generation</summary><ul>${preview.blocked.map(item => `<li><strong>${deps.escapeHtml(item.customer_name || 'Unnamed customer')}</strong>: ${deps.escapeHtml((item.missing || []).join(', ') || 'Review payment details')}</li>`).join('')}</ul></details>` : ''}
       <div class="payment-total-strip"><span>Balance due <strong>${paymentAmount(totals.hb_invoice_amount) || '0'}</strong></span><span>Discount <strong>${paymentAmount(totals.discount) || '0'}</strong></span><span>HBG deposit <strong>${paymentAmount(totals.deposit_paid_hbg) || '0'}</strong></span><span>JBL deposit <strong>${paymentAmount(totals.deposit_paid_jbl) || '0'}</strong></span></div>
       <div class="payment-print-scroll"><table>
-        <thead><tr><th>No.</th><th>Requisition date</th><th>Order no.</th><th>Cust no.</th><th>Name in IMAB</th><th>Name</th><th>Primary mobile</th><th>Secondary mobile</th><th>Branch</th><th>Loan officer</th><th>HB invoice amount</th><th>Expected invoice amount</th><th>Discount</th><th>Deposit paid to HBG</th><th>Deposit paid to JBL</th><th>Loan amount</th><th>Repayment dates</th><th>Tenor</th><th>Product</th><th>Call up comments</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="20">No payment rows available.</td></tr>'}</tbody>
+        <thead><tr><th>No.</th><th>Requisition date</th><th>Order no.</th><th>Cust no.</th><th>Name in IMAB</th><th>Name</th><th>Primary mobile</th><th>Secondary mobile</th><th>Branch</th><th>Loan officer</th><th>HB invoice amount</th><th>Expected invoice amount</th><th>Discount</th><th>Deposit paid to HBG</th><th>Deposit paid to JBL</th><th>Loan amount</th><th>Repayment dates</th><th>Tenor</th><th>Product</th><th>Call up comments</th><th>Payment mode</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="21">No payment rows available.</td></tr>'}</tbody>
       </table></div>
       <footer><span><strong>Prepared by:</strong> __________________</span><span><strong>Checked by:</strong> __________________</span><span><strong>Authorized by:</strong> __________________</span><span><strong>Date:</strong> __________________</span></footer>
     </article>`;

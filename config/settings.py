@@ -292,11 +292,11 @@ MINIAPP_DIAGNOSTICS_MAX_PAYLOAD_BYTES = config('MINIAPP_DIAGNOSTICS_MAX_PAYLOAD_
 # to Telegram webhooks, whose legitimate retries must never be dropped.
 PUBLIC_RATE_LIMIT_WINDOW_SECONDS = config('PUBLIC_RATE_LIMIT_WINDOW_SECONDS', default=600, cast=int)
 STAFF_ACTIVATION_RATE_LIMIT = config('STAFF_ACTIVATION_RATE_LIMIT', default=10, cast=int)
-TELEGRAM_SESSION_LOGIN_RATE_LIMIT = config('TELEGRAM_SESSION_LOGIN_RATE_LIMIT', default=20, cast=int)
+TELEGRAM_SESSION_LOGIN_RATE_LIMIT = config('TELEGRAM_SESSION_LOGIN_RATE_LIMIT', default=120, cast=int)
 SIGNING_TOKEN_RATE_LIMIT = config('SIGNING_TOKEN_RATE_LIMIT', default=60, cast=int)
 # Diagnostics: requests per minute per actor, with tenfold shared-network
 # headroom. Authentication/signing retain their separate ten-minute limits.
-MINIAPP_DIAGNOSTICS_RATE_LIMIT = config('MINIAPP_DIAGNOSTICS_RATE_LIMIT', default=120, cast=int)
+MINIAPP_DIAGNOSTICS_RATE_LIMIT = config('MINIAPP_DIAGNOSTICS_RATE_LIMIT', default=240, cast=int)
 MANUAL_API_AUTH_FAILURE_RATE_LIMIT = config('MANUAL_API_AUTH_FAILURE_RATE_LIMIT', default=20, cast=int)
 
 # API protection for manual endpoints

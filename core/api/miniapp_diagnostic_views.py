@@ -105,15 +105,17 @@ def _actor_limit(actor):
 def miniapp_diagnostic_session_start(request):
     if not getattr(settings, 'MINIAPP_DIAGNOSTICS_ENABLED', True):
         return JsonResponse({'ok': True, 'disabled': True})
-    if response := _network_limit(request):
-        return response
     try:
         payload = _json_payload(request)
         workflow = workflow_for_surface(payload.get('surface'))
     except DiagnosticPayloadError as exc:
+        if response := _network_limit(request):
+            return response
         return _error(str(exc), status=400, code='invalid_diagnostic_payload')
     actor = _authorized_actor(request, payload, workflow)
     if actor is None:
+        if response := _network_limit(request):
+            return response
         return _error(
             'This Telegram account is not authorized for this Mini App.',
             status=403, code='diagnostic_access_denied',
@@ -139,22 +141,26 @@ def miniapp_diagnostic_session_start(request):
 def miniapp_diagnostic_signals(request, session_uuid):
     if not getattr(settings, 'MINIAPP_DIAGNOSTICS_ENABLED', True):
         return JsonResponse({'ok': True, 'disabled': True, 'acknowledged': []})
-    if response := _network_limit(request):
-        return response
     try:
         payload = _json_payload(request)
         session = MiniAppDiagnosticSession.objects.select_related('actor').get(
             client_session_uuid=session_uuid,
         )
     except DiagnosticPayloadError as exc:
+        if response := _network_limit(request):
+            return response
         return _error(str(exc), status=400, code='invalid_diagnostic_payload')
     except MiniAppDiagnosticSession.DoesNotExist:
+        if response := _network_limit(request):
+            return response
         return _error('The diagnostic session was not found.', status=404, code='diagnostic_session_not_found')
 
     actor_id = actor_id_from_signal_token(payload.get('signal_token'), session.client_session_uuid)
     if actor_id != session.actor_id:
         actor = _authorized_actor(request, payload, session.workflow)
         if actor is None or actor.pk != session.actor_id:
+            if response := _network_limit(request):
+                return response
             return _error('The diagnostic signal is not authorized.', status=403, code='diagnostic_access_denied')
     if response := _actor_limit(session.actor):
         return response

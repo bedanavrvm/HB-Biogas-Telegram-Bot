@@ -5763,6 +5763,61 @@ def portal_payment_batch_workbook(request, batch_id):
     return response
 
 
+@require_http_methods(['GET'])
+def portal_payment_batch_preview(request, batch_id):
+    """Preview this batch without allocating a number or publishing a document."""
+    from decimal import Decimal, InvalidOperation
+    from core.services.payment_documents import payment_readiness
+
+    access_error = _portal_capability_error(request, 'portal.payment.view')
+    if access_error:
+        return access_error
+    batch = _portal_payment_batch_queryset(request).filter(pk=batch_id).select_related('current_document').first()
+    if not batch:
+        return JsonResponse({'ok': False, 'error': 'Payment batch not found.'}, status=404)
+    scope_error = _portal_payment_batch_scope_error(request, batch, capability='portal.payment.view')
+    if scope_error:
+        return scope_error
+    memberships = list(batch.case_memberships.filter(is_active=True).select_related('farmer', 'review').order_by('added_at'))
+    if batch.current_document_id:
+        # These rows were captured when the immutable official workbook was made.
+        rows = (batch.current_document.validation_summary or {}).get('preview_rows') or []
+        if not rows:
+            return JsonResponse({'ok': False, 'error': 'The saved payment preview is unavailable. Download the workbook instead.'}, status=404)
+        blocked = []
+    else:
+        ids = [str(item.farmer_id) for item in memberships]
+        comments = {str(item.farmer_id): item.review.comment for item in memberships if hasattr(item, 'review')}
+        modes = {str(item.farmer_id): item.payment_mode for item in memberships}
+        readiness = payment_readiness('PAYMENT-DRAFT', farmer_ids=ids, case_call_up_comments=comments, case_payment_modes=modes)
+        rows = [item['row'] for item in readiness['ready']]
+        blocked = [
+            {'customer_name': item['customer_name'], 'missing': item['missing']}
+            for item in readiness['blocked']
+        ]
+        found_ids = {item['farmer_id'] for item in readiness['ready'] + readiness['blocked']}
+        blocked.extend(
+            {'customer_name': item.farmer.customer_name, 'missing': ['Case is no longer active.']}
+            for item in memberships if str(item.farmer_id) not in found_ids
+        )
+    amount_keys = ('hb_invoice_amount', 'expected_invoice_amount', 'discount', 'deposit_paid_hbg', 'deposit_paid_jbl', 'loan_amount')
+    totals = {}
+    for key in amount_keys:
+        total = Decimal('0')
+        for row in rows:
+            try:
+                total += Decimal(str(row.get(key) or '0').replace(',', ''))
+            except (InvalidOperation, ValueError):
+                continue
+        totals[key] = str(total)
+    return JsonResponse({'ok': True, 'preview': {
+        'draft': not bool(batch.current_document_id),
+        'payment_number': batch.payment_number if batch.current_document_id else '',
+        'order_numbers': sorted({str(row.get('order_no')) for row in rows if row.get('order_no')}),
+        'ready_count': len(rows), 'rows': rows, 'totals': totals, 'blocked': blocked,
+    }})
+
+
 @csrf_exempt
 @require_http_methods(['GET', 'HEAD'])
 def portal_payment_workbook_download(request, token: str):

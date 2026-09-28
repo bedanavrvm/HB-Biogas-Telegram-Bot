@@ -11,6 +11,10 @@
   }
 
   function portalBackFallbackUrl() {
+    if (/\/portal\/s\/hb-actions\/[^/]+\//.test(window.location.pathname)) {
+      const workstream = new URLSearchParams(window.location.search).get('workstream');
+      return `/portal/s/hb-actions/?queue=${workstream === 'commissioning' ? 'commissioning' : 'installation'}`;
+    }
     const caseBack = document.querySelector('.case-history-back[data-return-screen]');
     if (caseBack && /\/portal\/cases\/[^/]+\//.test(window.location.pathname)) return caseBack.href;
     // A directly opened case (or a WebView restored from a cold page) has no

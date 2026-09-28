@@ -24,16 +24,19 @@ def _limited(retry_after: int) -> JsonResponse:
 @miniapp_idempotency_boundary
 def telegram_session_login(request):
     """Create a normal Django session from freshly validated Telegram initData."""
-    limit = int(getattr(settings, 'TELEGRAM_SESSION_LOGIN_RATE_LIMIT', 20))
-    network = consume_ip(request, scope='telegram_session_login:network', limit=limit)
-    if not network.allowed:
-        return _limited(network.retry_after)
+    limit = int(getattr(settings, 'TELEGRAM_SESSION_LOGIN_RATE_LIMIT', 120))
     init_data = request.headers.get('X-Telegram-Init-Data', '') or request.POST.get('init_data', '')
     try:
         user = authenticate(request, init_data=init_data)
     except TelegramAuthenticationError as exc:
+        network = consume_ip(request, scope='telegram_session_login:network', limit=min(limit, 20))
+        if not network.allowed:
+            return _limited(network.retry_after)
         return JsonResponse({'ok': False, 'error': str(exc)}, status=403)
     if user is None or not user.is_active:
+        network = consume_ip(request, scope='telegram_session_login:network', limit=min(limit, 20))
+        if not network.allowed:
+            return _limited(network.retry_after)
         return JsonResponse({'ok': False, 'error': 'Telegram account is not linked to an active user.'}, status=403)
     actor = consume_identity(
         scope='telegram_session_login:actor', kind='django_user', value=user.pk, limit=limit,

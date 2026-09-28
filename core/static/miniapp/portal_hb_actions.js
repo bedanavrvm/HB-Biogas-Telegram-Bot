@@ -13,6 +13,8 @@
   let page = 1;
   let searchTimer = null;
   let invoiceObjectUrl = '';
+  let previewRequestVersion = 0;
+  let previewHistoryActive = false;
   let listRequestVersion = 0;
 
   const byId = id => document.getElementById(id);
@@ -327,10 +329,13 @@
     deps.showToast('Commissioning notes saved.', 'success');
   }
 
-  function closeInvoicePreview() {
+  function closeInvoicePreview({fromHistory = false} = {}) {
+    previewRequestVersion += 1;
     if (invoiceObjectUrl) { window.SecureMediaViewer?.revoke(invoiceObjectUrl); invoiceObjectUrl = ''; }
     byId('media-viewer-overlay')?.classList.remove('open');
     const content = byId('media-viewer-content'); if (content) content.replaceChildren();
+    if (previewHistoryActive && !fromHistory && window.history.state?.hbDocumentPreview) window.history.back();
+    previewHistoryActive = false;
   }
   async function openDocumentPreview(event) {
     const anchor = event.currentTarget;
@@ -338,19 +343,27 @@
     event.preventDefault();
     const overlay = byId('media-viewer-overlay'); const content = byId('media-viewer-content');
     if (!overlay || !content || !window.SecureMediaViewer) return deps.showToast('The secure document viewer is unavailable. Refresh and retry.', 'error');
-    closeInvoicePreview();
+    if (invoiceObjectUrl) { window.SecureMediaViewer.revoke(invoiceObjectUrl); invoiceObjectUrl = ''; }
+    const requestVersion = ++previewRequestVersion;
     byId('media-viewer-title').textContent = anchor.dataset.previewTitle || 'Document preview';
     byId('media-viewer-sub').textContent = anchor.dataset.previewSubtitle || '';
     content.innerHTML = '<div class="media-viewer-loading" role="status"><span class="spinner-inline" aria-hidden="true"></span> Loading document…</div>';
     overlay.classList.add('open');
+    try {
+      window.history.pushState({...window.history.state, hbDocumentPreview: true}, '', window.location.href);
+      previewHistoryActive = true;
+    } catch (_) { previewHistoryActive = false; }
     try {
       const headers = {
         ...(deps.portalApi?.initDataHeader?.(deps.tg) || {}),
         'X-Request-ID': window.crypto?.randomUUID?.() || `hb-preview-${Date.now()}`,
       };
       const blob = await window.SecureMediaViewer.fetchAuthorizedBlob(anchor.href, {headers});
+      if (requestVersion !== previewRequestVersion || !overlay.classList.contains('open')) return;
       invoiceObjectUrl = window.SecureMediaViewer.renderBlob(content, blob, {mimeType: anchor.dataset.previewMimeType || 'application/pdf', name: anchor.dataset.previewName || 'Document preview'});
-    } catch (error) { content.innerHTML = `<p class="media-viewer-error">${esc(error.message || 'The document could not be opened in the Mini App.')}</p>`; }
+    } catch (error) {
+      if (requestVersion === previewRequestVersion && overlay.classList.contains('open')) content.innerHTML = `<p class="media-viewer-error">${esc(error.message || 'The document could not be opened in the Mini App.')}</p>`;
+    }
   }
 
   async function loadDetail(farmerId) {
@@ -386,7 +399,14 @@
       });
       byId('hb-action-invoice')?.addEventListener('click', openDocumentPreview);
       byId('hb-action-signed-order')?.addEventListener('click', openDocumentPreview);
-      byId('media-viewer-close')?.addEventListener('click', closeInvoicePreview);
+      byId('media-viewer-close')?.addEventListener('click', () => closeInvoicePreview());
+      const viewer = byId('media-viewer-overlay');
+      if (viewer) new MutationObserver(() => {
+        if (previewHistoryActive && !viewer.classList.contains('open')) closeInvoicePreview();
+      }).observe(viewer, {attributes: true, attributeFilter: ['class']});
+      window.addEventListener('popstate', () => {
+        if (previewHistoryActive && !window.history.state?.hbDocumentPreview) closeInvoicePreview({fromHistory: true});
+      });
       byId('hb-action-edit-toggle')?.addEventListener('click', () => {
         correctionMode = !correctionMode;
         if (detail?.workstream === 'installation') renderInstallationForm();
@@ -398,7 +418,7 @@
         toggle.title = correctionMode ? 'Return to view mode' : 'Correct this record';
         applyReadOnlyState();
       });
-      window.addEventListener('beforeunload', closeInvoicePreview); return;
+      window.addEventListener('beforeunload', () => closeInvoicePreview({fromHistory: true})); return;
     }
     const requestedQueue = new URLSearchParams(window.location.search).get('queue');
     activeQueue = ['installation', 'commissioning'].includes(requestedQueue) ? requestedQueue : 'installation';

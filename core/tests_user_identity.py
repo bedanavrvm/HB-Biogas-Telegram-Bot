@@ -301,6 +301,24 @@ class TelegramUserAuthenticationTests(TestCase):
         self.assertEqual(int(self.client.session['_auth_user_id']), self.user.pk)
         self.assertFalse(self.user.has_usable_password())
 
+    @override_settings(TELEGRAM_SESSION_LOGIN_RATE_LIMIT=2)
+    def test_valid_staff_on_one_network_have_independent_login_budgets(self):
+        second = get_user_model().objects.create(username='tg_98765', is_active=True)
+        UserProfile.objects.create(user=second, telegram_id='98765', telegram_username='second_user')
+        AccessGrant.objects.create(user=second, workflow='jawabu_portal', role='JBL_OFFICER')
+        for telegram_id, username in [('12345', 'unified_user'), ('98765', 'second_user')]:
+            for _ in range(2):
+                response = self.client.post(
+                    reverse('telegram_session_login'),
+                    HTTP_X_TELEGRAM_INIT_DATA=signed_init_data(telegram_id=telegram_id, username=username),
+                )
+                self.assertEqual(response.status_code, 200)
+        denied = self.client.post(
+            reverse('telegram_session_login'),
+            HTTP_X_TELEGRAM_INIT_DATA=signed_init_data(telegram_id='12345', username='unified_user'),
+        )
+        self.assertEqual(denied.status_code, 429)
+
     def test_invalid_signature_is_rejected(self):
         response = self.client.post(
             reverse('telegram_session_login'),

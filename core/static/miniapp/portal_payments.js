@@ -74,8 +74,8 @@
     const number = batch.payment_number ? `Payment #${escape(batch.payment_number)}` : 'Payment batch';
     return `<a class="payment-batch-card" data-payment-batch="${escape(batch.id)}" href="${escape(detailUrl(batch.id))}">
       <span class="payment-batch-card-head"><strong>${number}</strong><span class="badge ${statusClass(batch.status)}">${escape(batch.status_label)}</span></span>
-      <span class="payment-batch-card-mode">${escape(batch.payment_mode_summary)}</span>
-      <span class="payment-batch-card-stats"><b>${escape(counts.total || 0)} cases</b><b>${escape(money(batch.total_amount))}</b><small>${escape(counts.approved || 0)} approved · ${escape(counts.returned || 0)} returned · ${escape(counts.pending || 0)} awaiting</small></span>
+      <span class="payment-batch-card-stats"><span>${escape(counts.total || 0)} cases · ${escape(batch.payment_mode_summary)}</span><b>${escape(money(batch.total_amount))}</b></span>
+      <span class="payment-batch-card-review">${escape(counts.pending || 0)} awaiting · ${escape(counts.returned || 0)} returned · ${escape(counts.approved || 0)} approved</span>
     </a>`;
   }
 
@@ -314,7 +314,6 @@
         <div><dt>Branch</dt><dd>${value(item.branch)}</dd></div>
         <div><dt>Loan officer</dt><dd>${value(item.loan_officer, 'Unassigned')}</dd></div>
         <div><dt>Invoice / order</dt><dd>${value(item.invoice_number)} / ${value(item.order_number)}</dd></div>
-        <div><dt>Amount</dt><dd>${escape(money(item.amount))}</dd></div>
         <div><dt>Repayment</dt><dd>${value(item.preferred_repayment_date, 'Missing')}</dd></div>
         <div class="payment-case-mode"><dt>Payment</dt><dd>${paymentMode}</dd></div>
       </dl>`;
@@ -327,19 +326,14 @@
     const badge = `<span class="badge ${item.decision === 'approved' ? 'badge-green' : item.decision === 'returned' ? 'badge-orange' : 'badge-blue'}">${escape(item.decision === 'pending' ? 'Awaiting review' : item.decision)}</span>`;
     const customerName = escape(item.customer_name || 'Unnamed customer');
     const caseUrl = `/portal/cases/${escape(item.farmer_id)}/?from=${approvalMode() ? 'payment_approvals' : 'payments'}`;
-    const history = `<div class="payment-case-title"><strong>${customerName}</strong>${badge}</div><button type="button" class="payment-case-open" data-case-url="${caseUrl}" aria-label="View case details for ${customerName}"><span>View case</span><i data-lucide="chevron-right" aria-hidden="true"></i></button>`;
-    if (compact) {
-      return `<article class="payment-case-row payment-review-approved" data-payment-case="${escape(item.farmer_id)}">
-        <div class="payment-case-heading">${history}</div>
-        ${caseDetails(item)}
-      </article>`;
-    }
-    return `<article class="payment-current-case payment-review-${escape(item.decision)}${item.changed_since_review ? ' changed' : ''}" data-payment-case="${escape(item.farmer_id)}">
-      <div class="payment-case-heading">${history}</div>
-      ${caseDetails(item, {editableMode: canRemove})}${warning}
+    const history = `<button type="button" class="payment-case-open" data-case-url="${caseUrl}" aria-label="View case details for ${customerName}"><span>View case</span><i data-lucide="chevron-right" aria-hidden="true"></i></button>`;
+    return `<details class="payment-current-case payment-review-${escape(item.decision)}${item.changed_since_review ? ' changed' : ''}${compact ? ' payment-case-row' : ''}" data-payment-case="${escape(item.farmer_id)}">
+      <summary class="payment-case-heading"><span class="payment-case-title"><strong>${customerName}</strong>${badge}</span><span class="payment-case-summary-facts"><b>${escape(money(item.amount))}</b><small>${escape(item.payment_mode_label || 'Payment not recorded')}</small></span></summary>
+      <div class="payment-case-expanded">${caseDetails(item, {editableMode: canRemove})}${warning}${history}
       ${canReview ? `<textarea class="payment-review-comment" rows="2" placeholder="Approval comment">${escape(item.comment || '')}</textarea><div class="payment-case-actions"><button type="button" class="btn btn-secondary payment-return">Return</button><button type="button" class="btn btn-primary payment-approve">Approve</button></div>` : item.comment ? `<p class="payment-review-note">${escape(item.comment)}</p>` : ''}
       ${canRemove ? '<button type="button" class="payment-remove-case">Remove</button>' : ''}
-    </article>`;
+      </div>
+    </details>`;
   }
 
   function activityLabel(action) {
@@ -430,6 +424,9 @@
         : '';
       target.innerHTML = `<div class="payment-complete"><strong>Payment completed</strong><small>The signed batch is locked.</small></div>${signed}`;
     } else target.innerHTML = '';
+    if (Number(activeBatch.counts?.total || 0) > 0 && capability('portal.payment.view')) {
+      target.insertAdjacentHTML('afterbegin', '<button type="button" class="btn btn-secondary payment-preview-action" id="payments-preview-sheet"><i data-lucide="eye" aria-hidden="true"></i> Preview sheet</button>');
+    }
     if (!approvalMode() && capability('portal.payment.prepare') && Number(activeBatch.counts?.total || 0) > 0 && !['completed', 'cancelled'].includes(activeBatch.status)) {
       target.insertAdjacentHTML('beforeend', '<button type="button" class="payment-cancel-link" id="payments-cancel">Cancel</button>');
     }
@@ -549,6 +546,27 @@
     if (!await confirmFirstSubmission()) return;
     if (button.disabled) return;
     await mutate(`/payments/batches/${activeBatch.id}/submit/`, {}, button, 'Submitting...');
+  }
+
+  async function previewSheet(button) {
+    const overlay = el('payment-preview-overlay');
+    const target = el('payment-preview-content');
+    if (!overlay || !target || !activeBatch) return;
+    const batchId = activeBatch.id;
+    overlay.classList.add('open');
+    target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
+    deps.setButtonLoading(button, true, 'Loading...');
+    try {
+      const response = await deps.apiFetch(`/payments/batches/${encodeURIComponent(batchId)}/preview/`);
+      if (!overlay.classList.contains('open') || activeBatch?.id !== batchId) return;
+      if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Payment sheet could not be previewed.');
+      const preview = response.data.preview;
+      el('payment-preview-title').textContent = preview.draft ? 'Draft payment sheet' : `Payment sheet #${preview.payment_number}`;
+      el('payment-preview-sub').textContent = preview.draft ? 'Before Head of Rural review' : 'Saved workbook snapshot';
+      target.innerHTML = deps.requisitions.renderPrintablePayment(preview);
+    } catch (error) {
+      if (overlay.classList.contains('open')) target.innerHTML = `<div class="batch-warning">${escape(error.message || 'Payment sheet could not be previewed.')}</div>`;
+    } finally { deps.setButtonLoading(button, false); }
   }
 
   async function addSelected(button) {
@@ -687,6 +705,7 @@
       if (target.closest('.payment-receipt-cash-toggle')) return toggleReceiptCash(target.closest('.payment-receipt-cash-toggle'));
       if (target.closest('.payment-add-receipt-item')) return addReceiptItem(target.closest('.payment-add-receipt-item'));
       if (target.closest('#payments-submit-review')) return submitForReview(target.closest('#payments-submit-review'));
+      if (target.closest('#payments-preview-sheet')) return previewSheet(target.closest('#payments-preview-sheet'));
       if (target.closest('#payments-generate')) return mutate(`/payments/batches/${activeBatch.id}/generate/`, {}, target.closest('#payments-generate'), 'Generating...');
       if (target.closest('#payments-open-workbook')) return deps.downloadPortalFile({url: activeBatch.workbook_download_url, filename: activeBatch.workbook_filename || `Payment-${activeBatch.payment_number || 'workbook'}.xlsx`});
       if (target.closest('#payments-open-signed-copy')) return deps.openPortalLink(activeBatch.signed_scan_url);

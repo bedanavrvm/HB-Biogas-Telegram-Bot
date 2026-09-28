@@ -5,6 +5,7 @@ from unittest.mock import patch
 from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
+from django.http import JsonResponse
 from django.urls import reverse
 from openpyxl import Workbook
 
@@ -513,6 +514,71 @@ class PaymentBatchServiceTests(TestCase):
 
 
 class PaymentWorkflowContractTests(TestCase):
+    def test_batch_preview_is_read_only_and_uses_saved_rows_after_generation(self):
+        from core.api.portal_views import portal_payment_batch_preview
+
+        user = get_user_model().objects.create_user(username='payment-preview-user')
+        group = GroupSheetConfiguration.objects.create(
+            group_id='-100-payment-preview', display_name='Payment preview', enabled=True,
+            sheet_id='preview-sheet', workflow={'type': 'jawabu_homebiogas'},
+        )
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Preview Customer', national_id='12345678', primary_phone='254700000001',
+            customer_no='CUST-1', order_number='ORDER-1', balance_due=Decimal('1000'),
+            final_decision='Approved', workflow_revision=1,
+        )
+        batch = create_batch(group_configuration=group, actor=user)
+        with patch('payments.services.payment_readiness', return_value={
+            'ready': [{'farmer_id': str(farmer.pk), 'row': {}}], 'blocked': [], 'blocked_count': 0,
+        }):
+            batch = add_cases(
+                batch.id, farmer_ids=[farmer.pk], payment_modes={str(farmer.pk): 'CASH'},
+                expected_revision=batch.revision,
+            )
+        request = RequestFactory().get('/api/portal/payments/batches/preview/')
+        request.portal_user = user
+        readiness = {'ready': [{'row': {'name': 'Preview Customer', 'order_no': 'ORDER-1', 'payment_mode': 'CASH', 'loan_amount': Decimal('1000')}}], 'blocked': []}
+        with patch('core.api.portal_views._portal_capability_error', return_value=None), \
+             patch('core.api.portal_views._portal_payment_batch_queryset', return_value=PaymentBatch.objects.all()), \
+             patch('core.api.portal_views._portal_payment_batch_scope_error', return_value=None), \
+             patch('core.services.payment_documents.payment_readiness', return_value=readiness) as calculate:
+            draft = json.loads(portal_payment_batch_preview(request, batch.pk).content)['preview']
+            self.assertTrue(draft['draft'])
+            self.assertEqual(draft['rows'][0]['payment_mode'], 'CASH')
+            self.assertEqual(draft['totals']['loan_amount'], '1000')
+            self.assertFalse(draft['payment_number'])
+            calculate.assert_called_once()
+
+            document = PaymentDocument.objects.create(
+                order_number='PAYMENT-17', payment_number='17', status='awaiting_scan', version=1,
+                validation_summary={'preview_rows': [{'name': 'Frozen Customer', 'order_no': 'ORDER-1', 'loan_amount': '1000'}]},
+            )
+            batch.payment_number = 17
+            batch.current_document = document
+            batch.save(update_fields=['payment_number', 'current_document', 'updated_at'])
+            frozen = json.loads(portal_payment_batch_preview(request, batch.pk).content)['preview']
+            self.assertFalse(frozen['draft'])
+            self.assertEqual(frozen['rows'][0]['name'], 'Frozen Customer')
+            self.assertEqual(frozen['payment_number'], 17)
+            calculate.assert_called_once()
+        self.assertEqual(PaymentDocument.objects.count(), 1)
+
+    def test_batch_preview_enforces_case_scope(self):
+        from core.api.portal_views import portal_payment_batch_preview
+
+        user = get_user_model().objects.create_user(username='payment-preview-denied')
+        group = GroupSheetConfiguration.objects.create(
+            group_id='-100-payment-preview-denied', display_name='Payment preview denied', enabled=True,
+            sheet_id='preview-sheet-denied', workflow={'type': 'jawabu_homebiogas'},
+        )
+        batch = create_batch(group_configuration=group, actor=user)
+        request = RequestFactory().get('/api/portal/payments/batches/preview/')
+        request.portal_user = user
+        with patch('core.api.portal_views._portal_capability_error', return_value=None), \
+             patch('core.api.portal_views._portal_payment_batch_queryset', return_value=PaymentBatch.objects.all()), \
+             patch('core.api.portal_views._portal_payment_batch_scope_error', return_value=JsonResponse({'ok': False}, status=403)):
+            self.assertEqual(portal_payment_batch_preview(request, batch.pk).status_code, 403)
+
     def test_payment_error_uses_current_message_contract_with_actionable_copy(self):
         from core.api.portal_views import _portal_payment_batch_error
 
@@ -558,6 +624,7 @@ class PaymentWorkflowContractTests(TestCase):
         self.assertEqual(reverse('portal_payment_batches'), '/api/portal/payments/batches/')
         self.assertEqual(reverse('portal_payment_sequence'), '/api/portal/payments/sequence/')
         self.assertIn(batch_id, reverse('portal_payment_batch_detail', kwargs={'batch_id': batch_id}))
+        self.assertIn(batch_id, reverse('portal_payment_batch_preview', kwargs={'batch_id': batch_id}))
         self.assertIn(farmer_id, reverse(
             'portal_payment_batch_case_review', kwargs={'batch_id': batch_id, 'farmer_id': farmer_id},
         ))
