@@ -122,6 +122,17 @@ def _active_memberships(batch):
     return batch.case_memberships.filter(is_active=True).select_related('farmer', 'review').order_by('added_at')
 
 
+def payment_reviews_current(batch) -> bool:
+    """A generated payment is signable only for its still-approved case values."""
+    memberships = list(_active_memberships(batch))
+    return bool(memberships) and all(
+        hasattr(item, 'review')
+        and item.review.decision == PaymentCaseReview.DECISION_APPROVED
+        and item.review.reviewed_digest == case_payment_digest(item.farmer, item.payment_mode)
+        for item in memberships
+    )
+
+
 def _refresh_batch_digest(batch):
     values = [
         {
@@ -483,7 +494,11 @@ def review_case(batch_id, farmer_id, *, decision: str, comment: str, expected_re
         return replayed
     batch = PaymentBatch.objects.select_for_update().get(pk=batch_id)
     _require_revision(batch, expected_revision)
-    if batch.status not in {PaymentBatch.STATUS_IN_REVIEW, PaymentBatch.STATUS_REVIEW_COMPLETE}:
+    reopening_generated_workbook = batch.status == PaymentBatch.STATUS_AWAITING_SCAN
+    if batch.status not in {
+        PaymentBatch.STATUS_IN_REVIEW, PaymentBatch.STATUS_REVIEW_COMPLETE,
+        PaymentBatch.STATUS_AWAITING_SCAN,
+    }:
         raise PaymentBatchError('This payment batch is not awaiting Head of Rural review.')
     membership = PaymentBatchCase.objects.select_for_update().select_related('farmer').filter(
         batch=batch, farmer_id=farmer_id, is_active=True,
@@ -491,6 +506,10 @@ def review_case(batch_id, farmer_id, *, decision: str, comment: str, expected_re
     if not membership:
         raise PaymentBatchError('This case is not currently in the payment batch.')
     digest = case_payment_digest(membership.farmer, membership.payment_mode)
+    if reopening_generated_workbook:
+        if payment_reviews_current(batch):
+            raise PaymentBatchError('The generated payment workbook is awaiting its signed copy, not another review.')
+        _supersede_document(batch)
     review, _ = PaymentCaseReview.objects.select_for_update().get_or_create(membership=membership)
     review.decision = decision
     review.comment = comment
@@ -516,7 +535,10 @@ def review_case(batch_id, farmer_id, *, decision: str, comment: str, expected_re
     batch.save()
     _record(
         batch, 'case_reviewed', actor=actor, request_id=request_id,
-        metadata={'farmer_id': str(farmer_id), 'decision': decision, 'comment': comment},
+        metadata={
+            'farmer_id': str(farmer_id), 'decision': decision, 'comment': comment,
+            'generated_workbook_superseded': reopening_generated_workbook,
+        },
     )
     return batch
 
@@ -812,11 +834,16 @@ def serialize_batch(batch: PaymentBatch, *, include_cases=True):
                 'farmer_id': str(item.farmer_id or ''),
                 'can_add_to_payment': bool(payable_not_added),
             })
+    requires_re_review = counts['pending'] > 0 and batch.status in {
+        PaymentBatch.STATUS_REVIEW_COMPLETE, PaymentBatch.STATUS_AWAITING_SCAN,
+    }
     return {
         'id': str(batch.pk), 'payment_number': batch.payment_number,
         'receipt_batch_id': receipt_id, 'held_items': held_items,
         'payment_mode_summary': payment_mode_summary, 'payment_mode_counts': mode_counts,
         'status': batch.status, 'status_label': batch.get_status_display(),
+        'requires_re_review': requires_re_review,
+        'approval_queue_status': PaymentBatch.STATUS_IN_REVIEW if requires_re_review else batch.status,
         'revision': batch.revision, 'counts': counts, 'total_amount': str(total),
         'cases': cases, 'activity': activity, 'current_document_id': str(batch.current_document_id or ''),
         'current_document_url': batch.current_document.drive_url if batch.current_document_id else '',
@@ -837,6 +864,8 @@ def complete_batch_for_document(document, *, actor=None, request_id=''):
         return batch
     if batch.status != PaymentBatch.STATUS_AWAITING_SCAN:
         raise PaymentBatchError('This workbook is no longer the current payment batch version.')
+    if not payment_reviews_current(batch):
+        raise PaymentBatchError('Payment details changed after review. Head of Rural must review the changed cases again.')
     document.status = 'completed'
     document.finalized_by = getattr(actor, 'get_full_name', lambda: '')() or getattr(actor, 'username', '')
     document.finalized_at = timezone.now()

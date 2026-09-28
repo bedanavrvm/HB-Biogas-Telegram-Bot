@@ -9,7 +9,8 @@ from django.http import JsonResponse
 from django.urls import reverse
 from openpyxl import Workbook
 
-from core.models import GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, ParsedInvoice, PaymentDocument
+from core.models import DocumentSignoffPolicy, GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, ParsedInvoice, PaymentDocument
+from core.services.document_signoffs import PhysicalSignoffError, source_artifact
 from core.services.payment_documents import _write_payment_mode
 from core.services.jawabu_case_reference import display_case_reference
 from core.services.jawabu_pipeline import completed_payment_mode_for_farmer, completed_payment_number_for_farmer
@@ -340,6 +341,66 @@ class PaymentBatchServiceTests(TestCase):
         self.assertEqual(payload['counts']['changed'], 1)
 
     @patch('payments.services.payment_readiness', side_effect=ready.__func__)
+    def test_changed_review_complete_case_returns_to_approval_queue(self, _readiness):
+        farmer = self.farmer('71')
+        batch = self.add(self.batch(), farmer)
+        batch = submit_for_review(batch.id, expected_revision=batch.revision)
+        batch = review_case(
+            batch.id, farmer.id, decision='approved', comment='Original review.',
+            expected_revision=batch.revision, actor=self.user,
+        )
+        self.assertEqual(batch.status, PaymentBatch.STATUS_REVIEW_COMPLETE)
+        farmer.balance_due = Decimal('1200')
+        farmer.save(update_fields=['balance_due', 'updated_at'])
+
+        payload = serialize_batch(PaymentBatch.objects.get(pk=batch.pk))
+        self.assertTrue(payload['requires_re_review'])
+        self.assertEqual(payload['approval_queue_status'], PaymentBatch.STATUS_IN_REVIEW)
+        self.assertEqual(payload['cases'][0]['decision'], 'pending')
+        self.assertEqual(payload['cases'][0]['comment'], 'Original review.')
+
+        batch = review_case(
+            batch.id, farmer.id, decision='approved', comment='Re-reviewed new amount.',
+            expected_revision=batch.revision, actor=self.user,
+        )
+        self.assertEqual(batch.status, PaymentBatch.STATUS_REVIEW_COMPLETE)
+        self.assertEqual(serialize_batch(batch)['approval_queue_status'], PaymentBatch.STATUS_REVIEW_COMPLETE)
+
+    @patch('payments.services.payment_readiness', side_effect=ready.__func__)
+    def test_changed_generated_payment_reopens_review_and_supersedes_workbook(self, _readiness):
+        farmer = self.farmer('72')
+        batch = self.add(self.batch(), farmer)
+        batch = submit_for_review(batch.id, expected_revision=batch.revision)
+        batch = review_case(
+            batch.id, farmer.id, decision='approved', comment='Original review.',
+            expected_revision=batch.revision, actor=self.user,
+        )
+        document = PaymentDocument.objects.create(
+            order_number='PAYMENT-72', payment_number='72', status='awaiting_scan', version=1,
+            file_content=b'generated payment workbook',
+        )
+        batch.current_document = document
+        batch.status = PaymentBatch.STATUS_AWAITING_SCAN
+        batch.save(update_fields=['current_document', 'status', 'updated_at'])
+        farmer.balance_due = Decimal('1300')
+        farmer.save(update_fields=['balance_due', 'updated_at'])
+        payload = serialize_batch(PaymentBatch.objects.get(pk=batch.pk))
+        self.assertEqual(payload['approval_queue_status'], PaymentBatch.STATUS_IN_REVIEW)
+        self.assertTrue(payload['requires_re_review'])
+        with self.assertRaisesMessage(PhysicalSignoffError, 'must review the changed cases again'):
+            source_artifact(DocumentSignoffPolicy.DOCUMENT_PAYMENT, str(document.id))
+
+        batch = review_case(
+            batch.id, farmer.id, decision='approved', comment='New amount confirmed.',
+            expected_revision=batch.revision, actor=self.user,
+        )
+        document.refresh_from_db()
+        self.assertEqual(document.status, 'superseded')
+        self.assertIsNone(batch.current_document_id)
+        self.assertEqual(batch.status, PaymentBatch.STATUS_REVIEW_COMPLETE)
+        self.assertEqual(batch.case_memberships.get(farmer=farmer).review.comment, 'New amount confirmed.')
+
+    @patch('payments.services.payment_readiness', side_effect=ready.__func__)
     def test_membership_change_before_scan_supersedes_workbook(self, _readiness):
         farmer = self.farmer('05')
         batch = self.batch()
@@ -365,6 +426,11 @@ class PaymentBatchServiceTests(TestCase):
         farmer = self.farmer('06')
         batch = self.batch()
         batch = self.add(batch, farmer, mode='LOAN-JAWABU')
+        batch = submit_for_review(batch.id, expected_revision=batch.revision)
+        batch = review_case(
+            batch.id, farmer.id, decision='approved', comment='Payment details confirmed.',
+            expected_revision=batch.revision, actor=self.user,
+        )
         document = PaymentDocument.objects.create(
             order_number='PAYMENT-1', payment_number='1', status='awaiting_scan', version=1,
         )

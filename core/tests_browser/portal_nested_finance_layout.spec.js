@@ -47,6 +47,61 @@ test('mobile notification bell stays fixed and payment approval tabs retain nati
   await assertNoHorizontalOverflow(page, 320);
 });
 
+test('changed payment reviews return to the approval queue instead of becoming stranded', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="payment_approvals" data-payment-batch-id=""><section id="page-payments" class="page active"><nav class="portal-invoice-tabs payment-batch-filters"><button class="active" data-payment-batch-filter="in_review"><span>Awaiting review</span><span data-payment-batch-count="in_review">0</span></button><button data-payment-batch-filter="review_complete"><span>Ready to generate</span><span data-payment-batch-count="review_complete">0</span></button></nav><div id="payments-batches"></div></section></div></main></body>`);
+  await loadPortalStyles(page);
+  await page.addScriptTag({ path: asset('portal_payments.js') });
+  await page.evaluate(() => {
+    window.PortalMiniAppPayments.init({
+      el: id => document.getElementById(id), escapeHtml: value => String(value ?? ''),
+      state: {capabilities: new Set(['portal.payment.view', 'portal.payment.review'])}, showToast() {},
+      apiFetch: async () => ({ok: true, data: {ok: true, batches: [{
+        id: 'stale-payment', payment_number: 24, status: 'awaiting_scan', status_label: 'Awaiting signed scan',
+        approval_queue_status: 'in_review', requires_re_review: true, payment_mode_summary: 'Loan - Jawabu',
+        total_amount: '44500', counts: {total: 1, approved: 0, returned: 0, pending: 1, changed: 1},
+      }]}}),
+    });
+    return window.PortalMiniAppPayments.load();
+  });
+  await expect(page.locator('[data-payment-batch-count="in_review"]')).toHaveText('1');
+  await expect(page.locator('[data-payment-batch-count="review_complete"]')).toHaveText('0');
+  await expect(page.locator('.payment-batch-card')).toContainText('1 case needs re-review');
+  await assertNoHorizontalOverflow(page, 320);
+});
+
+test('changed generated payment exposes re-review but not stale signing controls', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="payment_approvals" data-payment-batch-id="stale-payment"><section id="payments-detail" class="payment-detail"><header class="payment-detail-header"><button id="payments-detail-back">Back</button><div class="payment-detail-heading"><h2 id="payments-detail-title"></h2><p id="payments-detail-meta"></p></div><strong id="payments-detail-total"></strong></header><div id="payments-detail-feedback"></div><div id="payments-progress" class="payment-progress"></div><section id="payments-current-section" class="payment-detail-section"><header id="payments-current-heading"><h3>Needs attention</h3></header><div id="payments-current-cases" class="payment-current-cases"></div></section><details class="payment-activity"><div id="payments-activity"></div></details><div id="payments-primary-action"></div></section></div></main></body>`);
+  await loadPortalStyles(page);
+  await page.addScriptTag({ path: asset('portal_payments.js') });
+  await page.evaluate(() => {
+    window.PortalMiniAppPayments.init({
+      el: id => document.getElementById(id), escapeHtml: value => String(value ?? ''),
+      state: {capabilities: new Set(['portal.payment.view', 'portal.payment.review', 'portal.documents.sign'])},
+      showToast() {},
+      apiFetch: async () => ({ok: true, data: {ok: true, batch: {
+        id: 'stale-payment', payment_number: 24, status: 'awaiting_scan', status_label: 'Awaiting signed scan',
+        approval_queue_status: 'in_review', requires_re_review: true, revision: 4, total_amount: '44500',
+        workbook_download_url: '/old-workbook/', counts: {total: 1, approved: 0, returned: 0, pending: 1, changed: 1},
+        cases: [{farmer_id: 'case-1', customer_name: 'Caroline Gitari', amount: '44500', payment_mode_label: 'Loan - Jawabu',
+          decision: 'pending', comment: 'Prior approval.', changed_since_review: true}], activity: [], held_items: [],
+      }}}),
+    });
+    return window.PortalMiniAppPayments.load();
+  });
+  await page.locator('.payment-current-case > summary').click();
+  await expect(page.locator('.payment-current-case > summary')).toContainText('Needs re-review');
+  await expect(page.locator('.payment-case-warning')).toContainText('Head of Rural must review again');
+  await expect(page.locator('.payment-review-label')).toContainText('Update prior comment for re-review');
+  await expect(page.locator('.payment-review-comment')).toHaveValue('Prior approval.');
+  await expect(page.locator('.payment-approve')).toBeVisible();
+  await expect(page.locator('.payment-return')).toBeVisible();
+  await expect(page.locator('#payments-open-workbook')).toHaveCount(0);
+  await expect(page.locator('#payments-upload-scan')).toHaveCount(0);
+  await expect(page.locator('#payments-primary-action')).toContainText('Review the changed cases');
+});
+
 test('payment detail keeps a large batch compact and opens the sheet in place', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 640 });
   await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="payments" data-payment-batch-id="batch-1"><section id="payments-detail" class="payment-detail"><header class="payment-detail-header"><button id="payments-detail-back">Back</button><div class="payment-detail-heading"><h2 id="payments-detail-title"></h2><p id="payments-detail-meta"></p></div><strong id="payments-detail-total" class="payment-detail-total"></strong></header><div id="payments-detail-feedback"></div><div id="payments-progress" class="payment-progress"></div><section id="payments-current-section"><header id="payments-current-heading"><h3>Needs attention</h3></header><div id="payments-current-cases" class="payment-current-cases"></div></section><section id="payments-held-section"><div id="payments-held-items"></div></section><details class="payment-activity"><div id="payments-activity"></div></details><div id="payments-primary-action" class="payment-primary-action"></div></section></div></main><div class="sheet-overlay" id="payment-preview-overlay"><div id="payment-preview-title"></div><div id="payment-preview-sub"></div><div id="payment-preview-content"></div><button id="payment-preview-close">Close</button></div></body>`);
@@ -60,7 +115,7 @@ test('payment detail keeps a large batch compact and opens the sheet in place', 
     }));
     window.PortalMiniAppPayments.init({
       el: id => document.getElementById(id), escapeHtml: value => String(value ?? ''),
-      state: {capabilities: new Set(['portal.payment.view'])},
+      state: {capabilities: new Set(['portal.payment.view', 'portal.payment.prepare'])},
       requisitions: {renderPrintablePayment: preview => `<table><tbody><tr><td>${preview.rows[0].name}</td></tr></tbody></table>`},
       apiFetch: async path => path.endsWith('/preview/')
         ? {ok: true, data: {ok: true, preview: {draft: true, rows: [{name: 'Saved sheet row'}]}}}
@@ -81,6 +136,10 @@ test('payment detail keeps a large batch compact and opens the sheet in place', 
   await page.locator('#payments-current-cases summary').first().click();
   await expect(page.locator('#payments-current-cases details').first()).toHaveAttribute('open');
   await expect(page.locator('#payments-current-cases .payment-case-identifiers').first()).toContainText('ID 12340');
+  await expect(page.locator('#payments-current-cases .payment-case-toolbar').first().locator('button')).toHaveCount(3);
+  await expect(page.locator('#payments-current-cases .payment-case-toolbar').first()).toContainText('Use Cash');
+  await expect(page.locator('#payments-current-cases .payment-case-toolbar').first()).toContainText('Remove');
+  await expect(page.locator('#payments-current-cases .payment-case-mode')).toHaveCount(0);
   await page.locator('#payments-preview-sheet').click();
   await expect(page.locator('#payment-preview-overlay')).toHaveClass(/open/);
   await expect(page.locator('#payment-preview-content')).toContainText('Saved sheet row');

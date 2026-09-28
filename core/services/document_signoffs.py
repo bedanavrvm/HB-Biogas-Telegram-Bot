@@ -112,6 +112,10 @@ def source_artifact(document_type: str, document_id: str, *, lock: bool = False)
         governed_batch = document.governed_payment_batches.order_by('-updated_at').first()
         if governed_batch and (governed_batch.current_document_id != document.id or governed_batch.status not in {'awaiting_scan', 'completed'}):
             raise PhysicalSignoffError('This payment workbook was superseded. Upload the signed copy of the current version.')
+        if governed_batch and governed_batch.status == 'awaiting_scan':
+            from payments.services import payment_reviews_current
+            if not payment_reviews_current(governed_batch):
+                raise PhysicalSignoffError('Payment details changed after review. Head of Rural must review the changed cases again before a signed copy can be accepted.')
         data = bytes(document.file_content or b'')
     else:
         raise PhysicalSignoffError('Select a supported generated document type.')

@@ -38,6 +38,9 @@
   function statusClass(status) {
     return ({completed: 'badge-green', awaiting_scan: 'badge-orange', review_complete: 'badge-blue', in_review: 'badge-blue', cancelled: 'badge-grey'})[status] || 'badge-grey';
   }
+  function approvalQueueStatus(batch) {
+    return batch.approval_queue_status || (batch.requires_re_review ? 'in_review' : batch.status);
+  }
 
   function setBatchTabCount(filter, value) {
     const badge = document.querySelector(`[data-payment-batch-count="${filter}"]`);
@@ -48,7 +51,7 @@
   }
 
   function renderBatchTabCounts() {
-    const count = key => batches.filter(item => item.status === key).length;
+    const count = key => batches.filter(item => (approvalMode() ? approvalQueueStatus(item) : item.status) === key).length;
     if (approvalMode()) {
       setBatchTabCount('in_review', count('in_review'));
       setBatchTabCount('review_complete', count('review_complete'));
@@ -78,7 +81,8 @@
     const pending = Number(counts.pending || 0);
     const returned = Number(counts.returned || 0);
     const total = Number(counts.total || 0);
-    const nextAction = batch.status === 'completed' ? 'Signed payment'
+    const nextAction = batch.requires_re_review ? `${Number(counts.changed || pending)} ${Number(counts.changed || pending) === 1 ? 'case needs' : 'cases need'} re-review`
+      : batch.status === 'completed' ? 'Signed payment'
       : batch.status === 'awaiting_scan' ? 'Signed copy needed'
       : returned ? `${returned} returned for correction`
       : batch.status === 'review_complete' ? 'Ready to generate'
@@ -97,7 +101,7 @@
     if (!target) return;
     document.querySelectorAll('[data-payment-batch-filter]').forEach(button => button.classList.toggle('active', button.dataset.paymentBatchFilter === batchFilter));
     const visible = batches.filter(item => {
-      if (approvalMode()) return item.status === batchFilter;
+      if (approvalMode()) return approvalQueueStatus(item) === batchFilter;
       return batchFilter === 'all' || (batchFilter === 'open' ? !['completed', 'cancelled'].includes(item.status) : item.status === batchFilter);
     });
     target.innerHTML = visible.length
@@ -314,11 +318,7 @@
     }
   }
 
-  function caseDetails(item, {editableMode = false} = {}) {
-    const cashSelected = item.payment_mode === 'CASH';
-    const paymentMode = editableMode
-      ? `<button type="button" class="payment-candidate-cash-toggle${cashSelected ? ' is-cash' : ''}" data-payment-case-cash="${escape(item.farmer_id)}" aria-pressed="${cashSelected}" aria-label="${cashSelected ? 'Cash selected. Switch back to Loan - Jawabu' : 'Switch this case to Cash'}" title="${cashSelected ? 'Cash selected. Switch back to Loan - Jawabu' : 'Switch this case to Cash'}"><i data-lucide="${cashSelected ? 'banknote' : 'landmark'}" aria-hidden="true"></i><span class="sr-only">${cashSelected ? 'Cash' : 'Loan - Jawabu'}</span></button>`
-      : `<span class="payment-case-mode-readonly">${escape(item.payment_mode_label || 'Not recorded')}</span>`;
+  function caseDetails(item) {
     const value = (itemValue, fallback = 'Not recorded') => escape(itemValue || fallback);
     return `<div class="payment-case-identifiers"><span>${value(item.case_reference, 'Case reference unavailable')}</span><span>ID ${value(item.national_id)}</span><span>${value(item.primary_phone, 'Phone not recorded')}</span></div>
       <dl class="payment-case-details">
@@ -326,23 +326,27 @@
         <div><dt>Loan officer</dt><dd>${value(item.loan_officer, 'Unassigned')}</dd></div>
         <div><dt>Invoice / order</dt><dd>${value(item.invoice_number)} / ${value(item.order_number)}</dd></div>
         <div><dt>Repayment</dt><dd>${value(item.preferred_repayment_date, 'Missing')}</dd></div>
-        ${editableMode ? `<div class="payment-case-mode"><dt>Payment</dt><dd>${paymentMode}</dd></div>` : ''}
       </dl>`;
   }
 
   function caseRow(item, {compact = false} = {}) {
-    const canReview = approvalMode() && item.decision === 'pending' && capability('portal.payment.review') && ['in_review', 'review_complete'].includes(activeBatch.status);
+    const canReview = approvalMode() && item.decision === 'pending' && capability('portal.payment.review') && (
+      ['in_review', 'review_complete'].includes(activeBatch.status)
+      || (activeBatch.status === 'awaiting_scan' && activeBatch.requires_re_review)
+    );
     const canRemove = !approvalMode() && capability('portal.payment.prepare') && !['completed', 'cancelled'].includes(activeBatch.status);
-    const warning = item.changed_since_review ? '<span class="payment-case-warning">Payment details changed</span>' : '';
-    const badge = `<span class="badge ${item.decision === 'approved' ? 'badge-green' : item.decision === 'returned' ? 'badge-orange' : 'badge-blue'}">${escape(item.decision === 'pending' ? 'Awaiting review' : item.decision)}</span>`;
+    const warning = item.changed_since_review ? '<span class="payment-case-warning">Payment details changed — Head of Rural must review again</span>' : '';
+    const badge = `<span class="badge ${item.decision === 'approved' ? 'badge-green' : item.decision === 'returned' ? 'badge-orange' : 'badge-blue'}">${escape(item.changed_since_review ? 'Needs re-review' : item.decision === 'pending' ? 'Awaiting review' : item.decision)}</span>`;
     const customerName = escape(item.customer_name || 'Unnamed customer');
     const caseUrl = `/portal/cases/${escape(item.farmer_id)}/?from=${approvalMode() ? 'payment_approvals' : 'payments'}`;
     const history = `<button type="button" class="payment-case-open" data-case-url="${caseUrl}" aria-label="View case details for ${customerName}"><span>View case</span><i data-lucide="chevron-right" aria-hidden="true"></i></button>`;
+    const cashSelected = item.payment_mode === 'CASH';
+    const modeAction = canRemove ? `<button type="button" class="payment-candidate-cash-toggle${cashSelected ? ' is-cash' : ''}" data-payment-case-cash="${escape(item.farmer_id)}" aria-pressed="${cashSelected}" aria-label="${cashSelected ? 'Switch this case to Loan - Jawabu' : 'Switch this case to Cash'}" title="${cashSelected ? 'Switch to Loan - Jawabu' : 'Switch to Cash'}"><i data-lucide="${cashSelected ? 'landmark' : 'banknote'}" aria-hidden="true"></i><span>${cashSelected ? 'Use Jawabu' : 'Use Cash'}</span></button>` : '';
+    const removeAction = canRemove ? '<button type="button" class="payment-remove-case">Remove</button>' : '';
     return `<details class="payment-current-case payment-review-${escape(item.decision)}${item.changed_since_review ? ' changed' : ''}${compact ? ' payment-case-row' : ''}" data-payment-case="${escape(item.farmer_id)}">
       <summary class="payment-case-heading"><span class="payment-case-title"><strong>${customerName}</strong>${badge}</span><span class="payment-case-summary-facts"><b>${escape(money(item.amount))}</b><small>${escape(item.payment_mode_label || 'Payment not recorded')} <span aria-hidden="true">⌄</span></small></span></summary>
-      <div class="payment-case-expanded">${caseDetails(item, {editableMode: canRemove})}${warning}${history}
-      ${canReview ? `<label class="payment-review-label">Approval comment<textarea class="payment-review-comment" rows="2" placeholder="Record your reason or conditions">${escape(item.comment || '')}</textarea></label><div class="payment-case-actions"><button type="button" class="btn btn-secondary payment-return">Return</button><button type="button" class="btn btn-primary payment-approve">Approve</button></div>` : item.comment ? `<p class="payment-review-note">${escape(item.comment)}</p>` : ''}
-      ${canRemove ? '<button type="button" class="payment-remove-case">Remove</button>' : ''}
+      <div class="payment-case-expanded">${caseDetails(item)}${warning}<div class="payment-case-toolbar">${history}${modeAction}${removeAction}</div>
+      ${canReview ? `<label class="payment-review-label">${item.changed_since_review ? 'Update prior comment for re-review' : 'Approval comment'}<textarea class="payment-review-comment" rows="2" placeholder="Record your reason or conditions">${escape(item.comment || '')}</textarea></label><div class="payment-case-actions"><button type="button" class="btn btn-secondary payment-return">Return</button><button type="button" class="btn btn-primary payment-approve">Approve</button></div>` : item.comment ? `<p class="payment-review-note"><strong>Head of Rural comment:</strong> ${escape(item.comment)}</p>` : ''}
       </div>
     </details>`;
   }
@@ -429,10 +433,10 @@
       el('payments-detail')?.querySelector('.payment-detail-header')?.insertAdjacentElement('afterend', documents);
     }
     documents.innerHTML = '';
-    if (Number(activeBatch.counts?.total || 0) > 0 && capability('portal.payment.view')) {
+    if (Number(activeBatch.counts?.total || 0) > 0 && capability('portal.payment.view') && !(activeBatch.requires_re_review && activeBatch.status === 'awaiting_scan')) {
       documents.insertAdjacentHTML('beforeend', '<button type="button" class="btn btn-secondary payment-preview-action" id="payments-preview-sheet"><i data-lucide="eye" aria-hidden="true"></i> Preview payment</button>');
     }
-    if (activeBatch.status === 'awaiting_scan' && activeBatch.workbook_download_url) {
+    if (activeBatch.status === 'awaiting_scan' && !activeBatch.requires_re_review && activeBatch.workbook_download_url) {
       documents.insertAdjacentHTML('beforeend', '<button type="button" class="btn btn-secondary" id="payments-open-workbook"><i data-lucide="download" aria-hidden="true"></i> Download workbook</button>');
     }
     if (activeBatch.status === 'completed' && activeBatch.signed_scan_url) {
@@ -446,6 +450,8 @@
       target.innerHTML = '<button type="button" class="btn btn-primary" id="payments-submit-review">Submit for payment approval</button>';
     } else if (activeBatch.status === 'in_review') {
       target.innerHTML = approvalMode() ? '' : '<div class="payment-state-note">This batch is with the payment approver.</div>';
+    } else if (activeBatch.requires_re_review) {
+      target.innerHTML = `<div class="payment-state-note">${approvalMode() ? 'Review the changed cases above. The previous workbook cannot be signed.' : 'Payment details changed. Head of Rural must review the changed cases again.'}</div>`;
     } else if (activeBatch.status === 'review_complete' && approvalMode() && capability('portal.payment.review')) {
       target.innerHTML = '<button type="button" class="btn btn-primary" id="payments-generate">Confirm and generate workbook</button>';
     } else if (activeBatch.status === 'review_complete') {
