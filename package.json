@@ -13,6 +13,7 @@
     "test": "npm run check:js && npm run test:node && npm run test:browser"
   },
   "devDependencies": {
+    "@playwright/mcp": "0.0.78",
     "playwright": "1.62.1"
   },
   "dependencies": {

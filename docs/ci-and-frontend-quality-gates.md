@@ -99,15 +99,40 @@ Playwright filters such as `--grep` as needed.
 
 ## Playwright MCP authoring tool
 
-MCP setup is pending a reusable synthetic browser fixture. The current E2E
-suite installs Telegram/API mocks inside individual tests, so an independent
-MCP browser cannot reuse those mocks without first extracting them. Do not use
-an MCP browser against a running Portal until that shared fixture and a
-localhost-only setup are in place; otherwise authentication and integrations
-would not be guaranteed to stay synthetic.
+Install the pinned MCP server with `npm ci`, then start an isolated local Django
+server using a fresh SQLite database. In PowerShell:
 
-When enabled, MCP sessions and trace files are local development tools only.
-Never point them at staging or production, and never process real customer data;
-use only the project's synthetic or mocked fixtures. Review and clean up
-generated tests like hand-written code before committing them.
+```powershell
+New-Item -ItemType Directory -Force test-results | Out-Null
+$env:DATABASE_URL = 'sqlite:///test-results/mcp-synthetic.sqlite3'
+$env:DEBUG = 'True'
+$env:DJANGO_SECRET_KEY = 'local-only-synthetic-browser-session'
+$env:TELEGRAM_BOT_TOKEN = 'not-a-real-telegram-token'
+$env:TELEGRAM_WEBHOOK_SECRET = 'local-only-synthetic-webhook-secret'
+$env:GOOGLE_SERVICE_ACCOUNT_FILE = ''
+$env:GOOGLE_DRIVE_MEDIA_FOLDER_ID = ''
+.\.venv\Scripts\python.exe manage.py migrate
+.\.venv\Scripts\python.exe manage.py runserver 127.0.0.1:8000
+```
+
+The project MCP entry is in `.codex/config.toml`; reload the trusted project in
+Codex after changing it. It starts isolated Chromium and loads the shared
+`core/tests_browser/fixtures/local_mcp_fixtures.js` init script. The same file
+is exercised by `local_mcp_fixture.spec.js`. It gives the app a synthetic
+Telegram identity, serves synthetic Portal API reads, rejects API writes, and
+blocks external fetches and external links. Use `http://127.0.0.1:8000/portal/`
+in the MCP browser. Only the local shell HTML is served by Django; operational
+data and integrations remain mocked. Do not seed real records into this
+database.
+
+For conversational authoring, describe a flow, drive it through MCP against
+that local fixture, and ask for a Playwright test using the existing suite's
+locators and conventions. Review and clean up generated code, and run the
+relevant test before committing it. The fixture is read-only by design; test
+write behavior in the existing isolated Playwright tests.
+
+MCP sessions and trace files are local development tools only. Never point them
+at staging or production, and never process real customer data; use only the
+project's synthetic or mocked fixtures. The origin allowlist is an extra guard,
+not authorization to use a non-local target.
 

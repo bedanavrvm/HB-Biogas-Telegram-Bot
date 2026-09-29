@@ -6,6 +6,7 @@ const { test, expect } = require('playwright/test');
 
 const root = path.resolve(__dirname, '..', '..');
 const asset = (name) => path.join(root, 'core', 'static', 'miniapp', name);
+const { initData: syntheticTelegramInitData } = require(path.join(__dirname, 'fixtures', 'local_mcp_fixtures.js'));
 
 test('Role-tailored Portal Home keeps the first task visible on narrow screens', async ({ page }) => {
   const source = fs.readFileSync(path.join(root, 'core/templates/portal/portal.html'), 'utf8');
@@ -1010,12 +1011,12 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
   await page.addStyleTag({ path: asset('vendor-ag-grid-quartz-font-36.1.0.min.css') });
   await page.addStyleTag({ path: asset('vendor-ag-grid-theme-quartz-36.1.0.min.css') });
   await page.addStyleTag({ path: asset('complaint_cases.css') });
-  await page.evaluate(() => {
+  await page.evaluate((syntheticTelegramInitData) => {
     document.body.dataset.groupId = '-100-report-test';
     window.__backVisible = false; window.__backHandler = null; window.__reportRequests = []; window.__sharedFiles = [];
     window.__reportDataDelays = []; window.__reportAborted = 0;
     const webApp = {
-      initData: 'synthetic-signed-init-data',
+      initData: syntheticTelegramInitData,
       platform: 'tdesktop',
       BackButton: {
         onClick(callback) { window.__backHandler = callback; },
@@ -1079,7 +1080,7 @@ test('Complaint management report contains horizontal grid scrolling and Telegra
         window.__sharedFiles = payload.files.map(file => ({ name: file.name, type: file.type, size: file.size }));
       },
     });
-  });
+  }, syntheticTelegramInitData);
   await page.addScriptTag({ path: asset('vendor-ag-grid-community-36.1.0.min.js') });
   await page.addScriptTag({ path: asset('vendor-chartjs-4.5.1.umd.min.js') });
   await page.addScriptTag({ path: asset('complaint_cases.js') });
@@ -1180,7 +1181,7 @@ test('Complaint camera stops when Telegram deactivates the Mini App', async ({ p
     .replace(/<script[^>]*>[\s\S]*?<\/script>/g, '')
     .replace(/<link[^>]*>/g, '');
   await page.setContent(template);
-  await page.evaluate(() => {
+  await page.evaluate((syntheticTelegramInitData) => {
     document.body.dataset.groupId = '-100-camera-test';
     window.__cameraTrackStopped = 0;
     window.__telegramEvents = {};
@@ -1196,7 +1197,7 @@ test('Complaint camera stops when Telegram deactivates the Mini App', async ({ p
       },
     };
     const webApp = {
-      initData: 'synthetic-signed-init-data',
+      initData: syntheticTelegramInitData,
       BackButton: { onClick() {}, show() {}, hide() {} },
       onEvent(name, callback) { window.__telegramEvents[name] = callback; },
     };
@@ -1217,7 +1218,7 @@ test('Complaint camera stops when Telegram deactivates the Mini App', async ({ p
         return { data: {} };
       },
     };
-  });
+  }, syntheticTelegramInitData);
   await page.addScriptTag({ path: asset('complaint_cases.js') });
   await page.locator('#newCaseBtn').click();
   await page.locator('[data-camera-target="create"]').click();
@@ -1341,7 +1342,7 @@ test('Complaint voice input reviews before insertion and stays compact on small 
   await page.setViewportSize({ width: 320, height: 568 });
   await page.setContent(template);
   await page.addStyleTag({ path: asset('complaint_cases.css') });
-  await page.evaluate(() => {
+  await page.evaluate((syntheticTelegramInitData) => {
     document.body.dataset.groupId = '-100-voice-test';
     window.__voiceRequests = [];
     class SyntheticMediaRecorder {
@@ -1361,7 +1362,7 @@ test('Complaint voice input reviews before insertion and stays compact on small 
       value: { async getUserMedia() { return { getTracks: () => [{ stop() {} }] }; } },
     });
     const webApp = {
-      initData: 'synthetic-signed-init-data',
+      initData: syntheticTelegramInitData,
       BackButton: { onClick() {}, show() {}, hide() {} }, onEvent() {},
     };
     window.Telegram = { WebApp: webApp };
@@ -1393,7 +1394,7 @@ test('Complaint voice input reviews before insertion and stays compact on small 
         return { ok: true };
       },
     };
-  });
+  }, syntheticTelegramInitData);
   await page.addScriptTag({ path: asset('complaint_cases.js') });
   await page.locator('#newCaseBtn').click();
   const input = page.locator('#complaintDescription');
@@ -1481,7 +1482,7 @@ test('Complaint camera captures multiple photos and the viewer navigates deletes
     .replace(/<link[^>]*>/g, '');
   await page.setContent(template);
   await page.addStyleTag({ path: asset('complaint_cases.css') });
-  await page.evaluate(() => {
+  await page.evaluate((syntheticTelegramInitData) => {
     document.body.dataset.groupId = '-100-camera-gallery-test';
     Object.defineProperty(HTMLMediaElement.prototype, 'srcObject', {
       configurable: true,
@@ -1508,7 +1509,7 @@ test('Complaint camera captures multiple photos and the viewer navigates deletes
       value: { getCurrentPosition(success) { success({ coords: { latitude: -1.2612164, longitude: 36.8423884 } }); } },
     });
     const webApp = {
-      initData: 'synthetic-signed-init-data',
+      initData: syntheticTelegramInitData,
       BackButton: { onClick() {}, show() {}, hide() {} },
       onEvent() {},
     };
@@ -1538,7 +1539,7 @@ test('Complaint camera captures multiple photos and the viewer navigates deletes
         return { data: {} };
       },
     };
-  });
+  }, syntheticTelegramInitData);
   await page.addScriptTag({ path: asset('complaint_cases.js') });
 
   await page.locator('#newCaseBtn').click();
@@ -1654,16 +1655,16 @@ test('Complaint camera captures multiple photos and the viewer navigates deletes
 
 test('Mini App bootstrap initializes Telegram once', async ({ page }) => {
   await page.setContent('<main id="app">Ready</main>');
-  await page.evaluate(() => {
+  await page.evaluate((syntheticTelegramInitData) => {
     window.__telegramCalls = { ready: 0, expand: 0, swipes: 0 };
     window.Telegram = { WebApp: {
-      initData: 'synthetic-signed-init-data',
+      initData: syntheticTelegramInitData,
       ready() { window.__telegramCalls.ready += 1; },
       expand() { window.__telegramCalls.expand += 1; },
       disableVerticalSwipes() { window.__telegramCalls.swipes += 1; },
       disableClosingConfirmation() {},
     } };
-  });
+  }, syntheticTelegramInitData);
   await loadUtilities(page);
   await page.addScriptTag({ path: asset('telegram.js') });
   const result = await page.evaluate(() => {

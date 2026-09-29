@@ -1,0 +1,18 @@
+# Local synthetic-only browser authoring. Never point this server at staging or
+# production; the shared init script replaces Portal API reads and rejects
+# writes/external requests. The local-origin allowlist is an additional guard,
+# not permission to browse real customer data.
+[mcp_servers.playwright]
+command = "node"
+args = [
+  "node_modules/@playwright/mcp/cli.js",
+  "--browser=chromium",
+  "--headless",
+  "--isolated",
+  "--block-service-workers",
+  "--init-script",
+  "core/tests_browser/fixtures/local_mcp_fixtures.js",
+  "--allowed-origins",
+  "http://127.0.0.1:8000;http://localhost:8000",
+]
+cwd = "."
