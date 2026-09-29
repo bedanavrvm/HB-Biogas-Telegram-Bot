@@ -45,7 +45,7 @@
     taskInbox: { items: [], unread_count: 0, total: 0 },
     taskFocus: null,
     taskFocusTimer: null,
-    recognition: { view: 'personal', role: '', product: '', branch: '', page: 1, stagePage: 1, stagesOpen: false, loading: false, sequence: 0 },
+    recognition: { view: 'people', returnView: 'people', role: '', product: '', branch: '', page: 1, stagePage: 1, stagesOpen: false, loading: false, sequence: 0, controlsOpen: false, controlsMode: '', controlsReturnFocus: null },
     pendingStageUpdate: null,
     directTask: null,
     filterSheetOpen: false,
@@ -300,7 +300,16 @@
 
   function show(view) {
     if (view !== 'dashboard' && state.report.filterSheetOpen) closeTatReportFilters({ restoreFocus: false });
-    if (view !== 'recognition') state.recognition.stagesOpen = false;
+    if (view !== 'recognition') {
+      state.recognition.sequence += 1;
+      state.recognition.stagesOpen = false;
+      closeRecognitionControls({ restoreFocus: false });
+      if (state.recognition.view === 'personal') {
+        state.recognition.sequence += 1;
+        state.recognition.view = state.recognition.returnView || 'people';
+        state.recognition.lastPayload = state.recognition.lastStandingsPayload || state.recognition.lastPayload;
+      }
+    }
     state.currentView = view;
     document.querySelectorAll('.view').forEach((node) => node.classList.remove('active'));
     document.querySelectorAll('.tabs button').forEach((node) => node.classList.toggle('active', node.dataset.view === view));
@@ -318,7 +327,7 @@
     if (target) target.classList.add('active');
     if (recognition && state.recognition.lastPayload) renderTatRecognition(state.recognition.lastPayload);
     if (tg && tg.BackButton) {
-      if (view === 'detail') tg.BackButton.show();
+      if (view === 'detail' || (recognition && state.recognition.view === 'personal')) tg.BackButton.show();
       else tg.BackButton.hide();
     }
   }
@@ -846,18 +855,18 @@
   function recognitionRank(item) {
     const rank = Number(item.rank || 0);
     const podium = rank >= 1 && rank <= 3 ? ` podium-${rank}` : '';
-    return `<span class="recognition-rank${podium}" aria-label="Position ${escapeHtml(rank)}">#${escapeHtml(rank)}</span>`;
+    return `<span class="recognition-rank${podium}" aria-label="Position ${escapeHtml(rank)}">${escapeHtml(rank)}</span>`;
   }
 
   function recognitionRow(item, isBranch = false) {
     const label = item.label || item.branch || 'Unnamed result';
     const metrics = isBranch
-      ? `<span><b>${escapeHtml(item.on_time_rate || 0)}%</b> on time</span><span class="recognition-branch-counts"><span>Within <b>${escapeHtml(item.within_target || 0)}</b></span><span>Near <b>${escapeHtml(item.near_target || 0)}</b></span><span>Over <b>${escapeHtml(item.over_target || 0)}</b></span></span>`
-      : `<span><b>${escapeHtml(item.on_time_rate || 0)}%</b> on time</span><span><b>${escapeHtml(item.completed || 0)}</b> stages</span>`;
+      ? `<span class="recognition-branch-counts"><span>Within ${escapeHtml(item.within_target || 0)}</span><span>Near ${escapeHtml(item.near_target || 0)}</span><span>Over ${escapeHtml(item.over_target || 0)}</span></span>`
+      : `<span>${escapeHtml(item.completed || 0)} actions</span><span>${escapeHtml(item.on_time_rate || 0)}% on time</span>`;
     return `<article class="recognition-row${item.ranked ? '' : ' unranked'}${item.is_current_user ? ' current-user' : ''}">
       ${recognitionRank(item)}
-      <div class="recognition-row-main"><strong title="${escapeHtml(label)}">${escapeHtml(label)}</strong><div class="recognition-context">${recognitionContext(item, label)}</div><div class="recognition-row-metrics">${metrics}</div></div>
-      <span class="recognition-score" aria-label="Performance score ${escapeHtml(item.score || 0)}"><b>${escapeHtml(item.score || 0)}</b><small>Score</small></span>
+      <div class="recognition-row-main"><strong title="${escapeHtml(label)}">${escapeHtml(label)}${item.is_current_user && label !== 'You' ? ' <small>You</small>' : ''}</strong><div class="recognition-row-metrics">${metrics}</div></div>
+      <span class="recognition-score" aria-label="Performance score ${escapeHtml(item.score || 0)}"><b>${escapeHtml(item.score || 0)}</b></span>
     </article>`;
   }
 
@@ -868,23 +877,23 @@
 
   function recognitionPeriodLabel(payload) {
     const key = String(payload.period || '');
-    if (payload.period_kind === 'quarter') return key.replace('-Q', ' · Q');
+    if (payload.period_kind === 'quarter') return key.replace(/^(\d{4})-Q([1-4])$/, 'Q$2 $1');
     if (payload.period_kind === 'year') return key;
     const [year, month] = key.split('-').map(Number);
-    return year && month ? new Intl.DateTimeFormat('en-KE', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1)) : key;
+    return year && month ? new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric' }).format(new Date(year, month - 1, 1)) : key;
   }
 
-  function recognitionSummaryCard(title, result, note = '') {
+  function recognitionSummaryCard(title, result, highlights = []) {
     const data = result || {};
-    if (!Number(data.completed || 0)) return `<article class="recognition-result-card"><header><div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(note)}</small></div></header><p class="recognition-empty-score">No counted actions in this selection yet.</p></article>`;
-    return `<article class="recognition-result-card"><header><div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(note)}</small></div></header><div class="recognition-result-metrics"><span><small>On time</small><b>${escapeHtml(data.on_time_rate || 0)}%</b></span><span><small>Completed</small><b>${escapeHtml(data.completed || 0)}</b></span><span><small>Score</small><b>${escapeHtml(data.score || 0)}</b></span></div></article>`;
+    const drivers = (highlights || []).slice(0, 2).map(item => `<div class="recognition-driver"><span title="${escapeHtml(item.stage)}">${escapeHtml(item.stage)}</span><small>${escapeHtml(item.completed)} actions · ${escapeHtml(item.on_time_rate)}% on time</small></div>`).join('');
+    return `<article class="recognition-result-card"><header><strong>${escapeHtml(title)}</strong><button id="tatRecognitionScoreDetails" type="button" class="recognition-detail-link">Score details <span aria-hidden="true">›</span></button></header>${Number(data.completed || 0) ? `<div class="recognition-result-metrics"><div class="recognition-primary-score" aria-label="Score ${escapeHtml(data.score || 0)}">${escapeHtml(data.score || 0)}</div><div><b>${escapeHtml(data.completed || 0)}</b><small>actions</small></div><div><b>${escapeHtml(data.on_time_rate || 0)}%</b><small>on time</small></div></div>` : '<p class="recognition-empty-score">No counted actions this period yet.</p>'}${drivers ? `<div class="recognition-drivers">${drivers}</div>` : ''}</article>`;
   }
 
   function recognitionBreakdown(title, item) {
     const data = item || {};
     const percentages = data.percentages || {};
-    const bucket = (label, key, tone, effect) => `<div class="recognition-breakdown-${tone}"><dt>${escapeHtml(label)}</dt><dd><span class="recognition-breakdown-effect" aria-label="${escapeHtml(effect)}">${escapeHtml(effect)}</span><strong>${escapeHtml(data[key] || 0)}</strong><small>${escapeHtml(percentages[key] || 0)}%</small></dd></div>`;
-    return `<div class="recognition-breakdown-group"><h4>${escapeHtml(title)}</h4><dl class="recognition-data-checks">${bucket('Within target', 'within_target', 'positive', '+ on time')}${bucket('Near target', 'near_target', 'positive', '+ on time')}${bucket('Over target', 'over_target', 'negative', '- on time')}${bucket('No target', 'target_unavailable', 'neutral', 'Excluded')}</dl><p>${escapeHtml(data.counted || 0)} counted of ${escapeHtml(data.recorded || 0)} completed actions.</p></div>`;
+    const bucket = (label, key, tone) => `<div class="recognition-breakdown-${tone}"><dt>${escapeHtml(label)}</dt><dd><strong>${escapeHtml(data[key] || 0)}</strong><small>${escapeHtml(percentages[key] || 0)}%</small></dd></div>`;
+    return `<div class="recognition-breakdown-group"><h4>${escapeHtml(title)}</h4><dl class="recognition-data-checks">${bucket('Within target', 'within_target', 'positive')}${bucket('Near target', 'near_target', 'positive')}${bucket('Over target', 'over_target', 'negative')}${bucket('No target', 'target_unavailable', 'neutral')}</dl><p>${escapeHtml(data.counted || 0)} counted of ${escapeHtml(data.recorded || 0)} completed actions.</p></div>`;
   }
 
   function recognitionStageRow(item, showRole = false) {
@@ -901,46 +910,63 @@
     state.recognition.product = selected.product || '';
     state.recognition.branch = selected.branch || '';
     const periodLabel = recognitionPeriodLabel(payload);
-    $('tatRecognitionUpdated').textContent = payload.result_status === 'final'
-      ? `${periodLabel} · Final · Captured ${formatTatDateTime(payload.captured_at)}`
-      : `${periodLabel} · Live · Updated ${formatTatDateTime(payload.calculated_at)}`;
+    $('tatRecognitionPeriodButton').textContent = `${periodLabel} ▾`;
+    $('tatRecognitionUpdated').textContent = payload.result_status === 'final' ? 'Final' : 'Live';
+    $('tatRecognitionUpdated').title = payload.result_status === 'final'
+      ? `Captured ${formatTatDateTime(payload.captured_at)}`
+      : `Updated ${formatTatDateTime(payload.calculated_at)}`;
+    $('tatRecognitionCapture').hidden = payload.result_status !== 'final';
+    $('tatRecognitionCapture').textContent = payload.result_status === 'final'
+      ? `Final result captured ${formatTatDateTime(payload.captured_at)}` : '';
     const optionMarkup = (items, value) => (items || []).map(item => `<option value="${escapeHtml(item.key)}"${item.key === value ? ' selected' : ''}>${escapeHtml(item.label)}</option>`).join('');
     $('tatRecognitionRole').innerHTML = optionMarkup(payload.role_options, state.recognition.role);
     $('tatRecognitionProduct').innerHTML = optionMarkup(payload.product_options, state.recognition.product);
     $('tatRecognitionBranch').innerHTML = optionMarkup(payload.branch_options, state.recognition.branch);
+    const usefulFacets = [
+      ['tatRecognitionRole', payload.role_options, state.recognition.role],
+      ['tatRecognitionProduct', payload.product_options, state.recognition.product],
+      ['tatRecognitionBranch', payload.branch_options, state.recognition.branch],
+    ].map(([id, options, active]) => {
+      const useful = Boolean(active) || (options || []).filter(item => item.key).length > 1;
+      $(id).closest('label').hidden = !useful;
+      return useful;
+    });
+    $('tatRecognitionFilterButton').hidden = !usefulFacets.some(Boolean);
     const sliceLabels = [selected.role_label, selected.product_label, selected.branch].filter(Boolean);
-    $('tatRecognitionFilterSummary').textContent = sliceLabels.length ? sliceLabels.join(' · ') : 'All roles, products and branches';
-    $('tatRecognitionOverall').innerHTML = recognitionSummaryCard('Your overall score', payload.overall_result, 'All roles, products and branches');
+    $('tatRecognitionOverall').innerHTML = recognitionSummaryCard('Your score', payload.overall_result, payload.overall_stage_highlights);
+    $('tatRecognitionActiveFilters').hidden = !sliceLabels.length;
+    $('tatRecognitionActiveFilters').innerHTML = [
+      ['role', selected.role_label], ['product', selected.product_label], ['branch', selected.branch],
+    ].filter(([, label]) => label).map(([key, label]) => `<button type="button" class="recognition-filter-chip" data-recognition-clear="${key}" aria-label="Remove ${escapeHtml(key)} filter: ${escapeHtml(label)}">${escapeHtml(label)} <span aria-hidden="true">×</span></button>`).join('');
     const slice = payload.slice_result || {};
     $('tatRecognitionSlice').hidden = !sliceLabels.length;
     $('tatRecognitionSlice').innerHTML = sliceLabels.length
-      ? `<div class="recognition-slice-line"><div><strong>Selected work</strong><small>${escapeHtml(sliceLabels.join(' · '))}</small></div><span><b>${escapeHtml(slice.score || 0)}</b> score</span><span><b>${escapeHtml(slice.completed || 0)}</b> actions</span><span><b>${escapeHtml(slice.share_of_overall || 0)}%</b> of work</span></div>`
+      ? `<div class="recognition-slice-line"><strong>Selected work</strong><span><b>${escapeHtml(slice.score || 0)}</b> score</span><span><b>${escapeHtml(slice.completed || 0)}</b> actions</span><span><b>${escapeHtml(slice.share_of_overall || 0)}%</b> of work</span></div>`
       : '';
     document.querySelectorAll('[data-recognition-view]').forEach(button => {
       const active = button.dataset.recognitionView === state.recognition.view;
       button.classList.toggle('active', active);
       button.setAttribute('aria-pressed', String(active));
     });
-    const stagesOpen = Boolean(state.recognition.stagesOpen && state.recognition.view === 'personal');
-    $('tatRecognitionOverall').hidden = stagesOpen;
-    $('tatRecognitionFilterButton').hidden = stagesOpen;
-    $('tatRecognitionContextControls').hidden = stagesOpen || $('tatRecognitionContextControls').hidden;
-    if (stagesOpen) $('tatRecognitionFilterButton').setAttribute('aria-expanded', 'false');
-    $('tatRecognitionSlice').hidden = stagesOpen || !sliceLabels.length;
-    $('tatRecognitionViews').hidden = stagesOpen;
-    $('tatPersonalRecognition').hidden = stagesOpen || state.recognition.view !== 'personal';
-    $('tatRecognitionStandings').hidden = stagesOpen || state.recognition.view === 'personal';
+    const detailsOpen = state.recognition.view === 'personal';
+    const stagesOpen = Boolean(state.recognition.stagesOpen && detailsOpen);
+    $('tatRecognitionOverall').hidden = detailsOpen;
+    $('tatRecognitionToolbar').hidden = detailsOpen;
+    $('tatRecognitionActiveFilters').hidden = detailsOpen || !sliceLabels.length;
+    $('tatRecognitionSlice').hidden = detailsOpen || !sliceLabels.length;
+    $('tatRecognitionDetails').hidden = !detailsOpen || stagesOpen;
+    $('tatPersonalRecognition').hidden = stagesOpen || !detailsOpen;
+    $('tatRecognitionStandings').hidden = detailsOpen;
     $('tatRecognitionStageDetail').hidden = !stagesOpen;
     if (state.currentView === 'recognition' && tg?.BackButton) {
-      if (stagesOpen) tg.BackButton.show();
+      if (detailsOpen || state.recognition.controlsOpen) tg.BackButton.show();
       else tg.BackButton.hide();
     }
     if (state.recognition.view === 'personal') {
       const stages = (payload.stage_contributions || []).filter(item => Number(item.completed || 0) > 0);
       const hasMultipleRoles = new Set(stages.map(item => item.role).filter(Boolean)).size > 1;
-      const stageRows = hasMultipleRoles ? stages.slice(0, 3).map(item => recognitionStageRow(item, true)).join('') : '';
       const best = payload.personal_best;
-      $('tatPersonalRecognition').innerHTML = `${best ? `<p class="recognition-personal-best">Personal best: <strong>${escapeHtml(best.month)}</strong> · Score ${escapeHtml(best.score)} from ${escapeHtml(best.completed)} actions</p>` : ''}${stages.length ? `<div class="recognition-stage-insights${stageRows ? '' : ' compact'}">${stageRows ? `<h3>Stage activity by role</h3>${stageRows}` : ''}<button id="tatRecognitionAllStages" type="button" class="recognition-stage-all secondary">View ${stages.length} stage${stages.length === 1 ? '' : 's'}</button></div>` : ''}`;
+      $('tatPersonalRecognition').innerHTML = `${best ? `<p class="recognition-personal-best">Personal best: <strong>${escapeHtml(best.month)}</strong> · Score ${escapeHtml(best.score)} from ${escapeHtml(best.completed)} actions</p>` : ''}${stages.length ? `<button id="tatRecognitionAllStages" type="button" class="recognition-stage-all secondary">All stages (${stages.length})</button>` : ''}`;
       const pageSize = 10;
       const pages = Math.max(1, Math.ceil(stages.length / pageSize));
       state.recognition.stagePage = Math.min(Math.max(1, state.recognition.stagePage || 1), pages);
@@ -952,17 +978,14 @@
       $('tatRecognitionStageNext').disabled = state.recognition.stagePage >= pages;
     }
     const standings = payload.standings || {};
-    $('tatRecognitionMinimum').textContent = `${Number(standings.total || 0)} result${Number(standings.total || 0) === 1 ? '' : 's'}`;
+    $('tatRecognitionMinimum').textContent = `${Number(standings.total || 0)} ranked`;
     if (state.recognition.view !== 'personal') {
       const people = state.recognition.view === 'people';
-      $('tatRecognitionStandingsTitle').textContent = people ? 'People standings' : 'Branch standings';
-      $('tatRecognitionStandingsBasis').textContent = people
-        ? 'One result per person across the selected work. Filters narrow the actions being compared.'
-        : 'One result per branch. Only cases created and finally resolved in this period count.';
+      $('tatRecognitionStandingsTitle').textContent = people ? 'People' : 'Branches';
       $('tatRecognitionRows').innerHTML = (standings.rows || []).map(item => recognitionRow(item, !people)).join('') || `<div class="recognition-empty"><strong>${people ? 'No people have counted stages for this selection.' : 'No branches have counted stages for this selection.'}</strong></div>`;
       const pinned = standings.current_user_row;
       $('tatRecognitionPinned').hidden = !pinned;
-      $('tatRecognitionPinned').innerHTML = pinned ? `<span>Your position</span>${recognitionRow(pinned)}` : '';
+      $('tatRecognitionPinned').innerHTML = pinned ? recognitionRow(pinned) : '';
       const pages = Math.max(1, Number(standings.pages || 1));
       const page = Math.max(1, Number(standings.page || 1));
       state.recognition.page = page;
@@ -976,11 +999,11 @@
       Number(breakdown.slice?.recorded || 0) !== Number(breakdown.overall?.recorded || 0)
       || Number(breakdown.slice?.counted || 0) !== Number(breakdown.overall?.counted || 0)
     );
-    $('tatRecognitionBreakdown').hidden = stagesOpen || state.recognition.view !== 'personal';
-    $('tatRecognitionBreakdown').innerHTML = `<h3>Score breakdown</h3>${recognitionBreakdown('Your overall result', breakdown.overall)}${selectedBreakdownDiffers ? recognitionBreakdown('Selected work', breakdown.slice) : ''}<p class="recognition-breakdown-note">Within and near count equally as on time; over lowers the rate. No target is excluded. Signs show direction, not fixed points. Recognition is informational, not an HR or pay decision.</p>`;
+    $('tatRecognitionBreakdown').hidden = stagesOpen || !detailsOpen;
+    $('tatRecognitionBreakdown').innerHTML = `<h3>Score breakdown</h3>${recognitionBreakdown('Overall', breakdown.overall)}${selectedBreakdownDiffers ? recognitionBreakdown('Selected work', breakdown.slice) : ''}`;
     const technical = $('tatRecognitionTechnical');
-    technical.hidden = stagesOpen || !payload.technical_details_visible;
-    $('tatRecognitionTechnicalContent').innerHTML = payload.technical_details_visible ? recognitionMethodology(payload.methodology) : '';
+    technical.hidden = stagesOpen || !detailsOpen;
+    $('tatRecognitionTechnicalContent').innerHTML = payload.technical_details_visible ? recognitionMethodology(payload.methodology) : '<p>Recognition compares authorized, counted TAT actions for the selected period. Results are informational, not an HR or pay decision.</p>';
   }
 
   function bindRecognitionStageControls() {
@@ -1012,9 +1035,74 @@
     return closeStages;
   }
 
+  function syncRecognitionPeriodControls(payload) {
+    if (!payload?.period) return;
+    const kind = payload.period_kind || 'month';
+    $('tatRecognitionPeriodKind').value = kind;
+    if (kind === 'month') {
+      $('tatRecognitionPeriod').value = payload.period;
+      $('tatRecognitionYear').value = String(payload.period).slice(0, 4);
+      const month = Number(String(payload.period).slice(5, 7));
+      if (month >= 1 && month <= 12) $('tatRecognitionQuarter').value = String(Math.ceil(month / 3));
+    }
+    if (kind === 'quarter') {
+      const match = String(payload.period).match(/^(\d{4})-Q([1-4])$/);
+      if (match) {
+        $('tatRecognitionYear').value = match[1];
+        $('tatRecognitionQuarter').value = match[2];
+      }
+    }
+    if (kind === 'year') $('tatRecognitionYear').value = payload.period;
+    $('tatRecognitionMonthControl').hidden = kind !== 'month';
+    $('tatRecognitionQuarterControl').hidden = kind !== 'quarter';
+    $('tatRecognitionYearControl').hidden = kind === 'month';
+  }
+
+  function closeRecognitionControls({ restoreFocus = true } = {}) {
+    if (!state.recognition.controlsOpen) return;
+    const focusTarget = state.recognition.controlsReturnFocus;
+    state.recognition.controlsOpen = false;
+    state.recognition.controlsMode = '';
+    $('tatRecognitionControlsOverlay').hidden = true;
+    $('tatRecognitionControlsOverlay').setAttribute('aria-hidden', 'true');
+    syncRecognitionPeriodControls(state.recognition.lastPayload);
+    $('tatRecognitionRole').value = state.recognition.role;
+    $('tatRecognitionProduct').value = state.recognition.product;
+    $('tatRecognitionBranch').value = state.recognition.branch;
+    if (restoreFocus) focusTarget?.focus();
+    if (state.currentView === 'recognition' && state.recognition.view !== 'personal') tg?.BackButton?.hide();
+  }
+
+  function openRecognitionControls(mode, trigger) {
+    const overlay = $('tatRecognitionControlsOverlay');
+    state.recognition.controlsOpen = true;
+    state.recognition.controlsMode = mode;
+    state.recognition.controlsReturnFocus = trigger;
+    $('tatRecognitionControlsTitle').textContent = mode === 'period' ? 'Choose period' : 'Filter standings';
+    $('tatRecognitionPeriodControls').hidden = mode !== 'period';
+    $('tatRecognitionContextControls').hidden = mode !== 'filters';
+    $('tatRecognitionClearFilters').hidden = mode !== 'filters';
+    $('tatRecognitionControlsApply').textContent = mode === 'period' ? 'Show standings' : 'Apply filters';
+    if (mode === 'period') syncRecognitionPeriodControls(state.recognition.lastPayload);
+    overlay.hidden = false;
+    overlay.setAttribute('aria-hidden', 'false');
+    $('tatRecognitionControlsClose').focus();
+    tg?.BackButton?.show();
+  }
+
+  function closeRecognitionDetails() {
+    state.recognition.sequence += 1;
+    state.recognition.stagesOpen = false;
+    state.recognition.view = state.recognition.returnView || 'people';
+    if (state.recognition.lastStandingsPayload) renderTatRecognition(state.recognition.lastStandingsPayload);
+    $('tatRecognitionScoreDetails')?.focus();
+    if (state.currentView === 'recognition') tg?.BackButton?.hide();
+  }
+
   async function loadTatRecognition() {
     const sequence = ++state.recognition.sequence;
-    const result = await api('/api/tat-tracker/recognition/', {
+    try {
+      const result = await api('/api/tat-tracker/recognition/', {
       period: $('tatRecognitionPeriodKind').value === 'month'
         ? $('tatRecognitionPeriod').value
         : ($('tatRecognitionPeriodKind').value === 'quarter'
@@ -1026,9 +1114,24 @@
       branch: state.recognition.branch,
       view: state.recognition.view,
       page: state.recognition.page,
-    });
-    if (sequence !== state.recognition.sequence) return;
-    renderTatRecognition(result.data || {});
+      });
+      if (sequence !== state.recognition.sequence) return false;
+      const payload = result.data || {};
+      if (payload.view !== 'personal') state.recognition.lastStandingsPayload = payload;
+      renderTatRecognition(payload);
+      return true;
+    } catch (error) {
+      if (sequence === state.recognition.sequence && state.recognition.lastPayload) {
+        const previous = state.recognition.lastPayload;
+        state.recognition.view = previous.view || 'people';
+        state.recognition.role = previous.selected?.role || '';
+        state.recognition.product = previous.selected?.product || '';
+        state.recognition.branch = previous.selected?.branch || '';
+        state.recognition.page = previous.standings?.page || 1;
+        if (!state.recognition.controlsOpen) syncRecognitionPeriodControls(previous);
+      }
+      throw error;
+    }
   }
 
   function renderPrivateAlertConnection(connection) {
@@ -3885,51 +3988,83 @@
     show('recognition');
     loadTatRecognition().catch(presentTatError);
   });
-  $('tatRecognitionPeriod').addEventListener('change', () => {
-    state.recognition.page = 1;
-    loadTatRecognition().catch(presentTatError);
-  });
+  $('tatRecognitionPeriodButton').addEventListener('click', event => openRecognitionControls('period', event.currentTarget));
   $('tatRecognitionPeriodKind').addEventListener('change', event => {
     const kind = event.target.value;
     $('tatRecognitionMonthControl').hidden = kind !== 'month';
     $('tatRecognitionQuarterControl').hidden = kind !== 'quarter';
     $('tatRecognitionYearControl').hidden = kind === 'month';
-    state.recognition.page = 1;
-    loadTatRecognition().catch(presentTatError);
   });
-  ['tatRecognitionQuarter', 'tatRecognitionYear'].forEach(id => $(id).addEventListener('change', () => {
-    state.recognition.page = 1;
-    loadTatRecognition().catch(presentTatError);
-  }));
-  $('tatRecognitionFilterButton').addEventListener('click', () => {
-    const panel = $('tatRecognitionContextControls');
-    panel.hidden = !panel.hidden;
-    $('tatRecognitionFilterButton').setAttribute('aria-expanded', String(!panel.hidden));
+  $('tatRecognitionFilterButton').addEventListener('click', event => openRecognitionControls('filters', event.currentTarget));
+  $('tatRecognitionRole').addEventListener('change', () => {
+    $('tatRecognitionProduct').value = '';
+    $('tatRecognitionBranch').value = '';
   });
-  $('tatRecognitionRole').addEventListener('change', event => {
-    state.recognition.role = event.target.value;
-    state.recognition.product = '';
-    state.recognition.branch = '';
-    state.recognition.page = 1;
-    loadTatRecognition().catch(presentTatError);
-  });
-  $('tatRecognitionProduct').addEventListener('change', event => {
-    state.recognition.product = event.target.value;
-    state.recognition.branch = '';
-    state.recognition.page = 1;
-    loadTatRecognition().catch(presentTatError);
-  });
-  $('tatRecognitionBranch').addEventListener('change', event => {
-    state.recognition.branch = event.target.value;
-    state.recognition.page = 1;
-    loadTatRecognition().catch(presentTatError);
-  });
+  $('tatRecognitionProduct').addEventListener('change', () => { $('tatRecognitionBranch').value = ''; });
   $('tatRecognitionClearFilters').addEventListener('click', () => {
-    Object.assign(state.recognition, { role: '', product: '', branch: '', page: 1 });
+    ['tatRecognitionRole', 'tatRecognitionProduct', 'tatRecognitionBranch'].forEach(id => { $(id).value = ''; });
+  });
+  $('tatRecognitionControlsApply').addEventListener('click', async () => {
+    if (state.recognition.loading) return;
+    const isFilters = state.recognition.controlsMode === 'filters';
+    const previous = { role: state.recognition.role, product: state.recognition.product, branch: state.recognition.branch, page: state.recognition.page };
+    if (isFilters) {
+      state.recognition.role = $('tatRecognitionRole').value;
+      state.recognition.product = $('tatRecognitionProduct').value;
+      state.recognition.branch = $('tatRecognitionBranch').value;
+    }
+    state.recognition.page = 1;
+    state.recognition.loading = true;
+    $('tatRecognitionControlsApply').disabled = true;
+    try {
+      if (await loadTatRecognition()) closeRecognitionControls();
+    } catch (error) {
+      Object.assign(state.recognition, previous);
+      presentTatError(error);
+    } finally {
+      state.recognition.loading = false;
+      $('tatRecognitionControlsApply').disabled = false;
+    }
+  });
+  $('tatRecognitionControlsClose').addEventListener('click', () => closeRecognitionControls());
+  $('tatRecognitionControlsOverlay').addEventListener('click', event => {
+    if (event.target === event.currentTarget) closeRecognitionControls();
+  });
+  $('tatRecognitionControlsOverlay').addEventListener('keydown', event => {
+    if (event.key !== 'Tab') return;
+    const controls = [...$('tatRecognitionControlsSheet').querySelectorAll('button, input, select')]
+      .filter(node => !node.disabled && node.getClientRects().length);
+    if (!controls.length) return;
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+  $('tatRecognitionActiveFilters').addEventListener('click', event => {
+    const chip = event.target.closest('[data-recognition-clear]');
+    if (!chip) return;
+    state.recognition[chip.dataset.recognitionClear] = '';
+    state.recognition.page = 1;
     loadTatRecognition().catch(presentTatError);
   });
+  $('tatRecognitionOverall').addEventListener('click', event => {
+    if (!event.target.closest('#tatRecognitionScoreDetails')) return;
+    state.recognition.returnView = state.recognition.view;
+    state.recognition.view = 'personal';
+    loadTatRecognition().catch(error => {
+      state.recognition.view = state.recognition.returnView;
+      presentTatError(error);
+    });
+  });
+  $('tatRecognitionDetailsBack').addEventListener('click', closeRecognitionDetails);
   document.querySelectorAll('[data-recognition-view]').forEach(button => button.addEventListener('click', () => {
     state.recognition.view = button.dataset.recognitionView;
+    state.recognition.returnView = state.recognition.view;
     state.recognition.stagesOpen = false;
     state.recognition.page = 1;
     loadTatRecognition().catch(presentTatError);
@@ -4265,14 +4400,18 @@
     if (state.assessmentPreview.open) closeAssessmentPreview();
     else if (state.report.filterSheetOpen) closeTatReportFilters();
     else if (state.filterSheetOpen) closeQueueFilters();
+    else if (state.recognition.controlsOpen) closeRecognitionControls();
     else if (state.recognition.stagesOpen) closeRecognitionStages();
+    else if (state.currentView === 'recognition' && state.recognition.view === 'personal') closeRecognitionDetails();
   });
   if (tg && tg.BackButton && typeof tg.BackButton.onClick === 'function') {
     tg.BackButton.onClick(() => {
       if (state.assessmentPreview.open) return closeAssessmentPreview();
       if (state.report.filterSheetOpen) return closeTatReportFilters();
       if (state.filterSheetOpen) return closeQueueFilters();
+      if (state.recognition.controlsOpen) return closeRecognitionControls();
       if (state.recognition.stagesOpen) return closeRecognitionStages();
+      if (state.currentView === 'recognition' && state.recognition.view === 'personal') return closeRecognitionDetails();
       if (state.currentView === 'detail') {
         returnToQueue();
       }

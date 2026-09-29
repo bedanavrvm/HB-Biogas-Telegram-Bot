@@ -11,17 +11,16 @@ const recognitionEnd = trackerSource.indexOf('  async function loadTatRecognitio
 const recognitionRenderer = trackerSource.slice(recognitionStart, recognitionEnd);
 
 const recognitionMarkup = `<main class="tat-app"><section id="recognitionView" class="view recognition-view active">
-  <header class="recognition-header"><div><p class="eyebrow">Recognition</p><h2>Period standings</h2></div><div class="recognition-period-controls"><label class="recognition-period"><span>View by</span><select id="tatRecognitionPeriodKind"><option value="month">Month</option><option value="quarter">Quarter</option><option value="year">Year</option></select></label><label class="recognition-period"><span>Month</span><input id="tatRecognitionPeriod" type="month" value="2026-09"></label></div><p id="tatRecognitionUpdated" class="recognition-updated"></p></header>
+  <header class="recognition-header"><div><h2>Standings</h2></div><div class="recognition-header-actions"><button id="tatRecognitionPeriodButton" type="button">Period</button><span id="tatRecognitionUpdated"></span></div></header>
   <section id="tatRecognitionOverall" class="recognition-overall"></section>
-  <button id="tatRecognitionFilterButton" class="tat-report-filter-bar recognition-filter-button"><span class="tat-report-filter-action"><strong>Filters</strong></span><span class="tat-report-filter-summary"><strong id="tatRecognitionFilterSummary"></strong><small>Compare a specific part of your work</small></span></button>
-  <div id="tatRecognitionContextControls" class="recognition-context-controls" hidden><label><span>Role</span><select id="tatRecognitionRole"></select></label><label><span>Product</span><select id="tatRecognitionProduct"></select></label><label><span>Branch</span><select id="tatRecognitionBranch"></select></label></div>
-  <section id="tatRecognitionSlice" class="recognition-slice" hidden></section>
-  <div id="tatRecognitionViews" class="recognition-view-toggle" role="group"><button type="button" data-recognition-view="personal">My result</button><button type="button" data-recognition-view="people">People</button><button type="button" data-recognition-view="branches">Branches</button></div>
-  <section id="tatRecognitionBreakdown" class="recognition-breakdown"></section>
-  <section id="tatPersonalRecognition" class="recognition-personal"></section>
+  <div id="tatRecognitionToolbar" class="recognition-toolbar"><div id="tatRecognitionViews" class="recognition-view-toggle"><button type="button" data-recognition-view="people">People</button><button type="button" data-recognition-view="branches">Branches</button></div><button id="tatRecognitionFilterButton" type="button">Filter</button></div>
+  <div id="tatRecognitionActiveFilters" class="recognition-active-filters" hidden></div><section id="tatRecognitionSlice" class="recognition-slice" hidden></section>
+  <section id="tatRecognitionDetails" class="recognition-details" hidden><header><button id="tatRecognitionDetailsBack" type="button">Back to standings</button><h2>Score details</h2></header><p id="tatRecognitionCapture" hidden></p></section>
+  <section id="tatRecognitionBreakdown" class="recognition-breakdown"></section><section id="tatPersonalRecognition" class="recognition-personal"></section>
   <section id="tatRecognitionStageDetail" class="recognition-stage-detail" hidden><header><button id="tatRecognitionStagesBack" type="button">Back</button><h2>All stages</h2></header><div id="tatRecognitionStageRows" class="recognition-stage-list"></div><nav id="tatRecognitionStagePagination" class="recognition-pagination" hidden><button id="tatRecognitionStagePrevious">Previous</button><span id="tatRecognitionStagePage"></span><button id="tatRecognitionStageNext">Next</button></nav></section>
-  <section id="tatRecognitionStandings" class="recognition-standings" hidden><div class="stage-summary-heading"><div><h2 id="tatRecognitionStandingsTitle"></h2><p id="tatRecognitionStandingsBasis"></p></div><span id="tatRecognitionMinimum"></span></div><div id="tatRecognitionPinned" class="recognition-pinned" hidden></div><div id="tatRecognitionRows" class="recognition-list"></div><nav id="tatRecognitionPagination" class="recognition-pagination" hidden><button id="tatRecognitionPrevious">Previous</button><span id="tatRecognitionPage"></span><button id="tatRecognitionNext">Next</button></nav></section>
-  <details id="tatRecognitionTechnical" class="recognition-technical" hidden><summary>Data checks</summary><div id="tatRecognitionTechnicalContent"></div></details>
+  <section id="tatRecognitionStandings" class="recognition-standings" hidden><div class="stage-summary-heading"><h2 id="tatRecognitionStandingsTitle"></h2><span id="tatRecognitionMinimum"></span></div><div id="tatRecognitionPinned" class="recognition-pinned" hidden></div><div id="tatRecognitionRows" class="recognition-list"></div><nav id="tatRecognitionPagination" class="recognition-pagination" hidden><button id="tatRecognitionPrevious">Previous</button><span id="tatRecognitionPage"></span><button id="tatRecognitionNext">Next</button></nav></section>
+  <details id="tatRecognitionTechnical" class="recognition-technical" hidden><summary>How rankings work</summary><div id="tatRecognitionTechnicalContent"></div></details>
+  <div id="tatRecognitionControlsOverlay" class="tat-sheet-overlay" role="dialog" aria-hidden="true" hidden><section id="tatRecognitionControlsSheet" class="tat-sheet recognition-controls-sheet"><h2 id="tatRecognitionControlsTitle"></h2><button id="tatRecognitionControlsClose" type="button">Close</button><div id="tatRecognitionPeriodControls" class="recognition-period-controls"><label>View by<select id="tatRecognitionPeriodKind"><option value="month">Month</option><option value="quarter">Quarter</option><option value="year">Year</option></select></label><label id="tatRecognitionMonthControl">Month<input id="tatRecognitionPeriod" type="month" value="2026-09"></label><label id="tatRecognitionQuarterControl" hidden>Quarter<select id="tatRecognitionQuarter"><option value="1">Q1</option><option value="2">Q2</option></select></label><label id="tatRecognitionYearControl" hidden>Year<input id="tatRecognitionYear" type="number" value="2026"></label></div><div id="tatRecognitionContextControls" class="recognition-context-controls" hidden><label>Role<select id="tatRecognitionRole"></select></label><label>Product<select id="tatRecognitionProduct"></select></label><label>Branch<select id="tatRecognitionBranch"></select></label></div><button id="tatRecognitionClearFilters" type="button">Clear</button><button id="tatRecognitionControlsApply" type="button">Apply</button></section></div>
 </section></main>`;
 
 const selected = { role: 'BRO', role_label: 'BRO', product: 'standard', product_label: 'Standard HomeBiogas' };
@@ -34,7 +33,7 @@ const basePayload = {
   contract_version: 3,
   minimum_ranked_sample: 1, minimum_personal_best_sample: 20,
   calculated_at: '2026-09-17T10:45:00+03:00',
-  view: 'personal', selected,
+  view: 'people', selected,
   period: '2026-09', period_kind: 'month', result_status: 'live_provisional',
   overall_result: {completed: 16, on_time_rate: 87.5, score: 64.1, ranked: false},
   slice_result: {completed: 16, on_time_rate: 87.5, score: 64.1, ranked: false, share_of_overall: 100},
@@ -45,7 +44,7 @@ const basePayload = {
   branch_options: [{ key: '', label: 'All branches' }, {key: 'Embu', label: 'Embu'}],
   personal_result: personalResult,
   role_summary: { role: 'BRO', product: 'Standard HomeBiogas', completed: 48, completed_total: 48, on_time_rate: 89.6, score: 78.0 },
-  standings: { dimension: 'personal', rows: [], current_user_row: null, page: 1, pages: 1, total: 0, page_size: 5, has_competition: false, eligible_count: 0 },
+  standings: { dimension: 'people', rows: [], current_user_row: null, page: 1, pages: 1, total: 0, page_size: 10, has_competition: false, eligible_count: 0 },
   people_visible: false, technical_details_visible: false, methodology: null,
 };
 
@@ -62,11 +61,16 @@ async function mount(page, payload = basePayload) {
   await page.addStyleTag({ path: asset('tat_tracker.css') });
   await page.addScriptTag({ content: `
     const $ = id => document.getElementById(id);
-    const state = { recognition: { view: 'personal', role: '', product: '', branch: '', page: 1, stagePage: 1, stagesOpen: false, sequence: 0 } };
+    const state = { currentView: 'recognition', recognition: { view: 'people', returnView: 'people', role: '', product: '', branch: '', page: 1, stagePage: 1, stagesOpen: false, sequence: 0, controlsOpen: false } };
+    const tg = null;
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[character]));
     const formatTatDateTime = () => '17-09-2026 10:45';
     ${recognitionRenderer}
     window.renderTatRecognitionForTest = renderTatRecognition;
+    window.openRecognitionControlsForTest = openRecognitionControls;
+    window.closeRecognitionControlsForTest = closeRecognitionControls;
+    window.closeRecognitionDetailsForTest = closeRecognitionDetails;
+    window.recognitionStateForTest = state.recognition;
     bindRecognitionStageControls();
   ` });
   await page.evaluate(value => window.renderTatRecognitionForTest(value), payload);
@@ -78,20 +82,28 @@ for (const viewport of [
   { width: 390, height: 844 },
   { width: 430, height: 932 },
 ]) {
-  test(`personal recognition is compact and readable at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+  test(`standings open compact and readable at ${viewport.width}x${viewport.height}`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await mount(page);
 
-    await expect(page.locator('#tatRecognitionOverall')).toContainText('Your overall score');
-    await expect(page.locator('#tatRecognitionUpdated')).toContainText('September 2026 · Live · Updated 17-09-2026 10:45');
-    await expect(page.locator('#tatRecognitionBreakdown')).toContainText('Within target');
+    await expect(page.locator('#tatRecognitionOverall')).toContainText('Your score');
+    await expect(page.locator('#tatRecognitionPeriodButton')).toHaveText('Sep 2026 ▾');
+    await expect(page.locator('#tatRecognitionUpdated')).toHaveText('Live');
+    await expect(page.locator('#tatRecognitionBreakdown')).toBeHidden();
     await expect(page.locator('#tatRecognitionSlice')).toContainText('Selected work');
     await expect(page.locator('#tatRecognitionTechnical')).toBeHidden();
-    await expect(page.locator('#tatRecognitionStandings')).toBeHidden();
+    await expect(page.locator('#tatRecognitionStandings')).toBeVisible();
+    await expect(page.locator('[data-recognition-view="people"]')).toHaveAttribute('aria-pressed', 'true');
     expect(await page.locator('body').innerText()).not.toMatch(/Wilson|quality floor|legacy actor|corrected records|workflow group/i);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
+    if (viewport.width === 390 && process.env.TAT_RECOGNITION_SCREENSHOT) {
+      await page.screenshot({ path: testInfo.outputPath('recognition-standings.png'), fullPage: true });
+    }
     const resultBox = await page.locator('.recognition-result-card').first().boundingBox();
     expect(resultBox.y + resultBox.height).toBeLessThanOrEqual(viewport.height + 20);
+    await page.evaluate(() => { document.documentElement.dataset.miniappColorScheme = 'dark'; });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
+    await expect.poll(() => page.locator('.recognition-result-card header strong').evaluate(node => getComputedStyle(node).color)).toBe('rgb(241, 245, 249)');
   });
 }
 
@@ -107,14 +119,14 @@ test('people standings render ten rows plus a pinned current result', async ({ p
   });
 
   await expect(page.locator('#tatRecognitionStandings')).toBeVisible();
-  await expect(page.locator('#tatRecognitionStandingsTitle')).toHaveText('People standings');
+  await expect(page.locator('#tatRecognitionStandingsTitle')).toHaveText('People');
   await expect(page.locator('#tatRecognitionSlice')).toContainText('100%');
-  await expect(page.locator('#tatRecognitionPinned')).toContainText('Your position');
+  await expect(page.locator('#tatRecognitionPinned')).toContainText('You');
   await expect(page.locator('#tatRecognitionPage')).toHaveText('Page 2 of 4');
   await expect(page.locator('#tatRecognitionRows .recognition-row')).toHaveCount(10);
   await expect(page.locator('.recognition-row')).toHaveCount(11);
   await expect(page.locator('#tatRecognitionBreakdown')).toBeHidden();
-  await expect(page.locator('.recognition-row').first()).toContainText('#11');
+  await expect(page.locator('.recognition-row').first()).toContainText('11');
   await expect(page.locator('.recognition-row').first()).toContainText('87.5% on time');
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
   const pinnedRow = await page.locator('#tatRecognitionPinned .recognition-row').boundingBox();
@@ -145,6 +157,16 @@ test('management can inspect one collapsed methodology section and named rows', 
 
   await expect(page.locator('#tatRecognitionRows')).toContainText('Mary Wanjiku');
   const details = page.locator('#tatRecognitionTechnical');
+  await expect(details).toBeHidden();
+  await page.evaluate(value => window.renderTatRecognitionForTest(value), {
+    ...basePayload, view: 'personal', people_visible: true, technical_details_visible: true,
+    methodology: {
+      score_method: 'The performance score is the 95% Wilson lower bound.',
+      cohort_basis: 'Same group, role and product.', correction_policy: 'Audited corrections update live results.',
+      late_work_policy: 'Late work does not count as on time.', completed_total: 30, counted_total: 28,
+      excluded_target_unavailable: 2, corrected: 1, attribution_fallback: 0, overdue_recovered: 3,
+    },
+  });
   await expect(details).toBeVisible();
   await expect(details).not.toHaveAttribute('open', '');
   await details.locator('summary').focus();
@@ -167,22 +189,22 @@ test('recognition empty states use plain language', async ({ page }) => {
     role_summary: { completed: 0, completed_total: 0, on_time_rate: 0, score: 0 },
   });
   await expect(page.locator('#tatRecognitionOverall')).toContainText('No counted actions');
-  await expect(page.locator('#tatRecognitionBreakdown')).toContainText('0 counted of 0 completed actions');
+  await expect(page.locator('#tatRecognitionBreakdown')).toBeHidden();
 });
 
 test('score effects are labelled and single-role stage details stay secondary', async ({ page }) => {
   await mount(page, {
-    ...basePayload,
+    ...basePayload, view: 'personal',
     stage_contributions: [
       { role: 'BRO', stage: 'BRO action', completed: 8, on_time_rate: 75, score: 55 },
       { role: 'BRO', stage: 'BRO follow-up', completed: 5, on_time_rate: 80, score: 60 },
     ],
   });
   await expect(page.locator('#tatRecognitionBreakdown .recognition-breakdown-positive')).toHaveCount(2);
-  await expect(page.locator('#tatRecognitionBreakdown .recognition-breakdown-negative')).toContainText('- on time');
-  await expect(page.locator('#tatRecognitionBreakdown .recognition-breakdown-neutral')).toContainText('Excluded');
+  await expect(page.locator('#tatRecognitionBreakdown .recognition-breakdown-negative')).toContainText('Over target');
+  await expect(page.locator('#tatRecognitionBreakdown .recognition-breakdown-neutral')).toContainText('No target');
   await expect(page.locator('#tatPersonalRecognition .recognition-stage-row')).toHaveCount(0);
-  await expect(page.locator('#tatRecognitionAllStages')).toHaveText('View 2 stages');
+  await expect(page.locator('#tatRecognitionAllStages')).toHaveText('All stages (2)');
 });
 
 test('branch standings show disjoint within, near and over counts', async ({ page }) => {
@@ -198,7 +220,7 @@ test('branch standings show disjoint within, near and over counts', async ({ pag
     },
   });
   const row = page.locator('#tatRecognitionRows .recognition-row');
-  await expect(row).toContainText('#1');
+  await expect(row).toContainText('1');
   await expect(row).toContainText('Within 14');
   await expect(row).toContainText('Near 3');
   await expect(row).toContainText('Over 2');
@@ -213,9 +235,9 @@ for (const width of [320, 360, 390, 430]) {
       stage: `Business administration disbursement verification and final register stage ${index + 1}`,
       completed: index === 15 ? 0 : 16 - index, on_time_rate: 75, score: 62.4,
     }));
-    await mount(page, { ...basePayload, stage_contributions });
-    await expect(page.locator('#tatPersonalRecognition .recognition-stage-row')).toHaveCount(3);
-    await expect(page.locator('#tatRecognitionAllStages')).toHaveText('View 15 stages');
+    await mount(page, { ...basePayload, view: 'personal', stage_contributions });
+    await expect(page.locator('#tatPersonalRecognition .recognition-stage-row')).toHaveCount(0);
+    await expect(page.locator('#tatRecognitionAllStages')).toHaveText('All stages (15)');
     await expect(page.locator('#tatRecognitionBreakdown .recognition-data-checks > div')).toHaveCount(4);
     if (width === 390 && process.env.TAT_RECOGNITION_SCREENSHOT) {
       await page.screenshot({ path: testInfo.outputPath('recognition-summary.png'), fullPage: true });
@@ -243,9 +265,41 @@ for (const width of [320, 360, 390, 430]) {
 
 test('quarter and year labels identify the selected period', async ({ page }) => {
   await mount(page, { ...basePayload, period_kind: 'quarter', period: '2026-Q2' });
-  await expect(page.locator('#tatRecognitionUpdated')).toContainText('2026 · Q2');
+  await expect(page.locator('#tatRecognitionPeriodButton')).toContainText('Q2 2026');
   await page.evaluate(value => window.renderTatRecognitionForTest(value), {
     ...basePayload, period_kind: 'year', period: '2025',
   });
-  await expect(page.locator('#tatRecognitionUpdated')).toContainText('2025 · Live');
+  await expect(page.locator('#tatRecognitionPeriodButton')).toContainText('2025');
+});
+
+test('period and filters stay behind focused controls and cancellation restores the current selection', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await mount(page);
+  await page.evaluate(() => window.openRecognitionControlsForTest('period', document.getElementById('tatRecognitionPeriodButton')));
+  await expect(page.locator('#tatRecognitionControlsOverlay')).toBeVisible();
+  await expect(page.locator('#tatRecognitionContextControls')).toBeHidden();
+  await page.locator('#tatRecognitionPeriod').fill('2026-08');
+  await page.evaluate(() => window.closeRecognitionControlsForTest());
+  await expect(page.locator('#tatRecognitionControlsOverlay')).toBeHidden();
+  await expect(page.locator('#tatRecognitionPeriod')).toHaveValue('2026-09');
+  await expect(page.locator('#tatRecognitionPeriodButton')).toBeFocused();
+  await page.evaluate(() => window.openRecognitionControlsForTest('filters', document.getElementById('tatRecognitionFilterButton')));
+  await expect(page.locator('#tatRecognitionContextControls')).toBeVisible();
+  await expect(page.locator('#tatRecognitionPeriodControls')).toBeHidden();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+});
+
+test('score details return to the existing standings without re-ranking', async ({ page }) => {
+  await mount(page);
+  await page.evaluate(value => {
+    window.recognitionStateForTest.lastStandingsPayload = window.recognitionStateForTest.lastPayload;
+    window.recognitionStateForTest.returnView = 'people';
+    window.renderTatRecognitionForTest({ ...value, view: 'personal' });
+  }, basePayload);
+  await expect(page.locator('#tatRecognitionDetails')).toBeVisible();
+  await expect(page.locator('#tatRecognitionStandings')).toBeHidden();
+  await page.evaluate(() => window.closeRecognitionDetailsForTest());
+  await expect(page.locator('#tatRecognitionStandings')).toBeVisible();
+  await expect(page.locator('#tatRecognitionDetails')).toBeHidden();
+  await expect(page.locator('#tatRecognitionOverall')).toContainText('64.1');
 });

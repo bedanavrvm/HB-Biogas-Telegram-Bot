@@ -182,6 +182,7 @@ class TatRecognitionPresentationTests(TestCase):
             'product': '', 'product_label': '', 'branch': '',
         })
         self.assertEqual(payload['overall_result']['completed'], 20)
+        self.assertEqual(payload['overall_stage_highlights'], [])
         self.assertEqual(payload['slice_result']['share_of_overall'], 100.0)
         self.assertEqual((row['role'], row['branch'], row['product']), ('BRO', 'Embu', 'Standard'))
         self.assertTrue(row['ranked'])
@@ -218,6 +219,9 @@ class TatRecognitionPresentationTests(TestCase):
         self.assertEqual(payload['selected']['role'], 'CA')
         self.assertEqual(payload['selected']['product'], 'hocc')
         self.assertEqual(payload['overall_result'], unfiltered['overall_result'])
+        self.assertEqual(payload['overall_stage_highlights'], unfiltered['overall_stage_highlights'])
+        self.assertEqual(len(payload['overall_stage_highlights']), 2)
+        self.assertEqual({item['completed'] for item in payload['overall_stage_highlights']}, {19, 20})
         self.assertEqual(payload['slice_result']['completed'], 19)
         self.assertEqual(payload['overall_result']['completed'], 39)
         self.assertTrue(payload['personal_result']['ranked'])

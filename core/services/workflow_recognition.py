@@ -375,6 +375,8 @@ def tat_recognition_payload(
     branches = defaultdict(_empty_tat_counts)
     contexts = defaultdict(_empty_tat_counts)
     personal_total = _empty_tat_counts()
+    overall_stages = defaultdict(_empty_tat_counts)
+    overall_roles = set()
     personal_months = defaultdict(_empty_tat_counts)
     personal_slice = _empty_tat_counts()
 
@@ -421,6 +423,9 @@ def tat_recognition_payload(
         )
         if person_identity == str(user.pk):
             _accumulate_tat_sample(personal_total, sample, attribution_fallback=not bool(assigned))
+            overall_roles.add(sample_role)
+            stage_key = (sample_role, str(sample.get('stage_key') or ''), str(sample.get('stage') or 'Stage'))
+            _accumulate_tat_sample(overall_stages[stage_key], sample, attribution_fallback=not bool(assigned))
 
     def merge_counts(target, source):
         for name, value in source.items():
@@ -717,6 +722,18 @@ def tat_recognition_payload(
             })
         stage_contributions.sort(key=lambda item: (-item['completed'], item['stage'].casefold()))
 
+    overall_stage_highlights = []
+    if len(overall_roles) > 1:
+        for (item_role, _stage_key, stage_label), counts in overall_stages.items():
+            if counts['completed']:
+                overall_stage_highlights.append({
+                    'role': role_display_name(item_role), 'stage': stage_label,
+                    'completed': int(counts['completed']),
+                    'on_time_rate': round(counts['on_time'] * 100 / counts['completed'], 1),
+                })
+        overall_stage_highlights.sort(key=lambda item: (-item['completed'], item['stage'].casefold()))
+        overall_stage_highlights = overall_stage_highlights[:2]
+
     personal_best = None
     if personal_months:
         qualified = [(key, counts) for key, counts in personal_months.items() if counts['completed'] >= minimum_sample]
@@ -768,6 +785,7 @@ def tat_recognition_payload(
             'branch': selected_branch,
         },
         'overall_result': result_summary(personal_total),
+        'overall_stage_highlights': overall_stage_highlights,
         'slice_result': {
             **result_summary(personal_slice),
             'share_of_overall': round(personal_slice['completed'] * 100 / personal_total['completed'], 1)
