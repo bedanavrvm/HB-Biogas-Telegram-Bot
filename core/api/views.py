@@ -606,15 +606,21 @@ def tat_tracker_recognition(request):
     capability_error = _tat_capability_error(user, 'tat.recognition.view', group_config)
     if capability_error:
         return capability_error
+    period_kind = str(payload.get('period_kind') or 'month').lower()
+    if period_kind not in {'month', 'quarter', 'year'}:
+        from core.services.miniapp_messages import miniapp_error_response
+        return miniapp_error_response(request, 'invalid_request', workflow='tat_tracker', status=400)
     from core.services.workflow_recognition import tat_recognition_payload
     capabilities = set(user.get('capabilities') or [])
     return JsonResponse({'ok': True, 'data': tat_recognition_payload(
         user.get('_canonical_user'),
         period=str(payload.get('period') or ''),
+        period_kind=period_kind,
         include_people='tat.recognition.people.view' in capabilities,
         group_id=group_id,
         role=str(payload.get('role') or ''),
         product=str(payload.get('product') or ''),
+        branch=str(payload.get('branch') or ''),
         view=str(payload.get('view') or 'personal'),
         page=payload.get('page') or 1,
     )})

@@ -80,6 +80,12 @@ erDiagram
   core_workflowtimelineannotation {
     string id
   }
+  payment_receipt_batch {
+    string id
+  }
+  payment_receipt_item {
+    string id
+  }
   core_userharddeletionbatch ||--o{ core_deleteduseridentity : contains
   core_documentphysicalsignoff ||--o{ core_documentphysicalsignoffevent : contains
   core_miniappdiagnosticsession ||--o{ core_miniappdiagnosticevent : contains
@@ -88,3 +94,5 @@ erDiagram
   core_portalvoicetranscriptionattempt ||--o{ core_portalvoicetranscriptionattempt : contains
   core_groupsheetconfiguration ||--o{ core_workflowconfigurationchangerequest : contains
   core_groupsheetconfiguration ||--o{ core_workflowpilotformulareadiness : contains
+  core_groupsheetconfiguration ||--o{ payment_receipt_batch : contains
+  payment_receipt_batch ||--o{ payment_receipt_item : contains

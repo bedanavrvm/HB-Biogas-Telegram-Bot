@@ -1,24 +1,48 @@
-from datetime import datetime
+from datetime import date, datetime
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+from unittest import skipUnless
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db import close_old_connections, connection
 from django.db.models import Q
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, TransactionTestCase
 from django.utils import timezone
 
-from core.models import JawabuFarmerMaster, JawabuPipelineEvent
+from core.models import AccessGrant, JawabuFarmerMaster, JawabuPipelineEvent, TatTrackerCase
 from core.services.workflow_recognition import (
     MINIMUM_RANKED_SAMPLE,
     ON_TIME_SLA_STATES,
     _accumulate_tat_sample,
     _empty_tat_counts,
     _score_rows,
+    _recognition_period,
     portal_performance_payload,
     tat_recognition_payload,
 )
 
 
 class WorkflowRecognitionScoreTests(SimpleTestCase):
+    def test_calendar_quarter_boundaries_are_unambiguous(self):
+        self.assertEqual(_recognition_period('quarter', '2026-Q1')[:3], (
+            date(2026, 1, 1), date(2026, 3, 31), '2026-Q1',
+        ))
+        self.assertEqual(_recognition_period('quarter', '2026-Q2')[:3], (
+            date(2026, 4, 1), date(2026, 6, 30), '2026-Q2',
+        ))
+        self.assertEqual(_recognition_period('year', '2026')[:3], (
+            date(2026, 1, 1), date(2026, 12, 31), '2026',
+        ))
+        with timezone.override('Africa/Nairobi'):
+            q1_start, q1_end, *_ = _recognition_period('quarter', '2026-Q1')
+            q2_start, q2_end, *_ = _recognition_period('quarter', '2026-Q2')
+            last_q1 = timezone.localdate(datetime.fromisoformat('2026-03-31T20:59:00+00:00'))
+            first_q2 = timezone.localdate(datetime.fromisoformat('2026-03-31T21:00:00+00:00'))
+        self.assertTrue(q1_start <= last_q1 <= q1_end)
+        self.assertFalse(q1_start <= first_q2 <= q1_end)
+        self.assertTrue(q2_start <= first_q2 <= q2_end)
+
     def test_near_target_completion_is_still_on_time(self):
         self.assertIn('within_target', ON_TIME_SLA_STATES)
         self.assertIn('near_target', ON_TIME_SLA_STATES)
@@ -152,11 +176,13 @@ class TatRecognitionPresentationTests(TestCase):
         )
 
         row = payload['personal_result']
-        self.assertEqual(payload['contract_version'], 2)
+        self.assertEqual(payload['contract_version'], 3)
         self.assertEqual(payload['selected'], {
-            'role': 'BRO', 'role_label': 'BRO',
-            'product': 'standard', 'product_label': 'Standard',
+            'role': '', 'role_label': '',
+            'product': '', 'product_label': '', 'branch': '',
         })
+        self.assertEqual(payload['overall_result']['completed'], 20)
+        self.assertEqual(payload['slice_result']['share_of_overall'], 100.0)
         self.assertEqual((row['role'], row['branch'], row['product']), ('BRO', 'Embu', 'Standard'))
         self.assertTrue(row['ranked'])
         self.assertIsNone(row['rank'])
@@ -167,7 +193,7 @@ class TatRecognitionPresentationTests(TestCase):
         self.assertIsNone(payload['methodology'])
         self.assertEqual(payload['standings']['rows'], [])
         self.assertEqual(payload['role_options'], [
-            {'key': 'BRO', 'label': 'BRO'},
+            {'key': '', 'label': 'All roles'}, {'key': 'BRO', 'label': 'BRO'},
         ])
         self.assertNotIn('formula', payload)
 
@@ -184,10 +210,16 @@ class TatRecognitionPresentationTests(TestCase):
             self.user, period='2026-09', include_people=True,
             role='CA', product='hocc', view='personal',
         )
+        unfiltered = tat_recognition_payload(
+            self.user, period='2026-09', include_people=True, view='personal',
+        )
 
-        self.assertEqual({item['key'] for item in payload['role_options']}, {'BRO', 'CA'})
+        self.assertEqual({item['key'] for item in payload['role_options']}, {'', 'BRO', 'CA'})
         self.assertEqual(payload['selected']['role'], 'CA')
         self.assertEqual(payload['selected']['product'], 'hocc')
+        self.assertEqual(payload['overall_result'], unfiltered['overall_result'])
+        self.assertEqual(payload['slice_result']['completed'], 19)
+        self.assertEqual(payload['overall_result']['completed'], 39)
         self.assertFalse(payload['personal_result']['ranked'])
         self.assertEqual(payload['personal_result']['completed'], 19)
         self.assertNotIn('excluded_target_unavailable', payload['personal_result'])
@@ -226,6 +258,23 @@ class TatRecognitionPresentationTests(TestCase):
 
     @patch('core.services.tat_reporting._metric_scope_q', return_value=Q())
     @patch('core.services.tat_reporting._stage_samples')
+    def test_ordinary_standings_exclude_unrelated_role_product_cohorts(self, stage_samples, _scope):
+        stage_samples.return_value = [
+            self._sample(case_suffix=f'-self-{number}') for number in range(20)
+        ] + [
+            self._sample(
+                role='CA', product='HOCC', person_user_id=98765,
+                person='Other Staff', case_suffix=f'-peer-{number}',
+            ) for number in range(20)
+        ]
+
+        personal_view = tat_recognition_payload(self.user, period='2026-09', view='people')
+        management_view = tat_recognition_payload(self.user, period='2026-09', view='people', include_people=True)
+        self.assertEqual({row['role'] for row in personal_view['standings']['rows']}, {'BRO'})
+        self.assertEqual({row['role'] for row in management_view['standings']['rows']}, {'BRO', 'CA'})
+
+    @patch('core.services.tat_reporting._metric_scope_q', return_value=Q())
+    @patch('core.services.tat_reporting._stage_samples')
     def test_singleton_role_is_eligible_without_number_one_ranking(self, stage_samples, _scope):
         stage_samples.return_value = [
             self._sample(case_suffix=f'-{sample_number}') for sample_number in range(20)
@@ -257,3 +306,101 @@ class TatRecognitionPresentationTests(TestCase):
         self.assertEqual(payload['role_summary']['completed'], 20)
         self.assertEqual(payload['standings']['rows'], [])
         self.assertEqual(payload['methodology']['attribution_fallback'], 20)
+
+    @patch('core.services.workflow_recognition.timezone.localdate', side_effect=lambda value=None: timezone.localtime(value).date() if value is not None else date(2026, 9, 29))
+    @patch('core.services.tat_reporting._stage_samples')
+    def test_people_use_month_actions_but_branches_require_created_and_resolved_cohort(self, stage_samples, _today):
+        self.user.is_superuser = True
+        self.user.save(update_fields=['is_superuser'])
+        def case(reference, created, finished, branch):
+            row = TatTrackerCase.objects.create(
+                group_id='-100tat', case_id=reference, product_key='standard',
+                client_name='Synthetic case', branch=branch, status='Disbursed',
+                stage_values={'disbursement': finished.isoformat()},
+            )
+            TatTrackerCase.objects.filter(pk=row.pk).update(created_at=created)
+            return row
+
+        case('same-month', timezone.make_aware(datetime(2026, 9, 1)), timezone.make_aware(datetime(2026, 9, 20)), 'Embu')
+        case('cross-month', timezone.make_aware(datetime(2026, 8, 30)), timezone.make_aware(datetime(2026, 9, 5)), 'Nakuru')
+
+        def samples(cases, filters, **_kwargs):
+            return [self._sample(branch=item.branch, case_suffix=item.case_id) | {
+                'case_id': item.case_id, 'completed_at': '2026-09-15T12:00:00+03:00',
+            } for item in cases]
+
+        stage_samples.side_effect = samples
+        payload = tat_recognition_payload(self.user, group_id='-100tat', period='2026-09', view='branches')
+        self.assertEqual(payload['overall_result']['completed'], 2)
+        self.assertEqual([row['branch'] for row in payload['standings']['rows']], ['Embu'])
+
+    @patch('core.services.tat_reporting._stage_samples')
+    def test_first_post_window_view_freezes_final_period(self, stage_samples):
+        from tat_recognition.models import TatRecognitionPeriodSnapshot
+
+        self.user.is_superuser = True
+        self.user.save(update_fields=['is_superuser'])
+        stage_samples.return_value = [self._sample(case_suffix=f'-{index}') for index in range(20)]
+        first = tat_recognition_payload(self.user, group_id='-100tat', period='2025-01')
+        self.assertEqual(first['result_status'], 'final')
+        self.assertEqual(first['overall_result']['completed'], 20)
+        self.assertEqual(TatRecognitionPeriodSnapshot.objects.count(), 1)
+        frozen = TatRecognitionPeriodSnapshot.objects.get()
+        with self.assertRaisesMessage(ValueError, 'cannot be changed'):
+            frozen.save(update_fields=['facts'])
+
+        self.user.is_superuser = False
+        self.user.save(update_fields=['is_superuser'])
+        AccessGrant.objects.create(
+            user=self.user, workflow='tat_tracker', role='BRO', branch='Embu', product='standard',
+        )
+
+        stage_samples.return_value = []
+        second = tat_recognition_payload(self.user, group_id='-100tat', period='2025-01')
+        self.assertEqual(second['overall_result'], first['overall_result'])
+        self.assertEqual(second['captured_at'], first['captured_at'])
+        self.assertEqual(TatRecognitionPeriodSnapshot.objects.count(), 1)
+
+    @patch('core.services.tat_reporting._stage_samples', return_value=[])
+    def test_settlement_window_ends_after_thirty_full_days(self, _stage_samples):
+        from tat_recognition.models import TatRecognitionPeriodSnapshot
+
+        self.user.is_superuser = True
+        self.user.save(update_fields=['is_superuser'])
+        with patch('core.services.workflow_recognition.timezone.localdate', return_value=date(2026, 10, 30)):
+            live = tat_recognition_payload(self.user, group_id='-100tat', period='2026-09')
+        self.assertEqual(live['result_status'], 'live_provisional')
+        self.assertFalse(TatRecognitionPeriodSnapshot.objects.exists())
+        with patch('core.services.workflow_recognition.timezone.localdate', return_value=date(2026, 10, 31)):
+            final = tat_recognition_payload(self.user, group_id='-100tat', period='2026-09')
+        self.assertEqual(final['result_status'], 'final')
+        self.assertTrue(TatRecognitionPeriodSnapshot.objects.exists())
+
+
+@skipUnless(connection.vendor == 'postgresql', 'Concurrent snapshot capture requires PostgreSQL.')
+class TatRecognitionConcurrentSnapshotTests(TransactionTestCase):
+    def test_two_first_views_capture_one_final_snapshot(self):
+        from tat_recognition.models import TatRecognitionPeriodSnapshot
+
+        actor = get_user_model().objects.create_user(
+            username='recognition-concurrent-superuser', is_active=True, is_superuser=True,
+        )
+        barrier = Barrier(2)
+
+        def samples(*_args, **_kwargs):
+            barrier.wait(timeout=15)
+            return []
+
+        def load():
+            close_old_connections()
+            try:
+                return tat_recognition_payload(actor, group_id='-100tat', period='2025-01')
+            finally:
+                close_old_connections()
+
+        with patch('core.services.tat_reporting._stage_samples', side_effect=samples):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(load) for _ in range(2)]
+                results = [future.result(timeout=30) for future in futures]
+        self.assertEqual(TatRecognitionPeriodSnapshot.objects.count(), 1)
+        self.assertEqual(results[0]['captured_at'], results[1]['captured_at'])

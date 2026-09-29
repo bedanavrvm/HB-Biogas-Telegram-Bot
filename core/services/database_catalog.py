@@ -17,10 +17,10 @@ from django.db import connection
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CATALOGUE_APP_LABELS = ('core', 'requisitions', 'payments', 'credit_assessments', 'hb_operations')
+CATALOGUE_APP_LABELS = ('core', 'requisitions', 'payments', 'credit_assessments', 'hb_operations', 'tat_recognition')
 USAGE_ROOTS = (
     ROOT / 'core' / 'api', ROOT / 'core' / 'services', ROOT / 'core' / 'management',
-    ROOT / 'requisitions', ROOT / 'payments', ROOT / 'credit_assessments', ROOT / 'hb_operations',
+    ROOT / 'requisitions', ROOT / 'payments', ROOT / 'credit_assessments', ROOT / 'hb_operations', ROOT / 'tat_recognition',
 )
 
 DOMAIN_RULES = (
@@ -40,6 +40,12 @@ DOMAIN_RULES = (
 # New models must be explicitly declared here. Existing models are covered by
 # scripts/database_catalog_existing_models.json and deterministic inference.
 MODEL_OVERRIDES: dict[str, dict[str, Any]] = {
+    'tat_recognition.TatRecognitionPeriodSnapshot': {
+        'domain': 'tat_recognition',
+        'purpose': 'Frozen completed-stage facts for one TAT group and settled calendar period.',
+        'classification': 'immutable_event', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Retain permanently as the final recognition record; no customer names or external media.',
+    },
     'hb_operations.HomeBiogasAction': {
         'domain': 'homebiogas_operations',
         'purpose': 'Authoritative post-order installation and commissioning state for one Portal case.',

@@ -6,7 +6,7 @@ access, persist no ranking, and never join Portal and TAT identities.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime, timedelta
 from calendar import monthrange
 from hashlib import sha256
 from math import sqrt
@@ -16,6 +16,7 @@ from django.utils import timezone
 
 
 MINIMUM_RANKED_SAMPLE = 20
+TAT_RECOGNITION_SCORE_POLICY_VERSION = 1
 WILSON_Z = 1.959963984540054
 ON_TIME_SLA_STATES = frozenset({'within_target', 'near_target'})
 
@@ -24,11 +25,47 @@ def _month_bounds(value: str = '') -> tuple[date, date, str]:
     today = timezone.localdate()
     try:
         year, month = (int(part) for part in str(value or '').split('-', 1))
+        if not 1900 <= year <= 9998:
+            raise ValueError
         start = date(year, month, 1)
     except (TypeError, ValueError):
         start = today.replace(day=1)
     end = date(start.year, start.month, monthrange(start.year, start.month)[1])
     return start, end, start.strftime('%Y-%m')
+
+
+def _recognition_period(kind: str, value: str) -> tuple[date, date, str, str]:
+    """Resolve a calendar period using Django's Nairobi local date."""
+    today = timezone.localdate()
+    kind = str(kind or 'month').lower()
+    if kind not in {'month', 'quarter', 'year'}:
+        raise ValueError('Choose Month, Quarter, or Year.')
+    if kind == 'month':
+        start, end, key = _month_bounds(value)
+    else:
+        try:
+            year_text, marker = (str(value or '').split('-', 1) + [''])[:2]
+            year = int(year_text)
+            if not 1900 <= year <= 9998:
+                raise ValueError
+            if kind == 'quarter':
+                quarter = int(marker.removeprefix('Q'))
+                if marker != f'Q{quarter}' or quarter not in {1, 2, 3, 4}:
+                    raise ValueError
+                start = date(year, (quarter - 1) * 3 + 1, 1)
+                end_month = quarter * 3
+                end = date(year, end_month, monthrange(year, end_month)[1])
+                key = f'{year}-Q{quarter}'
+            else:
+                if marker:
+                    raise ValueError
+                start, end, key = date(year, 1, 1), date(year, 12, 31), str(year)
+        except (TypeError, ValueError):
+            if kind == 'quarter':
+                quarter = (today.month - 1) // 3 + 1
+                return _recognition_period('quarter', f'{today.year}-Q{quarter}')
+            return _recognition_period('year', str(today.year))
+    return start, end, key, kind
 
 
 def _wilson_lower_bound(successes: int, sample: int, *, z: float = WILSON_Z) -> float:
@@ -44,7 +81,7 @@ def _wilson_lower_bound(successes: int, sample: int, *, z: float = WILSON_Z) -> 
 
 def _score_rows(
     rows: list[dict], *, quality_key: str, volume_key: str, success_key: str | None = None,
-    rank_group_key: str = '',
+    rank_group_key: str = '', minimum_sample: int = MINIMUM_RANKED_SAMPLE,
 ) -> list[dict]:
     """Score each row independently so access scope cannot change its score.
 
@@ -61,7 +98,7 @@ def _score_rows(
         )
         row['score'] = round(_wilson_lower_bound(successes, sample), 1)
         row['score_basis'] = 'wilson_quality_lower_bound'
-        row['ranked'] = sample >= MINIMUM_RANKED_SAMPLE
+        row['ranked'] = sample >= minimum_sample
         row['sample_status'] = 'ranked' if row['ranked'] else 'building_sample'
     rank_groups = defaultdict(list)
     for row in rows:
@@ -91,6 +128,7 @@ def _empty_tat_counts() -> dict:
     return {
         'completed': 0, 'completed_total': 0, 'on_time': 0,
         'overdue_recovered': 0, 'excluded_target_unavailable': 0,
+        'within_target': 0, 'near_target': 0,
         'corrected': 0, 'attribution_fallback': 0, '_durations': [],
     }
 
@@ -105,6 +143,8 @@ def _accumulate_tat_sample(target: dict, sample: dict, *, attribution_fallback: 
         return
     target['completed'] += 1
     target['on_time'] += int(sample.get('sla_state') in ON_TIME_SLA_STATES)
+    target['within_target'] += int(sample.get('sla_state') == 'within_target')
+    target['near_target'] += int(sample.get('sla_state') == 'near_target')
     target['overdue_recovered'] += int(sample.get('sla_state') == 'overdue')
     if sample.get('elapsed_minutes') is not None:
         target['_durations'].append(float(sample['elapsed_minutes']))
@@ -194,29 +234,127 @@ def portal_performance_payload(user, *, access=None, period: str = '', include_p
     }
 
 
+def _recognition_facts(user, *, group_id, start, end, period_kind, period_key):
+    """Freeze group facts once; apply the viewer's *current* scope on every read."""
+    from core.models import AccessGrant, TatActionTask, TatActionTaskRecipient, TatTrackerCase, WORKFLOW_DATA_MODE_PILOT, WORKFLOW_DATA_MODE_PRODUCTION
+    from core.services.tat_reporting import _ReportContext, _metric_scope_q, _stage_samples, TERMINAL
+    from core.services.tat_tracker import overall_tat_end
+    from core.services.workflow_data_mode import WORKFLOW_TAT, mode_snapshot
+    from tat_recognition.models import TatRecognitionPeriodSnapshot
+    from django.db.models import Q
+
+    def build(cases):
+        context = _ReportContext(user, cases, include_people=True)
+        period_filters = {'stage': '', 'role': '', 'date_from': start, 'date_to': end, 'sla_state': ''}
+        action_samples = _stage_samples(cases, period_filters, include_people=True, context=context)
+        qualifying = []
+        for case in cases:
+            if case.status not in TERMINAL or not start <= timezone.localdate(case.created_at) <= end:
+                continue
+            finished = overall_tat_end(case, now=case.updated_at)
+            if finished and start <= timezone.localdate(finished) <= end:
+                qualifying.append(case)
+        branch_samples = _stage_samples(
+            qualifying,
+            {**period_filters, 'date_from': date(1900, 1, 1), 'date_to': date(9998, 12, 31)},
+            include_people=True, context=context,
+        )
+        assignments = {}
+        for task in TatActionTask.objects.filter(
+            case__in=cases, status=TatActionTask.STATUS_ACTED,
+        ).select_related('acted_by', 'case').prefetch_related('recipients__user').order_by('created_at'):
+            primary = next((item.user for item in task.recipients.all() if item.kind == TatActionTaskRecipient.KIND_PRIMARY), None)
+            responsible = primary or task.acted_by
+            if responsible:
+                assignments.setdefault(
+                    (str(task.case.group_id), str(task.case.case_id), task.stage_key),
+                    (str(responsible.pk), responsible.get_full_name().strip() or responsible.get_username()),
+                )
+        for sample in action_samples + branch_samples:
+            assigned = assignments.get((str(sample.get('group_id') or ''), str(sample.get('case_id') or ''), str(sample.get('stage_key') or '')))
+            sample['recognition_assignment'] = list(assigned) if assigned else []
+            sample['recognition_assignment_frozen'] = True
+        return {
+            'score_policy_version': TAT_RECOGNITION_SCORE_POLICY_VERSION,
+            'minimum_ranked_sample': MINIMUM_RANKED_SAMPLE,
+            'actions': action_samples, 'branches': branch_samples,
+        }
+
+    group_id = str(group_id or '').strip()
+    is_settled = bool(group_id and end <= date.max - timedelta(days=30) and timezone.localdate() > end + timedelta(days=30))
+    if not is_settled:
+        cases = TatTrackerCase.objects.filter(_metric_scope_q(user), is_deleted=False)
+        if group_id:
+            cases = cases.filter(group_id=group_id)
+        return build(list(cases)), None
+
+    mode = mode_snapshot(WORKFLOW_TAT)
+    scope_key = mode.data_scope_key
+    identity = dict(group_id=group_id, scope_key=scope_key, period_kind=period_kind, period_key=period_key)
+    snapshot = TatRecognitionPeriodSnapshot.objects.filter(**identity).first()
+    if snapshot is None:
+        operational = Q(data_mode=WORKFLOW_DATA_MODE_PRODUCTION)
+        if mode.mode == WORKFLOW_DATA_MODE_PILOT:
+            operational |= Q(data_mode=WORKFLOW_DATA_MODE_PILOT, pilot_cycle_id=mode.pilot_cycle_id)
+        cases = list(TatTrackerCase.objects.filter(operational, group_id=group_id, is_deleted=False))
+        snapshot, _ = TatRecognitionPeriodSnapshot.objects.get_or_create(
+            **identity, defaults={'facts': build(cases)},
+        )
+
+    if user.is_active and user.is_superuser:
+        return snapshot.facts, snapshot.captured_at
+    grants = list(AccessGrant.objects.filter(user=user, workflow='tat_tracker', active=True).select_related('group_configuration'))
+
+    def permitted(sample):
+        for grant in grants:
+            if grant.group_configuration_id and str(grant.group_configuration.group_id) != group_id:
+                continue
+            if grant.branch and str(grant.branch).casefold() != str(sample.get('branch') or '').casefold():
+                continue
+            if grant.product and str(grant.product).casefold() != str(sample.get('product_key') or '').casefold():
+                continue
+            return True
+        return False
+
+    return {
+        'score_policy_version': snapshot.facts.get('score_policy_version'),
+        'minimum_ranked_sample': snapshot.facts.get('minimum_ranked_sample'),
+        **{
+            key: [sample for sample in snapshot.facts.get(key, []) if permitted(sample)]
+            for key in ('actions', 'branches')
+        },
+    }, snapshot.captured_at
+
+
 def tat_recognition_payload(
-    user, *, period: str = '', include_people: bool = False, group_id: str = '',
-    role: str = '', product: str = '', view: str = 'personal', page: int = 1,
+    user, *, period: str = '', period_kind: str = 'month', include_people: bool = False,
+    group_id: str = '', role: str = '', product: str = '', branch: str = '',
+    view: str = 'personal', page: int = 1,
 ) -> dict:
-    """Return one compact, group-scoped role/product recognition slice."""
+    """Return group-scoped overall, filtered and like-for-like standings."""
     from core.models import TatActionTask, TatActionTaskRecipient, TatTrackerCase
-    from core.services.tat_reporting import _ReportContext, _metric_scope_q, _stage_samples
+    from core.services.tat_reporting import _metric_scope_q
     from core.services.tat_tracker import role_display_name
 
-    start, end, label = _month_bounds(period)
+    start, end, label, period_kind = _recognition_period(period_kind, period)
     cases_qs = TatTrackerCase.objects.filter(_metric_scope_q(user), is_deleted=False)
     if str(group_id or '').strip():
         cases_qs = cases_qs.filter(group_id=str(group_id).strip())
     cases = list(cases_qs)
-    filters = {'stage': '', 'role': '', 'date_from': start, 'date_to': end, 'sla_state': ''}
-    samples = _stage_samples(
-        cases, filters, include_people=True,
-        context=_ReportContext(user, cases, include_people=True),
+    facts, captured_at = _recognition_facts(
+        user, group_id=group_id, start=start, end=end,
+        period_kind=period_kind, period_key=label,
     )
+    samples = facts['actions']
+    branch_samples = facts['branches']
+    minimum_sample = int(facts.get('minimum_ranked_sample') or MINIMUM_RANKED_SAMPLE)
+    if int(facts.get('score_policy_version') or 0) != TAT_RECOGNITION_SCORE_POLICY_VERSION:
+        raise ValueError('This final recognition score uses an unsupported policy version.')
 
     responsibility = {}
     tasks = TatActionTask.objects.filter(
-        case__in=cases, status=TatActionTask.STATUS_ACTED,
+        case__in=cases,
+        status=TatActionTask.STATUS_ACTED,
     ).select_related('acted_by', 'case').prefetch_related('recipients__user').order_by('created_at')
     for task in tasks:
         primary = next(
@@ -232,45 +370,71 @@ def tat_recognition_payload(
             )
 
     people = defaultdict(_empty_tat_counts)
+    people_by_branch = defaultdict(_empty_tat_counts)
     person_branches = defaultdict(set)
     branches = defaultdict(_empty_tat_counts)
     contexts = defaultdict(_empty_tat_counts)
-    for sample in samples:
-        assigned = responsibility.get((
+    personal_total = _empty_tat_counts()
+    personal_months = defaultdict(_empty_tat_counts)
+    personal_slice = _empty_tat_counts()
+
+    def attribution(sample):
+        assigned = sample.get('recognition_assignment') if sample.get('recognition_assignment_frozen') else responsibility.get((
             str(sample.get('group_id') or ''), str(sample.get('case_id') or ''),
             str(sample.get('stage_key') or ''),
         ))
-        sample_role = str(sample.get('role') or 'Unassigned').strip().upper()
-        branch = str(sample.get('branch') or 'Unassigned')
-        product_label = str(sample.get('product') or sample.get('product_key') or 'Unassigned').strip()
-        product_key = str(sample.get('product_key') or product_label).strip().lower()
-        context_key = (sample_role, product_key, product_label)
-        branch_key = (*context_key, branch)
-        for target in (branches[branch_key], contexts[context_key]):
-            _accumulate_tat_sample(target, sample, attribution_fallback=not bool(assigned))
         actor_roles = {
             value.strip().upper()
             for value in str(sample.get('person_roles') or '').split(',') if value.strip()
         }
+        sample_role = str(sample.get('role') or 'Unassigned').strip().upper()
         technical_override = not assigned and 'IT' in actor_roles and sample_role not in actor_roles
-        person_identity = assigned[0] if assigned else str(sample.get('person_user_id') or '').strip()
-        person_label = assigned[1] if assigned else str(sample.get('person') or '').strip()
-        if technical_override or not (person_identity or person_label):
+        identity = assigned[0] if assigned else str(sample.get('person_user_id') or '').strip()
+        display = assigned[1] if assigned else str(sample.get('person') or '').strip()
+        return assigned, ('' if technical_override else identity), ('' if technical_override else display)
+
+    for sample in branch_samples:
+        sample_role = str(sample.get('role') or 'Unassigned').strip().upper()
+        sample_branch = str(sample.get('branch') or 'Unassigned')
+        product_label = str(sample.get('product') or sample.get('product_key') or 'Unassigned').strip()
+        product_key = str(sample.get('product_key') or product_label).strip().lower()
+        assigned, _, _ = attribution(sample)
+        _accumulate_tat_sample(
+            branches[(sample_role, product_key, product_label, sample_branch)],
+            sample, attribution_fallback=not bool(assigned),
+        )
+    for sample in samples:
+        assigned, person_identity, person_label = attribution(sample)
+        sample_role = str(sample.get('role') or 'Unassigned').strip().upper()
+        sample_branch = str(sample.get('branch') or 'Unassigned')
+        product_label = str(sample.get('product') or sample.get('product_key') or 'Unassigned').strip()
+        product_key = str(sample.get('product_key') or product_label).strip().lower()
+        context_key = (sample_role, product_key, product_label)
+        _accumulate_tat_sample(contexts[context_key], sample, attribution_fallback=not bool(assigned))
+        if not (person_identity or person_label):
             continue
         person_key = person_identity or f'label:{person_label}'
         person_key_tuple = (person_key, person_label or 'Unassigned', *context_key)
-        person_branches[person_key_tuple].add(branch)
+        person_branches[person_key_tuple].add(sample_branch)
         _accumulate_tat_sample(
             people[person_key_tuple], sample, attribution_fallback=not bool(assigned),
         )
+        _accumulate_tat_sample(
+            people_by_branch[(*person_key_tuple, sample_branch)], sample,
+            attribution_fallback=not bool(assigned),
+        )
+        if person_identity == str(user.pk):
+            _accumulate_tat_sample(personal_total, sample, attribution_fallback=not bool(assigned))
 
-    def scored_people_rows():
+    def scored_people_rows(branch_filter=''):
         result = []
-        for key, counts in people.items():
+        source = people_by_branch if branch_filter else people
+        for source_key, counts in source.items():
+            key = source_key[:-1] if branch_filter else source_key
             identity, display, item_role, product_key, product_label = key
             completed = counts['completed']
             public_counts = {name: value for name, value in counts.items() if not name.startswith('_')}
-            item_branches = sorted(person_branches[key], key=str.casefold)
+            item_branches = [source_key[-1]] if branch_filter else sorted(person_branches[key], key=str.casefold)
             result.append({
                 'key': str(identity), 'label': display, **public_counts,
                 'role': item_role, 'product_key': product_key, 'product': product_label,
@@ -280,7 +444,7 @@ def tat_recognition_payload(
             })
         scored = _score_rows(
             result, quality_key='on_time_rate', volume_key='completed', success_key='on_time',
-            rank_group_key='_rank_group',
+            rank_group_key='_rank_group', minimum_sample=minimum_sample,
         )
         for row in scored:
             row.pop('_rank_group', None)
@@ -300,12 +464,13 @@ def tat_recognition_payload(
             })
         scored = _score_rows(
             result, quality_key='on_time_rate', volume_key='completed', success_key='on_time',
-            rank_group_key='_rank_group',
+            rank_group_key='_rank_group', minimum_sample=minimum_sample,
         )
         for row in scored:
             row.pop('_rank_group', None)
         return scored
 
+    requested_branch = str(branch or '').strip()
     person_rows = scored_people_rows()
     branch_rows = scored_branch_rows()
     context_keys = sorted(
@@ -319,58 +484,63 @@ def tat_recognition_payload(
     visible_context_keys = context_keys if include_people else [
         item for item in context_keys if (item[0], item[1]) in personal_contexts
     ]
+    available_roles = {item[0] for item in visible_context_keys}
     requested_role = str(role or '').strip().upper()
+    selected_role = requested_role if requested_role in available_roles else ''
+    available_products = {
+        item[1]: item[2] for item in visible_context_keys
+        if not selected_role or item[0] == selected_role
+    }
     requested_product = str(product or '').strip().lower()
-    selected = next(
-        (item for item in visible_context_keys if item[0] == requested_role and item[1] == requested_product),
-        None,
-    )
-    if selected is None and requested_role:
-        role_contexts = [item for item in visible_context_keys if item[0] == requested_role]
-        if role_contexts:
-            selected = sorted(
-                role_contexts,
-                key=lambda item: (-int(contexts[item].get('completed') or 0), item[2].casefold()),
-            )[0]
-    if selected is None and personal_candidates:
-        preferred = sorted(
-            personal_candidates,
-            key=lambda row: (-int(row.get('completed') or 0), row['role'], row['product']),
-        )[0]
-        selected = next(
-            item for item in visible_context_keys
-            if item[0] == preferred['role'] and item[1] == preferred['product_key']
-        )
-    if selected is None and visible_context_keys:
-        selected = sorted(
-            visible_context_keys,
-            key=lambda item: (-int(contexts[item].get('completed') or 0), item[0], item[2]),
-        )[0]
-    selected = selected or ('', '', '')
-    selected_role, selected_product_key, selected_product_label = selected
+    selected_product_key = requested_product if requested_product in available_products else ''
+    selected_product_label = available_products.get(selected_product_key, '')
+    available_branches = sorted({
+        str(sample.get('branch') or 'Unassigned')
+        for sample in (samples + branch_samples if include_people else samples)
+        if (include_people or attribution(sample)[1] == str(user.pk))
+        and (not selected_role or str(sample.get('role') or '').upper() == selected_role)
+        and (not selected_product_key or str(sample.get('product_key') or '').lower() == selected_product_key)
+    }, key=str.casefold)
+    selected_branch = next((item for item in available_branches if item.casefold() == requested_branch.casefold()), '')
+    if selected_branch:
+        person_rows = scored_people_rows(selected_branch)
 
-    role_options = [
+    role_options = [{'key': '', 'label': 'All roles'}] + [
         {'key': role_key, 'label': role_display_name(role_key)}
         for role_key in sorted(
             {item[0] for item in visible_context_keys}, key=lambda value: role_display_name(value).casefold(),
         )
     ]
-    product_options = [
-        {'key': item[1], 'label': item[2]}
-        for item in visible_context_keys if item[0] == selected_role
+    product_options = [{'key': '', 'label': 'All products'}] + [
+        {'key': key, 'label': label}
+        for key, label in sorted(available_products.items(), key=lambda item: item[1].casefold())
+    ]
+    branch_options = [{'key': '', 'label': 'All branches'}] + [
+        {'key': item, 'label': item} for item in available_branches
     ]
     selected_people = [
         row for row in person_rows
-        if row['role'] == selected_role and row['product_key'] == selected_product_key
+        if (include_people or (row['role'], row['product_key']) in personal_contexts)
+        and (not selected_role or row['role'] == selected_role)
+        and (not selected_product_key or row['product_key'] == selected_product_key)
     ]
     selected_branches = [
         row for row in branch_rows
-        if row['role'] == selected_role and row['product_key'] == selected_product_key
+        if (include_people or (row['role'], row['product_key']) in personal_contexts)
+        and (not selected_role or row['role'] == selected_role)
+        and (not selected_product_key or row['product_key'] == selected_product_key)
+        and (not selected_branch or row['branch'].casefold() == selected_branch.casefold())
     ]
     eligible_people = sum(1 for row in selected_people if row['ranked'])
     eligible_branches = sum(1 for row in selected_branches if row['ranked'])
-    people_have_competition = eligible_people >= 2
-    branches_have_competition = eligible_branches >= 2
+    people_groups = defaultdict(int)
+    for row in selected_people:
+        people_groups[(row['role'], row['product_key'])] += int(row['ranked'])
+    branch_groups = defaultdict(int)
+    for row in branch_rows:
+        branch_groups[(row['role'], row['product_key'])] += int(row['ranked'])
+    people_have_competition = any(count >= 2 for count in people_groups.values())
+    branches_have_competition = any(count >= 2 for count in branch_groups.values())
     peer_numbers = {
         identity: index
         for index, identity in enumerate(
@@ -386,30 +556,27 @@ def tat_recognition_payload(
         elif not include_people:
             result['label'] = f"Peer {peer_numbers[row['key']]}"
         result['is_current_user'] = is_current
-        result['rank'] = row.get('rank') if people_have_competition else None
+        result['rank'] = row.get('rank') if people_groups[(row['role'], row['product_key'])] >= 2 else None
         for field in (
             'key', 'on_time', 'completed_total', 'overdue_recovered',
             'excluded_target_unavailable', 'corrected', 'attribution_fallback',
-            'sample_status', 'score_basis',
+            'sample_status', 'score_basis', 'within_target', 'near_target',
         ):
             result.pop(field, None)
         return result
 
     def public_branch(row):
         result = dict(row)
-        result['rank'] = row.get('rank') if branches_have_competition else None
+        result['rank'] = row.get('rank') if branch_groups[(row['role'], row['product_key'])] >= 2 else None
         for field in (
             'key', 'on_time', 'completed_total', 'overdue_recovered',
             'excluded_target_unavailable', 'corrected', 'attribution_fallback',
-            'sample_status', 'score_basis',
+            'sample_status', 'score_basis', 'within_target', 'near_target',
         ):
             result.pop(field, None)
         return result
 
-    personal = next(
-        (public_person(row) for row in selected_people if row['key'] == str(user.pk)),
-        None,
-    )
+    personal = next((public_person(row) for row in selected_people if row['key'] == str(user.pk)), None)
     selected_view = str(view or 'personal').strip().lower()
     if selected_view not in {'personal', 'people', 'branches'}:
         selected_view = 'personal'
@@ -445,7 +612,90 @@ def tat_recognition_payload(
     else:
         public_rows = []
 
-    selected_counts = contexts.get(selected, _empty_tat_counts())
+    selected_counts = _empty_tat_counts()
+    selected_stages = defaultdict(_empty_tat_counts)
+    for sample in samples:
+        sample_role = str(sample.get('role') or 'Unassigned').strip().upper()
+        sample_product = str(sample.get('product_key') or sample.get('product') or '').strip().lower()
+        sample_branch = str(sample.get('branch') or 'Unassigned')
+        if ((selected_role and sample_role != selected_role)
+                or (selected_product_key and sample_product != selected_product_key)
+                or (selected_branch and sample_branch.casefold() != selected_branch.casefold())):
+            continue
+        assigned, person_identity, _ = attribution(sample)
+        _accumulate_tat_sample(selected_counts, sample, attribution_fallback=not bool(assigned))
+        if person_identity == str(user.pk):
+            _accumulate_tat_sample(personal_slice, sample, attribution_fallback=not bool(assigned))
+            stage_key = (sample_role, str(sample.get('stage_key') or ''), str(sample.get('stage') or 'Stage'))
+            _accumulate_tat_sample(selected_stages[stage_key], sample, attribution_fallback=not bool(assigned))
+
+    # Personal best is a live self-comparison over the actor's accessible cases.
+    # Final period standings remain fixed independently of this current insight.
+    if cases and str(view or 'personal').strip().lower() == 'personal':
+        from core.services.tat_reporting import _ReportContext, _stage_samples
+        all_time = _stage_samples(
+            cases, {'stage': '', 'role': '', 'date_from': date(1900, 1, 1),
+                    'date_to': date(9998, 12, 31), 'sla_state': ''},
+            include_people=True, context=_ReportContext(user, cases, include_people=True),
+        )
+        for sample in all_time:
+            assigned, person_identity, _ = attribution(sample)
+            if person_identity != str(user.pk) or not sample.get('completed_at'):
+                continue
+            completed = datetime.fromisoformat(sample['completed_at'])
+            if timezone.is_naive(completed):
+                completed = timezone.make_aware(completed)
+            month_key = timezone.localtime(completed).strftime('%Y-%m')
+            _accumulate_tat_sample(personal_months[month_key], sample, attribution_fallback=not bool(assigned))
+
+    def result_summary(counts):
+        completed = int(counts['completed'])
+        return {
+            'completed': completed, 'completed_total': int(counts['completed_total']),
+            'on_time_rate': round(counts['on_time'] * 100 / completed, 1) if completed else 0,
+            'score': round(_wilson_lower_bound(counts['on_time'], completed), 1),
+            'ranked': completed >= minimum_sample,
+        }
+
+    def breakdown(counts):
+        scored = int(counts['completed'])
+        return {
+            'counted': scored, 'recorded': int(counts['completed_total']),
+            'within_target': int(counts['within_target']),
+            'near_target': int(counts['near_target']),
+            'over_target': int(counts['overdue_recovered']),
+            'target_unavailable': int(counts['excluded_target_unavailable']),
+            'corrected': int(counts['corrected']),
+            'attribution_fallback': int(counts['attribution_fallback']),
+            'percentages': {
+                key: round(counts[field] * 100 / scored, 1) if scored else 0
+                for key, field in (
+                    ('within_target', 'within_target'), ('near_target', 'near_target'),
+                    ('over_target', 'overdue_recovered'),
+                )
+            } | {'target_unavailable': round(
+                counts['excluded_target_unavailable'] * 100 / counts['completed_total'], 1,
+            ) if counts['completed_total'] else 0},
+        }
+
+    stage_contributions = []
+    if selected_stages:
+        for (item_role, stage_key, stage_label), counts in selected_stages.items():
+            stage_contributions.append({
+                'role': role_display_name(item_role), 'stage_key': stage_key,
+                'stage': stage_label, **result_summary(counts), 'breakdown': breakdown(counts),
+            })
+        stage_contributions.sort(key=lambda item: (-item['completed'], item['stage'].casefold()))
+
+    personal_best = None
+    if personal_months:
+        qualified = [(key, counts) for key, counts in personal_months.items() if counts['completed'] >= minimum_sample]
+        if qualified:
+            best_key, best_counts = max(qualified, key=lambda item: (
+                _wilson_lower_bound(item[1]['on_time'], item[1]['completed']), item[0],
+            ))
+            personal_best = {'month': best_key, **result_summary(best_counts)}
+
     selected_completed = int(selected_counts.get('completed') or 0)
     role_summary = {
         'completed': selected_completed,
@@ -455,16 +705,14 @@ def tat_recognition_payload(
         'on_time_rate': round(
             int(selected_counts.get('on_time') or 0) * 100 / selected_completed, 1,
         ) if selected_completed else 0,
-        'score': round(
-            _wilson_lower_bound(int(selected_counts.get('on_time') or 0), selected_completed), 1,
-        ),
+        'score': round(_wilson_lower_bound(int(selected_counts.get('on_time') or 0), selected_completed), 1),
     }
     methodology = None
     if include_people:
         methodology = {
             'score_method': 'The performance score is the 95% Wilson lower bound for on-time completion. It rewards consistent results without overstating small samples.',
-            'cohort_basis': 'People are compared within the current TAT group, role, and product. Branch standings describe the originating cases, not staff assignment.',
-            'correction_policy': 'Audited timestamp corrections update live results retrospectively. These results are not permanent awards.',
+            'cohort_basis': 'People count stage actions completed in the selected period, compared within the same TAT group, role, and product. Branches count all completed stages on cases both created and finally resolved in that period, grouped by originating branch; cases spanning periods do not enter a monthly branch cohort.',
+            'correction_policy': 'Audited corrections update live results. A final period keeps the facts captured after its 30-day settlement window and does not change with later corrections. Recognition is informational, not an HR or compensation decision input.',
             'late_work_policy': 'Recovered overdue work remains visible in data checks but does not count as on time.',
             'completed_total': int(selected_counts.get('completed_total') or 0),
             'counted_total': selected_completed,
@@ -474,16 +722,28 @@ def tat_recognition_payload(
             'overdue_recovered': int(selected_counts.get('overdue_recovered') or 0),
         }
     return {
-        'contract_version': 2,
-        'period': label, 'minimum_ranked_sample': MINIMUM_RANKED_SAMPLE,
+        'contract_version': 3,
+        'period': label, 'period_kind': period_kind, 'period_start': start.isoformat(),
+        'period_end': end.isoformat(), 'minimum_ranked_sample': minimum_sample,
         'calculated_at': timezone.now().isoformat(),
-        'result_status': 'live_provisional', 'view': selected_view,
-        'role_options': role_options, 'product_options': product_options,
+        'result_status': 'final' if captured_at else 'live_provisional',
+        'captured_at': captured_at.isoformat() if captured_at else '',
+        'view': selected_view,
+        'role_options': role_options, 'product_options': product_options, 'branch_options': branch_options,
         'selected': {
             'role': selected_role,
             'role_label': role_display_name(selected_role) if selected_role else '',
             'product': selected_product_key, 'product_label': selected_product_label,
+            'branch': selected_branch,
         },
+        'overall_result': result_summary(personal_total),
+        'slice_result': {
+            **result_summary(personal_slice),
+            'share_of_overall': round(personal_slice['completed'] * 100 / personal_total['completed'], 1)
+            if personal_total['completed'] else 0,
+        },
+        'breakdown': {'overall': breakdown(personal_total), 'slice': breakdown(personal_slice)},
+        'stage_contributions': stage_contributions, 'personal_best': personal_best,
         'personal_result': personal, 'role_summary': role_summary,
         'standings': {
             'dimension': selected_view, 'rows': public_rows,

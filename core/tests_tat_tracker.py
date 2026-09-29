@@ -974,15 +974,17 @@ class TatTrackerWorkflowTest(TestCase):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
         template = Path('core/templates/tat_tracker/app.html').read_text(encoding='utf-8')
 
-        self.assertIn('Monthly recognition', template)
-        self.assertIn('Your result this month', source)
-        self.assertIn('No counted stages for this month', source)
+        self.assertIn('Period standings', template)
+        self.assertIn('Your overall score', source)
+        self.assertIn('No counted actions in this selection yet', source)
         self.assertIn("$('tatRecognitionPeriod').addEventListener('change', () => {", source)
         self.assertIn("state.recognition.page = 1;", source)
         self.assertIn("document.querySelectorAll('[data-recognition-view]')", source)
         self.assertIn("page_size = 5", Path('core/services/workflow_recognition.py').read_text(encoding='utf-8'))
-        self.assertIn('role="progressbar" aria-label="Ranking eligibility"', source)
-        self.assertIn('Calculation and data checks', template)
+        self.assertIn('tatRecognitionSlice', source)
+        self.assertIn('id="tatRecognitionSlice"', template)
+        self.assertIn('Score breakdown', source)
+        self.assertIn('>Data checks</summary>', template)
 
     def test_tat_report_ui_reuses_vendored_grid_and_compact_correction_actions(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')

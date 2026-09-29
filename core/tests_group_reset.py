@@ -22,6 +22,7 @@ from core.models import (
     RawMessage,
 )
 from core.services.group_reset import group_data_counts, reset_group_data
+from tat_recognition.models import TatRecognitionPeriodSnapshot
 
 
 User = get_user_model()
@@ -35,6 +36,26 @@ class GroupResetAdminTests(TestCase):
             password='unused-test-password',
         )
         self.client.force_login(self.admin_user)
+
+    def test_tat_reset_removes_only_selected_group_recognition_snapshots(self):
+        selected = GroupSheetConfiguration.objects.create(
+            group_id='-100tat-reset-selected', workflow={'type': 'tat_tracker'},
+        )
+        other = GroupSheetConfiguration.objects.create(
+            group_id='-100tat-reset-other', workflow={'type': 'tat_tracker'},
+        )
+        for configuration in (selected, other):
+            TatRecognitionPeriodSnapshot.objects.create(
+                group_id=configuration.group_id, scope_key='production',
+                period_kind='month', period_key='2026-01',
+                facts={'score_policy_version': 1, 'minimum_ranked_sample': 20, 'actions': [], 'branches': []},
+            )
+
+        self.assertEqual(group_data_counts(selected)['tat_recognition_snapshots'], 1)
+        result = reset_group_data(selected)
+        self.assertEqual(result['deleted']['tat_recognition_snapshots'], 1)
+        self.assertFalse(TatRecognitionPeriodSnapshot.objects.filter(group_id=selected.group_id).exists())
+        self.assertTrue(TatRecognitionPeriodSnapshot.objects.filter(group_id=other.group_id).exists())
 
     def test_complaint_reset_page_exposes_only_complaint_configuration_scope(self):
         config = GroupSheetConfiguration.objects.create(

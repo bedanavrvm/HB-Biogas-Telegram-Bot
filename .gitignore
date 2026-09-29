@@ -39,6 +39,7 @@ Thumbs.db
 # Credentials and private key material
 credentials.json
 *.json
+!docs/database/catalog.json
 !scripts/architecture_boundaries_baseline.json
 !scripts/tracked_artifact_allowlist.json
 !scripts/coverage_baseline.json

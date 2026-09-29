@@ -45,7 +45,7 @@
     taskInbox: { items: [], unread_count: 0, total: 0 },
     taskFocus: null,
     taskFocusTimer: null,
-    recognition: { view: 'personal', role: '', product: '', page: 1, loading: false, sequence: 0 },
+    recognition: { view: 'personal', role: '', product: '', branch: '', page: 1, loading: false, sequence: 0 },
     pendingStageUpdate: null,
     directTask: null,
     filterSheetOpen: false,
@@ -834,7 +834,7 @@
 
   function recognitionContext(item, primaryLabel = '') {
     const branch = Number(item.branch_count || 0) > 1 ? `${item.branch_count} branches` : item.branch;
-    return [branch, item.product]
+    return [item.role, branch, item.product]
       .filter(value => value && String(value).trim().toLowerCase() !== String(primaryLabel).trim().toLowerCase())
       .map(value => `<span title="${escapeHtml(value)}">${escapeHtml(value)}</span>`).join('');
   }
@@ -856,33 +856,30 @@
     </article>`;
   }
 
-  function personalRecognition(item, minimumSample, selected) {
-    const completed = Number(item.completed || 0);
-    const counted = Math.min(completed, minimumSample);
-    const remaining = Math.max(0, minimumSample - completed);
-    const rankText = item.rank ? `#${escapeHtml(item.rank)}` : (item.ranked ? 'No peer ranking' : 'Not ranked yet');
-    const guidance = item.ranked
-      ? (item.rank ? 'Included in this month’s ranking' : 'Eligible; another eligible result is needed for a ranking')
-      : `Complete ${remaining} more counted stage${remaining === 1 ? '' : 's'} to join this month’s ranking`;
-    return `<article class="recognition-result-card">
-      <header><div><strong>${escapeHtml(selected.role_label || item.role || 'Assigned role')}</strong><div class="recognition-context"><span>${escapeHtml(selected.product_label || item.product || '')}</span></div></div><span class="recognition-result-rank">${rankText}</span></header>
-      <div class="recognition-result-metrics"><span><small>On time</small><b>${escapeHtml(item.on_time_rate || 0)}%</b></span><span><small>Completed</small><b>${escapeHtml(completed)}</b></span><span><small>Score</small><b>${escapeHtml(item.score || 0)}</b></span></div>
-      <div class="recognition-progress-label"><span>${escapeHtml(counted)} of ${escapeHtml(minimumSample)} counted stages</span><strong>${escapeHtml(guidance)}</strong></div>
-      <div class="recognition-progress" role="progressbar" aria-label="Ranking eligibility" aria-valuemin="0" aria-valuemax="${escapeHtml(minimumSample)}" aria-valuenow="${escapeHtml(counted)}"><span style="width:${minimumSample ? Math.round(counted * 100 / minimumSample) : 0}%"></span></div>
-    </article>`;
-  }
-
-  function recognitionRoleSummary(summary, selected) {
-    if (!Number(summary?.completed || 0)) return '<div class="recognition-empty"><strong>No counted stages for this month.</strong><span>Your result will appear after you complete a stage.</span></div>';
-    return `<article class="recognition-result-card role-summary">
-      <header><div><strong>${escapeHtml(selected.role_label || 'Role summary')}</strong><div class="recognition-context"><span>${escapeHtml(selected.product_label || '')}</span></div></div><span class="recognition-result-rank">Role summary</span></header>
-      <div class="recognition-result-metrics"><span><small>On time</small><b>${escapeHtml(summary.on_time_rate || 0)}%</b></span><span><small>Completed</small><b>${escapeHtml(summary.completed || 0)}</b></span><span><small>Score</small><b>${escapeHtml(summary.score || 0)}</b></span></div>
-    </article>`;
-  }
-
   function recognitionMethodology(methodology) {
     const item = methodology || {};
     return `<p>${escapeHtml(item.score_method || '')}</p><p>${escapeHtml(item.cohort_basis || '')}</p><p>${escapeHtml(item.correction_policy || '')}</p><p>${escapeHtml(item.late_work_policy || '')}</p><dl class="recognition-data-checks"><div><dt>Recorded completions</dt><dd>${escapeHtml(item.completed_total || 0)}</dd></div><div><dt>Counted stages</dt><dd>${escapeHtml(item.counted_total || 0)}</dd></div><div><dt>No target configured</dt><dd>${escapeHtml(item.excluded_target_unavailable || 0)}</dd></div><div><dt>Corrected records</dt><dd>${escapeHtml(item.corrected || 0)}</dd></div><div><dt>Actor fallback</dt><dd>${escapeHtml(item.attribution_fallback || 0)}</dd></div><div><dt>Overdue completed</dt><dd>${escapeHtml(item.overdue_recovered || 0)}</dd></div></dl>`;
+  }
+
+  function recognitionPeriodLabel(payload) {
+    const key = String(payload.period || '');
+    if (payload.period_kind === 'quarter') return key.replace('-Q', ' · Q');
+    if (payload.period_kind === 'year') return key;
+    const [year, month] = key.split('-').map(Number);
+    return year && month ? new Intl.DateTimeFormat('en-KE', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1)) : key;
+  }
+
+  function recognitionSummaryCard(title, result, note = '') {
+    const data = result || {};
+    if (!Number(data.completed || 0)) return `<article class="recognition-result-card"><header><div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(note)}</small></div></header><p class="recognition-empty-score">No counted actions in this selection yet.</p></article>`;
+    return `<article class="recognition-result-card"><header><div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(note)}</small></div></header><div class="recognition-result-metrics"><span><small>On time</small><b>${escapeHtml(data.on_time_rate || 0)}%</b></span><span><small>Completed</small><b>${escapeHtml(data.completed || 0)}</b></span><span><small>Score</small><b>${escapeHtml(data.score || 0)}</b></span></div></article>`;
+  }
+
+  function recognitionBreakdown(title, item) {
+    const data = item || {};
+    const percentages = data.percentages || {};
+    const bucket = (label, key) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(data[key] || 0)} <small>${escapeHtml(percentages[key] || 0)}%</small></dd></div>`;
+    return `<div class="recognition-breakdown-group"><h4>${escapeHtml(title)}</h4><dl class="recognition-data-checks">${bucket('Within target', 'within_target')}${bucket('Near target', 'near_target')}${bucket('Over target', 'over_target')}<div><dt>No target available</dt><dd>${escapeHtml(data.target_unavailable || 0)} <small>${escapeHtml(percentages.target_unavailable || 0)}% of recorded · excluded</small></dd></div></dl><p>${escapeHtml(data.counted || 0)} actions counted in the score. ${escapeHtml(data.recorded || 0)} completed actions recorded. ${escapeHtml(data.corrected || 0)} corrected; ${escapeHtml(data.attribution_fallback || 0)} used staff assignment fallback.</p></div>`;
   }
 
   function renderTatRecognition(data) {
@@ -892,18 +889,23 @@
     state.recognition.view = payload.view || state.recognition.view;
     state.recognition.role = selected.role || '';
     state.recognition.product = selected.product || '';
-    $('tatRecognitionUpdated').textContent = payload.calculated_at ? `Updated at ${formatTatDateTime(payload.calculated_at)}` : '';
+    state.recognition.branch = selected.branch || '';
+    const periodLabel = recognitionPeriodLabel(payload);
+    $('tatRecognitionUpdated').textContent = payload.result_status === 'final'
+      ? `${periodLabel} · Final · Captured ${formatTatDateTime(payload.captured_at)}`
+      : `${periodLabel} · Live · Updated ${formatTatDateTime(payload.calculated_at)}`;
     const optionMarkup = (items, value) => (items || []).map(item => `<option value="${escapeHtml(item.key)}"${item.key === value ? ' selected' : ''}>${escapeHtml(item.label)}</option>`).join('');
     $('tatRecognitionRole').innerHTML = optionMarkup(payload.role_options, state.recognition.role);
     $('tatRecognitionProduct').innerHTML = optionMarkup(payload.product_options, state.recognition.product);
-    $('tatRecognitionRole').disabled = !(payload.role_options || []).length;
-    $('tatRecognitionProduct').disabled = !(payload.product_options || []).length;
-    const roleControl = $('tatRecognitionRole').closest('label');
-    const productControl = $('tatRecognitionProduct').closest('label');
-    roleControl.hidden = (payload.role_options || []).length <= 1;
-    productControl.hidden = (payload.product_options || []).length <= 1;
-    $('tatRecognitionContextControls').hidden = roleControl.hidden && productControl.hidden;
-    $('tatRecognitionContextControls').classList.toggle('single-control', roleControl.hidden !== productControl.hidden);
+    $('tatRecognitionBranch').innerHTML = optionMarkup(payload.branch_options, state.recognition.branch);
+    const sliceLabels = [selected.role_label, selected.product_label, selected.branch].filter(Boolean);
+    $('tatRecognitionFilterSummary').textContent = sliceLabels.length ? sliceLabels.join(' · ') : 'All roles, products and branches';
+    $('tatRecognitionOverall').innerHTML = recognitionSummaryCard('Your overall score', payload.overall_result, 'All roles, products and branches');
+    const slice = payload.slice_result || {};
+    $('tatRecognitionSlice').hidden = !sliceLabels.length;
+    $('tatRecognitionSlice').innerHTML = sliceLabels.length
+      ? `<div class="recognition-slice-line"><div><strong>Selected work</strong><small>${escapeHtml(sliceLabels.join(' · '))}</small></div><span><b>${escapeHtml(slice.score || 0)}</b> score</span><span><b>${escapeHtml(slice.completed || 0)}</b> actions</span><span><b>${escapeHtml(slice.share_of_overall || 0)}%</b> of work</span></div>`
+      : '';
     document.querySelectorAll('[data-recognition-view]').forEach(button => {
       const active = button.dataset.recognitionView === state.recognition.view;
       button.classList.toggle('active', active);
@@ -912,20 +914,18 @@
     $('tatPersonalRecognition').hidden = state.recognition.view !== 'personal';
     $('tatRecognitionStandings').hidden = state.recognition.view === 'personal';
     if (state.recognition.view === 'personal') {
-      $('tatPersonalRecognition').innerHTML = payload.personal_result
-        ? `<div class="recognition-section-heading"><h3>Your result this month</h3></div>${personalRecognition(payload.personal_result, minimumSample, selected)}`
-        : `<div class="recognition-section-heading"><h3>Monthly role result</h3></div>${recognitionRoleSummary(payload.role_summary, selected)}`;
+      const stageRows = (payload.stage_contributions || []).map(item => `<div class="recognition-insight-row"><strong>${escapeHtml(item.stage)}</strong><span>${escapeHtml(item.completed)} completed · ${escapeHtml(item.on_time_rate)}% on time · Score ${escapeHtml(item.score)}</span></div>`).join('');
+      const best = payload.personal_best;
+      $('tatPersonalRecognition').innerHTML = `${best ? `<p class="recognition-personal-best">Live personal best month: <strong>${escapeHtml(best.month)}</strong> · Score ${escapeHtml(best.score)} from ${escapeHtml(best.completed)} actions</p>` : ''}${stageRows ? `<div class="recognition-stage-insights"><h3>Where your score came from</h3>${stageRows}</div>` : ''}`;
     }
     $('tatRecognitionMinimum').textContent = `${minimumSample} counted stages required`;
     const standings = payload.standings || {};
     if (state.recognition.view !== 'personal') {
       const people = state.recognition.view === 'people';
       $('tatRecognitionStandingsTitle').textContent = people ? 'People standings' : 'Branch standings';
-      const contextLabel = [selected.role_label, selected.product_label].filter(Boolean).join(' Â· ');
-      const basis = people
-        ? (standings.has_competition ? 'Same role and product.' : 'A ranking appears when at least two people are eligible.')
-        : (standings.has_competition ? 'Cases grouped by originating branch.' : 'A ranking appears when at least two branches are eligible.');
-      $('tatRecognitionStandingsBasis').textContent = [contextLabel, basis].filter(Boolean).join(' â€” ');
+      $('tatRecognitionStandingsBasis').textContent = people
+        ? `Actions completed in this period. Ranks compare the same TAT group, role and product${selected.branch ? ' within the selected branch' : ''}.`
+        : 'Only cases created and finally resolved in this period count; cross-month cases do not. Compare branches within the same TAT group, role and product.';
       $('tatRecognitionRows').innerHTML = (standings.rows || []).map(recognitionRow).join('') || `<div class="recognition-empty"><strong>${people ? 'No people have counted stages for this selection.' : 'No branches have counted stages for this selection.'}</strong></div>`;
       const pinned = standings.current_user_row;
       $('tatRecognitionPinned').hidden = !pinned;
@@ -938,6 +938,8 @@
       $('tatRecognitionPrevious').disabled = page <= 1;
       $('tatRecognitionNext').disabled = page >= pages;
     }
+    const breakdown = payload.breakdown || {};
+    $('tatRecognitionBreakdown').innerHTML = `<h3>Score breakdown</h3>${recognitionBreakdown('Your overall result', breakdown.overall)}${sliceLabels.length ? recognitionBreakdown('Selected work', breakdown.slice) : ''}<p class="recognition-breakdown-note">Within target and near target count as on time. Actions without a target are excluded from the score. Recognition is informational, not an HR or pay decision.</p>`;
     const technical = $('tatRecognitionTechnical');
     technical.hidden = !payload.technical_details_visible;
     $('tatRecognitionTechnicalContent').innerHTML = payload.technical_details_visible ? recognitionMethodology(payload.methodology) : '';
@@ -946,9 +948,15 @@
   async function loadTatRecognition() {
     const sequence = ++state.recognition.sequence;
     const result = await api('/api/tat-tracker/recognition/', {
-      period: $('tatRecognitionPeriod').value,
+      period: $('tatRecognitionPeriodKind').value === 'month'
+        ? $('tatRecognitionPeriod').value
+        : ($('tatRecognitionPeriodKind').value === 'quarter'
+          ? `${$('tatRecognitionYear').value}-Q${$('tatRecognitionQuarter').value}`
+          : $('tatRecognitionYear').value),
+      period_kind: $('tatRecognitionPeriodKind').value,
       role: state.recognition.role,
       product: state.recognition.product,
+      branch: state.recognition.branch,
       view: state.recognition.view,
       page: state.recognition.page,
     });
@@ -1526,8 +1534,12 @@
   function bootstrap(data) {
     state.data = data;
     if (!$('tatRecognitionPeriod').value) {
-      const today = new Date();
-      $('tatRecognitionPeriod').value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+      const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Nairobi', year: 'numeric', month: '2-digit' }).formatToParts(new Date());
+      const year = Number(parts.find(part => part.type === 'year')?.value);
+      const month = Number(parts.find(part => part.type === 'month')?.value);
+      $('tatRecognitionPeriod').value = `${year}-${String(month).padStart(2, '0')}`;
+      $('tatRecognitionYear').value = String(year);
+      $('tatRecognitionQuarter').value = String(Math.floor((month - 1) / 3) + 1);
     }
     if (!state.report.loaded) setDefaultReportDates();
     state.workflowMode = data.workflow_mode || null;
@@ -3810,15 +3822,43 @@
     state.recognition.page = 1;
     loadTatRecognition().catch(presentTatError);
   });
+  $('tatRecognitionPeriodKind').addEventListener('change', event => {
+    const kind = event.target.value;
+    $('tatRecognitionMonthControl').hidden = kind !== 'month';
+    $('tatRecognitionQuarterControl').hidden = kind !== 'quarter';
+    $('tatRecognitionYearControl').hidden = kind === 'month';
+    state.recognition.page = 1;
+    loadTatRecognition().catch(presentTatError);
+  });
+  ['tatRecognitionQuarter', 'tatRecognitionYear'].forEach(id => $(id).addEventListener('change', () => {
+    state.recognition.page = 1;
+    loadTatRecognition().catch(presentTatError);
+  }));
+  $('tatRecognitionFilterButton').addEventListener('click', () => {
+    const panel = $('tatRecognitionContextControls');
+    panel.hidden = !panel.hidden;
+    $('tatRecognitionFilterButton').setAttribute('aria-expanded', String(!panel.hidden));
+  });
   $('tatRecognitionRole').addEventListener('change', event => {
     state.recognition.role = event.target.value;
     state.recognition.product = '';
+    state.recognition.branch = '';
     state.recognition.page = 1;
     loadTatRecognition().catch(presentTatError);
   });
   $('tatRecognitionProduct').addEventListener('change', event => {
     state.recognition.product = event.target.value;
+    state.recognition.branch = '';
     state.recognition.page = 1;
+    loadTatRecognition().catch(presentTatError);
+  });
+  $('tatRecognitionBranch').addEventListener('change', event => {
+    state.recognition.branch = event.target.value;
+    state.recognition.page = 1;
+    loadTatRecognition().catch(presentTatError);
+  });
+  $('tatRecognitionClearFilters').addEventListener('click', () => {
+    Object.assign(state.recognition, { role: '', product: '', branch: '', page: 1 });
     loadTatRecognition().catch(presentTatError);
   });
   document.querySelectorAll('[data-recognition-view]').forEach(button => button.addEventListener('click', () => {

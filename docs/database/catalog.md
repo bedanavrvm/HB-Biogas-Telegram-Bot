@@ -189,10 +189,13 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 | payments | `payment_batch_case` | `payments.PaymentBatchCase` | business_assignment | active | Auditable current and removed membership of a Portal case in one payment batch. |
 | payments | `payment_batch_event` | `payments.PaymentBatchEvent` | immutable_event | active | Append-only customer-data-minimized history of payment batch mutations. |
 | payments | `payment_case_review` | `payments.PaymentCaseReview` | authoritative_record | active | Current per-case Head of Rural decision bound to exact payment data. |
+| platform | `payment_receipt_batch` | `payments.PaymentReceiptBatch` | processing_record | active | One received HomeBiogas invoice delivery, reconciled as a unit. This is deliberately separate from ``InvoiceUploadBatch``: the latter is evidence for one uploaded PDF while a real HB delivery can contain one combined PDF or several files and must yield one payment preparation run. |
+| platform | `payment_receipt_item` | `payments.PaymentReceiptItem` | processing_record | active | One parsed invoice and its payment disposition within a receipt batch. |
 | payments | `payment_sequence_event` | `payments.PaymentSequenceEvent` | immutable_event | active | Immutable evidence for every official payment-number allocation or adjustment. |
 | payments | `payment_sequence_state` | `payments.PaymentSequenceState` | configuration_state | active | Group-scoped source of truth for the next official payment number. |
 | requisitions | `requisition_order_sequence_event` | `requisitions.OrderSequenceEvent` | immutable_event | active | Immutable customer-data-free evidence for each official sequence mutation. |
 | requisitions | `requisition_order_sequence_state` | `requisitions.OrderSequenceState` | configuration_state | active | Group-scoped source of truth for the next official requisition order number. |
+| tat_recognition | `tat_recognition_period_snapshot` | `tat_recognition.TatRecognitionPeriodSnapshot` | immutable_event | active | Frozen completed-stage facts for one TAT group and settled calendar period. |
 
 ## Relationship and usage details
 
@@ -259,8 +262,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.GroupSheetConfiguration`, `core.OperationalLocation`, `core.Product`
 - Children: None
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`, `core.OperationalLocation`, `core.Product`
-- Direct ORM writers: `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`
-- Used by: `core/api/portal_views.py`, `core/management/commands/check_portal_role_separation.py`, `core/services/access_control.py`, `core/services/access_control_reporting.py`, `core/services/access_grant_governance.py`, `core/services/access_policies.py`, `core/services/business_admin.py`, `core/services/fresh_database_baseline.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_comments.py`, `core/services/location_catalog.py`, `core/services/locations.py`, `core/services/portal_imports.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `core/services/staff_lifecycle.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_reporting.py`, `core/services/tat_responsibilities.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/telegram_identity.py`, `core/services/user_hard_delete.py`, `core/services/workflow_access.py`
+- Direct ORM writers: `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `hb_operations/tests.py`
+- Used by: `core/api/portal_views.py`, `core/management/commands/check_portal_role_separation.py`, `core/services/access_control.py`, `core/services/access_control_reporting.py`, `core/services/access_grant_governance.py`, `core/services/access_policies.py`, `core/services/business_admin.py`, `core/services/fresh_database_baseline.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_comments.py`, `core/services/location_catalog.py`, `core/services/locations.py`, `core/services/portal_imports.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `core/services/staff_lifecycle.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_reporting.py`, `core/services/tat_responsibilities.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/telegram_identity.py`, `core/services/user_hard_delete.py`, `core/services/workflow_access.py`, `core/services/workflow_recognition.py`, `hb_operations/tests.py`
 
 ### `core_branchservicearea`
 
@@ -314,8 +317,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.ComplaintCategory`, `core.JawabuCustomer`, `core.OperationalLocation`, `core.ParsedMessage`
 - Children: `core.ComplaintCaseEvent`
 - Cross-domain parents: `auth.User`, `core.JawabuCustomer`, `core.OperationalLocation`
-- Direct ORM writers: `core/services/complaint_cases.py`, `core/services/group_reset.py`
-- Used by: `core/services/complaint_cases.py`, `core/services/complaint_register.py`, `core/services/group_reset.py`
+- Direct ORM writers: `core/services/complaint_cases.py`, `core/services/group_reset.py`, `core/services/portal_full_reset.py`
+- Used by: `core/services/complaint_cases.py`, `core/services/complaint_register.py`, `core/services/group_reset.py`, `core/services/portal_full_reset.py`
 
 ### `core_complaintcaseevent`
 
@@ -457,8 +460,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.PaymentDocument`, `core.RequisitionBatch`
 - Children: `core.DocumentPhysicalSignoffEvent`, `hb_operations.HomeBiogasAction`
 - Cross-domain parents: `core.PaymentDocument`, `core.RequisitionBatch`
-- Direct ORM writers: `hb_operations/tests.py`
-- Used by: `core/api/portal_views.py`, `core/services/document_signoffs.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `payments/services.py`
+- Direct ORM writers: `core/services/portal_full_reset.py`, `hb_operations/tests.py`
+- Used by: `core/api/portal_views.py`, `core/services/document_signoffs.py`, `core/services/portal_full_reset.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `payments/services.py`
 
 ### `core_documentphysicalsignoffevent`
 
@@ -480,7 +483,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/access_control.py`
-- Used by: `core/services/access_control.py`, `core/services/document_signoffs.py`, `hb_operations/services.py`
+- Used by: `core/services/access_control.py`, `core/services/document_signoffs.py`, `hb_operations/services.py`, `payments/tests.py`
 
 ### `core_durablejobrunnerheartbeat`
 
@@ -491,7 +494,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/durable_jobs.py`
-- Used by: `core/services/durable_jobs.py`, `core/services/tat_full_reset.py`
+- Used by: `core/services/durable_jobs.py`, `core/services/portal_publication.py`, `core/services/tat_full_reset.py`
 
 ### `core_emergencyaccessgrant`
 
@@ -512,8 +515,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: None
 - Children: None
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/fca.py`, `core/services/group_reset.py`
-- Used by: `core/api/views.py`, `core/services/database_catalog.py`, `core/services/fca.py`, `core/services/group_reset.py`, `core/services/sheet_publication.py`
+- Direct ORM writers: `core/services/fca.py`, `core/services/group_reset.py`, `core/services/portal_full_reset.py`
+- Used by: `core/api/views.py`, `core/services/database_catalog.py`, `core/services/fca.py`, `core/services/group_reset.py`, `core/services/portal_full_reset.py`, `core/services/sheet_publication.py`
 
 ### `core_groupsheetconfiguration`
 
@@ -521,10 +524,10 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Source of truth: **Yes**
 - Retention: Retain while referenced; retire or deactivate instead of deleting governed history.
 - Parents: None
-- Children: `core.AccessGrant`, `core.ComplaintCategoryAvailability`, `core.EmergencyAccessGrant`, `core.LiveSheetRecordChange`, `core.PortalVoiceTranscriptionAttempt`, `core.RequisitionBatch`, `core.SheetRegisterContract`, `core.StaffTelegramGroupInvitation`, `core.TatActionTask`, `core.TatConfigurationEvent`, `core.TatEscalationRule`, `core.TatGroupExceptionStatus`, `core.TatRepairJob`, `core.TatResponsibilityAssignment`, `core.WorkflowConfigurationChangeRequest`, `core.WorkflowPilotFormulaReadiness`, `payments.PaymentBatch`, `payments.PaymentSequenceState`, `requisitions.OrderSequenceState`
+- Children: `core.AccessGrant`, `core.ComplaintCategoryAvailability`, `core.EmergencyAccessGrant`, `core.InvoiceUploadBatch`, `core.JawabuFarmerMaster`, `core.LiveSheetRecordChange`, `core.PortalVoiceTranscriptionAttempt`, `core.RequisitionBatch`, `core.SheetRegisterContract`, `core.StaffTelegramGroupInvitation`, `core.TatActionTask`, `core.TatConfigurationEvent`, `core.TatEscalationRule`, `core.TatGroupExceptionStatus`, `core.TatRepairJob`, `core.TatResponsibilityAssignment`, `core.WorkflowConfigurationChangeRequest`, `core.WorkflowPilotFormulaReadiness`, `payments.PaymentBatch`, `payments.PaymentReceiptBatch`, `payments.PaymentSequenceState`, `requisitions.OrderSequenceState`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/staff_telegram_onboarding.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/workflow_pilot_purge.py`, `credit_assessments/tests.py`, `hb_operations/tests.py`, `payments/tests.py`
-- Used by: `core/api/complaint_case_views.py`, `core/api/portal_views.py`, `core/management/commands/probe_integrations.py`, `core/management/commands/repair_tat_sheet_duplicates.py`, `core/management/commands/resync_tat_tracker_cases.py`, `core/management/commands/seed_sheet_register_contracts.py`, `core/management/commands/sync_telegram_commands.py`, `core/management/commands/sync_telegram_launchers.py`, `core/services/access_control.py`, `core/services/complaint_cases.py`, `core/services/complaint_register.py`, `core/services/fresh_database_baseline.py`, `core/services/group_config.py`, `core/services/group_reset.py`, `core/services/jawabu.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_pipeline.py`, `core/services/miniapp_settings.py`, `core/services/portal_imports.py`, `core/services/sheet_analyzer.py`, `core/services/sheet_publication.py`, `core/services/spin_credit.py`, `core/services/staff_lifecycle.py`, `core/services/staff_telegram_onboarding.py`, `core/services/sync_governance.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_register.py`, `core/services/tat_repair_jobs.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/tat_update_dispatch.py`, `core/services/telegram_identity.py`, `core/services/telegram_launchers.py`, `core/services/user_hard_delete.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_sla.py`, `credit_assessments/services.py`, `credit_assessments/tests.py`, `hb_operations/tests.py`, `payments/models.py`, `payments/tests.py`, `requisitions/models.py`
+- Direct ORM writers: `core/services/fca.py`, `core/services/staff_telegram_onboarding.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/workflow_pilot_purge.py`, `credit_assessments/tests.py`, `hb_operations/tests.py`, `payments/tests.py`
+- Used by: `core/api/complaint_case_views.py`, `core/api/portal_views.py`, `core/management/commands/probe_integrations.py`, `core/management/commands/repair_portal_sheet_numbers.py`, `core/management/commands/repair_tat_sheet_duplicates.py`, `core/management/commands/resync_tat_tracker_cases.py`, `core/management/commands/seed_sheet_register_contracts.py`, `core/management/commands/sync_telegram_commands.py`, `core/management/commands/sync_telegram_launchers.py`, `core/services/access_control.py`, `core/services/complaint_cases.py`, `core/services/complaint_register.py`, `core/services/fca.py`, `core/services/fresh_database_baseline.py`, `core/services/group_config.py`, `core/services/group_reset.py`, `core/services/jawabu.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_master.py`, `core/services/jawabu_pipeline.py`, `core/services/miniapp_settings.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/sheet_analyzer.py`, `core/services/sheet_publication.py`, `core/services/spin_credit.py`, `core/services/staff_lifecycle.py`, `core/services/staff_telegram_onboarding.py`, `core/services/sync_governance.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_register.py`, `core/services/tat_repair_jobs.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/tat_update_dispatch.py`, `core/services/telegram_identity.py`, `core/services/telegram_launchers.py`, `core/services/user_hard_delete.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_sla.py`, `credit_assessments/services.py`, `credit_assessments/tests.py`, `hb_operations/tests.py`, `payments/models.py`, `payments/tests.py`, `requisitions/models.py`
 
 ### `core_integrationcircuitstate`
 
@@ -535,7 +538,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/external_resilience.py`
-- Used by: `core/services/external_resilience.py`
+- Used by: `core/api/portal_views.py`, `core/services/external_resilience.py`
 
 ### `core_integrationoperation`
 
@@ -545,8 +548,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/external_resilience.py`
-- Used by: `core/api/portal_views.py`, `core/management/commands/probe_integrations.py`, `core/services/complaint_imports.py`, `core/services/external_resilience.py`, `core/services/origination_esign.py`, `core/services/portal_dashboard.py`, `core/services/portal_imports.py`, `core/services/portal_publication.py`, `core/services/tat_setup.py`
+- Direct ORM writers: `core/api/portal_views.py`, `core/services/external_resilience.py`, `core/services/portal_full_reset.py`
+- Used by: `core/api/portal_views.py`, `core/management/commands/drain_portal_publications.py`, `core/management/commands/probe_integrations.py`, `core/services/complaint_imports.py`, `core/services/external_resilience.py`, `core/services/origination_esign.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/portal_publication.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`
 
 ### `core_invoiceidentityreview`
 
@@ -567,8 +570,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.InvoiceNameChangeLetterArtifact`
 - Children: `core.InvoiceNameChangeItem`, `core.InvoiceNameChangeLetterArtifact`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/invoice_identity.py`
-- Used by: `core/api/portal_views.py`, `core/services/invoice_identity.py`, `core/services/invoice_name_change_letters.py`
+- Direct ORM writers: `core/services/invoice_identity.py`, `core/services/portal_full_reset.py`
+- Used by: `core/api/portal_views.py`, `core/services/invoice_identity.py`, `core/services/invoice_name_change_letters.py`, `core/services/portal_full_reset.py`
 
 ### `core_invoicenamechangeitem`
 
@@ -578,8 +581,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.InvoiceIdentityReview`, `core.InvoiceNameChangeBatch`, `core.InvoiceNameChangeItem`, `core.JawabuFarmerMaster`, `core.JawabuHouseholdRelationship`, `core.ParsedInvoice`
 - Children: `core.InvoiceNameChangeItem`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/invoice_identity.py`
-- Used by: `core/api/portal_views.py`, `core/services/invoice_identity.py`, `core/services/portal_dashboard.py`
+- Direct ORM writers: `core/services/invoice_identity.py`, `core/services/portal_full_reset.py`
+- Used by: `core/api/portal_views.py`, `core/services/invoice_identity.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`
 
 ### `core_invoicenamechangeletterartifact`
 
@@ -589,8 +592,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.InvoiceNameChangeBatch`, `core.InvoiceNameChangeLetterTemplate`
 - Children: `core.InvoiceNameChangeBatch`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/invoice_name_change_letters.py`
-- Used by: `core/api/portal_views.py`, `core/services/invoice_identity.py`, `core/services/invoice_name_change_letters.py`
+- Direct ORM writers: `core/services/invoice_name_change_letters.py`, `core/services/portal_full_reset.py`
+- Used by: `core/api/portal_views.py`, `core/services/invoice_identity.py`, `core/services/invoice_name_change_letters.py`, `core/services/portal_full_reset.py`
 
 ### `core_invoicenamechangelettertemplate`
 
@@ -608,11 +611,11 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Application identity: `core.InvoiceUploadBatch` in **Jawabu**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
-- Parents: None
-- Children: `core.ParsedInvoice`
-- Cross-domain parents: None
-- Direct ORM writers: `core/services/invoice_parser.py`
-- Used by: `core/api/portal_views.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`
+- Parents: `core.GroupSheetConfiguration`
+- Children: `core.ParsedInvoice`, `payments.PaymentReceiptItem`
+- Cross-domain parents: `core.GroupSheetConfiguration`
+- Direct ORM writers: `core/services/invoice_parser.py`, `core/services/portal_full_reset.py`, `hb_operations/tests.py`, `payments/tests.py`
+- Used by: `core/api/portal_views.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/portal_full_reset.py`, `hb_operations/tests.py`, `payments/models.py`, `payments/tests.py`
 
 ### `core_jawabuapprovalcondition`
 
@@ -655,8 +658,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.JawabuApprovalDelegation`, `core.JawabuFarmerMaster`, `core.PaymentDocument`
 - Children: `core.JawabuApprovalCondition`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/jawabu_approvals.py`
-- Used by: `core/services/jawabu_approvals.py`
+- Direct ORM writers: `core/services/jawabu_approvals.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_full_reset.py`
+- Used by: `core/services/jawabu_approvals.py`, `core/services/jawabu_pipeline.py`, `core/services/payment_documents.py`, `core/services/portal_full_reset.py`
 
 ### `core_jawabucasecomment`
 
@@ -666,8 +669,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.JawabuFarmerMaster`, `core.JawabuPipelineEvent`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/jawabu_comments.py`
-- Used by: `core/services/jawabu_comments.py`, `core/services/jawabu_master.py`, `core/services/sheet_publication.py`
+- Direct ORM writers: `core/services/jawabu_comments.py`, `core/services/portal_full_reset.py`
+- Used by: `core/services/jawabu_comments.py`, `core/services/jawabu_master.py`, `core/services/portal_full_reset.py`, `core/services/sheet_publication.py`
 
 ### `core_jawabucustomer`
 
@@ -677,8 +680,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: None
 - Children: `core.ComplaintCaseControl`, `core.JawabuCustomerPhoneHistory`, `core.JawabuFarmerMaster`, `core.JawabuRelatedPerson`, `core.LoanOriginationApplication`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/jawabu_identity.py`, `core/services/system_export.py`
-- Used by: `core/services/complaint_cases.py`, `core/services/invoice_identity.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_identity.py`, `core/services/portal_imports.py`, `core/services/system_export.py`
+- Direct ORM writers: `core/api/portal_views.py`, `core/services/jawabu_identity.py`, `core/services/portal_full_reset.py`, `core/services/system_export.py`
+- Used by: `core/api/portal_views.py`, `core/services/complaint_cases.py`, `core/services/invoice_identity.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_identity.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/system_export.py`
 
 ### `core_jawabucustomerfieldprovenance`
 
@@ -729,11 +732,11 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Application identity: `core.JawabuFarmerMaster` in **Jawabu**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
-- Parents: `core.JawabuCustomer`, `core.OperationalLocation`, `core.Product`, `core.ProductVersion`
-- Children: `core.InvoiceIdentityReview`, `core.InvoiceNameChangeItem`, `core.JawabuApprovalRecord`, `core.JawabuCaseComment`, `core.JawabuCustomerFieldProvenance`, `core.JawabuDataQualityIssue`, `core.JawabuHouseholdRelationship`, `core.JawabuMediaAccessEvent`, `core.JawabuPipelineEvent`, `core.MediaAttachment`, `core.ParsedInvoice`, `core.PortalCaseWorkspace`, `core.PortalVoiceTranscriptionAttempt`, `hb_operations.HomeBiogasAction`, `payments.PaymentBatchCase`
-- Cross-domain parents: `core.OperationalLocation`, `core.Product`, `core.ProductVersion`
-- Direct ORM writers: `core/services/fca.py`, `core/services/invoice_parser.py`, `core/services/jawabu_master.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `payments/tests.py`
-- Used by: `core/api/portal_views.py`, `core/management/commands/backfill_jbl_schedule_status.py`, `core/management/commands/normalize_jawabu_dates.py`, `core/services/fca.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_case_reference.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_identity.py`, `core/services/jawabu_master.py`, `core/services/jawabu_media_access.py`, `core/services/jawabu_pipeline.py`, `core/services/jawabu_validation.py`, `core/services/location_catalog.py`, `core/services/payment_documents.py`, `core/services/portal_case_corrections.py`, `core/services/portal_dashboard.py`, `core/services/portal_imports.py`, `core/services/portal_publication.py`, `core/services/portal_reporting.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/requisition.py`, `core/services/sheet_publication.py`, `core/services/system_export.py`, `core/services/workflow_sla.py`, `core/services/workflow_timeline.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `payments/models.py`, `payments/services.py`, `payments/tests.py`
+- Parents: `core.GroupSheetConfiguration`, `core.JawabuCustomer`, `core.OperationalLocation`, `core.Product`, `core.ProductVersion`
+- Children: `core.InvoiceIdentityReview`, `core.InvoiceNameChangeItem`, `core.JawabuApprovalRecord`, `core.JawabuCaseComment`, `core.JawabuCustomerFieldProvenance`, `core.JawabuDataQualityIssue`, `core.JawabuHouseholdRelationship`, `core.JawabuMediaAccessEvent`, `core.JawabuPipelineEvent`, `core.MediaAttachment`, `core.ParsedInvoice`, `core.PortalCaseWorkspace`, `core.PortalVoiceTranscriptionAttempt`, `hb_operations.HomeBiogasAction`, `payments.PaymentBatchCase`, `payments.PaymentReceiptItem`
+- Cross-domain parents: `core.GroupSheetConfiguration`, `core.OperationalLocation`, `core.Product`, `core.ProductVersion`
+- Direct ORM writers: `core/api/portal_views.py`, `core/services/fca.py`, `core/services/invoice_parser.py`, `core/services/jawabu_master.py`, `core/services/portal_full_reset.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `payments/receipt_batches.py`, `payments/tests.py`
+- Used by: `core/api/portal_views.py`, `core/management/commands/backfill_jbl_schedule_status.py`, `core/management/commands/drain_portal_publications.py`, `core/management/commands/normalize_jawabu_dates.py`, `core/services/fca.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_case_reference.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_identity.py`, `core/services/jawabu_master.py`, `core/services/jawabu_media_access.py`, `core/services/jawabu_pipeline.py`, `core/services/jawabu_validation.py`, `core/services/location_catalog.py`, `core/services/payment_documents.py`, `core/services/portal_case_corrections.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/portal_publication.py`, `core/services/portal_reporting.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/requisition.py`, `core/services/sheet_publication.py`, `core/services/system_export.py`, `core/services/workflow_sla.py`, `core/services/workflow_timeline.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/services.py`, `payments/tests.py`
 
 ### `core_jawabufarmeruploadbatch`
 
@@ -743,8 +746,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu_master.py`, `core/services/portal_imports.py`, `core/services/system_export.py`
-- Used by: `core/api/portal_views.py`, `core/api/views.py`, `core/management/commands/audit_jawabu_data_quality.py`, `core/services/group_reset.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_master.py`, `core/services/portal_imports.py`, `core/services/system_export.py`
+- Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu_master.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/system_export.py`
+- Used by: `core/api/portal_views.py`, `core/api/views.py`, `core/management/commands/audit_jawabu_data_quality.py`, `core/services/group_reset.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_master.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/system_export.py`
 
 ### `core_jawabuhouseholdrelationship`
 
@@ -754,8 +757,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.JawabuFarmerMaster`, `core.JawabuRelatedPerson`
 - Children: `core.InvoiceNameChangeItem`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/invoice_identity.py`
-- Used by: `core/services/invoice_identity.py`, `core/services/jawabu_case360.py`
+- Direct ORM writers: `core/services/invoice_identity.py`, `core/services/portal_full_reset.py`
+- Used by: `core/services/invoice_identity.py`, `core/services/jawabu_case360.py`, `core/services/portal_full_reset.py`
 
 ### `core_jawabumediaaccessevent`
 
@@ -765,8 +768,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.JawabuFarmerMaster`, `core.MediaAttachment`
 - Children: None
 - Cross-domain parents: `auth.User`, `core.MediaAttachment`
-- Direct ORM writers: `core/services/jawabu_media_access.py`
-- Used by: `core/services/jawabu_media_access.py`
+- Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu_media_access.py`, `core/services/portal_full_reset.py`
+- Used by: `core/services/group_reset.py`, `core/services/jawabu_media_access.py`, `core/services/portal_full_reset.py`
 
 ### `core_jawabupipelineevent`
 
@@ -776,8 +779,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.JawabuFarmerMaster`
 - Children: `core.JawabuCaseComment`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu_case360.py`
-- Used by: `core/api/portal_views.py`, `core/services/group_reset.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_dashboard.py`, `core/services/workflow_recognition.py`, `core/services/workflow_timeline.py`
+- Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu_case360.py`, `core/services/portal_full_reset.py`
+- Used by: `core/api/portal_views.py`, `core/services/group_reset.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/workflow_recognition.py`, `core/services/workflow_timeline.py`
 
 ### `core_jawaburelatedperson`
 
@@ -787,8 +790,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.JawabuCustomer`
 - Children: `core.JawabuHouseholdRelationship`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/invoice_identity.py`
-- Used by: `core/services/invoice_identity.py`
+- Direct ORM writers: `core/services/invoice_identity.py`, `core/services/portal_full_reset.py`
+- Used by: `core/services/invoice_identity.py`, `core/services/portal_full_reset.py`
 
 ### `core_jawabuvisitrecord`
 
@@ -798,8 +801,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: None
 - Children: None
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu.py`
-- Used by: `core/services/commands.py`, `core/services/group_reset.py`, `core/services/jawabu.py`
+- Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu.py`, `core/services/portal_full_reset.py`
+- Used by: `core/services/commands.py`, `core/services/group_reset.py`, `core/services/jawabu.py`, `core/services/portal_full_reset.py`
 
 ### `core_livesheetrecordchange`
 
@@ -809,8 +812,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.GroupSheetConfiguration`
 - Children: None
 - Cross-domain parents: `core.GroupSheetConfiguration`
-- Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu_pipeline.py`, `core/services/tat_tracker.py`
-- Used by: `core/services/group_reset.py`, `core/services/jawabu_pipeline.py`, `core/services/tat_full_reset.py`, `core/services/tat_tracker.py`
+- Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_full_reset.py`, `core/services/tat_tracker.py`
+- Used by: `core/services/group_reset.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_full_reset.py`, `core/services/tat_full_reset.py`, `core/services/tat_tracker.py`
 
 ### `core_loanoriginationapplication`
 
@@ -820,8 +823,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.JawabuCustomer`, `core.LoanOriginationApplication`, `core.OperationalLocation`, `core.OriginationProductDefinition`, `core.ProductVersion`
 - Children: `core.LoanOriginationApplication`, `core.OriginationApplicationDocument`, `core.OriginationApplicationEvent`, `core.OriginationCommercialException`, `core.OriginationCorrectionRequest`, `core.OriginationReportingValue`, `core.OriginationRequirementEvidence`, `core.OriginationReviewerNotice`, `core.OriginationSigningPackage`
 - Cross-domain parents: `auth.User`, `core.JawabuCustomer`, `core.OperationalLocation`, `core.ProductVersion`
-- Direct ORM writers: `core/services/loan_origination.py`, `core/services/origination_god_mode.py`
-- Used by: `core/api/origination_views.py`, `core/services/fresh_database_baseline.py`, `core/services/loan_origination.py`, `core/services/location_catalog.py`, `core/services/origination_commercial_terms.py`, `core/services/origination_consent.py`, `core/services/origination_documents.py`, `core/services/origination_esign.py`, `core/services/origination_evidence.py`, `core/services/origination_fields.py`, `core/services/origination_final_review.py`, `core/services/origination_god_mode.py`, `core/services/product_deletion.py`
+- Direct ORM writers: `core/services/loan_origination.py`, `core/services/origination_god_mode.py`, `core/services/portal_full_reset.py`
+- Used by: `core/api/origination_views.py`, `core/services/fresh_database_baseline.py`, `core/services/loan_origination.py`, `core/services/location_catalog.py`, `core/services/origination_commercial_terms.py`, `core/services/origination_consent.py`, `core/services/origination_documents.py`, `core/services/origination_esign.py`, `core/services/origination_evidence.py`, `core/services/origination_fields.py`, `core/services/origination_final_review.py`, `core/services/origination_god_mode.py`, `core/services/portal_full_reset.py`, `core/services/product_deletion.py`
 
 ### `core_locationconfigurationevent`
 
@@ -842,8 +845,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.OperationalLocation`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/location_catalog.py`
-- Used by: `core/services/location_catalog.py`
+- Direct ORM writers: `core/services/location_catalog.py`, `core/services/portal_full_reset.py`
+- Used by: `core/services/location_catalog.py`, `core/services/portal_full_reset.py`
 
 ### `core_locationpolicystate`
 
@@ -864,8 +867,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.JawabuFarmerMaster`, `core.OrderApprovalUpdate`
 - Children: `core.JawabuMediaAccessEvent`
 - Cross-domain parents: `core.JawabuFarmerMaster`
-- Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu_pipeline.py`, `core/services/order_approval.py`
-- Used by: `core/api/portal_views.py`, `core/services/commands.py`, `core/services/database_catalog.py`, `core/services/group_reset.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_media_access.py`, `core/services/jawabu_pipeline.py`, `core/services/order_approval.py`, `core/services/portal_reporting.py`, `core/services/workflow_timeline.py`
+- Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu_pipeline.py`, `core/services/order_approval.py`, `core/services/portal_full_reset.py`
+- Used by: `core/api/portal_views.py`, `core/services/commands.py`, `core/services/database_catalog.py`, `core/services/group_reset.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_media_access.py`, `core/services/jawabu_pipeline.py`, `core/services/order_approval.py`, `core/services/portal_full_reset.py`, `core/services/portal_reporting.py`, `core/services/workflow_timeline.py`
 
 ### `core_miniappdiagnosticdailyaggregate`
 
@@ -1247,10 +1250,10 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
 - Parents: `core.InvoiceUploadBatch`, `core.JawabuFarmerMaster`
-- Children: `core.InvoiceIdentityReview`, `core.InvoiceNameChangeItem`, `core.ParsedInvoiceEvent`
+- Children: `core.InvoiceIdentityReview`, `core.InvoiceNameChangeItem`, `core.ParsedInvoiceEvent`, `payments.PaymentReceiptItem`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/invoice_parser.py`
-- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/jawabu_case360.py`, `core/services/payment_documents.py`, `core/services/portal_reporting.py`, `core/services/workflow_timeline.py`, `hb_operations/services.py`
+- Direct ORM writers: `core/services/invoice_parser.py`, `hb_operations/tests.py`, `payments/tests.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/jawabu_case360.py`, `core/services/payment_documents.py`, `core/services/portal_full_reset.py`, `core/services/portal_reporting.py`, `core/services/workflow_timeline.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/tests.py`
 
 ### `core_parsedinvoiceevent`
 
@@ -1282,8 +1285,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: None
 - Children: `core.DocumentPhysicalSignoff`, `core.JawabuApprovalRecord`, `payments.PaymentBatch`
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/payment_documents.py`, `payments/tests.py`
-- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/document_signoffs.py`, `core/services/jawabu_case360.py`, `core/services/payment_documents.py`, `core/services/portal_health.py`, `core/services/portal_reconciliation.py`, `core/services/workflow_timeline.py`, `payments/models.py`, `payments/services.py`, `payments/tests.py`
+- Direct ORM writers: `core/services/payment_documents.py`, `core/services/portal_full_reset.py`, `payments/tests.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/document_signoffs.py`, `core/services/jawabu_case360.py`, `core/services/payment_documents.py`, `core/services/portal_full_reset.py`, `core/services/portal_health.py`, `core/services/portal_reconciliation.py`, `core/services/workflow_timeline.py`, `payments/models.py`, `payments/services.py`, `payments/tests.py`
 
 ### `core_paymentdocumenttemplate`
 
@@ -1382,7 +1385,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.AccessGrant`, `core.EmergencyAccessGrant`, `core.JawabuApprovalDelegation`, `core.JawabuFarmerMaster`, `core.OriginationDocumentProductEligibility`, `core.ProductAlias`, `core.ProductAvailability`, `core.ProductMappingIssue`, `core.ProductVersion`, `core.SpinCreditRequest`, `core.TatRepairJob`, `core.TatTrackerCase`, `core.WorkflowTatDailyMetric`
 - Cross-domain parents: None
 - Direct ORM writers: `core/services/product_catalog_full_reset.py`
-- Used by: `core/api/views.py`, `core/services/access_policies.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/generic_jawabu_laf_seed.py`, `core/services/invoice_finance_origination_seed.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_pipeline.py`, `core/services/loan_origination.py`, `core/services/origination_fields.py`, `core/services/origination_god_mode.py`, `core/services/origination_main_laf_seeds.py`, `core/services/origination_setup.py`, `core/services/origination_templates.py`, `core/services/origination_terminology.py`, `core/services/product_availability.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/sheet_publication.py`, `core/services/spin_credit.py`, `core/services/system_export.py`, `core/services/tat_register.py`, `core/services/tat_reporting.py`, `core/services/tat_tracker.py`, `core/services/workflow_catalog.py`
+- Used by: `core/api/views.py`, `core/services/access_policies.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/generic_jawabu_laf_seed.py`, `core/services/invoice_finance_origination_seed.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_pipeline.py`, `core/services/loan_origination.py`, `core/services/origination_fields.py`, `core/services/origination_god_mode.py`, `core/services/origination_main_laf_seeds.py`, `core/services/origination_setup.py`, `core/services/origination_templates.py`, `core/services/origination_terminology.py`, `core/services/payment_documents.py`, `core/services/product_availability.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/sheet_publication.py`, `core/services/spin_credit.py`, `core/services/system_export.py`, `core/services/tat_register.py`, `core/services/tat_reporting.py`, `core/services/tat_tracker.py`, `core/services/workflow_catalog.py`
 
 ### `core_productalias`
 
@@ -1447,8 +1450,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.Product`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`
-- Used by: `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`
+- Direct ORM writers: `core/services/portal_full_reset.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`
+- Used by: `core/services/portal_full_reset.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`
 
 ### `core_productrequirement`
 
@@ -1521,11 +1524,11 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Application identity: `core.RequisitionBatch` in **Jawabu**
 - Source of truth: **Yes**
 - Retention: Retained with the owning business record according to its workflow policy.
-- Parents: `auth.User`, `core.GroupSheetConfiguration`
+- Parents: `auth.User`, `core.GroupSheetConfiguration`, `core.RequisitionTemplate`
 - Children: `core.DocumentPhysicalSignoff`, `hb_operations.HomeBiogasAction`
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`
-- Direct ORM writers: `core/api/portal_views.py`, `hb_operations/tests.py`
-- Used by: `core/api/portal_views.py`, `core/services/document_signoffs.py`, `core/services/invoice_parser.py`, `core/services/jawabu_case360.py`, `core/services/portal_health.py`, `core/services/portal_reconciliation.py`, `core/services/workflow_timeline.py`, `hb_operations/models.py`, `hb_operations/tests.py`
+- Direct ORM writers: `core/api/portal_views.py`, `core/services/portal_full_reset.py`, `hb_operations/tests.py`
+- Used by: `core/api/portal_views.py`, `core/services/document_signoffs.py`, `core/services/invoice_parser.py`, `core/services/jawabu_case360.py`, `core/services/portal_full_reset.py`, `core/services/portal_health.py`, `core/services/portal_reconciliation.py`, `core/services/workflow_timeline.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`
 
 ### `core_requisitiontemplate`
 
@@ -1533,7 +1536,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Source of truth: **Yes**
 - Retention: Retain while referenced; retire or deactivate instead of deleting governed history.
 - Parents: None
-- Children: None
+- Children: `core.RequisitionBatch`
 - Cross-domain parents: None
 - Direct ORM writers: No direct manager mutation found; inspect owning service
 - Used by: `core/services/portal_health.py`, `core/services/requisition.py`
@@ -1843,7 +1846,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `core.Product`, `core.ProductVersion`
 - Children: `core.TatActionTask`, `core.TatTrackerApprovalCertificate`, `core.TatTrackerEvent`, `core.TatUpdateSideEffectDispatch`, `core.WorkflowTatMetricRebuildRequest`, `credit_assessments.CreditAssessment`
 - Cross-domain parents: `core.Product`, `core.ProductVersion`
-- Direct ORM writers: `core/services/group_reset.py`, `core/services/tat_tracker.py`, `core/services/workflow_pilot_purge.py`, `credit_assessments/tests.py`
+- Direct ORM writers: `core/services/group_reset.py`, `core/services/tat_tracker.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_recognition.py`, `credit_assessments/tests.py`
 - Used by: `core/api/views.py`, `core/services/database_catalog.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/sheet_publication.py`, `core/services/sync_governance.py`, `core/services/tat_configuration.py`, `core/services/tat_full_reset.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_register.py`, `core/services/tat_repair_jobs.py`, `core/services/tat_reporting.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/tat_update_dispatch.py`, `core/services/workflow_data_mode.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_recognition.py`, `core/services/workflow_sla.py`, `core/services/workflow_timeline.py`, `credit_assessments/models.py`, `credit_assessments/services.py`, `credit_assessments/tests.py`, `credit_assessments/views.py`
 
 ### `core_tattrackerevent`
@@ -1975,8 +1978,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: None
 - Children: None
 - Cross-domain parents: None
-- Direct ORM writers: `core/services/access_control.py`, `core/services/fresh_database_baseline.py`
-- Used by: `core/services/access_control.py`, `core/services/access_control_reporting.py`, `core/services/fresh_database_baseline.py`, `core/services/origination_access.py`, `core/services/staff_lifecycle.py`, `core/services/workflow_access.py`, `core/services/workflow_capabilities.py`
+- Direct ORM writers: `core/services/access_control.py`, `core/services/fresh_database_baseline.py`, `hb_operations/tests.py`
+- Used by: `core/services/access_control.py`, `core/services/access_control_reporting.py`, `core/services/fresh_database_baseline.py`, `core/services/origination_access.py`, `core/services/staff_lifecycle.py`, `core/services/workflow_access.py`, `core/services/workflow_capabilities.py`, `hb_operations/tests.py`
 
 ### `core_workflowrolecapabilityauditevent`
 
@@ -2030,8 +2033,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`
 - Children: None
 - Cross-domain parents: None
-- Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: `core/services/tat_full_reset.py`, `core/services/workflow_timeline.py`
+- Direct ORM writers: `core/services/portal_full_reset.py`
+- Used by: `core/services/portal_full_reset.py`, `core/services/tat_full_reset.py`, `core/services/workflow_timeline.py`
 
 ### `credit_assessment_analysis_package`
 
@@ -2173,8 +2176,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `hb_operations.HomeBiogasAction`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `hb_operations/services.py`
-- Used by: `core/services/database_catalog.py`, `hb_operations/admin.py`, `hb_operations/migrations/0001_initial.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`
+- Direct ORM writers: `core/services/portal_full_reset.py`, `hb_operations/services.py`, `hb_operations/tests.py`
+- Used by: `core/services/database_catalog.py`, `core/services/jawabu_case360.py`, `core/services/portal_full_reset.py`, `core/services/workflow_timeline.py`, `hb_operations/admin.py`, `hb_operations/migrations/0001_initial.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`
 
 ### `hb_operations_action_root`
 
@@ -2184,19 +2187,19 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.DocumentPhysicalSignoff`, `core.JawabuFarmerMaster`, `core.RequisitionBatch`
 - Children: `hb_operations.HomeBiogasActionEvent`
 - Cross-domain parents: `auth.User`, `core.DocumentPhysicalSignoff`, `core.JawabuFarmerMaster`, `core.RequisitionBatch`
-- Direct ORM writers: `core/services/jawabu_pipeline.py`, `hb_operations/services.py`
-- Used by: `core/services/database_catalog.py`, `core/services/jawabu_pipeline.py`, `core/services/sheet_publication.py`, `hb_operations/admin.py`, `hb_operations/migrations/0001_initial.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `hb_operations/views.py`
+- Direct ORM writers: `core/services/jawabu_pipeline.py`, `core/services/portal_full_reset.py`, `hb_operations/services.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_full_reset.py`, `core/services/sheet_publication.py`, `hb_operations/admin.py`, `hb_operations/migrations/0001_initial.py`, `hb_operations/migrations/0002_simplify_fulfilment_states.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `hb_operations/views.py`
 
 ### `payment_batch`
 
 - Application identity: `payments.PaymentBatch` in **Payments**
 - Source of truth: **Yes**
 - Retention: Retained permanently with payment and signed-document evidence.
-- Parents: `auth.User`, `core.GroupSheetConfiguration`, `core.PaymentDocument`
+- Parents: `auth.User`, `core.GroupSheetConfiguration`, `core.PaymentDocument`, `payments.PaymentReceiptBatch`
 - Children: `payments.PaymentBatchCase`, `payments.PaymentBatchEvent`, `payments.PaymentSequenceEvent`
-- Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`, `core.PaymentDocument`
-- Direct ORM writers: `payments/services.py`, `payments/tests.py`
-- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/services.py`, `payments/tests.py`
+- Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`, `core.PaymentDocument`, `payments.PaymentReceiptBatch`
+- Direct ORM writers: `core/services/portal_full_reset.py`, `payments/services.py`, `payments/tests.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/invoice_identity.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/services.py`, `payments/tests.py`
 
 ### `payment_batch_case`
 
@@ -2206,8 +2209,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.JawabuFarmerMaster`, `payments.PaymentBatch`
 - Children: `payments.PaymentCaseReview`
 - Cross-domain parents: `auth.User`, `core.JawabuFarmerMaster`
-- Direct ORM writers: `payments/services.py`
-- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `payments/migrations/0001_initial.py`, `payments/migrations/0002_case_specific_payment_mode.py`, `payments/models.py`, `payments/services.py`
+- Direct ORM writers: `core/services/portal_full_reset.py`, `payments/services.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/migrations/0002_case_specific_payment_mode.py`, `payments/models.py`, `payments/services.py`
 
 ### `payment_batch_event`
 
@@ -2217,8 +2220,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `payments.PaymentBatch`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `payments/services.py`
-- Used by: `core/services/database_catalog.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/services.py`
+- Direct ORM writers: `core/services/portal_full_reset.py`, `payments/services.py`
+- Used by: `core/services/database_catalog.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/services.py`
 
 ### `payment_case_review`
 
@@ -2228,8 +2231,30 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `payments.PaymentBatchCase`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `payments/services.py`
-- Used by: `core/services/database_catalog.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/services.py`, `payments/tests.py`
+- Direct ORM writers: `core/services/portal_full_reset.py`, `payments/services.py`
+- Used by: `core/services/database_catalog.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/services.py`, `payments/tests.py`
+
+### `payment_receipt_batch`
+
+- Application identity: `payments.PaymentReceiptBatch` in **Platform**
+- Source of truth: **Yes**
+- Retention: Retained with the owning business record according to its workflow policy.
+- Parents: `auth.User`, `core.GroupSheetConfiguration`
+- Children: `payments.PaymentBatch`, `payments.PaymentReceiptItem`
+- Cross-domain parents: None
+- Direct ORM writers: `core/services/portal_full_reset.py`, `payments/receipt_batches.py`
+- Used by: `core/api/portal_views.py`, `core/services/portal_full_reset.py`, `payments/migrations/0004_payment_receipt_batches.py`, `payments/models.py`, `payments/receipt_batches.py`
+
+### `payment_receipt_item`
+
+- Application identity: `payments.PaymentReceiptItem` in **Platform**
+- Source of truth: **Yes**
+- Retention: Retained with the owning business record according to its workflow policy.
+- Parents: `core.InvoiceUploadBatch`, `core.JawabuFarmerMaster`, `core.ParsedInvoice`, `payments.PaymentReceiptBatch`
+- Children: None
+- Cross-domain parents: `core.InvoiceUploadBatch`, `core.JawabuFarmerMaster`, `core.ParsedInvoice`
+- Direct ORM writers: `core/services/portal_full_reset.py`, `payments/receipt_batches.py`
+- Used by: `core/api/portal_views.py`, `core/services/invoice_identity.py`, `core/services/portal_full_reset.py`, `payments/migrations/0004_payment_receipt_batches.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/services.py`, `payments/tests.py`
 
 ### `payment_sequence_event`
 
@@ -2239,8 +2264,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `payments.PaymentBatch`, `payments.PaymentSequenceState`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `payments/services.py`
-- Used by: `core/services/database_catalog.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/services.py`
+- Direct ORM writers: `core/services/portal_full_reset.py`, `payments/services.py`
+- Used by: `core/services/database_catalog.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/services.py`
 
 ### `payment_sequence_state`
 
@@ -2251,7 +2276,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `payments.PaymentSequenceEvent`
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`
 - Direct ORM writers: `payments/services.py`
-- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/services.py`, `payments/tests.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/services.py`, `payments/tests.py`
 
 ### `requisition_order_sequence_event`
 
@@ -2261,8 +2286,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `requisitions.OrderSequenceState`
 - Children: None
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/api/portal_views.py`
-- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `requisitions/migrations/0001_initial.py`, `requisitions/models.py`
+- Direct ORM writers: `core/api/portal_views.py`, `core/services/portal_full_reset.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/portal_full_reset.py`, `requisitions/migrations/0001_initial.py`, `requisitions/models.py`
 
 ### `requisition_order_sequence_state`
 
@@ -2273,4 +2298,15 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `requisitions.OrderSequenceEvent`
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`
 - Direct ORM writers: No direct manager mutation found; inspect owning service
-- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `requisitions/migrations/0001_initial.py`, `requisitions/models.py`
+- Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/portal_full_reset.py`, `requisitions/migrations/0001_initial.py`, `requisitions/models.py`
+
+### `tat_recognition_period_snapshot`
+
+- Application identity: `tat_recognition.TatRecognitionPeriodSnapshot` in **Tat Recognition**
+- Source of truth: **Yes**
+- Retention: Retain permanently as the final recognition record; no customer names or external media.
+- Parents: None
+- Children: None
+- Cross-domain parents: None
+- Direct ORM writers: `core/services/group_reset.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_recognition.py`
+- Used by: `core/services/database_catalog.py`, `core/services/group_reset.py`, `core/services/tat_full_reset.py`, `core/services/workflow_pilot_purge.py`, `core/services/workflow_recognition.py`, `tat_recognition/migrations/0001_initial.py`, `tat_recognition/models.py`

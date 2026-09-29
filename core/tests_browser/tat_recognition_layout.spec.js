@@ -11,12 +11,16 @@ const recognitionEnd = trackerSource.indexOf('  async function loadTatRecognitio
 const recognitionRenderer = trackerSource.slice(recognitionStart, recognitionEnd);
 
 const recognitionMarkup = `<main class="tat-app"><section id="recognitionView" class="view recognition-view active">
-  <header class="recognition-header"><div><p class="eyebrow">Recognition</p><h2>Monthly recognition</h2><p>See your on-time performance and how your role is doing this month.</p></div><label class="recognition-period"><span>Month</span><input id="tatRecognitionPeriod" type="month" value="2026-09"></label><p id="tatRecognitionUpdated" class="recognition-updated"></p></header>
-  <div id="tatRecognitionContextControls" class="recognition-context-controls"><label><span>Role</span><select id="tatRecognitionRole"></select></label><label><span>Product</span><select id="tatRecognitionProduct"></select></label></div>
+  <header class="recognition-header"><div><p class="eyebrow">Recognition</p><h2>Period standings</h2><p>Your overall result and the work behind it.</p></div><div class="recognition-period-controls"><label class="recognition-period"><span>View by</span><select id="tatRecognitionPeriodKind"><option value="month">Month</option><option value="quarter">Quarter</option><option value="year">Year</option></select></label><label class="recognition-period"><span>Month</span><input id="tatRecognitionPeriod" type="month" value="2026-09"></label></div><p id="tatRecognitionUpdated" class="recognition-updated"></p></header>
+  <section id="tatRecognitionOverall" class="recognition-overall"></section>
+  <button id="tatRecognitionFilterButton" class="tat-report-filter-bar recognition-filter-button"><span class="tat-report-filter-action"><strong>Filters</strong></span><span class="tat-report-filter-summary"><strong id="tatRecognitionFilterSummary"></strong><small>Compare a specific part of your work</small></span></button>
+  <div id="tatRecognitionContextControls" class="recognition-context-controls" hidden><label><span>Role</span><select id="tatRecognitionRole"></select></label><label><span>Product</span><select id="tatRecognitionProduct"></select></label><label><span>Branch</span><select id="tatRecognitionBranch"></select></label></div>
+  <section id="tatRecognitionSlice" class="recognition-slice" hidden></section>
   <div class="recognition-view-toggle" role="group"><button type="button" data-recognition-view="personal">My result</button><button type="button" data-recognition-view="people">People</button><button type="button" data-recognition-view="branches">Branches</button></div>
   <section id="tatPersonalRecognition" class="recognition-personal"></section>
   <section id="tatRecognitionStandings" class="recognition-standings" hidden><div class="stage-summary-heading"><div><h2 id="tatRecognitionStandingsTitle"></h2><p id="tatRecognitionStandingsBasis"></p></div><span id="tatRecognitionMinimum"></span></div><div id="tatRecognitionPinned" class="recognition-pinned" hidden></div><div id="tatRecognitionRows" class="recognition-list"></div><nav id="tatRecognitionPagination" class="recognition-pagination" hidden><button id="tatRecognitionPrevious">Previous</button><span id="tatRecognitionPage"></span><button id="tatRecognitionNext">Next</button></nav></section>
-  <details id="tatRecognitionTechnical" class="recognition-technical" hidden><summary>Calculation and data checks</summary><div id="tatRecognitionTechnicalContent"></div></details>
+  <section id="tatRecognitionBreakdown" class="recognition-breakdown"></section>
+  <details id="tatRecognitionTechnical" class="recognition-technical" hidden><summary>Data checks</summary><div id="tatRecognitionTechnicalContent"></div></details>
 </section></main>`;
 
 const selected = { role: 'BRO', role_label: 'BRO', product: 'standard', product_label: 'Standard HomeBiogas' };
@@ -26,12 +30,18 @@ const personalResult = {
   on_time_rate: 87.5, score: 64.1, is_current_user: true,
 };
 const basePayload = {
-  contract_version: 2,
+  contract_version: 3,
   minimum_ranked_sample: 20,
   calculated_at: '2026-09-17T10:45:00+03:00',
   view: 'personal', selected,
+  period: '2026-09', period_kind: 'month', result_status: 'live_provisional',
+  overall_result: {completed: 16, on_time_rate: 87.5, score: 64.1, ranked: false},
+  slice_result: {completed: 16, on_time_rate: 87.5, score: 64.1, ranked: false, share_of_overall: 100},
+  breakdown: {overall: {counted: 16, recorded: 16, within_target: 14, near_target: 0, over_target: 2, target_unavailable: 0, percentages: {within_target: 87.5, near_target: 0, over_target: 12.5}}, slice: {}},
+  stage_contributions: [], personal_best: null,
   role_options: [{ key: 'BRO', label: 'BRO' }],
   product_options: [{ key: 'standard', label: 'Standard HomeBiogas' }],
+  branch_options: [{ key: '', label: 'All branches' }, {key: 'Embu', label: 'Embu'}],
   personal_result: personalResult,
   role_summary: { role: 'BRO', product: 'Standard HomeBiogas', completed: 48, completed_total: 48, on_time_rate: 89.6, score: 78.0 },
   standings: { dimension: 'personal', rows: [], current_user_row: null, page: 1, pages: 1, total: 0, page_size: 5, has_competition: false, eligible_count: 0 },
@@ -51,7 +61,7 @@ async function mount(page, payload = basePayload) {
   await page.addStyleTag({ path: asset('tat_tracker.css') });
   await page.addScriptTag({ content: `
     const $ = id => document.getElementById(id);
-    const state = { recognition: { view: 'personal', role: '', product: '', page: 1, sequence: 0 } };
+    const state = { recognition: { view: 'personal', role: '', product: '', branch: '', page: 1, sequence: 0 } };
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[character]));
     const formatTatDateTime = () => '17-09-2026 10:45';
     ${recognitionRenderer}
@@ -69,15 +79,15 @@ for (const viewport of [
     await page.setViewportSize(viewport);
     await mount(page);
 
-    await expect(page.locator('#tatPersonalRecognition')).toContainText('Your result this month');
-    await expect(page.locator('#tatRecognitionUpdated')).toHaveText('Updated at 17-09-2026 10:45');
-    await expect(page.locator('#tatPersonalRecognition')).toContainText('16 of 20 counted stages');
-    await expect(page.locator('#tatPersonalRecognition')).toContainText('Complete 4 more counted stages');
+    await expect(page.locator('#tatRecognitionOverall')).toContainText('Your overall score');
+    await expect(page.locator('#tatRecognitionUpdated')).toContainText('September 2026 · Live · Updated 17-09-2026 10:45');
+    await expect(page.locator('#tatRecognitionBreakdown')).toContainText('Within target');
+    await expect(page.locator('#tatRecognitionSlice')).toContainText('Selected work');
     await expect(page.locator('#tatRecognitionTechnical')).toBeHidden();
     await expect(page.locator('#tatRecognitionStandings')).toBeHidden();
     expect(await page.locator('body').innerText()).not.toMatch(/Wilson|quality floor|legacy actor|corrected records|workflow group/i);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
-    const resultBox = await page.locator('.recognition-result-card').boundingBox();
+    const resultBox = await page.locator('.recognition-result-card').first().boundingBox();
     expect(resultBox.y + resultBox.height).toBeLessThanOrEqual(viewport.height + 20);
   });
 }
@@ -95,14 +105,16 @@ test('people standings render only five rows plus a pinned current result', asyn
 
   await expect(page.locator('#tatRecognitionStandings')).toBeVisible();
   await expect(page.locator('#tatRecognitionStandingsTitle')).toHaveText('People standings');
+  await expect(page.locator('#tatRecognitionSlice')).toContainText('100%');
   await expect(page.locator('#tatRecognitionPinned')).toContainText('Your position');
   await expect(page.locator('#tatRecognitionPage')).toHaveText('Page 2 of 8');
   await expect(page.locator('#tatRecognitionRows .recognition-row')).toHaveCount(5);
   await expect(page.locator('.recognition-row')).toHaveCount(6);
   await expect(page.locator('.recognition-row').first()).toContainText('87.5% On time');
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  const pinnedRow = await page.locator('#tatRecognitionPinned .recognition-row').boundingBox();
+  expect(pinnedRow.y).toBeLessThan(568);
   const firstListRow = await page.locator('#tatRecognitionRows .recognition-row').first().boundingBox();
-  expect(firstListRow.y).toBeLessThan(568);
   expect(firstListRow.height).toBeLessThanOrEqual(90);
   expect(await page.locator('.recognition-row-main > strong').first().evaluate(node => parseFloat(getComputedStyle(node).fontSize))).toBeGreaterThanOrEqual(12);
   expect(await page.locator('.recognition-row-metrics').first().evaluate(node => parseFloat(getComputedStyle(node).fontSize))).toBeGreaterThanOrEqual(11);
@@ -144,8 +156,20 @@ test('recognition empty states use plain language', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await mount(page, {
     ...basePayload, personal_result: null,
+    overall_result: { completed: 0, on_time_rate: 0, score: 0, ranked: false },
+    slice_result: { completed: 0, on_time_rate: 0, score: 0, ranked: false, share_of_overall: 0 },
+    breakdown: { overall: { counted: 0, recorded: 0, within_target: 0, near_target: 0, over_target: 0, target_unavailable: 0, percentages: {} }, slice: {} },
     role_summary: { completed: 0, completed_total: 0, on_time_rate: 0, score: 0 },
   });
-  await expect(page.locator('#tatPersonalRecognition')).toContainText('No counted stages for this month.');
-  await expect(page.locator('#tatPersonalRecognition')).toContainText('Your result will appear after you complete a stage.');
+  await expect(page.locator('#tatRecognitionOverall')).toContainText('No counted actions');
+  await expect(page.locator('#tatRecognitionBreakdown')).toContainText('0 actions counted');
+});
+
+test('quarter and year labels identify the selected period', async ({ page }) => {
+  await mount(page, { ...basePayload, period_kind: 'quarter', period: '2026-Q2' });
+  await expect(page.locator('#tatRecognitionUpdated')).toContainText('2026 · Q2');
+  await page.evaluate(value => window.renderTatRecognitionForTest(value), {
+    ...basePayload, period_kind: 'year', period: '2025',
+  });
+  await expect(page.locator('#tatRecognitionUpdated')).toContainText('2025 · Live');
 });

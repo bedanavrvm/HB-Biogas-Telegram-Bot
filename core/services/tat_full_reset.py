@@ -54,6 +54,7 @@ from core.models import (
     WORKFLOW_DATA_MODE_PILOT,
 )
 from core.services.compliance_audit import record_event
+from tat_recognition.models import TatRecognitionPeriodSnapshot
 
 
 WORKFLOW_TAT = 'tat_tracker'
@@ -88,6 +89,7 @@ class TatResetTarget:
 # Order is deletion order. Explicit children precede protected parents so the
 # reset does not depend on broad cascades and every target can be previewed.
 TAT_RESET_TARGETS = (
+    TatResetTarget('Cases, tasks, and reporting', TatRecognitionPeriodSnapshot),
     TatResetTarget('Cases, tasks, and reporting', TatActionTaskLocator),
     TatResetTarget('Cases, tasks, and reporting', TatActionTaskRecipient),
     TatResetTarget('Cases, tasks, and reporting', TatTaskRerouteEvent),
