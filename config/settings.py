@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     'hb_operations',
     'qa_tracker',
     'tat_recognition',
+    'portal_recognition',
 ]
 
 UNFOLD = {

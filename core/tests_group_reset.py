@@ -25,6 +25,7 @@ from core.models import (
 )
 from core.services.group_reset import group_data_counts, reset_group_data
 from tat_recognition.models import TatRecognitionLiveStanding, TatRecognitionPeriodSnapshot
+from portal_recognition.models import PortalRecognitionLiveStanding, PortalRecognitionPeriodSnapshot
 
 
 User = get_user_model()
@@ -68,6 +69,31 @@ class GroupResetAdminTests(TestCase):
         self.assertTrue(TatRecognitionPeriodSnapshot.objects.filter(group_id=other.group_id).exists())
         self.assertFalse(TatRecognitionLiveStanding.objects.filter(group_id=selected.group_id).exists())
         self.assertTrue(TatRecognitionLiveStanding.objects.filter(group_id=other.group_id).exists())
+
+    def test_portal_reset_removes_only_selected_group_performance_state(self):
+        selected = GroupSheetConfiguration.objects.create(
+            group_id='-100portal-performance-selected', workflow={'type': 'jawabu_homebiogas'},
+        )
+        other = GroupSheetConfiguration.objects.create(
+            group_id='-100portal-performance-other', workflow={'type': 'jawabu_homebiogas'},
+        )
+        for configuration in (selected, other):
+            PortalRecognitionPeriodSnapshot.objects.create(
+                group_configuration_id=configuration.pk, period_kind='month',
+                period_key='2026-01', facts=[],
+            )
+            PortalRecognitionLiveStanding.objects.create(
+                viewer=self.admin_user, context_key=f'portal-performance-{configuration.pk}',
+                group_configuration_ids=[configuration.pk], ranks={}, signature='',
+                observed_at=timezone.now(), expires_at=timezone.now() + timedelta(days=45),
+            )
+        result = reset_group_data(selected)
+        self.assertEqual(result['deleted']['portal_recognition_snapshots'], 1)
+        self.assertEqual(result['deleted']['portal_recognition_live_standings'], 1)
+        self.assertFalse(PortalRecognitionPeriodSnapshot.objects.filter(group_configuration_id=selected.pk).exists())
+        self.assertTrue(PortalRecognitionPeriodSnapshot.objects.filter(group_configuration_id=other.pk).exists())
+        self.assertFalse(PortalRecognitionLiveStanding.objects.filter(context_key=f'portal-performance-{selected.pk}').exists())
+        self.assertTrue(PortalRecognitionLiveStanding.objects.filter(context_key=f'portal-performance-{other.pk}').exists())
 
     def test_complaint_reset_page_exposes_only_complaint_configuration_scope(self):
         config = GroupSheetConfiguration.objects.create(

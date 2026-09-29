@@ -195,6 +195,7 @@
         "core/services/location_catalog.py",
         "core/services/locations.py",
         "core/services/portal_imports.py",
+        "core/services/portal_recognition.py",
         "core/services/product_catalog.py",
         "core/services/product_catalog_full_reset.py",
         "core/services/product_deletion.py",
@@ -1660,6 +1661,7 @@
         "core/services/portal_full_reset.py",
         "core/services/portal_imports.py",
         "core/services/portal_publication.py",
+        "core/services/portal_recognition.py",
         "core/services/portal_reporting.py",
         "core/services/product_catalog.py",
         "core/services/product_deletion.py",
@@ -1802,7 +1804,8 @@
       "direct_orm_writers": [
         "core/services/group_reset.py",
         "core/services/jawabu_case360.py",
-        "core/services/portal_full_reset.py"
+        "core/services/portal_full_reset.py",
+        "core/services/portal_recognition.py"
       ],
       "django_model": "core.JawabuPipelineEvent",
       "domain": "jawabu",
@@ -1827,6 +1830,7 @@
         "core/services/jawabu_pipeline.py",
         "core/services/portal_dashboard.py",
         "core/services/portal_full_reset.py",
+        "core/services/portal_recognition.py",
         "core/services/workflow_recognition.py",
         "core/services/workflow_timeline.py"
       ]
@@ -5995,6 +5999,7 @@
         "core/services/database_catalog.py",
         "core/services/jawabu_case360.py",
         "core/services/portal_full_reset.py",
+        "core/services/portal_recognition.py",
         "core/services/workflow_timeline.py",
         "hb_operations/admin.py",
         "hb_operations/migrations/0001_initial.py",
@@ -6353,6 +6358,66 @@
         "payments/models.py",
         "payments/services.py",
         "payments/tests.py"
+      ]
+    },
+    {
+      "application_area": "Portal Recognition",
+      "children": [],
+      "classification": "derived_cache",
+      "column_count": 9,
+      "cross_domain_parents": [
+        "auth.User"
+      ],
+      "direct_orm_writers": [
+        "core/services/group_reset.py",
+        "core/services/portal_recognition.py"
+      ],
+      "django_model": "portal_recognition.PortalRecognitionLiveStanding",
+      "domain": "portal_recognition",
+      "explicit_indexes": [
+        "portal_live_expiry_idx"
+      ],
+      "lifecycle": "active",
+      "parents": [
+        "auth.User"
+      ],
+      "purpose": "Expiring, per-viewer live Portal rank baseline for one authorized standing.",
+      "retention": "Delete expired rows in bounded on-demand batches after 45 days, or on owning group reset.",
+      "source_of_truth": false,
+      "table": "portal_recognition_live_standing",
+      "used_by": [
+        "core/services/database_catalog.py",
+        "core/services/group_reset.py",
+        "core/services/portal_recognition.py",
+        "portal_recognition/migrations/0001_initial.py",
+        "portal_recognition/models.py"
+      ]
+    },
+    {
+      "application_area": "Portal Recognition",
+      "children": [],
+      "classification": "immutable_event",
+      "column_count": 6,
+      "cross_domain_parents": [],
+      "direct_orm_writers": [
+        "core/services/group_reset.py",
+        "core/services/portal_recognition.py"
+      ],
+      "django_model": "portal_recognition.PortalRecognitionPeriodSnapshot",
+      "domain": "portal_recognition",
+      "explicit_indexes": [],
+      "lifecycle": "active",
+      "parents": [],
+      "purpose": "Frozen attributed Portal performance facts for one group and settled calendar period.",
+      "retention": "Retain until a configuration-scoped Portal reset; no customer names or media.",
+      "source_of_truth": true,
+      "table": "portal_recognition_period_snapshot",
+      "used_by": [
+        "core/services/database_catalog.py",
+        "core/services/group_reset.py",
+        "core/services/portal_recognition.py",
+        "portal_recognition/migrations/0001_initial.py",
+        "portal_recognition/models.py"
       ]
     },
     {

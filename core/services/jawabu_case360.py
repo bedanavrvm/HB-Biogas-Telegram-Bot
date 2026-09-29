@@ -421,10 +421,15 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
     }
     for event in hb_events:
         action = hb_milestones[event.event_type]
+        values = event.new_values or {}
+        if action == 'installation_completed' and values.get('installation_status') != 'installed':
+            continue
+        if action == 'commissioning_completed' and values.get('commissioning_status') != 'commissioned':
+            continue
         milestone_events[action] = SimpleNamespace(
             occurred_at=event.created_at,
-            new_values=event.new_values or {},
-            metadata={},
+            new_values=values,
+            metadata={'tat_target_snapshot': values.get('tat_target_snapshot')},
         )
     terminal_at = None
     for event in current_events:

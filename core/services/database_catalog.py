@@ -17,10 +17,10 @@ from django.db import connection
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CATALOGUE_APP_LABELS = ('core', 'requisitions', 'payments', 'credit_assessments', 'hb_operations', 'tat_recognition')
+CATALOGUE_APP_LABELS = ('core', 'requisitions', 'payments', 'credit_assessments', 'hb_operations', 'tat_recognition', 'portal_recognition')
 USAGE_ROOTS = (
     ROOT / 'core' / 'api', ROOT / 'core' / 'services', ROOT / 'core' / 'management',
-    ROOT / 'requisitions', ROOT / 'payments', ROOT / 'credit_assessments', ROOT / 'hb_operations', ROOT / 'tat_recognition',
+    ROOT / 'requisitions', ROOT / 'payments', ROOT / 'credit_assessments', ROOT / 'hb_operations', ROOT / 'tat_recognition', ROOT / 'portal_recognition',
 )
 
 DOMAIN_RULES = (
@@ -40,6 +40,19 @@ DOMAIN_RULES = (
 # New models must be explicitly declared here. Existing models are covered by
 # scripts/database_catalog_existing_models.json and deterministic inference.
 MODEL_OVERRIDES: dict[str, dict[str, Any]] = {
+    'portal_recognition.PortalRecognitionPeriodSnapshot': {
+        'domain': 'portal_recognition',
+        'purpose': 'Frozen attributed Portal performance facts for one group and settled calendar period.',
+        'classification': 'immutable_event', 'source_of_truth': True, 'lifecycle': 'active',
+        'retention': 'Retain until a configuration-scoped Portal reset; no customer names or media.',
+    },
+    'portal_recognition.PortalRecognitionLiveStanding': {
+        'domain': 'portal_recognition',
+        'purpose': 'Expiring, per-viewer live Portal rank baseline for one authorized standing.',
+        'classification': 'derived_cache', 'source_of_truth': False, 'lifecycle': 'active',
+        'retention': 'Delete expired rows in bounded on-demand batches after 45 days, or on owning group reset.',
+        'index_reasons': {'portal_live_expiry_idx': 'Find the oldest expired checkpoints for bounded on-demand cleanup.'},
+    },
     'tat_recognition.TatRecognitionPeriodSnapshot': {
         'domain': 'tat_recognition',
         'purpose': 'Frozen completed-stage facts for one TAT group and settled calendar period.',

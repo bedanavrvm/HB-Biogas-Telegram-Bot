@@ -2166,14 +2166,25 @@ def portal_performance(request):
     if access_error:
         return access_error
     from core.services.workflow_capabilities import effective_capability_keys
-    from core.services.workflow_recognition import portal_performance_payload
+    from core.services.portal_recognition import portal_recognition_payload
     user = getattr(request, 'portal_user', None)
     access = getattr(request, 'portal_access', None)
     capabilities = effective_capability_keys(user, 'jawabu_portal', access=access)
-    return JsonResponse({'ok': True, 'data': portal_performance_payload(
-        user, access=access, period=str(request.GET.get('period') or ''),
-        include_people='portal.performance.people.view' in capabilities,
-    )})
+    try:
+        data = portal_recognition_payload(
+            user, access=access, period=str(request.GET.get('period') or ''),
+            period_kind=str(request.GET.get('period_kind') or 'month'),
+            metric=str(request.GET.get('metric') or 'outcome'),
+            view=str(request.GET.get('view') or 'people'),
+            role=str(request.GET.get('role') or ''),
+            branch=str(request.GET.get('branch') or ''),
+            product=str(request.GET.get('product') or ''),
+            page=request.GET.get('page') or 1,
+            include_people='portal.performance.people.view' in capabilities,
+        )
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'message': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'data': data})
 
 
 # ── Meta / dropdown lists ─────────────────────────────────────────────────────

@@ -938,26 +938,8 @@
 
   async function loadPortalPerformance() {
     if (!isCurrentScreen('performance')) return;
-    const periodInput = el('portal-performance-period');
-    if (!periodInput.value) {
-      const today = new Date();
-      periodInput.value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-    }
-    const { ok, data } = await apiFetch('/performance/?period=' + encodeURIComponent(periodInput.value));
-    if (!ok || !data?.ok) throw new Error(data?.message || data?.error || 'Performance could not be loaded.');
-    const payload = data.data || {};
-    const asOf = payload.calculated_at ? ` Calculated ${fmtDateTime(payload.calculated_at)}.` : '';
-    el('portal-performance-formula').textContent = `${payload.formula || ''}. ${payload.cohort_basis || ''}. ${payload.revision_policy || ''}${asOf} Downstream outcomes remain visible but are not scored.`;
-    const personalRows = payload.personal_rows || (payload.personal ? [payload.personal] : []);
-    el('portal-personal-performance').hidden = !personalRows.length;
-    if (personalRows.length) el('portal-personal-performance').innerHTML = `<span>Your live provisional result</span>${portalPersonalPerformance(personalRows)}`;
-    el('portal-team-performance').innerHTML = (payload.team_rows || []).map(portalPerformanceRow).join('') || '<div class="empty-state"><div class="es-title">No visits recorded</div><div class="es-sub">Completed visits for this month will appear here.</div></div>';
-    el('portal-people-performance-section').hidden = !payload.people_visible;
-    el('portal-people-performance').innerHTML = (payload.people_rows || []).map(portalPerformanceRow).join('');
-    if (!periodInput.dataset.bound) {
-      periodInput.dataset.bound = 'true';
-      periodInput.addEventListener('change', () => loadPortalPerformance().catch(error => showToast(error.message, 'error')));
-    }
+    if (!window.PortalRecognitionUI) throw new Error('Performance screen is unavailable. Refresh and try again.');
+    return window.PortalRecognitionUI.load({ apiFetch, showToast });
   }
 
   function renderQueueFailure(listEl, qKey, page, message, requestId) {

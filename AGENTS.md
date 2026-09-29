@@ -69,6 +69,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **`initData`** | Telegram's signed payload proving a Mini App session belongs to a specific Telegram user; must be HMAC-verified server-side before trust. |
 | **Portal** | The aggregated staff-facing view across pipeline/workflow data, served by `core/api/portal_views.py`. |
 | **Portal report** | An IT-only, catalogue-constrained live report over canonical Portal cases. It is not a generic SQL/ORM builder and has no cross-workflow identity join. |
+| **Portal Performance standing** | A capability-scoped, role-comparable view of attributable accepted Portal work or completed stages with frozen TAT targets. The two measures are ranked separately; live rank movement is a temporary viewer checkpoint, while settled periods retain immutable group facts. |
 | **QA tracker** | A bounded, Unfold-native internal test registry and release checklist. Django retains scoped human Pass/Fail/Blocked executions and private Drive screenshot references; on-demand PDF reports compare releases without spreadsheet editing. |
 | **FarmUp monthly worklist** | The group-scoped, month-labelled Portal intake workspace whose immutable CSV versions are reconciled cumulatively. Committed unchanged rows are recognized, unselected rows remain held, and Google publication is tracked separately from canonical Django commits. |
 | **Official requisition order** | An Operations-finalized, immutable requisition workbook whose plain numeric order number is allocated transactionally from the IT-aligned, group-scoped Django sequence. Drive is publication only and does not define finality. |
@@ -128,6 +129,7 @@ Many root-level Markdown documents describe earlier versions of the project. The
 - `core/api/legacy_urls.py` — individually declared, logged root compatibility aliases
 - `requisitions/` — bounded order-number governance domain; owns the group-scoped official requisition sequence
 - `hb_operations/` — bounded post-order HomeBiogas installation/commissioning state and append-only audit history
+- `portal_recognition/` — settled Portal Performance facts and expiring live-rank checkpoints
 - `core/api/views.py` — Telegram webhook and several Mini App/API endpoints
 - `core/api/portal_views.py` — Jawabu pipeline portal endpoints
 - `core/models.py` — database models for all workflows
@@ -192,6 +194,7 @@ Key modules:
 - `workflow_escalations.py` — scoped read models for current in-app escalation context
 - `portal_workspace.py` — retained but currently IT-restricted Portal saved views, pins, recents, and their bounded retention
 - `portal_dashboard.py` — capability- and branch-scoped Portal action-dashboard queues, attention signals, activity, and recent cases
+- `portal_recognition.py` — separately scored accepted-work and target-backed TAT standings from attributed Portal milestones
 - `portal_maintenance.py` — IT-controlled Portal read-only maintenance state and audit evidence
 - `portal_reporting.py` — IT-only, catalogue-constrained live Portal reports, chart aggregates, XLSX exports, and reporting audit events
 - `loan_origination.py` — product-neutral origination schemas, revision-aware drafts, maker-checker review, append-only events, and local signing-package preparation

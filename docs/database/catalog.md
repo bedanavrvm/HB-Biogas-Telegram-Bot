@@ -193,6 +193,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 | platform | `payment_receipt_item` | `payments.PaymentReceiptItem` | processing_record | active | One parsed invoice and its payment disposition within a receipt batch. |
 | payments | `payment_sequence_event` | `payments.PaymentSequenceEvent` | immutable_event | active | Immutable evidence for every official payment-number allocation or adjustment. |
 | payments | `payment_sequence_state` | `payments.PaymentSequenceState` | configuration_state | active | Group-scoped source of truth for the next official payment number. |
+| portal_recognition | `portal_recognition_live_standing` | `portal_recognition.PortalRecognitionLiveStanding` | derived_cache | active | Expiring, per-viewer live Portal rank baseline for one authorized standing. |
+| portal_recognition | `portal_recognition_period_snapshot` | `portal_recognition.PortalRecognitionPeriodSnapshot` | immutable_event | active | Frozen attributed Portal performance facts for one group and settled calendar period. |
 | requisitions | `requisition_order_sequence_event` | `requisitions.OrderSequenceEvent` | immutable_event | active | Immutable customer-data-free evidence for each official sequence mutation. |
 | requisitions | `requisition_order_sequence_state` | `requisitions.OrderSequenceState` | configuration_state | active | Group-scoped source of truth for the next official requisition order number. |
 | tat_recognition | `tat_recognition_live_standing` | `tat_recognition.TatRecognitionLiveStanding` | derived_cache | active | Expiring, per-viewer live rank baseline for one authorized period and filter scope. |
@@ -264,7 +266,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`, `core.OperationalLocation`, `core.Product`
 - Direct ORM writers: `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `hb_operations/tests.py`
-- Used by: `core/api/portal_views.py`, `core/management/commands/check_portal_role_separation.py`, `core/services/access_control.py`, `core/services/access_control_reporting.py`, `core/services/access_grant_governance.py`, `core/services/access_policies.py`, `core/services/business_admin.py`, `core/services/fresh_database_baseline.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_comments.py`, `core/services/location_catalog.py`, `core/services/locations.py`, `core/services/portal_imports.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `core/services/staff_lifecycle.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_reporting.py`, `core/services/tat_responsibilities.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/telegram_identity.py`, `core/services/user_hard_delete.py`, `core/services/workflow_access.py`, `core/services/workflow_recognition.py`, `hb_operations/tests.py`
+- Used by: `core/api/portal_views.py`, `core/management/commands/check_portal_role_separation.py`, `core/services/access_control.py`, `core/services/access_control_reporting.py`, `core/services/access_grant_governance.py`, `core/services/access_policies.py`, `core/services/business_admin.py`, `core/services/fresh_database_baseline.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_comments.py`, `core/services/location_catalog.py`, `core/services/locations.py`, `core/services/portal_imports.py`, `core/services/portal_recognition.py`, `core/services/product_catalog.py`, `core/services/product_catalog_full_reset.py`, `core/services/product_deletion.py`, `core/services/staff_access_readiness.py`, `core/services/staff_lifecycle.py`, `core/services/tat_notifications.py`, `core/services/tat_production.py`, `core/services/tat_reporting.py`, `core/services/tat_responsibilities.py`, `core/services/tat_setup.py`, `core/services/tat_tracker.py`, `core/services/telegram_identity.py`, `core/services/user_hard_delete.py`, `core/services/workflow_access.py`, `core/services/workflow_recognition.py`, `hb_operations/tests.py`
 
 ### `core_branchservicearea`
 
@@ -737,7 +739,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: `core.InvoiceIdentityReview`, `core.InvoiceNameChangeItem`, `core.JawabuApprovalRecord`, `core.JawabuCaseComment`, `core.JawabuCustomerFieldProvenance`, `core.JawabuDataQualityIssue`, `core.JawabuHouseholdRelationship`, `core.JawabuMediaAccessEvent`, `core.JawabuPipelineEvent`, `core.MediaAttachment`, `core.ParsedInvoice`, `core.PortalCaseWorkspace`, `core.PortalVoiceTranscriptionAttempt`, `hb_operations.HomeBiogasAction`, `payments.PaymentBatchCase`, `payments.PaymentReceiptItem`
 - Cross-domain parents: `core.GroupSheetConfiguration`, `core.OperationalLocation`, `core.Product`, `core.ProductVersion`
 - Direct ORM writers: `core/api/portal_views.py`, `core/services/fca.py`, `core/services/invoice_parser.py`, `core/services/jawabu_master.py`, `core/services/portal_full_reset.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `payments/receipt_batches.py`, `payments/tests.py`
-- Used by: `core/api/portal_views.py`, `core/management/commands/backfill_jbl_schedule_status.py`, `core/management/commands/drain_portal_publications.py`, `core/management/commands/normalize_jawabu_dates.py`, `core/services/fca.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_case_reference.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_identity.py`, `core/services/jawabu_master.py`, `core/services/jawabu_media_access.py`, `core/services/jawabu_pipeline.py`, `core/services/jawabu_validation.py`, `core/services/location_catalog.py`, `core/services/payment_documents.py`, `core/services/portal_case_corrections.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/portal_publication.py`, `core/services/portal_reporting.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/requisition.py`, `core/services/sheet_publication.py`, `core/services/system_export.py`, `core/services/workflow_sla.py`, `core/services/workflow_timeline.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/services.py`, `payments/tests.py`
+- Used by: `core/api/portal_views.py`, `core/management/commands/backfill_jbl_schedule_status.py`, `core/management/commands/drain_portal_publications.py`, `core/management/commands/normalize_jawabu_dates.py`, `core/services/fca.py`, `core/services/fresh_database_baseline.py`, `core/services/group_reset.py`, `core/services/invoice_identity.py`, `core/services/invoice_parser.py`, `core/services/jawabu_approvals.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_case_reference.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_customer_quality.py`, `core/services/jawabu_data_quality.py`, `core/services/jawabu_identity.py`, `core/services/jawabu_master.py`, `core/services/jawabu_media_access.py`, `core/services/jawabu_pipeline.py`, `core/services/jawabu_validation.py`, `core/services/location_catalog.py`, `core/services/payment_documents.py`, `core/services/portal_case_corrections.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_imports.py`, `core/services/portal_publication.py`, `core/services/portal_recognition.py`, `core/services/portal_reporting.py`, `core/services/product_catalog.py`, `core/services/product_deletion.py`, `core/services/reporting_relationships.py`, `core/services/requisition.py`, `core/services/sheet_publication.py`, `core/services/system_export.py`, `core/services/workflow_sla.py`, `core/services/workflow_timeline.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`, `payments/models.py`, `payments/receipt_batches.py`, `payments/services.py`, `payments/tests.py`
 
 ### `core_jawabufarmeruploadbatch`
 
@@ -780,8 +782,8 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Parents: `auth.User`, `core.JawabuFarmerMaster`
 - Children: `core.JawabuCaseComment`
 - Cross-domain parents: `auth.User`
-- Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu_case360.py`, `core/services/portal_full_reset.py`
-- Used by: `core/api/portal_views.py`, `core/services/group_reset.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/workflow_recognition.py`, `core/services/workflow_timeline.py`
+- Direct ORM writers: `core/services/group_reset.py`, `core/services/jawabu_case360.py`, `core/services/portal_full_reset.py`, `core/services/portal_recognition.py`
+- Used by: `core/api/portal_views.py`, `core/services/group_reset.py`, `core/services/jawabu_case360.py`, `core/services/jawabu_comments.py`, `core/services/jawabu_pipeline.py`, `core/services/portal_dashboard.py`, `core/services/portal_full_reset.py`, `core/services/portal_recognition.py`, `core/services/workflow_recognition.py`, `core/services/workflow_timeline.py`
 
 ### `core_jawaburelatedperson`
 
@@ -2178,7 +2180,7 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Children: None
 - Cross-domain parents: `auth.User`
 - Direct ORM writers: `core/services/portal_full_reset.py`, `hb_operations/services.py`, `hb_operations/tests.py`
-- Used by: `core/services/database_catalog.py`, `core/services/jawabu_case360.py`, `core/services/portal_full_reset.py`, `core/services/workflow_timeline.py`, `hb_operations/admin.py`, `hb_operations/migrations/0001_initial.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`
+- Used by: `core/services/database_catalog.py`, `core/services/jawabu_case360.py`, `core/services/portal_full_reset.py`, `core/services/portal_recognition.py`, `core/services/workflow_timeline.py`, `hb_operations/admin.py`, `hb_operations/migrations/0001_initial.py`, `hb_operations/models.py`, `hb_operations/services.py`, `hb_operations/tests.py`
 
 ### `hb_operations_action_root`
 
@@ -2278,6 +2280,28 @@ Generated from the current Django model graph. PostgreSQL remains authoritative 
 - Cross-domain parents: `auth.User`, `core.GroupSheetConfiguration`
 - Direct ORM writers: `payments/services.py`
 - Used by: `core/api/portal_views.py`, `core/services/database_catalog.py`, `core/services/portal_full_reset.py`, `payments/migrations/0001_initial.py`, `payments/models.py`, `payments/services.py`, `payments/tests.py`
+
+### `portal_recognition_live_standing`
+
+- Application identity: `portal_recognition.PortalRecognitionLiveStanding` in **Portal Recognition**
+- Source of truth: **No**
+- Retention: Delete expired rows in bounded on-demand batches after 45 days, or on owning group reset.
+- Parents: `auth.User`
+- Children: None
+- Cross-domain parents: `auth.User`
+- Direct ORM writers: `core/services/group_reset.py`, `core/services/portal_recognition.py`
+- Used by: `core/services/database_catalog.py`, `core/services/group_reset.py`, `core/services/portal_recognition.py`, `portal_recognition/migrations/0001_initial.py`, `portal_recognition/models.py`
+
+### `portal_recognition_period_snapshot`
+
+- Application identity: `portal_recognition.PortalRecognitionPeriodSnapshot` in **Portal Recognition**
+- Source of truth: **Yes**
+- Retention: Retain until a configuration-scoped Portal reset; no customer names or media.
+- Parents: None
+- Children: None
+- Cross-domain parents: None
+- Direct ORM writers: `core/services/group_reset.py`, `core/services/portal_recognition.py`
+- Used by: `core/services/database_catalog.py`, `core/services/group_reset.py`, `core/services/portal_recognition.py`, `portal_recognition/migrations/0001_initial.py`, `portal_recognition/models.py`
 
 ### `requisition_order_sequence_event`
 

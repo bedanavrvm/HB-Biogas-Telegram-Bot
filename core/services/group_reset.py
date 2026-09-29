@@ -35,6 +35,7 @@ from core.models import (
     TatTrackerEvent,
 )
 from tat_recognition.models import TatRecognitionLiveStanding, TatRecognitionPeriodSnapshot
+from portal_recognition.models import PortalRecognitionLiveStanding, PortalRecognitionPeriodSnapshot
 
 
 DEFAULT_SPIN_LEGACY_BATCH_SHEET_NAME = 'SPIN Legacy Batch'
@@ -108,6 +109,8 @@ def group_data_counts(
 
     if workflow_type in {'jawabu', 'jawabu_homebiogas'}:
         return {
+            'portal_recognition_snapshots': PortalRecognitionPeriodSnapshot.objects.filter(group_configuration_id=configuration.pk).count(),
+            'portal_recognition_live_standings': len(_portal_standing_ids(configuration.pk)),
             'jawabu_records': JawabuVisitRecord.objects.filter(group_id=group_id).count(),
             'farmer_upload_batches': JawabuFarmerUploadBatch.objects.filter(group_id=group_id).count(),
             'linked_farmer_master_records': _linked_farmer_master_queryset(group_id).count(),
@@ -174,6 +177,8 @@ def reset_group_data(
         OrderApprovalUpdate.objects.filter(group_id=group_id).delete()
         LiveSheetRecordChange.objects.filter(group_id=group_id).delete()
     elif workflow_type in {'jawabu', 'jawabu_homebiogas'}:
+        PortalRecognitionPeriodSnapshot.objects.filter(group_configuration_id=configuration.pk).delete()
+        PortalRecognitionLiveStanding.objects.filter(pk__in=_portal_standing_ids(configuration.pk)).delete()
         _delete_unaudited_media(group_id)
         JawabuVisitRecord.objects.filter(group_id=group_id).delete()
         FcaImportRecord.objects.filter(group_id=group_id).delete()
@@ -210,6 +215,14 @@ def reset_group_data(
         'retained_audited_media': _audited_media_queryset(group_id).count()
         if workflow_type in {'order_approval', 'jawabu', 'jawabu_homebiogas'} else 0,
     }
+
+
+def _portal_standing_ids(configuration_id):
+    """JSON membership is evaluated portably for both PostgreSQL and SQLite tests."""
+    target = str(configuration_id)
+    return [pk for pk, group_ids in PortalRecognitionLiveStanding.objects.values_list(
+        'pk', 'group_configuration_ids',
+    ) if target in {str(value) for value in (group_ids or [])}]
 
 
 def _audited_media_queryset(group_id: str):

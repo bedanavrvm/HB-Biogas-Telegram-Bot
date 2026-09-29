@@ -22,6 +22,7 @@ from core.services.workflow_recognition import (
     portal_performance_payload,
     tat_recognition_payload,
 )
+from core.services.portal_recognition import _aggregate as portal_aggregate, portal_recognition_payload
 
 
 class TatRecognitionMovementTests(TestCase):
@@ -207,6 +208,106 @@ class PortalRecognitionProjectionTests(TestCase):
         self.assertEqual(august['team_rows'][0]['credit_ready'], 1)
         self.assertEqual(september['team_rows'], [])
         self.assertEqual(august['result_status'], 'live_provisional')
+
+
+class PortalPerformanceRedesignTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username='portal-performance-owner', is_active=True, is_superuser=True,
+        )
+
+    def fact(self, index, *, person_id=None, branch='Embu', tat_state='', accepted=True):
+        return {
+            'case_id': str(index), 'person_id': str(person_id or self.user.pk),
+            'person': 'Portal Officer', 'role': 'JBL_OFFICER', 'stage': 'jbl_visit_completed',
+            'stage_label': 'JBL visit', 'branch': branch, 'product': 'HB',
+            'accepted': accepted, 'tat_state': tat_state,
+        }
+
+    def test_one_person_across_branches_and_missing_targets_excluded_from_tat(self):
+        facts = [self.fact(index, branch='Embu' if index % 2 else 'Nakuru',
+                           tat_state='within' if index <= 10 else '') for index in range(1, 21)]
+        outcome = portal_aggregate(facts, metric='outcome', key_name='person')
+        tat = portal_aggregate(facts, metric='tat', key_name='person')
+        self.assertEqual(len(outcome), 1)
+        self.assertEqual(outcome[0]['rank'], 1)
+        self.assertEqual(outcome[0]['completed'], 20)
+        self.assertEqual(tat[0]['completed'], 10)
+        self.assertIsNone(tat[0]['rank'])
+
+    def test_rework_does_not_penalize_valid_rejection_and_tat_is_separate(self):
+        facts = [self.fact(index, accepted=index != 20, tat_state='over' if index > 10 else 'near')
+                 for index in range(1, 21)]
+        outcome = portal_aggregate(facts, metric='outcome', key_name='person')[0]
+        tat = portal_aggregate(facts, metric='tat', key_name='person')[0]
+        self.assertEqual((outcome['accepted'], outcome['reworked']), (19, 1))
+        self.assertEqual((tat['near'], tat['over']), (10, 10))
+        self.assertNotEqual(outcome['score'], tat['score'])
+
+    def test_empty_period_returns_two_personal_results_and_no_named_rows_when_restricted(self):
+        result = portal_recognition_payload(self.user, period='2026-09', include_people=False)
+        self.assertEqual(result['view'], 'branches')
+        self.assertEqual(result['personal'], {'outcome': None, 'tat': None})
+        self.assertEqual(result['rows'], [])
+        self.assertEqual(result['pages'], 1)
+
+    def test_audited_visit_is_counted_once_without_inventing_a_tat_target(self):
+        farmer = JawabuFarmerMaster.objects.create(customer_name='Portal result', branch='Embu')
+        for day in (4, 5):
+            JawabuPipelineEvent.objects.create(
+                farmer=farmer, action='jbl_visit_completed', stage_key='jbl_visit',
+                actor='Portal Officer', actor_user=self.user,
+                occurred_at=timezone.make_aware(datetime(2026, 9, day, 10)),
+                new_values={'status': 'Rejected by JBL'},
+            )
+        result = portal_recognition_payload(self.user, period='2026-09', include_people=True)
+        self.assertEqual(result['personal']['outcome']['completed'], 1)
+        self.assertEqual(result['personal']['outcome']['accepted'], 1)
+        self.assertIsNone(result['personal']['tat'])
+        self.assertEqual(result['personal_missing_target'], 1)
+        JawabuPipelineEvent.objects.create(
+            farmer=farmer, action='returned_for_rework', stage_key='jbl_visit',
+            actor='Reviewer', actor_user=self.user,
+            occurred_at=timezone.make_aware(datetime(2026, 9, 6, 10)),
+        )
+        corrected = portal_recognition_payload(self.user, period='2026-09', include_people=True)
+        self.assertEqual(corrected['personal']['outcome']['reworked'], 1)
+
+    def test_settled_snapshot_does_not_rewrite_after_later_rework(self):
+        from portal_recognition.models import PortalRecognitionPeriodSnapshot
+        farmer = JawabuFarmerMaster.objects.create(customer_name='Settled result', branch='Embu')
+        JawabuPipelineEvent.objects.create(
+            farmer=farmer, action='jbl_visit_completed', stage_key='jbl_visit',
+            actor='Portal Officer', actor_user=self.user,
+            occurred_at=timezone.make_aware(datetime(2020, 8, 5, 10)),
+        )
+        first = portal_recognition_payload(self.user, period='2020-08', include_people=True)
+        self.assertTrue(first['final'])
+        self.assertEqual(first['personal']['outcome']['accepted'], 1)
+        self.assertEqual(PortalRecognitionPeriodSnapshot.objects.count(), 1)
+        JawabuPipelineEvent.objects.create(
+            farmer=farmer, action='returned_for_rework', stage_key='jbl_visit',
+            actor='Reviewer', actor_user=self.user,
+            occurred_at=timezone.make_aware(datetime(2020, 8, 7, 10)),
+        )
+        second = portal_recognition_payload(self.user, period='2020-08', include_people=True)
+        self.assertEqual(second['personal']['outcome']['accepted'], 1)
+        self.assertEqual(second['captured_at'], first['captured_at'])
+
+    def test_portal_performance_grant_does_not_borrow_another_branch(self):
+        viewer = get_user_model().objects.create_user(username='embu-performance-viewer', is_active=True)
+        AccessGrant.objects.create(user=viewer, workflow='jawabu_portal', role='BUSINESS_ADMIN',
+                                   branch='EMBU', active=True)
+        for branch in ('EMBU', 'NAKURU'):
+            farmer = JawabuFarmerMaster.objects.create(customer_name=f'{branch} case', branch=branch)
+            JawabuPipelineEvent.objects.create(
+                farmer=farmer, action='jbl_visit_completed', stage_key='jbl_visit',
+                actor='Viewer', actor_user=viewer,
+                occurred_at=timezone.make_aware(datetime(2026, 9, 6, 10)),
+            )
+        result = portal_recognition_payload(viewer, period='2026-09', include_people=True)
+        self.assertEqual(result['personal']['outcome']['completed'], 1)
+        self.assertEqual(result['filter_options']['branches'], ['EMBU'])
 
 
 class TatRecognitionPresentationTests(TestCase):
