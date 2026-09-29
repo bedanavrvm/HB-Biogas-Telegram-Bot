@@ -15,7 +15,7 @@ from django.contrib.auth.admin import GroupAdmin as DjangoGroupAdmin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.models import Group
 from django.conf import settings
-from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.template.response import TemplateResponse
 from django.core import signing
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -7178,26 +7178,90 @@ class RequisitionTemplateAdmin(ModelAdmin):
     compressed_fields = True
     list_filter_submit = True
     list_fullwidth = True
-    list_display = ('name', 'fulfillment_partner', 'version_status', 'is_active', 'file', 'drive_url', 'drive_uploaded_at', 'created_at', 'updated_at')
+    list_display = ('name', 'fulfillment_partner', 'version_status', 'is_active', 'template_download', 'drive_url', 'drive_uploaded_at', 'created_at', 'updated_at')
     list_editable = ('is_active',)
     readonly_fields = (
         'original_filename', 'content_type', 'size', 'checksum',
         'drive_file_id', 'drive_url', 'drive_uploaded_at', 'drive_upload_error',
-        'created_at', 'updated_at',
+        'template_download', 'created_at', 'updated_at',
     )
 
     search_fields = ('name', 'original_filename', 'drive_file_id', 'drive_url')
     list_filter = ('fulfillment_partner', 'is_active')
 
+    def get_urls(self):
+        custom_urls = [
+            path(
+                '<path:object_id>/download-template/',
+                self.admin_site.admin_view(self.download_template_view),
+                name='core_requisitiontemplate_download',
+            ),
+        ]
+        return custom_urls + super().get_urls()
+
     @admin.display(description='Version')
     def version_status(self, obj):
         return 'CURRENT / USED' if obj.is_active else 'Archived'
 
+    @admin.display(description='Uploaded template')
+    def template_download(self, obj):
+        if not obj or not (obj.file or obj.drive_file_id):
+            return 'No file uploaded'
+        url = reverse('admin:core_requisitiontemplate_download', args=[obj.pk])
+        return format_html('<a href="{}">Download template</a>', url)
+
+    def download_template_view(self, request, object_id):
+        obj = self.get_object(request, object_id)
+        if obj is None:
+            raise Http404('Requisition template not found.')
+        if not self.has_view_or_change_permission(request, obj):
+            raise PermissionDenied
+
+        try:
+            from core.services.template_storage import workbook_source_from_template
+
+            source = workbook_source_from_template(obj)
+            filename = (
+                obj.original_filename
+                or str(getattr(obj.file, 'name', '') or '').rsplit('/', 1)[-1]
+                or 'requisition-template.xlsx'
+            )
+            if hasattr(source, 'read'):
+                content = source
+            else:
+                content = open(source, 'rb')
+            return FileResponse(
+                content,
+                as_attachment=True,
+                filename=filename,
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            )
+        except Exception:
+            logger.exception('Requisition template download failed: template_id=%s', obj.pk)
+            messages.error(request, 'The current template file could not be downloaded. Check its upload and Drive status.')
+            return HttpResponseRedirect(reverse('admin:core_requisitiontemplate_change', args=[obj.pk]))
+
     def save_model(self, request, obj, form, change):
+        replacement = form.cleaned_data.get('file') if 'file' in form.changed_data else None
+        replacement_bytes = None
+        replacement_name = ''
+        if replacement:
+            replacement_name = getattr(replacement, 'name', '')
+            try:
+                replacement.seek(0)
+                replacement_bytes = replacement.read()
+                replacement.seek(0)
+            except (AttributeError, OSError):
+                replacement_bytes = None
         super().save_model(request, obj, form, change)
-        if 'file' in form.changed_data or not obj.drive_file_id:
+        if replacement or not obj.drive_file_id:
             from core.services.template_storage import upload_template_record_to_drive
-            upload_template_record_to_drive(obj, category='Requisition')
+            upload_template_record_to_drive(
+                obj,
+                category='Requisition',
+                data=replacement_bytes,
+                filename=replacement_name,
+            )
 
 
 @admin.register(PaymentDocumentTemplate)

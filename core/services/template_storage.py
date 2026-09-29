@@ -175,10 +175,24 @@ def _read_template_file(template: Any) -> tuple[bytes, str]:
 
 def upload_template_record_to_drive(
     template: Any, *, category: str, mime_type: str = WORKBOOK_MIME_TYPE,
+    data: bytes | None = None, filename: str = '',
 ) -> tuple[bool, str]:
-    """Upload the admin FileField contents to Drive and persist metadata on the model."""
+    """Upload the current admin FileField contents and persist Drive metadata.
+
+    Admin replacement uploads pass their in-memory bytes explicitly so a
+    storage-generated filename or stale FieldFile path cannot select the
+    previous template revision.
+    """
     try:
-        data, filename = _read_template_file(template)
+        if data is None:
+            data, filename = _read_template_file(template)
+        else:
+            data = bytes(data)
+            filename = Path(str(filename or '')).name or Path(
+                str(getattr(getattr(template, 'file', None), 'name', '') or '')
+            ).name
+            if not filename:
+                raise TemplateStorageError('The replacement template has no filename.')
         checksum = hashlib.sha256(data).hexdigest()
         file_id, url = GoogleDriveTemplateStorage().upload_template(
             data,

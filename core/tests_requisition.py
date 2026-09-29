@@ -1,10 +1,13 @@
 from datetime import date
 import io
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.contrib import admin
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import RequestFactory, TestCase, override_settings
 from openpyxl import Workbook, load_workbook
 from openpyxl.drawing.image import Image as XlsxImage
 from PIL import Image as PilImage
@@ -23,6 +26,43 @@ class RequisitionTemplateGenerationTests(TestCase):
         latest.refresh_from_db()
         self.assertFalse(first.is_active)
         self.assertTrue(latest.is_active)
+
+    def test_admin_download_uses_current_template_source(self):
+        from core.admin import RequisitionTemplateAdmin
+
+        template = RequisitionTemplate.objects.create(name='Download test')
+        request = RequestFactory().get('/')
+        request.user = SimpleNamespace(is_active=True, is_staff=True, is_superuser=True)
+        model_admin = RequisitionTemplateAdmin(RequisitionTemplate, admin.site)
+        expected = b'current requisition workbook bytes'
+
+        with patch.object(model_admin, 'has_view_or_change_permission', return_value=True), patch(
+            'core.services.template_storage.workbook_source_from_template',
+            return_value=io.BytesIO(expected),
+        ):
+            response = model_admin.download_template_view(request, str(template.pk))
+
+        self.assertEqual(b''.join(response.streaming_content), expected)
+        self.assertEqual(response['Content-Disposition'], 'attachment; filename="requisition-template.xlsx"')
+
+    def test_admin_replacement_upload_sends_new_bytes_to_drive_sync(self):
+        from core.admin import RequisitionTemplateAdmin
+
+        template = RequisitionTemplate.objects.create(name='Replacement test')
+        replacement_bytes = b'new workbook content'
+        upload = SimpleUploadedFile('revised-template.xlsx', replacement_bytes)
+        form = SimpleNamespace(changed_data=['file'], cleaned_data={'file': upload})
+        request = RequestFactory().post('/')
+        request.user = SimpleNamespace(is_active=True, is_staff=True, is_superuser=True)
+        model_admin = RequisitionTemplateAdmin(RequisitionTemplate, admin.site)
+
+        with TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            with patch('core.services.template_storage.upload_template_record_to_drive') as drive_upload:
+                model_admin.save_model(request, template, form, change=True)
+
+        drive_upload.assert_called_once()
+        self.assertEqual(drive_upload.call_args.kwargs['data'], replacement_bytes)
+        self.assertEqual(drive_upload.call_args.kwargs['filename'], 'revised-template.xlsx')
 
     def farmer(self, **overrides):
         data = {
